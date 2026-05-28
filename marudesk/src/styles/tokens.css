@@ -1,0 +1,72 @@
+/* marudesk design tokens — Linear-based, dark-first.
+ * Source of truth: handoff §4.3.
+ * Components must consume these via CSS variables or Tailwind theme aliases.
+ * Never hard-code hex values in component code.
+ */
+
+:root {
+  /* Surface — dark first */
+  --surface-page: #08090A;        /* page background, deepest */
+  --surface-1:    #1A1B1F;        /* panel, drawer */
+  --surface-2:    #23252B;        /* card (elevated) */
+  --surface-3:    #2D2F36;        /* input, hover */
+
+  /* Text */
+  --text-primary:   #F7F8F8;
+  --text-secondary: #8A8F98;
+  --text-tertiary:  #62666D;
+  --text-disabled:  #4A4D54;
+
+  /* Border */
+  --border-subtle:  rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+
+  /* Accent — Linear violet, single accent */
+  --accent:         #5E6AD2;
+  --accent-hover:   #7176E0;
+  --accent-subtle:  rgba(94, 106, 210, 0.12);
+
+  /* Semantic */
+  --success:        #4CB782;
+  --warning:        #F2C94C;
+  --error:          #EB5757;
+  --success-subtle: rgba(76, 183, 130, 0.12);
+  --warning-subtle: rgba(242, 201, 76, 0.12);
+  --error-subtle:   rgba(235, 87, 87, 0.12);
+
+  /* Diff backgrounds */
+  --diff-add-bg:    rgba(76, 183, 130, 0.10);
+  --diff-remove-bg: rgba(235, 87, 87, 0.10);
+
+  /* AI Timeline (from Cursor's 4-color system, alpha-adjusted for dark surface) */
+  --ai-thinking: rgba(223, 168, 143, 0.72); /* peach */
+  --ai-grep:     rgba(159, 201, 162, 0.72); /* sage  */
+  --ai-read:     rgba(159, 187, 224, 0.72); /* blue  */
+  --ai-edit:     rgba(192, 168, 221, 0.72); /* lavender */
+
+  /* Typography */
+  --font-display: 'Inter Display', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body:    'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Radius */
+  --radius-sm:   4px;
+  --radius:      6px;
+  --radius-lg:   10px;
+  --radius-pill: 9999px;
+
+  /* Motion */
+  --motion-instant:  0ms;
+  --motion-fast:     120ms;
+  --motion-standard: 200ms;
+  --easing:          cubic-bezier(0.2, 0, 0, 1);
+
+  /* Spacing (8px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+}

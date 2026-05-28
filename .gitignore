@@ -1,0 +1,9 @@
+# Tooling state
+.omc/
+.omx/
+.sisyphus/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

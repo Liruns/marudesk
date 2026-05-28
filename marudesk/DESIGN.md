@@ -1,0 +1,282 @@
+---
+id: marudesk
+name: marudesk
+category: developer-tools
+homepage: ""
+primary_color: "#5E6AD2"
+omd: "0.1"
+ds:
+  name: marudesk Design System
+  type: brand
+  description: Dark-first design system for a browser-native AI IDE. Linear primary, Raycast/Warp secondary, with Cursor AI Timeline 4-color accent.
+---
+
+# marudesk Design System
+
+> Single source of truth: `src/styles/tokens.css`. **Never hard-code colors, radii, or fonts in components.** Reference CSS variables or Tailwind aliases that map to them.
+
+## 1. Visual Theme & Atmosphere
+
+marudesk is a tool you live inside for 8 hours a day. The atmosphere is **dark-first, precise, and unhurried**, in the lineage of Linear and Raycast. The page canvas (`#08090A`) is intentionally deeper than the surrounding panel surfaces (`#1A1B1F`, `#23252B`) — light pools up out of the page, not down onto it. There is no warm cream, no print metaphor, no decorative gradient. The screen is calm so the user's work (their browser, their code, their AI conversation) can carry the visual weight.
+
+Typography is Inter for UI and JetBrains Mono for code. Inter Display takes over only at hero sizes. Numerals are always tabular — `3 files`, `12ms`, `line 47` should never re-flow as values change. The single brand accent is Linear violet (`#5E6AD2`); everything else is neutral. Crimson appears only as the error state, never as default chrome.
+
+The product has three foreground voices it must keep separate:
+- **The user's browser stage** (the website being inspected) — chrome stays minimal so we don't visually fight a Stripe page or a Notion page.
+- **marudesk's own UI** — a quiet dark frame around the stage.
+- **AI activity** — surfaced through the 4-color AI Timeline (`thinking/grep/read/edit`), the only place where chromatic color enters the interface.
+
+**Key characteristics**
+
+- Surface scale of four steps from `#08090A` (page) to `#2D2F36` (input/hover). No surface change exceeds one step in a single layout.
+- 6px is the default border radius. 4px for small elements, 10px for large, full-pill (9999px) only for status badges and tags.
+- Borders are white at 6 / 10 / 16% alpha — they read as hairlines, not as enclosing shapes.
+- Motion is fast and short. 120ms for hover, 200ms for panels. Easing is a single cubic-bezier(0.2, 0, 0, 1).
+- No emojis. No decorative iconography. No exclamation marks in product copy.
+
+## 2. Color Palette & Roles
+
+### Surface
+| Token | Value | Use |
+|---|---|---|
+| `--surface-page` | `#08090A` | Page background, deepest. The default canvas. |
+| `--surface-1` | `#1A1B1F` | Panels, drawers — one step lifted from page. |
+| `--surface-2` | `#23252B` | Cards, elevated containers. |
+| `--surface-3` | `#2D2F36` | Inputs, hover states, code blocks. |
+
+### Text
+| Token | Value | Use |
+|---|---|---|
+| `--text-primary` | `#F7F8F8` | Body, headings, anything the user reads first. |
+| `--text-secondary` | `#8A8F98` | Descriptions, metadata, secondary labels. |
+| `--text-tertiary` | `#62666D` | Placeholders, helper text, low-emphasis. |
+| `--text-disabled` | `#4A4D54` | Disabled controls only. |
+
+### Border
+| Token | Value | Use |
+|---|---|---|
+| `--border-subtle` | `rgba(255,255,255,0.06)` | Section dividers, card outlines. |
+| `--border-default` | `rgba(255,255,255,0.10)` | Inputs, buttons, default container edge. |
+| `--border-strong` | `rgba(255,255,255,0.16)` | Active/focused borders, emphasized rules. |
+
+### Accent — single voice
+| Token | Value | Use |
+|---|---|---|
+| `--accent` | `#5E6AD2` | Primary CTA, active states, brand moments. |
+| `--accent-hover` | `#7176E0` | CTA hover. |
+| `--accent-subtle` | `rgba(94,106,210,0.12)` | Accent fill for badges, selection. |
+
+There is exactly one accent. Do not introduce a second hue for "secondary brand."
+
+### Semantic
+| Token | Value | Use |
+|---|---|---|
+| `--success` | `#4CB782` | Patch applied, save confirmation, healthy status. |
+| `--warning` | `#F2C94C` | Low-confidence match, non-blocking caution. |
+| `--error` | `#EB5757` | Validation failure, model error, destructive confirm. |
+
+### AI Timeline — chromatic only here
+The 4-color accent system, alpha-adjusted (0.72) for dark surfaces. Each color maps to a specific AI operation type.
+
+| Token | Value | Operation |
+|---|---|---|
+| `--ai-thinking` | `rgba(223,168,143,0.72)` (peach) | Model is composing |
+| `--ai-grep` | `rgba(159,201,162,0.72)` (sage) | Search/grep over workspace |
+| `--ai-read` | `rgba(159,187,224,0.72)` (blue) | Reading source files |
+| `--ai-edit` | `rgba(192,168,221,0.72)` (lavender) | Generating/applying edits |
+
+These four are **never** used as ordinary UI color. They appear in the AI Timeline visualization and the model-state Spinner. Promoting any of them to default chrome breaks the visual contract.
+
+## 3. Typography Rules
+
+### Font family
+| Role | Family | Fallbacks |
+|---|---|---|
+| Display | `Inter Display` | `Inter`, `system-ui`, `-apple-system`, `Segoe UI`, sans-serif |
+| Body / UI | `Inter` | `system-ui`, `-apple-system`, `Segoe UI`, sans-serif |
+| Mono / Code | `JetBrains Mono` | `ui-monospace`, `SF Mono`, Menlo, Consolas, monospace |
+
+Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono` packages when shipping for offline-first behavior (CSP does not permit Google Fonts). Until embedded, system fallbacks render acceptably.
+
+### Hierarchy
+
+| Role | Size | Weight | Line height | Tracking |
+|---|---|---|---|---|
+| Hero | 40px | 600 | 1.12 | -0.5px |
+| Section heading | 24px | 600 | 1.20 | -0.2px |
+| Title | 18px | 600 | 1.30 | -0.1px |
+| Body | 14px | 400 | 1.55 | 0 |
+| Body small | 13px | 400 | 1.45 | 0 |
+| Caption | 12px | 500 | 1.40 | 0.1px |
+| Mono body | 13px | 400 | 1.55 | 0 |
+| Mono small | 12px | 400 | 1.45 | 0 |
+
+### Principles
+- **Numerals are tabular.** All numeric content uses `font-variant-numeric: tabular-nums` via the `.tabular` class or by default. This is non-negotiable for status displays (`12ms`, `3 files`, line numbers).
+- **Weight does most of the work.** 400 / 500 / 600 are the only weights you should reach for. Skip 700 unless rendering a brand mark.
+- **Tracking tightens with size, never loosens.** Hero 40px gets -0.5px. Body 14px gets 0. Caption 12px gets +0.1px.
+- **No italics in UI.** Italics survive in code only (e.g. JSDoc comments, syntax highlight).
+
+## 4. Component Stylings
+
+### Button
+- Radius: 6px (`--radius`)
+- Padding: 6px 12px (compact), 8px 14px (default), 10px 16px (comfortable)
+- Font: 13–14px Inter, weight 500
+- Primary: `bg-accent` + `text-white`, hover `bg-accent-hover`
+- Secondary: `bg-surface-2` + `text-fg-primary`, 1px `border-default`, hover `bg-surface-3`
+- Ghost: transparent + `text-fg-secondary`, hover `text-fg-primary` + subtle `bg-surface-2`
+- Focus: 2px outline using `--accent`, 2px offset
+- Disabled: 0.5 opacity, no hover, `cursor-not-allowed`
+
+### Surface
+- Generic panel/container wrapper
+- Background: `--surface-1` default; `--surface-2` for elevated variant
+- Border: 1px `--border-subtle` default; `--border-default` for emphasis
+- Radius: 6px default; 10px for large featured surfaces
+
+### Drawer
+- Right or bottom anchored
+- Background: `--surface-1`
+- Width: 380px (right drawer default); 60vh max (bottom drawer)
+- Border: 1px `--border-subtle` on the side facing the stage
+- Motion: 200ms `cubic-bezier(0.2, 0, 0, 1)` for both open and close
+- Backdrop: none (drawers coexist with the stage, never veil it)
+
+### DiffBlock
+- File path header: 13px Inter mono row, `--text-secondary`, `--surface-2` background, `--border-subtle` bottom edge
+- Body: 13px JetBrains Mono
+- Add lines: `rgba(76,183,130,0.10)` background, `--success` left-bar 2px
+- Remove lines: `rgba(235,87,87,0.10)` background, `--error` left-bar 2px
+- Context lines: no background
+- Line numbers: `--text-tertiary`, mono, right-aligned in 40px gutter
+
+### Spinner (model state)
+- 16px square, four arcs rotating
+- Each arc colored from one of `--ai-thinking / --ai-grep / --ai-read / --ai-edit`
+- Cycle: 1.2s linear rotation
+- When idle, hidden — never a placeholder shimmer
+
+### Badge
+- Full-pill (9999px) radius
+- Padding: 2px 8px
+- Font: 11–12px Inter, weight 500
+- Variants:
+  - `neutral`: `--surface-3` bg, `--text-secondary` text
+  - `accent`: `--accent-subtle` bg, `--accent` text
+  - `success`: `rgba(76,183,130,0.12)` bg, `--success` text
+  - `warning`: `rgba(242,201,76,0.12)` bg, `--warning` text
+  - `error`: `rgba(235,87,87,0.12)` bg, `--error` text
+
+### Toast
+- Bottom-right anchored, 16px from edges, 8px between stacked toasts
+- Background: `--surface-2`
+- Border: 1px `--border-default`
+- Radius: 6px
+- Padding: 12px 14px
+- Width: min(360px, 90vw)
+- Enter: 200ms translate-y + opacity; Exit: 120ms opacity
+- Auto-dismiss: 4500ms default (10000ms for error), pause on hover
+- Title 13px weight 500, body 12px weight 400 `--text-secondary`
+
+## 5. Layout Principles
+
+### Spacing
+- Base unit: 8px
+- Scale: 4, 8, 12, 16, 24, 32, 48 (px). Map directly to Tailwind's default 1/2/3/4/6/8/12.
+- Sub-8px spacing (2, 3, 5, 6) only for icon-text alignment, never for layout.
+
+### Grid
+- The browser stage is the dominant zone. It occupies all remaining horizontal space when the right drawer is collapsed.
+- Right drawer: 380px when open. Toggle is sticky on the drawer's outer edge.
+- Top bar: 40px tall. Bottom status (optional): 28px tall.
+- No fixed max width — marudesk fills the application window.
+
+### Whitespace
+- Dark backgrounds make negative space feel quiet, not empty. Use generous gaps (24–32px between major sections, 16px between cards) without fear of looking sparse.
+- Avoid section dividers (`<hr>`). Use background tone shift (`--surface-1` → `--surface-2`) for separation.
+
+## 6. Depth & Elevation
+
+| Level | Treatment | Use |
+|---|---|---|
+| Flat | No shadow, no border | Body text, inline content |
+| Hairline (L1) | 1px `--border-subtle` | Default container outline |
+| Hairline strong (L1b) | 1px `--border-default` | Inputs, buttons |
+| Soft glow (L2) | `0 0 0 1px var(--border-default), 0 8px 24px rgba(0,0,0,0.32)` | Drawer leading edge, popover |
+| Lifted (L3) | `0 0 0 1px var(--border-default), 0 24px 56px rgba(0,0,0,0.48)` | Modal, command palette, picker |
+| Focus ring | `0 0 0 2px var(--surface-page), 0 0 0 4px var(--accent)` | Keyboard focus on interactive elements |
+
+**Philosophy.** Elevation on dark surfaces comes from borders first, shadows second. A diffuse, large-radius shadow (24px+) reads as light bending around a panel; a tight tight shadow reads as a sticker pasted onto the screen. Avoid the latter.
+
+## 7. Do's and Don'ts
+
+- **DO** consume CSS variables (`var(--surface-1)`) or Tailwind aliases (`bg-surface-1`) in every component.
+- **DON'T** write `bg-[#1A1B1F]` or any literal hex inside JSX. The token layer must remain the only place colors live.
+- **DO** keep the AI Timeline 4 colors restricted to AI-state surfaces (Spinner, Timeline, model badges).
+- **DON'T** repurpose `--ai-thinking` as a generic warm accent. The semantic mapping is the contract.
+- **DO** prefer borders over shadows for elevation cues on dark surfaces.
+- **DON'T** stack two filled surfaces of the same tone. If two containers need to touch, one must be one step lighter than the other.
+- **DO** use tabular numerals for every numeric display.
+- **DON'T** use exclamation marks in product copy. "Patch applied to 3 files." not "Patch applied!"
+- **DO** keep loading states quiet. Spinner only — no shimmer skeletons, no bouncing dots.
+- **DON'T** introduce a second accent hue under any framing ("just for this CTA", "secondary brand"). One accent.
+
+## 8. Responsive Behavior
+
+marudesk is a desktop application; the responsive surface is narrow.
+
+| Width | Behavior |
+|---|---|
+| <1024px | Below minimum window size; not supported. |
+| 1024–1279px | Drawer collapses on toggle; stage takes full width when collapsed. |
+| ≥1280px | Drawer is open by default; stage and drawer coexist. |
+
+The renderer is sized by Electron; we do not target browser-tab embedding.
+
+## 9. Motion & Easing
+
+| Token | Value | Use |
+|---|---|---|
+| `--motion-instant` | 0ms | Cursor commits, focus state changes |
+| `--motion-fast` | 120ms | Hover color/opacity transitions |
+| `--motion-standard` | 200ms | Panel slides, drawer open/close, modal enter |
+| `--easing` | `cubic-bezier(0.2, 0, 0, 1)` | Default for every transition |
+
+`prefers-reduced-motion: reduce` disables slide transitions and Spinner rotation (Spinner becomes a static dot).
+
+## 10. Voice & Tone
+
+**Precise, unhurried, builder-to-builder.** marudesk talks like a senior teammate writing a Slack DM, not like a marketing site.
+
+| Context | Tone |
+|---|---|
+| CTA | Plain verb. "Apply patch", "Capture element", "Open workspace". |
+| Status | Sentence with a period. "Patch applied to 3 files. Review the diff." |
+| Error | Specific. "Path is outside workspace. Edit rejected." Never "Oops" / "Something went wrong". |
+| Confirmation | Past tense, no celebration. "Workspace opened." |
+| Empty state | Direct instruction. "Open a folder to start." |
+
+**Numbers are mono.** `3 files`, `12ms`, `line 47`. Always tabular nums.
+
+**Forbidden.** Exclamation marks. "Successfully". "Awesome". "Get Started" (use "Open workspace"). "Click here" (use the action verb). "AI-powered" (use the specific mechanic). Emojis.
+
+## 11. Iconography
+
+- One library: Lucide React (1,400+ icons, stroke 2, fits the rest of the system).
+- Sizes: 14px (inline text), 16px (button leading), 20px (drawer/section), 24px (empty state).
+- Color: always `currentColor`. Never hard-code stroke/fill.
+- Custom icons (logo, marudesk mark): export as React SVG components with `currentColor`.
+
+## 12. Document Policies
+
+- **No emojis** anywhere in UI, labels, status, or docs. Status indicators are colored dots or icons.
+- **No hard-coded colors** in components. Tokens or Tailwind aliases only.
+- **No literal hex values in commit messages** describing styles (use the token name).
+- Update this DESIGN.md when introducing a new token. The doc and `tokens.css` move together.
+
+---
+
+**Verified:** 2026-05-28 (Phase 0 handoff)
+**Source of truth for values:** `src/styles/tokens.css`
+**Tailwind theme alias map:** `tailwind.config.ts`

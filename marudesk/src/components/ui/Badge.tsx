@@ -1,0 +1,32 @@
+import type { ReactNode } from 'react';
+import { cn } from '../../lib/cn';
+
+type Variant = 'neutral' | 'accent' | 'success' | 'warning' | 'error';
+
+export type BadgeProps = {
+  variant?: Variant;
+  children: ReactNode;
+  className?: string;
+};
+
+const VARIANT_CLASSES: Record<Variant, string> = {
+  neutral: 'bg-surface-3 text-fg-secondary',
+  accent: 'bg-accent-subtle text-accent',
+  success: 'bg-success-subtle text-success',
+  warning: 'bg-warning-subtle text-warning',
+  error: 'bg-error-subtle text-error',
+};
+
+export function Badge({ variant = 'neutral', children, className }: BadgeProps) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-pill px-2 py-0.5 text-caption font-medium tabular-nums',
+        VARIANT_CLASSES[variant],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
