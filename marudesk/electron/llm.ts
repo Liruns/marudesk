@@ -254,7 +254,7 @@ async function proposePatch(
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
   }
-  if (!apiKey) {
+  if (!apiKey && !provider.keyless) {
     return {
       ok: false,
       reason: `no API key configured for ${provider.label}; open Providers settings`,
@@ -271,7 +271,7 @@ async function proposePatch(
     };
   }
 
-  return DRIVERS[provider.id].propose(apiKey, input.model, userText);
+  return DRIVERS[provider.id].propose(apiKey ?? '', input.model, userText);
 }
 
 export function registerLlmHandlers(): void {

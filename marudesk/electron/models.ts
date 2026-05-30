@@ -53,11 +53,11 @@ export async function getModelsFor(provider: ProviderId): Promise<ModelDef[]> {
   } catch {
     // Decryption issues — fall back to static.
   }
-  if (!apiKey) {
+  if (!apiKey && !def.keyless) {
     return def.models;
   }
   try {
-    const dynamic = await DRIVERS[provider].listModels(apiKey);
+    const dynamic = await DRIVERS[provider].listModels(apiKey ?? '');
     const merged = dedupeMerge(def.models, dynamic);
     cache.set(provider, { models: merged, fetchedAt: Date.now() });
     return merged;

@@ -97,7 +97,8 @@ async function listProviders(): Promise<ProviderStatus[]> {
   }
   return PROVIDERS.map((p) => ({
     id: p.id,
-    hasKey: !!map[p.id]?.apiKey,
+    // Keyless (local) providers are always ready — no key to store.
+    hasKey: !!p.keyless || !!map[p.id]?.apiKey,
   }));
 }
 

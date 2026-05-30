@@ -53,6 +53,18 @@ test('agent: send is rejected without a workspace (no real LLM call)', async () 
   }
 });
 
+test('agent: Ollama is a keyless provider (ready without a stored key)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    const list = await page.evaluate(() => window.marudesk.invoke('secrets:list-providers'));
+    const ollama = list.find((p) => p.id === 'ollama');
+    expect(ollama).toBeTruthy();
+    expect(ollama?.hasKey).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
+
 test('agent: send validates the payload shape', async () => {
   const { app, page } = await launchApp();
   try {

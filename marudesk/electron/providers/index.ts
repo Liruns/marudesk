@@ -3,6 +3,7 @@ import type { ProviderDriver } from './types';
 import { anthropicDriver } from './anthropic';
 import { openaiDriver } from './openai';
 import { googleDriver } from './google';
+import { ollamaDriver } from './ollama';
 
 /**
  * The provider registry. `proposePatch` (llm.ts) and `getModelsFor` (models.ts)
@@ -14,6 +15,7 @@ export const DRIVERS: Record<ProviderId, ProviderDriver> = {
   anthropic: anthropicDriver,
   openai: openaiDriver,
   google: googleDriver,
+  ollama: ollamaDriver,
 };
 
 export type { ProviderDriver } from './types';

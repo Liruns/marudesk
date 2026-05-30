@@ -12,6 +12,7 @@ import { emptyAgentChatState } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
+import { getProvider } from '../../shared/providers';
 import { coalesced } from '../coalesce';
 import { getProviderApiKey } from '../secrets';
 import { requireWorkspace } from '../ipc/define-handler';
@@ -381,7 +382,10 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     } catch (err) {
       return { ok: false, reason: (err as Error).message };
     }
-    if (!apiKey) return { ok: false, reason: `no API key configured for ${input.provider}` };
+    // Keyless providers (Ollama) run locally with no key.
+    if (!apiKey && !getProvider(input.provider).keyless) {
+      return { ok: false, reason: `no API key configured for ${input.provider}` };
+    }
 
     const turnId = uid('turn');
     controller = new AbortController();
@@ -399,7 +403,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     emit();
 
     void runLoop({
-      apiKey,
+      apiKey: apiKey ?? '',
       model: input.model,
       provider: input.provider,
       ws,

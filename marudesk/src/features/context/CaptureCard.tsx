@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ClipboardCopy, X } from 'lucide-react';
 import { Badge } from '../../components/ui';
 import { cn } from '../../lib/cn';
+import { toast } from '../../lib/toast';
+import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
 import { useWorkspaceStore } from '../workspace/store';
+import { formatEvidencePack } from '../../../shared/evidence-pack';
 import type {
   Capture,
   ConsoleErrorCapture,
@@ -20,15 +23,26 @@ export function CaptureCard({ capture }: { capture: Capture }) {
 
 /** Shared select/remove header — both cards select into the same composer cart. */
 function CardHeader({
-  id,
+  capture,
   children,
 }: {
-  id: string;
+  capture: Capture;
   children: React.ReactNode;
 }) {
+  const id = capture.id;
   const removeCapture = useWebPageStore((s) => s.removeCapture);
   const selected = useWebPageStore((s) => s.selectedCaptureIds.has(id));
   const toggleSelected = useWebPageStore((s) => s.toggleCaptureSelected);
+  // P1.5: export this capture as a scrubbed Markdown evidence pack to the
+  // clipboard (paste into Cursor / a GitHub issue / any agent).
+  const copyEvidence = async () => {
+    try {
+      await navigator.clipboard.writeText(formatEvidencePack(capture));
+      toast({ title: 'Evidence copied', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+    }
+  };
   return (
     <header className="flex items-start gap-2">
       <input
@@ -39,6 +53,15 @@ function CardHeader({
         className="mt-0.5 size-3.5 accent-accent shrink-0"
       />
       {children}
+      <button
+        type="button"
+        onClick={() => void copyEvidence()}
+        aria-label="Copy evidence pack"
+        title="Copy as Markdown evidence pack"
+        className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast shrink-0"
+      >
+        <ClipboardCopy size={14} />
+      </button>
       <button
         type="button"
         onClick={() => removeCapture(id)}
@@ -76,7 +99,7 @@ function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) 
       )}
     >
       <div className="p-3 flex flex-col gap-2">
-        <CardHeader id={capture.id}>
+        <CardHeader capture={capture}>
           <button
             type="button"
             onClick={() => hasStack && setExpanded((e) => !e)}
@@ -153,7 +176,7 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
       )}
     >
       <div className="p-3 flex flex-col gap-2">
-        <CardHeader id={capture.id}>
+        <CardHeader capture={capture}>
           <button
             type="button"
             onClick={onToggle}

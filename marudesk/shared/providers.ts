@@ -1,4 +1,4 @@
-export type ProviderId = 'anthropic' | 'openai' | 'google';
+export type ProviderId = 'anthropic' | 'openai' | 'google' | 'ollama';
 
 export type ModelDef = {
   id: string;
@@ -17,6 +17,12 @@ export type ProviderDef = {
   defaultModelId: string;
   apiKeyPlaceholder: string;
   apiKeyHint: string;
+  /**
+   * A local/keyless provider (Ollama): needs no API key, so it is always treated
+   * as "ready" (secrets.listProviders reports hasKey, and the propose/agent paths
+   * skip the key requirement). The model list is still fetched live (no key).
+   */
+  keyless?: boolean;
 };
 
 export const PROVIDERS: ProviderDef[] = [
@@ -55,6 +61,19 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'gemini-2.5-pro',
     apiKeyPlaceholder: 'AIza...',
     apiKeyHint: 'aistudio.google.com → Get API key',
+  },
+  {
+    id: 'ollama',
+    label: 'Ollama',
+    keyless: true,
+    // Common local coding models; the live list is fetched from /api/tags.
+    models: [
+      { id: 'qwen2.5-coder', label: 'Qwen2.5 Coder' },
+      { id: 'llama3.1', label: 'Llama 3.1' },
+    ],
+    defaultModelId: 'qwen2.5-coder',
+    apiKeyPlaceholder: '(local — no key)',
+    apiKeyHint: 'Runs locally at localhost:11434 (no key). Use a tool-capable model.',
   },
 ];
 

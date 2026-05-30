@@ -98,10 +98,114 @@ const anthropicDriver: AgentDriver = {
   },
 };
 
+/* ── OpenAI-compatible (OpenAI + Ollama) ────────────────────────────────── */
+
+type OAToolCall = { id?: string; type?: string; function?: { name?: string; arguments?: string } };
+type OAResponse = {
+  choices?: { message?: { content?: string | null; tool_calls?: OAToolCall[] } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+};
+
+/** Flatten the neutral transcript into OpenAI chat messages (tool_results become `role:'tool'`). */
+function toOpenAIMessages(system: string, messages: LoopMessage[]): unknown[] {
+  const out: unknown[] = [{ role: 'system', content: system }];
+  for (const m of messages) {
+    if (m.role === 'assistant') {
+      const text = m.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('');
+      const toolCalls = m.content
+        .filter((c) => c.type === 'tool_use')
+        .map((c) => {
+          const t = c as { id: string; name: string; input: unknown };
+          return { id: t.id, type: 'function', function: { name: t.name, arguments: JSON.stringify(t.input ?? {}) } };
+        });
+      out.push({ role: 'assistant', content: text || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) });
+    } else {
+      // A user turn is either typed text or a batch of tool_results.
+      const results = m.content.filter((c) => c.type === 'tool_result');
+      if (results.length > 0) {
+        for (const c of results) {
+          const r = c as { toolUseId: string; content: string };
+          out.push({ role: 'tool', tool_call_id: r.toolUseId, content: r.content });
+        }
+      } else {
+        const text = m.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('');
+        out.push({ role: 'user', content: text });
+      }
+    }
+  }
+  return out;
+}
+
+function makeOpenAICompatDriver(opts: {
+  baseUrl: string;
+  tokenParam: 'max_tokens' | 'max_completion_tokens';
+  auth: boolean;
+  label: string;
+}): AgentDriver {
+  return {
+    async step(stepOpts) {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (opts.auth && stepOpts.apiKey) headers.Authorization = `Bearer ${stepOpts.apiKey}`;
+      const resp = await fetch(`${opts.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        signal: stepOpts.signal,
+        body: JSON.stringify({
+          model: stepOpts.model,
+          [opts.tokenParam]: AGENT_MAX_TOKENS,
+          messages: toOpenAIMessages(stepOpts.system, stepOpts.messages),
+          tools: stepOpts.tools.map((t) => ({
+            type: 'function',
+            function: { name: t.name, description: t.description, parameters: t.inputSchema },
+          })),
+          tool_choice: 'auto',
+        }),
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '');
+        throw new Error(`${opts.label} HTTP ${resp.status}: ${body.slice(0, 300)}`);
+      }
+      const json = (await resp.json()) as OAResponse;
+      const msg = json.choices?.[0]?.message;
+      const toolUses: StepResult['toolUses'] = [];
+      for (const c of msg?.tool_calls ?? []) {
+        if (!c.function?.name) continue;
+        let input: unknown;
+        try {
+          input = c.function.arguments ? JSON.parse(c.function.arguments) : {};
+        } catch {
+          input = {};
+        }
+        toolUses.push({ id: c.id || `call-${toolUses.length}`, name: c.function.name, input });
+      }
+      return {
+        text: typeof msg?.content === 'string' ? msg.content : '',
+        toolUses,
+        usage: {
+          inputTokens: json.usage?.prompt_tokens ?? 0,
+          outputTokens: json.usage?.completion_tokens ?? 0,
+        },
+      };
+    },
+  };
+}
+
 /* ── registry ───────────────────────────────────────────────────────────── */
 
 const AGENT_DRIVERS: Partial<Record<ProviderId, AgentDriver>> = {
   anthropic: anthropicDriver,
+  openai: makeOpenAICompatDriver({
+    baseUrl: 'https://api.openai.com/v1',
+    tokenParam: 'max_completion_tokens',
+    auth: true,
+    label: 'OpenAI',
+  }),
+  ollama: makeOpenAICompatDriver({
+    baseUrl: 'http://localhost:11434/v1',
+    tokenParam: 'max_tokens',
+    auth: false,
+    label: 'Ollama',
+  }),
 };
 
 export function getAgentDriver(provider: ProviderId): AgentDriver | null {
