@@ -141,13 +141,24 @@ type ComposerActions = {
 };
 
 function toPayload(capture: Capture): CapturePayload {
+  if (capture.kind === 'console-error') {
+    return {
+      kind: 'console-error',
+      id: capture.id,
+      url: capture.url,
+      message: capture.message,
+      stack: capture.stack,
+      source: capture.source,
+    };
+  }
   return {
+    kind: 'element',
     id: capture.id,
+    url: capture.url,
     tagName: capture.tagName,
     selector: capture.selector,
     text: capture.text,
     attributes: capture.attributes,
-    url: capture.url,
     // Forwarded only when present (DevTools-originated captures); the LLM
     // context builder folds them into the per-capture block.
     outerHTML: capture.outerHTML,

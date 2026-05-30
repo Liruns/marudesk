@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronRight, Sparkles, Trash2 } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { RemoteValue } from '../components/RemoteValue';
@@ -63,7 +63,7 @@ function originText(entry: ConsoleEntry): string | null {
   return entry.lineNumber ? `${file}:${entry.lineNumber + 1}` : file;
 }
 
-function ConsoleRow({ entry }: { entry: ConsoleEntry }) {
+function ConsoleRow({ entry, onFix }: { entry: ConsoleEntry; onFix?: () => void }) {
   const origin = originText(entry);
   return (
     <div
@@ -97,6 +97,17 @@ function ConsoleRow({ entry }: { entry: ConsoleEntry }) {
       {origin ? (
         <span className="shrink-0 text-caption text-fg-tertiary font-mono">{origin}</span>
       ) : null}
+      {onFix ? (
+        <button
+          type="button"
+          onClick={onFix}
+          title="Add this error to the AI context"
+          className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 h-5 mt-0.5 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
+        >
+          <Sparkles size={11} />
+          Fix this
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -104,6 +115,8 @@ function ConsoleRow({ entry }: { entry: ConsoleEntry }) {
 export function ConsolePanel() {
   const entries = useDevtoolsStore((s) => s.console);
   const preserveLog = useDevtoolsStore((s) => s.preserveLog);
+  // No composer in the pop-out DevTools window → hide "Fix this" there.
+  const windowMode = useDevtoolsStore((s) => s.windowMode);
   const [input, setInput] = useState('');
   const [level, setLevel] = useState<LevelFilter>('all');
   const [query, setQuery] = useState('');
@@ -202,7 +215,17 @@ export function ConsolePanel() {
             No matching messages
           </div>
         ) : (
-          visible.map((e) => <ConsoleRow key={e.id} entry={e} />)
+          visible.map((e) => (
+            <ConsoleRow
+              key={e.id}
+              entry={e}
+              onFix={
+                !windowMode && (e.kind === 'error' || e.kind === 'exception')
+                  ? () => useDevtoolsStore.getState().captureConsoleError(e.id)
+                  : undefined
+              }
+            />
+          ))
         )}
       </div>
 

@@ -11,6 +11,7 @@ import {
   getProvider,
 } from '../shared/providers';
 import type { WorkspaceSummary } from '../shared/workspace';
+import { urlToWorkspacePath } from '../shared/runtime-evidence';
 import { getProviderApiKey } from './secrets';
 import { rankFiles, readFileSafe } from './workspace';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
@@ -19,28 +20,57 @@ import { DRIVERS } from './providers';
 const TOP_FILES_PER_CAPTURE = 3;
 const MAX_FILE_CHARS = 16_000;
 const MAX_OUTER_HTML_CHARS = 2_000;
+const MAX_STACK_FRAMES = 12;
+
+function isStackFrameLite(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const f = value as Record<string, unknown>;
+  return (
+    typeof f.functionName === 'string' &&
+    typeof f.url === 'string' &&
+    typeof f.lineNumber === 'number' &&
+    typeof f.columnNumber === 'number'
+  );
+}
 
 function isCapturePayload(value: unknown): value is CapturePayload {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   if (typeof v.id !== 'string' || v.id.length === 0) return false;
-  if (typeof v.tagName !== 'string') return false;
-  if (typeof v.selector !== 'string') return false;
-  if (typeof v.text !== 'string') return false;
   if (typeof v.url !== 'string') return false;
-  if (!v.attributes || typeof v.attributes !== 'object') return false;
-  for (const [, val] of Object.entries(v.attributes as Record<string, unknown>)) {
-    if (typeof val !== 'string') return false;
+
+  if (v.kind === 'console-error') {
+    if (typeof v.message !== 'string') return false;
+    if (!Array.isArray(v.stack) || !v.stack.every(isStackFrameLite)) return false;
+    if (v.source !== undefined) {
+      if (!v.source || typeof v.source !== 'object') return false;
+      const s = v.source as Record<string, unknown>;
+      if (typeof s.url !== 'string') return false;
+      if (s.lineNumber !== undefined && typeof s.lineNumber !== 'number') return false;
+    }
+    return true;
   }
-  // Optional richer context from the DevTools picker.
-  if (v.outerHTML !== undefined && typeof v.outerHTML !== 'string') return false;
-  if (v.computedStyle !== undefined) {
-    if (!v.computedStyle || typeof v.computedStyle !== 'object') return false;
-    for (const val of Object.values(v.computedStyle as Record<string, unknown>)) {
+
+  if (v.kind === 'element') {
+    if (typeof v.tagName !== 'string') return false;
+    if (typeof v.selector !== 'string') return false;
+    if (typeof v.text !== 'string') return false;
+    if (!v.attributes || typeof v.attributes !== 'object') return false;
+    for (const val of Object.values(v.attributes as Record<string, unknown>)) {
       if (typeof val !== 'string') return false;
     }
+    // Optional richer context from the DevTools picker.
+    if (v.outerHTML !== undefined && typeof v.outerHTML !== 'string') return false;
+    if (v.computedStyle !== undefined) {
+      if (!v.computedStyle || typeof v.computedStyle !== 'object') return false;
+      for (const val of Object.values(v.computedStyle as Record<string, unknown>)) {
+        if (typeof val !== 'string') return false;
+      }
+    }
+    return true;
   }
-  return true;
+
+  return false; // unknown kind
 }
 
 function isProposeInput(value: unknown): value is ProposeInput {
@@ -70,6 +100,52 @@ function escapeFence(text: string): string {
   return text.replace(/```/g, '``​`');
 }
 
+/** `{url, lineNumber}` → `path:1-based-line` (CDP line numbers are 0-based). */
+function formatSourceLoc(source: { url: string; lineNumber?: number }): string {
+  let p = source.url;
+  try {
+    p = new URL(source.url).pathname || source.url;
+  } catch {
+    // keep the raw URL
+  }
+  return source.lineNumber !== undefined ? `${p}:${source.lineNumber + 1}` : p;
+}
+
+/**
+ * Deterministically resolve the workspace file a console error points at:
+ * walk the stack (innermost-first), then the source location, mapping each URL
+ * to a workspace path (same-origin → pathname) and returning the first that
+ * actually reads. No fuzzy `rankFiles` — the stack URL *is* the answer when the
+ * dev server serves real files. Returns null when nothing maps (bundled / Vite
+ * virtual / cross-origin / node_modules).
+ */
+async function resolveErrorSourceFile(
+  ws: WorkspaceSummary,
+  cap: { url: string; stack: { url: string }[]; source?: { url: string } },
+): Promise<{ path: string; content: string } | null> {
+  let origin: string;
+  try {
+    origin = new URL(cap.url).origin;
+  } catch {
+    return null;
+  }
+  const urls = [...cap.stack.map((f) => f.url)];
+  if (cap.source?.url) urls.push(cap.source.url);
+  const seen = new Set<string>();
+  for (const u of urls) {
+    const rel = u ? urlToWorkspacePath(u, origin) : null;
+    if (!rel || seen.has(rel)) continue;
+    seen.add(rel);
+    try {
+      const content = await readFileSafe(ws.root, rel);
+      return { path: rel, content };
+    } catch {
+      // Not a readable workspace file — try the next frame.
+    }
+  }
+  return null;
+}
+
 async function buildUserMessage(
   ws: WorkspaceSummary,
   input: ProposeInput,
@@ -83,6 +159,39 @@ async function buildUserMessage(
 
   for (let i = 0; i < input.captures.length; i++) {
     const cap = input.captures[i];
+
+    if (cap.kind === 'console-error') {
+      parts.push(`--- capture #${i + 1} (console error) ---`);
+      parts.push(`url: ${cap.url}`);
+      parts.push(`error: ${cap.message}`);
+      if (cap.source) parts.push(`location: ${formatSourceLoc(cap.source)}`);
+      if (cap.stack.length > 0) {
+        parts.push('stack (innermost first):');
+        for (const f of cap.stack.slice(0, MAX_STACK_FRAMES)) {
+          const where = f.url ? ` ${formatSourceLoc({ url: f.url, lineNumber: f.lineNumber })}` : '';
+          parts.push(`  at ${f.functionName || '(anonymous)'}${where}`);
+        }
+      }
+      const resolved = await resolveErrorSourceFile(ws, cap);
+      if (resolved) {
+        parts.push(
+          `resolved source file: ${resolved.path} (line numbers above are the served/transpiled file — may differ from source)`,
+        );
+        if (!filesIncluded.has(resolved.path)) {
+          filesIncluded.set(resolved.path, {
+            matches: ['console-error stack'],
+            score: 0,
+          });
+        }
+      } else {
+        parts.push(
+          'resolved source file: (none — the stack did not map to a workspace file)',
+        );
+      }
+      parts.push('');
+      continue;
+    }
+
     parts.push(`--- capture #${i + 1} ---`);
     parts.push(`url: ${cap.url}`);
     parts.push(`tag: <${cap.tagName.toLowerCase()}>`);

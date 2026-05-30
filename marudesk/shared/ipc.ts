@@ -1,4 +1,5 @@
 import type { Capture } from './capture';
+import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
@@ -78,6 +79,7 @@ export const CHANNELS = {
     'devtools:set-dock-bounds',
     'devtools:popout-open',
     'devtools:popout-close',
+    'devtools:pull-errors',
   ],
   workspace: [
     'workspace:open',
@@ -232,6 +234,13 @@ export interface IpcMap {
   // single popup (called by the popup's "Dock back" button before window.close).
   'devtools:popout-open': { args: [payload: { tabId: string }]; result: boolean };
   'devtools:popout-close': { args: []; result: void };
+  // Always-on console capture (P0): drain the main-process per-tab error ring
+  // buffer — the dock seeds its console from this on open, and "Fix this" reads
+  // it even when the dock was never opened. Empty array for a non-web tab.
+  'devtools:pull-errors': {
+    args: [payload: { tabId: string }];
+    result: ConsoleErrorEvidence[];
+  };
 
   // workspace
   'workspace:open': { args: []; result: WorkspaceSummary | null };
@@ -350,6 +359,10 @@ export interface EventPayloadMap {
   // Context-menu "Inspect Element": open the dock and select the node under the
   // given page-space point (CDP DOM.getNodeForLocation).
   'devtools:inspect-at': { tabId: string; x: number; y: number };
+  // Always-on console capture (P0): the current error count for a tab's ring
+  // buffer, pushed (coalesced) when it changes or resets on navigation. Drives
+  // the DevTools toggle's error badge without the dock being open.
+  'devtools:error-count': { tabId: string; count: number };
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
@@ -373,6 +386,7 @@ export const EVENT_CHANNELS = [
   'devtools:detached',
   'devtools:toggle',
   'devtools:inspect-at',
+  'devtools:error-count',
   'window:maximize-state',
   'settings:changed',
   'terminal:data',

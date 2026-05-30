@@ -5,6 +5,7 @@ import { arrayOf, bool, num, obj, str } from '../ipc/validate';
 import {
   findTabByWebContentsId,
   getActive,
+  getErrors,
   getTab,
   isTabKind,
   pushState,
@@ -292,6 +293,15 @@ export function registerBrowserHandlers(deps: {
 
   defineHandler('devtools:popout-close', () => {
     closeDevtoolsWindow();
+  });
+
+  // Always-on console capture (P0): drain the per-tab error ring buffer. The
+  // dock seeds its console from this on open and "Fix this" reads it even when
+  // the dock was never opened. Empty for a non-web tab.
+  defineHandler('devtools:pull-errors', ([payload]) => {
+    const rec = getTab(str(obj(payload).tabId, 'tabId'));
+    if (!rec || rec.kind !== 'web' || !rec.view) return [];
+    return getErrors(rec.id);
   });
 
   defineHandler('browser:tabs-new', ([payload]) => {

@@ -6,6 +6,7 @@ import {
   type TabState,
   type TabsSnapshot,
 } from '../../shared/browser';
+import type { ConsoleErrorEvidence } from '../../shared/runtime-evidence';
 
 /**
  * Shared mutable state for the embedded-browser/tab subsystem, plus the
@@ -88,6 +89,14 @@ let lastBounds: Bounds = { x: 0, y: 0, width: 0, height: 0 };
 // tabs currently tiled on the grid".
 let paneBounds: Map<string, Bounds> | null = null;
 
+// Always-on console capture (P0): a bounded ring of recent runtime errors per
+// web tab, fed by the passive Runtime/Log CDP attach in ./cdp regardless of
+// whether the DevTools dock is open. The dock seeds its console from this on
+// open, and the "Fix this" loop reads it. Cleared on main-frame navigation
+// (stale for the new document) and when the tab is deleted.
+const MAX_ERRORS_PER_TAB = 50;
+const errorBuffers = new Map<string, ConsoleErrorEvidence[]>();
+
 /* ── host window ────────────────────────────────────────────────────────── */
 
 export function getHost(): BrowserWindow | null {
@@ -158,6 +167,7 @@ export function setTab(id: string, rec: TabRecord): void {
 }
 
 export function deleteTab(id: string): boolean {
+  errorBuffers.delete(id); // drop the always-on console-error buffer with the tab
   return tabs.delete(id);
 }
 
@@ -192,6 +202,34 @@ export function findTabByWebContentsId(senderId: number): TabRecord | null {
     if (rec.view && rec.view.webContents.id === senderId) return rec;
   }
   return null;
+}
+
+/* ── always-on console-error buffer (P0) ────────────────────────────────── */
+
+/** Append an error to a tab's ring buffer; returns the new count. */
+export function pushError(tabId: string, ev: ConsoleErrorEvidence): number {
+  let buf = errorBuffers.get(tabId);
+  if (!buf) {
+    buf = [];
+    errorBuffers.set(tabId, buf);
+  }
+  buf.push(ev);
+  if (buf.length > MAX_ERRORS_PER_TAB) buf.splice(0, buf.length - MAX_ERRORS_PER_TAB);
+  return buf.length;
+}
+
+/** A tab's buffered errors (oldest-first). A fresh array each call (immutable to callers). */
+export function getErrors(tabId: string): ConsoleErrorEvidence[] {
+  const buf = errorBuffers.get(tabId);
+  return buf ? [...buf] : [];
+}
+
+export function clearErrors(tabId: string): void {
+  errorBuffers.delete(tabId);
+}
+
+export function errorCount(tabId: string): number {
+  return errorBuffers.get(tabId)?.length ?? 0;
 }
 
 /* ── derived state / renderer push ──────────────────────────────────────── */

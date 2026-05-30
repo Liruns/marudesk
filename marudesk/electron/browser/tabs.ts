@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { applyReorder, type TabKind } from '../../shared/browser';
 import {
+  clearErrors,
   clearTabs,
   deleteTab,
   getActiveTabId,
@@ -21,7 +22,7 @@ import {
 } from './state';
 import { applyBoundsToActive, applyWebLayout, hideTab, showTab } from './layout';
 import { closeChromeDevtools } from './devtools';
-import { detachCdp } from './cdp';
+import { detachCdp, enableConsoleCapture, refreshErrorBadge } from './cdp';
 import { buildWebContextMenu } from './context-menu';
 import { reapplyInspectOverlay } from './inspect';
 import { clearFavicon, updateFavicon } from './favicon';
@@ -122,6 +123,10 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
       rec.crashed = false;
       applyWebLayout();
     }
+    // Always-on console capture (P0): (re)attach + enable Runtime at every load
+    // start — covers the initial load, crash recovery, and re-arming after the
+    // built-in DevTools (which had held the single CDP client) is closed.
+    enableConsoleCapture(rec);
     pushState();
   });
 
@@ -147,6 +152,12 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
     // Record the visit for address-bar autocomplete (http(s) only, filtered in
     // recordVisit). Title is best-effort here; page-title-updated refines it.
     recordVisit(view.webContents.getURL(), view.webContents.getTitle());
+    // New document (main-frame nav): the old document's buffered errors are
+    // stale — drop them, reset the badge, and re-enable Runtime (a navigation
+    // can drop CDP domain enablement).
+    clearErrors(rec.id);
+    enableConsoleCapture(rec);
+    refreshErrorBadge(rec.id);
     pushState();
   });
 
@@ -282,6 +293,15 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
   });
   view.webContents.on('destroyed', () => detachCdp(rec));
 
+  // The built-in Chromium DevTools (escape hatch) holds the single per-page CDP
+  // client while open. When it closes — via our toggle OR the user closing its
+  // window directly — re-arm always-on capture so the error badge/buffer don't
+  // stay dark until the next navigation.
+  view.webContents.on('devtools-closed', () => {
+    rec.chromeDevtoolsOpen = false;
+    enableConsoleCapture(rec);
+  });
+
   host.contentView.addChildView(view);
   setTab(id, rec);
   // Newly-created tabs start hidden; activation makes them visible.
@@ -381,6 +401,9 @@ export function activateTab(id: string): boolean {
   // Show the web view; feature tabs render in the React stage instead.
   showTab(rec);
   pushState();
+  // Re-assert this tab's error count so the badge reconciles on every switch
+  // (and recovers if the host renderer remounted and lost its in-memory map).
+  if (rec.kind === 'web') refreshErrorBadge(rec.id);
   return true;
 }
 

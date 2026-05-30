@@ -6,7 +6,7 @@ import { useWebPageStore } from '../browser/store';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { cdpSend, cdpTry } from './cdp';
-import { buildCapture } from './capture';
+import { buildCapture, consoleEntryToErrorCapture } from './capture';
 import { computeBlockEdit, rebuildStyleText, resolveStyleSheetSource } from './css-source';
 import {
   NODE_TYPE,
@@ -169,6 +169,10 @@ type DevtoolsState = {
   // the host-only "Add to AI context" capture (the composer lives in the main
   // window — cross-window capture is out of scope).
   windowMode: boolean;
+  // Always-on console-error counts per tab (P0), mirrored from main via
+  // devtools:error-count. Cross-tab + survives freshSlices/rebind so the toggle
+  // badge is correct for whichever web tab is active — dock open or not.
+  errorCountByTab: Record<string, number>;
   // session
   tabId: string | null;
   session: Session;
@@ -260,6 +264,10 @@ type DevtoolsActions = {
   evaluate: (expression: string) => Promise<void>;
   clearConsole: () => void;
   setPreserveLog: (on: boolean) => void;
+  /** Mirror main's per-tab error count (devtools:error-count) for the badge. */
+  setErrorCount: (tabId: string, count: number) => void;
+  /** "Fix this": send a console error/exception row to the AI composer cart. */
+  captureConsoleError: (entryId: string) => void;
   getProperties: (
     objectId: string,
   ) => Promise<{ name: string; value: RemoteObject }[]>;
@@ -292,6 +300,12 @@ type DevtoolsActions = {
   _ensureDomains: (domains: string[]) => Promise<void>;
   _enablePanel: (panel: DevtoolsPanel) => Promise<void>;
   _handleNavigated: () => void;
+  /**
+   * Pull main's buffered errors for a tab and seed the console (on open). Only
+   * errors older than `since` (the bind time) are seeded — newer ones arrive
+   * live via the relay, so seeding them would double the row.
+   */
+  _seedConsoleErrors: (tabId: string, since: number) => Promise<void>;
   _pushConsole: (entry: Omit<ConsoleEntry, 'id' | 'timestamp'> & { timestamp?: number }) => void;
   _finishPick: (backendNodeId: number) => Promise<void>;
   _revealAndSelect: (nodeId: NodeId) => Promise<void>;
@@ -439,6 +453,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     size: 0,
     panel: 'elements',
     windowMode: false,
+    errorCountByTab: {},
     preserveLog: false,
     cacheDisabled: false,
     throttle: 'online',
@@ -492,6 +507,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     _openFor: async (tabId, side) => {
       const prev = get().tabId;
       const epoch = get().epoch + 1;
+      const since = Date.now(); // boundary: live errors after this aren't seeded
       set({
         open: true,
         side,
@@ -522,6 +538,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       if (get().epoch !== epoch) return;
       await get()._enablePanel(get().panel);
       if (get().epoch !== epoch) return;
+      // Seed the console with errors main buffered before the dock opened.
+      void get()._seedConsoleErrors(tabId, since);
       // Re-apply sticky rendering overrides — they reset on (re)attach.
       if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
     },
@@ -574,6 +592,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       if (tabId === null) return;
       const old = s.tabId;
       const epoch = s.epoch + 1;
+      const since = Date.now(); // boundary: live errors after this aren't seeded
       set({
         tabId,
         session: 'attaching',
@@ -598,6 +617,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         if (get().epoch !== epoch) return;
         await get()._enablePanel(get().panel);
         if (get().epoch !== epoch) return;
+        void get()._seedConsoleErrors(tabId, since);
         if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
       })();
     },
@@ -677,6 +697,40 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         // Navigation clears emulation/overlay overrides — re-apply the sticky ones.
         if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
       })();
+    },
+
+    _seedConsoleErrors: async (tabId, since) => {
+      // Always-on capture buffers errors in main even before the dock opens.
+      // Pull them on (re)attach and prepend as exception rows so "Fix this" (and
+      // the operator) sees errors that predate opening the dock.
+      let errors;
+      try {
+        errors = await window.marudesk.invoke('devtools:pull-errors', { tabId });
+      } catch {
+        return; // best-effort seed
+      }
+      if (get().tabId !== tabId) return;
+      // Only seed errors that predate the bind (`since`); newer ones arrive live
+      // via the relay (with their own entry ids), so seeding them too would
+      // double the row. CDP timestamps are ms-since-epoch — comparable to the
+      // Date.now() boundary captured at open.
+      const seeded = errors
+        .filter((ev) => ev.timestamp < since)
+        .map(
+          (ev): ConsoleEntry => ({
+            id: ev.id,
+            kind: 'exception',
+            args: [],
+            text: ev.message,
+            timestamp: ev.timestamp,
+            stackTrace: ev.stack.length ? { callFrames: ev.stack } : undefined,
+            url: ev.source?.url,
+            lineNumber: ev.source?.lineNumber,
+          }),
+        );
+      if (seeded.length === 0) return;
+      // These predate everything captured live since open → prepend (oldest first).
+      set((s) => ({ console: [...seeded, ...s.console] }));
     },
 
     /* ── elements ────────────────────────────────────────────────────── */
@@ -1213,6 +1267,27 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     clearConsole: () => set({ console: [] }),
 
     setPreserveLog: (on) => set({ preserveLog: on }),
+
+    setErrorCount: (tabId, count) =>
+      set((s) => {
+        if (s.errorCountByTab[tabId] === count) return {};
+        return { errorCountByTab: { ...s.errorCountByTab, [tabId]: count } };
+      }),
+
+    captureConsoleError: (entryId) => {
+      const entry = get().console.find((e) => e.id === entryId);
+      if (!entry || (entry.kind !== 'error' && entry.kind !== 'exception')) return;
+      // Page URL (not the script URL) — its origin drives the deterministic
+      // stack→workspace-file resolution in electron/llm.ts.
+      const url = useWebPageStore.getState().currentUrl;
+      const capture = consoleEntryToErrorCapture(entry, url);
+      useWebPageStore.getState().addCapture(capture);
+      toast({
+        title: 'Added to context',
+        description: capture.message.slice(0, 80),
+        variant: 'success',
+      });
+    },
 
     getProperties: async (objectId) => {
       const tabId = get().tabId;

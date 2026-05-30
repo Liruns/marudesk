@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Capture } from '../../../shared/capture';
+import type { ElementCapture } from '../../../shared/capture';
 import type { RankedFile, WorkspaceSummary } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
 
@@ -39,7 +39,7 @@ type WorkspaceActions = {
   beginRename: (path: string) => void;
   beginCreate: (parentDir: string, kind: 'file' | 'dir') => void;
   cancelPending: () => void;
-  rankCapture: (capture: Capture) => Promise<void>;
+  rankCapture: (capture: ElementCapture) => Promise<void>;
   clearRanking: (captureId: string) => void;
 };
 

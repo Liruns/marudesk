@@ -63,6 +63,10 @@ export function BrowserCanvas() {
   const zoom = useTabsStore((s) => s.zoom);
   const devtoolsOpen = useDevtoolsStore((s) => s.open);
   const devtoolsSide = useDevtoolsStore((s) => s.side);
+  const activeTabId = useTabsStore((s) => s.activeTabId);
+  const errorCountByTab = useDevtoolsStore((s) => s.errorCountByTab);
+  // Always-on console-error count for the active tab → DevTools toggle badge.
+  const consoleErrorCount = activeTabId ? errorCountByTab[activeTabId] ?? 0 : 0;
   const findOpen = useWebPageStore((s) => s.findOpen);
   const downloadCount = useDownloadsStore((s) => s.downloads.length);
   const downloadsActive = useDownloadsStore((s) =>
@@ -278,12 +282,23 @@ export function BrowserCanvas() {
         </NavIconButton>
 
         <NavIconButton
-          label="Toggle DevTools (F12)"
+          label={
+            consoleErrorCount > 0
+              ? `Toggle DevTools (F12) — ${consoleErrorCount} console error${consoleErrorCount === 1 ? '' : 's'}`
+              : 'Toggle DevTools (F12)'
+          }
           active={devtoolsOpen}
           aria-pressed={devtoolsOpen}
           onClick={() => useDevtoolsStore.getState().toggle()}
         >
-          <Wrench size={16} />
+          <span className="relative inline-flex">
+            <Wrench size={16} />
+            {consoleErrorCount > 0 ? (
+              <span className="absolute -top-1.5 -right-1.5 min-w-3.5 h-3.5 px-0.5 rounded-pill bg-error text-white text-[9px] leading-[14px] font-medium text-center tabular-nums">
+                {consoleErrorCount > 9 ? '9+' : consoleErrorCount}
+              </span>
+            ) : null}
+          </span>
         </NavIconButton>
 
         <BrowserMenu />

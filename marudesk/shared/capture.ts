@@ -1,3 +1,5 @@
+import type { StackFrameLite } from './runtime-evidence';
+
 export type CaptureRect = {
   x: number;
   y: number;
@@ -5,10 +7,22 @@ export type CaptureRect = {
   height: number;
 };
 
-export type Capture = {
+/** Fields every capture carries, regardless of `kind`. */
+type CaptureBase = {
   id: string;
   timestamp: number;
+  /** The page URL the capture was taken on (origin used for source mapping). */
   url: string;
+};
+
+/**
+ * An inspected DOM element (the original capture kind — inspect overlay + the
+ * DevTools Elements picker). The `kind` discriminator was added for P0; every
+ * legacy producer now stamps `kind: 'element'` and the runtime/ranking path is
+ * otherwise unchanged.
+ */
+export type ElementCapture = CaptureBase & {
+  kind: 'element';
   selector: string;
   tagName: string;
   text: string;
@@ -26,3 +40,18 @@ export type Capture = {
    */
   computedStyle?: Record<string, string>;
 };
+
+/**
+ * A captured runtime console error (P0 "Fix this"). Carries the message, stack
+ * frames, and the source location the stack points at — the file resolution is
+ * deterministic (stack URL → workspace path) rather than the fuzzy `rankFiles`
+ * the element path uses.
+ */
+export type ConsoleErrorCapture = CaptureBase & {
+  kind: 'console-error';
+  message: string;
+  stack: StackFrameLite[];
+  source?: { url: string; lineNumber?: number };
+};
+
+export type Capture = ElementCapture | ConsoleErrorCapture;

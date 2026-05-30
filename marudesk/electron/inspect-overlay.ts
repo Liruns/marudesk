@@ -73,6 +73,7 @@ export const INSPECT_OVERLAY_SCRIPT = String.raw`
     for (const a of el.attributes) attrs[a.name] = a.value;
     const text = (el.textContent || '').trim().slice(0, 120);
     return {
+      kind: 'element',
       id: 'cap_' + Math.random().toString(36).slice(2, 10),
       timestamp: Date.now(),
       url: location.href,

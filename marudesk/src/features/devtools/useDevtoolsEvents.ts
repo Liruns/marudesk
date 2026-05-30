@@ -31,6 +31,11 @@ export function useDevtoolsEvents(): void {
         .getState()
         .inspectAt(payload.tabId, payload.x, payload.y);
     });
+    // Always-on console-error counts → the toggle badge. Tracked for ALL tabs
+    // (not filtered to the bound one) so switching tabs shows the right count.
+    const offErrorCount = window.marudesk.on('devtools:error-count', (payload) => {
+      useDevtoolsStore.getState().setErrorCount(payload.tabId, payload.count);
+    });
 
     // Rebind the dock when the active tab changes. The dock follows the active
     // web tab; a feature tab unmounts it (so we pass null → keep the session).
@@ -60,6 +65,7 @@ export function useDevtoolsEvents(): void {
       offDetached();
       offToggle();
       offInspect();
+      offErrorCount();
       offTabs();
     };
   }, []);

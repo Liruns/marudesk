@@ -4,14 +4,132 @@ import { Badge } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from '../browser/store';
 import { useWorkspaceStore } from '../workspace/store';
-import type { Capture } from '../../../shared/capture';
+import type {
+  Capture,
+  ConsoleErrorCapture,
+  ElementCapture,
+} from '../../../shared/capture';
 
+/** Dispatch on the capture kind; each kind renders its own card. */
 export function CaptureCard({ capture }: { capture: Capture }) {
+  if (capture.kind === 'console-error') {
+    return <ConsoleErrorCaptureCard capture={capture} />;
+  }
+  return <ElementCaptureCard capture={capture} />;
+}
+
+/** Shared select/remove header — both cards select into the same composer cart. */
+function CardHeader({
+  id,
+  children,
+}: {
+  id: string;
+  children: React.ReactNode;
+}) {
   const removeCapture = useWebPageStore((s) => s.removeCapture);
-  const selected = useWebPageStore((s) =>
-    s.selectedCaptureIds.has(capture.id),
-  );
+  const selected = useWebPageStore((s) => s.selectedCaptureIds.has(id));
   const toggleSelected = useWebPageStore((s) => s.toggleCaptureSelected);
+  return (
+    <header className="flex items-start gap-2">
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={() => toggleSelected(id)}
+        aria-label={selected ? 'Deselect capture' : 'Select capture'}
+        className="mt-0.5 size-3.5 accent-accent shrink-0"
+      />
+      {children}
+      <button
+        type="button"
+        onClick={() => removeCapture(id)}
+        aria-label="Remove capture"
+        className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast shrink-0"
+      >
+        <X size={14} />
+      </button>
+    </header>
+  );
+}
+
+/** `url:line` → a short `basename:1-based-line` label (CDP lines are 0-based). */
+function sourceLabel(source: ConsoleErrorCapture['source']): string {
+  if (!source?.url) return '(no source)';
+  let file: string;
+  try {
+    file = new URL(source.url).pathname.split('/').pop() || source.url;
+  } catch {
+    file = source.url.split('/').pop() || source.url;
+  }
+  return source.lineNumber !== undefined ? `${file}:${source.lineNumber + 1}` : file;
+}
+
+function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) {
+  const selected = useWebPageStore((s) => s.selectedCaptureIds.has(capture.id));
+  const [expanded, setExpanded] = useState(false);
+  const hasStack = capture.stack.length > 0;
+
+  return (
+    <article
+      className={cn(
+        'rounded border bg-surface-2 flex flex-col transition-colors duration-fast',
+        selected ? 'border-default' : 'border-subtle opacity-70',
+      )}
+    >
+      <div className="p-3 flex flex-col gap-2">
+        <CardHeader id={capture.id}>
+          <button
+            type="button"
+            onClick={() => hasStack && setExpanded((e) => !e)}
+            aria-expanded={hasStack ? expanded : undefined}
+            className="flex items-center gap-2 min-w-0 text-left flex-1 group"
+          >
+            {hasStack ? (
+              <span className="text-fg-tertiary group-hover:text-fg-secondary transition-colors duration-fast shrink-0">
+                {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </span>
+            ) : (
+              <span className="w-3.5 shrink-0" />
+            )}
+            <Badge variant="error">error</Badge>
+            <span
+              className="font-mono text-caption text-fg-tertiary truncate"
+              title={capture.source?.url}
+            >
+              {sourceLabel(capture.source)}
+            </span>
+          </button>
+        </CardHeader>
+        <div className="font-mono text-caption text-error break-words line-clamp-3">
+          {capture.message}
+        </div>
+      </div>
+
+      {expanded && hasStack ? (
+        <div className="border-t border-subtle px-3 py-2 flex flex-col gap-1">
+          <div className="text-caption text-fg-tertiary uppercase tracking-wide">
+            Stack
+          </div>
+          <ul className="flex flex-col gap-0.5">
+            {capture.stack.slice(0, 8).map((f, i) => (
+              <li key={i} className="font-mono text-caption text-fg-secondary truncate">
+                <span className="text-fg-primary">{f.functionName || '(anonymous)'}</span>
+                {f.url ? (
+                  <span className="text-fg-tertiary">
+                    {' '}
+                    {sourceLabel({ url: f.url, lineNumber: f.lineNumber })}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
+  const selected = useWebPageStore((s) => s.selectedCaptureIds.has(capture.id));
   const summary = useWorkspaceStore((s) => s.summary);
   const ranking = useWorkspaceStore((s) => s.ranking[capture.id]);
   const pending = useWorkspaceStore((s) => s.rankingPending[capture.id]);
@@ -35,14 +153,7 @@ export function CaptureCard({ capture }: { capture: Capture }) {
       )}
     >
       <div className="p-3 flex flex-col gap-2">
-        <header className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={() => toggleSelected(capture.id)}
-            aria-label={selected ? 'Deselect capture' : 'Select capture'}
-            className="mt-0.5 size-3.5 accent-accent shrink-0"
-          />
+        <CardHeader id={capture.id}>
           <button
             type="button"
             onClick={onToggle}
@@ -57,15 +168,7 @@ export function CaptureCard({ capture }: { capture: Capture }) {
               {Math.round(capture.rect.width)}×{Math.round(capture.rect.height)}
             </span>
           </button>
-          <button
-            type="button"
-            onClick={() => removeCapture(capture.id)}
-            aria-label="Remove capture"
-            className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast shrink-0"
-          >
-            <X size={14} />
-          </button>
-        </header>
+        </CardHeader>
         <div className="font-mono text-caption text-fg-secondary break-all">
           {capture.selector || '(no selector)'}
         </div>

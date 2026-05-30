@@ -12,9 +12,20 @@
  * rather than throwing, so "Add to context" never hard-fails.
  */
 
-import type { Capture, CaptureRect } from '../../../shared/capture';
+import type {
+  CaptureRect,
+  ConsoleErrorCapture,
+  ElementCapture,
+} from '../../../shared/capture';
 import { cdpTry } from './cdp';
-import { NODE_TYPE, type CdpNode, type ComputedStyleProperty, type NodeId } from './types';
+import {
+  NODE_TYPE,
+  type CdpNode,
+  type ComputedStyleProperty,
+  type ConsoleEntry,
+  type NodeId,
+  type RemoteObject,
+} from './types';
 
 /** Bounded so a huge subtree can't bloat the capture / LLM payload. */
 const MAX_OUTER_HTML = 8_000;
@@ -146,7 +157,7 @@ export async function buildCapture(
   nodes: Map<NodeId, CdpNode>,
   computed: ComputedStyleProperty[],
   url: string,
-): Promise<Capture> {
+): Promise<ElementCapture> {
   const [outer, box] = await Promise.all([
     cdpTry<{ outerHTML: string }>(tabId, 'DOM.getOuterHTML', { nodeId }),
     cdpTry<{ model: { border: number[]; width: number; height: number } }>(
@@ -158,6 +169,7 @@ export async function buildCapture(
   const rawHtml = outer?.outerHTML ?? '';
   const computedStyle = curateComputed(computed);
   return {
+    kind: 'element',
     id: captureId(),
     timestamp: Date.now(),
     url,
@@ -172,5 +184,47 @@ export async function buildCapture(
         : rawHtml
       : undefined,
     computedStyle: Object.keys(computedStyle).length > 0 ? computedStyle : undefined,
+  };
+}
+
+/** A console RemoteObject → short text (mirrors ConsolePanel's display logic). */
+function remoteObjText(o: RemoteObject): string {
+  if (o.value !== undefined) return String(o.value);
+  return o.description ?? o.unserializableValue ?? o.className ?? o.type;
+}
+
+/**
+ * Adapter: a console error/exception entry → a {@link ConsoleErrorCapture} for
+ * the AI composer ("Fix this", §9). Pure — the entry already holds the message,
+ * stack, and location (from main's always-on extraction). `url` is the page URL
+ * (origin for deterministic stack→source resolution in electron/llm.ts).
+ */
+export function consoleEntryToErrorCapture(
+  entry: ConsoleEntry,
+  url: string,
+): ConsoleErrorCapture {
+  const joined =
+    entry.text && entry.text.length > 0
+      ? entry.text
+      : entry.args.map(remoteObjText).filter(Boolean).join(' ');
+  // First line only (the full stack lives in `stack`) — matches the first-line
+  // normalization main's extractConsoleError applies, so a seeded vs. live
+  // capture of the same error yields the same message.
+  const message = (joined.split('\n')[0] || '(error)').slice(0, 1000);
+  const stack = entry.stackTrace?.callFrames ?? [];
+  const top = stack.find((f) => f.url);
+  const source = entry.url
+    ? { url: entry.url, lineNumber: entry.lineNumber }
+    : top
+      ? { url: top.url, lineNumber: top.lineNumber }
+      : undefined;
+  return {
+    kind: 'console-error',
+    id: captureId(),
+    timestamp: entry.timestamp,
+    url,
+    message,
+    stack,
+    source,
   };
 }

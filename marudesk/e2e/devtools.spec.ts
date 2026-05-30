@@ -84,3 +84,36 @@ test('devtools: "Add to context" sends the selected node to the composer (hook A
     await app.close();
   }
 });
+
+test('devtools: "Fix this" on a console error sends it to the composer (P0)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(() =>
+      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
+    );
+    const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
+    await expect(wrench).toBeVisible();
+    await wrench.click();
+
+    const dock = page.getByLabel('DevTools', { exact: true });
+    await expect(dock).toBeVisible();
+    await dock.getByRole('button', { name: 'Console' }).click();
+
+    // Drive a real console error through CDP via the REPL: console.error fires
+    // Runtime.consoleAPICalled(type:'error'), which the relay surfaces as an
+    // error row carrying the "Fix this" action.
+    const repl = dock.getByPlaceholder('Evaluate JavaScript');
+    await expect(repl).toBeVisible();
+    await repl.fill("console.error('marudesk-e2e-boom')");
+    await repl.press('Enter');
+
+    const fixBtn = dock.getByRole('button', { name: 'Fix this' }).first();
+    await expect(fixBtn).toBeVisible();
+    await fixBtn.click();
+
+    // The error becomes a console-error Capture in the composer context.
+    await expect(page.getByText('Added to context')).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});

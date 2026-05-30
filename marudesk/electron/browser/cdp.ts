@@ -1,5 +1,12 @@
 import { type WebContents } from 'electron';
-import { getDevtoolsWindow, getHost, type TabRecord } from './state';
+import {
+  errorCount,
+  getDevtoolsWindow,
+  getHost,
+  pushError,
+  type TabRecord,
+} from './state';
+import { extractConsoleError } from '../../shared/runtime-evidence';
 
 /**
  * CDP relay for the custom DevTools. Rather than host Chromium's DevTools UI
@@ -124,6 +131,11 @@ type TabBuffer = { items: EventItem[]; dropped: number };
 const buffers = new Map<string, TabBuffer>();
 let flushScheduled = false;
 
+// Tabs whose always-on error count changed since the last flush — coalesced
+// into the same setImmediate tick as the event relay, so a page throwing in a
+// tight loop can't spam one IPC per error.
+const errorCountDirty = new Set<string>();
+
 function scheduleFlush(): void {
   if (flushScheduled) return;
   flushScheduled = true;
@@ -145,21 +157,35 @@ function eventTarget(): Electron.BrowserWindow | null {
 
 function flushBuffers(): void {
   flushScheduled = false;
+  // CDP events follow the pop-out DevTools window while it's open (so its panels
+  // stay live).
   const target = eventTarget();
-  if (!target) {
-    buffers.clear();
-    return;
-  }
-  for (const [tabId, buf] of buffers) {
-    if (buf.items.length > 0 || buf.dropped > 0) {
-      target.webContents.send('devtools:cdp-event', {
-        tabId,
-        items: buf.items,
-        dropped: buf.dropped || undefined,
-      });
+  if (target) {
+    for (const [tabId, buf] of buffers) {
+      if (buf.items.length > 0 || buf.dropped > 0) {
+        target.webContents.send('devtools:cdp-event', {
+          tabId,
+          items: buf.items,
+          dropped: buf.dropped || undefined,
+        });
+      }
     }
   }
   buffers.clear();
+  // The error badge lives on the host toolbar (the popup has no tab strip), so
+  // it always goes to the host — not whichever window is the cdp-event target.
+  if (errorCountDirty.size > 0) {
+    const host = getHost();
+    if (host && !host.isDestroyed()) {
+      for (const tabId of errorCountDirty) {
+        host.webContents.send('devtools:error-count', {
+          tabId,
+          count: errorCount(tabId),
+        });
+      }
+    }
+    errorCountDirty.clear();
+  }
 }
 
 // Listeners are attached once per webContents (they survive attach/detach
@@ -176,6 +202,15 @@ function wireListeners(rec: TabRecord, wc: WebContents): void {
     // so without this a trailing in-flight message could buffer + flush for a
     // session the renderer already tore down.
     if (!rec.cdpAttached) return;
+    // Always-on console capture (P0): sift errors into the per-tab ring buffer
+    // regardless of the relay buffer or whether the dock is open. Runs before
+    // the cap/DROP gates below so a flood of other events can't drop an error.
+    const evidence = extractConsoleError(method, params);
+    if (evidence) {
+      pushError(rec.id, evidence);
+      errorCountDirty.add(rec.id);
+      scheduleFlush();
+    }
     if (DROP_METHODS.has(method)) return;
     let buf = buffers.get(rec.id);
     if (!buf) {
@@ -279,4 +314,31 @@ export async function sendCdp(
   return sessionId
     ? dbg.sendCommand(method, params, sessionId)
     : dbg.sendCommand(method, params);
+}
+
+/**
+ * Passively enable always-on console capture (P0) on a web tab: attach our CDP
+ * client and enable Runtime so JS errors (`exceptionThrown` /
+ * `consoleAPICalled`) stream into the ring buffer — no panel UI, and only the
+ * low-volume Runtime domain (Network/DOM stay off, and Log — mostly
+ * network/resource noise, P0.5 — is left for the dock to enable when opened).
+ * Idempotent: safe on every load start and after navigation. Skips a tab whose
+ * built-in Chromium DevTools holds the single per-page CDP client.
+ */
+export function enableConsoleCapture(rec: TabRecord): void {
+  if (rec.kind !== 'web' || !rec.view) return;
+  if (rec.chromeDevtoolsOpen) return; // built-in DevTools owns the client
+  attachCdp(rec);
+  if (!rec.cdpAttached) return; // attach lost the race / contents gone
+  void sendCdp(rec, 'Runtime.enable').catch(() => {});
+}
+
+/**
+ * Queue an error-count push for a tab, coalesced into the next flush tick.
+ * Used by ./tabs to reset the badge to 0 after clearing the buffer on a
+ * main-frame navigation.
+ */
+export function refreshErrorBadge(tabId: string): void {
+  errorCountDirty.add(tabId);
+  scheduleFlush();
 }
