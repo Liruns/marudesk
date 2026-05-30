@@ -31,6 +31,7 @@ const TAB_DND_MIME = 'application/x-marudesk-tab';
  */
 export function GridStage() {
   const layout = useGridStore((s) => s.layout);
+  const draggingTabId = useGridStore((s) => s.draggingTabId);
   const rootRef = useRef<HTMLDivElement>(null);
   // Live element refs for every web pane, keyed by leaf id, so we can measure
   // their rects after layout/resize and report them to main in one batch.
@@ -91,6 +92,21 @@ export function GridStage() {
       void window.marudesk.invoke('browser:clear-pane-bounds');
     };
   }, []);
+
+  // While a tab is dragged from the strip, hide every tiled web view so the
+  // React pane drop targets below them receive the drop. Web panes are native
+  // WebContentsViews composited over the React DOM, so without this a drop onto
+  // a *browser* pane (to split it) is swallowed by the native view and does
+  // nothing. Mirrors SeedDropOverlay's single-view hide. On drag end the next
+  // set-pane-bounds (after a split) or set-visible(true) (after a cancel)
+  // re-reveals the panes.
+  useEffect(() => {
+    if (!draggingTabId) return;
+    void window.marudesk.invoke('browser:set-visible', false);
+    return () => {
+      void window.marudesk.invoke('browser:set-visible', true);
+    };
+  }, [draggingTabId]);
 
   if (!layout) return null;
 

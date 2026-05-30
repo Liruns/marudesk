@@ -130,11 +130,18 @@ export function Composer() {
             {models.length === 0 ? (
               <option value="">No models available</option>
             ) : (
-              models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))
+              <>
+                {/* Keep a persisted choice visible even if it's not in the
+                    freshly-fetched list (e.g. a renamed/retired model). */}
+                {models.some((m) => m.id === selectedModel) ? null : (
+                  <option value={selectedModel}>{selectedModel}</option>
+                )}
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </>
             )}
           </select>
           {modelsError ? (

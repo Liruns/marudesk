@@ -71,6 +71,18 @@ export function getSettings(): Promise<AppSettings> {
   return load();
 }
 
+/**
+ * The last-loaded settings, synchronously. Returns the defaults until the first
+ * `load()` resolves (which happens at startup). Used by sync call sites that
+ * can't await — e.g. the address-bar/new-tab URL resolver picking the search
+ * engine. Never mutate the result.
+ */
+export function getSettingsSync(): AppSettings {
+  // Clone the fallback so a sync caller can never mutate the shared constant
+  // (matches load()/reset()), even though today's only caller just reads.
+  return cache ?? structuredClone(DEFAULT_SETTINGS);
+}
+
 export function registerSettingsHandlers(deps: {
   broadcast: (settings: AppSettings) => void;
 }): void {
@@ -101,7 +113,7 @@ export function registerSettingsHandlers(deps: {
 function mergeDeep(base: AppSettings, partial: unknown): unknown {
   if (!partial || typeof partial !== 'object') return base;
   const p = partial as Record<string, unknown>;
-  const section = (key: 'appearance' | 'terminal' | 'devtools') => {
+  const section = (key: 'appearance' | 'terminal' | 'devtools' | 'browser') => {
     const incoming = p[key];
     if (!incoming || typeof incoming !== 'object') return base[key];
     return { ...base[key], ...(incoming as Record<string, unknown>) };
@@ -111,5 +123,6 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
     appearance: section('appearance'),
     terminal: section('terminal'),
     devtools: section('devtools'),
+    browser: section('browser'),
   };
 }

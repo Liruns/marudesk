@@ -30,6 +30,8 @@ import { reapplyZoom, zoomActive } from './zoom';
 import { registerDownloadHandler } from './downloads';
 import { recordTitle, recordVisit } from '../history';
 import { openExternalUrl } from '../safe-open';
+import { resolveAddressBarInput, searchBaseFor } from './url';
+import { getSettingsSync } from '../settings';
 
 /**
  * Tab lifecycle: create / activate / close / reorder, plus the mount and dispose
@@ -285,13 +287,18 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
   // Newly-created tabs start hidden; activation makes them visible.
   hideTab(rec);
 
-  const target = initialUrl ?? NEW_TAB_URL;
-  // about:blank loads synchronously; only kick off the load for http(s).
-  if (/^https?:\/\//i.test(target)) {
-    void view.webContents.loadURL(target);
-  } else {
-    void view.webContents.loadURL('about:blank');
-  }
+  // Resolve raw input the same way the address bar does, so "google.com" or a
+  // bare search query opened from the New Tab page actually navigates instead of
+  // landing on about:blank (the old `/^https?/` gate only loaded explicit URLs).
+  // resolveAddressBarInput returns '' for empty, 'about:blank', or a loadable
+  // http(s)/search URL — so `|| NEW_TAB_URL` covers the blank-tab case.
+  const resolved = initialUrl
+    ? resolveAddressBarInput(
+        initialUrl,
+        searchBaseFor(getSettingsSync().browser.searchEngine),
+      )
+    : '';
+  void view.webContents.loadURL(resolved || NEW_TAB_URL);
 
   return rec;
 }
@@ -302,6 +309,57 @@ export function createAndActivateTab(
 ): TabRecord {
   const rec = createTab(kind, initialUrl);
   activateTab(rec.id);
+  return rec;
+}
+
+/**
+ * Replace tab `oldId` in place with a fresh tab of `kind` (optionally loading
+ * `initialUrl`), keeping the old tab's slot in the strip. This is what the New
+ * Tab page uses so clicking a launcher (or entering a URL) turns *that* tab into
+ * the chosen kind instead of spawning a second tab beside it.
+ *
+ * The replacement gets a new id (a web tab needs a freshly-wired WebContentsView,
+ * which createTab builds), so we slot it into the old index and dispose the old
+ * record. Returns the new record, or null if `oldId` no longer exists.
+ */
+export function replaceTab(
+  oldId: string,
+  kind: TabKind,
+  initialUrl?: string,
+): TabRecord | null {
+  const old = getTab(oldId);
+  if (!old) return null;
+  const order = tabKeys();
+  const idx = order.indexOf(oldId);
+
+  // Build the replacement first (appends to the map; web tabs start hidden).
+  const rec = createTab(kind, initialUrl);
+
+  // Tear the old tab down (web view + any DevTools); feature tabs have none.
+  detachCdp(old);
+  closeChromeDevtools(old);
+  if (old.view) {
+    try {
+      getHost()?.contentView.removeChildView(old.view);
+    } catch {
+      // ignore if already removed
+    }
+    old.view.webContents.close();
+  }
+  const wasActive = getActiveTabId() === oldId;
+  deleteTab(oldId);
+
+  // Slot the replacement into the old position so the strip doesn't jump.
+  if (idx >= 0) {
+    const next = order.slice();
+    next.splice(idx, 1, rec.id);
+    reorderTabRecords(next);
+  }
+
+  // Activate the replacement when it took over the active slot (the common
+  // case — converting the active New Tab); otherwise just refresh the strip.
+  if (wasActive) activateTab(rec.id);
+  else pushState();
   return rec;
 }
 

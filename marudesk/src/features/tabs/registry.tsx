@@ -31,7 +31,7 @@ export type TabKindDef = {
  */
 export const tabKinds: Record<TabKind, TabKindDef> = {
   web: { title: 'New tab', icon: Globe, render: () => <BrowserCanvas /> },
-  home: { title: 'New Tab', icon: House, render: () => <HomeView /> },
+  home: { title: 'New Tab', icon: House, render: (tabId) => <HomeView tabId={tabId} /> },
   terminal: {
     title: 'Terminal',
     icon: SquareTerminal,

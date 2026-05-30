@@ -3,10 +3,12 @@ import type { ModelDef } from '../../shared/providers';
 import type { ProviderDriver } from './types';
 import {
   MAX_TOKENS,
+  ProviderAuthError,
   SYSTEM_PROMPT,
   TOOL_NAME,
   finishProposal,
   geminiSchema,
+  isAuthStatus,
   prettifyId,
   TOOL_INPUT_SCHEMA,
 } from './tool';
@@ -121,12 +123,14 @@ async function listModels(apiKey: string): Promise<ModelDef[]> {
     { headers: { 'x-goog-api-key': apiKey } },
   );
   if (!resp.ok) {
-    throw new Error(
-      `Gemini /v1beta/models returned HTTP ${resp.status}: ${(await resp
-        .text()
-        .catch(() => ''))
-        .slice(0, 200)}`,
-    );
+    const detail = (await resp.text().catch(() => '')).slice(0, 200);
+    const message = `Gemini /v1beta/models returned HTTP ${resp.status}: ${detail}`;
+    // Gemini reports a bad key as 400 API_KEY_INVALID rather than 401.
+    const badKey =
+      isAuthStatus(resp.status) ||
+      (resp.status === 400 && /api[_ ]?key/i.test(detail));
+    if (badKey) throw new ProviderAuthError(message, resp.status);
+    throw new Error(message);
   }
   const json = (await resp.json()) as {
     models?: {

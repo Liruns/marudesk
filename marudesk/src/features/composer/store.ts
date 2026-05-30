@@ -19,12 +19,66 @@ type ComposerTab = 'captures' | 'composer';
 
 const DEFAULT_PROVIDER: ProviderId = 'anthropic';
 
+const PROVIDER_KEY = 'marudesk.composer.provider';
+const MODELS_KEY = 'marudesk.composer.modelByProvider';
+
 function defaultModel(provider: ProviderId): string {
   return getProvider(provider).defaultModelId;
 }
 
 function staticModels(provider: ProviderId): ModelDef[] {
   return getProvider(provider).models;
+}
+
+/** Best-effort read of the persisted provider; falls back to the default. */
+function loadPersistedProvider(): ProviderId {
+  try {
+    const raw = localStorage.getItem(PROVIDER_KEY);
+    if (raw && PROVIDERS.some((p) => p.id === raw)) return raw as ProviderId;
+  } catch {
+    // localStorage may be unavailable; use the default.
+  }
+  return DEFAULT_PROVIDER;
+}
+
+/** Merge any persisted per-provider model choices over the static defaults. */
+function loadPersistedModelMap(): Record<ProviderId, string> {
+  const base = PROVIDERS.reduce(
+    (acc, p) => {
+      acc[p.id] = p.defaultModelId;
+      return acc;
+    },
+    {} as Record<ProviderId, string>,
+  );
+  try {
+    const raw = localStorage.getItem(MODELS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      for (const p of PROVIDERS) {
+        const v = parsed[p.id];
+        if (typeof v === 'string' && v.length > 0) base[p.id] = v;
+      }
+    }
+  } catch {
+    // Corrupt/absent — keep the static defaults.
+  }
+  return base;
+}
+
+function persistProvider(provider: ProviderId): void {
+  try {
+    localStorage.setItem(PROVIDER_KEY, provider);
+  } catch {
+    // best-effort
+  }
+}
+
+function persistModelMap(map: Record<ProviderId, string>): void {
+  try {
+    localStorage.setItem(MODELS_KEY, JSON.stringify(map));
+  } catch {
+    // best-effort
+  }
 }
 
 type ComposerState = {
@@ -52,6 +106,15 @@ type ComposerState = {
   keyInput: string;
   keyBusy: boolean;
   keyError: string | null;
+
+  // "Test connection" result per provider (verifies a saved key works by
+  // hitting the live /models endpoint via providers:list-models).
+  testByProvider: Record<ProviderId, ConnectionTest>;
+};
+
+type ConnectionTest = {
+  status: 'idle' | 'testing' | 'ok' | 'error';
+  message: string | null;
 };
 
 type ComposerActions = {
@@ -60,6 +123,9 @@ type ComposerActions = {
 
   setSelectedProvider: (id: ProviderId) => void;
   setSelectedModel: (id: string) => void;
+  /** Set the active model for an arbitrary provider (used by Settings, where
+   * the edited provider may differ from the composer's selected one). */
+  setModelFor: (provider: ProviderId, modelId: string) => void;
 
   refreshProviderStatus: () => Promise<void>;
   refreshModels: (provider: ProviderId, force?: boolean) => Promise<void>;
@@ -68,6 +134,7 @@ type ComposerActions = {
   setKeyInput: (value: string) => void;
   saveProviderKey: () => Promise<void>;
   clearProviderKey: () => Promise<void>;
+  testConnection: (provider: ProviderId) => Promise<void>;
 
   propose: () => Promise<void>;
   clearLastResult: () => void;
@@ -95,12 +162,15 @@ function hasKeyFor(
   return !!list.find((s) => s.id === provider)?.hasKey;
 }
 
-const initialModelByProvider = PROVIDERS.reduce(
+const initialProvider = loadPersistedProvider();
+const initialModelByProvider = loadPersistedModelMap();
+
+const initialTestByProvider = PROVIDERS.reduce(
   (acc, p) => {
-    acc[p.id] = p.defaultModelId;
+    acc[p.id] = { status: 'idle', message: null };
     return acc;
   },
-  {} as Record<ProviderId, string>,
+  {} as Record<ProviderId, ConnectionTest>,
 );
 
 const initialModelsByProvider = PROVIDERS.reduce(
@@ -134,8 +204,8 @@ export const useComposerStore = create<ComposerState & ComposerActions>(
     proposing: false,
     lastResult: null,
 
-    selectedProvider: DEFAULT_PROVIDER,
-    selectedModel: defaultModel(DEFAULT_PROVIDER),
+    selectedProvider: initialProvider,
+    selectedModel: initialModelByProvider[initialProvider],
     modelByProvider: initialModelByProvider,
 
     modelsByProvider: initialModelsByProvider,
@@ -146,10 +216,12 @@ export const useComposerStore = create<ComposerState & ComposerActions>(
     statusChecked: false,
     statusError: null,
 
-    keyProvider: DEFAULT_PROVIDER,
+    keyProvider: initialProvider,
     keyInput: '',
     keyBusy: false,
     keyError: null,
+
+    testByProvider: initialTestByProvider,
 
     setTab: (tab) => set({ tab }),
     setPrompt: (prompt) => set({ prompt }),
@@ -159,14 +231,27 @@ export const useComposerStore = create<ComposerState & ComposerActions>(
         selectedProvider: id,
         selectedModel: state.modelByProvider[id] ?? defaultModel(id),
       }));
+      persistProvider(id);
       void get().refreshModels(id);
     },
 
-    setSelectedModel: (id) =>
-      set((state) => ({
-        selectedModel: id,
-        modelByProvider: { ...state.modelByProvider, [state.selectedProvider]: id },
-      })),
+    setSelectedModel: (id) => get().setModelFor(get().selectedProvider, id),
+
+    setModelFor: (provider, modelId) =>
+      set((state) => {
+        const modelByProvider = {
+          ...state.modelByProvider,
+          [provider]: modelId,
+        };
+        persistModelMap(modelByProvider);
+        return {
+          modelByProvider,
+          // Keep the live selection in sync only when editing the active
+          // provider; otherwise just record the choice for later.
+          selectedModel:
+            state.selectedProvider === provider ? modelId : state.selectedModel,
+        };
+      }),
 
     refreshProviderStatus: async () => {
       try {
@@ -220,13 +305,12 @@ export const useComposerStore = create<ComposerState & ComposerActions>(
             const stillValid = models.some((m) => m.id === state.selectedModel);
             if (!stillValid) {
               const next = models[0].id;
-              set({
-                selectedModel: next,
-                modelByProvider: {
-                  ...state.modelByProvider,
-                  [provider]: next,
-                },
-              });
+              const modelByProvider = {
+                ...state.modelByProvider,
+                [provider]: next,
+              };
+              persistModelMap(modelByProvider);
+              set({ selectedModel: next, modelByProvider });
             }
           }
         } else {
@@ -296,10 +380,51 @@ export const useComposerStore = create<ComposerState & ComposerActions>(
           keyProvider,
         );
         await get().refreshProviderStatus();
+        // Drop any stale "connection ok" badge for the now-keyless provider.
+        set((s) => ({
+          testByProvider: {
+            ...s.testByProvider,
+            [keyProvider]: { status: 'idle', message: null },
+          },
+        }));
       } catch (err) {
         set({ keyError: toMessage(err) });
       } finally {
         set({ keyBusy: false });
+      }
+    },
+
+    testConnection: async (provider) => {
+      if (get().testByProvider[provider]?.status === 'testing') return;
+      set((s) => ({
+        testByProvider: {
+          ...s.testByProvider,
+          [provider]: { status: 'testing', message: null },
+        },
+      }));
+      try {
+        // A cheap authenticated round-trip: list-models 401s on a bad key.
+        const models = await window.marudesk.invoke(
+          'providers:list-models',
+          provider,
+        );
+        set((s) => ({
+          modelsByProvider: { ...s.modelsByProvider, [provider]: models },
+          testByProvider: {
+            ...s.testByProvider,
+            [provider]: {
+              status: 'ok',
+              message: `Connected — ${models.length} model${models.length === 1 ? '' : 's'} available.`,
+            },
+          },
+        }));
+      } catch (err) {
+        set((s) => ({
+          testByProvider: {
+            ...s.testByProvider,
+            [provider]: { status: 'error', message: toMessage(err) },
+          },
+        }));
       }
     },
 

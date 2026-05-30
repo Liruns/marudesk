@@ -63,6 +63,7 @@ export const CHANNELS = {
     'browser:download-action',
     'browser:downloads-clear',
     'browser:tabs-new',
+    'browser:tabs-replace',
     'browser:tabs-close',
     'browser:tabs-activate',
     'browser:tabs-snapshot',
@@ -75,6 +76,8 @@ export const CHANNELS = {
     'devtools:open-chrome',
     'devtools:cdp-send',
     'devtools:set-dock-bounds',
+    'devtools:popout-open',
+    'devtools:popout-close',
   ],
   workspace: [
     'workspace:open',
@@ -182,6 +185,14 @@ export interface IpcMap {
     args: [payload: { kind?: TabKind; url?: string; path?: string }];
     result: string;
   };
+  // Convert an existing tab into another kind in place (keeps its strip slot).
+  // The New Tab page uses this so a launcher click / URL entry replaces the home
+  // tab rather than opening a second tab. Returns the new tab id, or null if the
+  // target tab no longer exists.
+  'browser:tabs-replace': {
+    args: [payload: { id: string; kind?: TabKind; url?: string; path?: string }];
+    result: string | null;
+  };
   'browser:tabs-close': { args: [id: string]; result: boolean };
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
@@ -214,6 +225,13 @@ export interface IpcMap {
   // Drag-time synchronous web-view shrink while dragging the dock splitter;
   // null = drag ended, normal set-bounds flow resumes.
   'devtools:set-dock-bounds': { args: [rect: Rect | null]; result: void };
+  // Pop the React DevTools out into its own framed BrowserWindow bound to the
+  // given web tab (electron/browser/devtools-window.ts). The in-window dock
+  // detaches its CDP session first; the popup re-attaches (single client per
+  // page). Returns false when the tab isn't a web tab. `popout-close` closes the
+  // single popup (called by the popup's "Dock back" button before window.close).
+  'devtools:popout-open': { args: [payload: { tabId: string }]; result: boolean };
+  'devtools:popout-close': { args: []; result: void };
 
   // workspace
   'workspace:open': { args: []; result: WorkspaceSummary | null };

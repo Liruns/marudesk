@@ -12,6 +12,27 @@ import type { ProviderId } from '../../shared/providers';
 export const TOOL_NAME = 'propose_patch';
 export const MAX_TOKENS = 4096;
 
+/**
+ * Raised by a driver's `listModels` when the provider rejects the credential
+ * (HTTP 401/403). Distinct from transient/network failures so callers can tell
+ * "your key is wrong" apart from "the network hiccuped" — the former should
+ * surface to the user (and power the Settings "Test connection" button), the
+ * latter should fall back to the static catalog.
+ */
+export class ProviderAuthError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ProviderAuthError';
+    this.status = status;
+  }
+}
+
+/** True when an HTTP status means the credential was rejected. */
+export function isAuthStatus(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
 export const SYSTEM_PROMPT = `You are marudesk, an assistant that proposes edits to a user's local workspace.
 
 You receive:

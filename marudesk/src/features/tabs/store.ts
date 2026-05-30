@@ -31,6 +31,13 @@ type TabsActions = {
   setNavState: (state: NavState) => void;
   setTabsState: (snapshot: TabsSnapshot) => void;
   newTab: (kind?: TabKind, url?: string) => Promise<void>;
+  /**
+   * Convert an existing tab into another kind in place (keeps its strip slot).
+   * The New Tab page uses this so a launcher click / URL entry replaces the home
+   * tab instead of opening a second tab beside it. Resolves with the new tab id
+   * (or null if the target vanished) so a caller can repoint a grid pane.
+   */
+  replaceTab: (id: string, kind?: TabKind, url?: string) => Promise<string | null>;
   closeTab: (id: string) => Promise<void>;
   activateTab: (id: string) => Promise<void>;
   refreshTabsSnapshot: () => Promise<void>;
@@ -58,6 +65,14 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
 
   newTab: async (kind = 'home', url) => {
     await window.marudesk.invoke('browser:tabs-new', { kind, url });
+  },
+
+  replaceTab: async (id, kind = 'home', url) => {
+    return await window.marudesk.invoke('browser:tabs-replace', {
+      id,
+      kind,
+      url,
+    });
   },
 
   closeTab: async (id) => {

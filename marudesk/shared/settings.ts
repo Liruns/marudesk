@@ -23,6 +23,9 @@ export type ThemeMode = 'dark' | 'light' | 'system';
  */
 export type DevtoolsDock = 'right' | 'bottom' | 'chrome';
 
+/** Address-bar search provider used when input isn't a URL. */
+export type SearchEngine = 'google' | 'duckduckgo' | 'bing';
+
 export type AppSettings = {
   version: 1;
   appearance: {
@@ -46,6 +49,10 @@ export type AppSettings = {
     /** Where the custom browser DevTools opens by default. */
     defaultDock: DevtoolsDock;
   };
+  browser: {
+    /** Address-bar search provider for non-URL input. */
+    searchEngine: SearchEngine;
+  };
 };
 
 /**
@@ -59,6 +66,7 @@ export type SettingsPatch = {
   appearance?: Partial<AppSettings['appearance']>;
   terminal?: Partial<AppSettings['terminal']>;
   devtools?: Partial<AppSettings['devtools']>;
+  browser?: Partial<AppSettings['browser']>;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -78,6 +86,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   devtools: {
     defaultDock: 'right',
   },
+  browser: {
+    searchEngine: 'google',
+  },
 };
 
 export const FONT_SIZE_MIN = 8;
@@ -89,6 +100,7 @@ export const UI_ZOOM_BASE_PX = 16;
 
 const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
+const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing'];
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
@@ -134,6 +146,7 @@ export function sanitizeSettings(
   const a = asRecord(root.appearance);
   const t = asRecord(root.terminal);
   const d = asRecord(root.devtools);
+  const b = asRecord(root.browser);
 
   return {
     version: 1,
@@ -172,6 +185,13 @@ export function sanitizeSettings(
     },
     devtools: {
       defaultDock: asEnum(d.defaultDock, DOCKS, base.devtools.defaultDock),
+    },
+    browser: {
+      searchEngine: asEnum(
+        b.searchEngine,
+        SEARCH_ENGINES,
+        base.browser.searchEngine,
+      ),
     },
   };
 }

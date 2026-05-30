@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Save, X } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
+import { BoxModel } from './BoxModel';
 import type { CssProperty, CssStyle } from '../types';
 
 /**
@@ -186,7 +187,16 @@ export function StylesPane() {
   const styles = useDevtoolsStore((s) => s.styles);
   const loading = useDevtoolsStore((s) => s.stylesLoading);
   const selectedId = useDevtoolsStore((s) => s.selectedId);
+  const boxModel = useDevtoolsStore((s) => s.boxModel);
   const [computedOpen, setComputedOpen] = useState(false);
+  const [computedFilter, setComputedFilter] = useState('');
+
+  const computedRows = useMemo(() => {
+    const all = styles?.computed ?? [];
+    const q = computedFilter.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((c) => c.name.includes(q) || c.value.toLowerCase().includes(q));
+  }, [styles, computedFilter]);
 
   if (selectedId === null) {
     return (
@@ -236,6 +246,15 @@ export function StylesPane() {
         />
       ))}
 
+      {boxModel ? (
+        <div className="border-b border-subtle/60">
+          <div className="text-caption uppercase tracking-wide text-fg-tertiary px-3 pt-2">
+            Box model
+          </div>
+          <BoxModel model={boxModel} />
+        </div>
+      ) : null}
+
       <div className="px-1 py-1">
         <button
           type="button"
@@ -250,13 +269,26 @@ export function StylesPane() {
         </button>
         {computedOpen ? (
           <div className="pl-2">
-            {styles.computed.map((c) => (
-              <div key={c.name} className="font-mono text-caption leading-snug">
-                <span className="text-fg-tertiary">{c.name}</span>
-                <span className="text-fg-tertiary">: </span>
-                <span className="text-fg-secondary">{c.value}</span>
-              </div>
-            ))}
+            <input
+              value={computedFilter}
+              onChange={(e) => setComputedFilter(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="Filter"
+              aria-label="Filter computed styles"
+              className="mb-1 h-6 w-full rounded bg-surface-2 px-2 font-mono text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
+            {computedRows.length === 0 ? (
+              <div className="text-caption text-fg-tertiary px-1">No matching properties</div>
+            ) : (
+              computedRows.map((c) => (
+                <div key={c.name} className="font-mono text-caption leading-snug">
+                  <span className="text-fg-tertiary">{c.name}</span>
+                  <span className="text-fg-tertiary">: </span>
+                  <span className="text-fg-secondary">{c.value}</span>
+                </div>
+              ))
+            )}
           </div>
         ) : null}
       </div>

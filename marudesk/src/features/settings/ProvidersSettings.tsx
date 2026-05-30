@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { Badge, Button } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { PROVIDERS } from '../../../shared/providers';
 import { useComposerStore } from '../composer/store';
 
 /**
- * The AI Providers category of Settings — API-key management, formerly a
- * standalone modal (ProvidersDialog). It reads the key-editor state from the
+ * The AI Providers category of Settings — API-key management, per-provider model
+ * selection, and a connection test. It reads the key-editor state from the
  * composer store (shared with the Composer's provider picker), so saving a key
  * here immediately unlocks proposals there.
  */
@@ -18,11 +18,20 @@ export function ProvidersSettings() {
   const error = useComposerStore((s) => s.keyError);
   const status = useComposerStore((s) => s.providerStatus);
   const statusChecked = useComposerStore((s) => s.statusChecked);
+  const modelsByProvider = useComposerStore((s) => s.modelsByProvider);
+  const modelsLoading = useComposerStore(
+    (s) => s.modelsLoadingByProvider[provider],
+  );
+  const modelByProvider = useComposerStore((s) => s.modelByProvider);
+  const test = useComposerStore((s) => s.testByProvider[provider]);
   const setProvider = useComposerStore((s) => s.selectKeyProvider);
   const setKey = useComposerStore((s) => s.setKeyInput);
+  const setModelFor = useComposerStore((s) => s.setModelFor);
   const save = useComposerStore((s) => s.saveProviderKey);
   const clear = useComposerStore((s) => s.clearProviderKey);
   const refreshStatus = useComposerStore((s) => s.refreshProviderStatus);
+  const refreshModels = useComposerStore((s) => s.refreshModels);
+  const testConnection = useComposerStore((s) => s.testConnection);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [reveal, setReveal] = useState(false);
 
@@ -37,10 +46,19 @@ export function ProvidersSettings() {
   }, [provider]);
 
   const def = PROVIDERS.find((p) => p.id === provider);
-  if (!def) return null;
   const hasKey = !!status.find((s) => s.id === provider)?.hasKey;
-  const oauthAvailable =
-    def.authModes.includes('oauth') && def.oauthStatus !== 'not-implemented';
+
+  // Populate the live model list for the provider being viewed (only when a key
+  // exists — refreshModels no-ops the network call otherwise).
+  useEffect(() => {
+    if (hasKey) void refreshModels(provider);
+  }, [provider, hasKey, refreshModels]);
+
+  if (!def) return null;
+  const models = modelsByProvider[provider] ?? def.models;
+  const activeModel = modelByProvider[provider] ?? def.defaultModelId;
+  const activeModelLabel =
+    models.find((m) => m.id === activeModel)?.label ?? activeModel;
 
   return (
     <div className="flex flex-col gap-4">
@@ -79,7 +97,7 @@ export function ProvidersSettings() {
       </div>
 
       <div className="rounded-lg border border-subtle bg-surface-1 p-4 flex flex-col gap-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant={hasKey ? 'accent' : 'neutral'}>
             {hasKey ? 'API key set' : 'no key'}
           </Badge>
@@ -121,7 +139,7 @@ export function ProvidersSettings() {
           </div>
         </label>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="primary"
             size="sm"
@@ -131,30 +149,75 @@ export function ProvidersSettings() {
             {busy ? 'Saving…' : 'Save key'}
           </Button>
           {hasKey ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void clear()}
-              disabled={busy}
-            >
-              Remove key
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void testConnection(provider)}
+                disabled={busy || test?.status === 'testing'}
+              >
+                {test?.status === 'testing' ? 'Testing…' : 'Test connection'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void clear()}
+                disabled={busy}
+              >
+                Remove key
+              </Button>
+            </>
           ) : null}
         </div>
 
-        {def.authModes.includes('oauth') ? (
-          <div className="rounded-md border border-subtle bg-surface-2 px-3 py-2 flex items-center justify-between gap-2">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-body-sm text-fg-secondary">OAuth sign-in</span>
-              <span className="text-caption text-fg-tertiary">
-                {oauthAvailable
-                  ? 'Sign in with your provider account.'
-                  : 'Scaffold reserved — flow not yet implemented in this build.'}
-              </span>
-            </div>
-            <Button variant="ghost" size="sm" disabled={!oauthAvailable}>
-              {oauthAvailable ? 'Sign in' : 'Coming soon'}
-            </Button>
+        {/* Model selection — picks the active model used for proposals. */}
+        <label className="flex flex-col gap-1.5">
+          <span className="text-caption uppercase tracking-wider text-fg-tertiary flex items-center gap-1.5">
+            Model
+            {modelsLoading ? (
+              <Loader2 size={11} className="animate-spin text-fg-tertiary" />
+            ) : null}
+          </span>
+          <select
+            value={activeModel}
+            onChange={(e) => setModelFor(provider, e.target.value)}
+            className={cn(
+              'h-9 rounded-md bg-surface-page border border-default px-2.5',
+              'text-body-sm text-fg-primary focus:outline-none focus:border-accent',
+              'transition-colors duration-fast',
+            )}
+          >
+            {models.some((m) => m.id === activeModel) ? null : (
+              <option value={activeModel}>{activeModelLabel}</option>
+            )}
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <span className="text-caption text-fg-tertiary">
+            {hasKey
+              ? 'Live list fetched from the provider; falls back to the built-in catalog.'
+              : 'Add a key to fetch the live model list.'}
+          </span>
+        </label>
+
+        {test && test.status !== 'idle' && test.status !== 'testing' ? (
+          <div
+            className={cn(
+              'flex items-start gap-2 rounded-md px-3 py-2 text-body-sm break-words',
+              test.status === 'ok'
+                ? 'bg-success-subtle/40 text-fg-secondary'
+                : 'bg-error-subtle/40 text-fg-secondary',
+            )}
+          >
+            {test.status === 'ok' ? (
+              <CheckCircle2 size={14} className="text-success shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
+            )}
+            <span>{test.message}</span>
           </div>
         ) : null}
 

@@ -13,7 +13,7 @@ import { registerPatchHandlers } from './patch';
 import { registerSecretsHandlers } from './secrets';
 import { registerLlmHandlers } from './llm';
 import { registerModelsHandlers } from './models';
-import { registerSettingsHandlers } from './settings';
+import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { openExternalUrl } from './safe-open';
@@ -177,6 +177,10 @@ void app.whenReady().then(() => {
     getMainWindow,
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,
   });
+  // Warm the settings cache so getSettingsSync() (the address-bar/new-tab search
+  // engine resolver) reflects the persisted choice on the very first navigation,
+  // not just after the renderer's settings:get round-trips.
+  void getSettings();
   void createMainWindow();
 
   app.on('activate', () => {

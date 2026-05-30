@@ -2,8 +2,6 @@ import {
   getActive,
   getLastBounds,
   getPaneBounds,
-  pushState,
-  setActiveTabId,
   setLastBounds,
   setPaneBounds,
   tabValues,
@@ -138,21 +136,14 @@ export function clearBrowserPaneBounds(): void {
   setPaneBounds(null);
   // Hide every web view first so nothing is left stranded.
   for (const rec of tabValues()) hideTab(rec);
-  // HIGH-1 defensive: the renderer's activateTab IPC and this clear-pane-bounds
-  // IPC may arrive in either order. If activeTabId is already set to the
-  // survivor, applyBoundsToActive shows it correctly. If it isn't (the
-  // activateTab hasn't been processed yet), fall back to the first live web tab
-  // so the stage is never left blank.
-  if (getActive()?.view) {
-    applyBoundsToActive();
-  } else {
-    const firstWeb = tabValues().find((r) => r.view);
-    if (firstWeb) {
-      setActiveTabId(firstWeb.id);
-      showTab(firstWeb);
-      pushState();
-    }
-  }
+  // Reveal the active tab's web view. MUST go through showTab (not
+  // applyBoundsToActive): we just hid every view above, and applyBoundsToActive
+  // only repositions — it never calls setVisible(true). Skipping showTab here
+  // was the "browser disappears after collapsing the grid to just the browser"
+  // bug: the survivor stayed hidden. A feature tab (no view) correctly shows
+  // nothing — its React surface paints the stage.
+  const active = getActive();
+  if (active?.view) showTab(active);
 }
 
 export function setBrowserVisible(visible: boolean): void {

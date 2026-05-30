@@ -3,10 +3,12 @@ import type { ModelDef } from '../../shared/providers';
 import type { ProviderDriver } from './types';
 import {
   MAX_TOKENS,
+  ProviderAuthError,
   SYSTEM_PROMPT,
   TOOL_INPUT_SCHEMA,
   TOOL_NAME,
   finishProposal,
+  isAuthStatus,
   prettifyId,
 } from './tool';
 
@@ -119,12 +121,10 @@ async function listModels(apiKey: string): Promise<ModelDef[]> {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
   if (!resp.ok) {
-    throw new Error(
-      `OpenAI /v1/models returned HTTP ${resp.status}: ${(await resp
-        .text()
-        .catch(() => ''))
-        .slice(0, 200)}`,
-    );
+    const detail = (await resp.text().catch(() => '')).slice(0, 200);
+    const message = `OpenAI /v1/models returned HTTP ${resp.status}: ${detail}`;
+    if (isAuthStatus(resp.status)) throw new ProviderAuthError(message, resp.status);
+    throw new Error(message);
   }
   const json = (await resp.json()) as { data?: { id: string }[] };
   const items = json.data ?? [];

@@ -7,6 +7,7 @@ import {
 import { defineHandler } from './ipc/define-handler';
 import { getProviderApiKey } from './secrets';
 import { DRIVERS } from './providers';
+import { ProviderAuthError } from './providers/tool';
 
 type CacheEntry = {
   models: ModelDef[];
@@ -61,6 +62,11 @@ export async function getModelsFor(provider: ProviderId): Promise<ModelDef[]> {
     cache.set(provider, { models: merged, fetchedAt: Date.now() });
     return merged;
   } catch (err) {
+    // A rejected credential is a real, actionable error — surface it so the
+    // picker doesn't silently show stale models for a bad key and so the
+    // Settings "Test connection" button can report failure. Transient/network
+    // errors still fall back to the static catalog.
+    if (err instanceof ProviderAuthError) throw err;
     console.warn(`[models] failed to fetch ${provider}:`, (err as Error).message);
     return def.models;
   }

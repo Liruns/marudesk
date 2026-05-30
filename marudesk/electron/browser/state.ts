@@ -76,6 +76,10 @@ const tabs = new Map<string, TabRecord>();
 let activeTabId: string | null = null;
 let untitledSeq = 0;
 let host: BrowserWindow | null = null;
+// The single pop-out DevTools window (electron/browser/devtools-window.ts), or
+// null when docked. Tracked here (the package leaf) so cdp.ts can route CDP
+// events to it while it's open without importing the window module (no cycle).
+let devtoolsWindow: BrowserWindow | null = null;
 let lastBounds: Bounds = { x: 0, y: 0, width: 0, height: 0 };
 // Grid mode (Phase F): when the renderer's tab grid is active it pushes the
 // pixel rect of every web-tab pane here. null = grid off (the single active-tab
@@ -92,6 +96,16 @@ export function getHost(): BrowserWindow | null {
 
 export function setHost(win: BrowserWindow | null): void {
   host = win;
+}
+
+/* ── pop-out DevTools window ────────────────────────────────────────────── */
+
+export function getDevtoolsWindow(): BrowserWindow | null {
+  return devtoolsWindow;
+}
+
+export function setDevtoolsWindow(win: BrowserWindow | null): void {
+  devtoolsWindow = win;
 }
 
 /* ── active tab ─────────────────────────────────────────────────────────── */

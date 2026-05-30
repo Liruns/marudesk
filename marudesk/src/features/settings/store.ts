@@ -15,6 +15,7 @@ export type SettingsCategory =
   | 'appearance'
   | 'editor'
   | 'terminal'
+  | 'browser'
   | 'providers'
   | 'devtools'
   | 'about';
@@ -79,6 +80,7 @@ function mergePatch(base: AppSettings, patch: SettingsPatch): AppSettings {
     appearance: { ...base.appearance, ...(patch.appearance ?? {}) },
     terminal: { ...base.terminal, ...(patch.terminal ?? {}) },
     devtools: { ...base.devtools, ...(patch.devtools ?? {}) },
+    browser: { ...base.browser, ...(patch.browser ?? {}) },
   };
 }
 

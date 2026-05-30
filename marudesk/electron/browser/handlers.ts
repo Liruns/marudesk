@@ -20,6 +20,7 @@ import {
 // (setBrowserBounds reused for devtools:set-dock-bounds — the drag-time path.)
 import { toggleChromeDevtools } from './devtools';
 import { attachCdp, detachCdp, sendCdp } from './cdp';
+import { closeDevtoolsWindow, openDevtoolsWindow } from './devtools-window';
 import { exitInspect, setInspectMode } from './inspect';
 import { findInActive, stopFindInActive } from './find';
 import { zoomActive } from './zoom';
@@ -35,6 +36,7 @@ import {
   closeTab,
   createAndActivateTab,
   reorderTabs,
+  replaceTab,
 } from './tabs';
 
 /**
@@ -54,6 +56,30 @@ function toBounds(v: unknown, field = 'bounds'): Bounds {
     width: num(o.width, `${field}.width`),
     height: num(o.height, `${field}.height`),
   };
+}
+
+/**
+ * Resolve a tabs-new / tabs-replace payload to a { kind, url } pair. Accepts a
+ * bare url string (legacy = web navigation) or { kind?, url?, path? }. A url
+ * with no kind means web; an editor tab carries a workspace-relative `path`
+ * instead of a url. Untrusted renderer input — the kind is validated by
+ * isTabKind and the url/path are passed through to createTab (which re-resolves
+ * the url and re-validates any file path on read/write).
+ */
+function parseTabSpec(payload: unknown): { kind: TabKind; url: string | undefined } {
+  let kind: TabKind = 'home';
+  let url: string | undefined;
+  if (typeof payload === 'string') {
+    return { kind: 'web', url: payload };
+  }
+  if (payload && typeof payload === 'object') {
+    const p = payload as { kind?: unknown; url?: unknown; path?: unknown };
+    if (isTabKind(p.kind)) kind = p.kind;
+    else if (typeof p.url === 'string') kind = 'web';
+    if (typeof p.url === 'string') url = p.url;
+    else if (kind === 'editor' && typeof p.path === 'string') url = p.path;
+  }
+  return { kind, url };
 }
 
 export function registerBrowserHandlers(deps: {
@@ -254,30 +280,32 @@ export function registerBrowserHandlers(deps: {
     setBrowserBounds(toBounds(rect));
   });
 
+  // Pop the React DevTools out into its own window for the given web tab. Same
+  // web-tab guard as devtools:open; the renderer dock detaches its session
+  // before calling this and the popup re-attaches (single CDP client per page).
+  defineHandler('devtools:popout-open', ([payload]) => {
+    const tabId = str(obj(payload).tabId, 'tabId');
+    const rec = getTab(tabId);
+    if (!rec || rec.kind !== 'web' || !rec.view) return false;
+    return openDevtoolsWindow(tabId);
+  });
+
+  defineHandler('devtools:popout-close', () => {
+    closeDevtoolsWindow();
+  });
+
   defineHandler('browser:tabs-new', ([payload]) => {
-    // Accept a bare url string (legacy = web navigation) or { kind, url }.
-    let kind: TabKind = 'home';
-    let url: string | undefined;
-    if (typeof payload === 'string') {
-      kind = 'web';
-      url = payload;
-    } else if (payload && typeof payload === 'object') {
-      const p = payload as { kind?: unknown; url?: unknown; path?: unknown };
-      if (isTabKind(p.kind)) {
-        kind = p.kind;
-      } else if (typeof p.url === 'string') {
-        // A bare url with no kind means a web navigation.
-        kind = 'web';
-      }
-      if (typeof p.url === 'string') {
-        url = p.url;
-      } else if (kind === 'editor' && typeof p.path === 'string') {
-        // Editor tabs carry a workspace-relative file path instead of a url.
-        url = p.path;
-      }
-    }
+    const { kind, url } = parseTabSpec(payload);
     const rec = createAndActivateTab(kind, url);
     return rec.id;
+  });
+
+  defineHandler('browser:tabs-replace', ([payload]) => {
+    const p = obj(payload);
+    const id = str(p.id, 'id');
+    const { kind, url } = parseTabSpec(payload);
+    const rec = replaceTab(id, kind, url);
+    return rec ? rec.id : null;
   });
 
   defineHandler('browser:tabs-close', ([id]) => closeTab(str(id, 'id')));

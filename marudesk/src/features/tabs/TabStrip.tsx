@@ -1,8 +1,9 @@
-import { useState, type MouseEvent } from 'react';
-import { Globe, Lock, Plus, X } from 'lucide-react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
+import { Columns2, Globe, Lock, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from './store';
 import { useGridStore } from './grid';
+import { leaves } from './layout';
 import { confirmCloseTab, isDirty, useEditorStore } from '../editor/store';
 import { tabKinds } from './registry';
 import type { TabState } from '../../../shared/browser';
@@ -30,8 +31,18 @@ export function TabStrip() {
   const reorderTabs = useTabsStore((s) => s.reorderTabs);
 
   const setDraggingTab = useGridStore((s) => s.setDraggingTab);
+  const layout = useGridStore((s) => s.layout);
+  const clearGrid = useGridStore((s) => s.clear);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+
+  // Tabs tiled together in the grid are kept contiguous in the strip
+  // (grid.syncStripGrouping) and bracketed here as one "split" group, so
+  // combining tabs in a split is also visible as a merge in the strip.
+  const gridIds = new Set(
+    layout ? leaves(layout).map((l) => l.tabId).filter((id): id is string => !!id) : [],
+  );
+  const grouped = gridIds.size >= 2;
 
   const resetDrag = () => {
     setDraggingId(null);
@@ -60,36 +71,59 @@ export function TabStrip() {
     resetDrag();
   };
 
+  const renderChip = (tab: TabState) => (
+    <TabChip
+      key={tab.id}
+      tab={tab}
+      active={tab.id === activeTabId}
+      dragging={tab.id === draggingId}
+      dropTarget={
+        tab.id === overId && draggingId !== null && draggingId !== tab.id
+      }
+      onActivate={() => void activateTab(tab.id)}
+      onClose={() => {
+        if (confirmCloseTab(tab)) void closeTab(tab.id);
+      }}
+      canClose={tabs.length > 1}
+      onDragStart={() => {
+        setDraggingId(tab.id);
+        setDraggingTab(tab.id);
+      }}
+      onDragEnter={() => {
+        if (draggingId && draggingId !== tab.id) setOverId(tab.id);
+      }}
+      onDrop={() => commitReorder(tab.id)}
+      onDragEnd={resetDrag}
+    />
+  );
+
+  // Walk the strip, bracketing the contiguous run of tiled tabs into one group.
+  const stripNodes: ReactNode[] = [];
+  let run: TabState[] = [];
+  const flushRun = () => {
+    if (run.length === 0) return;
+    const ids = run.map((t) => t.id);
+    stripNodes.push(
+      <SplitGroup key={`split-${ids.join('-')}`} onExit={() => clearGrid()}>
+        {run.map(renderChip)}
+      </SplitGroup>,
+    );
+    run = [];
+  };
+  for (const tab of tabs) {
+    if (grouped && gridIds.has(tab.id)) {
+      run.push(tab);
+    } else {
+      flushRun();
+      stripNodes.push(renderChip(tab));
+    }
+  }
+  flushRun();
+
   return (
     <div className="flex items-end gap-0.5 flex-1 min-w-0 h-full pt-1.5">
       <div className="flex items-end gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag">
-        {tabs.map((tab) => (
-          <TabChip
-            key={tab.id}
-            tab={tab}
-            active={tab.id === activeTabId}
-            dragging={tab.id === draggingId}
-            dropTarget={
-              tab.id === overId &&
-              draggingId !== null &&
-              draggingId !== tab.id
-            }
-            onActivate={() => void activateTab(tab.id)}
-            onClose={() => {
-              if (confirmCloseTab(tab)) void closeTab(tab.id);
-            }}
-            canClose={tabs.length > 1}
-            onDragStart={() => {
-              setDraggingId(tab.id);
-              setDraggingTab(tab.id);
-            }}
-            onDragEnter={() => {
-              if (draggingId && draggingId !== tab.id) setOverId(tab.id);
-            }}
-            onDrop={() => commitReorder(tab.id)}
-            onDragEnd={resetDrag}
-          />
-        ))}
+        {stripNodes}
       </div>
       <button
         type="button"
@@ -104,6 +138,44 @@ export function TabStrip() {
       >
         <Plus size={14} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Visual bracket around the tiled tabs of a split. The leading glyph doubles as
+ * an "exit split" control (collapses the grid back to the focused single tab),
+ * giving the strip a way to dissolve a split to match the way it shows one.
+ */
+function SplitGroup({
+  children,
+  onExit,
+}: {
+  children: ReactNode;
+  onExit: () => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Split view group"
+      className={cn(
+        'flex items-end gap-0.5 self-stretch pl-0.5 pr-1 rounded-t-lg',
+        'bg-accent-subtle/15 ring-1 ring-inset ring-accent/25 no-drag',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onExit}
+        aria-label="Exit split view"
+        title="Exit split view"
+        className={cn(
+          'self-center size-6 rounded flex items-center justify-center shrink-0',
+          'text-accent/70 hover:text-accent hover:bg-surface-2 transition-colors duration-fast',
+        )}
+      >
+        <Columns2 size={13} />
+      </button>
+      {children}
     </div>
   );
 }

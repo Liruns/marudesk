@@ -1,10 +1,10 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import { PanelBottom, PanelRight, X } from 'lucide-react';
+import { ExternalLink, PanelBottom, PanelRight, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { useDevtoolsStore, type DevtoolsPanel } from './store';
-import { ElementsPanel } from './panels/ElementsPanel';
-import { ConsolePanel } from './panels/ConsolePanel';
-import { NetworkPanel } from './panels/NetworkPanel';
+import { useDevtoolsStore } from './store';
+import { PANELS } from './panel-list';
+import { PanelTab } from './panels';
+import { DevtoolsBody } from './DevtoolsBody';
 
 /**
  * The DevTools dock: a React flex sibling of the browser stage (mounted by
@@ -19,17 +19,11 @@ import { NetworkPanel } from './panels/NetworkPanel';
  */
 
 const MIN_PAGE = 160;
-const PANELS: { id: DevtoolsPanel; label: string }[] = [
-  { id: 'elements', label: 'Elements' },
-  { id: 'console', label: 'Console' },
-  { id: 'network', label: 'Network' },
-];
 
 export function DevtoolsDock() {
   const side = useDevtoolsStore((s) => s.side);
   const size = useDevtoolsStore((s) => s.size);
   const panel = useDevtoolsStore((s) => s.panel);
-  const session = useDevtoolsStore((s) => s.session);
   const dropped = useDevtoolsStore((s) => s.dropped);
   const ref = useRef<HTMLDivElement>(null);
   const isRight = side === 'right';
@@ -112,6 +106,12 @@ export function DevtoolsDock() {
           </span>
         ) : null}
         <DockIconButton
+          label="Pop out into a window"
+          onClick={() => useDevtoolsStore.getState().popOut()}
+        >
+          <ExternalLink size={15} />
+        </DockIconButton>
+        <DockIconButton
           label={isRight ? 'Dock to bottom' : 'Dock to right'}
           onClick={() => useDevtoolsStore.getState().setSide(isRight ? 'bottom' : 'right')}
         >
@@ -123,67 +123,8 @@ export function DevtoolsDock() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {session === 'detached' ? (
-          <DetachedBanner />
-        ) : session === 'attaching' ? (
-          <div className="h-full flex items-center justify-center text-body-sm text-fg-tertiary">
-            Connecting…
-          </div>
-        ) : panel === 'elements' ? (
-          <ElementsPanel />
-        ) : panel === 'console' ? (
-          <ConsolePanel />
-        ) : (
-          <NetworkPanel />
-        )}
-      </div>
+      <DevtoolsBody />
     </div>
-  );
-}
-
-function DetachedBanner() {
-  const reason = useDevtoolsStore((s) => s.detachReason);
-  return (
-    <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="text-body-sm text-fg-secondary">DevTools disconnected</p>
-      {reason ? (
-        <p className="text-caption text-fg-tertiary max-w-xs break-words">{reason}</p>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => useDevtoolsStore.getState().reconnect()}
-        className="h-7 px-3 rounded-md bg-accent-subtle/50 text-accent text-body-sm hover:bg-accent-subtle/70 transition-colors duration-fast"
-      >
-        Reconnect
-      </button>
-    </div>
-  );
-}
-
-function PanelTab({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? 'page' : undefined}
-      className={cn(
-        'h-7 px-2.5 rounded text-body-sm transition-colors duration-fast',
-        active
-          ? 'bg-surface-page text-fg-primary'
-          : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

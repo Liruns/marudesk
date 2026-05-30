@@ -1,5 +1,5 @@
 import { type WebContents } from 'electron';
-import { getHost, type TabRecord } from './state';
+import { getDevtoolsWindow, getHost, type TabRecord } from './state';
 
 /**
  * CDP relay for the custom DevTools. Rather than host Chromium's DevTools UI
@@ -34,6 +34,16 @@ const ALLOWED_PREFIXES = [
   'Debugger.',
   'Profiler.',
   'Performance.',
+  // Application panel: local/session storage CRUD (DOMStorage) and per-origin
+  // "Clear site data" + usage (Storage). Destructive whole-browser variants
+  // (Storage.clearCookies) are subtracted in BLOCKED_METHODS below.
+  'DOMStorage.',
+  'Storage.',
+  // Rendering panel: media / vision-deficiency emulation only. The prefix would
+  // otherwise also admit environment-override WRITES (UA / geolocation / device
+  // metrics / timezone / locale / sensors) — those are subtracted in
+  // BLOCKED_METHODS below so the prefix can't re-admit them.
+  'Emulation.',
 ];
 // Exact methods outside the allowed domains we still need: auto-attach to
 // out-of-process iframes / workers (Sources). The dangerous Target methods
@@ -64,6 +74,31 @@ const BLOCKED_METHODS = new Set([
   'Page.setInterceptFileChooserDialog',
   'Page.crash',
   'Page.close',
+  // Whole-browser cookie wipe — parallels the blocked Network.clearBrowserCookies.
+  // The Application panel's "Clear site data" uses the origin-scoped
+  // Storage.clearDataForOrigin (still allowed) instead.
+  'Storage.clearCookies',
+  // Storage-domain twins of the blocked Network.* cookie writes + quota/bucket
+  // mutations the Application panel never issues (it only reads cookies and
+  // clears per-origin site data). Kept tight so the 'Storage.' prefix can't be
+  // used to write cookies or fiddle storage buckets.
+  'Storage.setCookies',
+  'Storage.overrideQuotaForOrigin',
+  'Storage.setStorageBucketTracking',
+  'Storage.deleteStorageBucket',
+  // Emulation environment-override WRITES the Rendering panel never issues (it
+  // uses only setEmulatedMedia / setEmulatedVisionDeficiency). Subtracted so the
+  // 'Emulation.' prefix can't spoof UA / geolocation / device / locale / time /
+  // sensors. Mirrors the blocked Network.setUserAgentOverride.
+  'Emulation.setUserAgentOverride',
+  'Emulation.setGeolocationOverride',
+  'Emulation.setDeviceMetricsOverride',
+  'Emulation.setTouchEmulationEnabled',
+  'Emulation.setIdleOverride',
+  'Emulation.setLocaleOverride',
+  'Emulation.setTimezoneOverride',
+  'Emulation.setSensorOverrideEnabled',
+  'Emulation.setSensorOverrideReadings',
 ]);
 
 export function isAllowedCdpMethod(method: string): boolean {
@@ -95,16 +130,29 @@ function scheduleFlush(): void {
   setImmediate(flushBuffers);
 }
 
+/**
+ * The renderer that should receive CDP events/detach notices: the pop-out
+ * DevTools window while it's open, else the host. Events follow the popup so the
+ * detached-into-a-window panels stay live; nav/tab pushes in state.ts stay on
+ * the host (those drive the toolbar/strip, which only exist there).
+ */
+function eventTarget(): Electron.BrowserWindow | null {
+  const popup = getDevtoolsWindow();
+  if (popup && !popup.isDestroyed()) return popup;
+  const host = getHost();
+  return host && !host.isDestroyed() ? host : null;
+}
+
 function flushBuffers(): void {
   flushScheduled = false;
-  const host = getHost();
-  if (!host || host.isDestroyed()) {
+  const target = eventTarget();
+  if (!target) {
     buffers.clear();
     return;
   }
   for (const [tabId, buf] of buffers) {
     if (buf.items.length > 0 || buf.dropped > 0) {
-      host.webContents.send('devtools:cdp-event', {
+      target.webContents.send('devtools:cdp-event', {
         tabId,
         items: buf.items,
         dropped: buf.dropped || undefined,
@@ -149,9 +197,9 @@ function wireListeners(rec: TabRecord, wc: WebContents): void {
     // / built-in DevTools opening) gets through to notify the renderer.
     if (!rec.cdpAttached) return;
     rec.cdpAttached = false;
-    const host = getHost();
-    if (host && !host.isDestroyed()) {
-      host.webContents.send('devtools:detached', {
+    const target = eventTarget();
+    if (target) {
+      target.webContents.send('devtools:detached', {
         tabId: rec.id,
         reason: String(reason),
       });

@@ -1,9 +1,11 @@
 import { useState, type ComponentType, type ReactNode } from 'react';
 import {
   Code2,
+  Globe,
   Info,
   KeyRound,
   Palette,
+  RotateCcw,
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
@@ -13,6 +15,7 @@ import {
   UI_ZOOM_MAX,
   UI_ZOOM_MIN,
   type DevtoolsDock,
+  type SearchEngine,
   type ThemeMode,
 } from '../../../shared/settings';
 import { cn } from '../../lib/cn';
@@ -31,6 +34,12 @@ const DOCK_OPTIONS: { value: DevtoolsDock; label: string }[] = [
   { value: 'chrome', label: 'Chrome' },
 ];
 
+const SEARCH_ENGINE_OPTIONS: { value: SearchEngine; label: string }[] = [
+  { value: 'google', label: 'Google' },
+  { value: 'duckduckgo', label: 'DuckDuckGo' },
+  { value: 'bing', label: 'Bing' },
+];
+
 const CATEGORIES: {
   id: SettingsCategory;
   label: string;
@@ -40,6 +49,7 @@ const CATEGORIES: {
   { id: 'appearance', label: 'Appearance', icon: Palette, blurb: 'Theme, interface zoom, and UI font.' },
   { id: 'editor', label: 'Editor', icon: Code2, blurb: 'Code editor font and size.' },
   { id: 'terminal', label: 'Terminal', icon: SquareTerminal, blurb: 'Integrated terminal font and shell.' },
+  { id: 'browser', label: 'Browser', icon: Globe, blurb: 'Search engine and embedded-browser behavior.' },
   { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'API keys for Anthropic, OpenAI, and Google.' },
   { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.' },
   { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.' },
@@ -96,6 +106,7 @@ export function SettingsView() {
           {category === 'appearance' ? <AppearanceCategory /> : null}
           {category === 'editor' ? <EditorCategory /> : null}
           {category === 'terminal' ? <TerminalCategory /> : null}
+          {category === 'browser' ? <BrowserCategory /> : null}
           {category === 'providers' ? <ProvidersSettings /> : null}
           {category === 'devtools' ? <DevtoolsCategory /> : null}
           {category === 'about' ? <AboutCategory /> : null}
@@ -212,6 +223,25 @@ function TerminalCategory() {
   );
 }
 
+function BrowserCategory() {
+  const browser = useSettingsStore((s) => s.settings.browser);
+  const update = useSettingsStore((s) => s.update);
+  return (
+    <Section>
+      <Field
+        label="Search engine"
+        hint="Used when the address bar input isn't a URL."
+      >
+        <Segmented
+          value={browser.searchEngine}
+          options={SEARCH_ENGINE_OPTIONS}
+          onChange={(searchEngine) => void update({ browser: { searchEngine } })}
+        />
+      </Field>
+    </Section>
+  );
+}
+
 function DevtoolsCategory() {
   const devtools = useSettingsStore((s) => s.settings.devtools);
   const update = useSettingsStore((s) => s.update);
@@ -232,6 +262,7 @@ function DevtoolsCategory() {
 }
 
 function AboutCategory() {
+  const reset = useSettingsStore((s) => s.reset);
   return (
     <Section>
       <Field label="Version">
@@ -244,6 +275,29 @@ function AboutCategory() {
       </Field>
       <Field label="Security" hint="contextIsolation · sandboxed renderer · safeStorage keys">
         <span className="text-caption text-fg-tertiary">Hardened</span>
+      </Field>
+      <Field
+        label="Reset settings"
+        hint="Restore every setting on this screen to its default."
+      >
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              window.confirm('Reset all settings to their defaults?')
+            ) {
+              void reset();
+            }
+          }}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-8 px-3 rounded-md',
+            'text-body-sm text-fg-secondary bg-surface-2',
+            'hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
+          )}
+        >
+          <RotateCcw size={14} />
+          Reset to defaults
+        </button>
       </Field>
     </Section>
   );

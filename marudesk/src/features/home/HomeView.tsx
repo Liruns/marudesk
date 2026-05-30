@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Code2, Globe, SquareTerminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
+import { useGridStore } from '../tabs/grid';
 import type { TabKind } from '../../../shared/browser';
 
 /**
@@ -13,16 +14,38 @@ import type { TabKind } from '../../../shared/browser';
  *
  * Layout follows Chrome's NTP / Arc's start view: a centered field that opens a
  * web tab, plus a launcher grid for the other tab kinds.
+ *
+ * `tabId` is this home tab's id (supplied in grid mode by the registry; in the
+ * single view it falls back to the active tab, which IS this home tab). Opening
+ * a kind / entering a URL **converts this tab in place** rather than spawning a
+ * second tab — matching the New Tab behavior every browser has.
  */
-export function HomeView() {
+export function HomeView({ tabId }: { tabId?: string }) {
+  const replaceTab = useTabsStore((s) => s.replaceTab);
   const newTab = useTabsStore((s) => s.newTab);
+  const activeTabId = useTabsStore((s) => s.activeTabId);
   const [query, setQuery] = useState('');
+
+  // Convert this very tab; fall back to a new tab only if we somehow can't
+  // resolve our own id (keeps the launcher functional rather than dead). When
+  // this home tab is a tiled grid pane, repoint that pane at the replacement id
+  // (it gets a new id) so the conversion shows in-pane instead of orphaning it.
+  const open = (kind: TabKind, url?: string) => {
+    const target = tabId ?? activeTabId;
+    if (!target) {
+      void newTab(kind, url);
+      return;
+    }
+    void replaceTab(target, kind, url).then((newId) => {
+      if (newId) useGridStore.getState().remap(target, newId);
+    });
+  };
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     const value = query.trim();
     if (!value) return;
-    void newTab('web', value);
+    open('web', value);
     setQuery('');
   };
 
@@ -65,22 +88,22 @@ export function HomeView() {
 
         <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-3 gap-3">
           <LauncherCard
-            kind="web"
             label="Browser tab"
             hint="Open a blank page"
             icon={<Globe size={18} />}
+            onOpen={() => open('web')}
           />
           <LauncherCard
-            kind="terminal"
             label="Terminal"
             hint="Shell in a tab"
             icon={<SquareTerminal size={18} />}
+            onOpen={() => open('terminal')}
           />
           <LauncherCard
-            kind="editor"
             label="Code editor"
             hint="Edit files in a tab"
             icon={<Code2 size={18} />}
+            onOpen={() => open('editor')}
           />
         </div>
 
@@ -100,21 +123,20 @@ export function HomeView() {
 }
 
 function LauncherCard({
-  kind,
   label,
   hint,
   icon,
+  onOpen,
 }: {
-  kind: TabKind;
   label: string;
   hint: string;
   icon: ReactNode;
+  onOpen: () => void;
 }) {
-  const newTab = useTabsStore((s) => s.newTab);
   return (
     <button
       type="button"
-      onClick={() => void newTab(kind)}
+      onClick={onOpen}
       className={cn(
         'group flex flex-col items-start gap-2 p-4 rounded-lg text-left',
         'bg-surface-1 border border-subtle',

@@ -53,12 +53,56 @@ type GridActions = {
   closePane: (leafId: PaneId) => void;
   resize: (splitId: PaneId, ratio: number) => void;
   assign: (leafId: PaneId, tabId: string | null) => void;
+  /**
+   * Repoint whatever leaf is bound to `oldId` at `newId`. Used when a tiled tab
+   * is replaced in place (browser:tabs-replace mints a new id): without this the
+   * leaf would orphan to the now-dead old id and the orphan handler would
+   * collapse the pane, discarding the replacement.
+   */
+  remap: (oldId: string, newId: string) => void;
   focus: (leafId: PaneId) => void;
   /** Mark a tab as being dragged from the strip (null clears it). */
   setDraggingTab: (tabId: string | null) => void;
   /** Leave the grid and return to the single active-tab view. */
   clear: () => void;
 };
+
+/**
+ * Keep tiled tabs adjacent in the strip so a split reads as one merged group.
+ * Reorders the strip so every tab in `layout` sits contiguously (in leaf order)
+ * at the slot of the earliest current group member; non-grid tabs keep their
+ * relative order. No-op when nothing would move. This is what makes "combine two
+ * tabs into a split" also visibly combine them in the top strip.
+ */
+function syncStripGrouping(layout: LayoutNode): void {
+  const tabsState = useTabsStore.getState();
+  const all = tabsState.tabs.map((t) => t.id);
+  // Dedupe: a pane can be seeded twice with the same tab (dragging the active
+  // tab onto its own stage), and duplicate ids would corrupt the reorder list.
+  const groupIds = [
+    ...new Set(
+      leaves(layout)
+        .map((l) => l.tabId)
+        .filter((id): id is string => !!id && all.includes(id)),
+    ),
+  ];
+  if (groupIds.length < 2) return;
+  const groupSet = new Set(groupIds);
+  const next: string[] = [];
+  let inserted = false;
+  for (const id of all) {
+    if (groupSet.has(id)) {
+      if (!inserted) {
+        next.push(...groupIds); // drop the whole group in at the first slot
+        inserted = true;
+      }
+      // other group members are skipped — already placed as a block
+    } else {
+      next.push(id);
+    }
+  }
+  if (next.some((id, i) => id !== all[i])) tabsState.reorderTabs(next);
+}
 
 export const useGridStore = create<GridState & GridActions>((set, get) => ({
   layout: null,
@@ -74,6 +118,7 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
       const next = splitLeaf(base, base.id, dir, newTabId, side);
       const fresh = leaves(next).find((l) => l.tabId === newTabId);
       set({ layout: next, focusedPaneId: fresh?.id ?? base.id });
+      syncStripGrouping(next);
       return;
     }
     const next = splitLeaf(layout, targetLeafId, dir, newTabId, side);
@@ -83,6 +128,7 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
       (l) => !before.has(l.id) && l.tabId === newTabId,
     );
     set({ layout: next, focusedPaneId: fresh?.id ?? get().focusedPaneId });
+    syncStripGrouping(next);
   },
 
   closePane: (leafId) => {
@@ -154,6 +200,14 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
     set({ layout: setLeafTab(layout, leafId, tabId) });
   },
 
+  remap: (oldId, newId) => {
+    const { layout } = get();
+    if (!layout) return;
+    const leaf = leaves(layout).find((l) => l.tabId === oldId);
+    if (!leaf) return;
+    set({ layout: setLeafTab(layout, leaf.id, newId) });
+  },
+
   focus: (leafId) => set({ focusedPaneId: leafId }),
 
   setDraggingTab: (tabId) => set({ draggingTabId: tabId }),
@@ -173,4 +227,26 @@ useTabsStore.subscribe((state) => {
   const live = new Set(state.tabs.map((t) => t.id));
   const orphan = leaves(layout).find((l) => l.tabId && !live.has(l.tabId));
   if (orphan) useGridStore.getState().closePane(orphan.id);
+});
+
+/**
+ * Leave the grid when the active tab is no longer one of the tiled panes — the
+ * user clicked a tab outside the split, or opened/created a new one. This keeps
+ * the invariant "while gridded, the active tab is a visible pane"; without it,
+ * main activates a tab the grid hides, so the click appears to do nothing.
+ *
+ * Deliberately defers to the orphan handler above while a pane points at a
+ * just-closed tab (the collapse is mid-flight) to avoid a close-race flip-flop;
+ * closePane sets layout=null before the active id settles, so this then no-ops.
+ */
+useTabsStore.subscribe((state, prev) => {
+  if (state.activeTabId === prev.activeTabId) return;
+  const { layout } = useGridStore.getState();
+  if (!layout) return;
+  const id = state.activeTabId;
+  if (!id) return;
+  const live = new Set(state.tabs.map((t) => t.id));
+  const gridLeaves = leaves(layout).filter((l) => l.tabId);
+  if (gridLeaves.some((l) => l.tabId && !live.has(l.tabId))) return; // orphan in flight
+  if (!gridLeaves.some((l) => l.tabId === id)) useGridStore.getState().clear();
 });

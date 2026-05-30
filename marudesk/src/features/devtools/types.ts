@@ -39,6 +39,19 @@ export const NODE_TYPE = {
   FRAGMENT: 11,
 } as const;
 
+/**
+ * `DOM.BoxModel` (subset). Each quad is `[x1,y1,x2,y2,x3,y3,x4,y4]`; nesting is
+ * margin ⊃ border ⊃ padding ⊃ content. `width`/`height` are the content box.
+ */
+export type BoxModel = {
+  content: number[];
+  padding: number[];
+  border: number[];
+  margin: number[];
+  width: number;
+  height: number;
+};
+
 /* ── CSS ──────────────────────────────────────────────────────────────── */
 
 export type CssSourceRange = {
@@ -169,6 +182,31 @@ export type ConsoleEntry = {
 
 /* ── Network ──────────────────────────────────────────────────────────── */
 
+/**
+ * `Network.ResourceTiming` (subset). All offsets are milliseconds relative to
+ * `requestTime` (seconds, CDP monotonic). `-1` means the phase didn't occur.
+ */
+export type ResourceTiming = {
+  requestTime: number;
+  dnsStart: number;
+  dnsEnd: number;
+  connectStart: number;
+  connectEnd: number;
+  sslStart: number;
+  sslEnd: number;
+  sendStart: number;
+  sendEnd: number;
+  receiveHeadersEnd: number;
+};
+
+/** `Network.Initiator` (subset) — who kicked off the request. */
+export type NetworkInitiator = {
+  type: string;
+  url?: string;
+  lineNumber?: number;
+  stack?: CdpStackTrace;
+};
+
 export type NetworkEntry = {
   requestId: string;
   url: string;
@@ -187,4 +225,25 @@ export type NetworkEntry = {
   requestHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
   remoteIPAddress?: string;
+  /** Per-phase timing from the response (for the detail waterfall). */
+  timing?: ResourceTiming;
+  /** What initiated the request (parser / script / preload …). */
+  initiator?: NetworkInitiator;
+};
+
+/* ── Application (storage) ────────────────────────────────────────────── */
+
+/** `Network.Cookie` (subset) for the Application panel's read-only table. */
+export type CdpCookie = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  /** Unix seconds; -1 / absent = session cookie. */
+  expires?: number;
+  size?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  session?: boolean;
+  sameSite?: string;
 };

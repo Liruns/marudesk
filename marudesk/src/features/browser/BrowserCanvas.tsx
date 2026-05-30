@@ -28,6 +28,7 @@ import { useTabsStore } from '../tabs/store';
 import { useSettingsStore } from '../settings/store';
 import { useDevtoolsStore } from '../devtools/store';
 import { DevtoolsDock } from '../devtools/DevtoolsDock';
+import { BrowserMenu } from './BrowserMenu';
 import type { HistoryEntry } from '../../../shared/history';
 
 /**
@@ -284,6 +285,8 @@ export function BrowserCanvas() {
         >
           <Wrench size={16} />
         </NavIconButton>
+
+        <BrowserMenu />
 
         {/* Loading bar pinned to the bottom edge of the toolbar */}
         {nav.isLoading ? (

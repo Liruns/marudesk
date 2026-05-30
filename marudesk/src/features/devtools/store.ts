@@ -10,6 +10,8 @@ import { buildCapture } from './capture';
 import { computeBlockEdit, rebuildStyleText, resolveStyleSheetSource } from './css-source';
 import {
   NODE_TYPE,
+  type BoxModel,
+  type CdpCookie,
   type CdpNode,
   type ComputedStyleProperty,
   type ConsoleEntry,
@@ -37,8 +39,90 @@ import type { PatchOp, PatchPreview } from '../../../shared/patch';
  */
 
 export type DockSide = 'right' | 'bottom';
-export type DevtoolsPanel = 'elements' | 'console' | 'network';
+export type DevtoolsPanel =
+  | 'elements'
+  | 'console'
+  | 'network'
+  | 'application'
+  | 'rendering';
 type Session = 'idle' | 'attaching' | 'attached' | 'detached';
+
+/** Emulated `prefers-color-scheme` (Emulation.setEmulatedMedia features). */
+export type ColorScheme = 'no-override' | 'light' | 'dark';
+/** Vision-deficiency presets (Emulation.setEmulatedVisionDeficiency `type`). */
+export type VisionDeficiency =
+  | 'none'
+  | 'blurredVision'
+  | 'protanopia'
+  | 'deuteranopia'
+  | 'tritanopia'
+  | 'achromatopsia';
+
+/**
+ * Rendering-panel toggles (P6). All sticky preferences re-applied on (re)attach
+ * — the page loses them on detach/navigation. The Overlay flags are booleans;
+ * the Emulation fields drive setEmulatedMedia / setEmulatedVisionDeficiency.
+ */
+export type RenderingState = {
+  paintRects: boolean;
+  layoutShiftRegions: boolean;
+  fpsCounter: boolean;
+  scrollBottleneck: boolean;
+  webVitals: boolean;
+  colorScheme: ColorScheme;
+  reducedMotion: boolean;
+  printMedia: boolean;
+  visionDeficiency: VisionDeficiency;
+};
+
+const DEFAULT_RENDERING: RenderingState = {
+  paintRects: false,
+  layoutShiftRegions: false,
+  fpsCounter: false,
+  scrollBottleneck: false,
+  webVitals: false,
+  colorScheme: 'no-override',
+  reducedMotion: false,
+  printMedia: false,
+  visionDeficiency: 'none',
+};
+
+/** True if any rendering override is active (so it's worth re-applying on attach). */
+function hasRenderingOverrides(r: RenderingState): boolean {
+  return (
+    r.paintRects ||
+    r.layoutShiftRegions ||
+    r.fpsCounter ||
+    r.scrollBottleneck ||
+    r.webVitals ||
+    r.colorScheme !== 'no-override' ||
+    r.reducedMotion ||
+    r.printMedia ||
+    r.visionDeficiency !== 'none'
+  );
+}
+
+/** Network throttling presets (Network.emulateNetworkConditions params). */
+export type ThrottlePreset = 'online' | 'fast3g' | 'slow3g' | 'offline';
+const THROTTLE_CONDITIONS: Record<
+  Exclude<ThrottlePreset, 'online'>,
+  { offline: boolean; latency: number; downloadThroughput: number; uploadThroughput: number }
+> = {
+  // Bandwidth in bytes/s, latency in ms — Chrome DevTools' canonical presets.
+  fast3g: {
+    offline: false,
+    latency: 562.5,
+    downloadThroughput: (1.6 * 1024 * 1024) / 8,
+    uploadThroughput: (750 * 1024) / 8,
+  },
+  slow3g: {
+    offline: false,
+    latency: 2000,
+    downloadThroughput: (500 * 1024) / 8,
+    uploadThroughput: (500 * 1024) / 8,
+  },
+  offline: { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 },
+};
 
 type Styles = {
   inline?: CssStyle;
@@ -80,6 +164,11 @@ type DevtoolsState = {
   side: DockSide;
   size: number;
   panel: DevtoolsPanel;
+  // True when this store instance backs the pop-out DevtoolsWindow (its own
+  // renderer) rather than the in-page dock. Drives full-bleed layout and hides
+  // the host-only "Add to AI context" capture (the composer lives in the main
+  // window — cross-window capture is out of scope).
+  windowMode: boolean;
   // session
   tabId: string | null;
   session: Session;
@@ -99,19 +188,51 @@ type DevtoolsState = {
   styles: Styles | null;
   stylesLoading: boolean;
   picking: boolean;
+  // Forced pseudo-classes on the selected node (CSS.forcePseudoState). Per-node:
+  // cleared when the selection changes (CDP keeps the forcing on the old node, so
+  // we also clear it there on switch).
+  forcedStates: Set<string>;
+  // Box model of the selected node (DOM.getBoxModel), for the diagram. Null until
+  // a node with layout is selected.
+  boxModel: BoxModel | null;
+  // DOM search session (DOM.performSearch): the search id + the resolved result
+  // nodeIds + the cursor into them. searchId is needed to discard on the page.
+  searchId: string | null;
+  searchResults: NodeId[];
+  searchIndex: number;
+  searchCount: number;
   // styleSheetId → header, for mapping an edited rule back to source (§9-B).
   styleSheets: Map<string, StyleSheetHeader>;
   pendingPatch: PendingSourcePatch | null;
   // console
   console: ConsoleEntry[];
+  // When true, a main-frame navigation keeps the existing console entries
+  // (DevTools' "Preserve log") — `_handleNavigated` reads this. Sticky across
+  // navigations; survives freshSlices (a UI preference, not per-page state).
+  preserveLog: boolean;
   // network
   network: NetworkEntry[];
+  // Sticky network conditions (DevTools' Disable cache / throttling). Re-applied
+  // every time the Network domain is (re)enabled — they reset on navigation.
+  // Survive freshSlices (preferences, not per-page state).
+  cacheDisabled: boolean;
+  throttle: ThrottlePreset;
+  // application (storage) — resolved from the bound tab's URL on panel open.
+  appOrigin: string | null;
+  localStorageItems: [string, string][];
+  sessionStorageItems: [string, string][];
+  cookies: CdpCookie[];
+  appLoading: boolean;
+  // rendering panel toggles — sticky preferences, re-applied on (re)attach.
+  rendering: RenderingState;
 };
 
 type DevtoolsActions = {
   toggle: () => void;
   reconnect: () => void;
   close: () => void;
+  popOut: () => void;
+  setWindowMode: (on: boolean) => void;
   setPanel: (panel: DevtoolsPanel) => void;
   setSide: (side: DockSide) => void;
   setSize: (size: number) => void;
@@ -126,6 +247,10 @@ type DevtoolsActions = {
   stopPick: () => Promise<void>;
   inspectAt: (tabId: string, x: number, y: number) => Promise<void>;
   captureSelected: () => Promise<void>;
+  toggleForcedState: (pseudoClass: string) => Promise<void>;
+  searchDom: (query: string) => Promise<void>;
+  stepSearch: (delta: number) => Promise<void>;
+  clearSearch: () => void;
   // live edit + source-patch hook (§9-B)
   editStyleProperty: (style: CssStyle, propIndex: number, newValue: string) => Promise<void>;
   setAttribute: (nodeId: NodeId, name: string, value: string) => Promise<void>;
@@ -134,6 +259,7 @@ type DevtoolsActions = {
   // console
   evaluate: (expression: string) => Promise<void>;
   clearConsole: () => void;
+  setPreserveLog: (on: boolean) => void;
   getProperties: (
     objectId: string,
   ) => Promise<{ name: string; value: RemoteObject }[]>;
@@ -142,6 +268,19 @@ type DevtoolsActions = {
   getResponseBody: (
     requestId: string,
   ) => Promise<{ body: string; base64Encoded: boolean } | null>;
+  setCacheDisabled: (on: boolean) => void;
+  setThrottle: (preset: ThrottlePreset) => void;
+  /** Push the sticky cache/throttle conditions to the page (on enable / change). */
+  _applyNetworkConditions: () => Promise<void>;
+  // application (storage)
+  refreshApplication: () => Promise<void>;
+  removeStorageItem: (isLocalStorage: boolean, key: string) => Promise<void>;
+  clearStorage: (isLocalStorage: boolean) => Promise<void>;
+  clearSiteData: () => Promise<void>;
+  // rendering
+  setRendering: (patch: Partial<RenderingState>) => void;
+  /** Push all rendering toggles to the page (on change / re-attach). */
+  _applyRendering: () => Promise<void>;
   // event ingestion
   ingestBatch: (
     items: { method: string; params: unknown }[],
@@ -173,10 +312,21 @@ function freshSlices(): Pick<
   | 'styles'
   | 'stylesLoading'
   | 'picking'
+  | 'forcedStates'
+  | 'boxModel'
+  | 'searchId'
+  | 'searchResults'
+  | 'searchIndex'
+  | 'searchCount'
   | 'styleSheets'
   | 'pendingPatch'
   | 'console'
   | 'network'
+  | 'appOrigin'
+  | 'localStorageItems'
+  | 'sessionStorageItems'
+  | 'cookies'
+  | 'appLoading'
   | 'dropped'
 > {
   return {
@@ -188,10 +338,21 @@ function freshSlices(): Pick<
     styles: null,
     stylesLoading: false,
     picking: false,
+    forcedStates: new Set(),
+    boxModel: null,
+    searchId: null,
+    searchResults: [],
+    searchIndex: 0,
+    searchCount: 0,
     styleSheets: new Map(),
     pendingPatch: null,
     console: [],
     network: [],
+    appOrigin: null,
+    localStorageItems: [],
+    sessionStorageItems: [],
+    cookies: [],
+    appLoading: false,
     dropped: 0,
   };
 }
@@ -277,6 +438,11 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     side: 'right',
     size: 0,
     panel: 'elements',
+    windowMode: false,
+    preserveLog: false,
+    cacheDisabled: false,
+    throttle: 'online',
+    rendering: DEFAULT_RENDERING,
     tabId: null,
     session: 'idle',
     detachReason: null,
@@ -313,6 +479,11 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
 
     reconnect: () => {
       const s = get();
+      // In the pop-out window there's no tab strip — reconnect to the bound tab.
+      if (s.windowMode) {
+        if (s.tabId) void s._openFor(s.tabId, s.side);
+        return;
+      }
       const tabs = useTabsStore.getState();
       const active = tabs.tabs.find((t) => t.id === tabs.activeTabId);
       if (active?.kind === 'web') void s._openFor(active.id, s.side);
@@ -350,6 +521,9 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       await get()._ensureDomains(['Page', 'Runtime', 'Log']);
       if (get().epoch !== epoch) return;
       await get()._enablePanel(get().panel);
+      if (get().epoch !== epoch) return;
+      // Re-apply sticky rendering overrides — they reset on (re)attach.
+      if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
     },
 
     close: () => {
@@ -368,6 +542,18 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         ...freshSlices(),
       });
     },
+
+    popOut: () => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      // Single CDP client per page: detach the in-dock session cleanly first
+      // (close() bumps the epoch + resets the machine), then ask main to open
+      // the popup, which re-attaches in its own renderer.
+      get().close();
+      void window.marudesk.invoke('devtools:popout-open', { tabId });
+    },
+
+    setWindowMode: (on) => set({ windowMode: on }),
 
     setPanel: (panel) => {
       if (get().panel === panel) return;
@@ -411,6 +597,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         await get()._ensureDomains(['Page', 'Runtime', 'Log']);
         if (get().epoch !== epoch) return;
         await get()._enablePanel(get().panel);
+        if (get().epoch !== epoch) return;
+        if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
       })();
     },
 
@@ -438,17 +626,28 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         // Lazy: Network is the flood-prone domain (main already drops
         // dataReceived). Only enabled when the user opens this panel.
         await get()._ensureDomains(['Network']);
+        // Re-apply sticky cache/throttle — they reset whenever Network is
+        // (re)enabled (fresh attach or post-navigation re-enable).
+        await get()._applyNetworkConditions();
+      } else if (panel === 'application') {
+        // DOMStorage for live storage events; Network is needed for getCookies.
+        await get()._ensureDomains(['DOMStorage', 'Network']);
+        await get().refreshApplication();
       }
+      // 'rendering' needs no panel-specific enable — its toggles target the
+      // already-enabled Overlay domain + the stateless Emulation setters.
     },
 
     _handleNavigated: () => {
       // Main-frame navigation: the debugger survives, but the document, nodeIds,
       // and execution contexts reset (and Chromium may drop domain enablement).
-      // Clear stale per-page state — like DevTools' default (no "preserve log")
-      // — and re-enable the active domains against the new document.
+      // Clear stale per-page state and re-enable the active domains against the
+      // new document. Console is kept iff "Preserve log" is on (DevTools' toggle);
+      // everything else (DOM/styles/network) is always reset — those nodeIds /
+      // requestIds are meaningless on the new document.
       set({
         enabled: new Set(),
-        console: [],
+        ...(get().preserveLog ? {} : { console: [] }),
         network: [],
         nodes: new Map(),
         childIds: new Map(),
@@ -456,14 +655,27 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         expanded: new Set(),
         selectedId: null,
         styles: null,
+        forcedStates: new Set(),
+        boxModel: null,
+        searchId: null,
+        searchResults: [],
+        searchIndex: 0,
+        searchCount: 0,
         styleSheets: new Map(),
         pendingPatch: null,
+        appOrigin: null,
+        localStorageItems: [],
+        sessionStorageItems: [],
+        cookies: [],
       });
       const epoch = get().epoch;
       void (async () => {
         await get()._ensureDomains(['Page', 'Runtime', 'Log']);
         if (get().epoch !== epoch) return;
         await get()._enablePanel(get().panel);
+        if (get().epoch !== epoch) return;
+        // Navigation clears emulation/overlay overrides — re-apply the sticky ones.
+        if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
       })();
     },
 
@@ -510,14 +722,23 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     },
 
     selectNode: async (id) => {
-      set({ selectedId: id, styles: null, stylesLoading: true });
+      const prev = get().selectedId;
       const tabId = get().tabId;
+      // Forced pseudo-classes are per-node: clear them on the node we're leaving
+      // so a stale :hover doesn't linger after the user moves on.
+      if (tabId && prev !== null && prev !== id && get().forcedStates.size > 0) {
+        void cdpTry(tabId, 'CSS.forcePseudoState', {
+          nodeId: prev,
+          forcedPseudoClasses: [],
+        });
+      }
+      set({ selectedId: id, styles: null, stylesLoading: true, forcedStates: new Set(), boxModel: null });
       if (!tabId) {
         set({ stylesLoading: false });
         return;
       }
       get().highlightNode(id);
-      const [matched, computed] = await Promise.all([
+      const [matched, computed, box] = await Promise.all([
         cdpTry<{ inlineStyle?: CssStyle; matchedCSSRules?: RuleMatch[] }>(
           tabId,
           'CSS.getMatchedStylesForNode',
@@ -528,6 +749,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
           'CSS.getComputedStyleForNode',
           { nodeId: id },
         ),
+        cdpTry<{ model: BoxModel }>(tabId, 'DOM.getBoxModel', { nodeId: id }),
       ]);
       if (get().selectedId !== id) return; // selection moved while awaiting
       set({
@@ -536,6 +758,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
           matched: matched?.matchedCSSRules ?? [],
           computed: computed?.computedStyle ?? [],
         },
+        boxModel: box?.model ?? null,
         stylesLoading: false,
       });
     },
@@ -720,6 +943,81 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         description: capture.selector || capture.tagName,
         variant: 'success',
       });
+    },
+
+    toggleForcedState: async (pseudoClass) => {
+      const tabId = get().tabId;
+      const nodeId = get().selectedId;
+      if (!tabId || nodeId === null) return;
+      const next = new Set(get().forcedStates);
+      if (next.has(pseudoClass)) next.delete(pseudoClass);
+      else next.add(pseudoClass);
+      set({ forcedStates: next });
+      await cdpTry(tabId, 'CSS.forcePseudoState', {
+        nodeId,
+        forcedPseudoClasses: [...next],
+      });
+      if (get().selectedId !== nodeId) return; // moved while awaiting
+      // Re-read styles so rules gated on the now-forced state appear/disappear.
+      await get().selectNode(nodeId);
+    },
+
+    searchDom: async (query) => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      get().clearSearch();
+      const q = query.trim();
+      if (!q) return;
+      await get()._ensureDomains(['DOM']);
+      const res = await cdpTry<{ searchId: string; resultCount: number }>(
+        tabId,
+        'DOM.performSearch',
+        { query: q, includeUserAgentShadowDOM: false },
+      );
+      if (!res || get().tabId !== tabId) {
+        if (res) void cdpTry(tabId, 'DOM.discardSearchResults', { searchId: res.searchId });
+        return;
+      }
+      if (res.resultCount === 0) {
+        set({ searchId: res.searchId, searchResults: [], searchIndex: 0, searchCount: 0 });
+        return;
+      }
+      const got = await cdpTry<{ nodeIds: NodeId[] }>(tabId, 'DOM.getSearchResults', {
+        searchId: res.searchId,
+        fromIndex: 0,
+        toIndex: res.resultCount,
+      });
+      if (get().tabId !== tabId) {
+        void cdpTry(tabId, 'DOM.discardSearchResults', { searchId: res.searchId });
+        return;
+      }
+      const nodeIds = got?.nodeIds ?? [];
+      set({
+        searchId: res.searchId,
+        searchResults: nodeIds,
+        searchCount: res.resultCount,
+        searchIndex: 0,
+      });
+      if (nodeIds[0] !== undefined) await get()._revealAndSelect(nodeIds[0]);
+    },
+
+    stepSearch: async (delta) => {
+      const { searchResults, searchIndex } = get();
+      if (searchResults.length === 0) return;
+      const n = searchResults.length;
+      const next = ((searchIndex + delta) % n + n) % n;
+      set({ searchIndex: next });
+      const nodeId = searchResults[next];
+      if (nodeId !== undefined) await get()._revealAndSelect(nodeId);
+    },
+
+    clearSearch: () => {
+      const tabId = get().tabId;
+      const searchId = get().searchId;
+      if (tabId && searchId) {
+        void cdpTry(tabId, 'DOM.discardSearchResults', { searchId });
+      }
+      set({ searchId: null, searchResults: [], searchIndex: 0, searchCount: 0 });
     },
 
     /* ── live edit (CSS / attributes) + source-patch hook ─────────────── */
@@ -914,6 +1212,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
 
     clearConsole: () => set({ console: [] }),
 
+    setPreserveLog: (on) => set({ preserveLog: on }),
+
     getProperties: async (objectId) => {
       const tabId = get().tabId;
       if (!tabId) return [];
@@ -944,6 +1244,159 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         { requestId },
       );
       return res ?? null;
+    },
+
+    setCacheDisabled: (on) => {
+      set({ cacheDisabled: on });
+      void get()._applyNetworkConditions();
+    },
+
+    setThrottle: (preset) => {
+      set({ throttle: preset });
+      void get()._applyNetworkConditions();
+    },
+
+    _applyNetworkConditions: async () => {
+      const tabId = get().tabId;
+      if (!tabId || !get().enabled.has('Network')) return;
+      const { cacheDisabled, throttle } = get();
+      await cdpTry(tabId, 'Network.setCacheDisabled', { cacheDisabled });
+      const cond =
+        throttle === 'online'
+          ? { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 }
+          : THROTTLE_CONDITIONS[throttle];
+      await cdpTry(tabId, 'Network.emulateNetworkConditions', cond);
+    },
+
+    /* ── application (storage) ───────────────────────────────────────── */
+
+    refreshApplication: async () => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      set({ appLoading: true });
+      // Resolve the page's own origin (storageId key + cookie scope). Runtime is
+      // enabled from session start; a non-http origin (about:blank) yields "null".
+      const originRes = await cdpTry<{ result: RemoteObject }>(tabId, 'Runtime.evaluate', {
+        expression: 'location.origin',
+        returnByValue: true,
+      });
+      if (get().tabId !== tabId) return;
+      const origin =
+        typeof originRes?.result?.value === 'string' &&
+        originRes.result.value !== 'null'
+          ? originRes.result.value
+          : null;
+
+      const readStorage = async (isLocalStorage: boolean) => {
+        if (!origin) return [] as [string, string][];
+        const res = await cdpTry<{ entries: [string, string][] }>(
+          tabId,
+          'DOMStorage.getDOMStorageItems',
+          { storageId: { securityOrigin: origin, isLocalStorage } },
+        );
+        return res?.entries ?? [];
+      };
+      const [local, sessionItems, cookieRes] = await Promise.all([
+        readStorage(true),
+        readStorage(false),
+        cdpTry<{ cookies: CdpCookie[] }>(tabId, 'Network.getCookies', {
+          urls: origin ? [origin] : undefined,
+        }),
+      ]);
+      if (get().tabId !== tabId) return;
+      set({
+        appOrigin: origin,
+        localStorageItems: local,
+        sessionStorageItems: sessionItems,
+        cookies: cookieRes?.cookies ?? [],
+        appLoading: false,
+      });
+    },
+
+    removeStorageItem: async (isLocalStorage, key) => {
+      const tabId = get().tabId;
+      const origin = get().appOrigin;
+      if (!tabId || !origin) return;
+      await cdpTry(tabId, 'DOMStorage.removeDOMStorageItem', {
+        storageId: { securityOrigin: origin, isLocalStorage },
+        key,
+      });
+      if (get().tabId !== tabId) return;
+      // Optimistic local prune (the DOMStorage event may also arrive, but the
+      // panel doesn't subscribe to per-key events — re-read is the source).
+      const field = isLocalStorage ? 'localStorageItems' : 'sessionStorageItems';
+      set({ [field]: get()[field].filter(([k]) => k !== key) } as Partial<DevtoolsState>);
+    },
+
+    clearStorage: async (isLocalStorage) => {
+      const tabId = get().tabId;
+      const origin = get().appOrigin;
+      if (!tabId || !origin) return;
+      await cdpTry(tabId, 'DOMStorage.clear', {
+        storageId: { securityOrigin: origin, isLocalStorage },
+      });
+      if (get().tabId !== tabId) return;
+      set(
+        isLocalStorage ? { localStorageItems: [] } : { sessionStorageItems: [] },
+      );
+    },
+
+    clearSiteData: async () => {
+      const tabId = get().tabId;
+      const origin = get().appOrigin;
+      if (!tabId || !origin) {
+        toast({ title: 'No resolvable origin for this page', variant: 'warning' });
+        return;
+      }
+      // Deliberate, origin-scoped wipe (not the whole-browser Storage.clearCookies,
+      // which stays blocked). Clears cookies + all storage buckets for this origin.
+      await cdpTry(tabId, 'Storage.clearDataForOrigin', {
+        origin,
+        storageTypes: 'all',
+      });
+      if (get().tabId !== tabId) return;
+      toast({ title: 'Site data cleared', description: origin, variant: 'success' });
+      await get().refreshApplication();
+    },
+
+    /* ── rendering ───────────────────────────────────────────────────── */
+
+    setRendering: (patch) => {
+      set({ rendering: { ...get().rendering, ...patch } });
+      void get()._applyRendering();
+    },
+
+    _applyRendering: async () => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      // The Overlay flags need the Overlay domain; Emulation is stateless. Enable
+      // Overlay here so the Rendering panel works without first opening Elements.
+      await get()._ensureDomains(['Overlay']);
+      if (get().tabId !== tabId) return;
+      const r = get().rendering;
+      await Promise.all([
+        cdpTry(tabId, 'Overlay.setShowPaintRects', { result: r.paintRects }),
+        cdpTry(tabId, 'Overlay.setShowLayoutShiftRegions', { result: r.layoutShiftRegions }),
+        cdpTry(tabId, 'Overlay.setShowFPSCounter', { show: r.fpsCounter }),
+        cdpTry(tabId, 'Overlay.setShowScrollBottleneckRects', { show: r.scrollBottleneck }),
+        cdpTry(tabId, 'Overlay.setShowWebVitals', { show: r.webVitals }),
+        cdpTry(tabId, 'Emulation.setEmulatedVisionDeficiency', {
+          type: r.visionDeficiency,
+        }),
+      ]);
+      // Emulated media: 'print' overrides the media type; the feature list drives
+      // prefers-color-scheme / prefers-reduced-motion (empty value = no override).
+      const features: { name: string; value: string }[] = [];
+      if (r.colorScheme !== 'no-override') {
+        features.push({ name: 'prefers-color-scheme', value: r.colorScheme });
+      }
+      if (r.reducedMotion) {
+        features.push({ name: 'prefers-reduced-motion', value: 'reduce' });
+      }
+      await cdpTry(tabId, 'Emulation.setEmulatedMedia', {
+        media: r.printMedia ? 'print' : '',
+        features,
+      });
     },
 
     /* ── event ingestion ─────────────────────────────────────────────── */
@@ -1181,6 +1634,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
                 resourceType: pAny.type as string | undefined,
                 startTime: pAny.timestamp as number,
                 requestHeaders: req.headers,
+                initiator: pAny.initiator as NetworkEntry['initiator'],
               };
               const idx = netIndex!.get(requestId);
               if (idx === undefined) {
@@ -1201,6 +1655,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
                 mimeType: string;
                 fromDiskCache?: boolean;
                 remoteIPAddress?: string;
+                timing?: NetworkEntry['timing'];
               };
               const idx = netIndex!.get(requestId);
               if (idx !== undefined) {
@@ -1212,6 +1667,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
                   mimeType: resp.mimeType,
                   fromCache: resp.fromDiskCache,
                   remoteIPAddress: resp.remoteIPAddress,
+                  timing: resp.timing ?? network[idx].timing,
                   resourceType: (pAny.type as string) ?? network[idx].resourceType,
                 };
               }
