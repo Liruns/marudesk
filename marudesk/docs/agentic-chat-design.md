@@ -1,6 +1,6 @@
 # marudesk — Agentic AI Chat 설계 (assist → agent 실현)
 
-> 상태: **구현 스펙** · 작성 2026-05-31 · 범위: 로드맵 §3/§9의 assist→agent 승격을 실제 코드로 + P0.5 scrub / P1 confidence / P2 revert를 도구·기능으로 흡수
+> 상태: **구현 완료 (2026-05-31)** · 범위: 로드맵 §3/§9의 assist→agent 승격을 실제 코드로 + P0.5 scrub / P1 confidence / P2 revert를 도구·기능으로 흡수. 커밋: `4c61438`(구현) → `eaf0d37`(리뷰 수정) → `7ed39e3`(리팩토링) → `87835cf`(P1.5+P3). e2e 35/35.
 > 동반: [로드맵](./roadmap.md) · [커스텀 DevTools 설계](./custom-devtools-design.md) · 참고: stagewise-io/stagewise (v2 패턴)
 
 ## 0. 한 줄

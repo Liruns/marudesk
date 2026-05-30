@@ -57,12 +57,12 @@
 | Phase | 한 줄 | 무엇을 푸는가 | 상태 |
 |---|---|---|---|
 | **P0** | Console 에러 → 증거팩 → patch → apply → reload 검증 | 매일 훅 + 루프 증명 | **출시** (`266e703`) |
-| **Agent** | one-shot → 멀티턴 도구 루프(닫힌 검증). P0.5/P1/P2를 도구·기능으로 흡수 | §3/§9 실현 = 차별점 | 진행 ([설계](./agentic-chat-design.md)) |
-| **P0.5** | Network 응답 body → context, **scrub 필수** | 히어로 데모 + 신뢰 | 예정 |
-| **P1** | Context Preflight + 신뢰도 붙은 소스 후보 | 채택 / 신뢰 | 예정 |
-| **P1.5** | Evidence-pack export (Cursor / GitHub Issue) | 낮은 진입장벽 (companion) | 예정 |
-| **P2** | 타입별 정답률 측정 + apply 강화 (멀티파일 / revert) | 매일 *믿고* 쓰기 | 예정 |
-| **P3** | Ollama 로컬 모델 (저우선) | 옵션 | 예정 |
+| **Agent** | one-shot → 멀티턴 도구 루프(닫힌 검증). P0.5/P1/P2를 도구·기능으로 흡수 | §3/§9 실현 = 차별점 | **출시** ([설계](./agentic-chat-design.md)) |
+| **P0.5** | Network 응답 body → context, **scrub 필수** | 히어로 데모 + 신뢰 | **출시** (`read_network`/`read_network_body` 도구 + `shared/scrub.ts`) |
+| **P1** | Context Preflight + 신뢰도 붙은 소스 후보 | 채택 / 신뢰 | **출시** (`get_console_errors` confidence 태그) |
+| **P1.5** | Evidence-pack export (Cursor / GitHub Issue) | 낮은 진입장벽 (companion) | **출시** (`shared/evidence-pack.ts` + "Copy evidence") |
+| **P2** | 타입별 정답률 측정 + apply 강화 (멀티파일 / revert) | 매일 *믿고* 쓰기 | **출시** (per-edit accept/revert; 타입별 정답률 측정은 dogfood 후) |
+| **P3** | Ollama 로컬 모델 (저우선) | 옵션 | **출시** (keyless provider + OpenAI-compat agent driver) |
 
 **v1 / 포트폴리오 공개 지점 = P0 + P0.5 + P1** (데일리 사용 + 히어로 데모 + 신뢰 장치).
 
