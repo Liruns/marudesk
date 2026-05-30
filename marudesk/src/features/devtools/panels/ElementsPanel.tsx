@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { MousePointerSquareDashed } from 'lucide-react';
+import { MousePointerSquareDashed, Sparkles } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { DomTree } from '../components/DomTree';
@@ -13,6 +13,7 @@ import { StylesPane } from '../components/StylesPane';
  */
 export function ElementsPanel() {
   const picking = useDevtoolsStore((s) => s.picking);
+  const selectedId = useDevtoolsStore((s) => s.selectedId);
 
   // Esc cancels picking, matching the page-side inspect overlay.
   useEffect(() => {
@@ -48,6 +49,21 @@ export function ElementsPanel() {
           )}
         >
           <MousePointerSquareDashed size={15} />
+        </button>
+        <button
+          type="button"
+          aria-label="Add to AI context"
+          title="Add the selected element (with outerHTML + computed style) to the composer context"
+          disabled={selectedId === null}
+          onClick={() => void useDevtoolsStore.getState().captureSelected()}
+          className={cn(
+            'size-6 rounded flex items-center justify-center transition-colors duration-fast',
+            selectedId === null
+              ? 'text-fg-tertiary/40 cursor-not-allowed'
+              : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
+          )}
+        >
+          <Sparkles size={15} />
         </button>
       </div>
       <div className="flex-[3] min-h-0 border-b border-subtle">

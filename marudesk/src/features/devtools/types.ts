@@ -82,6 +82,19 @@ export type MatchedStyles = {
 
 export type ComputedStyleProperty = { name: string; value: string };
 
+/**
+ * The slice of `CSS.styleSheetAdded`'s header we keep, to map an edited rule
+ * back to its origin for the live-CSS → workspace-patch hook (§9-B). `origin`
+ * is `'regular' | 'user-agent' | 'inspector' | 'injected'`; only `'regular'`
+ * author sheets are candidates for source patching.
+ */
+export type StyleSheetHeader = {
+  styleSheetId: string;
+  sourceURL: string;
+  origin: string;
+  isInline: boolean;
+};
+
 /* ── Runtime / Console ────────────────────────────────────────────────── */
 
 export type RemoteObject = {

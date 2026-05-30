@@ -307,3 +307,35 @@ P0 메인 foundation 위에 **렌더러 커스텀 DevTools 전체 + 호스팅 �
 - 백그라운드 탭 고볼륨 도메인 pause(§4 M2) — 현재는 rebind 시 detach로 대체.
 - 설정 마이그레이션 단위테스트(§11.7/§12) — 단위 테스트 러너(vitest) 부재로 보류; fallback 동작은 리뷰에서 correct 확인.
 - 나머지 리뷰 LOW(리다이렉트 체인, console.group, base64 body, size-per-orientation)는 v1 수용.
+
+## 19. P4 — 라이브 편집 + 통합 훅 A/B 구현 (2026-05-30)
+
+P1~P3 dock 위에 **프로젝트 thesis(§15) 검증 단계**를 구현. `tsc`(app+electron)·`eslint`·`vite build`·Playwright e2e **10/10** 그린. `code-reviewer`(opus) 패스 = **COMMENT(approve-with-nits, HIGH 0/MED 2/LOW 4)**, MED·해당 LOW 전부 반영.
+
+**(A) 노드 → Capture (보편적, §9-A)** — 완료.
+- `shared/capture.ts` `Capture`에 `outerHTML?`/`computedStyle?` 옵션 추가(레거시 inspect 오버레이 캡처는 미설정 → 전 소비자 호환). 파급: `shared/composer.ts` `CapturePayload` + composer `toPayload`, `electron/llm.ts` `isCapturePayload`(옵션 검증) + `buildUserMessage`(per-capture 블록에 `computed style:` 줄 + ```html``` outerHTML 펜스, `escapeFence`로 주입 차단, `MAX_OUTER_HTML_CHARS=2000` 프롬프트 클립).
+- 신규 `src/features/devtools/capture.ts`: CDP노드→`Capture` 어댑터(조상 기반 selector, 평면 attrs→record, 큐레이트 computed 27키+값 200자 클립, `DOM.getBoxModel` border quad→rect, `DOM.getOuterHTML` 8000자 클립). store `captureSelected()` → `useWebPageStore.addCapture` + 토스트. UI: Elements 툴바 "Add to AI context"(Sparkles, 선택 시 활성).
+- `CaptureInput`/`rankFiles`는 **미변경**(attributes의 id/class/testid가 강신호, computed는 노이즈) — 옵션 필드라 호환.
+
+**(라이브 편집)** — 완료.
+- `CSS.setStyleTexts`: StylesPane 값 클릭→인라인 편집. author `origin:'regular'` + styleSheetId + range 있는 규칙만 editable(+ inline `element.style`), user-agent read-only. 편집 후 `selectNode` 재조회로 range 갱신.
+- `DOM.setAttributeValue`: DomTree 속성 값 더블클릭→인라인 편집(단일클릭=선택 보존, pointer/key stopPropagation). `DOM.attributeModified` 이벤트가 트리 자동 갱신.
+- 화이트리스트 변경 불필요(`CSS.`/`DOM.` prefix 통과, BLOCKED 아님 — 리뷰 확인).
+
+**(B) 라이브 CSS → 워크스페이스 패치 (스코프 한정, §9-B)** — 완료(범위 한정).
+- **신규 IPC 없음**: 기존 `patch:preview`/`patch:apply` 재사용. fs-safe `resolveWorkspacePath` + oldString 유일성 검사가 **타당성 게이트**.
+- 메커니즘: `CSS.styleSheetAdded` 헤더 추적(store `styleSheets` Map, `ingestBatch` clone-on-write) → 편집 시 `CSS.getStyleSheetText`를 ground truth로 블록 단위 `PatchOp` 생성(`css-source.ts` `computeBlockEdit`: line/col→offset, 포맷 보존 minimal splice; range 없으면 `rebuildStyleText` 폴백) → `resolveStyleSheetSource`(same-origin 게이트 + pathname strip)로 워크스페이스 경로 매핑 → `patch:preview` 검증 → 성공 시 StylesPane "Save to source" 배너(`patch:apply`). 매핑/검증 실패 시 **조용히 live-only**.
+- **스코프 해석(중요)**: 현재는 **Layer 1 = same-origin 서빙 author 스타일시트의 URL pathname이 워크스페이스 파일을 미러**하는 경우(정적/`<link>` CSS, dev 서버가 실파일 서빙)만 소스 매핑. **Vite의 JS주입 `<style>`(import한 CSS)은 통상 sourceURL이 없어 live-only로 강등** — §9-B의 "소스맵 역매핑" 중 가장 단순/견고한 부분만 채택. **미채택(후속)**: owner-node `data-vite-dev-id` 해석, 외부 `.map` 파싱(P5b급). 이로써 thesis(§15-B "유효한 patch:preview 생성")는 서빙-파일 케이스에서 성립하고, 어려운 주입-스타일 케이스는 명시적 future work.
+
+**code-reviewer 반영**:
+- MED-1: `_offerSourcePatch`가 `patch:preview` await 후 `selectedId`만 재확인 → `tabId`도 캡처/재확인(리바인드 후 cross-tab "Save" 방지).
+- MED-2: `editStyleProperty`가 `setStyleTexts` await 후 `selectNode` 전에 `tabId`+`selectedId` 재확인(stale nodeId가 새 문서에 쓰이는 1-tick 창 차단).
+- LOW-1: 블록 같은 곳 **2회 편집-전-저장**은 2번째 oldBlock이 디스크와 불일치 → live-only 강등(저장 후 편집 권장). 코드 주석 + 본 절 문서화.
+- LOW-2: computed 값 개별 길이 200자 클립(거대 `url(data:…)` 방어).
+- LOW-3(traversal 조기 차단은 fs-safe가 권위)·LOW-4(nav 직후 헤더 재수신 전 짧은 live-only 창)는 correct/수용 — 무조치.
+
+**알려진 한계(v1 수용)**: 위 Layer-1 스코프, 멀티편집-전-저장, 편집 커밋 시 `selectNode`가 styles를 잠깐 비워 "Loading styles…" 깜빡임(정확성 무관).
+
+**e2e**: `devtools.spec.ts`에 hook A 케이스 추가(web 탭→dock→`body` treeitem 선택→"Add to AI context"→"Added to context" 토스트 = 실 CDP `getOuterHTML`/`getBoxModel` end-to-end). 라이브편집·hook B 실 CDP 흐름은 §12대로 수동 GUI 스모크(dev 서버 서빙 자기앱 + 워크스페이스 필요).
+
+**미완(다음)**: P5a/P5b Sources(transpiled 디버깅 + 소스맵 원본복원, 최대 규모·별도 세션). 잔여: 백그라운드 탭 고볼륨 도메인 pause(§4 M2), 설정 마이그레이션 단위테스트(vitest 부재), hook B Layer 2(Vite dev-id/외부 소스맵).

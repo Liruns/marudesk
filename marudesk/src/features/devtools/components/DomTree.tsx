@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
@@ -26,6 +26,72 @@ function attrPairs(attributes: string[] | undefined): [string, string][] {
   return out;
 }
 
+/**
+ * An attribute value that becomes an inline editor on double-click (single-click
+ * is reserved for selecting the row), committing via `DOM.setAttributeValue`.
+ * Pointer/key events are stopped so editing never selects or navigates the tree.
+ */
+function AttrValue({
+  nodeId,
+  name,
+  value,
+}: {
+  nodeId: NodeId;
+  name: string;
+  value: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) ref.current?.select();
+  }, [editing]);
+
+  if (editing) {
+    const commit = () => {
+      setEditing(false);
+      if (draft !== value) void useDevtoolsStore.getState().setAttribute(nodeId, name, draft);
+    };
+    return (
+      <input
+        ref={ref}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        spellCheck={false}
+        aria-label={`Edit ${name}`}
+        className="bg-surface-page border border-accent rounded-sm px-0.5 font-mono text-caption text-success focus:outline-none w-24 align-baseline"
+      />
+    );
+  }
+  return (
+    <span
+      className="text-success cursor-text"
+      title="Double-click to edit"
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        setDraft(value);
+        setEditing(true);
+      }}
+    >
+      "{value}"
+    </span>
+  );
+}
+
 function NodeLabel({ node }: { node: CdpNode }) {
   if (node.nodeType === NODE_TYPE.ELEMENT) {
     const tag = node.localName || node.nodeName.toLowerCase();
@@ -38,7 +104,7 @@ function NodeLabel({ node }: { node: CdpNode }) {
             {' '}
             <span className="text-warning">{name}</span>
             <span className="text-fg-tertiary">=</span>
-            <span className="text-success">"{value}"</span>
+            <AttrValue nodeId={node.nodeId} name={name} value={value} />
           </span>
         ))}
         <span className="text-fg-tertiary">&gt;</span>

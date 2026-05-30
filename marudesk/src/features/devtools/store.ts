@@ -2,8 +2,12 @@ import { create } from 'zustand';
 import { useTabsStore } from '../tabs/store';
 import { useGridStore } from '../tabs/grid';
 import { useSettingsStore } from '../settings/store';
+import { useWebPageStore } from '../browser/store';
 import { toast } from '../../lib/toast';
+import { toMessage } from '../../lib/toMessage';
 import { cdpSend, cdpTry } from './cdp';
+import { buildCapture } from './capture';
+import { computeBlockEdit, rebuildStyleText, resolveStyleSheetSource } from './css-source';
 import {
   NODE_TYPE,
   type CdpNode,
@@ -15,7 +19,9 @@ import {
   type NodeId,
   type RemoteObject,
   type RuleMatch,
+  type StyleSheetHeader,
 } from './types';
+import type { PatchOp, PatchPreview } from '../../../shared/patch';
 
 /**
  * The custom DevTools session store. One dock, bound to the active web tab; it
@@ -38,6 +44,18 @@ type Styles = {
   inline?: CssStyle;
   matched: RuleMatch[];
   computed: ComputedStyleProperty[];
+};
+
+/**
+ * A workspace source patch a live CSS edit mapped to (§9-B), validated by
+ * `patch:preview` and awaiting the user's "Save to source". Null when the last
+ * edit was live-only (no mapping / not a workspace file).
+ */
+type PendingSourcePatch = {
+  path: string;
+  /** 1-based start line of the matched block, from the preview, for display. */
+  startLine: number;
+  op: PatchOp;
 };
 
 const DEFAULT_SIZE: Record<DockSide, number> = { right: 480, bottom: 320 };
@@ -81,6 +99,9 @@ type DevtoolsState = {
   styles: Styles | null;
   stylesLoading: boolean;
   picking: boolean;
+  // styleSheetId → header, for mapping an edited rule back to source (§9-B).
+  styleSheets: Map<string, StyleSheetHeader>;
+  pendingPatch: PendingSourcePatch | null;
   // console
   console: ConsoleEntry[];
   // network
@@ -104,6 +125,12 @@ type DevtoolsActions = {
   startPick: () => Promise<void>;
   stopPick: () => Promise<void>;
   inspectAt: (tabId: string, x: number, y: number) => Promise<void>;
+  captureSelected: () => Promise<void>;
+  // live edit + source-patch hook (§9-B)
+  editStyleProperty: (style: CssStyle, propIndex: number, newValue: string) => Promise<void>;
+  setAttribute: (nodeId: NodeId, name: string, value: string) => Promise<void>;
+  applySourcePatch: () => Promise<void>;
+  dismissSourcePatch: () => void;
   // console
   evaluate: (expression: string) => Promise<void>;
   clearConsole: () => void;
@@ -129,6 +156,11 @@ type DevtoolsActions = {
   _pushConsole: (entry: Omit<ConsoleEntry, 'id' | 'timestamp'> & { timestamp?: number }) => void;
   _finishPick: (backendNodeId: number) => Promise<void>;
   _revealAndSelect: (nodeId: NodeId) => Promise<void>;
+  _offerSourcePatch: (
+    styleSheetId: string,
+    oldBlock: string,
+    newBlock: string,
+  ) => Promise<void>;
 };
 
 function freshSlices(): Pick<
@@ -141,6 +173,8 @@ function freshSlices(): Pick<
   | 'styles'
   | 'stylesLoading'
   | 'picking'
+  | 'styleSheets'
+  | 'pendingPatch'
   | 'console'
   | 'network'
   | 'dropped'
@@ -154,6 +188,8 @@ function freshSlices(): Pick<
     styles: null,
     stylesLoading: false,
     picking: false,
+    styleSheets: new Map(),
+    pendingPatch: null,
     console: [],
     network: [],
     dropped: 0,
@@ -420,6 +456,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         expanded: new Set(),
         selectedId: null,
         styles: null,
+        styleSheets: new Map(),
+        pendingPatch: null,
       });
       const epoch = get().epoch;
       void (async () => {
@@ -656,6 +694,164 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       await get().selectNode(nodeId);
     },
 
+    captureSelected: async () => {
+      const { tabId, selectedId, nodes, styles } = get();
+      const node = selectedId !== null ? nodes.get(selectedId) : undefined;
+      if (!tabId || selectedId === null || !node || node.nodeType !== NODE_TYPE.ELEMENT) {
+        toast({ title: 'Select an element first', variant: 'warning' });
+        return;
+      }
+      // Reuse the computed style the Elements panel already loaded for the
+      // selection (no extra round-trip); buildCapture only fetches outerHTML +
+      // box model. url comes from the bound web tab's address bar.
+      const url = useWebPageStore.getState().currentUrl;
+      const capture = await buildCapture(
+        tabId,
+        selectedId,
+        node,
+        nodes,
+        styles?.computed ?? [],
+        url,
+      );
+      if (get().tabId !== tabId) return; // navigated / rebound while assembling
+      useWebPageStore.getState().addCapture(capture);
+      toast({
+        title: 'Added to context',
+        description: capture.selector || capture.tagName,
+        variant: 'success',
+      });
+    },
+
+    /* ── live edit (CSS / attributes) + source-patch hook ─────────────── */
+
+    editStyleProperty: async (style, propIndex, newValue) => {
+      const tabId = get().tabId;
+      const selId = get().selectedId;
+      if (!tabId || selId === null) return;
+      const styleSheetId = style.styleSheetId;
+      const blockRange = style.range;
+      if (!styleSheetId || !blockRange) {
+        toast({ title: 'This rule is read-only', variant: 'warning' });
+        return;
+      }
+      const prop = style.cssProperties[propIndex];
+      if (!prop || !prop.name) return;
+      const value = newValue.trim().replace(/;+$/, '').trim();
+      if (!value || value === prop.value) return; // empty / no-op
+
+      // Ground truth = the served stylesheet text: enables a precise,
+      // formatting-preserving splice used for BOTH the live `setStyleTexts` and
+      // (hook B) the source patch's oldString. Falls back to a deterministic
+      // block rebuild when ranges are unavailable.
+      const sheet = await cdpTry<{ text: string }>(tabId, 'CSS.getStyleSheetText', {
+        styleSheetId,
+      });
+      if (get().selectedId !== selId) return;
+      const edit =
+        sheet?.text !== undefined
+          ? computeBlockEdit(sheet.text, blockRange, prop, value)
+          : null;
+      const newBlockText = edit?.newBlock ?? rebuildStyleText(style, propIndex, value);
+
+      try {
+        await cdpSend(tabId, 'CSS.setStyleTexts', {
+          edits: [{ styleSheetId, range: blockRange, text: newBlockText }],
+        });
+      } catch (err) {
+        toast({ title: 'Edit rejected', description: toMessage(err), variant: 'error' });
+        return;
+      }
+      // The edit landed on the captured tab, but a rebind/nav during the
+      // round-trip would make selId a stale nodeId on the new document — don't
+      // refresh/offer against it.
+      if (get().tabId !== tabId || get().selectedId !== selId) return;
+      await get().selectNode(selId); // ranges/values shift after an edit
+      // Hook B: map the edit to a workspace file, or clear to live-only. Note
+      // `oldBlock` is the served text BEFORE this edit, which equals the file
+      // only for the first edit of a block; a 2nd edit before "Save to source"
+      // won't match disk and degrades to live-only (§19) — save between edits.
+      if (edit) void get()._offerSourcePatch(styleSheetId, edit.oldBlock, edit.newBlock);
+      else set({ pendingPatch: null });
+    },
+
+    setAttribute: async (nodeId, name, value) => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      try {
+        // The resulting DOM.attributeModified event updates the tree (ingestBatch).
+        await cdpSend(tabId, 'DOM.setAttributeValue', { nodeId, name, value });
+      } catch (err) {
+        toast({
+          title: 'Attribute edit rejected',
+          description: toMessage(err),
+          variant: 'error',
+        });
+      }
+    },
+
+    _offerSourcePatch: async (styleSheetId, oldBlock, newBlock) => {
+      const tabId = get().tabId;
+      const selId = get().selectedId;
+      const header = get().styleSheets.get(styleSheetId);
+      if (!header) {
+        set({ pendingPatch: null });
+        return;
+      }
+      let docOrigin = '';
+      try {
+        docOrigin = new URL(useWebPageStore.getState().currentUrl).origin;
+      } catch {
+        /* no usable origin → no source mapping */
+      }
+      const rel = resolveStyleSheetSource(header, docOrigin);
+      if (!rel) {
+        set({ pendingPatch: null });
+        return;
+      }
+      // Delegate the real feasibility check to patch:preview — it resolves the
+      // path fs-safely, confirms the file exists, and that oldBlock matches
+      // uniquely. Any failure → live-only (no offer).
+      const op: PatchOp = { path: rel, oldString: oldBlock, newString: newBlock };
+      let preview: PatchPreview;
+      try {
+        preview = await window.marudesk.invoke('patch:preview', [op]);
+      } catch {
+        set({ pendingPatch: null });
+        return;
+      }
+      // tab/selection moved while previewing — drop a now-irrelevant offer
+      // (guards against a cross-tab "Save to source" after a rebind).
+      if (get().tabId !== tabId || get().selectedId !== selId) return;
+      const first = preview.ops[0];
+      if (preview.hasErrors || !first || first.kind !== 'edit') {
+        set({ pendingPatch: null });
+        return;
+      }
+      set({ pendingPatch: { path: rel, startLine: first.startLine, op } });
+    },
+
+    applySourcePatch: async () => {
+      const pending = get().pendingPatch;
+      if (!pending) return;
+      try {
+        const res = await window.marudesk.invoke('patch:apply', [pending.op]);
+        if (res.ok) {
+          toast({ title: 'Saved to source', description: pending.path, variant: 'success' });
+        } else {
+          toast({
+            title: 'Save failed',
+            description: res.errors[0]?.reason ?? 'unknown error',
+            variant: 'error',
+          });
+        }
+      } catch (err) {
+        toast({ title: 'Save failed', description: toMessage(err), variant: 'error' });
+      }
+      set({ pendingPatch: null });
+    },
+
+    dismissSourcePatch: () => set({ pendingPatch: null }),
+
     /* ── console ─────────────────────────────────────────────────────── */
 
     _pushConsole: (entry) => {
@@ -763,12 +959,20 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         let network = s.network;
         let netIndex: Map<string, number> | null = null;
         let netDirty = false;
+        let styleSheets = s.styleSheets;
+        let sheetsDirty = false;
 
         const ensureDom = () => {
           if (!domDirty) {
             nodes = new Map(nodes);
             childIds = new Map(childIds);
             domDirty = true;
+          }
+        };
+        const ensureSheets = () => {
+          if (!sheetsDirty) {
+            styleSheets = new Map(styleSheets);
+            sheetsDirty = true;
           }
         };
         const ensureNet = () => {
@@ -884,6 +1088,29 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
             case 'Overlay.inspectNodeRequested': {
               const backendNodeId = pAny.backendNodeId as number;
               effects.push(() => void get()._finishPick(backendNodeId));
+              break;
+            }
+
+            /* CSS (stylesheet headers for the source-patch hook §9-B) */
+            case 'CSS.styleSheetAdded': {
+              ensureSheets();
+              const h = pAny.header as {
+                styleSheetId: string;
+                sourceURL?: string;
+                origin: string;
+                isInline?: boolean;
+              };
+              styleSheets.set(h.styleSheetId, {
+                styleSheetId: h.styleSheetId,
+                sourceURL: h.sourceURL ?? '',
+                origin: h.origin,
+                isInline: !!h.isInline,
+              });
+              break;
+            }
+            case 'CSS.styleSheetRemoved': {
+              ensureSheets();
+              styleSheets.delete(pAny.styleSheetId as string);
               break;
             }
 
@@ -1034,6 +1261,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         }
         if (consoleDirty) next.console = consoleArr;
         if (netDirty) next.network = network;
+        if (sheetsDirty) next.styleSheets = styleSheets;
         if (dropped) next.dropped = s.dropped + dropped;
         return next;
       });

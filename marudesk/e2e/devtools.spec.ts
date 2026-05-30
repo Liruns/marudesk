@@ -52,3 +52,35 @@ test('devtools: opening the dock on a web tab renders the live DOM tree', async 
     await app.close();
   }
 });
+
+test('devtools: "Add to context" sends the selected node to the composer (hook A)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(() =>
+      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
+    );
+    const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
+    await expect(wrench).toBeVisible();
+    await wrench.click();
+
+    const dock = page.getByLabel('DevTools', { exact: true });
+    await expect(dock).toBeVisible();
+
+    // "Add to context" is disabled until an element is selected.
+    const addBtn = page.getByRole('button', { name: 'Add to AI context' });
+    await expect(addBtn).toBeDisabled();
+
+    // Select <body> (always an element) → enables the capture button.
+    const bodyNode = dock.getByRole('treeitem').filter({ hasText: 'body' }).first();
+    await expect(bodyNode).toBeVisible();
+    await bodyNode.click();
+    await expect(addBtn).toBeEnabled();
+
+    // Clicking it builds a Capture over real CDP (outerHTML + box model) and
+    // adds it to the composer context — confirmed by the success toast.
+    await addBtn.click();
+    await expect(page.getByText('Added to context')).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});

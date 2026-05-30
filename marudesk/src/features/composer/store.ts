@@ -81,6 +81,10 @@ function toPayload(capture: Capture): CapturePayload {
     text: capture.text,
     attributes: capture.attributes,
     url: capture.url,
+    // Forwarded only when present (DevTools-originated captures); the LLM
+    // context builder folds them into the per-capture block.
+    outerHTML: capture.outerHTML,
+    computedStyle: capture.computedStyle,
   };
 }
 

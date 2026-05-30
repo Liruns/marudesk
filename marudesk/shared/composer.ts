@@ -8,6 +8,9 @@ export type CapturePayload = {
   text: string;
   attributes: Record<string, string>;
   url: string;
+  /** Optional richer context from the DevTools picker (see {@link Capture}). */
+  outerHTML?: string;
+  computedStyle?: Record<string, string>;
 };
 
 export type ProposeInput = {

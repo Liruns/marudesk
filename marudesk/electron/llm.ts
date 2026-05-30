@@ -18,6 +18,7 @@ import { DRIVERS } from './providers';
 
 const TOP_FILES_PER_CAPTURE = 3;
 const MAX_FILE_CHARS = 16_000;
+const MAX_OUTER_HTML_CHARS = 2_000;
 
 function isCapturePayload(value: unknown): value is CapturePayload {
   if (!value || typeof value !== 'object') return false;
@@ -30,6 +31,14 @@ function isCapturePayload(value: unknown): value is CapturePayload {
   if (!v.attributes || typeof v.attributes !== 'object') return false;
   for (const [, val] of Object.entries(v.attributes as Record<string, unknown>)) {
     if (typeof val !== 'string') return false;
+  }
+  // Optional richer context from the DevTools picker.
+  if (v.outerHTML !== undefined && typeof v.outerHTML !== 'string') return false;
+  if (v.computedStyle !== undefined) {
+    if (!v.computedStyle || typeof v.computedStyle !== 'object') return false;
+    for (const val of Object.values(v.computedStyle as Record<string, unknown>)) {
+      if (typeof val !== 'string') return false;
+    }
   }
   return true;
 }
@@ -82,6 +91,24 @@ async function buildUserMessage(
     if (cap.text) {
       const t = cap.text.length > 400 ? cap.text.slice(0, 400) + '…' : cap.text;
       parts.push(`text: ${t}`);
+    }
+    if (cap.computedStyle) {
+      const entries = Object.entries(cap.computedStyle);
+      if (entries.length > 0) {
+        parts.push(
+          `computed style: ${entries.map(([k, val]) => `${k}: ${val}`).join('; ')}`,
+        );
+      }
+    }
+    if (cap.outerHTML) {
+      const h =
+        cap.outerHTML.length > MAX_OUTER_HTML_CHARS
+          ? cap.outerHTML.slice(0, MAX_OUTER_HTML_CHARS) + '…'
+          : cap.outerHTML;
+      parts.push('outerHTML:');
+      parts.push('```html');
+      parts.push(escapeFence(h));
+      parts.push('```');
     }
     parts.push('');
 
