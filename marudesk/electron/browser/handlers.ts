@@ -18,7 +18,9 @@ import {
   setBrowserPaneBounds,
   setBrowserVisible,
 } from './layout';
+// (setBrowserBounds reused for devtools:set-dock-bounds — the drag-time path.)
 import { toggleDevtools } from './devtools';
+import { attachCdp, detachCdp, sendCdp } from './cdp';
 import { exitInspect, setInspectMode } from './inspect';
 import { navigateActive } from './navigation';
 import {
@@ -130,6 +132,58 @@ export function registerBrowserHandlers(deps: {
     if (!active || !active.view || getPaneBounds()) return false;
     toggleDevtools(active);
     return true;
+  });
+
+  // Custom CDP DevTools. `open`/`close` manage the debugger attach lifecycle for
+  // the active web tab; the React dock shows/hides on the renderer side.
+  // tabId-scoped (matching cdp-send / the event payloads) so open/close can
+  // never target a different tab than the one being driven.
+  defineHandler('devtools:open', ([payload]) => {
+    const rec = getTab(str(obj(payload).tabId, 'tabId'));
+    if (!rec || rec.kind !== 'web' || !rec.view) return false;
+    attachCdp(rec);
+    return true;
+  });
+
+  defineHandler('devtools:close', ([payload]) => {
+    const rec = getTab(str(obj(payload).tabId, 'tabId'));
+    if (!rec || rec.kind !== 'web' || !rec.view) return false;
+    detachCdp(rec);
+    return true;
+  });
+
+  defineHandler('devtools:cdp-send', async ([payload]) => {
+    const p = obj(payload);
+    const tabId = str(p.tabId, 'tabId');
+    const method = str(p.method, 'method');
+    const sessionId =
+      p.sessionId === undefined ? undefined : str(p.sessionId, 'sessionId');
+    const params = p.params === undefined ? undefined : obj(p.params, 'params');
+    // Trust the renderer-supplied tabId only after confirming it's a web tab we
+    // own (the host renderer is trusted, but the debugger only exists on web).
+    const rec = getTab(tabId);
+    if (!rec || rec.kind !== 'web' || !rec.view) {
+      return { ok: false, error: 'tab is not a web tab' };
+    }
+    // A command failure is a value, not a thrown error — so the renderer can
+    // tell "CSS.setStyleTexts rejected" from "session is dead".
+    try {
+      const value = await sendCdp(rec, method, params, sessionId);
+      return { ok: true, value };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  defineHandler('devtools:set-dock-bounds', ([rect]) => {
+    // Drag-time path: the renderer pushes the web area rect synchronously from
+    // the dock drag handler, bypassing the ResizeObserver lag. null = drag
+    // ended; the normal set-bounds flow resumes.
+    if (rect === null) return;
+    setBrowserBounds(toBounds(rect));
   });
 
   defineHandler('browser:tabs-new', ([payload]) => {

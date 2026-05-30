@@ -21,6 +21,7 @@ import {
 } from './state';
 import { applyBoundsToActive, hideTab, showTab } from './layout';
 import { closeDevtools, toggleDevtools } from './devtools';
+import { detachCdp } from './cdp';
 import { buildWebContextMenu } from './context-menu';
 import { reapplyInspectOverlay } from './inspect';
 
@@ -135,6 +136,13 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
     }
   });
 
+  // Detach our CDP debugger if the page's render process dies or the contents
+  // is destroyed — otherwise the renderer keeps a stale 'attached' session and
+  // the next cdp-send throws. No such crash handler existed before custom
+  // DevTools, so this is net-new (not inherited from closeDevtools).
+  view.webContents.on('render-process-gone', () => detachCdp(rec));
+  view.webContents.on('destroyed', () => detachCdp(rec));
+
   host.contentView.addChildView(view);
   setTab(id, rec);
   // Newly-created tabs start hidden; activation makes them visible.
@@ -184,7 +192,9 @@ export function activateTab(id: string): boolean {
 export function closeTab(id: string): boolean {
   const rec = getTab(id);
   if (!rec) return false;
-  // Tear down DevTools (and its docked view) before the page view.
+  // Detach our CDP debugger and tear down built-in DevTools before the page
+  // view goes away (detach before webContents.close).
+  detachCdp(rec);
   closeDevtools(rec);
   // Tear down the WebContentsView for web tabs; feature tabs have none.
   if (rec.view) {
@@ -240,6 +250,7 @@ export function mountBrowserView(win: BrowserWindow): void {
  */
 export function disposeBrowserView(): void {
   for (const rec of tabValues()) {
+    detachCdp(rec);
     closeDevtools(rec);
     if (rec.view) {
       try {

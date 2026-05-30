@@ -62,6 +62,12 @@ export const CHANNELS = {
     'browser:tabs-bind-path',
     'browser:toggle-devtools',
   ],
+  devtools: [
+    'devtools:open',
+    'devtools:close',
+    'devtools:cdp-send',
+    'devtools:set-dock-bounds',
+  ],
   workspace: [
     'workspace:open',
     'workspace:list',
@@ -147,6 +153,26 @@ export interface IpcMap {
   // Returns false when the active tab isn't a web tab.
   'browser:toggle-devtools': { args: []; result: boolean };
 
+  // devtools (custom CDP DevTools — electron/browser/cdp.ts)
+  'devtools:open': { args: [payload: { tabId: string }]; result: boolean };
+  'devtools:close': { args: [payload: { tabId: string }]; result: boolean };
+  'devtools:cdp-send': {
+    args: [
+      payload: {
+        tabId: string;
+        sessionId?: string;
+        method: string;
+        params?: object;
+      },
+    ];
+    // An envelope, not a thrown error: a failed CDP command (recoverable) must
+    // be distinguishable from a dead session (which re-attaches).
+    result: { ok: true; value: unknown } | { ok: false; error: string };
+  };
+  // Drag-time synchronous web-view shrink while dragging the dock splitter;
+  // null = drag ended, normal set-bounds flow resumes.
+  'devtools:set-dock-bounds': { args: [rect: Rect | null]; result: void };
+
   // workspace
   'workspace:open': { args: []; result: WorkspaceSummary | null };
   'workspace:list': { args: [root?: string]; result: WorkspaceSummary | null };
@@ -228,6 +254,17 @@ export interface EventPayloadMap {
   'browser:inspect-exit': void;
   'browser:nav-state': NavState;
   'browser:tabs-state': TabsSnapshot;
+  // CDP events, coalesced per tab and delivered as a batch (see cdp.ts).
+  // `dropped` = events shed when a flooding page overran the per-tick cap, so
+  // the renderer can surface "N dropped" instead of silently losing them.
+  'devtools:cdp-event': {
+    tabId: string;
+    items: { sessionId?: string; method: string; params: unknown }[];
+    dropped?: number;
+  };
+  // An external detach (crash / built-in DevTools opened) — the renderer drops
+  // its session and re-attaches on next open.
+  'devtools:detached': { tabId: string; reason: string };
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
@@ -243,6 +280,8 @@ export const EVENT_CHANNELS = [
   'browser:inspect-exit',
   'browser:nav-state',
   'browser:tabs-state',
+  'devtools:cdp-event',
+  'devtools:detached',
   'window:maximize-state',
   'settings:changed',
   'terminal:data',

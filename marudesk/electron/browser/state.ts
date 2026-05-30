@@ -38,6 +38,11 @@ export type TabRecord = {
   // Sync guard so a rapid second F12 can't create a second docked view while
   // the first open is still awaiting settings.
   devtoolsOpening?: boolean;
+  // Custom CDP DevTools (electron/browser/cdp.ts): whether our debugger is
+  // attached to this web tab, plus a sync guard against a re-entrant attach
+  // race (two near-simultaneous cdp-send calls both seeing !isAttached).
+  cdpAttached?: boolean;
+  cdpAttaching?: boolean;
 };
 
 // Titles for feature tabs (web tabs derive their title from the page).
