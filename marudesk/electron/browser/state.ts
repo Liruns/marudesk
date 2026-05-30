@@ -7,6 +7,7 @@ import {
   type TabsSnapshot,
 } from '../../shared/browser';
 import type { ConsoleErrorEvidence } from '../../shared/runtime-evidence';
+import type { NetworkRecord } from '../../shared/network-evidence';
 
 /**
  * Shared mutable state for the embedded-browser/tab subsystem, plus the
@@ -97,6 +98,15 @@ let paneBounds: Map<string, Bounds> | null = null;
 const MAX_ERRORS_PER_TAB = 50;
 const errorBuffers = new Map<string, ConsoleErrorEvidence[]>();
 
+// On-demand network capture (P0.5): the agent's `read_network` tool lazily
+// enables Network on a tab and reads from this per-tab ring. Gated by
+// `networkCaptureTabs` so the always-on path stays Runtime-only (no Network
+// flood unless the agent asked). Records are raw; scrubbing happens at egress
+// (the tool), never here. Cleared on navigation + tab delete, like errors.
+const MAX_NETWORK_PER_TAB = 100;
+const networkBuffers = new Map<string, NetworkRecord[]>();
+const networkCaptureTabs = new Set<string>();
+
 /* ── host window ────────────────────────────────────────────────────────── */
 
 export function getHost(): BrowserWindow | null {
@@ -168,6 +178,8 @@ export function setTab(id: string, rec: TabRecord): void {
 
 export function deleteTab(id: string): boolean {
   errorBuffers.delete(id); // drop the always-on console-error buffer with the tab
+  networkBuffers.delete(id);
+  networkCaptureTabs.delete(id);
   return tabs.delete(id);
 }
 
@@ -230,6 +242,42 @@ export function clearErrors(tabId: string): void {
 
 export function errorCount(tabId: string): number {
   return errorBuffers.get(tabId)?.length ?? 0;
+}
+
+/* ── on-demand network buffer (P0.5) ────────────────────────────────────── */
+
+export function isNetworkCaptureOn(tabId: string): boolean {
+  return networkCaptureTabs.has(tabId);
+}
+
+export function setNetworkCapture(tabId: string, on: boolean): void {
+  if (on) networkCaptureTabs.add(tabId);
+  else {
+    networkCaptureTabs.delete(tabId);
+    networkBuffers.delete(tabId);
+  }
+}
+
+/** Append a network record; latest write wins per requestId (response after-fail). */
+export function pushNetwork(tabId: string, rec: NetworkRecord): void {
+  let buf = networkBuffers.get(tabId);
+  if (!buf) {
+    buf = [];
+    networkBuffers.set(tabId, buf);
+  }
+  const existing = buf.findIndex((r) => r.requestId === rec.requestId);
+  if (existing >= 0) buf[existing] = { ...buf[existing], ...rec };
+  else buf.push(rec);
+  if (buf.length > MAX_NETWORK_PER_TAB) buf.splice(0, buf.length - MAX_NETWORK_PER_TAB);
+}
+
+export function getNetwork(tabId: string): NetworkRecord[] {
+  const buf = networkBuffers.get(tabId);
+  return buf ? [...buf] : [];
+}
+
+export function clearNetwork(tabId: string): void {
+  networkBuffers.delete(tabId);
 }
 
 /* ── derived state / renderer push ──────────────────────────────────────── */

@@ -33,7 +33,7 @@ function isStackFrameLite(value: unknown): boolean {
   );
 }
 
-function isCapturePayload(value: unknown): value is CapturePayload {
+export function isCapturePayload(value: unknown): value is CapturePayload {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   if (typeof v.id !== 'string' || v.id.length === 0) return false;

@@ -15,7 +15,7 @@ import {
 import { useWebPageStore } from '../browser/store';
 import { usePatchStore } from '../patch/store';
 
-type ComposerTab = 'captures' | 'composer';
+type ComposerTab = 'agent' | 'captures' | 'composer';
 
 const DEFAULT_PROVIDER: ProviderId = 'anthropic';
 
@@ -140,7 +140,7 @@ type ComposerActions = {
   clearLastResult: () => void;
 };
 
-function toPayload(capture: Capture): CapturePayload {
+export function toPayload(capture: Capture): CapturePayload {
   if (capture.kind === 'console-error') {
     return {
       kind: 'console-error',
@@ -210,7 +210,7 @@ const initialModelsError = PROVIDERS.reduce(
 
 export const useComposerStore = create<ComposerState & ComposerActions>(
   (set, get) => ({
-    tab: 'captures',
+    tab: 'agent',
     prompt: '',
     proposing: false,
     lastResult: null,

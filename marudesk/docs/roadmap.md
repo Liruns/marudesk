@@ -1,7 +1,7 @@
 # marudesk — 제품 로드맵
 
-> 상태: **살아있는 문서 · 방향 결정 + P0 설계 (구현 전)** · 작성 2026-05-31 · 범위: 제품 방향 + assist→agent 경로 + P0
-> 동반 문서: [커스텀 DevTools 설계](./custom-devtools-design.md) (CDP DevTools 구현 설계)
+> 상태: **살아있는 문서 · P0 출시(`266e703`) → agentic 승격 진행** · 작성 2026-05-31 · 범위: 제품 방향 + assist→agent 경로 + P0
+> 동반 문서: [커스텀 DevTools 설계](./custom-devtools-design.md) (CDP DevTools 구현 설계) · [Agentic AI Chat 설계](./agentic-chat-design.md) (assist→agent 실현 = §3/§9 + P0.5/P1/P2 흡수)
 
 이 문서는 "무엇을 만들지"보다 **"왜 이 순서로 만들지"**를 남기기 위한 것이다. 결정의 근거와 *기각한 것*을 함께 적는다.
 
@@ -56,7 +56,8 @@
 
 | Phase | 한 줄 | 무엇을 푸는가 | 상태 |
 |---|---|---|---|
-| **P0** | Console 에러 → 증거팩 → patch → apply → reload 검증 | 매일 훅 + 루프 증명 | 설계 |
+| **P0** | Console 에러 → 증거팩 → patch → apply → reload 검증 | 매일 훅 + 루프 증명 | **출시** (`266e703`) |
+| **Agent** | one-shot → 멀티턴 도구 루프(닫힌 검증). P0.5/P1/P2를 도구·기능으로 흡수 | §3/§9 실현 = 차별점 | 진행 ([설계](./agentic-chat-design.md)) |
 | **P0.5** | Network 응답 body → context, **scrub 필수** | 히어로 데모 + 신뢰 | 예정 |
 | **P1** | Context Preflight + 신뢰도 붙은 소스 후보 | 채택 / 신뢰 | 예정 |
 | **P1.5** | Evidence-pack export (Cursor / GitHub Issue) | 낮은 진입장벽 (companion) | 예정 |

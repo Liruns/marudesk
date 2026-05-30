@@ -5,11 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { applyReorder, type TabKind } from '../../shared/browser';
 import {
   clearErrors,
+  clearNetwork,
   clearTabs,
   deleteTab,
   getActiveTabId,
   getHost,
   getTab,
+  isNetworkCaptureOn,
   nextUntitledSeq,
   pushState,
   reorderTabRecords,
@@ -22,7 +24,12 @@ import {
 } from './state';
 import { applyBoundsToActive, applyWebLayout, hideTab, showTab } from './layout';
 import { closeChromeDevtools } from './devtools';
-import { detachCdp, enableConsoleCapture, refreshErrorBadge } from './cdp';
+import {
+  detachCdp,
+  enableConsoleCapture,
+  enableNetworkCapture,
+  refreshErrorBadge,
+} from './cdp';
 import { buildWebContextMenu } from './context-menu';
 import { reapplyInspectOverlay } from './inspect';
 import { clearFavicon, updateFavicon } from './favicon';
@@ -158,6 +165,10 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
     clearErrors(rec.id);
     enableConsoleCapture(rec);
     refreshErrorBadge(rec.id);
+    // The new document's network is fresh too; drop the old buffer and re-enable
+    // Network if the agent's read_network gate is still on for this tab.
+    clearNetwork(rec.id);
+    if (isNetworkCaptureOn(rec.id)) void enableNetworkCapture(rec);
     pushState();
   });
 

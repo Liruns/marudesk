@@ -38,10 +38,25 @@ export type ApplyError = {
   reason: string;
 };
 
+/**
+ * The before/after content of one successfully-applied op — captured so the
+ * agentic chat can show a diff and revert it (roadmap P2). The atomic apply
+ * already reads `before` and computes `after`; this just surfaces them.
+ */
+export type AppliedChange = {
+  path: string;
+  kind: 'edit' | 'create';
+  /** Pre-apply content, or null for a created file. */
+  before: string | null;
+  after: string;
+};
+
 export type ApplyResult = {
   ok: boolean;
   applied: ApplyOutcome[];
   errors: ApplyError[];
+  /** Present only on a fully-successful apply (ok: true). */
+  changes?: AppliedChange[];
 };
 
 /**

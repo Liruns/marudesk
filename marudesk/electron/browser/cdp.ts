@@ -3,10 +3,14 @@ import {
   errorCount,
   getDevtoolsWindow,
   getHost,
+  isNetworkCaptureOn,
   pushError,
+  pushNetwork,
+  setNetworkCapture,
   type TabRecord,
 } from './state';
 import { extractConsoleError } from '../../shared/runtime-evidence';
+import { extractNetwork } from '../../shared/network-evidence';
 
 /**
  * CDP relay for the custom DevTools. Rather than host Chromium's DevTools UI
@@ -211,6 +215,13 @@ function wireListeners(rec: TabRecord, wc: WebContents): void {
       errorCountDirty.add(rec.id);
       scheduleFlush();
     }
+    // On-demand network capture (P0.5): only when the agent enabled it for this
+    // tab — keeps the always-on path Runtime-only. Buffer is raw; the tool
+    // scrubs at egress.
+    if (isNetworkCaptureOn(rec.id)) {
+      const nrec = extractNetwork(method, params);
+      if (nrec) pushNetwork(rec.id, nrec);
+    }
     if (DROP_METHODS.has(method)) return;
     let buf = buffers.get(rec.id);
     if (!buf) {
@@ -331,6 +342,27 @@ export function enableConsoleCapture(rec: TabRecord): void {
   attachCdp(rec);
   if (!rec.cdpAttached) return; // attach lost the race / contents gone
   void sendCdp(rec, 'Runtime.enable').catch(() => {});
+}
+
+/**
+ * Lazily enable network capture (P0.5) on a web tab for the agent's
+ * `read_network` tool: attach our CDP client (if needed), flip the per-tab gate
+ * so the message relay starts buffering responses/failures, and enable the
+ * Network domain. Idempotent. Skips a tab whose built-in Chromium DevTools holds
+ * the single per-page CDP client. Returns true when capture is live.
+ */
+export async function enableNetworkCapture(rec: TabRecord): Promise<boolean> {
+  if (rec.kind !== 'web' || !rec.view) return false;
+  if (rec.chromeDevtoolsOpen) return false; // built-in DevTools owns the client
+  attachCdp(rec);
+  if (!rec.cdpAttached) return false;
+  setNetworkCapture(rec.id, true);
+  try {
+    await sendCdp(rec, 'Network.enable');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

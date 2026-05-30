@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   isPatchOpArray,
+  type AppliedChange,
   type ApplyError,
   type ApplyOutcome,
   type ApplyResult,
@@ -171,7 +172,7 @@ type Plan = {
   originalContent: string | null;
 };
 
-async function applyPatch(
+export async function applyPatch(
   ws: WorkspaceSummary,
   ops: PatchOp[],
 ): Promise<ApplyResult> {
@@ -300,7 +301,15 @@ async function applyPatch(
     }
   }
 
-  return { ok: true, applied, errors: [] };
+  // All renames committed: surface each file's before/after so callers (the
+  // agent edit history) can diff + revert without re-reading disk.
+  const changes: AppliedChange[] = plans.map((p) => ({
+    path: p.op.path,
+    kind: p.kind,
+    before: p.originalContent,
+    after: p.nextContent,
+  }));
+  return { ok: true, applied, errors: [], changes };
 }
 
 export function registerPatchHandlers(): void {

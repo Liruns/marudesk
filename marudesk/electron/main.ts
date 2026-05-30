@@ -12,6 +12,7 @@ import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerPatchHandlers } from './patch';
 import { registerSecretsHandlers } from './secrets';
 import { registerLlmHandlers } from './llm';
+import { registerAgentHandlers } from './agent/handlers';
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
@@ -166,6 +167,7 @@ void app.whenReady().then(() => {
   registerSecretsHandlers();
   registerModelsHandlers();
   registerLlmHandlers();
+  registerAgentHandlers();
   registerWindowControlHandlers();
   registerSettingsHandlers({
     broadcast: (settings) => {

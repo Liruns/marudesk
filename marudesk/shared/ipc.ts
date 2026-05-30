@@ -1,4 +1,10 @@
 import type { Capture } from './capture';
+import type {
+  AgentAnswers,
+  AgentChatState,
+  AgentSendInput,
+  AgentSendResult,
+} from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
 import type { DownloadAction, DownloadEntry } from './downloads';
@@ -104,6 +110,16 @@ export const CHANNELS = {
   ],
   providers: ['providers:list-models'],
   llm: ['llm:propose-patch'],
+  agent: [
+    'agent:send',
+    'agent:abort',
+    'agent:respond',
+    'agent:approve-tool',
+    'agent:accept-edit',
+    'agent:revert-edit',
+    'agent:snapshot',
+    'agent:reset',
+  ],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
   terminal: [
     'terminal:create',
@@ -294,6 +310,28 @@ export interface IpcMap {
   'providers:list-models': { args: [provider: ProviderId]; result: ModelDef[] };
   'llm:propose-patch': { args: [input: ProposeInput]; result: ProposeResult };
 
+  // agent (agentic AI Chat — docs/agentic-chat-design.md). main owns the chat
+  // state and streams it on the agent:event snapshot; these invokes drive it.
+  'agent:send': { args: [input: AgentSendInput]; result: AgentSendResult };
+  'agent:abort': { args: [payload: { turnId: string }]; result: boolean };
+  // Resume a turn parked on an ask_user tool with the user's answers.
+  'agent:respond': {
+    args: [payload: { turnId: string; callId: string; answers: AgentAnswers }];
+    result: boolean;
+  };
+  // Resume a turn parked on a gated tool (eval_js / navigation) approval.
+  'agent:approve-tool': {
+    args: [payload: { turnId: string; callId: string; approved: boolean }];
+    result: boolean;
+  };
+  // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
+  'agent:accept-edit': { args: [payload: { editId: string }]; result: boolean };
+  'agent:revert-edit': { args: [payload: { editId: string }]; result: boolean };
+  // Pull the current chat state (initial render / re-mount).
+  'agent:snapshot': { args: []; result: AgentChatState };
+  // Start a fresh conversation (clears transcript; keeps still-applied edits).
+  'agent:reset': { args: []; result: boolean };
+
   // settings
   'settings:get': { args: []; result: AppSettings };
   'settings:set': { args: [partial: SettingsPatch]; result: AppSettings };
@@ -363,6 +401,10 @@ export interface EventPayloadMap {
   // buffer, pushed (coalesced) when it changes or resets on navigation. Drives
   // the DevTools toggle's error badge without the dock being open.
   'devtools:error-count': { tabId: string; count: number };
+  // Agentic AI Chat: the full server-owned chat state, pushed (coalesced per
+  // tick) whenever a turn advances. The renderer replaces its projection
+  // wholesale — see docs/agentic-chat-design.md §8.
+  'agent:event': AgentChatState;
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
@@ -387,6 +429,7 @@ export const EVENT_CHANNELS = [
   'devtools:toggle',
   'devtools:inspect-at',
   'devtools:error-count',
+  'agent:event',
   'window:maximize-state',
   'settings:changed',
   'terminal:data',
