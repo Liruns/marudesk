@@ -1,5 +1,6 @@
-import { Menu, clipboard, shell } from 'electron';
+import { Menu, clipboard } from 'electron';
 import { getHost, type TabRecord } from './state';
+import { openExternalUrl } from '../safe-open';
 
 /**
  * Browser-style right-click menu for a web tab. The tab-opener is injected
@@ -19,7 +20,8 @@ function openUrlInTabOrExternal(url: string, openWebTab: OpenWebTab): void {
   if (/^https?:\/\//i.test(url)) {
     openWebTab(url);
   } else {
-    void shell.openExternal(url);
+    // mailto:/tel: → OS; file:/custom schemes are refused by openExternalUrl.
+    openExternalUrl(url);
   }
 }
 
@@ -68,7 +70,7 @@ export function buildWebContextMenu(
       });
     }
     items.push(
-      { label: 'Save Image As…', click: () => wc.downloadURL(srcURL) },
+      { label: 'Save Image', click: () => wc.downloadURL(srcURL) },
       { label: 'Copy Image', click: () => wc.copyImageAt(params.x, params.y) },
       { label: 'Copy Image Address', click: () => clipboard.writeText(srcURL) },
       sep,

@@ -38,6 +38,19 @@ export type TabRecord = {
   // Escape hatch: the built-in Chromium DevTools is open (detached window) for
   // this tab. Mutually exclusive with `cdpAttached` (single CDP client/page).
   chromeDevtoolsOpen?: boolean;
+  // Favicon as an inlined `data:` URL (electron/browser/favicon.ts), surfaced in
+  // the tab strip. `faviconUrl` is the source the data URL was fetched from — it
+  // doubles as the in-flight intent marker so a slow fetch resolving after a
+  // newer favicon event (or a navigation) self-cancels.
+  favicon?: string;
+  faviconUrl?: string;
+  // Renderer process died (render-process-gone, non-clean) and hasn't reloaded.
+  // The layout engine keeps a crashed view hidden so the renderer can paint a
+  // recovery card over the (now-revealed) React stage; cleared when a reload
+  // begins (did-start-loading).
+  crashed?: boolean;
+  // Per-tab page zoom factor (1 = 100%); re-applied after navigation (zoom.ts).
+  zoomFactor?: number;
 };
 
 // Titles for feature tabs (web tabs derive their title from the page).
@@ -169,7 +182,9 @@ export function findTabByWebContentsId(senderId: number): TabRecord | null {
 
 /* ── derived state / renderer push ──────────────────────────────────────── */
 
-function navStateFor(view: WebContentsView): NavState {
+function navStateFor(rec: TabRecord): NavState {
+  const view = rec.view;
+  if (!view) return { ...ZERO_NAV, favicon: rec.favicon ?? '' };
   const wc = view.webContents;
   const url = wc.getURL();
   return {
@@ -179,12 +194,15 @@ function navStateFor(view: WebContentsView): NavState {
     canGoForward: wc.navigationHistory.canGoForward(),
     isLoading: wc.isLoading(),
     isSecure: url.startsWith('https://'),
+    favicon: rec.favicon ?? '',
+    crashed: rec.crashed ?? false,
+    zoomFactor: rec.zoomFactor ?? 1,
   };
 }
 
 function tabStateFor(rec: TabRecord): TabState {
   if (rec.kind === 'web' && rec.view) {
-    return { id: rec.id, kind: 'web', ...navStateFor(rec.view) };
+    return { id: rec.id, kind: 'web', ...navStateFor(rec) };
   }
   if (rec.kind === 'editor') {
     const base = rec.filePath
@@ -214,8 +232,19 @@ export function snapshot(): TabsSnapshot {
   return { tabs: list, activeTabId };
 }
 
-/** Push the tab list and active-tab nav state to the renderer toolbar/strip. */
-export function pushState(): void {
+// `pushState` is called on every page event — and a single navigation emits a
+// burst (did-start-loading → did-navigate → page-title-updated → favicon →
+// did-stop-loading), each of which would otherwise fire TWO IPC sends (the full
+// tabs snapshot + the nav state). A busy SPA spamming did-navigate-in-page /
+// title updates multiplies that. Coalesce to one flush per tick (setImmediate),
+// mirroring the CDP event relay in ./cdp: the renderer only needs to land on the
+// latest snapshot, not replay every intermediate one. The synchronous pull path
+// (`browser:tabs-snapshot` → `snapshot()`) is unaffected, so a renderer that
+// needs state immediately can still ask for it.
+let stateFlushScheduled = false;
+
+function flushState(): void {
+  stateFlushScheduled = false;
   if (!host || host.isDestroyed()) return;
   const snap = snapshot();
   host.webContents.send('browser:tabs-state', snap);
@@ -223,6 +252,18 @@ export function pushState(): void {
   // Feature tabs have no navigation; report a zeroed nav so the toolbar resets.
   host.webContents.send(
     'browser:nav-state',
-    active && active.view ? navStateFor(active.view) : ZERO_NAV,
+    active && active.view ? navStateFor(active) : ZERO_NAV,
   );
+}
+
+/**
+ * Schedule a push of the tab list + active-tab nav state to the renderer
+ * toolbar/strip, coalesced to once per tick. Collapsing a navigation's event
+ * burst into a single flush keeps IPC volume flat while the renderer still lands
+ * on the final, correct snapshot.
+ */
+export function pushState(): void {
+  if (stateFlushScheduled) return;
+  stateFlushScheduled = true;
+  setImmediate(flushState);
 }

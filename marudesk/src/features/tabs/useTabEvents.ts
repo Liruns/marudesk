@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useWebPageStore } from '../browser/store';
+import { useDownloadsStore } from '../browser/downloads';
 import { useTabsStore } from './store';
 
 /**
@@ -22,14 +23,38 @@ export function useTabEvents(): void {
     const offTabs = window.marudesk.on('browser:tabs-state', (snap) => {
       useTabsStore.getState().setTabsState(snap);
     });
+    // Ctrl/Cmd+L while a web page had focus: main asks us to focus the bar.
+    const offFocusBar = window.marudesk.on('browser:focus-address-bar', () => {
+      useWebPageStore.getState().focusAddressBar();
+    });
+    // Ctrl/Cmd+F while a web page had focus: main asks us to open the find bar.
+    const offOpenFind = window.marudesk.on('browser:open-find', () => {
+      useWebPageStore.getState().openFind();
+    });
+    // Async find match counts for the active tab's find bar.
+    const offFound = window.marudesk.on('browser:found-in-page', (r) => {
+      useWebPageStore.getState().setFindResult(r.matches, r.activeMatchOrdinal);
+    });
+    // Live download list for the shelf.
+    const offDownloads = window.marudesk.on('browser:downloads', (list) => {
+      useDownloadsStore.getState().setDownloads(list);
+    });
     // Pull the current snapshot once on mount so the tab strip renders
     // immediately even before the first nav event fires.
     void useTabsStore.getState().refreshTabsSnapshot().catch(() => undefined);
+    void window.marudesk
+      .invoke('browser:downloads-list')
+      .then((list) => useDownloadsStore.getState().setDownloads(list))
+      .catch(() => undefined);
     return () => {
       offCapture();
       offExit();
       offNav();
       offTabs();
+      offFocusBar();
+      offOpenFind();
+      offFound();
+      offDownloads();
     };
   }, []);
 }

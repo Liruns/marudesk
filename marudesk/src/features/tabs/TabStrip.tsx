@@ -232,9 +232,9 @@ function TabChip({
 }
 
 function TabIndicator({ tab }: { tab: TabState }) {
-  // Feature tabs read differently from web tabs: a monochrome accent glyph
-  // (from the shared tab-kind registry) instead of the favicon stand-in
-  // (spinner / lock / globe).
+  // Feature tabs read differently from web tabs: a monochrome accent glyph (from
+  // the shared tab-kind registry). Web tabs show the live favicon when we have
+  // one, falling back to a security glyph (spinner while loading / lock / globe).
   if (tab.kind !== 'web') {
     const Icon = tabKinds[tab.kind].icon;
     return (
@@ -243,6 +243,7 @@ function TabIndicator({ tab }: { tab: TabState }) {
       </span>
     );
   }
+  // Loading wins over the favicon (Chrome-style): the spinner signals progress.
   if (tab.isLoading) {
     return (
       <span
@@ -250,6 +251,12 @@ function TabIndicator({ tab }: { tab: TabState }) {
         className="size-2 rounded-pill bg-accent animate-pulse shrink-0"
       />
     );
+  }
+  // Real favicon (a CSP-safe data URL inlined by main). A decode failure falls
+  // through to the globe. `key` remounts on a source change so a tab that
+  // recovers from a bad icon on its next navigation re-attempts the image.
+  if (tab.favicon) {
+    return <FaviconImg key={tab.favicon} src={tab.favicon} />;
   }
   if (!tab.url || tab.url === 'about:blank') {
     return (
@@ -269,6 +276,27 @@ function TabIndicator({ tab }: { tab: TabState }) {
     <span className="text-warning shrink-0" aria-hidden>
       <Globe size={12} />
     </span>
+  );
+}
+
+function FaviconImg({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="text-fg-tertiary shrink-0" aria-hidden>
+        <Globe size={12} />
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      draggable={false}
+      className="size-3.5 shrink-0 rounded-[2px] object-contain"
+      onError={() => setFailed(true)}
+    />
   );
 }
 

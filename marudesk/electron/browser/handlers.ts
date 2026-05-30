@@ -21,7 +21,15 @@ import {
 import { toggleChromeDevtools } from './devtools';
 import { attachCdp, detachCdp, sendCdp } from './cdp';
 import { exitInspect, setInspectMode } from './inspect';
+import { findInActive, stopFindInActive } from './find';
+import { zoomActive } from './zoom';
+import {
+  clearInactiveDownloads,
+  downloadAction,
+  getDownloads,
+} from './downloads';
 import { navigateActive } from './navigation';
+import type { DownloadAction } from '../../shared/downloads';
 import {
   activateTab,
   closeTab,
@@ -109,10 +117,11 @@ export function registerBrowserHandlers(deps: {
     return true;
   });
 
-  defineHandler('browser:reload', () => {
+  defineHandler('browser:reload', ([ignoreCache]) => {
     const active = getActive();
     if (!active || !active.view) return false;
-    active.view.webContents.reload();
+    if (ignoreCache) active.view.webContents.reloadIgnoringCache();
+    else active.view.webContents.reload();
     return true;
   });
 
@@ -121,6 +130,65 @@ export function registerBrowserHandlers(deps: {
     if (!active || !active.view) return false;
     active.view.webContents.stop();
     return true;
+  });
+
+  defineHandler('browser:find', ([payload]) => {
+    const p = obj(payload);
+    findInActive(str(p.text, 'text'), {
+      forward: p.forward === undefined ? undefined : bool(p.forward, 'forward'),
+      findNext:
+        p.findNext === undefined ? undefined : bool(p.findNext, 'findNext'),
+      matchCase:
+        p.matchCase === undefined ? undefined : bool(p.matchCase, 'matchCase'),
+    });
+  });
+
+  defineHandler('browser:stop-find', ([action]) => {
+    // Coerce any unexpected value to the safe default rather than throwing.
+    const a =
+      action === 'keepSelection' || action === 'activateSelection'
+        ? action
+        : 'clearSelection';
+    stopFindInActive(a);
+  });
+
+  defineHandler('browser:zoom', ([payload]) => {
+    const dir = obj(payload).direction;
+    // Ignore an unrecognized direction rather than destructively resetting to
+    // 100% (the safe default here is "do nothing", unlike stop-find's clear).
+    if (dir !== 'in' && dir !== 'out' && dir !== 'reset') {
+      return getActive()?.zoomFactor ?? 1;
+    }
+    const factor = zoomActive(dir);
+    // Reflect the new factor in NavState so the toolbar indicator updates.
+    pushState();
+    return factor;
+  });
+
+  defineHandler('browser:downloads-list', () => getDownloads());
+
+  defineHandler('browser:download-action', ([payload]) => {
+    const p = obj(payload);
+    const id = str(p.id, 'id');
+    const allowed: readonly DownloadAction[] = [
+      'cancel',
+      'pause',
+      'resume',
+      'open',
+      'show',
+      'remove',
+    ];
+    if (
+      typeof p.action !== 'string' ||
+      !(allowed as readonly string[]).includes(p.action)
+    ) {
+      return false;
+    }
+    return downloadAction(id, p.action as DownloadAction);
+  });
+
+  defineHandler('browser:downloads-clear', () => {
+    clearInactiveDownloads();
   });
 
   // Custom CDP DevTools. `open`/`close` manage the debugger attach lifecycle for

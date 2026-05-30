@@ -38,6 +38,8 @@ type TabsActions = {
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
   reloadOrStop: () => Promise<void>;
+  reload: (ignoreCache?: boolean) => Promise<void>;
+  zoom: (direction: 'in' | 'out' | 'reset') => Promise<void>;
 };
 
 export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
@@ -106,6 +108,18 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
     } else {
       await window.marudesk.invoke('browser:reload');
     }
+  },
+
+  // Unconditional reload (the Ctrl+R / F5 path), independent of the loading
+  // state the toolbar's reloadOrStop toggles on. `ignoreCache` = hard reload.
+  reload: async (ignoreCache) => {
+    await window.marudesk.invoke('browser:reload', ignoreCache);
+  },
+
+  // Page zoom (Ctrl +/-/0). The resulting factor flows back through NavState, so
+  // there's nothing to set locally — the toolbar reads nav.zoomFactor.
+  zoom: async (direction) => {
+    await window.marudesk.invoke('browser:zoom', { direction });
   },
 }));
 

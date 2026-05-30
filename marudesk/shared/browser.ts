@@ -11,6 +11,22 @@ export type NavState = {
   canGoForward: boolean;
   isLoading: boolean;
   isSecure: boolean;
+  /**
+   * The active favicon as a self-contained `data:` URL, or '' when the page has
+   * none yet. Main fetches the page's declared icon and inlines it (see
+   * electron/browser/favicon.ts) precisely so the renderer can render it under
+   * its strict `img-src 'self' data: blob:` CSP — a raw external favicon URL
+   * would be blocked.
+   */
+  favicon: string;
+  /**
+   * The web tab's renderer process died (crash / OOM / killed) and has not been
+   * reloaded yet. Main hides the dead view via the layout engine so the React
+   * stage can paint a recovery card; cleared the moment a reload begins.
+   */
+  crashed: boolean;
+  /** Page zoom factor (1 = 100%). Per-tab; the toolbar shows a reset chip ≠ 1. */
+  zoomFactor: number;
 };
 
 /**
@@ -61,6 +77,9 @@ export const ZERO_NAV: NavState = {
   canGoForward: false,
   isLoading: false,
   isSecure: false,
+  favicon: '',
+  crashed: false,
+  zoomFactor: 1,
 };
 
 /**

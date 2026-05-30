@@ -46,6 +46,12 @@ export function applyWebLayout(): void {
 export function applyPaneBounds(bounds: Map<string, Bounds>): void {
   for (const rec of tabValues()) {
     if (!rec.view) continue;
+    // A crashed view stays hidden (its pane goes blank) so it never renders a
+    // dead page on top of the stage — see applyBoundsToActive.
+    if (rec.crashed) {
+      hideTab(rec);
+      continue;
+    }
     const r = bounds.get(rec.id);
     if (r) {
       rec.view.setVisible(true);
@@ -64,6 +70,13 @@ export function applyPaneBounds(bounds: Map<string, Bounds>): void {
 export function applyBoundsToActive(): void {
   const active = getActive();
   if (!active || !active.view) return;
+  // A crashed view stays hidden so the renderer's recovery card (painted on the
+  // React stage behind it) is visible — the web view otherwise composites on top
+  // and would show the dead page. Cleared on reload (did-start-loading).
+  if (active.crashed) {
+    hideTab(active);
+    return;
+  }
   // The web rect already excludes the DevTools dock: the renderer measures the
   // web stage (a flex sibling of the React dock) and pushes that rect via
   // browser:set-bounds, so we place the view at exactly the bounds given.
@@ -90,6 +103,11 @@ export function showTab(rec: TabRecord): void {
     return;
   }
   if (!rec.view) return;
+  // Don't reveal a crashed view; the recovery card needs the stage visible.
+  if (rec.crashed) {
+    hideTab(rec);
+    return;
+  }
   rec.view.setVisible(true);
   applyBoundsToActive();
 }
@@ -153,5 +171,12 @@ export function setBrowserVisible(visible: boolean): void {
   }
   const active = getActive();
   if (!active || !active.view) return;
+  // Never reveal a crashed view: the recovery card needs the stage visible, and
+  // a transient show (e.g. a SeedDropOverlay unmount calling set-visible true)
+  // would otherwise composite the dead page back over the card.
+  if (visible && active.crashed) {
+    active.view.setVisible(false);
+    return;
+  }
   active.view.setVisible(visible);
 }

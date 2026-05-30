@@ -1,5 +1,7 @@
 import type { Capture } from './capture';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
+import type { DownloadAction, DownloadEntry } from './downloads';
+import type { HistoryEntry } from './history';
 import type { ProposeInput, ProposeResult } from './composer';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
 import type { ModelDef, ProviderId, ProviderStatus } from './providers';
@@ -54,6 +56,12 @@ export const CHANNELS = {
     'browser:go-forward',
     'browser:reload',
     'browser:stop',
+    'browser:find',
+    'browser:stop-find',
+    'browser:zoom',
+    'browser:downloads-list',
+    'browser:download-action',
+    'browser:downloads-clear',
     'browser:tabs-new',
     'browser:tabs-close',
     'browser:tabs-activate',
@@ -82,6 +90,7 @@ export const CHANNELS = {
     'workspace:copy',
     'workspace:reveal',
   ],
+  history: ['history:query'],
   patch: ['patch:preview', 'patch:apply'],
   secrets: [
     'secrets:list-providers',
@@ -135,8 +144,40 @@ export interface IpcMap {
   'browser:set-visible': { args: [visible: boolean]; result: void };
   'browser:go-back': { args: []; result: boolean };
   'browser:go-forward': { args: []; result: boolean };
-  'browser:reload': { args: []; result: boolean };
+  // `ignoreCache` = a hard reload (Ctrl+Shift+R); omitted/false = a normal one.
+  'browser:reload': { args: [ignoreCache?: boolean]; result: boolean };
   'browser:stop': { args: []; result: boolean };
+  // In-page find (Ctrl+F). Match counts come back asynchronously on the
+  // `browser:found-in-page` event, so the invoke itself resolves void.
+  'browser:find': {
+    args: [
+      payload: {
+        text: string;
+        forward?: boolean;
+        findNext?: boolean;
+        matchCase?: boolean;
+      },
+    ];
+    result: void;
+  };
+  'browser:stop-find': {
+    args: [action?: 'clearSelection' | 'keepSelection' | 'activateSelection'];
+    result: void;
+  };
+  // Per-tab page zoom (Ctrl +/-/0). Returns the new factor (1 = 100%); the
+  // toolbar also gets it via NavState so it survives tab switches.
+  'browser:zoom': {
+    args: [payload: { direction: 'in' | 'out' | 'reset' }];
+    result: number;
+  };
+  // Download manager. The live list is also pushed on the browser:downloads
+  // event whenever it changes; this invoke is the pull for an initial render.
+  'browser:downloads-list': { args: []; result: DownloadEntry[] };
+  'browser:download-action': {
+    args: [payload: { id: string; action: DownloadAction }];
+    result: boolean;
+  };
+  'browser:downloads-clear': { args: []; result: void };
   'browser:tabs-new': {
     args: [payload: { kind?: TabKind; url?: string; path?: string }];
     result: string;
@@ -210,6 +251,9 @@ export interface IpcMap {
   'patch:preview': { args: [ops: PatchOp[]]; result: PatchPreview };
   'patch:apply': { args: [ops: PatchOp[]]; result: ApplyResult };
 
+  // history (address-bar autocomplete)
+  'history:query': { args: [query: string]; result: HistoryEntry[] };
+
   // secrets / providers / llm
   'secrets:list-providers': { args: []; result: ProviderStatus[] };
   'secrets:set-provider-key': {
@@ -255,6 +299,21 @@ export interface EventPayloadMap {
   'browser:inspect-exit': void;
   'browser:nav-state': NavState;
   'browser:tabs-state': TabsSnapshot;
+  // Ctrl/Cmd+L pressed while the web view itself had focus: the main process
+  // can't focus the React address bar directly, so it asks the renderer to
+  // (same idea as devtools:toggle). No payload.
+  'browser:focus-address-bar': void;
+  // Ctrl/Cmd+F from the focused web page: open the renderer's find bar.
+  'browser:open-find': void;
+  // Async match counts for the find bar (fires repeatedly per search; the last
+  // carries finalUpdate=true). Active web tab only.
+  'browser:found-in-page': {
+    activeMatchOrdinal: number;
+    matches: number;
+    finalUpdate: boolean;
+  };
+  // The full download list, pushed (coalesced) whenever it changes.
+  'browser:downloads': DownloadEntry[];
   // CDP events, coalesced per tab and delivered as a batch (see cdp.ts).
   // `dropped` = events shed when a flooding page overran the per-tick cap, so
   // the renderer can surface "N dropped" instead of silently losing them.
@@ -288,6 +347,10 @@ export const EVENT_CHANNELS = [
   'browser:inspect-exit',
   'browser:nav-state',
   'browser:tabs-state',
+  'browser:focus-address-bar',
+  'browser:open-find',
+  'browser:found-in-page',
+  'browser:downloads',
   'devtools:cdp-event',
   'devtools:detached',
   'devtools:toggle',

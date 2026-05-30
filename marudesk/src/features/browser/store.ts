@@ -19,6 +19,20 @@ type WebPageState = {
   inspectMode: boolean;
   captures: Capture[];
   selectedCaptureIds: Set<string>;
+  /**
+   * Monotonic counter bumped to request that the address bar focus + select
+   * itself (Ctrl/Cmd+L). The canvas watches it in an effect; a counter (not a
+   * boolean) so a repeat press re-focuses even if nothing else changed.
+   */
+  addressBarFocusNonce: number;
+  // In-page find (Ctrl+F). `findMatches`/`findActiveMatch` are pushed from main
+  // via browser:found-in-page; `findFocusNonce` re-focuses the find input the
+  // same way addressBarFocusNonce does for the address bar.
+  findOpen: boolean;
+  findQuery: string;
+  findMatches: number;
+  findActiveMatch: number;
+  findFocusNonce: number;
 };
 
 type WebPageActions = {
@@ -31,6 +45,14 @@ type WebPageActions = {
   clearCaptures: () => void;
   toggleCaptureSelected: (id: string) => void;
   setAllSelected: (selected: boolean) => void;
+  focusAddressBar: () => void;
+  // find
+  openFind: () => void;
+  closeFind: () => void;
+  setFindQuery: (query: string) => void;
+  findNext: (forward: boolean) => void;
+  setFindResult: (matches: number, activeMatch: number) => void;
+  reissueFind: () => void;
 };
 
 export const useWebPageStore = create<WebPageState & WebPageActions>(
@@ -40,8 +62,74 @@ export const useWebPageStore = create<WebPageState & WebPageActions>(
     inspectMode: false,
     captures: [],
     selectedCaptureIds: new Set<string>(),
+    addressBarFocusNonce: 0,
+    findOpen: false,
+    findQuery: '',
+    findMatches: 0,
+    findActiveMatch: 0,
+    findFocusNonce: 0,
 
     setPendingUrl: (pendingUrl) => set({ pendingUrl }),
+
+    focusAddressBar: () =>
+      set((s) => ({ addressBarFocusNonce: s.addressBarFocusNonce + 1 })),
+
+    /* ── in-page find ─────────────────────────────────────────────────── */
+
+    openFind: () => {
+      // Bumping the focus nonce re-focuses the input even when the bar is
+      // already open (e.g. a second Ctrl+F from the page). Re-issue the search
+      // on reopen so highlights return without the user retyping.
+      set((s) => ({ findOpen: true, findFocusNonce: s.findFocusNonce + 1 }));
+      const { findQuery } = get();
+      if (findQuery) {
+        void window.marudesk.invoke('browser:find', {
+          text: findQuery,
+          findNext: false,
+        });
+      }
+    },
+
+    closeFind: () => {
+      void window.marudesk.invoke('browser:stop-find', 'clearSelection');
+      set({ findOpen: false, findMatches: 0, findActiveMatch: 0 });
+    },
+
+    setFindQuery: (query) => {
+      set({ findQuery: query });
+      if (query) {
+        // findNext:false = a fresh search (re-highlight all, jump to first).
+        void window.marudesk.invoke('browser:find', { text: query, findNext: false });
+      } else {
+        void window.marudesk.invoke('browser:stop-find', 'clearSelection');
+        set({ findMatches: 0, findActiveMatch: 0 });
+      }
+    },
+
+    findNext: (forward) => {
+      const { findQuery } = get();
+      if (!findQuery) return;
+      void window.marudesk.invoke('browser:find', {
+        text: findQuery,
+        findNext: true,
+        forward,
+      });
+    },
+
+    setFindResult: (matches, activeMatch) =>
+      set({ findMatches: matches, findActiveMatch: activeMatch }),
+
+    // Re-run the current query (fresh search) — used after a navigation drops
+    // Chromium's find session, so the bar's count doesn't go stale.
+    reissueFind: () => {
+      const { findOpen, findQuery } = get();
+      if (findOpen && findQuery) {
+        void window.marudesk.invoke('browser:find', {
+          text: findQuery,
+          findNext: false,
+        });
+      }
+    },
 
     commitNavigate: async () => {
       const { pendingUrl } = get();
@@ -127,4 +215,23 @@ useTabsStore.subscribe((state, prev) => {
         ? navUrl
         : web.pendingUrl,
   }));
+});
+
+/**
+ * Reset the find bar on a tab switch. The bar is shared and bound to the active
+ * web tab, so carrying its matches/query onto a different page would be stale.
+ * (The previous tab keeps its native highlights until it navigates or find runs
+ * there again — a minor, acceptable artifact for v1.)
+ */
+useTabsStore.subscribe((state, prev) => {
+  if (state.activeTabId === prev.activeTabId) return;
+  const web = useWebPageStore.getState();
+  if (web.findOpen || web.findMatches || web.findQuery) {
+    useWebPageStore.setState({
+      findOpen: false,
+      findQuery: '',
+      findMatches: 0,
+      findActiveMatch: 0,
+    });
+  }
 });

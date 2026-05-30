@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
@@ -14,7 +14,9 @@ import { registerSecretsHandlers } from './secrets';
 import { registerLlmHandlers } from './llm';
 import { registerModelsHandlers } from './models';
 import { registerSettingsHandlers } from './settings';
+import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
+import { openExternalUrl } from './safe-open';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -97,7 +99,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternalUrl(url);
     return { action: 'deny' };
   });
 
@@ -105,7 +107,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     const localPrefix = rendererDevUrl ?? 'file://';
     if (!url.startsWith(localPrefix)) {
       event.preventDefault();
-      void shell.openExternal(url);
+      openExternalUrl(url);
     }
   });
 
@@ -170,6 +172,7 @@ void app.whenReady().then(() => {
       getMainWindow()?.webContents.send('settings:changed', settings);
     },
   });
+  registerHistoryHandlers();
   registerTerminalHandlers({
     getMainWindow,
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,
@@ -196,7 +199,7 @@ app.on('before-quit', () => {
 
 app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternalUrl(url);
     return { action: 'deny' };
   });
 });

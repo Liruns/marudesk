@@ -1,4 +1,4 @@
-import { WebContentsView, session, shell, type BrowserWindow } from 'electron';
+import { WebContentsView, session, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -19,11 +19,17 @@ import {
   tabValues,
   type TabRecord,
 } from './state';
-import { applyBoundsToActive, hideTab, showTab } from './layout';
+import { applyBoundsToActive, applyWebLayout, hideTab, showTab } from './layout';
 import { closeChromeDevtools } from './devtools';
 import { detachCdp } from './cdp';
 import { buildWebContextMenu } from './context-menu';
 import { reapplyInspectOverlay } from './inspect';
+import { clearFavicon, updateFavicon } from './favicon';
+import { handleFoundInPage } from './find';
+import { reapplyZoom, zoomActive } from './zoom';
+import { registerDownloadHandler } from './downloads';
+import { recordTitle, recordVisit } from '../history';
+import { openExternalUrl } from '../safe-open';
 
 /**
  * Tab lifecycle: create / activate / close / reorder, plus the mount and dispose
@@ -85,7 +91,8 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
       createAndActivateTab('web', url);
       return { action: 'deny' };
     }
-    void shell.openExternal(url);
+    // Anything else (mailto:/tel: → OS; file:/custom schemes → refused).
+    openExternalUrl(url);
     return { action: 'deny' };
   });
 
@@ -96,12 +103,61 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
   });
 
   const push = (): void => pushState();
-  view.webContents.on('did-start-loading', push);
   view.webContents.on('did-stop-loading', push);
-  view.webContents.on('did-navigate', push);
   view.webContents.on('did-navigate-in-page', push);
-  view.webContents.on('page-title-updated', push);
-  view.webContents.on('did-fail-load', push);
+
+  // Title arrives after navigation: refresh the strip and record it against the
+  // current URL in history (for the address-bar autocomplete labels).
+  view.webContents.on('page-title-updated', (_event, title) => {
+    recordTitle(view.webContents.getURL(), title);
+    pushState();
+  });
+
+  // A fresh load means the page is back: clear any crash flag from a prior
+  // render-process-gone and re-reveal the view the layout engine had hidden.
+  view.webContents.on('did-start-loading', () => {
+    if (rec.crashed) {
+      rec.crashed = false;
+      applyWebLayout();
+    }
+    pushState();
+  });
+
+  // -3 (ERR_ABORTED) is a normal cancellation (navigated away / stopped / a
+  // redirect superseded the load), and sub-frame failures (ads, trackers)
+  // shouldn't disturb the toolbar — only a real main-frame failure updates state.
+  view.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, _desc, _url, isMainFrame) => {
+      if (!isMainFrame || errorCode === -3) return;
+      pushState();
+    },
+  );
+
+  // A top-level navigation lands on a new document, so the prior favicon is
+  // stale — drop it (the strip shows the spinner while loading, then the globe
+  // until the new icon arrives). did-navigate-in-page (SPA, same document) is a
+  // plain `push` above and keeps the icon.
+  view.webContents.on('did-navigate', () => {
+    clearFavicon(rec);
+    // Chromium resets zoom on a cross-document load; restore the tab's choice.
+    reapplyZoom(rec);
+    // Record the visit for address-bar autocomplete (http(s) only, filtered in
+    // recordVisit). Title is best-effort here; page-title-updated refines it.
+    recordVisit(view.webContents.getURL(), view.webContents.getTitle());
+    pushState();
+  });
+
+  // The page declared its icon set: fetch + inline it as a CSP-safe data URL for
+  // the tab strip (see ./favicon).
+  view.webContents.on('page-favicon-updated', (_event, favicons) => {
+    updateFavicon(rec, favicons);
+  });
+
+  // In-page find match counts → the renderer's find bar (active tab only).
+  view.webContents.on('found-in-page', (_event, result) => {
+    handleFoundInPage(rec, result);
+  });
 
   // Re-apply inspect overlay after the page navigates if inspect is on.
   view.webContents.on('did-finish-load', () => {
@@ -119,26 +175,91 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
     if (menu.items.length > 0) menu.popup({ window: h });
   });
 
-  // F12 / Ctrl+Shift+I while the page itself has focus. The DevTools dock is a
-  // React surface the main process can't toggle directly, so we forward the
-  // request to the renderer (same path as the toolbar wrench); it owns the
-  // grid guard, the dock-vs-chrome choice, and the CDP attach.
+  // Browser keyboard shortcuts fired while the web view itself has focus. The
+  // host renderer's window keydown can't see these (focus is in a different
+  // webContents), so the main process intercepts them here — the mirror of
+  // Shell.tsx's handler for when the React chrome has focus. The two are
+  // mutually exclusive by focus, so a shortcut never double-fires.
   view.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     // Only the active/visible tab — a background contents must not drive the
-    // dock, which always tracks the active tab.
+    // dock or navigation, which always track the active tab.
     if (rec.id !== getActiveTabId()) return;
-    const isF12 = input.key === 'F12';
-    const isInspectChord =
-      (input.control || input.meta) &&
-      input.shift &&
-      input.key.toLowerCase() === 'i';
-    if (isF12 || isInspectChord) {
+    const mod = input.control || input.meta;
+    const key = input.key.toLowerCase();
+    const wc = rec.view?.webContents;
+
+    // DevTools: F12 / Ctrl+Shift+I → forward to the renderer (it owns the grid
+    // guard, the dock-vs-chrome choice, and the CDP attach).
+    if (input.key === 'F12' || (mod && input.shift && key === 'i')) {
       event.preventDefault();
       const h = getHost();
       if (h && !h.isDestroyed()) {
         h.webContents.send('devtools:toggle', { tabId: rec.id });
       }
+      return;
+    }
+    if (!wc) return;
+
+    // Reload: F5 / Ctrl+R (normal), Ctrl+Shift+R (hard, ignore cache).
+    if (input.key === 'F5' || (mod && key === 'r')) {
+      event.preventDefault();
+      if (mod && input.shift && key === 'r') wc.reloadIgnoringCache();
+      else wc.reload();
+      return;
+    }
+    // History: Alt+Left / Alt+Right.
+    if (input.alt && (input.key === 'ArrowLeft' || input.key === 'ArrowRight')) {
+      event.preventDefault();
+      const nh = wc.navigationHistory;
+      if (input.key === 'ArrowLeft') {
+        if (nh.canGoBack()) nh.goBack();
+      } else if (nh.canGoForward()) {
+        nh.goForward();
+      }
+      return;
+    }
+    // Focus the address bar: Ctrl/Cmd+L. Pull keyboard focus to the host
+    // renderer first (it's in the embedded view right now), then ask it to focus
+    // + select the address input.
+    if (mod && key === 'l') {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.focus();
+        h.webContents.send('browser:focus-address-bar');
+      }
+      return;
+    }
+    // Find in page: Ctrl/Cmd+F → pull focus to the host and open the find bar.
+    if (mod && key === 'f') {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.focus();
+        h.webContents.send('browser:open-find');
+      }
+      return;
+    }
+    // Page zoom: Ctrl/Cmd with '=' / '+' (in), '-' (out), '0' (reset). pushState
+    // carries the new factor to the toolbar indicator.
+    if (mod && (input.key === '=' || input.key === '+')) {
+      event.preventDefault();
+      zoomActive('in');
+      pushState();
+      return;
+    }
+    if (mod && input.key === '-') {
+      event.preventDefault();
+      zoomActive('out');
+      pushState();
+      return;
+    }
+    if (mod && input.key === '0') {
+      event.preventDefault();
+      zoomActive('reset');
+      pushState();
+      return;
     }
   });
 
@@ -146,7 +267,17 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
   // is destroyed — otherwise the renderer keeps a stale 'attached' session and
   // the next cdp-send throws. No such crash handler existed before custom
   // DevTools, so this is net-new.
-  view.webContents.on('render-process-gone', () => detachCdp(rec));
+  view.webContents.on('render-process-gone', (_event, details) => {
+    detachCdp(rec);
+    // 'clean-exit' is orderly teardown (e.g. closeTab closing the view), not a
+    // crash. Anything else (crashed / oom / killed / launch-failed) leaves a dead
+    // view: flag it, hide it via the layout engine, and let the renderer paint a
+    // recovery card. Cleared on the next load (did-start-loading).
+    if (details.reason === 'clean-exit') return;
+    rec.crashed = true;
+    hideTab(rec);
+    pushState();
+  });
   view.webContents.on('destroyed', () => detachCdp(rec));
 
   host.contentView.addChildView(view);
@@ -243,6 +374,9 @@ export function mountBrowserView(win: BrowserWindow): void {
   inspectSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(false);
   });
+  // Track downloads originating from the web tabs (this partition), auto-saving
+  // them to the Downloads folder and feeding the renderer's download shelf.
+  registerDownloadHandler(inspectSession);
 
   // Open on the dashboard (a feature tab). The embedded browser only appears
   // once the user opens or navigates to a web tab.
