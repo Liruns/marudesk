@@ -11,9 +11,10 @@ import type {
 import { emptyAgentChatState } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
+import { scrubText } from '../../shared/scrub';
 import { getProviderApiKey } from '../secrets';
 import { requireWorkspace } from '../ipc/define-handler';
-import { getHost, getTab } from '../browser/state';
+import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { writeFileForEditor } from '../workspace';
 import { getAgentDriver, type LoopContent, type LoopMessage } from './driver';
@@ -62,6 +63,13 @@ let transcript: LoopMessage[] = [];
 let controller: AbortController | null = null;
 let approvalResolver: ((approved: boolean) => void) | null = null;
 let answersResolver: ((answers: AgentAnswers) => void) | null = null;
+// Synchronous re-entrancy guard: status is only set busy *after* an await in
+// startTurn, so two near-simultaneous sends could both pass busy(). This closes
+// that window before the first await.
+let starting = false;
+// The web tab the active turn targets — so finish() can stop the lazy network
+// capture it may have enabled (otherwise the relay keeps buffering forever).
+let activeTabId: string | undefined;
 let seq = 0;
 
 function uid(prefix: string): string {
@@ -116,15 +124,16 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary): string {
   if (input.tabId) {
     const rec = getTab(input.tabId);
     const url = rec?.view?.webContents.getURL();
-    if (url) lines.push(`Active web tab URL: ${url}`);
+    // Scrub: URLs can carry tokens in query params (and captures carry page text).
+    if (url) lines.push(`Active web tab URL: ${scrubText(url)}`);
   }
   lines.push('', `User request: ${input.prompt.trim()}`);
   if (input.captures.length > 0) {
     lines.push('', 'Attached context (selected by the user):');
     for (const cap of input.captures) {
       if (cap.kind === 'console-error') {
-        const loc = cap.source ? ` @ ${cap.source.url}` : '';
-        lines.push(`- console error: ${cap.message}${loc}`);
+        const loc = cap.source ? ` @ ${scrubText(cap.source.url)}` : '';
+        lines.push(`- console error: ${scrubText(cap.message)}${loc}`);
       } else {
         const attrs = Object.entries(cap.attributes).slice(0, 6).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ');
         lines.push(`- <${cap.tagName.toLowerCase()}> selector="${cap.selector}"${cap.text ? ` text="${cap.text.slice(0, 80)}"` : ''}${attrs ? ` [${attrs}]` : ''}`);
@@ -137,13 +146,19 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary): string {
 
 /* ── parking (approval / ask_user) ──────────────────────────────────────── */
 
+// Settle-then-replace: never leave a live resolver from a prior call behind, so
+// a late agent:approve-tool / agent:respond can't resolve the wrong parked
+// promise. The turnId+callId guards in approveTool/respond are the primary gate;
+// this is belt-and-suspenders for the resolver lifecycle.
 function waitForApproval(): Promise<boolean> {
+  approvalResolver?.(false);
   return new Promise((resolve) => {
     approvalResolver = resolve;
   });
 }
 
 function waitForAnswers(): Promise<AgentAnswers> {
+  answersResolver?.({});
   return new Promise((resolve) => {
     answersResolver = resolve;
   });
@@ -219,8 +234,13 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
       // ask_user: park the turn, surface the questions, resume with answers.
       if (call.name === ASK_USER) {
-        const answered = await handleAskUser(opts.turnId, call);
-        toolResults.push({ type: 'tool_result', toolUseId: call.id, content: answered });
+        const answered = await handleAskUser(opts.turnId, call, opts.signal);
+        toolResults.push({
+          type: 'tool_result',
+          toolUseId: call.id,
+          content: answered.content,
+          isError: answered.isError,
+        });
         continue;
       }
 
@@ -274,7 +294,11 @@ async function runLoop(opts: RunOpts): Promise<void> {
   finish('completed', '(stopped — reached the step limit; ask me to continue)');
 }
 
-async function handleAskUser(turnId: string, call: ToolCall): Promise<string> {
+async function handleAskUser(
+  turnId: string,
+  call: ToolCall,
+  signal: AbortSignal,
+): Promise<{ content: string; isError?: boolean }> {
   const input = (call.input ?? {}) as { questions?: { question?: unknown; options?: unknown }[] };
   const raw = Array.isArray(input.questions) ? input.questions : [];
   const questions = raw
@@ -286,7 +310,7 @@ async function handleAskUser(turnId: string, call: ToolCall): Promise<string> {
     .filter((q) => q.question);
   if (questions.length === 0) {
     call.state = 'error';
-    return 'ask_user called with no questions.';
+    return { content: 'ask_user called with no questions.', isError: true };
   }
   call.state = 'running';
   call.summary = `asked ${questions.length} question${questions.length === 1 ? '' : 's'}`;
@@ -296,13 +320,19 @@ async function handleAskUser(turnId: string, call: ToolCall): Promise<string> {
   const answers = await waitForAnswers();
   answersResolver = null;
   state.pendingQuestions = null;
+  // Aborted while parked: record the call as aborted, not answered, so a resumed
+  // conversation's transcript doesn't carry a fabricated "answer".
+  if (signal.aborted) {
+    call.state = 'aborted';
+    return { content: 'aborted by user', isError: true };
+  }
   call.state = 'ok';
   state.status = 'working';
   emit();
   const text = questions
     .map((q) => `Q: ${q.question}\nA: ${answers[q.id] ?? '(no answer)'}`)
     .join('\n\n');
-  return text || 'The user provided no answers.';
+  return { content: text || 'The user provided no answers.' };
 }
 
 function finish(status: AgentChatState['status'], note?: string, error?: string): void {
@@ -313,6 +343,18 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
   state.error = error ?? null;
   state.pendingApproval = null;
   state.pendingQuestions = null;
+  // Settle + drop any parked resolver so none leaks past the turn.
+  approvalResolver?.(false);
+  approvalResolver = null;
+  answersResolver?.({});
+  answersResolver = null;
+  // Stop the lazy network capture this turn may have enabled — otherwise the
+  // relay keeps buffering responses for the tab forever (the always-on path is
+  // meant to stay Runtime-only when no agent turn is active).
+  if (activeTabId) {
+    setNetworkCapture(activeTabId, false);
+    activeTabId = undefined;
+  }
   controller = null;
   emit();
 }
@@ -320,52 +362,63 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
 /* ── public API (handlers.ts) ───────────────────────────────────────────── */
 
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
-  if (busy()) return { ok: false, reason: 'a turn is already in progress' };
-  if (!input.prompt || input.prompt.trim().length === 0) {
-    return { ok: false, reason: 'enter a prompt' };
-  }
-  if (!getAgentDriver(input.provider)) {
-    return { ok: false, reason: `agent mode currently supports Anthropic; ${input.provider} support is coming` };
-  }
-  let ws: WorkspaceSummary;
+  // `starting` closes the window between this check and `state.status` going
+  // busy (there's an `await getProviderApiKey` before we set it), so two
+  // near-simultaneous sends can't both set up a turn and clobber `controller`.
+  if (busy() || starting) return { ok: false, reason: 'a turn is already in progress' };
+  starting = true;
   try {
-    ws = requireWorkspace().ws;
-  } catch {
-    return { ok: false, reason: 'open a workspace first' };
+    if (!input.prompt || input.prompt.trim().length === 0) {
+      return { ok: false, reason: 'enter a prompt' };
+    }
+    if (!getAgentDriver(input.provider)) {
+      return { ok: false, reason: `agent mode currently supports Anthropic; ${input.provider} support is coming` };
+    }
+    let ws: WorkspaceSummary;
+    try {
+      ws = requireWorkspace().ws;
+    } catch {
+      return { ok: false, reason: 'open a workspace first' };
+    }
+    let apiKey: string | null;
+    try {
+      apiKey = await getProviderApiKey(input.provider);
+    } catch (err) {
+      return { ok: false, reason: (err as Error).message };
+    }
+    if (!apiKey) return { ok: false, reason: `no API key configured for ${input.provider}` };
+
+    const turnId = uid('turn');
+    controller = new AbortController();
+    activeTabId = input.tabId;
+    state.turnId = turnId;
+    state.status = 'thinking';
+    state.error = null;
+    state.pendingApproval = null;
+    state.pendingQuestions = null;
+
+    const userText = buildUserText(input, ws);
+    const promptNote = input.captures.length > 0 ? `${input.prompt.trim()}\n\n(+${input.captures.length} attached capture${input.captures.length === 1 ? '' : 's'})` : input.prompt.trim();
+    state.messages.push({ id: uid('m'), role: 'user', parts: [{ type: 'text', text: promptNote }], timestamp: Date.now() });
+    transcript.push({ role: 'user', content: [{ type: 'text', text: userText }] });
+    emit();
+
+    void runLoop({
+      apiKey,
+      model: input.model,
+      provider: input.provider,
+      ws,
+      tabId: input.tabId,
+      turnId,
+      signal: controller.signal,
+    }).catch((err) => finish('failed', undefined, (err as Error).message));
+
+    return { ok: true, turnId };
+  } finally {
+    // By here the turn is set up (status busy) or we returned an error; either
+    // way subsequent sends are gated by busy(), so releasing `starting` is safe.
+    starting = false;
   }
-  let apiKey: string | null;
-  try {
-    apiKey = await getProviderApiKey(input.provider);
-  } catch (err) {
-    return { ok: false, reason: (err as Error).message };
-  }
-  if (!apiKey) return { ok: false, reason: `no API key configured for ${input.provider}` };
-
-  const turnId = uid('turn');
-  controller = new AbortController();
-  state.turnId = turnId;
-  state.status = 'thinking';
-  state.error = null;
-  state.pendingApproval = null;
-  state.pendingQuestions = null;
-
-  const userText = buildUserText(input, ws);
-  const promptNote = input.captures.length > 0 ? `${input.prompt.trim()}\n\n(+${input.captures.length} attached capture${input.captures.length === 1 ? '' : 's'})` : input.prompt.trim();
-  state.messages.push({ id: uid('m'), role: 'user', parts: [{ type: 'text', text: promptNote }], timestamp: Date.now() });
-  transcript.push({ role: 'user', content: [{ type: 'text', text: userText }] });
-  emit();
-
-  void runLoop({
-    apiKey,
-    model: input.model,
-    provider: input.provider,
-    ws,
-    tabId: input.tabId,
-    turnId,
-    signal: controller.signal,
-  }).catch((err) => finish('failed', undefined, (err as Error).message));
-
-  return { ok: true, turnId };
 }
 
 export function abortTurn(turnId: string): boolean {
@@ -439,7 +492,13 @@ export function snapshot(): AgentChatState {
 
 export function reset(): boolean {
   if (busy()) return false;
+  // Clear the transcript but KEEP edits the user hasn't decided on yet: those
+  // files are still modified on disk, and dropping them would orphan the only
+  // in-app affordance to revert (the `before` content lives on the edit). Edits
+  // the user already accepted/reverted are resolved, so they drop with the chat.
+  const keptEdits = state.edits.filter((e) => e.status === 'applied');
   state = emptyAgentChatState();
+  state.edits = keptEdits;
   transcript = [];
   emit();
   return true;

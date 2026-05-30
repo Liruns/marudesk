@@ -53,6 +53,29 @@ test('scrub: redacts key=value secrets, keeps the key name', () => {
   expect(out).toContain('"page":2'); // non-secret fields untouched
 });
 
+test('scrub: redacts env-var style prefixed secret keys (underscore boundary)', () => {
+  for (const line of [
+    'aws_secret=AKIAvalueShouldVanish01',
+    'DB_PASSWORD=abcd1234secret',
+    'my_password=abcd1234secret',
+    'user_token=abcd1234secret',
+    'token=abcd1234secret',
+  ]) {
+    const out = scrubText(line);
+    expect(out).toContain(REDACTED);
+    expect(out).not.toMatch(/abcd1234secret|AKIAvalueShouldVanish01/);
+  }
+});
+
+test('scrub: redacts dotted Google OAuth, npm tokens, and PEM private keys', () => {
+  expect(scrubText('ya29.A0ARrdaM-longRefreshTokenValueHere1234')).toContain(REDACTED);
+  expect(scrubText('npm_abcdefghijklmnopqrstuvwxyz0123456789')).toContain(REDACTED);
+  const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIabc123def456\n-----END RSA PRIVATE KEY-----';
+  const out = scrubText(`key:\n${pem}`);
+  expect(out).not.toContain('MIIabc123def456');
+  expect(out).toContain(REDACTED);
+});
+
 test('scrub: masks email local part, keeps domain', () => {
   const out = scrubText('contact alice@example.com for help');
   expect(out).not.toContain('alice@example.com');

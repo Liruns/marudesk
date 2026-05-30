@@ -350,6 +350,12 @@ export function enableConsoleCapture(rec: TabRecord): void {
  * so the message relay starts buffering responses/failures, and enable the
  * Network domain. Idempotent. Skips a tab whose built-in Chromium DevTools holds
  * the single per-page CDP client. Returns true when capture is live.
+ *
+ * Sharing with the custom React DevTools Network panel is intentional and safe:
+ * both consume the one debugger's stream independently (the panel buffers in the
+ * renderer via cdp-event; this gate buffers in main via pushNetwork), and
+ * Network.enable is idempotent. The gate is dropped when the agent turn ends
+ * (loop.finish) so the always-on relay returns to Runtime-only.
  */
 export async function enableNetworkCapture(rec: TabRecord): Promise<boolean> {
   if (rec.kind !== 'web' || !rec.view) return false;

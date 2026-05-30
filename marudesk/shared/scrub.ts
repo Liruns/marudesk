@@ -48,19 +48,27 @@ const TOKEN_PATTERNS: RegExp[] = [
   /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
   // Slack tokens.
   /\bxox[baprs]-[A-Za-z0-9-]{10,}/g,
-  // Google OAuth refresh / Stripe-ish / generic long secret prefixes.
-  /\b(?:ya29|AIzaSy|sk_live|sk_test|rk_live|pk_live)[A-Za-z0-9_-]{10,}/g,
+  // Google OAuth refresh (dotted) / Stripe-ish / generic long secret prefixes.
+  /\bya29\.[A-Za-z0-9_-]{20,}/g,
+  /\b(?:AIzaSy|sk_live|sk_test|rk_live|pk_live)[A-Za-z0-9_-]{10,}/g,
+  // npm automation tokens.
+  /\bnpm_[A-Za-z0-9]{36}/g,
+  // PEM private-key bodies (bounded by the END marker — lazy, single pass).
+  /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY-----/g,
 ];
 
 // `Authorization: Bearer <token>` and bare `Bearer <token>` — keep the scheme,
 // redact the credential.
 const BEARER = /\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 
-// `"api_key": "…"`, `password=…`, `secret: …` — redact the value, keep the key
-// so the shape stays legible to the model. The value half is bounded to a single
-// token (stops at quote / comma / brace / whitespace / ampersand).
+// `"api_key": "…"`, `db_password=…`, `secret: …` — redact the value, keep the
+// key so the shape stays legible to the model. A bounded `[\w-]{0,40}?` prefix
+// lets env-var style keys match (`aws_secret`, `DB_PASSWORD`, `user_token`) since
+// `\b` alone never fires across an underscore. The value half is bounded to a
+// single token (stops at quote / comma / brace / whitespace / ampersand); the
+// prefix is length-capped so a hostile word-soup input can't backtrack.
 const KV_SECRET =
-  /("?\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd|pwd|authorization|auth[_-]?token|session[_-]?token|private[_-]?key)\b"?\s*[:=]\s*)("?)([^"&\s,}{]{4,})\2/gi;
+  /("?\b[\w-]{0,40}?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd|pwd|token|authorization|auth[_-]?token|session[_-]?token|private[_-]?key)\b"?\s*[:=]\s*)("?)([^"&\s,}{]{4,})\2/gi;
 
 // Emails (PII). Mask the local part, keep the domain so error context stays
 // useful ("user@acme.com" → "«redacted»@acme.com").
