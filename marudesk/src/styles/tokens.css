@@ -70,3 +70,30 @@
   --space-6: 24px;
   --space-8: 32px;
 }
+
+/* Light theme — applied via data-theme="light" on <html>. Only surfaces, text,
+   and borders flip; the single violet accent and the semantic / AI-timeline
+   hues hold so the brand reads the same in both modes. */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --surface-page: #FFFFFF;
+  --surface-1:    #F7F8FA;
+  --surface-2:    #EEF0F3;
+  --surface-3:    #E2E5EA;
+
+  --text-primary:   #1C1D21;
+  --text-secondary: #585C64;
+  --text-tertiary:  #80858E;
+  --text-disabled:  #A9ADB5;
+
+  --border-subtle:  rgba(0, 0, 0, 0.07);
+  --border-default: rgba(0, 0, 0, 0.12);
+  --border-strong:  rgba(0, 0, 0, 0.18);
+
+  --accent-hover:   #4F5AC0;
+  --accent-subtle:  rgba(94, 106, 210, 0.14);
+
+  --diff-add-bg:    rgba(76, 183, 130, 0.16);
+  --diff-remove-bg: rgba(235, 87, 87, 0.14);
+}

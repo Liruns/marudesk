@@ -56,13 +56,16 @@ const config: Config = {
         body: 'var(--font-body)',
         mono: 'var(--font-mono)',
       },
+      // rem-based so "Interface zoom" (the root font-size set by the settings
+      // store) scales the whole type ramp. Values equal the prior px at the
+      // 16px baseline, so 100% zoom is pixel-identical to before.
       fontSize: {
-        caption: ['12px', { lineHeight: '1.40', letterSpacing: '0.1px' }],
-        'body-sm': ['13px', { lineHeight: '1.45' }],
-        body: ['14px', { lineHeight: '1.55' }],
-        title: ['18px', { lineHeight: '1.30', letterSpacing: '-0.1px' }],
-        section: ['24px', { lineHeight: '1.20', letterSpacing: '-0.2px' }],
-        hero: ['40px', { lineHeight: '1.12', letterSpacing: '-0.5px' }],
+        caption: ['0.75rem', { lineHeight: '1.40', letterSpacing: '0.1px' }],
+        'body-sm': ['0.8125rem', { lineHeight: '1.45' }],
+        body: ['0.875rem', { lineHeight: '1.55' }],
+        title: ['1.125rem', { lineHeight: '1.30', letterSpacing: '-0.1px' }],
+        section: ['1.5rem', { lineHeight: '1.20', letterSpacing: '-0.2px' }],
+        hero: ['2.5rem', { lineHeight: '1.12', letterSpacing: '-0.5px' }],
       },
       borderRadius: {
         sm: 'var(--radius-sm)',

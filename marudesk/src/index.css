@@ -7,6 +7,9 @@
 @layer base {
   :root {
     color-scheme: dark;
+    /* rem anchor for the type scale; the settings store overrides this inline
+       to scale the whole UI (Interface zoom). */
+    font-size: 16px;
   }
 
   html,
@@ -36,4 +39,17 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+}
+
+/* Electron frameless-window helpers.
+   The title bar wraps in `.drag-region` so users can grab the chrome and
+   move the window; interactive children (tabs, buttons, inputs) opt out
+   with `.no-drag` so clicks register normally. */
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }

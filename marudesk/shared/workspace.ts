@@ -1,0 +1,50 @@
+export type FileEntry = {
+  path: string;
+  size: number;
+};
+
+export type WorkspaceSummary = {
+  root: string;
+  name: string;
+  files: FileEntry[];
+  source: 'git' | 'walk';
+  truncated: boolean;
+};
+
+export type RankedFile = {
+  path: string;
+  score: number;
+  matches: string[];
+};
+
+export type CaptureInput = {
+  tagName?: string;
+  selector?: string;
+  text?: string;
+  attributes?: Record<string, string>;
+};
+
+/** Result of `workspace:read-file`: the text, or why it can't be edited. */
+export type ReadFileResult =
+  | { ok: true; content: string }
+  | { ok: false; reason: 'too-large' | 'binary' | 'not-a-file'; size?: number };
+
+/** Result of `workspace:write-file` (throws on failure, so always ok here). */
+export type WriteFileResult = { ok: true };
+
+/**
+ * Result of `workspace:save-as`: the new workspace-relative path on success, or
+ * a (possibly canceled) failure. Unlike the throwing writes, a canceled dialog
+ * or an out-of-workspace target returns `{ ok: false }` rather than throwing.
+ */
+export type SaveAsResult =
+  | { ok: true; path: string }
+  | { ok: false; reason?: string };
+
+/**
+ * Result of the mutating workspace ops (create/rename/move/copy). They throw on
+ * failure; on success `path` is the new workspace-relative path of the item.
+ */
+export type MutateResult = { ok: true; path: string };
+
+export type CreateKind = 'file' | 'dir';

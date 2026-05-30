@@ -29,3 +29,7 @@ release
 *.njsproj
 *.sln
 *.sw?
+
+# Test artifacts (Playwright)
+test-results
+playwright-report

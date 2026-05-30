@@ -12,12 +12,18 @@
     "package:win": "npm run build && electron-builder --win nsis",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "e2e": "playwright test",
+    "test:e2e": "npm run build && playwright test"
   },
   "build": {
     "appId": "com.marudesk.app",
     "productName": "marudesk",
     "asar": true,
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ],
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
@@ -60,13 +66,18 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "lucide-react": "^1.16.0",
+    "monaco-editor": "^0.55.1",
+    "node-pty": "^1.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

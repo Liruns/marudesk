@@ -1,0 +1,131 @@
+import { useState, type FormEvent, type ReactNode } from 'react';
+import { Code2, Globe, SquareTerminal } from 'lucide-react';
+import { cn } from '../../lib/cn';
+import { useTabsStore } from '../tabs/store';
+import type { TabKind } from '../../../shared/browser';
+
+/**
+ * The 'home' tab kind — marudesk's New Tab page and the first feature-tab: a
+ * tab whose content is a React surface rather than a WebContentsView. It proves
+ * the "tab = container of a kind" model end to end (creation, tab-strip glyph,
+ * activation hiding the browser view) and doubles as the launcher for the other
+ * kinds.
+ *
+ * Layout follows Chrome's NTP / Arc's start view: a centered field that opens a
+ * web tab, plus a launcher grid for the other tab kinds.
+ */
+export function HomeView() {
+  const newTab = useTabsStore((s) => s.newTab);
+  const [query, setQuery] = useState('');
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const value = query.trim();
+    if (!value) return;
+    void newTab('web', value);
+    setQuery('');
+  };
+
+  return (
+    <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page">
+      <div className="min-h-full flex flex-col items-center justify-center px-8 py-16 gap-10">
+        <div className="flex flex-col items-center gap-2">
+          <div className="size-9 rounded-lg bg-accent-subtle flex items-center justify-center">
+            <span className="size-3 rounded-pill bg-accent" aria-hidden />
+          </div>
+          <h1 className="text-title text-fg-secondary">marudesk</h1>
+          <p className="text-caption text-fg-tertiary">Browser-native AI IDE</p>
+        </div>
+
+        <form onSubmit={onSubmit} className="w-full max-w-xl" role="search">
+          <div
+            className={cn(
+              'h-11 w-full rounded-pill bg-surface-1 border flex items-center pl-4 pr-2 gap-2',
+              'border-default focus-within:border-accent transition-colors duration-fast',
+            )}
+          >
+            <Globe size={16} className="text-fg-tertiary shrink-0" aria-hidden />
+            <input
+              type="text"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              placeholder="Search or enter a URL"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className={cn(
+                'flex-1 min-w-0 bg-transparent text-body-sm text-fg-primary',
+                'placeholder:text-fg-tertiary focus:outline-none',
+              )}
+              aria-label="Search or enter a URL"
+            />
+          </div>
+        </form>
+
+        <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <LauncherCard
+            kind="web"
+            label="Browser tab"
+            hint="Open a blank page"
+            icon={<Globe size={18} />}
+          />
+          <LauncherCard
+            kind="terminal"
+            label="Terminal"
+            hint="Shell in a tab"
+            icon={<SquareTerminal size={18} />}
+          />
+          <LauncherCard
+            kind="editor"
+            label="Code editor"
+            hint="Edit files in a tab"
+            icon={<Code2 size={18} />}
+          />
+        </div>
+
+        <p className="text-caption text-fg-tertiary flex items-center gap-1.5">
+          <kbd className="px-1.5 py-0.5 rounded bg-surface-2 border border-subtle text-fg-secondary">
+            Ctrl
+          </kbd>
+          <span aria-hidden>+</span>
+          <kbd className="px-1.5 py-0.5 rounded bg-surface-2 border border-subtle text-fg-secondary">
+            T
+          </kbd>
+          <span>opens a new tab</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LauncherCard({
+  kind,
+  label,
+  hint,
+  icon,
+}: {
+  kind: TabKind;
+  label: string;
+  hint: string;
+  icon: ReactNode;
+}) {
+  const newTab = useTabsStore((s) => s.newTab);
+  return (
+    <button
+      type="button"
+      onClick={() => void newTab(kind)}
+      className={cn(
+        'group flex flex-col items-start gap-2 p-4 rounded-lg text-left',
+        'bg-surface-1 border border-subtle',
+        'hover:border-accent hover:bg-surface-2 transition-colors duration-fast',
+      )}
+    >
+      <span className="text-fg-secondary group-hover:text-accent transition-colors duration-fast">
+        {icon}
+      </span>
+      <span className="text-body-sm text-fg-primary">{label}</span>
+      <span className="text-caption text-fg-tertiary">{hint}</span>
+    </button>
+  );
+}
