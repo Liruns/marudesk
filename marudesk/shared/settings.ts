@@ -8,8 +8,20 @@
  */
 
 export type ThemeMode = 'dark' | 'light' | 'system';
-/** Where the custom browser DevTools opens: docked to the right, or a window. */
-export type DevtoolsDock = 'side' | 'popup';
+/**
+ * Where the custom browser DevTools opens:
+ * - `right` / `bottom`: our own CDP-backed React dock, docked in-window.
+ * - `chrome`: the built-in Chromium DevTools in a detached window. Kept as an
+ *   escape hatch (device emulation, network throttling, the Sources debugger)
+ *   until our panels reach parity — see docs/custom-devtools-design.md §11.1/§14.
+ *
+ * Migration: the legacy values `'side'`/`'popup'` are no longer valid, so
+ * `sanitizeSettings` falls them back to the default. The default is `'right'`,
+ * which is the natural successor to the old `'side'` dock (the dominant prior
+ * value), so a persisted `'side'` lands on the right dock; a rare persisted
+ * `'popup'` falls to `'right'` too (the user is one click from `'chrome'`).
+ */
+export type DevtoolsDock = 'right' | 'bottom' | 'chrome';
 
 export type AppSettings = {
   version: 1;
@@ -64,7 +76,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     defaultShell: '',
   },
   devtools: {
-    defaultDock: 'side',
+    defaultDock: 'right',
   },
 };
 
@@ -76,7 +88,7 @@ export const UI_ZOOM_MAX = 200;
 export const UI_ZOOM_BASE_PX = 16;
 
 const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
-const DOCKS: readonly DevtoolsDock[] = ['side', 'popup'];
+const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'

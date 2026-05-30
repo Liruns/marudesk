@@ -5,7 +5,6 @@ import { arrayOf, bool, num, obj, str } from '../ipc/validate';
 import {
   findTabByWebContentsId,
   getActive,
-  getPaneBounds,
   getTab,
   isTabKind,
   pushState,
@@ -19,7 +18,7 @@ import {
   setBrowserVisible,
 } from './layout';
 // (setBrowserBounds reused for devtools:set-dock-bounds — the drag-time path.)
-import { toggleDevtools } from './devtools';
+import { toggleChromeDevtools } from './devtools';
 import { attachCdp, detachCdp, sendCdp } from './cdp';
 import { exitInspect, setInspectMode } from './inspect';
 import { navigateActive } from './navigation';
@@ -124,16 +123,6 @@ export function registerBrowserHandlers(deps: {
     return true;
   });
 
-  // Toggle DevTools for the active web tab. Mirrors the in-page F12 handler so
-  // the renderer (toolbar button / F12 while the React chrome is focused) can
-  // open it too. Feature tabs have no view, so this no-ops with `false`.
-  defineHandler('browser:toggle-devtools', () => {
-    const active = getActive();
-    if (!active || !active.view || getPaneBounds()) return false;
-    toggleDevtools(active);
-    return true;
-  });
-
   // Custom CDP DevTools. `open`/`close` manage the debugger attach lifecycle for
   // the active web tab; the React dock shows/hides on the renderer side.
   // tabId-scoped (matching cdp-send / the event payloads) so open/close can
@@ -149,6 +138,17 @@ export function registerBrowserHandlers(deps: {
     const rec = getTab(str(obj(payload).tabId, 'tabId'));
     if (!rec || rec.kind !== 'web' || !rec.view) return false;
     detachCdp(rec);
+    return true;
+  });
+
+  // Escape hatch: toggle the built-in Chromium DevTools (detached window) for
+  // the given tab. Detaches our CDP client first (single client per page).
+  // Selected via the `'chrome'` dock setting — kept until our panels reach
+  // parity on emulation / throttling / the Sources debugger.
+  defineHandler('devtools:open-chrome', ([payload]) => {
+    const rec = getTab(str(obj(payload).tabId, 'tabId'));
+    if (!rec || rec.kind !== 'web' || !rec.view) return false;
+    toggleChromeDevtools(rec);
     return true;
   });
 

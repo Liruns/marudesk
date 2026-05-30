@@ -60,11 +60,11 @@ export const CHANNELS = {
     'browser:tabs-snapshot',
     'browser:tabs-reorder',
     'browser:tabs-bind-path',
-    'browser:toggle-devtools',
   ],
   devtools: [
     'devtools:open',
     'devtools:close',
+    'devtools:open-chrome',
     'devtools:cdp-send',
     'devtools:set-dock-bounds',
   ],
@@ -149,13 +149,14 @@ export interface IpcMap {
     args: [payload: { id: string; path: string }];
     result: boolean;
   };
-  // Toggle the custom DevTools for the active web tab (F12 / toolbar button).
-  // Returns false when the active tab isn't a web tab.
-  'browser:toggle-devtools': { args: []; result: boolean };
-
   // devtools (custom CDP DevTools — electron/browser/cdp.ts)
   'devtools:open': { args: [payload: { tabId: string }]; result: boolean };
   'devtools:close': { args: [payload: { tabId: string }]; result: boolean };
+  // Escape hatch: toggle the built-in Chromium DevTools in a detached window for
+  // the given tab. Detaches our CDP client first (single client per page), so the
+  // React dock and Chromium DevTools are mutually exclusive. Returns false when
+  // the tab isn't a web tab.
+  'devtools:open-chrome': { args: [payload: { tabId: string }]; result: boolean };
   'devtools:cdp-send': {
     args: [
       payload: {
@@ -265,6 +266,13 @@ export interface EventPayloadMap {
   // An external detach (crash / built-in DevTools opened) — the renderer drops
   // its session and re-attaches on next open.
   'devtools:detached': { tabId: string; reason: string };
+  // In-page F12 / Ctrl+Shift+I while the web view itself has focus: the main
+  // process can't reach the React dock directly, so it asks the renderer to
+  // toggle DevTools for this (active) tab — same path as the toolbar wrench.
+  'devtools:toggle': { tabId: string };
+  // Context-menu "Inspect Element": open the dock and select the node under the
+  // given page-space point (CDP DOM.getNodeForLocation).
+  'devtools:inspect-at': { tabId: string; x: number; y: number };
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
@@ -282,6 +290,8 @@ export const EVENT_CHANNELS = [
   'browser:tabs-state',
   'devtools:cdp-event',
   'devtools:detached',
+  'devtools:toggle',
+  'devtools:inspect-at',
   'window:maximize-state',
   'settings:changed',
   'terminal:data',

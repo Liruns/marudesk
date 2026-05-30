@@ -5,9 +5,12 @@ import { TitleBar } from '../components/TitleBar';
 import { Stage } from '../features/tabs/Stage';
 import { useTabsStore } from '../features/tabs/store';
 import { useTabEvents } from '../features/tabs/useTabEvents';
+import { useDevtoolsStore } from '../features/devtools/store';
+import { useDevtoolsEvents } from '../features/devtools/useDevtoolsEvents';
 import { ExplorerPanel } from '../features/workspace/ExplorerPanel';
 import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
+import { ToastHost } from '../components/ToastHost';
 
 /**
  * IDE-style shell. Top to bottom:
@@ -20,6 +23,7 @@ import { ContextDrawer } from '../features/context/ContextDrawer';
  */
 export function Shell() {
   useTabEvents();
+  useDevtoolsEvents();
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -27,16 +31,13 @@ export function Shell() {
   // Inputs and contentEditable keep their default text-editing behavior.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // F12 toggles the embedded browser DevTools for the active web tab. The
-      // in-page F12 (main process before-input-event) covers the case where the
-      // page itself is focused; this covers F12 while the React chrome has focus.
+      // F12 toggles the custom DevTools dock for the active web tab. The in-page
+      // F12 (main process before-input-event → devtools:toggle) covers the case
+      // where the page itself is focused; this covers F12 while the React chrome
+      // has focus. The store handles the grid guard / non-web / chrome cases.
       if (e.key === 'F12') {
-        const b = useTabsStore.getState();
-        const active = b.tabs.find((t) => t.id === b.activeTabId);
-        if (active?.kind === 'web') {
-          e.preventDefault();
-          void window.marudesk.invoke('browser:toggle-devtools');
-        }
+        e.preventDefault();
+        useDevtoolsStore.getState().toggle();
         return;
       }
       const mod = e.ctrlKey || e.metaKey;
@@ -97,6 +98,7 @@ export function Shell() {
         <ContextDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
       </div>
       <StatusBar />
+      <ToastHost />
     </div>
   );
 }

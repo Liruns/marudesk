@@ -1,6 +1,5 @@
 import { Menu, clipboard, shell } from 'electron';
-import { inspectElementAt } from './devtools';
-import type { TabRecord } from './state';
+import { getHost, type TabRecord } from './state';
 
 /**
  * Browser-style right-click menu for a web tab. The tab-opener is injected
@@ -115,7 +114,17 @@ export function buildWebContextMenu(
     {
       label: 'Inspect Element',
       click: () => {
-        void inspectElementAt(rec, params.x, params.y);
+        // The DevTools dock lives in the renderer; ask it to open and select the
+        // node under the cursor (CDP DOM.getNodeForLocation). params.x/y are in
+        // the page's viewport CSS pixels, which is what getNodeForLocation wants.
+        const h = getHost();
+        if (h && !h.isDestroyed()) {
+          h.webContents.send('devtools:inspect-at', {
+            tabId: rec.id,
+            x: params.x,
+            y: params.y,
+          });
+        }
       },
     },
   );

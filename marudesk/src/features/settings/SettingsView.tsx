@@ -26,8 +26,9 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 ];
 
 const DOCK_OPTIONS: { value: DevtoolsDock; label: string }[] = [
-  { value: 'side', label: 'Side' },
-  { value: 'popup', label: 'Window' },
+  { value: 'right', label: 'Right' },
+  { value: 'bottom', label: 'Bottom' },
+  { value: 'chrome', label: 'Chrome' },
 ];
 
 const CATEGORIES: {
@@ -216,7 +217,10 @@ function DevtoolsCategory() {
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
-      <Field label="Open as" hint="Where F12 opens the browser DevTools.">
+      <Field
+        label="Open as"
+        hint="Right/Bottom dock our own inspector; Chrome opens the built-in DevTools window (for emulation, throttling, and the debugger)."
+      >
         <Segmented
           value={devtools.defaultDock}
           options={DOCK_OPTIONS}

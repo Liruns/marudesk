@@ -20,7 +20,7 @@ import {
   type TabRecord,
 } from './state';
 import { applyBoundsToActive, hideTab, showTab } from './layout';
-import { closeDevtools, toggleDevtools } from './devtools';
+import { closeChromeDevtools } from './devtools';
 import { detachCdp } from './cdp';
 import { buildWebContextMenu } from './context-menu';
 import { reapplyInspectOverlay } from './inspect';
@@ -119,11 +119,14 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
     if (menu.items.length > 0) menu.popup({ window: h });
   });
 
-  // F12 / Ctrl+Shift+I toggles our DevTools for this tab.
+  // F12 / Ctrl+Shift+I while the page itself has focus. The DevTools dock is a
+  // React surface the main process can't toggle directly, so we forward the
+  // request to the renderer (same path as the toolbar wrench); it owns the
+  // grid guard, the dock-vs-chrome choice, and the CDP attach.
   view.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
-    // Only the active/visible tab toggles DevTools — a background contents must
-    // not open a docked view that applyBoundsToActive (active-only) won't place.
+    // Only the active/visible tab — a background contents must not drive the
+    // dock, which always tracks the active tab.
     if (rec.id !== getActiveTabId()) return;
     const isF12 = input.key === 'F12';
     const isInspectChord =
@@ -132,14 +135,17 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
       input.key.toLowerCase() === 'i';
     if (isF12 || isInspectChord) {
       event.preventDefault();
-      toggleDevtools(rec);
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('devtools:toggle', { tabId: rec.id });
+      }
     }
   });
 
   // Detach our CDP debugger if the page's render process dies or the contents
   // is destroyed — otherwise the renderer keeps a stale 'attached' session and
   // the next cdp-send throws. No such crash handler existed before custom
-  // DevTools, so this is net-new (not inherited from closeDevtools).
+  // DevTools, so this is net-new.
   view.webContents.on('render-process-gone', () => detachCdp(rec));
   view.webContents.on('destroyed', () => detachCdp(rec));
 
@@ -192,10 +198,10 @@ export function activateTab(id: string): boolean {
 export function closeTab(id: string): boolean {
   const rec = getTab(id);
   if (!rec) return false;
-  // Detach our CDP debugger and tear down built-in DevTools before the page
+  // Detach our CDP debugger and tear down any built-in DevTools before the page
   // view goes away (detach before webContents.close).
   detachCdp(rec);
-  closeDevtools(rec);
+  closeChromeDevtools(rec);
   // Tear down the WebContentsView for web tabs; feature tabs have none.
   if (rec.view) {
     try {
@@ -244,14 +250,14 @@ export function mountBrowserView(win: BrowserWindow): void {
 }
 
 /**
- * Tear down every tab view (and any docked DevTools) when the host window
- * closes. setDevToolsWebContents views aren't auto-destroyed, and the page
- * views would otherwise outlive the window — so dispose them explicitly.
+ * Tear down every tab view when the host window closes. The page views would
+ * otherwise outlive the window, so dispose them explicitly (detaching CDP and
+ * closing any built-in DevTools first).
  */
 export function disposeBrowserView(): void {
   for (const rec of tabValues()) {
     detachCdp(rec);
-    closeDevtools(rec);
+    closeChromeDevtools(rec);
     if (rec.view) {
       try {
         getHost()?.contentView.removeChildView(rec.view);

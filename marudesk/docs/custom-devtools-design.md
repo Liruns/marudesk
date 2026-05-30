@@ -277,3 +277,33 @@ features/devtools/
 - **MED-C** `.detach()`가 `'detach'`를 쏘는지 가정에 의존 → `detachCdp`가 `.detach()` *전에* `cdpAttached=false`, `'detach'` 핸들러는 `!cdpAttached`면 self-suppress ⇒ 양쪽 Electron 동작에 견고. ⚠️ **P0 스모크에서 attach==detach 카운트 + 사용자 close 시 `devtools:detached` 0건 확인**(이제 load-bearing 아닌 확인용).
 - 견고 확인: `cdp.ts` leaf-only import, `cdpAttaching` 레이스 가드, `detachCdp` 예외 안전, 에러봉투 경계, `validate` 컨벤션 준수, 4개 must-fix(HIGH-2/HIGH-3/MED-1/봉투+tabId) 구현 확인.
 - 이월: **HIGH-C** `Runtime.evaluate` confused-deputy — 렌더러 PR에서 page-originated input을 `cdp-send`로 흘리지 않도록 확인(현재 preload 모델에선 안전). MED-D(host 부재 시 버퍼 드롭)·LOW-1~3은 P0 스모크/렌더러 단계.
+
+## 18. 렌더러 dock + P1–P3 + 사이드도크 제거 구현 (2026-05-30)
+
+P0 메인 foundation 위에 **렌더러 커스텀 DevTools 전체 + 호스팅 사이드도크 제거**를 구현. `tsc`(app+electron)·`eslint`·`vite build`·Playwright e2e 9/9 그린.
+
+**신규 `src/features/devtools/`**
+- `types.ts` — 소비하는 CDP 와이어 타입(DOM/CSS/Runtime/Network)만.
+- `cdp.ts` — `cdpSend`/`cdpTry`: `{ok,value}|{ok,error}` 봉투 언랩 → value-or-throw(`CdpError`).
+- `store.ts` — zustand. dock UI(open/side/size/panel) + 세션머신(idle→attaching→attached→detached) + **epoch 세대 가드**(rebind 레이스 방지) + Elements/Console/Network 슬라이스 + `ingestBatch`(틱당 1회 immutable clone, 메서드별 라우팅) + **`Page.frameNavigated`(메인프레임만) → 재-enable·재조회**.
+- `useDevtoolsEvents.ts` — `devtools:cdp-event`(bound 탭 필터)/`detached`/`toggle`/`inspect-at` 구독 + 활성 web 탭으로 rebind + HMR mount 재동기화.
+- `DevtoolsDock.tsx` — 드래그 스플리터가 `devtools:set-dock-bounds`로 web rect 동기 푸시(매 프레임 wrapper 재측정 → HIGH-1 seam). right/bottom 토글, dropped 표시, detached 배너+Reconnect.
+- `panels/` — Elements(DomTree lazy `requestChildNodes` + StylesPane matched/inline/computed + `Overlay` 피커/하이라이트), Console(스트림+`Runtime.evaluate` REPL+`RemoteValue` 1-레벨 확장), Network(테이블+헤더+`getResponseBody` on-demand).
+- 토스트: `src/lib/toast.ts` + `src/components/ToastHost.tsx`(그리드 F12 가드 피드백).
+
+**배선**: F12([Shell.tsx])·렌치([BrowserCanvas.tsx])·인페이지 F12(메인 before-input-event → `devtools:toggle` 이벤트)·컨텍스트메뉴 Inspect(메인 → `devtools:inspect-at` 이벤트)가 전부 store 액션으로 funnel. dock는 BrowserCanvas의 stage flex 형제로 마운트(web 단일뷰 한정) → ResizeObserver가 web view 축소.
+
+**제거(§10 cleanup 완료)**: `setDevToolsWebContents` 사이드도크 전부. `devtools.ts`는 chrome 팝업 탈출구만(`openChromeDevtools`/`closeChromeDevtools`/`toggleChromeDevtools`, CDP detach 선행). `state.ts` devtoolsView/Mode/Opening 제거(+`chromeDevtoolsOpen`). `layout.ts` devtoolsView 분기 전부 제거. `browser:toggle-devtools` 채널 제거. `inspectElementAt`(단일클라 위반) 제거 → 컨텍스트메뉴는 CDP 경유. **유지**: 설정 `'chrome'` 탈출구(§11.1/§14).
+
+**IPC 추가**: `devtools:open-chrome`(invoke) + `devtools:toggle`/`devtools:inspect-at`(event). **설정**: `DevtoolsDock`=`'right'|'bottom'|'chrome'`, 기본 `'right'`; 레거시 `'side'`/`'popup'`은 asEnum fallback→`'right'`(§11.7(a)).
+
+**code-reviewer(opus) 패스 — REQUEST CHANGES, 전부 수정**: HIGH-1(nav 재-enable 누락 → `Page` enable + `frameNavigated` 메인프레임 핸들 + 슬라이스 clear)·HIGH-2(rebind 레이스 → epoch 가드 + close-before-open await)·MED-2(open 실패 stranded → epoch로 항상 리셋)·MED-3(드래그 stale rect → 매 프레임 재측정)·MED-5(inspect-at 좌표 stale → dock 표시 *전에* 노드 해석)·MED-6(HMR mount 재동기화). 화이트리스트·`ingestBatch` 불변성·chrome 단일클라·그리드 가드는 리뷰에서 correct 확인.
+
+**e2e** `e2e/devtools.spec.ts`: (1) 비-web 탭 F12 no-op, (2) web 탭 dock 열기 → 실 CDP `DOM.getDocument` 트리 렌더 + Console 패널 전환(실제 attach end-to-end).
+
+**미완(의도적 phasing)**:
+- **P4** — Elements 라이브 편집(`CSS.setStyleTexts`/`DOM.setAttributeValue`) + (A) 노드→`Capture` 훅(`shared/capture.ts`에 `outerHTML?`/`computedStyle?` 추가) + (B) 라이브CSS→`patch:preview`(소스맵 역매핑 한정). **thesis(§15) 검증 단계 — 미착수.**
+- **P5a/P5b** — Sources(transpiled 디버깅 + 소스맵 원본복원). 최대 규모, 미착수.
+- 백그라운드 탭 고볼륨 도메인 pause(§4 M2) — 현재는 rebind 시 detach로 대체.
+- 설정 마이그레이션 단위테스트(§11.7/§12) — 단위 테스트 러너(vitest) 부재로 보류; fallback 동작은 리뷰에서 correct 확인.
+- 나머지 리뷰 LOW(리다이렉트 체인, console.group, base64 body, size-per-orientation)는 v1 수용.

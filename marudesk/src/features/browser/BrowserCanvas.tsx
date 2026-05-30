@@ -13,6 +13,8 @@ import { cn } from '../../lib/cn';
 import { useWebPageStore } from './store';
 import { useTabsStore } from '../tabs/store';
 import { useSettingsStore } from '../settings/store';
+import { useDevtoolsStore } from '../devtools/store';
+import { DevtoolsDock } from '../devtools/DevtoolsDock';
 
 /**
  * Full-bleed browser canvas. The tab strip is owned by the TitleBar (so it
@@ -38,6 +40,8 @@ export function BrowserCanvas() {
   const goBack = useTabsStore((s) => s.goBack);
   const goForward = useTabsStore((s) => s.goForward);
   const reloadOrStop = useTabsStore((s) => s.reloadOrStop);
+  const devtoolsOpen = useDevtoolsStore((s) => s.open);
+  const devtoolsSide = useDevtoolsStore((s) => s.side);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -156,7 +160,9 @@ export function BrowserCanvas() {
 
         <NavIconButton
           label="Toggle DevTools (F12)"
-          onClick={() => void window.marudesk.invoke('browser:toggle-devtools')}
+          active={devtoolsOpen}
+          aria-pressed={devtoolsOpen}
+          onClick={() => useDevtoolsStore.getState().toggle()}
         >
           <Wrench size={16} />
         </NavIconButton>
@@ -175,16 +181,24 @@ export function BrowserCanvas() {
         ) : null}
       </div>
 
-      {/* Stage — full-bleed, no padding, the WebContentsView paints here */}
+      {/* Stage + DevTools dock. The dock is a flex sibling, so the stage (and
+          the WebContentsView tracking it via the ResizeObserver above) shrinks
+          to make room — no extra layout IPC for the steady state. */}
       <div
-        ref={containerRef}
         className={cn(
-          'flex-1 min-h-0 relative bg-surface-1',
-          inspectMode ? 'ring-1 ring-inset ring-accent' : '',
-          'transition-shadow duration-fast',
+          'flex-1 min-h-0 flex',
+          devtoolsOpen && devtoolsSide === 'bottom' ? 'flex-col' : 'flex-row',
         )}
-        aria-label="Browser stage"
       >
+        <div
+          ref={containerRef}
+          className={cn(
+            'flex-1 min-w-0 min-h-0 relative bg-surface-1',
+            inspectMode ? 'ring-1 ring-inset ring-accent' : '',
+            'transition-shadow duration-fast',
+          )}
+          aria-label="Browser stage"
+        >
         {!hasUrl ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-8 pointer-events-none">
             <span className="text-caption uppercase tracking-wider text-fg-tertiary">
@@ -205,6 +219,8 @@ export function BrowserCanvas() {
             </span>
           </div>
         ) : null}
+        </div>
+        {devtoolsOpen ? <DevtoolsDock /> : null}
       </div>
       <style>{`
         @keyframes marudesk-loading {

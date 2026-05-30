@@ -14,9 +14,10 @@ import {
 /**
  * Web-view layout engine. Positions the embedded WebContentsViews to track the
  * React layout: a single active-tab path, plus a grid/pane path (Phase F) when
- * the renderer is tiling several web views at once. A docked DevTools view is
- * positioned alongside its page here too (the docking lifecycle lives in
- * ./devtools; this module only places the views it owns).
+ * the renderer is tiling several web views at once. The custom DevTools dock is
+ * a React sibling of the web stage (the renderer shrinks the web rect for us via
+ * browser:set-bounds / devtools:set-dock-bounds), so there is no native dock
+ * view to place here.
  */
 
 const OFFSCREEN_BOUNDS: Bounds = { x: -10000, y: -10000, width: 1, height: 1 };
@@ -39,9 +40,8 @@ export function applyWebLayout(): void {
 /**
  * Grid layout: show every web tab that has a rect at that rect, and hide every
  * other web tab. Feature tabs own no view, so they're naturally skipped — their
- * React surface paints in the pane instead. DevTools side-docking is not split
- * per-pane in grid mode; a docked view simply waits offscreen until the grid is
- * dismissed (popup DevTools is unaffected).
+ * React surface paints in the pane instead. (The custom DevTools dock is no-op
+ * in grid mode — see the renderer's grid guard — so nothing to place here.)
  */
 export function applyPaneBounds(bounds: Map<string, Bounds>): void {
   for (const rec of tabValues()) {
@@ -55,12 +55,6 @@ export function applyPaneBounds(bounds: Map<string, Bounds>): void {
         width: Math.max(0, Math.round(r.width)),
         height: Math.max(0, Math.round(r.height)),
       });
-      // Keep a docked DevTools out of the way while tiled (it can't share the
-      // pane cleanly); it reappears when the grid is dismissed.
-      if (rec.devtoolsView) {
-        rec.devtoolsView.setVisible(false);
-        rec.devtoolsView.setBounds({ ...OFFSCREEN_BOUNDS });
-      }
     } else {
       hideTab(rec);
     }
@@ -70,36 +64,10 @@ export function applyPaneBounds(bounds: Map<string, Bounds>): void {
 export function applyBoundsToActive(): void {
   const active = getActive();
   if (!active || !active.view) return;
+  // The web rect already excludes the DevTools dock: the renderer measures the
+  // web stage (a flex sibling of the React dock) and pushes that rect via
+  // browser:set-bounds, so we place the view at exactly the bounds given.
   const b = getLastBounds();
-  if (active.devtoolsView && active.devtoolsMode === 'side') {
-    // Split the stage: page on the left, docked DevTools on the right — but
-    // keep the page usably wide. If the stage is too narrow to split, the page
-    // takes the full width and the docked view waits offscreen until there's
-    // room (re-applied on the next resize).
-    const total = Math.round(b.width);
-    const MIN_PAGE = 320;
-    const dtWidth = Math.min(
-      Math.max(0, total - MIN_PAGE),
-      Math.max(260, Math.round(b.width * 0.42)),
-    );
-    if (dtWidth >= 200) {
-      const webWidth = total - dtWidth;
-      active.view.setBounds({
-        x: Math.round(b.x),
-        y: Math.round(b.y),
-        width: webWidth,
-        height: Math.round(b.height),
-      });
-      active.devtoolsView.setBounds({
-        x: Math.round(b.x) + webWidth,
-        y: Math.round(b.y),
-        width: dtWidth,
-        height: Math.round(b.height),
-      });
-      return;
-    }
-    active.devtoolsView.setBounds({ ...OFFSCREEN_BOUNDS });
-  }
   active.view.setBounds({
     x: Math.round(b.x),
     y: Math.round(b.y),
@@ -112,10 +80,6 @@ export function hideTab(rec: TabRecord): void {
   if (!rec.view) return;
   rec.view.setVisible(false);
   rec.view.setBounds({ ...OFFSCREEN_BOUNDS });
-  if (rec.devtoolsView) {
-    rec.devtoolsView.setVisible(false);
-    rec.devtoolsView.setBounds({ ...OFFSCREEN_BOUNDS });
-  }
 }
 
 export function showTab(rec: TabRecord): void {
@@ -127,7 +91,6 @@ export function showTab(rec: TabRecord): void {
   }
   if (!rec.view) return;
   rec.view.setVisible(true);
-  if (rec.devtoolsView) rec.devtoolsView.setVisible(true);
   applyBoundsToActive();
 }
 
@@ -184,7 +147,6 @@ export function setBrowserVisible(visible: boolean): void {
     } else {
       for (const rec of tabValues()) {
         if (rec.view) rec.view.setVisible(false);
-        if (rec.devtoolsView) rec.devtoolsView.setVisible(false);
       }
     }
     return;
@@ -192,7 +154,4 @@ export function setBrowserVisible(visible: boolean): void {
   const active = getActive();
   if (!active || !active.view) return;
   active.view.setVisible(visible);
-  // The docked DevTools must hide/show with its page — otherwise it floats over
-  // whatever covered the stage (e.g. the composer overlay).
-  if (active.devtoolsView) active.devtoolsView.setVisible(visible);
 }
