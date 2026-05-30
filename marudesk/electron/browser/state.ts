@@ -8,6 +8,7 @@ import {
 } from '../../shared/browser';
 import type { ConsoleErrorEvidence } from '../../shared/runtime-evidence';
 import type { NetworkRecord } from '../../shared/network-evidence';
+import { coalesced } from '../coalesce';
 
 /**
  * Shared mutable state for the embedded-browser/tab subsystem, plus the
@@ -341,10 +342,7 @@ export function snapshot(): TabsSnapshot {
 // latest snapshot, not replay every intermediate one. The synchronous pull path
 // (`browser:tabs-snapshot` → `snapshot()`) is unaffected, so a renderer that
 // needs state immediately can still ask for it.
-let stateFlushScheduled = false;
-
 function flushState(): void {
-  stateFlushScheduled = false;
   if (!host || host.isDestroyed()) return;
   const snap = snapshot();
   host.webContents.send('browser:tabs-state', snap);
@@ -362,8 +360,4 @@ function flushState(): void {
  * burst into a single flush keeps IPC volume flat while the renderer still lands
  * on the final, correct snapshot.
  */
-export function pushState(): void {
-  if (stateFlushScheduled) return;
-  stateFlushScheduled = true;
-  setImmediate(flushState);
-}
+export const pushState = coalesced(flushState);

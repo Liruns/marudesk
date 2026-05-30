@@ -11,6 +11,7 @@ import {
 } from './state';
 import { extractConsoleError } from '../../shared/runtime-evidence';
 import { extractNetwork } from '../../shared/network-evidence';
+import { coalesced } from '../coalesce';
 
 /**
  * CDP relay for the custom DevTools. Rather than host Chromium's DevTools UI
@@ -133,18 +134,14 @@ type TabBuffer = { items: EventItem[]; dropped: number };
 
 // Per-tab outgoing event buffer, flushed once per tick (setImmediate).
 const buffers = new Map<string, TabBuffer>();
-let flushScheduled = false;
 
 // Tabs whose always-on error count changed since the last flush — coalesced
 // into the same setImmediate tick as the event relay, so a page throwing in a
 // tight loop can't spam one IPC per error.
 const errorCountDirty = new Set<string>();
 
-function scheduleFlush(): void {
-  if (flushScheduled) return;
-  flushScheduled = true;
-  setImmediate(flushBuffers);
-}
+// One flush per tick (../coalesce): the renderer only needs the latest batch.
+const scheduleFlush = coalesced(flushBuffers);
 
 /**
  * The renderer that should receive CDP events/detach notices: the pop-out
@@ -160,7 +157,6 @@ function eventTarget(): Electron.BrowserWindow | null {
 }
 
 function flushBuffers(): void {
-  flushScheduled = false;
   // CDP events follow the pop-out DevTools window while it's open (so its panels
   // stay live).
   const target = eventTarget();

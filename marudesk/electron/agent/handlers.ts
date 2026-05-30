@@ -1,9 +1,8 @@
 import type { AgentAnswers, AgentSendInput } from '../../shared/agent';
-import type { CapturePayload } from '../../shared/composer';
+import { isCapturePayload, type CapturePayload } from '../../shared/composer';
 import { isProviderId } from '../../shared/providers';
 import { defineHandler } from '../ipc/define-handler';
 import { arr, nonEmptyStr, obj, optStr } from '../ipc/validate';
-import { isCapturePayload } from '../llm';
 import {
   abortTurn,
   acceptEdit,

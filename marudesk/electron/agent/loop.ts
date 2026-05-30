@@ -12,6 +12,7 @@ import { emptyAgentChatState } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
+import { coalesced } from '../coalesce';
 import { getProviderApiKey } from '../secrets';
 import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
@@ -82,16 +83,10 @@ function busy(): boolean {
 
 /* ── renderer push (coalesced) ──────────────────────────────────────────── */
 
-let emitScheduled = false;
-function emit(): void {
-  if (emitScheduled) return;
-  emitScheduled = true;
-  setImmediate(() => {
-    emitScheduled = false;
-    const host = getHost();
-    if (host && !host.isDestroyed()) host.webContents.send('agent:event', state);
-  });
-}
+const emit = coalesced(() => {
+  const host = getHost();
+  if (host && !host.isDestroyed()) host.webContents.send('agent:event', state);
+});
 
 /* ── message helpers ────────────────────────────────────────────────────── */
 

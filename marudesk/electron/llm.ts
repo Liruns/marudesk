@@ -1,8 +1,8 @@
 import path from 'node:path';
-import type {
-  CapturePayload,
-  ProposeInput,
-  ProposeResult,
+import {
+  isCapturePayload,
+  type ProposeInput,
+  type ProposeResult,
 } from '../shared/composer';
 import {
   isProviderId,
@@ -21,57 +21,6 @@ const TOP_FILES_PER_CAPTURE = 3;
 const MAX_FILE_CHARS = 16_000;
 const MAX_OUTER_HTML_CHARS = 2_000;
 const MAX_STACK_FRAMES = 12;
-
-function isStackFrameLite(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false;
-  const f = value as Record<string, unknown>;
-  return (
-    typeof f.functionName === 'string' &&
-    typeof f.url === 'string' &&
-    typeof f.lineNumber === 'number' &&
-    typeof f.columnNumber === 'number'
-  );
-}
-
-export function isCapturePayload(value: unknown): value is CapturePayload {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, unknown>;
-  if (typeof v.id !== 'string' || v.id.length === 0) return false;
-  if (typeof v.url !== 'string') return false;
-
-  if (v.kind === 'console-error') {
-    if (typeof v.message !== 'string') return false;
-    if (!Array.isArray(v.stack) || !v.stack.every(isStackFrameLite)) return false;
-    if (v.source !== undefined) {
-      if (!v.source || typeof v.source !== 'object') return false;
-      const s = v.source as Record<string, unknown>;
-      if (typeof s.url !== 'string') return false;
-      if (s.lineNumber !== undefined && typeof s.lineNumber !== 'number') return false;
-    }
-    return true;
-  }
-
-  if (v.kind === 'element') {
-    if (typeof v.tagName !== 'string') return false;
-    if (typeof v.selector !== 'string') return false;
-    if (typeof v.text !== 'string') return false;
-    if (!v.attributes || typeof v.attributes !== 'object') return false;
-    for (const val of Object.values(v.attributes as Record<string, unknown>)) {
-      if (typeof val !== 'string') return false;
-    }
-    // Optional richer context from the DevTools picker.
-    if (v.outerHTML !== undefined && typeof v.outerHTML !== 'string') return false;
-    if (v.computedStyle !== undefined) {
-      if (!v.computedStyle || typeof v.computedStyle !== 'object') return false;
-      for (const val of Object.values(v.computedStyle as Record<string, unknown>)) {
-        if (typeof val !== 'string') return false;
-      }
-    }
-    return true;
-  }
-
-  return false; // unknown kind
-}
 
 function isProposeInput(value: unknown): value is ProposeInput {
   if (!value || typeof value !== 'object') return false;

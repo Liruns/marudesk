@@ -55,6 +55,7 @@ const MAX_TOOL_TEXT = 12_000;
 const MAX_FILE_READ = 16_000;
 const MAX_GREP_RESULTS = 60;
 const MAX_GREP_FILES = 600;
+const GREP_CONCURRENCY = 8;
 const MAX_DOM_HTML = 4_000;
 const RELOAD_WAIT_DEFAULT = 2_500;
 const RELOAD_WAIT_MAX = 5_000;
@@ -171,22 +172,27 @@ async function grep(
     .filter((f) => (re ? re.test(f.path) : true))
     .slice(0, MAX_GREP_FILES);
 
+  // Read in bounded-concurrency batches (file I/O is the bottleneck), but scan
+  // results in file order and stop once `max` hits are collected — deterministic
+  // output, parallel reads. A batch in flight when the cap is hit over-reads by
+  // at most GREP_CONCURRENCY-1 files (acceptable, still bounded).
   const hits: string[] = [];
   let scanned = 0;
-  for (const f of candidates) {
-    if (hits.length >= max) break;
-    scanned++;
-    let content: string;
-    try {
-      content = await readFileSafe(ctx.ws.root, f.path);
-    } catch {
-      continue;
-    }
-    const lines = content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes(needle)) {
-        hits.push(`${f.path}:${i + 1}: ${lines[i].trim().slice(0, 200)}`);
-        if (hits.length >= max) break;
+  batches: for (let i = 0; i < candidates.length && hits.length < max; i += GREP_CONCURRENCY) {
+    const batch = candidates.slice(i, i + GREP_CONCURRENCY);
+    const contents = await Promise.all(
+      batch.map((f) => readFileSafe(ctx.ws.root, f.path).catch(() => null)),
+    );
+    for (let j = 0; j < batch.length; j++) {
+      const content = contents[j];
+      if (content === null) continue;
+      scanned++;
+      const lines = content.split('\n');
+      for (let k = 0; k < lines.length; k++) {
+        if (lines[k].toLowerCase().includes(needle)) {
+          hits.push(`${batch[j].path}:${k + 1}: ${lines[k].trim().slice(0, 200)}`);
+          if (hits.length >= max) break batches;
+        }
       }
     }
   }
