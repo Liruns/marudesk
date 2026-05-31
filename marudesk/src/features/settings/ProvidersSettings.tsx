@@ -6,6 +6,9 @@ import {
   AlertCircle,
   ChevronRight,
   Plus,
+  LogIn,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import { Badge, Button } from '../../components/ui';
 import { cn } from '../../lib/cn';
@@ -44,12 +47,13 @@ export function ProvidersSettings() {
 
       <div className="flex flex-col gap-2">
         {PROVIDERS.map((p) => {
-          const hasKey = !!status.find((s) => s.id === p.id)?.hasKey;
+          const ps = status.find((s) => s.id === p.id);
           return (
             <ProviderCard
               key={p.id}
               providerId={p.id}
-              hasKey={hasKey}
+              hasKey={!!ps?.hasKey}
+              oauthConnected={!!ps?.oauth}
               expanded={keyProvider === p.id}
               onSelect={() => selectKeyProvider(p.id)}
             />
@@ -67,11 +71,13 @@ export function ProvidersSettings() {
 function ProviderCard({
   providerId,
   hasKey,
+  oauthConnected,
   expanded,
   onSelect,
 }: {
   providerId: BuiltinProviderId;
   hasKey: boolean;
+  oauthConnected: boolean;
   expanded: boolean;
   onSelect: () => void;
 }) {
@@ -91,22 +97,190 @@ function ProviderCard({
         />
         <span className="text-body-sm text-fg-primary">{def.label}</span>
         <span className="flex-1" />
+        {oauthConnected ? (
+          <Badge variant="accent">{def.oauthOnly ? 'connected' : 'subscription'}</Badge>
+        ) : null}
         {def.keyless ? (
           <Badge variant="neutral">local</Badge>
+        ) : def.oauthOnly ? (
+          oauthConnected ? null : <Badge variant="neutral">sign in</Badge>
         ) : (
           <Badge variant={hasKey ? 'accent' : 'neutral'}>{hasKey ? 'key set' : 'no key'}</Badge>
         )}
       </button>
 
       {expanded ? (
-        <div className="border-t border-subtle px-3 py-3">
+        <div className="border-t border-subtle px-3 py-3 flex flex-col gap-3">
           {def.keyless ? (
             <p className="text-caption text-fg-tertiary">{def.apiKeyHint}</p>
           ) : (
-            <KeyEditor providerId={providerId} hasKey={hasKey} />
+            <>
+              {def.oauth ? (
+                <OAuthConnect providerId={providerId} connected={oauthConnected} />
+              ) : null}
+              {def.oauthOnly ? null : <KeyEditor providerId={providerId} hasKey={hasKey} />}
+            </>
           )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * OAuth account/subscription login — docs/oauth-providers-design.md. Generalized
+ * over two flows: 'manual-paste' (Anthropic — a hosted callback page shows a
+ * `code#state` the user pastes back) and 'loopback' (xAI — a transient local
+ * server auto-captures the redirect, so the UI just shows a spinner until the
+ * browser callback lands). The agent prefers this connection over any stored API
+ * key on the same provider.
+ */
+function OAuthConnect({
+  providerId,
+  connected,
+}: {
+  providerId: BuiltinProviderId;
+  connected: boolean;
+}) {
+  const busy = useProvidersStore((s) => s.oauthBusy);
+  const error = useProvidersStore((s) => s.oauthError);
+  const startOAuth = useProvidersStore((s) => s.startOAuth);
+  const completeOAuth = useProvidersStore((s) => s.completeOAuth);
+  const cancelOAuth = useProvidersStore((s) => s.cancelOAuth);
+  const disconnectOAuth = useProvidersStore((s) => s.disconnectOAuth);
+
+  const [phase, setPhase] = useState<'idle' | 'manual' | 'waiting'>('idle');
+  const [url, setUrl] = useState<string | null>(null);
+  const [pasted, setPasted] = useState('');
+
+  const friendly =
+    providerId === 'anthropic'
+      ? 'Claude'
+      : providerId === 'xai'
+        ? 'Grok'
+        : providerId === 'openai-codex'
+          ? 'ChatGPT'
+          : providerId === 'google-caa'
+            ? 'Google'
+            : getProvider(providerId).label;
+
+  const reset = () => {
+    setPhase('idle');
+    setUrl(null);
+    setPasted('');
+  };
+
+  const begin = async () => {
+    const started = await startOAuth(providerId);
+    if (!started) return;
+    setUrl(started.url);
+    if (started.flow === 'loopback') {
+      setPhase('waiting');
+      const ok = await completeOAuth(providerId); // blocks until the browser callback
+      if (ok) reset();
+      else setPhase('idle'); // keep the error visible; allow retry
+    } else {
+      setPhase('manual');
+    }
+  };
+
+  const finish = async () => {
+    if (pasted.trim().length === 0 || busy) return;
+    if (await completeOAuth(providerId, pasted.trim())) reset();
+  };
+
+  const cancel = async () => {
+    await cancelOAuth(providerId);
+    reset();
+  };
+
+  const field =
+    'h-9 w-full rounded-md bg-surface-page border border-default px-3 font-mono text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent transition-colors duration-fast';
+  const errorBox = error ? (
+    <div className="text-body-sm text-fg-secondary bg-error-subtle/40 rounded-md px-3 py-2 break-words">
+      {error}
+    </div>
+  ) : null;
+
+  if (connected) {
+    return (
+      <div className="flex flex-col gap-2 rounded-md border border-subtle bg-surface-page/60 px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 size={14} className="text-success shrink-0" />
+          <span className="text-body-sm text-fg-primary">Connected — using your {friendly} account</span>
+          <span className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={() => void disconnectOAuth(providerId)} disabled={busy}>
+            Disconnect
+          </Button>
+        </div>
+        <p className="text-caption text-fg-tertiary">
+          The agent uses your {friendly} account for this provider (preferred over an API key).
+        </p>
+        {errorBox}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-subtle bg-surface-page/60 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-caption uppercase tracking-wider text-fg-tertiary">Sign-in (OAuth)</span>
+        <span className="flex-1" />
+        {phase === 'waiting' ? (
+          <Button variant="ghost" size="sm" onClick={() => void cancel()}>
+            Cancel
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={() => void begin()} disabled={busy}>
+            <LogIn size={13} className="mr-1.5" />
+            {busy ? 'Opening…' : phase === 'manual' ? 'Reopen sign-in' : `Connect with ${friendly}`}
+          </Button>
+        )}
+      </div>
+
+      {phase === 'waiting' ? (
+        <p className="text-caption text-fg-tertiary flex items-center gap-1.5 flex-wrap">
+          <Loader2 size={12} className="animate-spin shrink-0" />
+          Waiting for you to finish signing in in your browser…
+          {url ? (
+            <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
+              reopen <ExternalLink size={11} />
+            </a>
+          ) : null}
+        </p>
+      ) : phase === 'manual' && url ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-caption text-fg-tertiary">
+            A browser window opened for you to sign in. After approving, copy the code shown on the
+            page and paste it below.{' '}
+            <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
+              Didn’t open? <ExternalLink size={11} />
+            </a>
+          </p>
+          <input
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void finish();
+            }}
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="Paste the code (code#state)"
+            className={field}
+          />
+          <div>
+            <Button variant="primary" size="sm" onClick={() => void finish()} disabled={busy || pasted.trim().length === 0}>
+              {busy ? 'Connecting…' : 'Finish connecting'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-caption text-fg-tertiary">
+          Sign in with your {friendly} account instead of an API key — no credits needed.
+        </p>
+      )}
+
+      {errorBox}
     </div>
   );
 }

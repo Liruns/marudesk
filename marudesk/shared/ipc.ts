@@ -14,6 +14,7 @@ import type {
   CustomProviderInfo,
   CustomProviderInput,
   ModelDef,
+  OAuthFlow,
   ProviderId,
   ProviderStatus,
 } from './providers';
@@ -119,6 +120,12 @@ export const CHANNELS = {
     'providers:add-custom',
     'providers:remove-custom',
   ],
+  auth: [
+    'auth:oauth-start',
+    'auth:oauth-complete',
+    'auth:oauth-cancel',
+    'auth:oauth-disconnect',
+  ],
   agent: [
     'agent:send',
     'agent:abort',
@@ -137,6 +144,7 @@ export const CHANNELS = {
     'terminal:dispose',
     'terminal:ready',
   ],
+  clipboard: ['clipboard:write-text', 'clipboard:read-text'],
   window: [
     'window:minimize',
     'window:maximize-toggle',
@@ -328,6 +336,22 @@ export interface IpcMap {
   };
   'providers:remove-custom': { args: [id: string]; result: CustomProviderInfo[] };
 
+  // OAuth login (docs/oauth-providers-design.md). All in main; tokens never reach
+  // the renderer — only ProviderStatus.oauth (via secrets:list-providers) reflects
+  // the connection. `start` generates PKCE, opens the system browser, and returns
+  // the authorize URL + the `flow`: 'manual-paste' (the renderer shows a paste
+  // field) or 'loopback' (a transient 127.0.0.1 server auto-captures the redirect,
+  // so the renderer just calls `complete`, which blocks until the browser hits it).
+  // `complete`'s `pasted` is the `code#state` / URL / code for manual-paste, unused
+  // for loopback. `cancel` tears down a pending loopback wait.
+  'auth:oauth-start': { args: [provider: ProviderId]; result: { flow: OAuthFlow; url: string } };
+  'auth:oauth-complete': {
+    args: [payload: { provider: ProviderId; pasted?: string }];
+    result: boolean;
+  };
+  'auth:oauth-cancel': { args: [provider: ProviderId]; result: boolean };
+  'auth:oauth-disconnect': { args: [provider: ProviderId]; result: boolean };
+
   // agent (agentic AI Chat — docs/agentic-chat-design.md). main owns the chat
   // state and streams it on the agent:event snapshot; these invokes drive it.
   'agent:send': { args: [input: AgentSendInput]; result: AgentSendResult };
@@ -364,6 +388,10 @@ export interface IpcMap {
   'terminal:resize': { args: [resize: TerminalResize]; result: void };
   'terminal:dispose': { args: [id: string]; result: void };
   'terminal:ready': { args: [payload: { id: string }]; result: void };
+
+  // clipboard (integrated-terminal copy/paste — electron/clipboard.ts)
+  'clipboard:write-text': { args: [text: string]; result: void };
+  'clipboard:read-text': { args: []; result: string };
 
   // window
   'window:minimize': { args: []; result: boolean };

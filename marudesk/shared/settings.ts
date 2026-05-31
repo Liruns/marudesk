@@ -122,6 +122,21 @@ function asString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
 }
 
+/**
+ * Sentinel "shell" values that aren't real executables — older/foreign builds
+ * (or a hand-edited file) persisted things like `"system"`, which the terminal
+ * would then try to spawn literally and fail with a bare `File not found:`.
+ * Coerce them to '' ("OS default") so the resolver picks a working shell and the
+ * Settings field shows the default placeholder rather than a broken value. The
+ * main-process resolver (electron/terminal.ts) applies the same guard.
+ */
+const SHELL_SENTINELS: readonly string[] = ['system', 'default', 'os', 'auto', 'none'];
+
+function asShell(value: unknown, fallback: string): string {
+  const s = asString(value, fallback);
+  return SHELL_SENTINELS.includes(s.trim().toLowerCase()) ? '' : s;
+}
+
 function asEnum<T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -181,7 +196,7 @@ export function sanitizeSettings(
       ),
     },
     terminal: {
-      defaultShell: asString(t.defaultShell, base.terminal.defaultShell),
+      defaultShell: asShell(t.defaultShell, base.terminal.defaultShell),
     },
     devtools: {
       defaultDock: asEnum(d.defaultDock, DOCKS, base.devtools.defaultDock),

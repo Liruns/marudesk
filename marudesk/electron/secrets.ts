@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   isProviderId,
   PROVIDERS,
+  type OAuthTokens,
   type ProviderId,
   type ProviderStatus,
 } from '../shared/providers';
@@ -15,9 +16,26 @@ const CREDS_FILE = 'marudesk-credentials.enc';
 
 type CredEntry = {
   apiKey?: string;
+  /** OAuth subscription tokens (Claude Pro/Max) — docs/oauth-providers-design.md. */
+  oauth?: OAuthTokens;
 };
 
 type CredMap = Partial<Record<ProviderId, CredEntry>>;
+
+/** Validate a stored OAuth blob back into {@link OAuthTokens} (trust nothing on disk). */
+function coerceOAuth(value: unknown): OAuthTokens | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v.accessToken !== 'string' || v.accessToken.length === 0) return undefined;
+  if (typeof v.refreshToken !== 'string' || v.refreshToken.length === 0) return undefined;
+  if (typeof v.expiresAt !== 'number' || !Number.isFinite(v.expiresAt)) return undefined;
+  return {
+    accessToken: v.accessToken,
+    refreshToken: v.refreshToken,
+    expiresAt: v.expiresAt,
+    scope: typeof v.scope === 'string' ? v.scope : undefined,
+  };
+}
 
 function credsFilePath(): string {
   return path.join(app.getPath('userData'), CREDS_FILE);
@@ -62,7 +80,7 @@ async function loadCreds(): Promise<CredMap> {
       typeof entry.apiKey === 'string' && entry.apiKey.length > 0
         ? entry.apiKey
         : undefined;
-    map[k] = { apiKey };
+    map[k] = { apiKey, oauth: coerceOAuth(entry.oauth) };
   }
   return map;
 }
@@ -108,6 +126,8 @@ async function listProviders(): Promise<ProviderStatus[]> {
     id: p.id,
     // Keyless (local) providers are always ready — no key to store.
     hasKey: !!p.keyless || !!map[p.id]?.apiKey,
+    // OAuth subscription connection (only meaningful for oauth-capable providers).
+    oauth: !!p.oauth && !!map[p.id]?.oauth,
   }));
 }
 
@@ -126,10 +146,50 @@ export async function setProviderKey(
 
 export async function clearProviderKey(provider: ProviderId): Promise<void> {
   const map = await loadCreds().catch(() => ({}) as CredMap);
-  if (map[provider]) {
-    delete map[provider];
-    await saveCreds(map);
+  const entry = map[provider];
+  if (!entry?.apiKey) return;
+  // Clear only the API key — a stored OAuth connection on the same provider must
+  // survive "Remove key" (and vice-versa). Drop the whole entry once it's empty.
+  if (entry.oauth) map[provider] = { oauth: entry.oauth };
+  else delete map[provider];
+  await saveCreds(map);
+}
+
+/* ── OAuth subscription tokens (docs/oauth-providers-design.md) ──────────── */
+
+export async function getProviderOAuth(
+  provider: ProviderId,
+): Promise<OAuthTokens | null> {
+  const map = await loadCreds();
+  return map[provider]?.oauth ?? null;
+}
+
+/** Whether an OAuth connection is stored for this provider (never throws). */
+export async function hasProviderOAuth(provider: ProviderId): Promise<boolean> {
+  try {
+    return !!(await getProviderOAuth(provider));
+  } catch {
+    return false;
   }
+}
+
+export async function setProviderOAuth(
+  provider: ProviderId,
+  tokens: OAuthTokens,
+): Promise<void> {
+  const map = await loadCreds().catch(() => ({}) as CredMap);
+  map[provider] = { ...(map[provider] ?? {}), oauth: tokens };
+  await saveCreds(map);
+}
+
+export async function clearProviderOAuth(provider: ProviderId): Promise<void> {
+  const map = await loadCreds().catch(() => ({}) as CredMap);
+  const entry = map[provider];
+  if (!entry?.oauth) return;
+  // Mirror clearProviderKey: keep a coexisting API key, drop the entry if empty.
+  if (entry.apiKey) map[provider] = { apiKey: entry.apiKey };
+  else delete map[provider];
+  await saveCreds(map);
 }
 
 export function registerSecretsHandlers(): void {

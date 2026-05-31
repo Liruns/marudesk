@@ -16,13 +16,15 @@ import { scrubText } from '../../shared/scrub';
 import { getProvider, isBuiltinProviderId } from '../../shared/providers';
 import { coalesced } from '../coalesce';
 import { getProviderApiKey } from '../secrets';
+import { CLAUDE_CODE_SYSTEM_PREFIX, supportsOAuth } from '../oauth/config';
+import { getValidAccessToken } from '../oauth/flow';
 import { getCustomProvider } from '../custom-providers';
 import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { writeFileForEditor } from '../workspace';
 import { streamText, type ModelMessage } from 'ai';
-import { buildModel, aiTools } from './model';
+import { buildModel, aiTools, type ModelAuth } from './model';
 import {
   ASK_USER,
   GATED_TOOLS,
@@ -184,7 +186,7 @@ function waitForAnswers(): Promise<AgentAnswers> {
 /* ── the loop ───────────────────────────────────────────────────────────── */
 
 type RunOpts = {
-  apiKey: string;
+  auth: ModelAuth;
   /** Custom endpoints (custom:<id>) carry their resolved baseURL; undefined for built-ins. */
   baseUrl?: string;
   model: string;
@@ -197,9 +199,19 @@ type RunOpts = {
 
 async function runLoop(opts: RunOpts): Promise<void> {
   const ctx: ToolContext = { ws: opts.ws, tabId: opts.tabId, signal: opts.signal };
-  // Build the model + tool set once per turn (provider/model/key are fixed for it).
-  const model = buildModel(opts.provider, opts.model, opts.apiKey, opts.baseUrl);
+  // Build the model + tool set once per turn (provider/model/auth are fixed for it).
+  const model = buildModel(opts.provider, opts.model, opts.auth, opts.baseUrl);
   const tools = aiTools(TOOL_SCHEMAS);
+  // Anthropic OAuth (subscription) requests are rejected unless the system prompt
+  // starts with the Claude-Code identity line — prepend it for that path only.
+  const system =
+    opts.auth.mode === 'oauth' && opts.provider === 'anthropic'
+      ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SYSTEM_PROMPT}`
+      : SYSTEM_PROMPT;
+  // The ChatGPT codex backend (openai-codex) requires store:false and rejects
+  // max_output_tokens — omit the cap and pass the flag for that provider only.
+  const codexBackend = opts.provider === 'openai-codex';
+  const providerOptions = codexBackend ? { openai: { store: false } } : undefined;
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (opts.signal.aborted) return finish('completed', '(stopped by user)');
@@ -217,14 +229,15 @@ async function runLoop(opts: RunOpts): Promise<void> {
     state.messages.push(assistantMsg);
     emit();
 
-    let toolUses: { id: string; name: string; input: unknown }[] = [];
+    let toolUses: { id: string; name: string; input: unknown }[];
     try {
       const res = streamText({
         model,
-        system: SYSTEM_PROMPT,
+        system,
         messages: transcript,
         tools,
-        maxOutputTokens: AGENT_MAX_TOKENS,
+        maxOutputTokens: codexBackend ? undefined : AGENT_MAX_TOKENS,
+        providerOptions,
         abortSignal: opts.signal,
       });
       // Consume the stream for live text; the assembled tool calls + usage come
@@ -432,13 +445,36 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     } catch (err) {
       return { ok: false, reason: (err as Error).message };
     }
-    // Resolve a custom endpoint's baseURL, treating its key as optional (many
-    // local OpenAI-compatible servers need none); built-in keyless providers
-    // (Ollama) likewise run with no key.
+    // Resolve how this turn authenticates. Built-in providers prefer an OAuth
+    // subscription connection (Claude Pro/Max) when one is stored, refreshing the
+    // token first; otherwise the stored API key. Custom endpoints (custom:<id>)
+    // carry their baseURL and treat the key as optional (many local
+    // OpenAI-compatible servers need none); built-in keyless (Ollama) runs no key.
+    let auth: ModelAuth | null = null;
     let baseUrl: string | undefined;
     if (isBuiltinProviderId(input.provider)) {
-      if (!apiKey && !getProvider(input.provider).keyless) {
-        return { ok: false, reason: `no API key configured for ${input.provider}` };
+      if (supportsOAuth(input.provider)) {
+        let accessToken: string | null = null;
+        try {
+          accessToken = await getValidAccessToken(input.provider);
+        } catch (err) {
+          // The OAuth session is dead (and getValidAccessToken just cleared it).
+          // Fall back to a stored API key if there is one; otherwise surface the
+          // reconnect message.
+          if (!apiKey) return { ok: false, reason: (err as Error).message };
+        }
+        if (accessToken) auth = { mode: 'oauth', accessToken };
+      }
+      if (!auth) {
+        if (!apiKey && !getProvider(input.provider).keyless) {
+          return {
+            ok: false,
+            reason: supportsOAuth(input.provider)
+              ? `no API key or OAuth connection for ${input.provider}`
+              : `no API key configured for ${input.provider}`,
+          };
+        }
+        auth = { mode: 'api-key', apiKey: apiKey ?? '' };
       }
     } else {
       const custom = await getCustomProvider(input.provider);
@@ -446,7 +482,10 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
         return { ok: false, reason: `unknown custom provider ${input.provider}` };
       }
       baseUrl = custom.baseUrl;
+      auth = { mode: 'api-key', apiKey: apiKey ?? '' };
     }
+    // Unreachable — both branches above assign or return — but it narrows the type.
+    if (!auth) return { ok: false, reason: `could not resolve auth for ${input.provider}` };
 
     const turnId = uid('turn');
     controller = new AbortController();
@@ -464,7 +503,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     emit();
 
     void runLoop({
-      apiKey: apiKey ?? '',
+      auth,
       baseUrl,
       model: input.model,
       provider: input.provider,

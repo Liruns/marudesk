@@ -13,6 +13,7 @@ import {
   type CustomProviderInput,
   type ModelDef,
   type ModelEntry,
+  type OAuthFlow,
   type ProviderId,
   type ProviderStatus,
 } from '../../../shared/providers';
@@ -65,6 +66,10 @@ type ProvidersState = {
 
   testByProvider: Record<BuiltinProviderId, ConnectionTest>;
 
+  // OAuth subscription connect flow (Settings → AI Providers → Connect with Claude).
+  oauthBusy: boolean;
+  oauthError: string | null;
+
   // Custom-endpoint add/remove form state.
   customBusy: boolean;
   customError: string | null;
@@ -80,8 +85,18 @@ type ProvidersActions = {
   saveProviderKey: () => Promise<void>;
   clearProviderKey: () => Promise<void>;
   testConnection: (provider: BuiltinProviderId) => Promise<void>;
-  /** Whether the active model's provider has a usable key (keyless = always true). */
+  /** Whether the active model's provider has usable auth — key, keyless, or OAuth. */
   hasKeyForSelected: () => boolean;
+
+  // OAuth login (docs/oauth-providers-design.md). `startOAuth` opens the browser and
+  // returns the `flow` + authorize URL (fallback link). For 'manual-paste' the UI
+  // shows a paste field → `completeOAuth(provider, pasted)`; for 'loopback' the UI
+  // calls `completeOAuth(provider)` (no paste) which blocks until the browser
+  // callback lands, and `cancelOAuth` aborts that wait.
+  startOAuth: (provider: BuiltinProviderId) => Promise<{ flow: OAuthFlow; url: string } | null>;
+  completeOAuth: (provider: BuiltinProviderId, pasted?: string) => Promise<boolean>;
+  cancelOAuth: (provider: BuiltinProviderId) => Promise<void>;
+  disconnectOAuth: (provider: BuiltinProviderId) => Promise<void>;
 
   // Custom OpenAI-compatible endpoints.
   loadCustomProviders: () => Promise<void>;
@@ -217,6 +232,9 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
 
   testByProvider: byProvider(() => ({ status: 'idle', message: null })),
 
+  oauthBusy: false,
+  oauthError: null,
+
   customBusy: false,
   customError: null,
 
@@ -230,7 +248,8 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
 
   hasKeyForSelected: () => {
     const { providerStatus, selectedProvider } = get();
-    return !!providerStatus.find((s) => s.id === selectedProvider)?.hasKey;
+    const s = providerStatus.find((p) => p.id === selectedProvider);
+    return !!s?.hasKey || !!s?.oauth;
   },
 
   refreshProviderStatus: async () => {
@@ -349,6 +368,56 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
       set((s) => ({
         testByProvider: { ...s.testByProvider, [provider]: { status: 'error', message: toMessage(err) } },
       }));
+    }
+  },
+
+  startOAuth: async (provider) => {
+    set({ oauthBusy: true, oauthError: null });
+    try {
+      return await window.marudesk.invoke('auth:oauth-start', provider);
+    } catch (err) {
+      set({ oauthError: toMessage(err) });
+      return null;
+    } finally {
+      set({ oauthBusy: false });
+    }
+  },
+
+  completeOAuth: async (provider, pasted) => {
+    if (get().oauthBusy) return false;
+    set({ oauthBusy: true, oauthError: null });
+    try {
+      await window.marudesk.invoke('auth:oauth-complete', { provider, pasted });
+      await get().refreshProviderStatus();
+      await get().refreshModels(provider, true);
+      return true;
+    } catch (err) {
+      set({ oauthError: toMessage(err) });
+      return false;
+    } finally {
+      set({ oauthBusy: false });
+    }
+  },
+
+  // Not gated by oauthBusy — it must abort an in-flight loopback `completeOAuth`.
+  cancelOAuth: async (provider) => {
+    try {
+      await window.marudesk.invoke('auth:oauth-cancel', provider);
+    } catch (err) {
+      set({ oauthError: toMessage(err) });
+    }
+  },
+
+  disconnectOAuth: async (provider) => {
+    if (get().oauthBusy) return;
+    set({ oauthBusy: true, oauthError: null });
+    try {
+      await window.marudesk.invoke('auth:oauth-disconnect', provider);
+      await get().refreshProviderStatus();
+    } catch (err) {
+      set({ oauthError: toMessage(err) });
+    } finally {
+      set({ oauthBusy: false });
     }
   },
 

@@ -211,7 +211,7 @@ function TerminalCategory() {
       </Field>
       <Field
         label="Default shell"
-        hint="Path or command. Used by the integrated terminal."
+        hint="Path or command for the integrated terminal. Leave blank for the OS default; an unknown shell falls back automatically."
       >
         <TextField
           value={settings.terminal.defaultShell}

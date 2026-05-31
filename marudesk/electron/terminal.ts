@@ -5,6 +5,8 @@ import { type BrowserWindow } from 'electron';
 // main.mjs. Re-check on a node-pty major upgrade.
 import { spawn, type IPty } from 'node-pty';
 import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getSettings } from './settings';
 import { defineHandler } from './ipc/define-handler';
@@ -86,18 +88,130 @@ function parseId(raw: unknown): string {
   throw new Error('id required');
 }
 
+// Values that older/foreign builds (or a hand-edited file) persisted as a
+// "shell" but that aren't real executables — treat them as "use the OS default"
+// instead of handing them to node-pty, which would fail with a bare
+// `File not found:` (the exact symptom this guards against). `sanitizeSettings`
+// also maps these to '' on the settings side; this is the main-process backstop.
+const SHELL_SENTINELS = new Set(['system', 'default', 'os', 'auto', 'none']);
+
+function isShellSentinel(value: string): boolean {
+  return SHELL_SENTINELS.has(value.trim().toLowerCase());
+}
+
+function isExecutableFile(p: string): boolean {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Pick the shell: an explicit per-terminal override, else the user's settings
- * default, else a per-platform default (PowerShell on Windows, $SHELL/zsh on
- * macOS, $SHELL/bash on Linux). This is the user's own choice — the same trust
- * model as VSCode's `terminal.integrated.shell`.
+ * `which`-style resolution: turn a shell name or path into an absolute path to
+ * an existing executable, or null if it can't be found. Mirrors how a shell
+ * locates a command — an absolute/relative path is checked directly, a bare name
+ * is searched across PATH — and on Windows also tries the PATHEXT suffixes
+ * (`.EXE`/`.CMD`/…) so `powershell`/`pwsh` resolve without the extension. We
+ * resolve to a full path up front so spawning never depends on node-pty's own
+ * lookup (the source of the cryptic `File not found:` errors).
+ */
+function whichShell(cmd: string): string | null {
+  const trimmed = cmd.trim();
+  if (!trimmed) return null;
+
+  const isWin = process.platform === 'win32';
+  const exts = isWin
+    ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+    : [''];
+  // Only skip the suffix search when the name already ends in a *real* executable
+  // extension — not merely "has a dot", so a versioned name like `python3.11`
+  // (extname `.11`) still gets `.EXE`/`.CMD`/… appended.
+  const upper = trimmed.toUpperCase();
+  const hasExeExt = isWin && exts.some((ext) => upper.endsWith(ext.toUpperCase()));
+  const tryWithExts = (base: string): string | null => {
+    if (isExecutableFile(base)) return base;
+    if (isWin && !hasExeExt) {
+      for (const ext of exts) {
+        if (isExecutableFile(base + ext)) return base + ext;
+      }
+    }
+    return null;
+  };
+
+  // An explicit path (absolute, or containing a separator) is checked as-is.
+  if (path.isAbsolute(trimmed) || trimmed.includes('/') || (isWin && trimmed.includes('\\'))) {
+    return tryWithExts(path.resolve(trimmed));
+  }
+
+  // A bare command name is searched across PATH, like the OS would.
+  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    const hit = tryWithExts(path.join(dir, trimmed));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Pick the shell as an ordered fallback chain: an explicit per-terminal
+ * override, then the user's settings default, then per-platform defaults
+ * (PowerShell→cmd on Windows, $SHELL→zsh/bash→sh on Unix). The first candidate
+ * that resolves to a real executable wins, so a missing/invalid configured shell
+ * (e.g. `pwsh` not installed, or a stale `"system"` value) degrades to a working
+ * shell instead of failing the whole terminal. The configured shell is still the
+ * user's own choice — same trust model as VSCode's `terminal.integrated.shell`.
  */
 function resolveShell(override: string | undefined, settingsShell: string): string {
-  const explicit = (override ?? '').trim() || settingsShell.trim();
-  if (explicit) return explicit;
-  if (process.platform === 'win32') return 'powershell.exe';
-  if (process.platform === 'darwin') return process.env.SHELL || '/bin/zsh';
-  return process.env.SHELL || '/bin/bash';
+  const candidates: string[] = [];
+  const add = (value: string | undefined | null): void => {
+    if (value && value.trim() && !isShellSentinel(value)) candidates.push(value.trim());
+  };
+
+  add(override);
+  add(settingsShell);
+  if (process.platform === 'win32') {
+    add('powershell.exe');
+    add(process.env.ComSpec);
+    add('cmd.exe');
+  } else if (process.platform === 'darwin') {
+    add(process.env.SHELL);
+    add('/bin/zsh');
+    add('/bin/bash');
+    add('/bin/sh');
+  } else {
+    add(process.env.SHELL);
+    add('/bin/bash');
+    add('/bin/sh');
+  }
+
+  for (const candidate of candidates) {
+    const resolved = whichShell(candidate);
+    if (resolved) return resolved;
+  }
+  // Nothing resolved (extremely unlikely). Hand the hard platform default to
+  // node-pty unresolved so any resulting error names a real default shell.
+  return process.platform === 'win32'
+    ? process.env.ComSpec || 'cmd.exe'
+    : process.env.SHELL || '/bin/sh';
+}
+
+/**
+ * The PTY's working directory: the open workspace root, else the user's home.
+ * Each candidate is verified to be an existing directory before use — a stale or
+ * deleted workspace root would otherwise make node-pty fail with
+ * `Cannot create process, error code: 267` (ERROR_DIRECTORY).
+ */
+function resolveCwd(root: string | null): string {
+  for (const candidate of [root, os.homedir(), process.cwd()]) {
+    if (!candidate) continue;
+    try {
+      if (fs.statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // Not accessible — try the next candidate.
+    }
+  }
+  return os.homedir();
 }
 
 function inheritedEnv(): Record<string, string> {
@@ -124,15 +238,25 @@ export function registerTerminalHandlers(deps: {
     const opts = parseCreate(raw);
     const settings = await getSettings();
     const shell = resolveShell(opts.shell, settings.terminal.defaultShell);
-    const cwd = deps.getWorkspaceRoot() ?? os.homedir();
+    const cwd = resolveCwd(deps.getWorkspaceRoot());
 
-    const pty = spawn(shell, [], {
-      name: 'xterm-256color',
-      cols: opts.cols,
-      rows: opts.rows,
-      cwd,
-      env: inheritedEnv(),
-    });
+    let pty: IPty;
+    try {
+      pty = spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: opts.cols,
+        rows: opts.rows,
+        cwd,
+        env: inheritedEnv(),
+      });
+    } catch (err) {
+      // Surface a shell-specific message (the resolved path + the cause) instead
+      // of node-pty's bare `File not found:` — the renderer shows this verbatim.
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new Error(`could not start shell "${shell}" (cwd: ${cwd}): ${cause}`, {
+        cause: err,
+      });
+    }
 
     const id = randomUUID();
     const rec: Session = { pty, buffer: [], buffered: 0, ready: false };

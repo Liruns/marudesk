@@ -11,12 +11,14 @@ import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerPatchHandlers } from './patch';
 import { registerSecretsHandlers } from './secrets';
+import { registerOAuthHandlers } from './oauth/handlers';
 import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
+import { registerClipboardHandlers } from './clipboard';
 import { openExternalUrl } from './safe-open';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -165,6 +167,7 @@ void app.whenReady().then(() => {
   registerWorkspaceMutateHandlers();
   registerPatchHandlers();
   registerSecretsHandlers();
+  registerOAuthHandlers();
   registerModelsHandlers();
   registerCustomProviderHandlers();
   registerAgentHandlers();
@@ -179,6 +182,7 @@ void app.whenReady().then(() => {
     getMainWindow,
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,
   });
+  registerClipboardHandlers();
   // Warm the settings cache so getSettingsSync() (the address-bar/new-tab search
   // engine resolver) reflects the persisted choice on the very first navigation,
   // not just after the renderer's settings:get round-trips.

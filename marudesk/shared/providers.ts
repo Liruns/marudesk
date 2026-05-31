@@ -1,5 +1,19 @@
-/** The built-in, first-party providers. */
-export type BuiltinProviderId = 'anthropic' | 'openai' | 'google' | 'ollama';
+/**
+ * The built-in, first-party providers. `openai-codex` and `google-caa` are
+ * OAuth-only "use your subscription" providers that target a different backend
+ * than their API-key siblings (`openai`/`google`): OpenAI's ChatGPT Codex
+ * (`backend-api/codex`, Responses dialect) and Google's Code-Assist
+ * (`cloudcode-pa…/v1internal`). They're separate ids — not auth modes of
+ * `openai`/`google` — because the API, models, and request shape all differ.
+ */
+export type BuiltinProviderId =
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'ollama'
+  | 'xai'
+  | 'openai-codex'
+  | 'google-caa';
 
 /**
  * A provider id: either a built-in, or a user-configured custom OpenAI-compatible
@@ -33,12 +47,26 @@ export type ProviderDef = {
    * the key requirement). The model list is still fetched live (no key).
    */
   keyless?: boolean;
+  /**
+   * Whether this provider can be connected via OAuth subscription login (use a
+   * Claude Pro/Max account instead of a metered API key) — see
+   * docs/oauth-providers-design.md. The agent prefers an OAuth connection over a
+   * stored API key when both exist.
+   */
+  oauth?: boolean;
+  /**
+   * OAuth is the ONLY way to use this provider — there's no API-key path (the
+   * subscription backends `openai-codex` / `google-caa`). Settings shows just the
+   * "Connect" section (no key editor), and the agent requires an OAuth connection.
+   */
+  oauthOnly?: boolean;
 };
 
 export const PROVIDERS: ProviderDef[] = [
   {
     id: 'anthropic',
     label: 'Anthropic',
+    oauth: true,
     models: [
       { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
       { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
@@ -71,6 +99,48 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'gemini-2.5-pro',
     apiKeyPlaceholder: 'AIza...',
     apiKeyHint: 'aistudio.google.com → Get API key',
+  },
+  {
+    id: 'xai',
+    label: 'xAI (Grok)',
+    oauth: true,
+    models: [
+      { id: 'grok-4', label: 'Grok 4' },
+      { id: 'grok-3', label: 'Grok 3' },
+      { id: 'grok-3-mini', label: 'Grok 3 mini' },
+      { id: 'grok-code-fast-1', label: 'Grok Code Fast' },
+    ],
+    defaultModelId: 'grok-4',
+    apiKeyPlaceholder: 'xai-...',
+    apiKeyHint: 'console.x.ai → API Keys, or "Connect with Grok" to use your account',
+  },
+  {
+    id: 'openai-codex',
+    label: 'OpenAI (ChatGPT)',
+    oauth: true,
+    oauthOnly: true,
+    // Codex backend models (Responses dialect). Experimental — see design §10.
+    models: [
+      { id: 'gpt-5-codex', label: 'GPT-5 Codex' },
+      { id: 'gpt-5', label: 'GPT-5 (ChatGPT)' },
+    ],
+    defaultModelId: 'gpt-5-codex',
+    apiKeyPlaceholder: '(OAuth only)',
+    apiKeyHint: 'Sign in with your ChatGPT (Plus/Pro) account — no API key.',
+  },
+  {
+    id: 'google-caa',
+    label: 'Google (Gemini account)',
+    oauth: true,
+    oauthOnly: true,
+    // Served via the Code-Assist backend on a personal Google account. Experimental.
+    models: [
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (account)' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (account)' },
+    ],
+    defaultModelId: 'gemini-2.5-pro',
+    apiKeyPlaceholder: '(OAuth only)',
+    apiKeyHint: 'Sign in with your Google account — no API key.',
   },
   {
     id: 'ollama',
@@ -127,8 +197,40 @@ export function parseCustomProviderId(provider: ProviderId): string | null {
 
 export type ProviderStatus = {
   id: ProviderId;
+  /** A usable API key is stored (or the provider is keyless). */
   hasKey: boolean;
+  /**
+   * An OAuth subscription connection is stored (Claude Pro/Max login). When set,
+   * the agent prefers it over `hasKey`. Only meaningful for providers with
+   * {@link ProviderDef.oauth}; absent/false otherwise — see
+   * docs/oauth-providers-design.md.
+   */
+  oauth?: boolean;
 };
+
+/**
+ * OAuth subscription tokens stored (encrypted) alongside a provider's optional
+ * API key — see docs/oauth-providers-design.md §3/§5. `expiresAt` is epoch ms;
+ * the main process refreshes proactively with a small skew before it. Never
+ * crosses to the renderer — only the boolean {@link ProviderStatus.oauth} does.
+ */
+export type OAuthTokens = {
+  accessToken: string;
+  refreshToken: string;
+  /** Epoch milliseconds at which `accessToken` expires. */
+  expiresAt: number;
+  /** Space-separated granted scopes, when the token endpoint returns them. */
+  scope?: string;
+};
+
+/**
+ * How a provider's OAuth callback is captured — docs/oauth-providers-design.md.
+ * `manual-paste`: a hosted callback page shows a `code#state` the user pastes back
+ * (Anthropic). `loopback`: a transient `127.0.0.1` server auto-captures the
+ * redirect (xAI / the OIDC-style providers). The renderer branches its connect UI
+ * on this; the value comes back from `auth:oauth-start`.
+ */
+export type OAuthFlow = 'manual-paste' | 'loopback';
 
 /* ── model-first catalog (docs/agentic-chat-v2-design.md §5) ─────────────── */
 
@@ -184,6 +286,17 @@ export const MODELS: ModelEntry[] = [
   // Google Gemini (~1M context).
   { key: 'google:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 1_048_576, tools: true },
   { key: 'google:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1_048_576, tools: true },
+  // xAI Grok (OpenAI-compatible API at api.x.ai/v1; tool-capable).
+  { key: 'xai:grok-4', id: 'grok-4', label: 'Grok 4', provider: 'xai', contextWindow: 256_000, tools: true },
+  { key: 'xai:grok-3', id: 'grok-3', label: 'Grok 3', provider: 'xai', contextWindow: 131_072, tools: true },
+  { key: 'xai:grok-3-mini', id: 'grok-3-mini', label: 'Grok 3 mini', provider: 'xai', contextWindow: 131_072, tools: true },
+  { key: 'xai:grok-code-fast-1', id: 'grok-code-fast-1', label: 'Grok Code Fast', provider: 'xai', contextWindow: 256_000, tools: true },
+  // OpenAI ChatGPT (Codex backend, OAuth-only — Responses dialect). Experimental.
+  { key: 'openai-codex:gpt-5-codex', id: 'gpt-5-codex', label: 'GPT-5 Codex', provider: 'openai-codex', tools: true },
+  { key: 'openai-codex:gpt-5', id: 'gpt-5', label: 'GPT-5 (ChatGPT)', provider: 'openai-codex', tools: true },
+  // Google Gemini via a personal account (Code-Assist backend, OAuth-only). Experimental.
+  { key: 'google-caa:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (account)', provider: 'google-caa', contextWindow: 1_048_576, tools: true },
+  { key: 'google-caa:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (account)', provider: 'google-caa', contextWindow: 1_048_576, tools: true },
   // Ollama (local; tool support varies — these two are tool-capable).
   { key: 'ollama:qwen2.5-coder', id: 'qwen2.5-coder', label: 'Qwen2.5 Coder', provider: 'ollama', tools: true },
   { key: 'ollama:llama3.1', id: 'llama3.1', label: 'Llama 3.1', provider: 'ollama', tools: true },

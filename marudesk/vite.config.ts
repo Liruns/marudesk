@@ -43,10 +43,19 @@ export default defineConfig({
               // node_modules at runtime (the integrated terminal in main).
               external: ['electron', 'node-pty'],
               output: {
+                // Force a single-file main bundle (no code splitting). In lib
+                // mode rolldown still splits a bundled dep's dynamic `import()`
+                // (the AI SDK's lazy tokenizer) into hashed sibling chunks
+                // (token-*.js). Under vite-plugin-electron's watch+reload,
+                // Electron can restart against a main.mjs whose siblings aren't
+                // flushed yet and die with a bogus parse error ("missing )
+                // after argument list"). One file → no cross-chunk reload race.
+                // (rolldown's replacement for the deprecated inlineDynamicImports.)
+                codeSplitting: false,
                 // The bundled AI SDK reaches for `require('node:path')` etc., but
                 // the main bundle is ESM (.mjs) with no `require`. Polyfill it
-                // per-chunk via createRequire so those CJS-interop calls resolve
-                // (rolldown CJS-in-ESM). Each chunk self-installs before its body.
+                // via createRequire so those CJS-interop calls resolve (rolldown
+                // CJS-in-ESM). Installed before the bundle body runs.
                 banner:
                   "import { createRequire as __cr } from 'node:module';\nglobalThis.require ||= __cr(import.meta.url);",
               },
