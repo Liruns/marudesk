@@ -237,12 +237,12 @@ resolve(modelId): { kind, modelId, apiKey?, baseUrl?, label }
 5. **(옵션)** 세션 사이드바 + 영속; plan-first 카드.
 - **D1(propose 흡수)** 은 Phase 2에 접거나 별도 정리 커밋. 운영 리듬: 큰 폭포수 금지, 단계마다 dogfood.
 
-## 9. 열린 결정 (구현 전 확정)
+## 9. 열린 결정
 
-- **D1 — one-shot propose 경로:** 흡수(삭제, 권장) vs 유지(`generateText` 이전). → 두 겹 driver를 정말 한 겹으로 만들지의 핵심.
-- **D2 — 세션:** 단일 대화(현행) 유지 vs 세션 사이드바+영속(Phase 5). 첫 출시엔 단일로도 충분할 수 있음.
-- **D3 — 커스텀 endpoint 스펙 범위:** `openai-compatible` 하나(OpenRouter/LM Studio/vLLM/Together/Groq 커버, 권장) vs `anthropic` 호환도. (stagewise는 7종 — 우리는 과함.)
-- **D4 — Ollama tool 모델 게이팅:** tool-use 불가 로컬 모델을 agent 셀렉터에서 숨길지(`ModelEntry.tools`).
+- **D1 — one-shot propose 경로:** ✅ **해결 (흡수=삭제, `f8f029b`).** `electron/llm.ts` + `ProviderDriver.propose` + `llm:propose-patch` IPC + `shared/composer.ts`의 `Propose*` 타입 전부 제거 → 두 겹 driver가 정말 한 겹(AI SDK)으로. `listModels`만 유지.
+- **D2 — 세션:** 단일 대화(현행) 유지 vs 세션 사이드바+영속(Phase 5). 첫 출시엔 단일로도 충분할 수 있음. *(미해결)*
+- **D3 — 커스텀 endpoint 스펙 범위:** ✅ **해결 (`openai-compatible` 하나, `0ad4267`).** OpenRouter/LM Studio/vLLM/Together/Groq 커버. `ProviderId = BuiltinProviderId | \`custom:${id}\``, config는 평문 JSON(`electron/custom-providers.ts`)·키만 secrets, 키 선택. wire는 `{provider,model}` 유지(§5.4 `{modelId}` 리팩터 회피) — main이 baseURL만 resolve. `anthropic` 호환은 비채택.
+- **D4 — Ollama tool 모델 게이팅:** tool-use 불가 로컬 모델을 agent 셀렉터에서 숨길지(`ModelEntry.tools`). 셀렉터는 이미 `m.tools !== false`로 필터링 중 — 카탈로그 플래그만 채우면 됨. *(미해결)*
 
 ## 10. 비-목표 / 보존
 
@@ -269,3 +269,5 @@ resolve(modelId): { kind, modelId, apiKey?, baseUrl?, label }
 ### 부록 — 결정 로그
 - **2026-05-31:** v1(루프) 구현 완료 확인 → 사용자가 "제품 표면이 Claude/Codex Desktop 급 아님 + provider 설정 구림" 지적. stagewise(`ai@6`+`@ai-sdk/*`, model-first, safeStorage, plan-first, diff-history) 정찰.
 - **2026-05-31:** **Vercel AI SDK 채택** + **설계 문서부터** 확정. 두 겹 driver 통합·model-first·UX 폴리시·CDP 차별점 보존을 v2로 분리 문서화(이 파일).
+- **2026-05-31:** AI SDK 스왑(Phase 1–2) + model-first 토대 구현 완료(`e0c8383..f0428fc`, e2e 35/35).
+- **2026-05-31:** **D1 해결** (`f8f029b`) — 죽은 propose 경로 외과적 제거(−920 라인), 두 겹→한 겹 통합 완성. **D3 해결 / Phase 3 일부** (`0ad4267`) — 커스텀 OpenAI-compat 엔드포인트 end-to-end(데이터 모델·평문 config+secrets 키·buildModel default 케이스·Settings UI·in-chat 그룹). e2e 39/39(신규 custom-providers CRUD 스펙). 남은 v2: Phase 3 in-chat 모델셀렉터는 이미 model-first(완료), Phase 4 채팅 UX 폴리시(tool별 카드/reasoning/스트리밍 caret), Phase 5(세션=D2)·D4.
