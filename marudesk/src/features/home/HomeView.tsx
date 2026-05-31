@@ -1,8 +1,9 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { Code2, Globe, SquareTerminal } from 'lucide-react';
+import { Code2, Folder, Globe, SquareTerminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
 import { useGridStore } from '../tabs/grid';
+import { useWorkspaceStore } from '../workspace/store';
 import type { TabKind } from '../../../shared/browser';
 
 /**
@@ -24,6 +25,8 @@ export function HomeView({ tabId }: { tabId?: string }) {
   const replaceTab = useTabsStore((s) => s.replaceTab);
   const newTab = useTabsStore((s) => s.newTab);
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  const recents = useWorkspaceStore((s) => s.recents);
+  const openRecent = useWorkspaceStore((s) => s.openRecent);
   const [query, setQuery] = useState('');
 
   // Convert this very tab; fall back to a new tab only if we somehow can't
@@ -108,6 +111,39 @@ export function HomeView({ tabId }: { tabId?: string }) {
             onOpen={() => open('editor')}
           />
         </div>
+
+        {recents.length > 0 ? (
+          <div className="w-full max-w-xl flex flex-col gap-0.5">
+            <p className="px-1 pb-1 text-caption uppercase tracking-wider text-fg-tertiary">
+              Recent
+            </p>
+            {recents.map((r) => (
+              <button
+                key={r.root}
+                type="button"
+                onClick={() => void openRecent(r.root)}
+                className={cn(
+                  'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-left',
+                  'hover:bg-surface-1 transition-colors duration-fast',
+                )}
+              >
+                <Folder
+                  size={15}
+                  className="shrink-0 text-fg-tertiary group-hover:text-accent transition-colors duration-fast"
+                />
+                <span className="shrink-0 text-body-sm text-fg-secondary group-hover:text-fg-primary">
+                  {r.name}
+                </span>
+                <span
+                  className="min-w-0 flex-1 truncate text-caption text-fg-tertiary"
+                  title={r.root}
+                >
+                  {r.root}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <p className="text-caption text-fg-tertiary flex items-center gap-1.5">
           <kbd className="px-1.5 py-0.5 rounded bg-surface-2 border border-subtle text-fg-secondary">

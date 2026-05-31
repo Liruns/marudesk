@@ -13,6 +13,38 @@ export type PendingEdit = {
   path: string;
 };
 
+/** A previously-opened workspace, surfaced on the home page for quick resume. */
+export type RecentWorkspace = { root: string; name: string };
+
+const RECENTS_KEY = 'marudesk.workspace.recents';
+const RECENTS_MAX = 6;
+
+function loadRecents(): RecentWorkspace[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (r): r is RecentWorkspace =>
+          !!r && typeof r.root === 'string' && typeof r.name === 'string',
+      )
+      .slice(0, RECENTS_MAX);
+  } catch {
+    return [];
+  }
+}
+
+/** Move/insert a workspace at the front (most-recent-first), dedup by root, persist. */
+function pushRecent(list: RecentWorkspace[], entry: RecentWorkspace): RecentWorkspace[] {
+  const next = [entry, ...list.filter((r) => r.root !== entry.root)].slice(0, RECENTS_MAX);
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch {
+    // best-effort
+  }
+  return next;
+}
+
 type WorkspaceState = {
   summary: WorkspaceSummary | null;
   opening: boolean;
@@ -25,10 +57,14 @@ type WorkspaceState = {
   ranking: Record<string, RankedFile[]>;
   rankingPending: Record<string, boolean>;
   rankingError: Record<string, string>;
+  /** Recently-opened workspaces (most-recent-first), for the home page. */
+  recents: RecentWorkspace[];
 };
 
 type WorkspaceActions = {
   openWorkspace: () => Promise<void>;
+  /** Re-open a workspace by its root path (from the home page's Recent list). */
+  openRecent: (root: string) => Promise<void>;
   reindex: () => Promise<void>;
   toggleDir: (path: string) => void;
   expandDir: (path: string) => void;
@@ -54,6 +90,7 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
     ranking: {},
     rankingPending: {},
     rankingError: {},
+    recents: loadRecents(),
 
     openWorkspace: async () => {
       if (get().opening) return;
@@ -63,8 +100,34 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
           'workspace:open',
         );
         if (summary) {
+          const recents = pushRecent(get().recents, { root: summary.root, name: summary.name });
           set({
             summary,
+            recents,
+            expandedDirs: new Set<string>(),
+            selectedPath: null,
+            clipboard: null,
+            pendingEdit: null,
+            ranking: {},
+            rankingPending: {},
+            rankingError: {},
+          });
+        }
+      } finally {
+        set({ opening: false });
+      }
+    },
+
+    openRecent: async (root) => {
+      if (get().opening) return;
+      set({ opening: true });
+      try {
+        const summary = await window.marudesk.invoke('workspace:list', root);
+        if (summary) {
+          const recents = pushRecent(get().recents, { root: summary.root, name: summary.name });
+          set({
+            summary,
+            recents,
             expandedDirs: new Set<string>(),
             selectedPath: null,
             clipboard: null,
