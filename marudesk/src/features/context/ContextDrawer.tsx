@@ -3,7 +3,6 @@ import { Badge } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from '../browser/store';
 import { useComposerStore } from '../composer/store';
-import { Composer } from '../composer/Composer';
 import { AgentChat } from '../agent/AgentChat';
 import { CaptureCard } from './CaptureCard';
 
@@ -77,16 +76,11 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             label="Captures"
             count={captures.length}
           />
-          <TabButton
-            active={tab === 'composer'}
-            onClick={() => setTab('composer')}
-            label="Quick patch"
-          />
         </nav>
 
         {tab === 'agent' ? (
           <AgentChat />
-        ) : tab === 'captures' ? (
+        ) : (
           <>
             <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-subtle">
               <div className="flex items-center gap-2 text-caption text-fg-tertiary tabular-nums">
@@ -146,8 +140,6 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
               )}
             </div>
           </>
-        ) : (
-          <Composer />
         )}
       </div>
     </aside>

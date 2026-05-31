@@ -1,36 +1,25 @@
 import { create } from 'zustand';
-import type { CapturePayload, ProposeResult } from '../../../shared/composer';
-import { toMessage } from '../../lib/toMessage';
+import type { CapturePayload } from '../../../shared/composer';
 import type { Capture } from '../../../shared/capture';
-import { getProvider } from '../../../shared/providers';
-import { useWebPageStore } from '../browser/store';
-import { usePatchStore } from '../patch/store';
-import { useProvidersStore } from '../providers/store';
 
 /**
- * The composer store now owns only the one-shot "Quick patch" surface: the
- * prompt, the in-flight flag, and the last result. Provider/model/key selection
- * moved to {@link useProvidersStore} (docs/agentic-chat-v2-design.md §5.2), which
- * the agent and this Quick-patch path both read from — one source of truth.
+ * Context-drawer tab state + the capture→payload mapping the agent reuses. The
+ * one-shot "Quick patch" surface was removed (docs/agentic-chat-v2-design.md D1):
+ * the agent subsumes it — selected captures attach to the agent's first turn —
+ * so there's a single, model-first AI surface instead of two divergent ones.
  */
 
-type ComposerTab = 'agent' | 'captures' | 'composer';
+type ComposerTab = 'agent' | 'captures';
 
 type ComposerState = {
   tab: ComposerTab;
-  prompt: string;
-  proposing: boolean;
-  lastResult: ProposeResult | null;
 };
 
 type ComposerActions = {
   setTab: (tab: ComposerTab) => void;
-  setPrompt: (prompt: string) => void;
-  propose: () => Promise<void>;
-  clearLastResult: () => void;
 };
 
-/** Map a renderer {@link Capture} to the lean payload the LLM context builder takes. */
+/** Map a renderer {@link Capture} to the lean payload attached to an agent turn. */
 export function toPayload(capture: Capture): CapturePayload {
   if (capture.kind === 'console-error') {
     return {
@@ -50,65 +39,12 @@ export function toPayload(capture: Capture): CapturePayload {
     selector: capture.selector,
     text: capture.text,
     attributes: capture.attributes,
-    // Forwarded only when present (DevTools-originated captures); the LLM
-    // context builder folds them into the per-capture block.
     outerHTML: capture.outerHTML,
     computedStyle: capture.computedStyle,
   };
 }
 
-export const useComposerStore = create<ComposerState & ComposerActions>((set, get) => ({
+export const useComposerStore = create<ComposerState & ComposerActions>((set) => ({
   tab: 'agent',
-  prompt: '',
-  proposing: false,
-  lastResult: null,
-
   setTab: (tab) => set({ tab }),
-  setPrompt: (prompt) => set({ prompt }),
-
-  propose: async () => {
-    const { prompt, proposing } = get();
-    if (proposing) return;
-    const text = prompt.trim();
-    if (text.length === 0) {
-      set({ lastResult: { ok: false, reason: 'enter a prompt before proposing' } });
-      return;
-    }
-    const providers = useProvidersStore.getState();
-    const provider = providers.selectedProvider;
-    const model = providers.selectedModel;
-    if (!providers.hasKeyForSelected()) {
-      set({
-        lastResult: { ok: false, reason: `no API key configured for ${getProvider(provider).label}` },
-      });
-      return;
-    }
-    const webPage = useWebPageStore.getState();
-    const selectedIds = webPage.selectedCaptureIds;
-    const selected = webPage.captures.filter((c) => selectedIds.has(c.id));
-    if (selected.length === 0) {
-      set({ lastResult: { ok: false, reason: 'select at least one capture from the Captures tab' } });
-      return;
-    }
-
-    set({ proposing: true, lastResult: null });
-    try {
-      const result = await window.marudesk.invoke('llm:propose-patch', {
-        provider,
-        model,
-        prompt: text,
-        captures: selected.map(toPayload),
-      });
-      set({ lastResult: result });
-      if (result.ok && result.ops.length > 0) {
-        usePatchStore.getState().setOps(result.ops);
-      }
-    } catch (err) {
-      set({ lastResult: { ok: false, reason: toMessage(err) } });
-    } finally {
-      set({ proposing: false });
-    }
-  },
-
-  clearLastResult: () => set({ lastResult: null }),
 }));

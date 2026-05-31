@@ -1,5 +1,4 @@
 import { useWebPageStore } from '../features/browser/store';
-import { useComposerStore } from '../features/composer/store';
 import { useProvidersStore } from '../features/providers/store';
 import { useWorkspaceStore } from '../features/workspace/store';
 import { getProvider } from '../../shared/providers';
@@ -18,7 +17,6 @@ export function StatusBar() {
   const captures = useWebPageStore((s) => s.captures);
   const selectedProvider = useProvidersStore((s) => s.selectedProvider);
   const selectedModel = useProvidersStore((s) => s.selectedModel);
-  const proposing = useComposerStore((s) => s.proposing);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
 
   const hasKey = providerStatus.find((p) => p.id === selectedProvider)?.hasKey;
@@ -63,7 +61,6 @@ export function StatusBar() {
           {captures.length} capture{captures.length === 1 ? '' : 's'}
         </span>
       ) : null}
-      {proposing ? <span className="text-accent">Proposing patch…</span> : null}
       <span className="flex items-center gap-1.5">
         <span
           aria-hidden
