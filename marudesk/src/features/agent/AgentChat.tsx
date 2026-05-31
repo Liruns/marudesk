@@ -14,6 +14,15 @@ import {
   Search,
   Settings as SettingsIcon,
   Eraser,
+  FileText,
+  FolderTree,
+  FilePen,
+  Bug,
+  Code,
+  SquareTerminal,
+  Network,
+  RefreshCw,
+  type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
 import { cn } from '../../lib/cn';
@@ -112,7 +121,13 @@ export function AgentChat() {
         {empty ? (
           <EmptyState hasWorkspace={!!summary} onPick={setDraft} />
         ) : (
-          chat.messages.map((m) => <MessageView key={m.id} message={m} />)
+          chat.messages.map((m, i) => (
+            <MessageView
+              key={m.id}
+              message={m}
+              streaming={chat.status === 'thinking' && i === chat.messages.length - 1}
+            />
+          ))
         )}
 
         {chat.edits.length > 0 ? <ChangesSection edits={chat.edits} /> : null}
@@ -400,7 +415,7 @@ function ProviderModelBar() {
 
 /* ── messages ───────────────────────────────────────────────────────────── */
 
-function MessageView({ message }: { message: AgentMessage }) {
+function MessageView({ message, streaming }: { message: AgentMessage; streaming?: boolean }) {
   if (message.role === 'user') {
     return (
       <div className="self-end max-w-[92%] rounded-lg bg-accent-subtle/40 border border-subtle px-3 py-2">
@@ -410,20 +425,43 @@ function MessageView({ message }: { message: AgentMessage }) {
       </div>
     );
   }
+  // The streaming caret rides the last text part of the in-progress message.
+  let lastTextIdx = -1;
+  message.parts.forEach((p, i) => {
+    if (p.type === 'text') lastTextIdx = i;
+  });
   return (
     <div className="flex flex-col gap-2">
-      {message.parts.map((part, i) =>
-        part.type === 'text' ? (
-          part.text.trim() ? (
+      {message.parts.map((part, i) => {
+        if (part.type === 'text') {
+          const caret = streaming && i === lastTextIdx;
+          if (!part.text.trim() && !caret) return null;
+          return (
             <p key={i} className="text-body-sm text-fg-secondary whitespace-pre-wrap break-words leading-relaxed">
               {part.text}
+              {caret ? <StreamCaret /> : null}
             </p>
-          ) : null
-        ) : (
-          <ToolCardView key={i} call={part.call} />
-        ),
-      )}
+          );
+        }
+        return <ToolCardView key={i} call={part.call} />;
+      })}
+      {/* Streaming but no text part yet this step → show the caret alone. */}
+      {streaming && lastTextIdx === -1 ? (
+        <p className="text-body-sm text-fg-secondary leading-relaxed">
+          <StreamCaret />
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+/** Blinking caret shown at the live edge of streaming assistant text (§6.3). */
+function StreamCaret() {
+  return (
+    <span
+      aria-hidden
+      className="ml-0.5 inline-block h-[0.9em] w-[2px] translate-y-[1px] bg-accent animate-pulse"
+    />
   );
 }
 
@@ -431,27 +469,101 @@ function textOf(message: AgentMessage): string {
   return message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
 }
 
+type ToolMeta = { label: string; icon: LucideIcon; runtime?: boolean };
+
+/**
+ * Per-tool presentation. `runtime` tools read/act on the LIVE running page over
+ * CDP — marudesk's differentiator ([[marudesk-positioning-wedge]]). They get an
+ * accent spine + accent icon so the transcript visibly shows the agent inspecting
+ * the running app, not just the source.
+ */
+const TOOL_META: Record<string, ToolMeta> = {
+  read_file: { label: 'Read', icon: FileText },
+  list_files: { label: 'List files', icon: FolderTree },
+  grep: { label: 'Search', icon: Search },
+  edit_file: { label: 'Edit', icon: FilePen },
+  multi_edit: { label: 'Multi-edit', icon: FilePen },
+  get_console_errors: { label: 'Console errors', icon: Bug, runtime: true },
+  query_dom: { label: 'Query DOM', icon: Code, runtime: true },
+  eval_js: { label: 'Eval JS', icon: SquareTerminal, runtime: true },
+  read_network: { label: 'Network', icon: Network, runtime: true },
+  read_network_body: { label: 'Response body', icon: Network, runtime: true },
+  reload_and_verify: { label: 'Reload & verify', icon: RefreshCw, runtime: true },
+};
+
+/** reload_and_verify's verdict, parsed from the server-formatted result — the
+ * closed-loop highlight: did the fix actually clear the runtime error? */
+function reloadVerdict(text?: string): { variant: 'success' | 'warning'; label: string } | null {
+  if (!text) return null;
+  if (/^GONE\b/.test(text) || text.includes('No console errors after reload')) {
+    return { variant: 'success', label: 'errors gone' };
+  }
+  if (/^STILL PRESENT\b/.test(text)) return { variant: 'warning', label: 'still present' };
+  return null;
+}
+
+/** get_console_errors P1 confidence: did the stack map to a workspace file? */
+function sourceConfidence(text?: string): { variant: 'accent' | 'neutral'; label: string } | null {
+  if (!text) return null;
+  if (text.includes('confidence: high')) return { variant: 'accent', label: 'source mapped' };
+  if (text.includes('confidence: low')) return { variant: 'neutral', label: 'no source' };
+  return null;
+}
+
+function stringField(input: unknown, key: string): string {
+  const v = input as Record<string, unknown> | null;
+  return v && typeof v[key] === 'string' ? (v[key] as string) : '';
+}
+
 function ToolCardView({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(false);
+  const meta = TOOL_META[call.name] ?? { label: call.name, icon: Wrench };
+  const Icon = meta.icon;
+  const badge =
+    call.name === 'reload_and_verify'
+      ? reloadVerdict(call.resultText)
+      : call.name === 'get_console_errors'
+        ? sourceConfidence(call.resultText)
+        : null;
+  // eval_js's summary is bare; surface the expression that ran (also visible
+  // pre-approval) so the card shows what executed in the page.
+  const expr = call.name === 'eval_js' ? stringField(call.input, 'expression') : '';
+  const hasBody = !!call.resultText || !!expr;
   const running = call.state === 'running' || call.state === 'awaiting_approval';
+
   return (
-    <div className="rounded border border-subtle bg-surface-1 text-caption">
+    <div
+      className={cn(
+        'rounded border bg-surface-1 text-caption',
+        meta.runtime ? 'border-subtle border-l-2 border-l-accent/50' : 'border-subtle',
+      )}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
       >
         <ToolStateIcon state={call.state} />
-        <span className="font-mono text-fg-secondary">{call.name}</span>
-        <span className="text-fg-tertiary truncate flex-1">{call.summary ?? ''}</span>
-        {call.resultText ? (
-          <ChevronRight size={12} className={cn('text-fg-tertiary transition-transform', open && 'rotate-90')} />
+        <Icon size={12} className={cn('shrink-0', meta.runtime ? 'text-accent' : 'text-fg-tertiary')} />
+        <span className="text-fg-secondary truncate flex-1">{call.summary ?? meta.label}</span>
+        {badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : null}
+        {hasBody ? (
+          <ChevronRight size={12} className={cn('text-fg-tertiary shrink-0 transition-transform', open && 'rotate-90')} />
         ) : null}
       </button>
-      {open && call.resultText ? (
-        <pre className="px-2 pb-2 pt-0 m-0 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
-          {call.resultText}
-        </pre>
+      {open && hasBody ? (
+        <div className="flex flex-col gap-1.5 px-2 pb-2 pt-0">
+          {expr ? (
+            <pre className="m-0 rounded bg-surface-page px-2 py-1.5 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+              {expr}
+            </pre>
+          ) : null}
+          {call.resultText ? (
+            <pre className="m-0 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+              {call.resultText}
+            </pre>
+          ) : null}
+        </div>
       ) : null}
       {running ? null : call.error ? (
         <div className="px-2 pb-1.5 text-error truncate" title={call.error}>
