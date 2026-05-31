@@ -52,12 +52,14 @@ export function HomeView({ tabId }: { tabId?: string }) {
   return (
     <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page">
       <div className="min-h-full flex flex-col items-center justify-center px-8 py-16 gap-10">
-        <div className="flex flex-col items-center gap-2">
-          <div className="size-9 rounded-lg bg-accent-subtle flex items-center justify-center">
-            <span className="size-3 rounded-pill bg-accent" aria-hidden />
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-12 rounded-2xl bg-accent-subtle ring-1 ring-accent/25 flex items-center justify-center">
+            <span className="size-4 rounded-pill bg-accent" aria-hidden />
           </div>
-          <h1 className="text-title text-fg-secondary">marudesk</h1>
-          <p className="text-caption text-fg-tertiary">Browser-native AI IDE</p>
+          <div className="flex flex-col items-center gap-1">
+            <h1 className="text-title text-fg-primary tracking-tight">marudesk</h1>
+            <p className="text-body-sm text-fg-tertiary">Browser-native AI IDE</p>
+          </div>
         </div>
 
         <form onSubmit={onSubmit} className="w-full max-w-xl" role="search">
@@ -138,15 +140,16 @@ function LauncherCard({
       type="button"
       onClick={onOpen}
       className={cn(
-        'group flex flex-col items-start gap-2 p-4 rounded-lg text-left',
+        'group flex flex-col items-start gap-2.5 p-4 rounded-xl text-left',
         'bg-surface-1 border border-subtle',
-        'hover:border-accent hover:bg-surface-2 transition-colors duration-fast',
+        'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-lg',
+        'transition duration-fast',
       )}
     >
-      <span className="text-fg-secondary group-hover:text-accent transition-colors duration-fast">
+      <span className="flex size-9 items-center justify-center rounded-lg bg-surface-2 text-fg-secondary group-hover:bg-accent-subtle group-hover:text-accent transition-colors duration-fast">
         {icon}
       </span>
-      <span className="text-body-sm text-fg-primary">{label}</span>
+      <span className="text-body-sm text-fg-primary font-medium">{label}</span>
       <span className="text-caption text-fg-tertiary">{hint}</span>
     </button>
   );

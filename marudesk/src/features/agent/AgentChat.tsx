@@ -103,7 +103,7 @@ export function AgentChat() {
         )}
       >
         {empty ? (
-          <EmptyState hasWorkspace={!!summary} />
+          <EmptyState hasWorkspace={!!summary} onPick={setDraft} />
         ) : (
           chat.messages.map((m) => <MessageView key={m.id} message={m} />)
         )}
@@ -614,16 +614,46 @@ function StatusPill({ status }: { status: AgentStatus }) {
   );
 }
 
-function EmptyState({ hasWorkspace }: { hasWorkspace: boolean }) {
+const SUGGESTIONS = [
+  'Fix the console error on this page',
+  'Why is this network request failing?',
+  'Change this component’s layout',
+];
+
+function EmptyState({
+  hasWorkspace,
+  onPick,
+}: {
+  hasWorkspace: boolean;
+  onPick: (text: string) => void;
+}) {
   return (
-    <div className="flex flex-col items-center justify-center text-center gap-2 py-10 px-4 text-fg-tertiary">
-      <Sparkles size={20} className="text-accent" />
-      <p className="text-body-sm text-fg-secondary">Agentic AI Chat</p>
-      <p className="text-caption max-w-[260px]">
-        {hasWorkspace
-          ? 'Describe a change or a bug. The agent reads files, inspects the live page over CDP, edits, then reloads to verify — and you can revert anything.'
-          : 'Open a workspace, then ask the agent to fix a runtime error or change the UI.'}
-      </p>
+    <div className="flex flex-col items-center text-center gap-3 px-4 text-fg-tertiary">
+      <div className="flex size-10 items-center justify-center rounded-xl bg-accent-subtle ring-1 ring-accent/20">
+        <Sparkles size={18} className="text-accent" />
+      </div>
+      <div className="flex flex-col items-center gap-1">
+        <p className="text-body-sm text-fg-secondary">Agentic AI Chat</p>
+        <p className="text-caption max-w-[260px]">
+          {hasWorkspace
+            ? 'Describe a change or a bug. The agent reads files, inspects the live page over CDP, edits, then reloads to verify — revert anything.'
+            : 'Open a workspace, then ask the agent to fix a runtime error or change the UI.'}
+        </p>
+      </div>
+      {hasWorkspace ? (
+        <div className="flex w-full max-w-[280px] flex-col items-stretch gap-1.5 pt-1">
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onPick(s)}
+              className="rounded-lg border border-subtle bg-surface-1 px-3 py-1.5 text-left text-caption text-fg-secondary hover:border-accent/60 hover:bg-surface-2 hover:text-fg-primary transition-colors duration-fast"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
