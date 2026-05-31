@@ -1,7 +1,7 @@
 import { useWebPageStore } from '../features/browser/store';
 import { useProvidersStore } from '../features/providers/store';
 import { useWorkspaceStore } from '../features/workspace/store';
-import { getProvider } from '../../shared/providers';
+import { providerLabel } from '../../shared/providers';
 
 /**
  * VSCode-style status strip pinned to the bottom of the window. Surfaces the
@@ -18,6 +18,7 @@ export function StatusBar() {
   const selectedProvider = useProvidersStore((s) => s.selectedProvider);
   const selectedModel = useProvidersStore((s) => s.selectedModel);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
+  const customProviders = useProvidersStore((s) => s.customProviders);
 
   const hasKey = providerStatus.find((p) => p.id === selectedProvider)?.hasKey;
 
@@ -71,7 +72,7 @@ export function StatusBar() {
           }
         />
         <span className="truncate max-w-[280px]">
-          {getProvider(selectedProvider).label} · {selectedModel}
+          {providerLabel(selectedProvider, customProviders)} · {selectedModel}
         </span>
       </span>
     </footer>

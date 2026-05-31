@@ -88,6 +88,15 @@ export async function getProviderApiKey(
   return entry?.apiKey ?? null;
 }
 
+/** Whether a usable API key is stored for this provider (read-only, never throws). */
+export async function hasProviderKey(provider: ProviderId): Promise<boolean> {
+  try {
+    return !!(await getProviderApiKey(provider));
+  } catch {
+    return false;
+  }
+}
+
 async function listProviders(): Promise<ProviderStatus[]> {
   let map: CredMap = {};
   try {
@@ -102,7 +111,7 @@ async function listProviders(): Promise<ProviderStatus[]> {
   }));
 }
 
-async function setProviderKey(
+export async function setProviderKey(
   provider: ProviderId,
   key: string,
 ): Promise<void> {
@@ -115,7 +124,7 @@ async function setProviderKey(
   await saveCreds(map);
 }
 
-async function clearProviderKey(provider: ProviderId): Promise<void> {
+export async function clearProviderKey(provider: ProviderId): Promise<void> {
   const map = await loadCreds().catch(() => ({}) as CredMap);
   if (map[provider]) {
     delete map[provider];

@@ -11,6 +11,7 @@ import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerPatchHandlers } from './patch';
 import { registerSecretsHandlers } from './secrets';
+import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
@@ -165,6 +166,7 @@ void app.whenReady().then(() => {
   registerPatchHandlers();
   registerSecretsHandlers();
   registerModelsHandlers();
+  registerCustomProviderHandlers();
   registerAgentHandlers();
   registerWindowControlHandlers();
   registerSettingsHandlers({

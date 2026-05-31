@@ -30,14 +30,17 @@ export type { ModelMessage };
 const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 
 /**
- * Build an AI SDK model instance for a built-in provider with the resolved key.
- * (Custom OpenAI-compatible endpoints are added in a later phase — they reuse
- * the same `createOpenAICompatible` path with a user-supplied baseURL.)
+ * Build an AI SDK model instance for the resolved provider/model/key. Custom
+ * OpenAI-compatible endpoints (OpenRouter / LM Studio / vLLM …) arrive as a
+ * `custom:<id>` provider and reuse the same `createOpenAICompatible` path with a
+ * caller-supplied `baseUrl` (resolved from the stored config in loop.ts); their
+ * key is optional, since many local servers need none.
  */
 export function buildModel(
   provider: ProviderId,
   modelId: string,
   apiKey: string,
+  baseUrl?: string,
 ): LanguageModel {
   switch (provider) {
     case 'anthropic':
@@ -49,6 +52,15 @@ export function buildModel(
     case 'ollama':
       // Local, keyless — Ollama exposes an OpenAI-compatible API on this port.
       return createOpenAICompatible({ name: 'ollama', baseURL: OLLAMA_BASE_URL })(modelId);
+    default: {
+      // custom:<id> — a user-configured OpenAI-compatible endpoint.
+      if (!baseUrl) throw new Error(`custom provider ${provider} has no base URL`);
+      return createOpenAICompatible({
+        name: provider,
+        baseURL: baseUrl,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    }
   }
 }
 

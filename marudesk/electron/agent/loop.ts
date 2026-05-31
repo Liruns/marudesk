@@ -13,9 +13,10 @@ import { emptyAgentChatState } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
-import { getProvider } from '../../shared/providers';
+import { getProvider, isBuiltinProviderId } from '../../shared/providers';
 import { coalesced } from '../coalesce';
 import { getProviderApiKey } from '../secrets';
+import { getCustomProvider } from '../custom-providers';
 import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
@@ -184,6 +185,8 @@ function waitForAnswers(): Promise<AgentAnswers> {
 
 type RunOpts = {
   apiKey: string;
+  /** Custom endpoints (custom:<id>) carry their resolved baseURL; undefined for built-ins. */
+  baseUrl?: string;
   model: string;
   provider: AgentSendInput['provider'];
   ws: WorkspaceSummary;
@@ -195,7 +198,7 @@ type RunOpts = {
 async function runLoop(opts: RunOpts): Promise<void> {
   const ctx: ToolContext = { ws: opts.ws, tabId: opts.tabId, signal: opts.signal };
   // Build the model + tool set once per turn (provider/model/key are fixed for it).
-  const model = buildModel(opts.provider, opts.model, opts.apiKey);
+  const model = buildModel(opts.provider, opts.model, opts.apiKey, opts.baseUrl);
   const tools = aiTools(TOOL_SCHEMAS);
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -429,9 +432,20 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     } catch (err) {
       return { ok: false, reason: (err as Error).message };
     }
-    // Keyless providers (Ollama) run locally with no key.
-    if (!apiKey && !getProvider(input.provider).keyless) {
-      return { ok: false, reason: `no API key configured for ${input.provider}` };
+    // Resolve a custom endpoint's baseURL, treating its key as optional (many
+    // local OpenAI-compatible servers need none); built-in keyless providers
+    // (Ollama) likewise run with no key.
+    let baseUrl: string | undefined;
+    if (isBuiltinProviderId(input.provider)) {
+      if (!apiKey && !getProvider(input.provider).keyless) {
+        return { ok: false, reason: `no API key configured for ${input.provider}` };
+      }
+    } else {
+      const custom = await getCustomProvider(input.provider);
+      if (!custom) {
+        return { ok: false, reason: `unknown custom provider ${input.provider}` };
+      }
+      baseUrl = custom.baseUrl;
     }
 
     const turnId = uid('turn');
@@ -451,6 +465,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
 
     void runLoop({
       apiKey: apiKey ?? '',
+      baseUrl,
       model: input.model,
       provider: input.provider,
       ws,

@@ -17,7 +17,14 @@ import {
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
 import { cn } from '../../lib/cn';
-import { PROVIDERS, findModel, getProvider, type ProviderId } from '../../../shared/providers';
+import {
+  PROVIDERS,
+  customProviderId,
+  findModel,
+  isBuiltinProviderId,
+  providerLabel,
+  type ProviderId,
+} from '../../../shared/providers';
 import type {
   AgentChatState,
   AgentEdit,
@@ -234,6 +241,7 @@ function ProviderModelBar() {
   const selectedProvider = useProvidersStore((s) => s.selectedProvider);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
+  const customProviders = useProvidersStore((s) => s.customProviders);
   const selectModel = useProvidersStore((s) => s.selectModel);
   const selectKeyProvider = useProvidersStore((s) => s.selectKeyProvider);
 
@@ -245,17 +253,24 @@ function ProviderModelBar() {
   const keyById = (id: ProviderId) => !!providerStatus.find((s) => s.id === id)?.hasKey;
 
   // Tool-capable models only (the agent requires tool calling — D4), grouped by
-  // provider in catalog order and filtered by the search query.
+  // provider (built-ins in catalog order, then custom endpoints) and filtered by
+  // the search query.
   const q = query.trim().toLowerCase();
-  const groups = PROVIDERS.map((p) => ({
-    provider: p,
-    items: models.filter(
-      (m) =>
-        m.provider === p.id &&
-        m.tools !== false &&
-        (q === '' || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)),
-    ),
-  })).filter((g) => g.items.length > 0);
+  const matches = (m: { label: string; id: string; tools?: boolean }) =>
+    m.tools !== false &&
+    (q === '' || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q));
+  const groups = [
+    ...PROVIDERS.map((p) => ({
+      id: p.id as ProviderId,
+      label: p.label,
+      items: models.filter((m) => m.provider === p.id && matches(m)),
+    })),
+    ...customProviders.map((c) => ({
+      id: customProviderId(c.id),
+      label: c.label,
+      items: models.filter((m) => m.provider === customProviderId(c.id) && matches(m)),
+    })),
+  ].filter((g) => g.items.length > 0);
 
   const close = () => {
     setOpen(false);
@@ -319,10 +334,10 @@ function ProviderModelBar() {
                 </div>
               ) : (
                 groups.map((g) => (
-                  <div key={g.provider.id}>
+                  <div key={g.id}>
                     <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-caption uppercase tracking-wider text-fg-tertiary">
-                      <span>{g.provider.label}</span>
-                      {keyById(g.provider.id) ? (
+                      <span>{g.label}</span>
+                      {keyById(g.id) ? (
                         <span aria-hidden className="size-1 rounded-pill bg-accent" />
                       ) : (
                         <span className="normal-case tracking-normal text-fg-tertiary/70">· no key</span>
@@ -362,10 +377,10 @@ function ProviderModelBar() {
         </>
       ) : null}
 
-      {!hasKey && statusChecked ? (
+      {!hasKey && statusChecked && isBuiltinProviderId(selectedProvider) ? (
         <div className="mt-2 flex items-center justify-between gap-2 rounded border border-subtle bg-surface-2 px-2 py-1">
           <span className="text-caption text-fg-tertiary truncate">
-            No API key for {getProvider(selectedProvider).label}.
+            No API key for {providerLabel(selectedProvider, customProviders)}.
           </span>
           <button
             type="button"

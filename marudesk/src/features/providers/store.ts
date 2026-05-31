@@ -3,9 +3,14 @@ import {
   MODELS,
   PROVIDERS,
   DEFAULT_MODEL_KEY,
+  customProviderId,
   findModel,
-  getProvider,
+  isBuiltinProviderId,
+  isProviderId,
   modelKey,
+  type BuiltinProviderId,
+  type CustomProviderInfo,
+  type CustomProviderInput,
   type ModelDef,
   type ModelEntry,
   type ProviderId,
@@ -18,8 +23,12 @@ import { toMessage } from '../../lib/toMessage';
  * of the formerly-overloaded composer store so provider configuration has one
  * home. The model is **model-first**: callers select a {@link ModelEntry} by its
  * unique `key`, and `selectedProvider` + `selectedModel` are kept in sync for the
- * agent path that sends `{ provider, model }` on the wire. Live `/models`
- * lists merge over the static catalog per provider.
+ * agent path that sends `{ provider, model }` on the wire. Live `/models` lists
+ * merge over the static catalog per built-in provider; custom OpenAI-compatible
+ * endpoints (custom:<id>) contribute their manually-listed models too. The
+ * per-provider key/test/loading maps are keyed by {@link BuiltinProviderId} — the
+ * `custom:${string}` half of {@link ProviderId} can't index a fixed Record — so
+ * custom keys go through the dedicated set/clear actions instead.
  */
 
 const SELECTED_KEY = 'marudesk.providers.selectedModelKey';
@@ -36,54 +45,65 @@ type ProvidersState = {
   selectedProvider: ProviderId;
   selectedModel: string;
 
-  /** Flat catalog: the static {@link MODELS} with each provider's live list merged in. */
+  /** Flat catalog: static {@link MODELS} + each built-in's live list + custom models. */
   models: ModelEntry[];
-  modelsLoadingByProvider: Record<ProviderId, boolean>;
-  modelsErrorByProvider: Record<ProviderId, string | null>;
+  /** User-configured custom OpenAI-compatible endpoints (with key presence). */
+  customProviders: CustomProviderInfo[];
+  modelsLoadingByProvider: Record<BuiltinProviderId, boolean>;
+  modelsErrorByProvider: Record<BuiltinProviderId, string | null>;
 
+  /** Key presence per provider — built-ins and custom endpoints merged. */
   providerStatus: ProviderStatus[];
   statusChecked: boolean;
   statusError: string | null;
 
-  // API-key editor (Settings → AI Providers).
-  keyProvider: ProviderId;
+  // API-key editor for built-in providers (Settings → AI Providers).
+  keyProvider: BuiltinProviderId;
   keyInput: string;
   keyBusy: boolean;
   keyError: string | null;
 
-  testByProvider: Record<ProviderId, ConnectionTest>;
+  testByProvider: Record<BuiltinProviderId, ConnectionTest>;
+
+  // Custom-endpoint add/remove form state.
+  customBusy: boolean;
+  customError: string | null;
 };
 
 type ProvidersActions = {
   /** Model-first selection — sets the key and syncs provider/model. */
   selectModel: (key: string) => void;
-  /** Provider-first compat (used by the legacy Quick-patch composer + status bar). */
-  setSelectedProvider: (id: ProviderId) => void;
-  setSelectedModel: (modelId: string) => void;
   refreshProviderStatus: () => Promise<void>;
-  refreshModels: (provider: ProviderId, force?: boolean) => Promise<void>;
-  selectKeyProvider: (id: ProviderId) => void;
+  refreshModels: (provider: BuiltinProviderId, force?: boolean) => Promise<void>;
+  selectKeyProvider: (id: BuiltinProviderId) => void;
   setKeyInput: (value: string) => void;
   saveProviderKey: () => Promise<void>;
   clearProviderKey: () => Promise<void>;
-  testConnection: (provider: ProviderId) => Promise<void>;
+  testConnection: (provider: BuiltinProviderId) => Promise<void>;
   /** Whether the active model's provider has a usable key (keyless = always true). */
   hasKeyForSelected: () => boolean;
+
+  // Custom OpenAI-compatible endpoints.
+  loadCustomProviders: () => Promise<void>;
+  addCustomProvider: (input: CustomProviderInput) => Promise<boolean>;
+  removeCustomProvider: (id: string) => Promise<void>;
+  setCustomKey: (id: string, key: string) => Promise<void>;
+  clearCustomKey: (id: string) => Promise<void>;
 };
 
-function byProvider<T>(make: (id: ProviderId) => T): Record<ProviderId, T> {
+function byProvider<T>(make: (id: BuiltinProviderId) => T): Record<BuiltinProviderId, T> {
   return PROVIDERS.reduce(
     (acc, p) => {
       acc[p.id] = make(p.id);
       return acc;
     },
-    {} as Record<ProviderId, T>,
+    {} as Record<BuiltinProviderId, T>,
   );
 }
 
-/** Convert a provider's live `/models` list into provider-tagged entries, keeping
- * the static catalog's contextWindow/tool flags where the id matches. */
-function toEntries(provider: ProviderId, defs: ModelDef[]): ModelEntry[] {
+/** Convert a built-in provider's live `/models` list into provider-tagged entries,
+ * keeping the static catalog's contextWindow/tool flags where the id matches. */
+function toEntries(provider: BuiltinProviderId, defs: ModelDef[]): ModelEntry[] {
   return defs.map((d) => {
     const stat = MODELS.find((m) => m.provider === provider && m.id === d.id);
     return {
@@ -97,19 +117,54 @@ function toEntries(provider: ProviderId, defs: ModelDef[]): ModelEntry[] {
   });
 }
 
-/** Replace one provider's slice of the flat catalog (grouping is done in the UI). */
-function mergeProviderModels(all: ModelEntry[], provider: ProviderId, entries: ModelEntry[]): ModelEntry[] {
+/** Replace one built-in provider's slice of the flat catalog (grouping is in the UI). */
+function mergeProviderModels(
+  all: ModelEntry[],
+  provider: BuiltinProviderId,
+  entries: ModelEntry[],
+): ModelEntry[] {
   return [...all.filter((m) => m.provider !== provider), ...entries];
+}
+
+/** Flatten custom endpoints into provider-tagged model entries. */
+function customEntries(customs: CustomProviderInfo[]): ModelEntry[] {
+  return customs.flatMap((c) =>
+    c.models.map((m) => ({
+      key: modelKey(customProviderId(c.id), m.id),
+      id: m.id,
+      label: m.label,
+      provider: customProviderId(c.id),
+      contextWindow: m.contextWindow,
+      tools: m.tools ?? true,
+    })),
+  );
+}
+
+function customStatuses(customs: CustomProviderInfo[]): ProviderStatus[] {
+  return customs.map((c) => ({ id: customProviderId(c.id), hasKey: c.hasKey }));
+}
+
+/** Re-project a fresh custom list onto models + providerStatus, keeping built-ins. */
+function projectCustoms(
+  s: Pick<ProvidersState, 'models' | 'providerStatus'>,
+  customs: CustomProviderInfo[],
+): Pick<ProvidersState, 'customProviders' | 'models' | 'providerStatus'> {
+  return {
+    customProviders: customs,
+    models: [...s.models.filter((m) => isBuiltinProviderId(m.provider)), ...customEntries(customs)],
+    providerStatus: [
+      ...s.providerStatus.filter((p) => isBuiltinProviderId(p.id)),
+      ...customStatuses(customs),
+    ],
+  };
 }
 
 function loadSelectedKey(): string {
   try {
-    const raw = localStorage.getItem(SELECTED_KEY);
-    if (raw && findModel(MODELS, raw)) return raw;
+    return localStorage.getItem(SELECTED_KEY) || DEFAULT_MODEL_KEY;
   } catch {
-    // localStorage unavailable — use the default.
+    return DEFAULT_MODEL_KEY;
   }
-  return DEFAULT_MODEL_KEY;
 }
 
 function persistSelectedKey(key: string): void {
@@ -120,15 +175,34 @@ function persistSelectedKey(key: string): void {
   }
 }
 
-const initialKey = loadSelectedKey();
-const initialEntry = findModel(MODELS, initialKey) ?? findModel(MODELS, DEFAULT_MODEL_KEY)!;
+/**
+ * Resolve a stored key to a concrete selection. A catalog hit wins; otherwise
+ * (a custom or live-only model not yet loaded) derive provider/model from the key
+ * itself (`modelKey` = `${provider}:${id}`, split at the last colon) so a custom
+ * pick survives a restart before the custom list arrives; else fall back.
+ */
+function deriveSelection(key: string): { key: string; provider: ProviderId; model: string } {
+  const entry = findModel(MODELS, key);
+  if (entry) return { key, provider: entry.provider, model: entry.id };
+  const i = key.lastIndexOf(':');
+  if (i > 0) {
+    const provider = key.slice(0, i);
+    const model = key.slice(i + 1);
+    if (isProviderId(provider) && model.length > 0) return { key, provider, model };
+  }
+  const def = findModel(MODELS, DEFAULT_MODEL_KEY)!;
+  return { key: def.key, provider: def.provider, model: def.id };
+}
+
+const initial = deriveSelection(loadSelectedKey());
 
 export const useProvidersStore = create<ProvidersState & ProvidersActions>((set, get) => ({
-  selectedModelKey: initialEntry.key,
-  selectedProvider: initialEntry.provider,
-  selectedModel: initialEntry.id,
+  selectedModelKey: initial.key,
+  selectedProvider: initial.provider,
+  selectedModel: initial.model,
 
   models: [...MODELS],
+  customProviders: [],
   modelsLoadingByProvider: byProvider(() => false),
   modelsErrorByProvider: byProvider(() => null),
 
@@ -136,35 +210,22 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
   statusChecked: false,
   statusError: null,
 
-  keyProvider: initialEntry.provider,
+  keyProvider: initial.provider && isBuiltinProviderId(initial.provider) ? initial.provider : 'anthropic',
   keyInput: '',
   keyBusy: false,
   keyError: null,
 
   testByProvider: byProvider(() => ({ status: 'idle', message: null })),
 
+  customBusy: false,
+  customError: null,
+
   selectModel: (key) => {
     const entry = findModel(get().models, key);
     if (!entry) return;
     set({ selectedModelKey: key, selectedProvider: entry.provider, selectedModel: entry.id });
     persistSelectedKey(key);
-    void get().refreshModels(entry.provider);
-  },
-
-  setSelectedProvider: (id) => {
-    const cur = get();
-    // Keep the current model if it already belongs to this provider; else its default.
-    const nextModel = cur.selectedProvider === id ? cur.selectedModel : getProvider(id).defaultModelId;
-    const key = modelKey(id, nextModel);
-    set({ selectedProvider: id, selectedModel: nextModel, selectedModelKey: key });
-    persistSelectedKey(key);
-    void get().refreshModels(id);
-  },
-
-  setSelectedModel: (modelId) => {
-    const key = modelKey(get().selectedProvider, modelId);
-    set({ selectedModel: modelId, selectedModelKey: key });
-    persistSelectedKey(key);
+    if (isBuiltinProviderId(entry.provider)) void get().refreshModels(entry.provider);
   },
 
   hasKeyForSelected: () => {
@@ -174,10 +235,17 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
 
   refreshProviderStatus: async () => {
     try {
-      const list = await window.marudesk.invoke('secrets:list-providers');
-      set({ providerStatus: list, statusChecked: true, statusError: null });
+      const [list, customs] = await Promise.all([
+        window.marudesk.invoke('secrets:list-providers'),
+        window.marudesk.invoke('providers:list-custom'),
+      ]);
+      set((s) => ({
+        statusChecked: true,
+        statusError: null,
+        ...projectCustoms({ models: s.models, providerStatus: list }, customs),
+      }));
       for (const ps of list) {
-        if (ps.hasKey) void get().refreshModels(ps.id);
+        if (ps.hasKey && isBuiltinProviderId(ps.id)) void get().refreshModels(ps.id);
       }
     } catch (err) {
       set({ statusChecked: true, statusError: toMessage(err) });
@@ -281,6 +349,70 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
       set((s) => ({
         testByProvider: { ...s.testByProvider, [provider]: { status: 'error', message: toMessage(err) } },
       }));
+    }
+  },
+
+  loadCustomProviders: async () => {
+    try {
+      const customs = await window.marudesk.invoke('providers:list-custom');
+      set((s) => projectCustoms(s, customs));
+    } catch (err) {
+      set({ customError: toMessage(err) });
+    }
+  },
+
+  addCustomProvider: async (input) => {
+    if (get().customBusy) return false;
+    set({ customBusy: true, customError: null });
+    try {
+      const customs = await window.marudesk.invoke('providers:add-custom', input);
+      set((s) => projectCustoms(s, customs));
+      return true;
+    } catch (err) {
+      set({ customError: toMessage(err) });
+      return false;
+    } finally {
+      set({ customBusy: false });
+    }
+  },
+
+  removeCustomProvider: async (id) => {
+    if (get().customBusy) return;
+    set({ customBusy: true, customError: null });
+    try {
+      const customs = await window.marudesk.invoke('providers:remove-custom', id);
+      set((s) => projectCustoms(s, customs));
+      // If the removed endpoint held the active model, fall back to the default.
+      const s = get();
+      if (!findModel(s.models, s.selectedModelKey)) {
+        const def = findModel(MODELS, DEFAULT_MODEL_KEY)!;
+        set({ selectedModelKey: def.key, selectedProvider: def.provider, selectedModel: def.id });
+        persistSelectedKey(def.key);
+      }
+    } catch (err) {
+      set({ customError: toMessage(err) });
+    } finally {
+      set({ customBusy: false });
+    }
+  },
+
+  setCustomKey: async (id, key) => {
+    const value = key.trim();
+    if (value.length === 0) return;
+    try {
+      await window.marudesk.invoke('secrets:set-provider-key', customProviderId(id), value);
+      await get().loadCustomProviders();
+    } catch (err) {
+      set({ customError: toMessage(err) });
+    }
+  },
+
+  clearCustomKey: async (id) => {
+    try {
+      await window.marudesk.invoke('secrets:clear-provider-key', customProviderId(id));
+      await get().loadCustomProviders();
+    } catch (err) {
+      set({ customError: toMessage(err) });
     }
   },
 }));

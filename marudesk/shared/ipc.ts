@@ -10,7 +10,13 @@ import type { NavState, TabKind, TabsSnapshot } from './browser';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
-import type { ModelDef, ProviderId, ProviderStatus } from './providers';
+import type {
+  CustomProviderInfo,
+  CustomProviderInput,
+  ModelDef,
+  ProviderId,
+  ProviderStatus,
+} from './providers';
 import type { AppSettings, SettingsPatch } from './settings';
 import type {
   TerminalCreateOptions,
@@ -107,7 +113,12 @@ export const CHANNELS = {
     'secrets:set-provider-key',
     'secrets:clear-provider-key',
   ],
-  providers: ['providers:list-models'],
+  providers: [
+    'providers:list-models',
+    'providers:list-custom',
+    'providers:add-custom',
+    'providers:remove-custom',
+  ],
   agent: [
     'agent:send',
     'agent:abort',
@@ -306,6 +317,16 @@ export interface IpcMap {
     result: boolean;
   };
   'providers:list-models': { args: [provider: ProviderId]; result: ModelDef[] };
+  // Custom OpenAI-compatible endpoints (OpenRouter / LM Studio / vLLM / …). The
+  // config is non-secret (a plaintext file); the optional key lives in secrets
+  // under `custom:<id>`. Each mutation returns the fresh list so the renderer
+  // store reprojects without a follow-up fetch.
+  'providers:list-custom': { args: []; result: CustomProviderInfo[] };
+  'providers:add-custom': {
+    args: [input: CustomProviderInput];
+    result: CustomProviderInfo[];
+  };
+  'providers:remove-custom': { args: [id: string]; result: CustomProviderInfo[] };
 
   // agent (agentic AI Chat — docs/agentic-chat-design.md). main owns the chat
   // state and streams it on the agent:event snapshot; these invokes drive it.

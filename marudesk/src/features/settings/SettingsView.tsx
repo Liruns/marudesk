@@ -50,7 +50,7 @@ const CATEGORIES: {
   { id: 'editor', label: 'Editor', icon: Code2, blurb: 'Code editor font and size.' },
   { id: 'terminal', label: 'Terminal', icon: SquareTerminal, blurb: 'Integrated terminal font and shell.' },
   { id: 'browser', label: 'Browser', icon: Globe, blurb: 'Search engine and embedded-browser behavior.' },
-  { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys (Anthropic, OpenAI, Google, Ollama). Pick the model in the chat.' },
+  { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.' },
   { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.' },
   { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.' },
 ];

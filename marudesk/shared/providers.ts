@@ -1,4 +1,14 @@
-export type ProviderId = 'anthropic' | 'openai' | 'google' | 'ollama';
+/** The built-in, first-party providers. */
+export type BuiltinProviderId = 'anthropic' | 'openai' | 'google' | 'ollama';
+
+/**
+ * A provider id: either a built-in, or a user-configured custom OpenAI-compatible
+ * endpoint tagged `custom:<id>` (OpenRouter / LM Studio / vLLM / Together / …).
+ * The template-literal member is why `Record<ProviderId, …>` maps are keyed over
+ * {@link BuiltinProviderId} instead (DRIVERS, the provider-store maps); the
+ * encrypted creds file uses `Partial<Record<ProviderId, …>>`, which tolerates it.
+ */
+export type ProviderId = BuiltinProviderId | `custom:${string}`;
 
 export type ModelDef = {
   id: string;
@@ -6,7 +16,7 @@ export type ModelDef = {
 };
 
 export type ProviderDef = {
-  id: ProviderId;
+  id: BuiltinProviderId;
   label: string;
   /**
    * Static fallback catalog. The live list is fetched per key from each
@@ -83,11 +93,36 @@ export function getProvider(id: ProviderId): ProviderDef {
   return p;
 }
 
-export function isProviderId(value: unknown): value is ProviderId {
+export function isBuiltinProviderId(value: unknown): value is BuiltinProviderId {
   return (
     typeof value === 'string' &&
-    PROVIDERS.some((p) => p.id === (value as ProviderId))
+    PROVIDERS.some((p) => p.id === (value as BuiltinProviderId))
   );
+}
+
+/** A custom endpoint id is `custom:<non-empty local id>`. */
+export function isCustomProviderId(value: unknown): value is `custom:${string}` {
+  return (
+    typeof value === 'string' &&
+    value.startsWith('custom:') &&
+    value.length > 'custom:'.length
+  );
+}
+
+export function isProviderId(value: unknown): value is ProviderId {
+  return isBuiltinProviderId(value) || isCustomProviderId(value);
+}
+
+/** Build the `custom:<id>` provider id for a custom endpoint's local id. */
+export function customProviderId(id: string): `custom:${string}` {
+  return `custom:${id}`;
+}
+
+/** Extract the local id from a `custom:<id>` provider id, or null when built-in. */
+export function parseCustomProviderId(provider: ProviderId): string | null {
+  return provider.startsWith('custom:')
+    ? provider.slice('custom:'.length)
+    : null;
 }
 
 export type ProviderStatus = {
@@ -168,3 +203,37 @@ export type CustomProvider = {
   baseUrl: string;
   models: { id: string; label: string; contextWindow?: number; tools?: boolean }[];
 };
+
+/** A custom endpoint plus whether its API key is stored — the Settings list shape. */
+export type CustomProviderInfo = CustomProvider & { hasKey: boolean };
+
+/**
+ * Payload to create (or replace by id) a custom endpoint from Settings. The key
+ * is optional — many local servers (LM Studio / vLLM) need none; model labels
+ * default to their ids.
+ */
+export type CustomProviderInput = {
+  /** Stable local id; derived from the label when omitted. */
+  id?: string;
+  label: string;
+  baseUrl: string;
+  /** Model ids the endpoint serves. */
+  modelIds: string[];
+  /** Optional API key (stored in secrets under `custom:<id>`). */
+  apiKey?: string;
+};
+
+/**
+ * Human label for any provider id. Built-ins resolve through {@link getProvider};
+ * a `custom:<id>` resolves against the supplied custom list (falling back to the
+ * raw id). Used by the chat/status-bar selectors, which must not call the
+ * built-in-only {@link getProvider} with a custom id (it throws).
+ */
+export function providerLabel(
+  id: ProviderId,
+  customProviders: readonly { id: string; label: string }[] = [],
+): string {
+  if (isBuiltinProviderId(id)) return getProvider(id).label;
+  const local = parseCustomProviderId(id);
+  return customProviders.find((c) => c.id === local)?.label ?? id;
+}
