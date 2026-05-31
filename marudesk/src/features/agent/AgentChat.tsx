@@ -10,12 +10,14 @@ import {
   RotateCcw,
   AlertCircle,
   ChevronRight,
+  ChevronDown,
+  Search,
   Settings as SettingsIcon,
   Eraser,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
 import { cn } from '../../lib/cn';
-import { PROVIDERS } from '../../../shared/providers';
+import { PROVIDERS, findModel, getProvider, type ProviderId } from '../../../shared/providers';
 import type {
   AgentChatState,
   AgentEdit,
@@ -26,7 +28,7 @@ import type {
   ToolCall,
 } from '../../../shared/agent';
 import { openSettingsTab } from '../settings/store';
-import { useComposerStore } from '../composer/store';
+import { useProvidersStore } from '../providers/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { useAgentStore } from './store';
 import { toDiffLines } from './diff';
@@ -56,8 +58,8 @@ export function AgentChat() {
   const resetChat = useAgentStore((s) => s.resetChat);
 
   const summary = useWorkspaceStore((s) => s.summary);
-  const statusChecked = useComposerStore((s) => s.statusChecked);
-  const refreshStatus = useComposerStore((s) => s.refreshProviderStatus);
+  const statusChecked = useProvidersStore((s) => s.statusChecked);
+  const refreshStatus = useProvidersStore((s) => s.refreshProviderStatus);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -114,7 +116,10 @@ export function AgentChat() {
 
       <footer className="shrink-0 border-t border-subtle px-3 py-2 flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <StatusPill status={chat.status} />
+          <div className="flex items-center gap-3 min-w-0">
+            <StatusPill status={chat.status} />
+            <UsageMeter />
+          </div>
           <div className="flex items-center gap-1">
             {!busy && !empty ? (
               <button
@@ -173,63 +178,188 @@ export function AgentChat() {
 
 /* ── provider / model bar (reuses the composer store) ───────────────────── */
 
-function ProviderModelBar() {
-  const selectedProvider = useComposerStore((s) => s.selectedProvider);
-  const selectedModel = useComposerStore((s) => s.selectedModel);
-  const setSelectedProvider = useComposerStore((s) => s.setSelectedProvider);
-  const setSelectedModel = useComposerStore((s) => s.setSelectedModel);
-  const providerStatus = useComposerStore((s) => s.providerStatus);
-  const statusChecked = useComposerStore((s) => s.statusChecked);
-  const modelsByProvider = useComposerStore((s) => s.modelsByProvider);
-  const selectKeyProvider = useComposerStore((s) => s.selectKeyProvider);
+/** Compact token-count label: 200000 → "200K", 1048576 → "1M". */
+function formatContext(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+  return String(n);
+}
 
+/**
+ * Token usage for the running conversation against the selected model's context
+ * window — the Claude/Codex Desktop-style usage readout. Hidden until a turn has
+ * actually consumed tokens.
+ */
+function UsageMeter() {
+  const usage = useAgentStore((s) => s.chat.usage);
+  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  const models = useProvidersStore((s) => s.models);
+  if (usage.inputTokens === 0 && usage.outputTokens === 0) return null;
+  const ctx = findModel(models, selectedModelKey)?.contextWindow;
+  const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
+  return (
+    <span
+      className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums shrink-0"
+      title={`${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output tokens`}
+    >
+      {pct !== null ? (
+        <>
+          <span aria-hidden className="h-1 w-8 rounded-pill bg-surface-3 overflow-hidden">
+            <span className="block h-full bg-accent" style={{ width: `${pct}%` }} />
+          </span>
+          <span>{pct}%</span>
+        </>
+      ) : (
+        <span>{formatContext(usage.inputTokens)} tok</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Model-first selector (docs/agentic-chat-v2-design.md §6.1): one searchable
+ * combobox over every configured model, grouped by provider, with context window
+ * and per-provider key status — replaces the old provider-tabs + model dropdown.
+ */
+function ProviderModelBar() {
+  const models = useProvidersStore((s) => s.models);
+  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  const selectedModel = useProvidersStore((s) => s.selectedModel);
+  const selectedProvider = useProvidersStore((s) => s.selectedProvider);
+  const providerStatus = useProvidersStore((s) => s.providerStatus);
+  const statusChecked = useProvidersStore((s) => s.statusChecked);
+  const selectModel = useProvidersStore((s) => s.selectModel);
+  const selectKeyProvider = useProvidersStore((s) => s.selectKeyProvider);
+
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const current = findModel(models, selectedModelKey);
   const hasKey = !!providerStatus.find((s) => s.id === selectedProvider)?.hasKey;
-  const models = modelsByProvider[selectedProvider] ?? [];
+  const keyById = (id: ProviderId) => !!providerStatus.find((s) => s.id === id)?.hasKey;
+
+  // Tool-capable models only (the agent requires tool calling — D4), grouped by
+  // provider in catalog order and filtered by the search query.
+  const q = query.trim().toLowerCase();
+  const groups = PROVIDERS.map((p) => ({
+    provider: p,
+    items: models.filter(
+      (m) =>
+        m.provider === p.id &&
+        m.tools !== false &&
+        (q === '' || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)),
+    ),
+  })).filter((g) => g.items.length > 0);
+
+  const close = () => {
+    setOpen(false);
+    setQuery('');
+  };
 
   return (
-    <section className="shrink-0 px-3 py-2 border-b border-subtle flex flex-col gap-2">
-      <div className="flex items-center gap-1">
-        {PROVIDERS.map((p) => {
-          const active = p.id === selectedProvider;
-          const filled = !!providerStatus.find((s) => s.id === p.id)?.hasKey;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setSelectedProvider(p.id)}
-              aria-pressed={active}
-              className={cn(
-                'h-6 px-2 rounded border text-caption flex items-center gap-1 transition-colors duration-fast',
-                active
-                  ? 'border-accent text-fg-primary bg-accent-subtle/30'
-                  : 'border-subtle text-fg-tertiary hover:text-fg-secondary',
+    <section className="shrink-0 px-3 py-2 border-b border-subtle relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="w-full h-8 px-2.5 rounded border border-default hover:border-accent flex items-center gap-2 text-body-sm text-fg-primary transition-colors duration-fast"
+      >
+        <Sparkles size={13} className="text-accent shrink-0" />
+        <span className="truncate flex-1 text-left">{current?.label ?? selectedModel}</span>
+        {current?.contextWindow ? (
+          <span className="text-caption text-fg-tertiary tabular-nums shrink-0">
+            {formatContext(current.contextWindow)}
+          </span>
+        ) : null}
+        <span
+          aria-hidden
+          className={cn('size-1.5 rounded-pill shrink-0', hasKey ? 'bg-accent' : 'bg-fg-tertiary/40')}
+        />
+        <ChevronDown
+          size={13}
+          className={cn('text-fg-tertiary shrink-0 transition-transform', open && 'rotate-180')}
+        />
+      </button>
+
+      {open ? (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            className="fixed inset-0 z-10 cursor-default"
+            onClick={close}
+          />
+          <div className="absolute left-3 right-3 top-[calc(100%-4px)] z-20 flex max-h-[60vh] flex-col overflow-hidden rounded-lg border border-default bg-surface-1 shadow-lg">
+            <div className="shrink-0 flex items-center gap-2 px-2.5 h-9 border-b border-subtle">
+              <Search size={13} className="text-fg-tertiary shrink-0" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') close();
+                }}
+                placeholder="Search models…"
+                spellCheck={false}
+                className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
+              />
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto py-1">
+              {groups.length === 0 ? (
+                <div className="px-3 py-4 text-caption text-fg-tertiary text-center">
+                  No models match “{query}”.
+                </div>
+              ) : (
+                groups.map((g) => (
+                  <div key={g.provider.id}>
+                    <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-caption uppercase tracking-wider text-fg-tertiary">
+                      <span>{g.provider.label}</span>
+                      {keyById(g.provider.id) ? (
+                        <span aria-hidden className="size-1 rounded-pill bg-accent" />
+                      ) : (
+                        <span className="normal-case tracking-normal text-fg-tertiary/70">· no key</span>
+                      )}
+                    </div>
+                    {g.items.map((m) => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => {
+                          selectModel(m.key);
+                          close();
+                        }}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-body-sm transition-colors',
+                          m.key === selectedModelKey
+                            ? 'bg-accent-subtle/40 text-fg-primary'
+                            : 'text-fg-secondary hover:bg-surface-2',
+                        )}
+                      >
+                        <span className="truncate flex-1">{m.label}</span>
+                        {m.contextWindow ? (
+                          <span className="text-caption text-fg-tertiary tabular-nums shrink-0">
+                            {formatContext(m.contextWindow)}
+                          </span>
+                        ) : null}
+                        {m.key === selectedModelKey ? (
+                          <Check size={13} className="text-accent shrink-0" />
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                ))
               )}
-            >
-              <span>{p.label}</span>
-              {filled ? <span aria-hidden className="size-1.5 rounded-pill bg-accent" /> : null}
-            </button>
-          );
-        })}
-        <select
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          disabled={models.length === 0}
-          className="ml-auto h-6 max-w-[48%] rounded bg-surface-page border border-default px-1.5 text-caption text-fg-primary focus:outline-none focus:border-accent disabled:opacity-50"
-        >
-          {models.some((m) => m.id === selectedModel) ? null : (
-            <option value={selectedModel}>{selectedModel}</option>
-          )}
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </div>
+            </div>
+          </div>
+        </>
+      ) : null}
+
       {!hasKey && statusChecked ? (
-        <div className="flex items-center justify-between gap-2 rounded border border-subtle bg-surface-2 px-2 py-1">
+        <div className="mt-2 flex items-center justify-between gap-2 rounded border border-subtle bg-surface-2 px-2 py-1">
           <span className="text-caption text-fg-tertiary truncate">
-            No API key for {PROVIDERS.find((p) => p.id === selectedProvider)?.label}.
+            No API key for {getProvider(selectedProvider).label}.
           </span>
           <button
             type="button"

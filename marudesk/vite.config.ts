@@ -42,6 +42,14 @@ export default defineConfig({
               // node-pty is a native module — never bundle it; load from
               // node_modules at runtime (the integrated terminal in main).
               external: ['electron', 'node-pty'],
+              output: {
+                // The bundled AI SDK reaches for `require('node:path')` etc., but
+                // the main bundle is ESM (.mjs) with no `require`. Polyfill it
+                // per-chunk via createRequire so those CJS-interop calls resolve
+                // (rolldown CJS-in-ESM). Each chunk self-installs before its body.
+                banner:
+                  "import { createRequire as __cr } from 'node:module';\nglobalThis.require ||= __cr(import.meta.url);",
+              },
             },
           },
         },

@@ -17,6 +17,7 @@ import { useWebPageStore } from '../browser/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { openSettingsTab } from '../settings/store';
 import { useComposerStore } from './store';
+import { useProvidersStore } from '../providers/store';
 
 export function Composer() {
   const summary = useWorkspaceStore((s) => s.summary);
@@ -32,15 +33,15 @@ export function Composer() {
   const propose = useComposerStore((s) => s.propose);
   const setTab = useComposerStore((s) => s.setTab);
 
-  const selectedProvider = useComposerStore((s) => s.selectedProvider);
-  const selectedModel = useComposerStore((s) => s.selectedModel);
-  const setSelectedProvider = useComposerStore((s) => s.setSelectedProvider);
-  const setSelectedModel = useComposerStore((s) => s.setSelectedModel);
+  const selectedProvider = useProvidersStore((s) => s.selectedProvider);
+  const selectedModel = useProvidersStore((s) => s.selectedModel);
+  const setSelectedProvider = useProvidersStore((s) => s.setSelectedProvider);
+  const setSelectedModel = useProvidersStore((s) => s.setSelectedModel);
 
-  const providerStatus = useComposerStore((s) => s.providerStatus);
-  const statusChecked = useComposerStore((s) => s.statusChecked);
-  const refreshStatus = useComposerStore((s) => s.refreshProviderStatus);
-  const selectKeyProvider = useComposerStore((s) => s.selectKeyProvider);
+  const providerStatus = useProvidersStore((s) => s.providerStatus);
+  const statusChecked = useProvidersStore((s) => s.statusChecked);
+  const refreshStatus = useProvidersStore((s) => s.refreshProviderStatus);
+  const selectKeyProvider = useProvidersStore((s) => s.selectKeyProvider);
   // Jump to the unified Settings tab's AI Providers category, pre-selecting the
   // provider the composer is currently set to.
   const openProviderSettings = () => {
@@ -48,11 +49,11 @@ export function Composer() {
     void openSettingsTab('providers');
   };
 
-  const modelsByProvider = useComposerStore((s) => s.modelsByProvider);
-  const modelsLoading = useComposerStore(
+  const allModels = useProvidersStore((s) => s.models);
+  const modelsLoading = useProvidersStore(
     (s) => s.modelsLoadingByProvider[selectedProvider],
   );
-  const modelsError = useComposerStore(
+  const modelsError = useProvidersStore(
     (s) => s.modelsErrorByProvider[selectedProvider],
   );
 
@@ -72,7 +73,7 @@ export function Composer() {
   const canPropose =
     !!summary && hasKey && selectedCount > 0 && promptFilled && !proposing;
 
-  const models = modelsByProvider[selectedProvider] ?? [];
+  const models = allModels.filter((m) => m.provider === selectedProvider);
 
   return (
     <div className="flex flex-col h-full">

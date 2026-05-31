@@ -3,9 +3,10 @@ import type {
   AgentAnswers,
   AgentChatState,
   AgentEdit,
-  AgentPart,
+  AgentMessage,
   AgentSendInput,
   AgentSendResult,
+  AgentTextPart,
   ToolCall,
 } from '../../shared/agent';
 import { emptyAgentChatState } from '../../shared/agent';
@@ -19,7 +20,8 @@ import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { writeFileForEditor } from '../workspace';
-import { getAgentDriver, type LoopContent, type LoopMessage } from './driver';
+import { streamText, type ModelMessage } from 'ai';
+import { buildModel, aiTools } from './model';
 import {
   ASK_USER,
   GATED_TOOLS,
@@ -39,6 +41,9 @@ import {
  */
 
 const MAX_STEPS = 24;
+
+/** Per-step output-token cap (matches the prior hand-rolled driver). */
+const AGENT_MAX_TOKENS = 4_096;
 
 const SYSTEM_PROMPT = `You are marudesk's agentic coding assistant, running INSIDE a desktop IDE that owns the user's live browser (via the Chrome DevTools Protocol), the code editor, and the terminal for their open workspace.
 
@@ -61,7 +66,7 @@ Paths are workspace-relative. To create a file, call edit_file with oldString=""
 let state: AgentChatState = emptyAgentChatState();
 // The provider-neutral running transcript (multi-turn). Kept valid at all times
 // (every tool_use is answered by a tool_result) so a later turn can reuse it.
-let transcript: LoopMessage[] = [];
+let transcript: ModelMessage[] = [];
 let controller: AbortController | null = null;
 let approvalResolver: ((approved: boolean) => void) | null = null;
 let answersResolver: ((answers: AgentAnswers) => void) | null = null;
@@ -91,11 +96,26 @@ const emit = coalesced(() => {
 
 /* ── message helpers ────────────────────────────────────────────────────── */
 
-function pushAssistant(text: string, calls: ToolCall[]): void {
-  const parts: AgentPart[] = [];
-  if (text.trim()) parts.push({ type: 'text', text });
-  for (const call of calls) parts.push({ type: 'tool', call });
-  state.messages.push({ id: uid('m'), role: 'assistant', parts, timestamp: Date.now() });
+/** One tool result for the transcript (AI SDK tool-message content shape). */
+type ToolResultPartLite = {
+  type: 'tool-result';
+  toolCallId: string;
+  toolName: string;
+  output: { type: 'text'; value: string } | { type: 'error-text'; value: string };
+};
+
+function toolResult(
+  callId: string,
+  toolName: string,
+  content: string,
+  isError?: boolean,
+): ToolResultPartLite {
+  return {
+    type: 'tool-result',
+    toolCallId: callId,
+    toolName,
+    output: isError ? { type: 'error-text', value: content } : { type: 'text', value: content },
+  };
 }
 
 function recordEdits(turnId: string, changes: AppliedChange[] | undefined): void {
@@ -173,44 +193,79 @@ type RunOpts = {
 };
 
 async function runLoop(opts: RunOpts): Promise<void> {
-  const driver = getAgentDriver(opts.provider)!; // existence checked in startTurn
   const ctx: ToolContext = { ws: opts.ws, tabId: opts.tabId, signal: opts.signal };
+  // Build the model + tool set once per turn (provider/model/key are fixed for it).
+  const model = buildModel(opts.provider, opts.model, opts.apiKey);
+  const tools = aiTools(TOOL_SCHEMAS);
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (opts.signal.aborted) return finish('completed', '(stopped by user)');
     state.status = 'thinking';
+
+    // Create the assistant message up front so streamed text deltas render live
+    // (real token streaming); tool calls are attached once the step settles.
+    const assistantMsg: AgentMessage = {
+      id: uid('m'),
+      role: 'assistant',
+      parts: [{ type: 'text', text: '' }],
+      timestamp: Date.now(),
+    };
+    const textPart = assistantMsg.parts[0] as AgentTextPart;
+    state.messages.push(assistantMsg);
     emit();
 
-    let result;
+    let toolUses: { id: string; name: string; input: unknown }[] = [];
     try {
-      result = await driver.step({
-        apiKey: opts.apiKey,
-        model: opts.model,
+      const res = streamText({
+        model,
         system: SYSTEM_PROMPT,
         messages: transcript,
-        tools: TOOL_SCHEMAS,
-        signal: opts.signal,
+        tools,
+        maxOutputTokens: AGENT_MAX_TOKENS,
+        abortSignal: opts.signal,
       });
+      // Consume the stream for live text; the assembled tool calls + usage come
+      // from the settled promises afterwards.
+      for await (const part of res.fullStream) {
+        if (part.type === 'text-delta') {
+          textPart.text += part.text;
+          emit();
+        }
+      }
+      const calls = await res.toolCalls;
+      const usage = await res.usage;
+      toolUses = calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input }));
+      state.usage.inputTokens += usage.inputTokens ?? 0;
+      state.usage.outputTokens += usage.outputTokens ?? 0;
     } catch (err) {
+      // Drop the optimistic streaming bubble if nothing was streamed into it, so
+      // a failed/aborted step doesn't leave an empty assistant message behind.
+      if (!textPart.text.trim()) {
+        const i = state.messages.indexOf(assistantMsg);
+        if (i !== -1) state.messages.splice(i, 1);
+      }
       if (opts.signal.aborted) return finish('completed', '(stopped by user)');
       return finish('failed', undefined, (err as Error).message);
     }
 
-    state.usage.inputTokens += result.usage.inputTokens;
-    state.usage.outputTokens += result.usage.outputTokens;
-
-    // Build the assistant turn (display + transcript) together.
-    const calls: ToolCall[] = result.toolUses.map((t) => ({
+    // Attach tool-call cards to the streamed message + mirror the turn into the
+    // transcript (a valid tool_use the next step answers with a tool_result).
+    const calls: ToolCall[] = toolUses.map((t) => ({
       id: t.id,
       name: t.name,
       input: t.input,
       state: 'running',
     }));
-    pushAssistant(result.text, calls);
-    const assistantContent: LoopContent[] = [];
-    if (result.text.trim()) assistantContent.push({ type: 'text', text: result.text });
-    for (const t of result.toolUses) {
-      assistantContent.push({ type: 'tool_use', id: t.id, name: t.name, input: t.input });
+    if (!textPart.text.trim()) assistantMsg.parts = [];
+    for (const c of calls) assistantMsg.parts.push({ type: 'tool', call: c });
+
+    const assistantContent: Array<
+      | { type: 'text'; text: string }
+      | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
+    > = [];
+    if (textPart.text.trim()) assistantContent.push({ type: 'text', text: textPart.text });
+    for (const t of toolUses) {
+      assistantContent.push({ type: 'tool-call', toolCallId: t.id, toolName: t.name, input: t.input });
     }
     transcript.push({ role: 'assistant', content: assistantContent });
     emit();
@@ -220,23 +275,18 @@ async function runLoop(opts: RunOpts): Promise<void> {
     // Execute each tool call; collect one tool_result per call (transcript stays valid).
     state.status = 'working';
     emit();
-    const toolResults: LoopContent[] = [];
+    const toolResultParts: ToolResultPartLite[] = [];
     for (const call of calls) {
       if (opts.signal.aborted) {
         call.state = 'aborted';
-        toolResults.push({ type: 'tool_result', toolUseId: call.id, content: 'aborted by user', isError: true });
+        toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
         continue;
       }
 
       // ask_user: park the turn, surface the questions, resume with answers.
       if (call.name === ASK_USER) {
         const answered = await handleAskUser(opts.turnId, call, opts.signal);
-        toolResults.push({
-          type: 'tool_result',
-          toolUseId: call.id,
-          content: answered.content,
-          isError: answered.isError,
-        });
+        toolResultParts.push(toolResult(call.id, call.name, answered.content, answered.isError));
         continue;
       }
 
@@ -256,7 +306,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         state.pendingApproval = null;
         if (opts.signal.aborted) {
           call.state = 'aborted';
-          toolResults.push({ type: 'tool_result', toolUseId: call.id, content: 'aborted by user', isError: true });
+          toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
           continue;
         }
         if (!approved) {
@@ -264,7 +314,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
           call.resultText = 'Denied by the user.';
           state.status = 'working';
           emit();
-          toolResults.push({ type: 'tool_result', toolUseId: call.id, content: 'The user denied this tool call.', isError: true });
+          toolResultParts.push(toolResult(call.id, call.name, 'The user denied this tool call.', true));
           continue;
         }
         state.status = 'working';
@@ -280,10 +330,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
       if (out.isError) call.error = out.text;
       recordEdits(opts.turnId, out.edits);
       emit();
-      toolResults.push({ type: 'tool_result', toolUseId: call.id, content: out.text, isError: out.isError });
+      toolResultParts.push(toolResult(call.id, call.name, out.text, out.isError));
     }
 
-    transcript.push({ role: 'user', content: toolResults });
+    transcript.push({ role: 'tool', content: toolResultParts });
     if (opts.signal.aborted) return finish('completed', '(stopped by user)');
   }
 
@@ -367,9 +417,6 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     if (!input.prompt || input.prompt.trim().length === 0) {
       return { ok: false, reason: 'enter a prompt' };
     }
-    if (!getAgentDriver(input.provider)) {
-      return { ok: false, reason: `agent mode currently supports Anthropic; ${input.provider} support is coming` };
-    }
     let ws: WorkspaceSummary;
     try {
       ws = requireWorkspace().ws;
@@ -399,7 +446,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     const userText = buildUserText(input, ws);
     const promptNote = input.captures.length > 0 ? `${input.prompt.trim()}\n\n(+${input.captures.length} attached capture${input.captures.length === 1 ? '' : 's'})` : input.prompt.trim();
     state.messages.push({ id: uid('m'), role: 'user', parts: [{ type: 'text', text: promptNote }], timestamp: Date.now() });
-    transcript.push({ role: 'user', content: [{ type: 'text', text: userText }] });
+    transcript.push({ role: 'user', content: userText });
     emit();
 
     void runLoop({

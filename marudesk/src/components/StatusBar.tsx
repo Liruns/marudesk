@@ -1,5 +1,6 @@
 import { useWebPageStore } from '../features/browser/store';
 import { useComposerStore } from '../features/composer/store';
+import { useProvidersStore } from '../features/providers/store';
 import { useWorkspaceStore } from '../features/workspace/store';
 import { getProvider } from '../../shared/providers';
 
@@ -15,10 +16,10 @@ export function StatusBar() {
   const summary = useWorkspaceStore((s) => s.summary);
   const inspectMode = useWebPageStore((s) => s.inspectMode);
   const captures = useWebPageStore((s) => s.captures);
-  const selectedProvider = useComposerStore((s) => s.selectedProvider);
-  const selectedModel = useComposerStore((s) => s.selectedModel);
+  const selectedProvider = useProvidersStore((s) => s.selectedProvider);
+  const selectedModel = useProvidersStore((s) => s.selectedModel);
   const proposing = useComposerStore((s) => s.proposing);
-  const providerStatus = useComposerStore((s) => s.providerStatus);
+  const providerStatus = useProvidersStore((s) => s.providerStatus);
 
   const hasKey = providerStatus.find((p) => p.id === selectedProvider)?.hasKey;
 

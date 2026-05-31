@@ -3,7 +3,8 @@ import type { AgentAnswers, AgentChatState } from '../../../shared/agent';
 import { emptyAgentChatState } from '../../../shared/agent';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
-import { useComposerStore, toPayload } from '../composer/store';
+import { toPayload } from '../composer/store';
+import { useProvidersStore } from '../providers/store';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceStore } from '../workspace/store';
 
@@ -69,10 +70,10 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       return;
     }
 
-    const composer = useComposerStore.getState();
-    const provider = composer.selectedProvider;
-    const model = composer.selectedModel;
-    const hasKey = !!composer.providerStatus.find((s) => s.id === provider)?.hasKey;
+    const providers = useProvidersStore.getState();
+    const provider = providers.selectedProvider;
+    const model = providers.selectedModel;
+    const hasKey = providers.hasKeyForSelected();
     if (!useWorkspaceStore.getState().summary) {
       set({ localError: 'Open a workspace before chatting with the agent.' });
       return;
