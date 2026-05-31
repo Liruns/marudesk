@@ -18,7 +18,7 @@ import { toMessage } from '../../lib/toMessage';
  * of the formerly-overloaded composer store so provider configuration has one
  * home. The model is **model-first**: callers select a {@link ModelEntry} by its
  * unique `key`, and `selectedProvider` + `selectedModel` are kept in sync for the
- * agent/propose paths that send `{ provider, model }` on the wire. Live `/models`
+ * agent path that sends `{ provider, model }` on the wire. Live `/models`
  * lists merge over the static catalog per provider.
  */
 

@@ -1,5 +1,3 @@
-import type { PatchOp } from './patch';
-import type { ProviderId } from './providers';
 import type { StackFrameLite } from './runtime-evidence';
 
 /** Fields every capture payload carries, regardless of `kind`. */
@@ -30,36 +28,6 @@ export type ConsoleErrorCapturePayload = CapturePayloadBase & {
 
 export type CapturePayload = ElementCapturePayload | ConsoleErrorCapturePayload;
 
-export type ProposeInput = {
-  provider: ProviderId;
-  model: string;
-  prompt: string;
-  captures: CapturePayload[];
-};
-
-export type ProposeUsage = {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens?: number;
-  cacheCreationTokens?: number;
-};
-
-export type ProposeOk = {
-  ok: true;
-  provider: ProviderId;
-  model: string;
-  ops: PatchOp[];
-  rationale: string;
-  usage: ProposeUsage;
-};
-
-export type ProposeErr = {
-  ok: false;
-  reason: string;
-};
-
-export type ProposeResult = ProposeOk | ProposeErr;
-
 /* ── runtime guards ─────────────────────────────────────────────────────── */
 
 function isStackFrameLite(value: unknown): boolean {
@@ -75,8 +43,8 @@ function isStackFrameLite(value: unknown): boolean {
 
 /**
  * Canonical runtime guard for a {@link CapturePayload}. Lives with the type so
- * the one-shot propose path (electron/llm.ts) and the agent handler
- * (electron/agent/handlers.ts) validate untrusted renderer payloads identically.
+ * the agent handler (electron/agent/handlers.ts) validates untrusted renderer
+ * payloads against the same shape the capture producers emit.
  */
 export function isCapturePayload(value: unknown): value is CapturePayload {
   if (!value || typeof value !== 'object') return false;

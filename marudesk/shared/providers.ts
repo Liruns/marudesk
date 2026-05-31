@@ -19,8 +19,8 @@ export type ProviderDef = {
   apiKeyHint: string;
   /**
    * A local/keyless provider (Ollama): needs no API key, so it is always treated
-   * as "ready" (secrets.listProviders reports hasKey, and the propose/agent paths
-   * skip the key requirement). The model list is still fetched live (no key).
+   * as "ready" (secrets.listProviders reports hasKey, and the agent path skips
+   * the key requirement). The model list is still fetched live (no key).
    */
   keyless?: boolean;
 };

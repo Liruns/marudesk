@@ -6,7 +6,7 @@ import { getProvider } from '../../shared/providers';
 /**
  * VSCode-style status strip pinned to the bottom of the window. Surfaces the
  * always-relevant facts that used to live in the header (workspace name, file
- * count) plus runtime status (inspect on, propose in flight, active model).
+ * count) plus runtime status (inspect on, active model).
  *
  * Kept thin (24px) so it costs almost nothing vertically — the browser stage
  * is the canvas, this is just chrome.

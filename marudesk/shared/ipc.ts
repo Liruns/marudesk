@@ -9,7 +9,6 @@ import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
-import type { ProposeInput, ProposeResult } from './composer';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
 import type { ModelDef, ProviderId, ProviderStatus } from './providers';
 import type { AppSettings, SettingsPatch } from './settings';
@@ -109,7 +108,6 @@ export const CHANNELS = {
     'secrets:clear-provider-key',
   ],
   providers: ['providers:list-models'],
-  llm: ['llm:propose-patch'],
   agent: [
     'agent:send',
     'agent:abort',
@@ -297,7 +295,7 @@ export interface IpcMap {
   // history (address-bar autocomplete)
   'history:query': { args: [query: string]; result: HistoryEntry[] };
 
-  // secrets / providers / llm
+  // secrets / providers
   'secrets:list-providers': { args: []; result: ProviderStatus[] };
   'secrets:set-provider-key': {
     args: [provider: ProviderId, key: string];
@@ -308,7 +306,6 @@ export interface IpcMap {
     result: boolean;
   };
   'providers:list-models': { args: [provider: ProviderId]; result: ModelDef[] };
-  'llm:propose-patch': { args: [input: ProposeInput]; result: ProposeResult };
 
   // agent (agentic AI Chat — docs/agentic-chat-design.md). main owns the chat
   // state and streams it on the agent:event snapshot; these invokes drive it.
