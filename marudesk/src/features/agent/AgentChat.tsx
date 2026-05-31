@@ -95,7 +95,13 @@ export function AgentChat() {
     <div className="flex flex-col h-full min-h-0">
       <ProviderModelBar />
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-3">
+      <div
+        ref={scrollRef}
+        className={cn(
+          'flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-3',
+          empty && 'justify-center',
+        )}
+      >
         {empty ? (
           <EmptyState hasWorkspace={!!summary} />
         ) : (

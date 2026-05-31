@@ -98,7 +98,7 @@ export function SettingsView() {
       </aside>
 
       <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-8 py-8 flex flex-col gap-6">
+        <div className="max-w-2xl px-8 py-8 flex flex-col gap-6">
           <header className="flex flex-col gap-1">
             <h2 className="text-section text-fg-primary">{active.label}</h2>
             <p className="text-body-sm text-fg-tertiary">{active.blurb}</p>
