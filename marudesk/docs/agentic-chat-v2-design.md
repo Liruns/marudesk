@@ -233,7 +233,7 @@ resolve(modelId): { kind, modelId, apiKey?, baseUrl?, label }
 1. **데이터 모델 + provider 스토어 분리** (G2 토대): `shared/providers.ts` model-first + `MODELS`; `src/features/providers/store.ts` 신설(composer에서 provider 상태 이전). 기존 UI는 새 스토어 읽도록 최소 배선. *동작 동일, 컴파일 그린.*
 2. **AI SDK 스왑** (G1 + 중복): deps 추가; `model.ts`(buildModel/aiTools); `loop.ts` step→`streamText`(스트리밍 획득); 손 driver·매퍼 삭제; resolve-model. **전 provider + 커스텀 동작.** Mock 모델 e2e.
 3. **provider UX** (G2 완성): Settings provider 카드 + 커스텀 OpenAI-compat 엔드포인트; in-chat `ModelSelect`(provider 탭 제거).
-4. **채팅 UX 폴리시** (G3): tool별 카드, context-usage 링, 스트리밍 커서, reasoning 블록.
+4. **채팅 UX 폴리시** (G3): ✅ **대부분 완료** — tool별 카드(런타임 CDP 도구 accent spine+아이콘 / `reload_and_verify` verdict 칩 / `get_console_errors` confidence 칩 / `eval_js` 표현식) + context-usage 링(UsageMeter, 기존) + 스트리밍 커서. **reasoning 블록만 미완** (reasoning-delta 캡처 + provider thinking 옵션 + 새 part 타입 필요 — 별도 슬라이스).
 5. **(옵션)** 세션 사이드바 + 영속; plan-first 카드.
 - **D1(propose 흡수)** 은 Phase 2에 접거나 별도 정리 커밋. 운영 리듬: 큰 폭포수 금지, 단계마다 dogfood.
 
@@ -271,3 +271,4 @@ resolve(modelId): { kind, modelId, apiKey?, baseUrl?, label }
 - **2026-05-31:** **Vercel AI SDK 채택** + **설계 문서부터** 확정. 두 겹 driver 통합·model-first·UX 폴리시·CDP 차별점 보존을 v2로 분리 문서화(이 파일).
 - **2026-05-31:** AI SDK 스왑(Phase 1–2) + model-first 토대 구현 완료(`e0c8383..f0428fc`, e2e 35/35).
 - **2026-05-31:** **D1 해결** (`f8f029b`) — 죽은 propose 경로 외과적 제거(−920 라인), 두 겹→한 겹 통합 완성. **D3 해결 / Phase 3 일부** (`0ad4267`) — 커스텀 OpenAI-compat 엔드포인트 end-to-end(데이터 모델·평문 config+secrets 키·buildModel default 케이스·Settings UI·in-chat 그룹). e2e 39/39(신규 custom-providers CRUD 스펙). 남은 v2: Phase 3 in-chat 모델셀렉터는 이미 model-first(완료), Phase 4 채팅 UX 폴리시(tool별 카드/reasoning/스트리밍 caret), Phase 5(세션=D2)·D4.
+- **2026-05-31:** **Phase 4 대부분** (`5a90024`) — generic ToolCardView → tool별 카드. 런타임/CDP 도구(console/dom/eval/network/reload)에 accent spine+아이콘으로 "도는 앱을 보는" 차별점 시각화; `reload_and_verify` verdict(errors gone/still present) + `get_console_errors` confidence(source mapped/no source) 칩; `eval_js` 표현식 노출; 스트리밍 caret(thinking 중 진행 메시지 끝). 렌더러 전용(데이터는 이미 ToolCall 스냅샷에) — 백엔드 무변경. e2e 39/39, 합성 `agent:event` 스냅샷으로 스크린샷 감사. **reasoning 블록만 미완**(reasoning-delta 캡처+provider thinking 옵션+새 part 타입 필요).
