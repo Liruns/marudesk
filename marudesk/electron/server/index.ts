@@ -11,6 +11,7 @@ import {
   startTurn,
   subscribeAgentEvents,
 } from '../agent/loop';
+import { getConnectCandidates } from './pairing-urls';
 import { handleRequest, type RouterDeps } from './router';
 import { getServerToken } from './token';
 
@@ -21,13 +22,16 @@ import { getServerToken } from './token';
  * over SSE + REST.
  *
  * Security invariants (also enforced in ./router.ts):
- * - Binds 127.0.0.1 ONLY (loopback) — never 0.0.0.0 or a LAN IP in this phase.
- *   LAN exposure behind real auth/pairing is a later phase (M5/M6).
+ * - Binds 0.0.0.0 (all interfaces) so a phone on the LAN or Tailscale can reach
+ *   it (T2 — docs/remote-mobile-bridge-design §3). Exposure is gated by: OFF by
+ *   default, a required bearer token, and a Settings warning. App-level E2E
+ *   encryption + device pairing are later T2 phases; until then prefer Tailscale
+ *   (WireGuard-encrypted) over an untrusted public LAN.
  * - OFF by default — only listens when settings.server.enabled is true.
  * - Every request requires a bearer token (constant-time checked in the router).
  */
 
-const HOST = '127.0.0.1';
+const HOST = '0.0.0.0';
 
 let server: http.Server | null = null;
 /** The port we're currently listening on (so a port change restarts the server). */
@@ -96,7 +100,12 @@ export async function startServer(port: number): Promise<void> {
 
   server = srv;
   boundPort = port;
-  console.log(`[server] bridge listening on http://${HOST}:${port} (loopback only)`);
+  const candidates = getConnectCandidates(port);
+  console.log(`[server] bridge listening on ${HOST}:${port} — phone-reachable at:`);
+  for (const c of candidates) console.log(`  [${c.label}] ${c.url}`);
+  if (candidates.length === 0) {
+    console.log('  (no LAN/Tailscale address detected yet)');
+  }
 }
 
 /** Stop the bridge server if running. Destroys open sockets so it closes promptly. */
