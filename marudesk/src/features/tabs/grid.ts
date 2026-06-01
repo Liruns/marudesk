@@ -13,19 +13,27 @@ import {
 import { useTabsStore } from './store';
 
 /**
- * The tab grid (Phase F). `layout === null` means the grid is OFF and the app
- * shows the single active tab exactly as before (the non-regression baseline);
- * a non-null layout switches the stage to a tiled view of several tabs at once.
+ * The tab grid (Phase F → **persistent split groups**). A "split" used to be one
+ * app-global layout: switching to any tab outside it cleared the layout, so
+ * coming back showed a single pane — the split had been destroyed, not hidden.
  *
- * The tree itself (split/leaf nodes, ratios, rect math) lives in the pure
- * `layout.ts`; this store only owns the *current* tree + which pane is focused,
- * and threads the layout helpers through zustand actions. Dropping a tab onto a
- * pane splits it; closing the last-but-one pane collapses back to the single
- * view (layout = null).
+ * Now each split is an independent, persistent GROUP (its own pane tree). A tab
+ * belongs to at most one group; the *active* group is derived from the active tab
+ * (`groupForTab`). Switching tabs therefore just changes which group renders —
+ * other groups' trees are never touched — so a split survives visiting another
+ * tab and coming back. This is the Chrome/Edge/Arc split-view model (a split is a
+ * persistent thing in the tab strip, not transient view state). `groups` empty =
+ * no split anywhere → the single active-tab view.
+ *
+ * The tree math (split/leaf nodes, ratios, rects) lives in pure `layout.ts`; this
+ * store owns the list of group trees + which pane is focused. The main process is
+ * unchanged: it just positions web views to whatever pane rects the renderer
+ * reports for the active group (electron/browser/layout.ts).
  */
 
 type GridState = {
-  layout: LayoutNode | null;
+  /** Independent split-pane trees; a tab is in at most one. Empty = no split. */
+  groups: LayoutNode[];
   focusedPaneId: PaneId | null;
   /**
    * The tab id currently being dragged from the strip, or null. Drives the
@@ -38,10 +46,10 @@ type GridState = {
 
 type GridActions = {
   /**
-   * Split a pane to host `newTabId`. With a live layout, splits the leaf
-   * `targetLeafId` (`side` picks which side the new pane lands on, `dir` the
-   * orientation). With no layout yet (`targetLeafId === null`), seeds a 2-pane
-   * grid from the current active tab plus the dragged tab.
+   * Split a pane to host `newTabId`. With `targetLeafId` set, splits that leaf
+   * inside its group (`side` picks which side the new pane lands on, `dir` the
+   * orientation). With `targetLeafId === null`, seeds a fresh 2-pane group from
+   * the current active tab plus the dragged tab.
    */
   splitWith: (
     targetLeafId: PaneId | null,
@@ -49,7 +57,7 @@ type GridActions = {
     dir: SplitDir,
     side: 'before' | 'after',
   ) => void;
-  /** Remove a pane; collapse to the single view when one pane would remain. */
+  /** Remove a pane; dissolve its group back to a single tab when one would remain. */
   closePane: (leafId: PaneId) => void;
   resize: (splitId: PaneId, ratio: number) => void;
   assign: (leafId: PaneId, tabId: string | null) => void;
@@ -63,25 +71,57 @@ type GridActions = {
   focus: (leafId: PaneId) => void;
   /** Mark a tab as being dragged from the strip (null clears it). */
   setDraggingTab: (tabId: string | null) => void;
-  /** Leave the grid and return to the single active-tab view. */
-  clear: () => void;
+  /** Dissolve the split group containing `tabId` (the strip's "exit split"). */
+  dissolveGroup: (tabId: string) => void;
 };
 
+/** The split group whose leaves include `tabId`, or null if it's standalone. */
+export function groupForTab(
+  groups: LayoutNode[],
+  tabId: string | null,
+): LayoutNode | null {
+  if (!tabId) return null;
+  return groups.find((g) => leaves(g).some((l) => l.tabId === tabId)) ?? null;
+}
+
+/** The group whose tree contains the leaf `leafId`, by reference. */
+function findGroupByLeaf(groups: LayoutNode[], leafId: PaneId): LayoutNode | undefined {
+  return groups.find((g) => leaves(g).some((l) => l.id === leafId));
+}
+
+/** Replace a group (by reference) with `next`; drop it when `next` is null. */
+function replaceGroup(
+  groups: LayoutNode[],
+  prev: LayoutNode,
+  next: LayoutNode | null,
+): LayoutNode[] {
+  const out: LayoutNode[] = [];
+  for (const g of groups) {
+    if (g === prev) {
+      if (next) out.push(next);
+    } else {
+      out.push(g);
+    }
+  }
+  return out;
+}
+
 /**
- * Keep tiled tabs adjacent in the strip so a split reads as one merged group.
- * Reorders the strip so every tab in `layout` sits contiguously (in leaf order)
- * at the slot of the earliest current group member; non-grid tabs keep their
+ * Keep a group's tiled tabs adjacent in the strip so a split reads as one merged
+ * block. Reorders the strip so every tab in `group` sits contiguously (leaf
+ * order) at the slot of the earliest current member; non-members keep their
  * relative order. No-op when nothing would move. This is what makes "combine two
- * tabs into a split" also visibly combine them in the top strip.
+ * tabs into a split" also visibly merge them in the top strip — and, because the
+ * group persists, the merge persists across tab switches too.
  */
-function syncStripGrouping(layout: LayoutNode): void {
+function syncStripGrouping(group: LayoutNode): void {
   const tabsState = useTabsStore.getState();
   const all = tabsState.tabs.map((t) => t.id);
   // Dedupe: a pane can be seeded twice with the same tab (dragging the active
   // tab onto its own stage), and duplicate ids would corrupt the reorder list.
   const groupIds = [
     ...new Set(
-      leaves(layout)
+      leaves(group)
         .map((l) => l.tabId)
         .filter((id): id is string => !!id && all.includes(id)),
     ),
@@ -105,53 +145,69 @@ function syncStripGrouping(layout: LayoutNode): void {
 }
 
 export const useGridStore = create<GridState & GridActions>((set, get) => ({
-  layout: null,
+  groups: [],
   focusedPaneId: null,
   draggingTabId: null,
 
   splitWith: (targetLeafId, newTabId, dir, side) => {
-    const { layout } = get();
-    if (!layout || targetLeafId === null) {
-      // Seed a fresh 2-pane grid: the current active tab beside the dragged one.
+    const { groups, focusedPaneId } = get();
+    if (targetLeafId === null) {
+      // Seed a fresh 2-pane group: the current active tab beside the dragged one.
+      // The seed overlay only appears in the single view, so the active tab is
+      // standalone here; if it somehow already belongs to a group, split that
+      // group's leaf instead of minting a duplicate.
       const activeTabId = useTabsStore.getState().activeTabId;
+      const existing = groupForTab(groups, activeTabId);
+      if (existing) {
+        const leaf = leaves(existing).find((l) => l.tabId === activeTabId);
+        if (!leaf) return;
+        const next = splitLeaf(existing, leaf.id, dir, newTabId, side);
+        const fresh = leaves(next).find((l) => l.tabId === newTabId);
+        set({ groups: replaceGroup(groups, existing, next), focusedPaneId: fresh?.id ?? focusedPaneId });
+        syncStripGrouping(next);
+        return;
+      }
       const base = leafLayout(activeTabId);
       const next = splitLeaf(base, base.id, dir, newTabId, side);
       const fresh = leaves(next).find((l) => l.tabId === newTabId);
-      set({ layout: next, focusedPaneId: fresh?.id ?? base.id });
+      set({ groups: [...groups, next], focusedPaneId: fresh?.id ?? base.id });
       syncStripGrouping(next);
       return;
     }
-    const next = splitLeaf(layout, targetLeafId, dir, newTabId, side);
+    const group = findGroupByLeaf(groups, targetLeafId);
+    if (!group) return;
+    const next = splitLeaf(group, targetLeafId, dir, newTabId, side);
     // The new leaf is the freshly-created one carrying newTabId; focus it.
-    const before = new Set(leaves(layout).map((l) => l.id));
+    const before = new Set(leaves(group).map((l) => l.id));
     const fresh = leaves(next).find(
       (l) => !before.has(l.id) && l.tabId === newTabId,
     );
-    set({ layout: next, focusedPaneId: fresh?.id ?? get().focusedPaneId });
+    set({ groups: replaceGroup(groups, group, next), focusedPaneId: fresh?.id ?? focusedPaneId });
     syncStripGrouping(next);
   },
 
   closePane: (leafId) => {
-    const { layout } = get();
-    if (!layout) return;
-    const next = removeLeaf(layout, leafId);
+    const { groups, focusedPaneId } = get();
+    const group = findGroupByLeaf(groups, leafId);
+    if (!group) return;
+    const next = removeLeaf(group, leafId);
     const remaining = leaves(next);
 
-    // Multi-pane path: just update the layout tree, no IPC ordering needed.
+    // Multi-pane path: just update the group's tree, no IPC ordering needed.
     if (remaining.length > 1) {
-      set((s) => ({
-        layout: next,
+      set({
+        groups: replaceGroup(groups, group, next),
         focusedPaneId:
-          s.focusedPaneId && remaining.some((l) => l.id === s.focusedPaneId)
-            ? s.focusedPaneId
+          focusedPaneId && remaining.some((l) => l.id === focusedPaneId)
+            ? focusedPaneId
             : (remaining[0]?.id ?? null),
-      }));
+      });
       return;
     }
 
-    // HIGH-1 + MED-3: collapsing to the single view.
-    //
-    // Resolve a survivor tab id with a safe fallback chain:
+    // Collapse this group to a single survivor → dissolve the group; the survivor
+    // becomes a standalone tab (Chrome/Edge: "close one side → the other returns
+    // to a normal tab"). Resolve a survivor with a safe fallback chain:
     //   1. The surviving pane's pinned tabId (the common case).
     //   2. The current main-process active tab (still valid mid-collapse).
     //   3. The first live tab in the store (last resort; prevents a blank stage).
@@ -169,84 +225,87 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
       liveTabs[0]?.id ??
       null;
 
-    // IPC ordering fix: set layout → null only *after* activateTab resolves so
-    // that the GridStage unmount (→ browser:clear-pane-bounds →
-    // applyBoundsToActive) finds the correct activeTabId already committed in
-    // the main process. Without the await the two IPCs can arrive out of order.
+    const without = replaceGroup(groups, group, null);
+
+    // IPC ordering: activate the survivor BEFORE dropping the group so that, when
+    // the group's GridStage unmounts (→ browser:clear-pane-bounds →
+    // applyBoundsToActive), the correct activeTabId is already committed in main.
+    // Without the await the two IPCs can arrive out of order (the old single-view
+    // collapse bug). If there's nothing to activate, just drop the group.
     if (survivorId) {
-      tabsState.activateTab(survivorId).then(() => {
-        set({ layout: null, focusedPaneId: null });
-      }).catch(() => {
-        // activateTab failed (tab already gone); collapse anyway so the UI
-        // doesn't stay stuck in grid mode with a broken pane.
-        set({ layout: null, focusedPaneId: null });
-      });
+      tabsState
+        .activateTab(survivorId)
+        .then(() => set({ groups: without, focusedPaneId: null }))
+        .catch(() => set({ groups: without, focusedPaneId: null }));
     } else {
-      // No live tab to activate — collapse immediately; main will open a home
-      // tab via its own closeTab fallback if needed.
-      set({ layout: null, focusedPaneId: null });
+      set({ groups: without, focusedPaneId: null });
     }
   },
 
   resize: (splitId, ratio) => {
-    const { layout } = get();
-    if (!layout) return;
-    set({ layout: setRatio(layout, splitId, ratio) });
+    // Dividers only render in the active group, so resize targets it.
+    const { groups } = get();
+    const activeTabId = useTabsStore.getState().activeTabId;
+    const group = groupForTab(groups, activeTabId);
+    if (!group) return;
+    set({ groups: replaceGroup(groups, group, setRatio(group, splitId, ratio)) });
   },
 
   assign: (leafId, tabId) => {
-    const { layout } = get();
-    if (!layout) return;
-    set({ layout: setLeafTab(layout, leafId, tabId) });
+    const { groups } = get();
+    const group = findGroupByLeaf(groups, leafId);
+    if (!group) return;
+    set({ groups: replaceGroup(groups, group, setLeafTab(group, leafId, tabId)) });
   },
 
   remap: (oldId, newId) => {
-    const { layout } = get();
-    if (!layout) return;
-    const leaf = leaves(layout).find((l) => l.tabId === oldId);
+    const { groups } = get();
+    const group = groups.find((g) => leaves(g).some((l) => l.tabId === oldId));
+    if (!group) return;
+    const leaf = leaves(group).find((l) => l.tabId === oldId);
     if (!leaf) return;
-    set({ layout: setLeafTab(layout, leaf.id, newId) });
+    set({ groups: replaceGroup(groups, group, setLeafTab(group, leaf.id, newId)) });
   },
 
   focus: (leafId) => set({ focusedPaneId: leafId }),
 
   setDraggingTab: (tabId) => set({ draggingTabId: tabId }),
 
-  clear: () => set({ layout: null, focusedPaneId: null, draggingTabId: null }),
+  dissolveGroup: (tabId) => {
+    const { groups, focusedPaneId } = get();
+    const group = groupForTab(groups, tabId);
+    if (!group) return;
+    const focusedInGroup =
+      !!focusedPaneId && leaves(group).some((l) => l.id === focusedPaneId);
+    set({
+      groups: replaceGroup(groups, group, null),
+      focusedPaneId: focusedInGroup ? null : focusedPaneId,
+    });
+  },
 }));
 
 /**
- * Keep the grid consistent with the open tabs: when a tab closes, drop any pane
- * bound to it (collapsing to the single view if only one pane is left). Mirrors
- * the editor/terminal prune subscriptions — the grid is just another consumer
- * of the live tab set.
+ * Keep the groups consistent with the open tabs: when a tab closes, drop any pane
+ * bound to it (dissolving the group to a single tab if only one pane is left).
+ * Mirrors the editor/terminal prune subscriptions — the grid is just another
+ * consumer of the live tab set. A closed tab is in at most one group, so one
+ * closePane per change suffices.
  */
 useTabsStore.subscribe((state) => {
-  const { layout } = useGridStore.getState();
-  if (!layout) return;
+  const { groups } = useGridStore.getState();
+  if (groups.length === 0) return;
   const live = new Set(state.tabs.map((t) => t.id));
-  const orphan = leaves(layout).find((l) => l.tabId && !live.has(l.tabId));
-  if (orphan) useGridStore.getState().closePane(orphan.id);
+  for (const g of groups) {
+    const orphan = leaves(g).find((l) => l.tabId && !live.has(l.tabId));
+    if (orphan) {
+      useGridStore.getState().closePane(orphan.id);
+      return;
+    }
+  }
 });
 
-/**
- * Leave the grid when the active tab is no longer one of the tiled panes — the
- * user clicked a tab outside the split, or opened/created a new one. This keeps
- * the invariant "while gridded, the active tab is a visible pane"; without it,
- * main activates a tab the grid hides, so the click appears to do nothing.
- *
- * Deliberately defers to the orphan handler above while a pane points at a
- * just-closed tab (the collapse is mid-flight) to avoid a close-race flip-flop;
- * closePane sets layout=null before the active id settles, so this then no-ops.
- */
-useTabsStore.subscribe((state, prev) => {
-  if (state.activeTabId === prev.activeTabId) return;
-  const { layout } = useGridStore.getState();
-  if (!layout) return;
-  const id = state.activeTabId;
-  if (!id) return;
-  const live = new Set(state.tabs.map((t) => t.id));
-  const gridLeaves = leaves(layout).filter((l) => l.tabId);
-  if (gridLeaves.some((l) => l.tabId && !live.has(l.tabId))) return; // orphan in flight
-  if (!gridLeaves.some((l) => l.tabId === id)) useGridStore.getState().clear();
-});
+// NB: there is deliberately NO "clear the grid when the active tab leaves it"
+// subscription anymore. That was the persistence bug — activating a tab outside
+// the split destroyed the layout. With per-tab groups, switching tabs simply
+// re-derives which group renders (Stage uses groupForTab), so a split is hidden
+// while you're away and restored intact when you return.

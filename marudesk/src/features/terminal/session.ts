@@ -4,6 +4,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { AppSettings } from '../../../shared/settings';
+import { fontStack } from '../../../shared/fonts';
 import { resolveTheme, subscribeAppearance, useSettingsStore } from '../settings/store';
 import { subscribeTabsByKind } from '../tabs/store';
 import { toMessage } from '../../lib/toMessage';
@@ -23,9 +24,6 @@ const IS_MAC =
  * terminal tab actually closes (the prune subscription below, mirroring the
  * editor's model pruning). Keyed by the terminal tab's id.
  */
-
-const TERM_FONT_FALLBACK =
-  "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
 
 function xtermTheme(resolved: 'dark' | 'light') {
   return resolved === 'light'
@@ -136,8 +134,7 @@ function handleTerminalKey(session: Session, e: KeyboardEvent): boolean {
 
 function applyTermSettings(session: Session, s: AppSettings): void {
   const { term, fit } = session;
-  term.options.fontFamily =
-    s.appearance.terminalFontFamily.trim() || TERM_FONT_FALLBACK;
+  term.options.fontFamily = fontStack(s.appearance.terminalFontFamily, 'mono');
   term.options.fontSize = s.appearance.terminalFontSize;
   term.options.theme = xtermTheme(resolveTheme(s.appearance.theme));
   try {
@@ -165,7 +162,7 @@ export function acquireTerminalSession(tabId: string): Session {
 
   const settings = useSettingsStore.getState().settings;
   const term = new Terminal({
-    fontFamily: settings.appearance.terminalFontFamily.trim() || TERM_FONT_FALLBACK,
+    fontFamily: fontStack(settings.appearance.terminalFontFamily, 'mono'),
     fontSize: settings.appearance.terminalFontSize,
     cursorBlink: true,
     scrollback: 5000,

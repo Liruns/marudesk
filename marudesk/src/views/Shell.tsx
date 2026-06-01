@@ -12,6 +12,27 @@ import { ExplorerPanel } from '../features/workspace/ExplorerPanel';
 import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
 import { ToastHost } from '../components/ToastHost';
+import { useSettingsStore } from '../features/settings/store';
+import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
+
+/**
+ * Step the persisted whole-UI zoom (the Settings "Interface zoom") by ±10%, or
+ * reset to 100%. This is the single source of truth for app zoom, so the
+ * keyboard shortcut and the Settings slider can never diverge — see the host
+ * before-input-event in electron/main.ts that drives this.
+ */
+function adjustUiZoom(dir: 'in' | 'out' | 'reset'): void {
+  const { settings, update } = useSettingsStore.getState();
+  const cur = settings.appearance.uiZoom;
+  const next =
+    dir === 'reset'
+      ? 100
+      : Math.min(
+          UI_ZOOM_MAX,
+          Math.max(UI_ZOOM_MIN, cur + (dir === 'in' ? 10 : -10)),
+        );
+  if (next !== cur) void update({ appearance: { uiZoom: next } });
+}
 
 /**
  * IDE-style shell. Top to bottom:
@@ -76,22 +97,9 @@ export function Shell() {
           useWebPageStore.getState().openFind();
           return;
         }
-        // Page zoom: Ctrl/Cmd with '='/'+' (in), '-' (out), '0' (reset).
-        if (mod && (e.key === '=' || e.key === '+')) {
-          e.preventDefault();
-          void tabsState.zoom('in');
-          return;
-        }
-        if (mod && e.key === '-') {
-          e.preventDefault();
-          void tabsState.zoom('out');
-          return;
-        }
-        if (mod && e.key === '0') {
-          e.preventDefault();
-          void tabsState.zoom('reset');
-          return;
-        }
+        // Zoom (Ctrl/Cmd +/-/0) is handled app-wide via the `app:ui-zoom` event
+        // below — main's host before-input-event intercepts the accelerator so
+        // Chromium's built-in zoom can't fire, then forwards the intent here.
         // History: Alt+←/→. Skipped in editable fields so macOS Option+arrow
         // keeps its word-navigation behavior in the address bar.
         if (e.altKey && !inEditable && e.key === 'ArrowLeft') {
@@ -135,6 +143,18 @@ export function Shell() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // App zoom, forwarded from main (it intercepts the Ctrl/Cmd +/-/0 accelerator
+  // on the host so the built-in zoom can't double-apply). A web tab zooms the
+  // page (matching a browser); every other surface scales the whole UI.
+  useEffect(() => {
+    return window.marudesk.on('app:ui-zoom', (dir) => {
+      const tabsState = useTabsStore.getState();
+      const active = tabsState.tabs.find((t) => t.id === tabsState.activeTabId);
+      if (active?.kind === 'web') void tabsState.zoom(dir);
+      else adjustUiZoom(dir);
+    });
   }, []);
 
   return (

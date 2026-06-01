@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Sparkles, Trash2 } from 'lucide-react';
+import { Sparkles, Trash2 } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { RemoteValue } from '../components/RemoteValue';
+import { ConsoleInput } from './ConsoleInput';
 import type { ConsoleEntry, ConsoleKind, RemoteObject } from '../types';
 
 /**
@@ -117,7 +118,6 @@ export function ConsolePanel() {
   const preserveLog = useDevtoolsStore((s) => s.preserveLog);
   // No composer in the pop-out DevTools window → hide "Fix this" there.
   const windowMode = useDevtoolsStore((s) => s.windowMode);
-  const [input, setInput] = useState('');
   const [level, setLevel] = useState<LevelFilter>('all');
   const [query, setQuery] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -134,25 +134,20 @@ export function ConsolePanel() {
     });
   }, [entries, level, query]);
 
-  // Auto-scroll to the newest entry while pinned to the bottom.
+  // Auto-scroll to the newest entry while pinned to the bottom. A fresh REPL
+  // echo (command/result) re-pins, so submitting an expression always scrolls
+  // down even if the user had scrolled up to read earlier output.
+  const newestKind = visible.length ? visible[visible.length - 1].kind : null;
   useEffect(() => {
+    if (newestKind === 'command' || newestKind === 'result') pinnedRef.current = true;
     const el = scrollRef.current;
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
-  }, [visible.length]);
+  }, [visible.length, newestKind]);
 
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-  };
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const expr = input;
-    if (!expr.trim()) return;
-    setInput('');
-    pinnedRef.current = true;
-    void useDevtoolsStore.getState().evaluate(expr);
   };
 
   return (
@@ -229,21 +224,7 @@ export function ConsolePanel() {
         )}
       </div>
 
-      <form
-        onSubmit={submit}
-        className="shrink-0 flex items-center gap-1.5 px-2 h-9 border-t border-subtle"
-      >
-        <ChevronRight size={14} className="text-accent shrink-0" />
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder="Evaluate JavaScript"
-          aria-label="Console input"
-          className="flex-1 min-w-0 bg-transparent font-mono text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
-        />
-      </form>
+      <ConsoleInput />
     </div>
   );
 }

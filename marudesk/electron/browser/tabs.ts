@@ -273,7 +273,7 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
       pushState();
       return;
     }
-    if (mod && input.key === '-') {
+    if (mod && (input.key === '-' || input.key === '_')) {
       event.preventDefault();
       zoomActive('out');
       pushState();

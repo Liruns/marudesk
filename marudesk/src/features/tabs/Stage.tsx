@@ -1,6 +1,6 @@
 import { useTabsStore } from './store';
 import { tabKinds } from './registry';
-import { useGridStore } from './grid';
+import { useGridStore, groupForTab } from './grid';
 import { GridStage } from './GridStage';
 import { SeedDropOverlay } from './SeedDropOverlay';
 
@@ -20,12 +20,15 @@ import { SeedDropOverlay } from './SeedDropOverlay';
 export function Stage() {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
-  const gridActive = useGridStore((s) => s.layout !== null);
+  const groups = useGridStore((s) => s.groups);
   const draggingTabId = useGridStore((s) => s.draggingTabId);
 
-  // Grid mode (Phase F): tile several tabs at once. When off, the original
-  // single active-tab path below runs unchanged (non-regression baseline).
-  if (gridActive) return <GridStage />;
+  // The active tab's split group, if any. Persistent groups mean switching tabs
+  // just swaps which grid renders (or shows the single view for a standalone
+  // tab) — a split is hidden while you're away and restored intact on return,
+  // never destroyed. groups empty / standalone tab → the single-view path below.
+  const activeLayout = groupForTab(groups, activeTabId);
+  if (activeLayout) return <GridStage layout={activeLayout} />;
 
   const kind = tabs.find((t) => t.id === activeTabId)?.kind ?? 'home';
 

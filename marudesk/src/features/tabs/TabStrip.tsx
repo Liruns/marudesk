@@ -2,8 +2,7 @@ import { useState, type MouseEvent, type ReactNode } from 'react';
 import { Columns2, Globe, Lock, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from './store';
-import { useGridStore } from './grid';
-import { leaves } from './layout';
+import { useGridStore, groupForTab } from './grid';
 import { confirmCloseTab, isDirty, useEditorStore } from '../editor/store';
 import { tabKinds } from './registry';
 import type { TabState } from '../../../shared/browser';
@@ -31,18 +30,16 @@ export function TabStrip() {
   const reorderTabs = useTabsStore((s) => s.reorderTabs);
 
   const setDraggingTab = useGridStore((s) => s.setDraggingTab);
-  const layout = useGridStore((s) => s.layout);
-  const clearGrid = useGridStore((s) => s.clear);
+  const groups = useGridStore((s) => s.groups);
+  const dissolveGroup = useGridStore((s) => s.dissolveGroup);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
 
-  // Tabs tiled together in the grid are kept contiguous in the strip
-  // (grid.syncStripGrouping) and bracketed here as one "split" group, so
-  // combining tabs in a split is also visible as a merge in the strip.
-  const gridIds = new Set(
-    layout ? leaves(layout).map((l) => l.tabId).filter((id): id is string => !!id) : [],
-  );
-  const grouped = gridIds.size >= 2;
+  // Each split is a persistent group; consecutive strip tabs in the SAME group
+  // (kept contiguous by grid.syncStripGrouping) are bracketed as one merged
+  // block. Because the group persists across tab switches, so does the merge.
+  const groupIdOf = (tabId: string): string | null =>
+    groupForTab(groups, tabId)?.id ?? null;
 
   const resetDrag = () => {
     setDraggingId(null);
@@ -97,25 +94,35 @@ export function TabStrip() {
     />
   );
 
-  // Walk the strip, bracketing the contiguous run of tiled tabs into one group.
+  // Walk the strip, bracketing each contiguous run of same-group tabs into one
+  // SplitGroup; standalone tabs (and a lone non-contiguous group member) render
+  // as plain chips.
   const stripNodes: ReactNode[] = [];
   let run: TabState[] = [];
+  let runGroupId: string | null = null;
   const flushRun = () => {
     if (run.length === 0) return;
-    const ids = run.map((t) => t.id);
-    stripNodes.push(
-      <SplitGroup key={`split-${ids.join('-')}`} onExit={() => clearGrid()}>
-        {run.map(renderChip)}
-      </SplitGroup>,
-    );
+    if (runGroupId && run.length >= 2) {
+      const exitId = run[0].id;
+      stripNodes.push(
+        <SplitGroup key={`split-${runGroupId}`} onExit={() => dissolveGroup(exitId)}>
+          {run.map(renderChip)}
+        </SplitGroup>,
+      );
+    } else {
+      for (const t of run) stripNodes.push(renderChip(t));
+    }
     run = [];
+    runGroupId = null;
   };
   for (const tab of tabs) {
-    if (grouped && gridIds.has(tab.id)) {
+    const gid = groupIdOf(tab.id);
+    if (gid && gid === runGroupId) {
       run.push(tab);
     } else {
       flushRun();
-      stripNodes.push(renderChip(tab));
+      run = [tab];
+      runGroupId = gid;
     }
   }
   flushRun();

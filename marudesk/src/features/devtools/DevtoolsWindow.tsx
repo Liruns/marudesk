@@ -1,9 +1,7 @@
 import { useEffect } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { useDevtoolsStore } from './store';
-import { PANELS } from './panel-list';
-import { PanelTab } from './panels';
-import { DevtoolsBody } from './DevtoolsBody';
+import { MainTabBar, DevtoolsContent } from './DevtoolsContent';
 
 /**
  * The pop-out DevTools window's root (App.tsx routes `#/devtools/<tabId>` here).
@@ -42,7 +40,19 @@ export function DevtoolsWindow({ tabId }: { tabId: string }) {
     };
   }, [tabId]);
 
-  const panel = useDevtoolsStore((s) => s.panel);
+  // Esc toggles the bottom drawer (matches the in-page dock). The pop-out window
+  // is dedicated to DevTools, so a plain window listener is unambiguous here. A
+  // Console autocomplete popup stops propagation on its Esc so it closes first;
+  // a context menu marks the event defaultPrevented.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      useDevtoolsStore.getState().toggleDrawer();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const dropped = useDevtoolsStore((s) => s.dropped);
 
   const dockBack = () => {
@@ -53,14 +63,7 @@ export function DevtoolsWindow({ tabId }: { tabId: string }) {
   return (
     <div className="h-screen w-screen flex flex-col bg-surface-1 text-fg-primary overflow-hidden">
       <div className="shrink-0 h-9 flex items-center gap-0.5 pl-2 pr-1 border-b border-subtle bg-surface-2/40">
-        {PANELS.map((p) => (
-          <PanelTab
-            key={p.id}
-            label={p.label}
-            active={panel === p.id}
-            onClick={() => useDevtoolsStore.getState().setPanel(p.id)}
-          />
-        ))}
+        <MainTabBar />
         <div className="flex-1" />
         {dropped > 0 ? (
           <span
@@ -81,7 +84,7 @@ export function DevtoolsWindow({ tabId }: { tabId: string }) {
           Dock back
         </button>
       </div>
-      <DevtoolsBody />
+      <DevtoolsContent />
     </div>
   );
 }

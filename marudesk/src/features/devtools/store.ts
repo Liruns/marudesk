@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useTabsStore } from '../tabs/store';
-import { useGridStore } from '../tabs/grid';
+import { useGridStore, groupForTab } from '../tabs/grid';
 import { useSettingsStore } from '../settings/store';
 import { useWebPageStore } from '../browser/store';
 import { toast } from '../../lib/toast';
@@ -146,6 +146,398 @@ const DEFAULT_SIZE: Record<DockSide, number> = { right: 480, bottom: 320 };
 const MIN_SIZE = 220;
 const MAX_CONSOLE = 1500;
 const MAX_NETWORK = 1500;
+const MAX_HISTORY = 200;
+
+/* ── tool arrangement + bottom drawer (Chrome-style) ─────────────────────── */
+
+/** Where a DevTools tool's tab lives: the main (top) tab bar or the bottom drawer. */
+export type ToolLocation = 'main' | 'drawer';
+
+/**
+ * One arrangeable DevTools tool. `order` sorts tabs within each location. The
+ * arrangement is a user preference persisted to localStorage (like the dock
+ * side/size) — Console defaults to the drawer so you can read it while another
+ * panel (Elements/Network/…) is shown in the main area.
+ */
+export type DevtoolsTool = {
+  id: DevtoolsPanel;
+  location: ToolLocation;
+  order: number;
+};
+
+/** The default arrangement: Console in the drawer, everything else in the main bar. */
+const DEFAULT_TOOLS: DevtoolsTool[] = [
+  { id: 'elements', location: 'main', order: 0 },
+  { id: 'network', location: 'main', order: 1 },
+  { id: 'application', location: 'main', order: 2 },
+  { id: 'rendering', location: 'main', order: 3 },
+  { id: 'console', location: 'drawer', order: 0 },
+];
+
+const PANEL_IDS: ReadonlySet<DevtoolsPanel> = new Set<DevtoolsPanel>([
+  'elements',
+  'console',
+  'network',
+  'application',
+  'rendering',
+]);
+
+const DRAWER_MIN = 80;
+const DRAWER_DEFAULT_HEIGHT = 220;
+
+/* Persisted dock/tool preferences (localStorage). Kept separate from the CDP
+ * session state, which is always reset per-page (freshSlices). Best-effort:
+ * a malformed/absent blob falls back to defaults, mirroring workspace recents. */
+const PREFS_KEY = 'marudesk.devtools.prefs.v1';
+
+type DevtoolsPrefs = {
+  tools: DevtoolsTool[];
+  drawerOpen: boolean;
+  drawerHeight: number;
+  drawerPanel: DevtoolsPanel;
+};
+
+/** Coerce arbitrary stored JSON back into a valid tool arrangement (covering
+ * every known panel exactly once) so a renamed/removed panel can't corrupt it. */
+function sanitizeTools(input: unknown): DevtoolsTool[] {
+  if (!Array.isArray(input)) return DEFAULT_TOOLS.map((t) => ({ ...t }));
+  const seen = new Map<DevtoolsPanel, DevtoolsTool>();
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    const id = r.id as DevtoolsPanel;
+    if (!PANEL_IDS.has(id) || seen.has(id)) continue;
+    seen.set(id, {
+      id,
+      location: r.location === 'drawer' ? 'drawer' : 'main',
+      order: typeof r.order === 'number' && Number.isFinite(r.order) ? r.order : 0,
+    });
+  }
+  // Backfill any panel the stored blob didn't mention (e.g. a newly-added one)
+  // from the defaults, so the union is always fully covered.
+  for (const def of DEFAULT_TOOLS) {
+    if (!seen.has(def.id)) seen.set(def.id, { ...def });
+  }
+  return [...seen.values()];
+}
+
+function loadPrefs(): DevtoolsPrefs {
+  const fallback: DevtoolsPrefs = {
+    tools: DEFAULT_TOOLS.map((t) => ({ ...t })),
+    drawerOpen: false,
+    drawerHeight: DRAWER_DEFAULT_HEIGHT,
+    drawerPanel: 'console',
+  };
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
+    if (!parsed || typeof parsed !== 'object') return fallback;
+    const tools = sanitizeTools(parsed.tools);
+    const drawerPanel = PANEL_IDS.has(parsed.drawerPanel)
+      ? (parsed.drawerPanel as DevtoolsPanel)
+      : 'console';
+    return {
+      tools,
+      drawerOpen: typeof parsed.drawerOpen === 'boolean' ? parsed.drawerOpen : false,
+      drawerHeight:
+        typeof parsed.drawerHeight === 'number' && Number.isFinite(parsed.drawerHeight)
+          ? Math.max(DRAWER_MIN, Math.round(parsed.drawerHeight))
+          : DRAWER_DEFAULT_HEIGHT,
+      drawerPanel,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function savePrefs(p: DevtoolsPrefs): void {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+  } catch {
+    // best-effort (private mode / quota)
+  }
+}
+
+/** Pull the persistable preference subset out of the live store state. */
+function snapshotPrefs(s: {
+  tools: DevtoolsTool[];
+  drawerOpen: boolean;
+  drawerHeight: number;
+  drawerPanel: DevtoolsPanel;
+}): DevtoolsPrefs {
+  return {
+    tools: s.tools,
+    drawerOpen: s.drawerOpen,
+    drawerHeight: s.drawerHeight,
+    drawerPanel: s.drawerPanel,
+  };
+}
+
+/** First tool (by order) in a location, or null when the location is empty. */
+function firstInLocation(tools: DevtoolsTool[], loc: ToolLocation): DevtoolsPanel | null {
+  const inLoc = tools.filter((t) => t.location === loc).sort((a, b) => a.order - b.order);
+  return inLoc[0]?.id ?? null;
+}
+
+/* ── Console autocomplete helpers ─────────────────────────────────────────── */
+
+/** Chrome's Command Line API helpers, offered as static global candidates. */
+const COMMAND_LINE_API: readonly string[] = [
+  '$_',
+  '$0',
+  '$1',
+  '$2',
+  '$3',
+  '$4',
+  '$',
+  '$$',
+  '$x',
+  'inspect',
+  'copy',
+  'getEventListeners',
+  'monitorEvents',
+  'unmonitorEvents',
+  'monitor',
+  'unmonitor',
+  'debug',
+  'undebug',
+  'keys',
+  'values',
+  'clear',
+  'dir',
+  'dirxml',
+  'table',
+  'queryObjects',
+  'profile',
+  'profileEnd',
+];
+
+const COMPLETION_GROUP = 'completion';
+/** Cap the candidate list so a huge global scope can't blow up the dropdown. */
+const MAX_COMPLETIONS = 50;
+
+type CompletionContext =
+  | { kind: 'member'; receiver: string; prefix: string }
+  | { kind: 'global'; prefix: string };
+
+/** A JS identifier-start / -part test (ASCII subset — enough for completion). */
+function isIdentChar(c: string): boolean {
+  return /[A-Za-z0-9_$]/.test(c);
+}
+
+/**
+ * Classify what's being typed at `caret`. Only the text BEFORE the caret matters.
+ * Walks back over an identifier fragment to its start; if the char before the
+ * fragment is `.` (or a `[` with a bare identifier after it), the token before
+ * that operator is the receiver to evaluate, and we're completing a member.
+ * Otherwise it's a bare-identifier (global) completion. Returns null when there's
+ * nothing completable (e.g. caret right after whitespace with no fragment and no
+ * preceding `.`), so the caller can clear the popup.
+ */
+function parseCompletionContext(
+  input: string,
+  caret: number,
+  force: boolean,
+): CompletionContext | null {
+  const upto = input.slice(0, Math.max(0, caret));
+  // The fragment = trailing run of identifier chars (may be empty, e.g. `foo.`).
+  let i = upto.length;
+  while (i > 0 && isIdentChar(upto[i - 1])) i--;
+  const prefix = upto.slice(i);
+  const before = upto.slice(0, i);
+
+  // Member access: `<receiver>.` or `<receiver>[`  (optionally with the fragment
+  // already typed). We support the common dot and bare-bracket forms; a bracket
+  // with an opening quote (`obj['fo`) is treated as a member too (string key).
+  const opMatch = before.match(/(.*?)\s*(\.|\[\s*['"]?)\s*$/s);
+  if (opMatch) {
+    const receiver = extractReceiver(opMatch[1]);
+    if (receiver) return { kind: 'member', receiver, prefix };
+  }
+
+  // Global completion: as-you-type only when there's a fragment to complete; a
+  // manual trigger (Ctrl+Space) lists everything even on an empty token.
+  if (prefix.length === 0 && !force) return null;
+  return { kind: 'global', prefix };
+}
+
+/**
+ * From the text left of a `.`/`[`, pull the receiver expression to evaluate.
+ * Handles trailing call/index chains (`a.b().c[0].` → `a.b().c[0]`) by scanning
+ * back while brackets are balanced and the run looks like a property/call chain.
+ * Bails (returns null) on anything that doesn't end in an identifier, `)`, or `]`
+ * — evaluating those would be pointless or unsafe.
+ */
+function extractReceiver(left: string): string | null {
+  const s = left.replace(/\s+$/, '');
+  if (!s) return null;
+  const last = s[s.length - 1];
+  if (!isIdentChar(last) && last !== ')' && last !== ']') return null;
+  let i = s.length;
+  let depth = 0;
+  while (i > 0) {
+    const c = s[i - 1];
+    if (c === ')' || c === ']') depth++;
+    else if (c === '(' || c === '[') {
+      if (depth === 0) break;
+      depth--;
+    } else if (depth === 0 && !isIdentChar(c) && c !== '.') {
+      break;
+    }
+    i--;
+  }
+  const receiver = s.slice(i).trim();
+  return receiver.length > 0 ? receiver : null;
+}
+
+/**
+ * Evaluate the receiver and collect property names down its prototype chain
+ * (so inherited members like array/DOM methods appear). Side-effect-free + scoped
+ * to a disposable objectGroup, released at the end. Returns [] on any failure.
+ */
+async function memberCompletions(tabId: string, receiver: string): Promise<string[]> {
+  try {
+    const ev = await cdpSend<{ result: RemoteObject; exceptionDetails?: unknown }>(
+      tabId,
+      'Runtime.evaluate',
+      {
+        expression: receiver,
+        objectGroup: COMPLETION_GROUP,
+        includeCommandLineAPI: true,
+        throwOnSideEffect: true,
+        returnByValue: false,
+      },
+    );
+    if (ev.exceptionDetails || !ev.result) return [];
+    const obj = ev.result;
+    const names = new Set<string>();
+
+    if (obj.objectId) {
+      // Walk own + inherited enumerable/non-enumerable names. accessorPropertiesOnly
+      // off → data props; generatePreview off → cheaper.
+      const res = await cdpTry<{
+        result: { name: string; symbol?: unknown }[];
+        internalProperties?: unknown;
+      }>(tabId, 'Runtime.getProperties', {
+        objectId: obj.objectId,
+        ownProperties: false,
+        generatePreview: false,
+      });
+      for (const p of res?.result ?? []) {
+        if (typeof p.name === 'string' && !p.symbol) names.add(p.name);
+      }
+    } else if (obj.type === 'string') {
+      // Primitive string: offer String.prototype members via a boxed lookup.
+      const res = await cdpTry<{ result: RemoteObject }>(tabId, 'Runtime.evaluate', {
+        expression: 'String.prototype',
+        objectGroup: COMPLETION_GROUP,
+        returnByValue: false,
+      });
+      const pid = res?.result.objectId;
+      if (pid) {
+        const props = await cdpTry<{ result: { name: string }[] }>(
+          tabId,
+          'Runtime.getProperties',
+          { objectId: pid, ownProperties: false, generatePreview: false },
+        );
+        for (const p of props?.result ?? []) names.add(p.name);
+      }
+    }
+    return [...names];
+  } catch {
+    return [];
+  } finally {
+    void cdpTry(tabId, 'Runtime.releaseObjectGroup', { objectGroup: COMPLETION_GROUP });
+  }
+}
+
+/** Own + inherited enumerable property names of the global object. */
+async function globalObjectProperties(tabId: string): Promise<string[]> {
+  const ev = await cdpTry<{ result: RemoteObject }>(tabId, 'Runtime.evaluate', {
+    expression: 'globalThis',
+    objectGroup: COMPLETION_GROUP,
+    returnByValue: false,
+  });
+  const objectId = ev?.result.objectId;
+  if (!objectId) return [];
+  const res = await cdpTry<{ result: { name: string; symbol?: unknown }[] }>(
+    tabId,
+    'Runtime.getProperties',
+    { objectId, ownProperties: false, generatePreview: false },
+  );
+  void cdpTry(tabId, 'Runtime.releaseObjectGroup', { objectGroup: COMPLETION_GROUP });
+  const names: string[] = [];
+  for (const p of res?.result ?? []) {
+    if (typeof p.name === 'string' && !p.symbol) names.push(p.name);
+  }
+  return names;
+}
+
+/** Drop duplicate texts, keeping the first (highest-priority) kind seen. */
+function dedupe(items: CompletionItem[]): CompletionItem[] {
+  const seen = new Set<string>();
+  const out: CompletionItem[] = [];
+  for (const it of items) {
+    if (seen.has(it.text)) continue;
+    seen.add(it.text);
+    out.push(it);
+  }
+  return out;
+}
+
+/**
+ * Filter candidates by `prefix` and rank them: case-sensitive prefix matches
+ * first, then case-insensitive prefix, then case-insensitive substring; ties
+ * broken by shorter text then lexicographically. An empty prefix returns the
+ * list as-is (capped) so an explicit trigger after `obj.` lists everything.
+ */
+function rankCompletions(prefix: string, items: CompletionItem[]): CompletionResult {
+  if (!prefix) return { prefix, items: items.slice(0, MAX_COMPLETIONS) };
+  const p = prefix;
+  const lower = p.toLowerCase();
+  const scored: { it: CompletionItem; score: number }[] = [];
+  for (const it of items) {
+    const t = it.text;
+    let score: number;
+    if (t.startsWith(p)) score = 0;
+    else if (t.toLowerCase().startsWith(lower)) score = 1;
+    else if (t.toLowerCase().includes(lower)) score = 2;
+    else continue;
+    scored.push({ it, score });
+  }
+  scored.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score;
+    if (a.it.text.length !== b.it.text.length) return a.it.text.length - b.it.text.length;
+    return a.it.text < b.it.text ? -1 : a.it.text > b.it.text ? 1 : 0;
+  });
+  return { prefix, items: scored.slice(0, MAX_COMPLETIONS).map((s) => s.it) };
+}
+
+/* ── Console autocomplete ─────────────────────────────────────────────────
+ * The kind drives the candidate row's tint/icon; it does not affect ranking. */
+export type CompletionKind =
+  | 'property' // member of the evaluated receiver
+  | 'global' // window / globalThis property or lexical scope name
+  | 'command-api' // Command Line API helper ($0, $$, inspect, …)
+  | 'history'; // a prior REPL command (prefixed `>` in the UI)
+
+/**
+ * `replace` says what accepting the item rewrites:
+ * - `token`: the typed token slice `[caret - prefix.length, caret)` (identifiers,
+ *   members, Command Line API helpers).
+ * - `all`: the ENTIRE input (history entries — a recalled full command line).
+ */
+export type CompletionItem = {
+  text: string;
+  kind: CompletionKind;
+  replace: 'token' | 'all';
+};
+
+/**
+ * One completion pass. `prefix` is the partial token the token-kind candidates
+ * complete (the substring from the token start to the caret); its input range is
+ * `[caret - prefix.length, caret)`. `items` are already filtered + ranked.
+ */
+export type CompletionResult = { prefix: string; items: CompletionItem[] };
 
 // CDP overlay box-model colours (content / padding / border / margin).
 const rgba = (r: number, g: number, b: number, a: number) => ({ r, g, b, a });
@@ -163,7 +555,18 @@ type DevtoolsState = {
   open: boolean;
   side: DockSide;
   size: number;
+  // The active tool in the MAIN (top) tab bar. When this panel is moved to the
+  // drawer, `panel` follows to the next remaining main tool (see `_reflowActive`).
   panel: DevtoolsPanel;
+  // User-arrangeable tool tabs: each tool lives in the main bar or the bottom
+  // drawer (§drawer). Persisted to localStorage; Console defaults to the drawer.
+  tools: DevtoolsTool[];
+  // Bottom drawer (Chrome-style): a secondary panel surface pinned below the
+  // main panel, visible while ANY main panel is shown. Open state + height are
+  // persisted; `drawerPanel` is the active tool within the drawer.
+  drawerOpen: boolean;
+  drawerHeight: number;
+  drawerPanel: DevtoolsPanel;
   // True when this store instance backs the pop-out DevtoolsWindow (its own
   // renderer) rather than the in-page dock. Drives full-bleed layout and hides
   // the host-only "Add to AI context" capture (the composer lives in the main
@@ -210,6 +613,10 @@ type DevtoolsState = {
   pendingPatch: PendingSourcePatch | null;
   // console
   console: ConsoleEntry[];
+  // REPL command history (most-recent last), for ↑/↓ recall and as autocomplete
+  // candidates (§autocomplete). A session-scoped UI convenience: survives
+  // freshSlices/navigation (not per-page state), capped at MAX_HISTORY.
+  commandHistory: string[];
   // When true, a main-frame navigation keeps the existing console entries
   // (DevTools' "Preserve log") — `_handleNavigated` reads this. Sticky across
   // navigations; survives freshSlices (a UI preference, not per-page state).
@@ -240,6 +647,13 @@ type DevtoolsActions = {
   setPanel: (panel: DevtoolsPanel) => void;
   setSide: (side: DockSide) => void;
   setSize: (size: number) => void;
+  // Bottom drawer + tool arrangement (Chrome-style).
+  setDrawerPanel: (panel: DevtoolsPanel) => void;
+  toggleDrawer: () => void;
+  setDrawerOpen: (open: boolean) => void;
+  setDrawerHeight: (height: number) => void;
+  /** Move a tool between the main tab bar and the bottom drawer (1b). */
+  moveTool: (id: DevtoolsPanel, location: ToolLocation) => void;
   rebindToActive: (tabId: string | null) => void;
   // elements
   selectNode: (id: NodeId) => Promise<void>;
@@ -262,6 +676,20 @@ type DevtoolsActions = {
   dismissSourcePatch: () => void;
   // console
   evaluate: (expression: string) => Promise<void>;
+  /**
+   * As-you-type Console completion (§autocomplete). Given the full input and the
+   * caret offset, resolve the token being typed and return ranked candidates:
+   * member completion (`obj.` / `obj[`) walks the receiver's prototype chain via
+   * Runtime.getProperties; global completion merges lexical scope names, the
+   * global object's properties, the Command Line API helpers, and command
+   * history. Failures are swallowed (returns `[]`) so typing never blocks.
+   */
+  getCompletions: (
+    input: string,
+    caret: number,
+    /** Manual trigger (Ctrl+Space): list candidates even with an empty token. */
+    force?: boolean,
+  ) => Promise<CompletionResult>;
   clearConsole: () => void;
   setPreserveLog: (on: boolean) => void;
   /** Mirror main's per-tab error count (devtools:error-count) for the badge. */
@@ -452,9 +880,19 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     side: 'right',
     size: 0,
     panel: 'elements',
+    ...((): Pick<DevtoolsState, 'tools' | 'drawerOpen' | 'drawerHeight' | 'drawerPanel'> => {
+      const p = loadPrefs();
+      return {
+        tools: p.tools,
+        drawerOpen: p.drawerOpen,
+        drawerHeight: p.drawerHeight,
+        drawerPanel: p.drawerPanel,
+      };
+    })(),
     windowMode: false,
     errorCountByTab: {},
     preserveLog: false,
+    commandHistory: [],
     cacheDisabled: false,
     throttle: 'online',
     rendering: DEFAULT_RENDERING,
@@ -468,7 +906,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     /* ── dock lifecycle ──────────────────────────────────────────────── */
 
     toggle: () => {
-      if (useGridStore.getState().layout !== null) {
+      if (groupForTab(useGridStore.getState().groups, useTabsStore.getState().activeTabId) !== null) {
         toast({
           title: 'Exit the grid to use DevTools',
           description: 'DevTools attaches to a single page at a time.',
@@ -538,6 +976,11 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       if (get().epoch !== epoch) return;
       await get()._enablePanel(get().panel);
       if (get().epoch !== epoch) return;
+      // The drawer's panel is a second visible surface — enable its domains too.
+      if (get().drawerOpen && get().drawerPanel !== get().panel) {
+        await get()._enablePanel(get().drawerPanel);
+        if (get().epoch !== epoch) return;
+      }
       // Seed the console with errors main buffered before the dock opened.
       void get()._seedConsoleErrors(tabId, since);
       // Re-apply sticky rendering overrides — they reset on (re)attach.
@@ -583,6 +1026,68 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
 
     setSize: (size) => set({ size: Math.max(MIN_SIZE, Math.round(size)) }),
 
+    /* ── bottom drawer + tool arrangement ───────────────────────────────── */
+
+    setDrawerPanel: (panel) => {
+      if (get().drawerPanel === panel) return;
+      set({ drawerPanel: panel });
+      savePrefs(snapshotPrefs(get()));
+      if (get().session === 'attached') void get()._enablePanel(panel);
+    },
+
+    toggleDrawer: () => get().setDrawerOpen(!get().drawerOpen),
+
+    setDrawerOpen: (open) => {
+      if (get().drawerOpen === open) return;
+      set({ drawerOpen: open });
+      savePrefs(snapshotPrefs(get()));
+      // Enabling the drawer's panel lazily mirrors setPanel — its CDP domains
+      // (e.g. Network) only turn on when the surface is actually shown.
+      if (open && get().session === 'attached') void get()._enablePanel(get().drawerPanel);
+    },
+
+    setDrawerHeight: (height) => {
+      set({ drawerHeight: Math.max(DRAWER_MIN, Math.round(height)) });
+      savePrefs(snapshotPrefs(get()));
+    },
+
+    moveTool: (id, location) => {
+      const s = get();
+      const tool = s.tools.find((t) => t.id === id);
+      if (!tool || tool.location === location) return;
+      // Append to the end of the destination location's order.
+      const maxOrder = s.tools
+        .filter((t) => t.location === location)
+        .reduce((m, t) => Math.max(m, t.order), -1);
+      const tools = s.tools.map((t) =>
+        t.id === id ? { ...t, location, order: maxOrder + 1 } : t,
+      );
+
+      const patch: Partial<DevtoolsState> = { tools };
+      // If the moved tool was the active tab of its old location, hand activity
+      // to the next remaining tool there so the surface never points at a tool
+      // that's no longer present.
+      if (tool.location === 'main' && s.panel === id) {
+        const next = firstInLocation(tools, 'main');
+        if (next) patch.panel = next;
+      }
+      if (tool.location === 'drawer' && s.drawerPanel === id) {
+        const next = firstInLocation(tools, 'drawer');
+        if (next) patch.drawerPanel = next;
+      }
+      // Make the moved tool the active tab in its NEW location, and reveal the
+      // drawer when something lands there (so "Move to bottom" is visible).
+      if (location === 'main') patch.panel = id;
+      else {
+        patch.drawerPanel = id;
+        patch.drawerOpen = true;
+      }
+
+      set(patch);
+      savePrefs(snapshotPrefs(get()));
+      if (get().session === 'attached') void get()._enablePanel(id);
+    },
+
     rebindToActive: (tabId) => {
       const s = get();
       if (!s.open) return;
@@ -617,6 +1122,10 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         if (get().epoch !== epoch) return;
         await get()._enablePanel(get().panel);
         if (get().epoch !== epoch) return;
+        if (get().drawerOpen && get().drawerPanel !== get().panel) {
+          await get()._enablePanel(get().drawerPanel);
+          if (get().epoch !== epoch) return;
+        }
         void get()._seedConsoleErrors(tabId, since);
         if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
       })();
@@ -694,6 +1203,10 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         if (get().epoch !== epoch) return;
         await get()._enablePanel(get().panel);
         if (get().epoch !== epoch) return;
+        if (get().drawerOpen && get().drawerPanel !== get().panel) {
+          await get()._enablePanel(get().drawerPanel);
+          if (get().epoch !== epoch) return;
+        }
         // Navigation clears emulation/overlay overrides — re-apply the sticky ones.
         if (hasRenderingOverrides(get().rendering)) await get()._applyRendering();
       })();
@@ -877,7 +1390,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         void window.marudesk.invoke('devtools:open-chrome', { tabId });
         return;
       }
-      if (useGridStore.getState().layout !== null) {
+      if (groupForTab(useGridStore.getState().groups, useTabsStore.getState().activeTabId) !== null) {
         toast({ title: 'Exit the grid to use DevTools', variant: 'warning' });
         return;
       }
@@ -1226,6 +1739,17 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const tabId = get().tabId;
       if (!tabId || !expression.trim()) return;
       await get()._ensureDomains(['Runtime']);
+      // Record into history (most-recent last, de-duped against the previous
+      // entry, capped) — drives ↑/↓ recall and history-backed completion.
+      {
+        const trimmed = expression.trim();
+        const hist = get().commandHistory;
+        if (hist[hist.length - 1] !== trimmed) {
+          const next = [...hist, trimmed];
+          if (next.length > MAX_HISTORY) next.splice(0, next.length - MAX_HISTORY);
+          set({ commandHistory: next });
+        }
+      }
       get()._pushConsole({ kind: 'command', args: [], text: expression });
       try {
         const r = await cdpSend<{
@@ -1262,6 +1786,65 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
           text: err instanceof Error ? err.message : String(err),
         });
       }
+    },
+
+    getCompletions: async (input, caret, force = false) => {
+      const empty: CompletionResult = { prefix: '', items: [] };
+      const tabId = get().tabId;
+      if (!tabId) return empty;
+      const ctx = parseCompletionContext(input, caret, force);
+      if (!ctx) return empty;
+
+      // Member completion: `obj.frag` / `obj[frag` → properties of the receiver.
+      if (ctx.kind === 'member') {
+        const names = await memberCompletions(tabId, ctx.receiver);
+        const items = names.map(
+          (text): CompletionItem => ({ text, kind: 'property', replace: 'token' }),
+        );
+        return rankCompletions(ctx.prefix, dedupe(items));
+      }
+
+      // Global completion: lexical names + global-object props + Command Line API
+      // helpers, ranked by the typed token. Each replaces just the token.
+      const identifiers: CompletionItem[] = [];
+      const lexical = await cdpTry<{ names: string[] }>(
+        tabId,
+        'Runtime.globalLexicalScopeNames',
+      );
+      for (const n of lexical?.names ?? [])
+        identifiers.push({ text: n, kind: 'global', replace: 'token' });
+
+      const globals = await globalObjectProperties(tabId);
+      for (const n of globals) identifiers.push({ text: n, kind: 'global', replace: 'token' });
+
+      for (const n of COMMAND_LINE_API)
+        identifiers.push({ text: n, kind: 'command-api', replace: 'token' });
+
+      const ranked = rankCompletions(ctx.prefix, dedupe(identifiers));
+
+      // History entries (the UI prefixes them with `>`) recall a WHOLE prior
+      // command, so they match against the full pre-caret input and replace it
+      // all. Appended after identifier matches and de-duped against them.
+      const full = input.slice(0, Math.max(0, caret)).trimStart();
+      const taken = new Set(ranked.items.map((i) => i.text));
+      const history: CompletionItem[] = [];
+      if (full) {
+        const seen = new Set<string>();
+        // Most-recent first for history.
+        for (let i = get().commandHistory.length - 1; i >= 0; i--) {
+          const h = get().commandHistory[i];
+          if (h === full || seen.has(h) || taken.has(h)) continue;
+          if (h.startsWith(full)) {
+            seen.add(h);
+            history.push({ text: h, kind: 'history', replace: 'all' });
+          }
+        }
+      }
+
+      return {
+        prefix: ctx.prefix,
+        items: [...ranked.items, ...history].slice(0, MAX_COMPLETIONS),
+      };
     },
 
     clearConsole: () => set({ console: [] }),

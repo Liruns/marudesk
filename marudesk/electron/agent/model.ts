@@ -3,6 +3,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import {
+  APICallError,
   tool,
   jsonSchema,
   type JSONSchema7,
@@ -44,6 +45,72 @@ const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 const XAI_BASE_URL = 'https://api.x.ai/v1';
 
 /**
+ * Known-dead / hallucinated model slugs mapped to guidance. A second line of
+ * defense behind the picker + catalog (docs/agentic-chat-v4-design.md §A3): even
+ * if a stale id reaches buildModel — a persisted selection, an out-of-date OAuth
+ * pin, a hand-typed custom-endpoint id — we fail with a clear, actionable message
+ * instead of letting the provider return an opaque 400/404. Keyed `provider:id`.
+ */
+const RETIRED_MODELS: Record<string, string> = {
+  'xai:grok-2': 'grok-2 was retired by xAI. Use grok-4.3.',
+  'xai:grok-3': 'grok-3 was retired by xAI on 2026-05-15. Use grok-4.3.',
+  'xai:grok-3-mini': 'grok-3-mini was retired by xAI on 2026-05-15. Use grok-4.3.',
+  'xai:grok-4': 'grok-4 was retired by xAI on 2026-05-15. Use grok-4.3.',
+  'xai:grok-4-0709': 'grok-4-0709 was retired by xAI on 2026-05-15. Use grok-4.3.',
+  'xai:grok-code-fast-1':
+    'grok-code-fast-1 was retired by xAI on 2026-05-15. Use grok-build-0.1.',
+  'openai:gpt-5-turbo': "gpt-5-turbo doesn't exist. Use gpt-5 or gpt-5-mini.",
+  'google:gemini-pro': 'gemini-pro is retired. Use gemini-2.5-pro.',
+  'google:gemini-1.5-pro': 'gemini-1.5-pro is retired. Use gemini-2.5-pro.',
+  'google:gemini-1.5-flash': 'gemini-1.5-flash is retired. Use gemini-2.5-flash.',
+};
+
+/** Reject an empty or known-dead model id before the network call. */
+export function assertModelUsable(provider: ProviderId, modelId: string): void {
+  if (!modelId || !modelId.trim()) {
+    throw new Error('No model selected — pick one from the chat composer.');
+  }
+  const retired = RETIRED_MODELS[`${provider}:${modelId}`];
+  if (retired) throw new Error(retired);
+}
+
+/**
+ * Turn a provider/SDK error into a human-readable, actionable chat message. The
+ * AI SDK's APICallError carries the HTTP status + response body; map the common
+ * cases (bad/retired model, auth, rate limit, server) and fall back to the raw
+ * message otherwise — see docs/agentic-chat-v4-design.md §A3.
+ */
+export function humanizeModelError(
+  err: unknown,
+  provider: ProviderId,
+  modelId: string,
+): string {
+  if (APICallError.isInstance(err)) {
+    const status = err.statusCode;
+    const body = typeof err.responseBody === 'string' ? err.responseBody : '';
+    const snippet = body ? ` — ${body.slice(0, 300)}` : '';
+    const who = String(provider);
+    if (status === 401 || status === 403) {
+      return `${who} rejected the credentials (${status}). Check the API key in Settings, or reconnect the account.${snippet}`;
+    }
+    if (status === 404) {
+      return `${who} has no model "${modelId}" (404). It may be retired or unavailable on this account.${snippet}`;
+    }
+    if (status === 400 && /model|not supported|not found|unknown|deprecat/i.test(body)) {
+      return `${who} rejected the model "${modelId}" (400). It may be retired, misspelled, or not on this plan.${snippet}`;
+    }
+    if (status === 429) {
+      return `${who} rate-limited the request (429). Wait a moment and retry, or check your plan quota.${snippet}`;
+    }
+    if (typeof status === 'number' && status >= 500) {
+      return `${who} had a server error (${status}). Try again shortly.${snippet}`;
+    }
+    return `${who} request failed${status ? ` (${status})` : ''}: ${err.message}${snippet}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * Build an AI SDK model instance for the resolved provider/model/key. Custom
  * OpenAI-compatible endpoints (OpenRouter / LM Studio / vLLM …) arrive as a
  * `custom:<id>` provider and reuse the same `createOpenAICompatible` path with a
@@ -56,6 +123,7 @@ export function buildModel(
   auth: ModelAuth,
   baseUrl?: string,
 ): LanguageModel {
+  assertModelUsable(provider, modelId);
   // Only Anthropic has an OAuth path; everywhere else `auth` is an API key (or
   // empty, for keyless/local endpoints).
   const apiKey = auth.mode === 'api-key' ? auth.apiKey : '';

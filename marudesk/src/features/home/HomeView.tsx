@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { Code2, Folder, Globe, SquareTerminal } from 'lucide-react';
+import { Code2, Folder, Globe, Sparkles, SquareTerminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
 import { useGridStore } from '../tabs/grid';
@@ -91,7 +91,13 @@ export function HomeView({ tabId }: { tabId?: string }) {
           </div>
         </form>
 
-        <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <LauncherCard
+            label="AI Chat"
+            hint="Agent that sees the running app"
+            icon={<Sparkles size={18} />}
+            onOpen={() => open('agent')}
+          />
           <LauncherCard
             label="Browser tab"
             hint="Open a blank page"

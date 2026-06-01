@@ -1,9 +1,10 @@
-import { CheckSquare, Square, Trash2 } from 'lucide-react';
+import { CheckSquare, Maximize2, Square, Trash2 } from 'lucide-react';
 import { Badge } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from '../browser/store';
 import { useComposerStore } from '../composer/store';
 import { AgentChat } from '../agent/AgentChat';
+import { openAgentTab } from '../agent/store';
 import { CaptureCard } from './CaptureCard';
 
 type Props = {
@@ -50,14 +51,27 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
           <h2 className="text-body-sm font-medium text-fg-primary">
             Context
           </h2>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            aria-label="Close context panel"
-            className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body leading-none"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-2">
+            {tab === 'agent' ? (
+              <button
+                type="button"
+                onClick={() => void openAgentTab()}
+                aria-label="Open AI Chat in a tab"
+                title="Open AI Chat in a tab"
+                className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
+              >
+                <Maximize2 size={13} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              aria-label="Close context panel"
+              className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body leading-none"
+            >
+              ×
+            </button>
+          </div>
         </header>
 
         <nav

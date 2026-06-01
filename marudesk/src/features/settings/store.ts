@@ -6,6 +6,7 @@ import {
   type SettingsPatch,
   type ThemeMode,
 } from '../../../shared/settings';
+import { fontStack } from '../../../shared/fonts';
 import { useTabsStore } from '../tabs/store';
 
 export type { SettingsPatch };
@@ -66,8 +67,11 @@ function applyAppearance(s: AppSettings): void {
   root.style.fontSize = `${(UI_ZOOM_BASE_PX * s.appearance.uiZoom) / 100}px`;
   const ui = s.appearance.uiFontFamily.trim();
   if (ui) {
-    root.style.setProperty('--font-body', ui);
-    root.style.setProperty('--font-display', ui);
+    // Always back the user's font with the default stack so an uninstalled or
+    // misspelled family degrades gracefully instead of dropping to a serif.
+    const stack = fontStack(ui, 'ui');
+    root.style.setProperty('--font-body', stack);
+    root.style.setProperty('--font-display', stack);
   } else {
     root.style.removeProperty('--font-body');
     root.style.removeProperty('--font-display');

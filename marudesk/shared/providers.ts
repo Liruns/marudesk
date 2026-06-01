@@ -60,6 +60,13 @@ export type ProviderDef = {
    * "Connect" section (no key editor), and the agent requires an OAuth connection.
    */
   oauthOnly?: boolean;
+  /**
+   * An experimental provider whose backend is undocumented/unverified (the
+   * subscription `openai-codex` / `google-caa` paths). The model picker groups
+   * these last under an "Experimental" heading and tags them so they don't crowd
+   * the stable providers — see docs/agentic-chat-v4-design.md §A1.
+   */
+  experimental?: boolean;
 };
 
 export const PROVIDERS: ProviderDef[] = [
@@ -95,6 +102,7 @@ export const PROVIDERS: ProviderDef[] = [
     models: [
       { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
     ],
     defaultModelId: 'gemini-2.5-pro',
     apiKeyPlaceholder: 'AIza...',
@@ -104,13 +112,16 @@ export const PROVIDERS: ProviderDef[] = [
     id: 'xai',
     label: 'xAI (Grok)',
     oauth: true,
+    // NB: grok-2/grok-3/grok-4* and grok-code-fast-1 were RETIRED 2026-05-15
+    // (requests now redirect to grok-4.3 and bill at its rate) — do not list
+    // them. Current chat models per docs.x.ai / models.dev: grok-4.3 (default
+    // workhorse) and grok-build-0.1 (coding-specialized). The live /models fetch
+    // (electron/models.ts) refreshes this list once an API key is set.
     models: [
-      { id: 'grok-4', label: 'Grok 4' },
-      { id: 'grok-3', label: 'Grok 3' },
-      { id: 'grok-3-mini', label: 'Grok 3 mini' },
-      { id: 'grok-code-fast-1', label: 'Grok Code Fast' },
+      { id: 'grok-4.3', label: 'Grok 4.3' },
+      { id: 'grok-build-0.1', label: 'Grok Build (coding)' },
     ],
-    defaultModelId: 'grok-4',
+    defaultModelId: 'grok-4.3',
     apiKeyPlaceholder: 'xai-...',
     apiKeyHint: 'console.x.ai → API Keys, or "Connect with Grok" to use your account',
   },
@@ -119,10 +130,18 @@ export const PROVIDERS: ProviderDef[] = [
     label: 'OpenAI (ChatGPT)',
     oauth: true,
     oauthOnly: true,
-    // Codex backend models (Responses dialect). Experimental — see design §10.
+    experimental: true,
+    // Codex backend models (Responses dialect) — chatgpt.com/backend-api/codex.
+    // The bare `gpt-5` slug is rejected on a ChatGPT account ("not supported when
+    // using Codex with a ChatGPT account") — use a `-codex`/versioned slug. The
+    // accepted set tracks the Codex CLI and is NOT the API-key set; as of
+    // 2026-06 it includes gpt-5-codex, gpt-5.3-codex, and gpt-5.5 (default for
+    // ChatGPT-auth sessions). ⚠ Unverified against a live account — confirm by
+    // dogfood; see docs/agentic-chat-v4-design.md §A3.
     models: [
       { id: 'gpt-5-codex', label: 'GPT-5 Codex' },
-      { id: 'gpt-5', label: 'GPT-5 (ChatGPT)' },
+      { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+      { id: 'gpt-5.5', label: 'GPT-5.5' },
     ],
     defaultModelId: 'gpt-5-codex',
     apiKeyPlaceholder: '(OAuth only)',
@@ -133,7 +152,12 @@ export const PROVIDERS: ProviderDef[] = [
     label: 'Google (Gemini account)',
     oauth: true,
     oauthOnly: true,
-    // Served via the Code-Assist backend on a personal Google account. Experimental.
+    experimental: true,
+    // Served via the Code-Assist backend (cloudcode-pa) on a personal Google
+    // account. Accepts the GA Code Assist models gemini-2.5-pro / -flash.
+    // ⚠ Gemini Code Assist for individual/consumer accounts is scheduled to stop
+    // serving on 2026-06-18 (migration to Antigravity CLI) — this provider may
+    // stop working after that date. Unverified against a live account; dogfood.
     models: [
       { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (account)' },
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (account)' },
@@ -256,6 +280,10 @@ export type ModelEntry = {
   contextWindow?: number;
   /** Whether the model supports tool calling (the agent requires it). */
   tools?: boolean;
+  /** Supports image input — drives the picker's capability badge. */
+  vision?: boolean;
+  /** A reasoning/extended-thinking model — drives the picker's capability badge. */
+  reasoning?: boolean;
 };
 
 /** The globally-unique selection key for a (provider, model id) pair. */
@@ -274,29 +302,34 @@ export function findModel(list: ModelEntry[], key: string): ModelEntry | undefin
  * and backstops a failed fetch. Context windows are filled in only where known.
  */
 export const MODELS: ModelEntry[] = [
-  // Anthropic (Claude 4.x — 200K context, all tool-capable).
-  { key: 'anthropic:claude-opus-4-8', id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'anthropic', contextWindow: 200_000, tools: true },
-  { key: 'anthropic:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic', contextWindow: 200_000, tools: true },
-  { key: 'anthropic:claude-haiku-4-5-20251001', id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200_000, tools: true },
-  // OpenAI.
-  { key: 'openai:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'openai', tools: true },
-  { key: 'openai:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'openai', tools: true },
-  { key: 'openai:gpt-4.1', id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai', contextWindow: 1_047_576, tools: true },
-  { key: 'openai:o4-mini', id: 'o4-mini', label: 'o4-mini', provider: 'openai', tools: true },
+  // Anthropic (Claude 4.x — all tool-capable; vision + extended thinking).
+  // Opus/Sonnet 4.6+ carry a 1M-token context; Haiku 4.5 is 200K.
+  { key: 'anthropic:claude-opus-4-8', id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'anthropic', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'anthropic:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'anthropic:claude-haiku-4-5-20251001', id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200_000, tools: true, vision: true, reasoning: true },
+  // OpenAI (GPT-5 family = 400K context; gpt-4.1 the prior 1M-context gen).
+  { key: 'openai:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'openai', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  { key: 'openai:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'openai', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  { key: 'openai:gpt-4.1', id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai', contextWindow: 1_047_576, tools: true, vision: true },
+  { key: 'openai:o4-mini', id: 'o4-mini', label: 'o4-mini', provider: 'openai', contextWindow: 200_000, tools: true, reasoning: true },
   // Google Gemini (~1M context).
-  { key: 'google:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 1_048_576, tools: true },
-  { key: 'google:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1_048_576, tools: true },
-  // xAI Grok (OpenAI-compatible API at api.x.ai/v1; tool-capable).
-  { key: 'xai:grok-4', id: 'grok-4', label: 'Grok 4', provider: 'xai', contextWindow: 256_000, tools: true },
-  { key: 'xai:grok-3', id: 'grok-3', label: 'Grok 3', provider: 'xai', contextWindow: 131_072, tools: true },
-  { key: 'xai:grok-3-mini', id: 'grok-3-mini', label: 'Grok 3 mini', provider: 'xai', contextWindow: 131_072, tools: true },
-  { key: 'xai:grok-code-fast-1', id: 'grok-code-fast-1', label: 'Grok Code Fast', provider: 'xai', contextWindow: 256_000, tools: true },
+  { key: 'google:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
+  { key: 'google:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
+  { key: 'google:gemini-2.5-flash-lite', id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true },
+  // xAI Grok (OpenAI-compatible API at api.x.ai/v1; tool-capable). grok-2/3/4*
+  // and grok-code-fast-1 were retired 2026-05-15 — current models only.
+  { key: 'xai:grok-4.3', id: 'grok-4.3', label: 'Grok 4.3', provider: 'xai', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'xai:grok-build-0.1', id: 'grok-build-0.1', label: 'Grok Build (coding)', provider: 'xai', contextWindow: 256_000, tools: true },
   // OpenAI ChatGPT (Codex backend, OAuth-only — Responses dialect). Experimental.
-  { key: 'openai-codex:gpt-5-codex', id: 'gpt-5-codex', label: 'GPT-5 Codex', provider: 'openai-codex', tools: true },
-  { key: 'openai-codex:gpt-5', id: 'gpt-5', label: 'GPT-5 (ChatGPT)', provider: 'openai-codex', tools: true },
+  // The bare `gpt-5` slug 400s ("not supported when using Codex with a ChatGPT
+  // account"); use a codex/versioned slug. Accepted set tracks the Codex CLI (≠
+  // the API-key set) and is unverified against a live account — confirm by dogfood.
+  { key: 'openai-codex:gpt-5-codex', id: 'gpt-5-codex', label: 'GPT-5 Codex', provider: 'openai-codex', tools: true, reasoning: true },
+  { key: 'openai-codex:gpt-5.3-codex', id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', provider: 'openai-codex', tools: true, reasoning: true },
+  { key: 'openai-codex:gpt-5.5', id: 'gpt-5.5', label: 'GPT-5.5', provider: 'openai-codex', tools: true, reasoning: true },
   // Google Gemini via a personal account (Code-Assist backend, OAuth-only). Experimental.
-  { key: 'google-caa:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (account)', provider: 'google-caa', contextWindow: 1_048_576, tools: true },
-  { key: 'google-caa:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (account)', provider: 'google-caa', contextWindow: 1_048_576, tools: true },
+  { key: 'google-caa:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (account)', provider: 'google-caa', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
+  { key: 'google-caa:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (account)', provider: 'google-caa', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
   // Ollama (local; tool support varies — these two are tool-capable).
   { key: 'ollama:qwen2.5-coder', id: 'qwen2.5-coder', label: 'Qwen2.5 Coder', provider: 'ollama', tools: true },
   { key: 'ollama:llama3.1', id: 'llama3.1', label: 'Llama 3.1', provider: 'ollama', tools: true },

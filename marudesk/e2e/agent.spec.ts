@@ -87,3 +87,21 @@ test('agent: send validates the payload shape', async () => {
     await app.close();
   }
 });
+
+test('agent: Home launcher opens the full-surface AI Chat tab (v3 §5-B)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    // The New Tab launcher has an "AI Chat" card that converts the tab in place
+    // into the full-surface `agent` tab kind.
+    await page.getByRole('button', { name: /AI Chat/ }).click();
+    // The tab strip shows the AI Chat tab, and the full surface renders the same
+    // chat (the prompt composer) — proving the new kind registered end to end.
+    // Scope to <main> (the stage): the always-mounted ContextDrawer companion
+    // (<aside aria-label="Context cart">) also has an "Agent prompt", and both
+    // project the same conversation — so an unscoped match resolves to two.
+    await expect(page.getByRole('tab', { name: 'AI Chat' })).toBeVisible();
+    await expect(page.getByRole('main').getByLabel('Agent prompt')).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});

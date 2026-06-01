@@ -47,7 +47,14 @@ export type ToolCall = {
 
 export type AgentTextPart = { type: 'text'; text: string };
 export type AgentToolPart = { type: 'tool'; call: ToolCall };
-export type AgentPart = AgentTextPart | AgentToolPart;
+/**
+ * The model's streamed reasoning ("extended thinking"). Display-only — rendered
+ * as a collapsible "Thinking" block (Claude/Codex Desktop parity, v3 §5-A) and
+ * NOT round-tripped into the provider transcript (avoids the signed-thinking-block
+ * round-trip constraints; the loop keeps reasoning out of `ModelMessage[]`).
+ */
+export type AgentReasoningPart = { type: 'reasoning'; text: string };
+export type AgentPart = AgentTextPart | AgentToolPart | AgentReasoningPart;
 
 export type AgentRole = 'user' | 'assistant';
 

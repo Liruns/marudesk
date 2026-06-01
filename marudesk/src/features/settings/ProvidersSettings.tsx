@@ -96,6 +96,7 @@ function ProviderCard({
           className={cn('text-fg-tertiary shrink-0 transition-transform', expanded && 'rotate-90')}
         />
         <span className="text-body-sm text-fg-primary">{def.label}</span>
+        {def.experimental ? <Badge variant="warning">experimental</Badge> : null}
         <span className="flex-1" />
         {oauthConnected ? (
           <Badge variant="accent">{def.oauthOnly ? 'connected' : 'subscription'}</Badge>
@@ -148,10 +149,21 @@ function OAuthConnect({
   const completeOAuth = useProvidersStore((s) => s.completeOAuth);
   const cancelOAuth = useProvidersStore((s) => s.cancelOAuth);
   const disconnectOAuth = useProvidersStore((s) => s.disconnectOAuth);
+  const testConn = useProvidersStore((s) => s.testProviderConnection);
 
   const [phase, setPhase] = useState<'idle' | 'manual' | 'waiting'>('idle');
   const [url, setUrl] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
+  const [test, setTest] = useState<{
+    status: 'idle' | 'testing' | 'ok' | 'error';
+    message: string | null;
+  }>({ status: 'idle', message: null });
+
+  const runTest = async () => {
+    setTest({ status: 'testing', message: null });
+    const r = await testConn(providerId);
+    setTest({ status: r.ok ? 'ok' : 'error', message: r.message });
+  };
 
   const friendly =
     providerId === 'anthropic'
@@ -205,10 +217,18 @@ function OAuthConnect({
   if (connected) {
     return (
       <div className="flex flex-col gap-2 rounded-md border border-subtle bg-surface-page/60 px-3 py-2.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <CheckCircle2 size={14} className="text-success shrink-0" />
           <span className="text-body-sm text-fg-primary">Connected — using your {friendly} account</span>
           <span className="flex-1" />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void runTest()}
+            disabled={busy || test.status === 'testing'}
+          >
+            {test.status === 'testing' ? 'Testing…' : 'Test connection'}
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => void disconnectOAuth(providerId)} disabled={busy}>
             Disconnect
           </Button>
@@ -216,6 +236,23 @@ function OAuthConnect({
         <p className="text-caption text-fg-tertiary">
           The agent uses your {friendly} account for this provider (preferred over an API key).
         </p>
+        {test.status === 'ok' || test.status === 'error' ? (
+          <div
+            className={cn(
+              'flex items-start gap-2 rounded-md px-3 py-2 text-body-sm break-words',
+              test.status === 'ok'
+                ? 'bg-success-subtle/40 text-fg-secondary'
+                : 'bg-error-subtle/40 text-fg-secondary',
+            )}
+          >
+            {test.status === 'ok' ? (
+              <CheckCircle2 size={14} className="text-success shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
+            )}
+            <span>{test.message}</span>
+          </div>
+        ) : null}
         {errorBox}
       </div>
     );

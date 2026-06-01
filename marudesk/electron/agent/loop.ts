@@ -4,6 +4,7 @@ import type {
   AgentChatState,
   AgentEdit,
   AgentMessage,
+  AgentReasoningPart,
   AgentSendInput,
   AgentSendResult,
   AgentTextPart,
@@ -23,8 +24,9 @@ import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { writeFileForEditor } from '../workspace';
-import { streamText, type ModelMessage } from 'ai';
-import { buildModel, aiTools, type ModelAuth } from './model';
+import { streamText, generateText, type ModelMessage } from 'ai';
+import { buildModel, aiTools, humanizeModelError, type ModelAuth } from './model';
+import { loadWorkspaceInstructions } from './instructions';
 import {
   ASK_USER,
   GATED_TOOLS,
@@ -138,8 +140,12 @@ function recordEdits(turnId: string, changes: AppliedChange[] | undefined): void
 }
 
 /** Compact, model-facing context for the first user turn (captures + tab). */
-function buildUserText(input: AgentSendInput, ws: WorkspaceSummary): string {
-  const lines: string[] = [`Workspace: ${ws.name} (${ws.files.length} files indexed).`];
+function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): string {
+  const lines: string[] = [
+    ws
+      ? `Workspace: ${ws.name} (${ws.files.length} files indexed).`
+      : 'No workspace is open — file tools (read/list/grep/edit) are unavailable. Browser and page tools (console/DOM/network/eval) work normally.',
+  ];
   if (input.tabId) {
     const rec = getTab(input.tabId);
     const url = rec?.view?.webContents.getURL();
@@ -191,7 +197,7 @@ type RunOpts = {
   baseUrl?: string;
   model: string;
   provider: AgentSendInput['provider'];
-  ws: WorkspaceSummary;
+  ws: WorkspaceSummary | null;
   tabId?: string;
   turnId: string;
   signal: AbortSignal;
@@ -204,10 +210,15 @@ async function runLoop(opts: RunOpts): Promise<void> {
   const tools = aiTools(TOOL_SCHEMAS);
   // Anthropic OAuth (subscription) requests are rejected unless the system prompt
   // starts with the Claude-Code identity line — prepend it for that path only.
-  const system =
+  const baseSystem =
     opts.auth.mode === 'oauth' && opts.provider === 'anthropic'
       ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SYSTEM_PROMPT}`
       : SYSTEM_PROMPT;
+  // Fold the repo's own instruction file (AGENTS.md / CLAUDE.md) into the system
+  // prompt so the agent follows project conventions (Track B §B2). Appended AFTER
+  // the Claude-Code prefix so the Anthropic-OAuth first-line requirement holds.
+  const instructions = await loadWorkspaceInstructions(opts.ws);
+  const system = instructions ? `${baseSystem}\n\n---\n\n${instructions}` : baseSystem;
   // The ChatGPT codex backend (openai-codex) requires store:false and rejects
   // max_output_tokens — omit the cap and pass the flag for that provider only.
   const codexBackend = opts.provider === 'openai-codex';
@@ -229,6 +240,11 @@ async function runLoop(opts: RunOpts): Promise<void> {
     state.messages.push(assistantMsg);
     emit();
 
+    // Reasoning ("extended thinking") streams on a separate channel; render it as
+    // a collapsible block ABOVE the answer (v3 §5-A). Created lazily on the first
+    // delta and kept display-only (never pushed into the provider transcript).
+    let reasoningPart: AgentReasoningPart | null = null;
+
     let toolUses: { id: string; name: string; input: unknown }[];
     try {
       const res = streamText({
@@ -246,6 +262,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
         if (part.type === 'text-delta') {
           textPart.text += part.text;
           emit();
+        } else if (part.type === 'reasoning-delta') {
+          if (!reasoningPart) {
+            reasoningPart = { type: 'reasoning', text: '' };
+            // Insert before the (parts[0]) text so it reads thought → answer.
+            assistantMsg.parts.unshift(reasoningPart);
+          }
+          reasoningPart.text += part.text;
+          emit();
         }
       }
       const calls = await res.toolCalls;
@@ -256,12 +280,17 @@ async function runLoop(opts: RunOpts): Promise<void> {
     } catch (err) {
       // Drop the optimistic streaming bubble if nothing was streamed into it, so
       // a failed/aborted step doesn't leave an empty assistant message behind.
-      if (!textPart.text.trim()) {
+      // Reasoning-only content still counts — keep a thinking-only bubble.
+      if (!textPart.text.trim() && !reasoningPart?.text.trim()) {
         const i = state.messages.indexOf(assistantMsg);
         if (i !== -1) state.messages.splice(i, 1);
       }
       if (opts.signal.aborted) return finish('completed', '(stopped by user)');
-      return finish('failed', undefined, (err as Error).message);
+      return finish(
+        'failed',
+        undefined,
+        humanizeModelError(err, opts.provider, opts.model),
+      );
     }
 
     // Attach tool-call cards to the streamed message + mirror the turn into the
@@ -272,7 +301,11 @@ async function runLoop(opts: RunOpts): Promise<void> {
       input: t.input,
       state: 'running',
     }));
-    if (!textPart.text.trim()) assistantMsg.parts = [];
+    // Drop the empty optimistic text part when the step produced only tool calls,
+    // but keep any reasoning part so the thinking stays visible above the tools.
+    if (!textPart.text.trim()) {
+      assistantMsg.parts = assistantMsg.parts.filter((p) => p.type === 'reasoning');
+    }
     for (const c of calls) assistantMsg.parts.push({ type: 'tool', call: c });
 
     const assistantContent: Array<
@@ -423,6 +456,90 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
 
 /* ── public API (handlers.ts) ───────────────────────────────────────────── */
 
+/**
+ * Resolve how a request authenticates. Built-in providers prefer an OAuth
+ * subscription connection (Claude Pro/Max) when one is stored, refreshing the
+ * token first; otherwise the stored API key. Custom endpoints (custom:<id>) carry
+ * their baseURL and treat the key as optional (many local OpenAI-compatible
+ * servers need none); built-in keyless (Ollama) runs no key. Shared by the turn
+ * loop and the Settings "Test connection" probe so both auth identically.
+ */
+async function resolveTurnAuth(
+  provider: AgentSendInput['provider'],
+): Promise<
+  { ok: true; auth: ModelAuth; baseUrl?: string } | { ok: false; reason: string }
+> {
+  let apiKey: string | null;
+  try {
+    apiKey = await getProviderApiKey(provider);
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message };
+  }
+  if (isBuiltinProviderId(provider)) {
+    let auth: ModelAuth | null = null;
+    if (supportsOAuth(provider)) {
+      let accessToken: string | null = null;
+      try {
+        accessToken = await getValidAccessToken(provider);
+      } catch (err) {
+        // The OAuth session is dead (getValidAccessToken just cleared it). Fall
+        // back to a stored API key if any; else surface the reconnect message.
+        if (!apiKey) return { ok: false, reason: (err as Error).message };
+      }
+      if (accessToken) auth = { mode: 'oauth', accessToken };
+    }
+    if (!auth) {
+      if (!apiKey && !getProvider(provider).keyless) {
+        return {
+          ok: false,
+          reason: supportsOAuth(provider)
+            ? `no API key or OAuth connection for ${provider}`
+            : `no API key configured for ${provider}`,
+        };
+      }
+      auth = { mode: 'api-key', apiKey: apiKey ?? '' };
+    }
+    return { ok: true, auth };
+  }
+  const custom = await getCustomProvider(provider);
+  if (!custom) return { ok: false, reason: `unknown custom provider ${provider}` };
+  return { ok: true, auth: { mode: 'api-key', apiKey: apiKey ?? '' }, baseUrl: custom.baseUrl };
+}
+
+/**
+ * A minimal live request to verify a provider's credentials work — for the
+ * Settings "Test connection" button. Especially useful for OAuth providers,
+ * which have no /models endpoint to probe (so the model-list path can't tell a
+ * dead token from a working one). Resolves auth exactly like a turn, then runs a
+ * tiny generateText against the provider's default model.
+ */
+export async function testProviderConnection(
+  provider: AgentSendInput['provider'],
+): Promise<{ ok: boolean; message: string }> {
+  const resolved = await resolveTurnAuth(provider);
+  if (!resolved.ok) return { ok: false, message: resolved.reason };
+  const model = isBuiltinProviderId(provider) ? getProvider(provider).defaultModelId : '';
+  if (!model) return { ok: false, message: 'No default model to test for this provider.' };
+  try {
+    const m = buildModel(provider, model, resolved.auth, resolved.baseUrl);
+    const codexBackend = provider === 'openai-codex';
+    const system =
+      resolved.auth.mode === 'oauth' && provider === 'anthropic'
+        ? CLAUDE_CODE_SYSTEM_PREFIX
+        : undefined;
+    await generateText({
+      model: m,
+      system,
+      prompt: 'Reply with the single word: ok',
+      maxOutputTokens: codexBackend ? undefined : 16,
+      providerOptions: codexBackend ? { openai: { store: false } } : undefined,
+    });
+    return { ok: true, message: `Connection works — ${model} responded.` };
+  } catch (err) {
+    return { ok: false, message: humanizeModelError(err, provider, model) };
+  }
+}
+
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
   // `starting` closes the window between this check and `state.status` going
   // busy (there's an `await getProviderApiKey` before we set it), so two
@@ -433,59 +550,19 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     if (!input.prompt || input.prompt.trim().length === 0) {
       return { ok: false, reason: 'enter a prompt' };
     }
-    let ws: WorkspaceSummary;
+    // AI Chat works without an open folder: file tools are disabled (the model
+    // is told so in the prompt, and they return a friendly error if called), but
+    // browser/page tools and a plain conversation still work. A workspace just
+    // unlocks the file tools.
+    let ws: WorkspaceSummary | null = null;
     try {
       ws = requireWorkspace().ws;
     } catch {
-      return { ok: false, reason: 'open a workspace first' };
+      ws = null;
     }
-    let apiKey: string | null;
-    try {
-      apiKey = await getProviderApiKey(input.provider);
-    } catch (err) {
-      return { ok: false, reason: (err as Error).message };
-    }
-    // Resolve how this turn authenticates. Built-in providers prefer an OAuth
-    // subscription connection (Claude Pro/Max) when one is stored, refreshing the
-    // token first; otherwise the stored API key. Custom endpoints (custom:<id>)
-    // carry their baseURL and treat the key as optional (many local
-    // OpenAI-compatible servers need none); built-in keyless (Ollama) runs no key.
-    let auth: ModelAuth | null = null;
-    let baseUrl: string | undefined;
-    if (isBuiltinProviderId(input.provider)) {
-      if (supportsOAuth(input.provider)) {
-        let accessToken: string | null = null;
-        try {
-          accessToken = await getValidAccessToken(input.provider);
-        } catch (err) {
-          // The OAuth session is dead (and getValidAccessToken just cleared it).
-          // Fall back to a stored API key if there is one; otherwise surface the
-          // reconnect message.
-          if (!apiKey) return { ok: false, reason: (err as Error).message };
-        }
-        if (accessToken) auth = { mode: 'oauth', accessToken };
-      }
-      if (!auth) {
-        if (!apiKey && !getProvider(input.provider).keyless) {
-          return {
-            ok: false,
-            reason: supportsOAuth(input.provider)
-              ? `no API key or OAuth connection for ${input.provider}`
-              : `no API key configured for ${input.provider}`,
-          };
-        }
-        auth = { mode: 'api-key', apiKey: apiKey ?? '' };
-      }
-    } else {
-      const custom = await getCustomProvider(input.provider);
-      if (!custom) {
-        return { ok: false, reason: `unknown custom provider ${input.provider}` };
-      }
-      baseUrl = custom.baseUrl;
-      auth = { mode: 'api-key', apiKey: apiKey ?? '' };
-    }
-    // Unreachable — both branches above assign or return — but it narrows the type.
-    if (!auth) return { ok: false, reason: `could not resolve auth for ${input.provider}` };
+    const resolved = await resolveTurnAuth(input.provider);
+    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    const { auth, baseUrl } = resolved;
 
     const turnId = uid('turn');
     controller = new AbortController();

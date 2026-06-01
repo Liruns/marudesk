@@ -62,6 +62,7 @@ const FEATURE_TITLES: Record<Exclude<TabKind, 'web'>, string> = {
   terminal: 'Terminal',
   editor: 'Editor',
   settings: 'Settings',
+  agent: 'AI Chat',
 };
 
 // Renderer input is never trusted: validate the kind before acting on it.
@@ -71,7 +72,8 @@ export function isTabKind(value: unknown): value is TabKind {
     value === 'home' ||
     value === 'terminal' ||
     value === 'editor' ||
-    value === 'settings'
+    value === 'settings' ||
+    value === 'agent'
   );
 }
 

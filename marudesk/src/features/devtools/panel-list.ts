@@ -1,12 +1,13 @@
 import type { DevtoolsPanel } from './store';
 
 /**
- * The panel registry, shared by the in-page dock (DevtoolsDock) and the pop-out
- * window (DevtoolsWindow) so the two stay in lockstep when a panel is added.
- * Data-only (no JSX) so it doesn't trip the react-refresh export rule.
+ * The panel registry (id → label), the source of truth for tool tab labels in
+ * the main bar and the bottom drawer (DevtoolsContent). Data-only (no JSX) so it
+ * doesn't trip the react-refresh export rule.
  *
- * Adding a panel = add it to the {@link DevtoolsPanel} union, here, and
- * `_enablePanel`/`freshSlices` in store.ts + the body switch in DevtoolsBody.
+ * Adding a panel = add it to the {@link DevtoolsPanel} union, here, the default
+ * `DEFAULT_TOOLS` arrangement + `_enablePanel` in store.ts, and the `PanelById`
+ * switch in DevtoolsBody.
  */
 export const PANELS: { id: DevtoolsPanel; label: string }[] = [
   { id: 'elements', label: 'Elements' },

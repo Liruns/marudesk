@@ -28,7 +28,12 @@ export type ToolSchema = {
 };
 
 export type ToolContext = {
-  ws: WorkspaceSummary;
+  /**
+   * The open workspace, or null when the user is chatting without a folder open.
+   * File tools (read/list/grep/edit) are then unavailable and return a friendly
+   * error; the browser/page tools (console/dom/network/eval) work regardless.
+   */
+  ws: WorkspaceSummary | null;
   /** The active web tab id — runtime tools (console/dom/network) target it. */
   tabId?: string;
   /** Aborts an in-flight tool (e.g. the wait inside reload_and_verify). */
@@ -45,8 +50,13 @@ export type ToolResult = {
   edits?: AppliedChange[];
 };
 
-/** Tools that mutate state / run arbitrary code → require explicit user approval. */
-export const GATED_TOOLS = new Set(['eval_js']);
+/**
+ * Tools that require explicit user approval per call: code execution (eval_js)
+ * and the sensitive read-only context tools (cookies / web storage often hold
+ * session tokens). This is the interim of Track B §B4's `ask` default until the
+ * full glob-permission / approval-mode system lands.
+ */
+export const GATED_TOOLS = new Set(['eval_js', 'browser_cookies', 'browser_storage']);
 
 /** `ask_user` is intercepted by the loop (it parks the turn), never executed here. */
 export const ASK_USER = 'ask_user';
@@ -129,7 +139,17 @@ async function evaluate(rec: TabRecord, expression: string): Promise<EvalOutcome
 
 /* ── file tools ─────────────────────────────────────────────────────────── */
 
+/** Uniform "file tools need an open folder" result for the no-workspace path. */
+function noWorkspaceResult(tool: string): ToolResult {
+  return {
+    summary: `${tool} (no workspace)`,
+    text: 'No folder is open, so file tools are unavailable. Ask the user to open a workspace (Explorer → Open Folder). Browser and page tools (console/DOM/network) work without one.',
+    isError: true,
+  };
+}
+
 async function readFile(input: { path?: unknown }, ctx: ToolContext): Promise<ToolResult> {
+  if (!ctx.ws) return noWorkspaceResult('read_file');
   const p = typeof input.path === 'string' ? input.path : '';
   if (!p) throw new Error('read_file requires "path"');
   if (SECRET_FILE.test(p)) {
@@ -144,6 +164,7 @@ async function readFile(input: { path?: unknown }, ctx: ToolContext): Promise<To
 }
 
 async function listFiles(input: { glob?: unknown }, ctx: ToolContext): Promise<ToolResult> {
+  if (!ctx.ws) return noWorkspaceResult('list_files');
   const glob = typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : '';
   const re = glob ? globToRegExp(glob) : null;
   const matched = ctx.ws.files
@@ -161,13 +182,15 @@ async function grep(
   input: { pattern?: unknown; glob?: unknown; maxResults?: unknown },
   ctx: ToolContext,
 ): Promise<ToolResult> {
+  if (!ctx.ws) return noWorkspaceResult('grep');
+  const ws = ctx.ws; // capture so the narrowing survives into the async closure below
   const pattern = typeof input.pattern === 'string' ? input.pattern : '';
   if (!pattern) throw new Error('grep requires "pattern"');
   const needle = pattern.toLowerCase();
   const max = typeof input.maxResults === 'number' ? Math.min(input.maxResults, 200) : MAX_GREP_RESULTS;
   const re = typeof input.glob === 'string' && input.glob.trim() ? globToRegExp(input.glob.trim()) : null;
 
-  const candidates = ctx.ws.files
+  const candidates = ws.files
     .filter((f) => INDEXABLE.has(path.extname(f.path).toLowerCase()))
     .filter((f) => (re ? re.test(f.path) : true))
     .slice(0, MAX_GREP_FILES);
@@ -181,7 +204,7 @@ async function grep(
   batches: for (let i = 0; i < candidates.length && hits.length < max; i += GREP_CONCURRENCY) {
     const batch = candidates.slice(i, i + GREP_CONCURRENCY);
     const contents = await Promise.all(
-      batch.map((f) => readFileSafe(ctx.ws.root, f.path).catch(() => null)),
+      batch.map((f) => readFileSafe(ws.root, f.path).catch(() => null)),
     );
     for (let j = 0; j < batch.length; j++) {
       const content = contents[j];
@@ -218,6 +241,7 @@ async function applyEdits(
   ctx: ToolContext,
   label: string,
 ): Promise<ToolResult> {
+  if (!ctx.ws) return noWorkspaceResult(label);
   const res = await applyPatch(ctx.ws, ops);
   if (!res.ok) {
     const why = res.errors.map((e) => `${e.path}: ${e.reason}`).join('; ');
@@ -251,10 +275,11 @@ async function multiEdit(input: { edits?: unknown }, ctx: ToolContext): Promise<
 /* ── runtime tools (CDP) ────────────────────────────────────────────────── */
 
 async function resolveErrorFile(
-  ws: WorkspaceSummary,
+  ws: WorkspaceSummary | null,
   origin: string,
   urls: string[],
 ): Promise<string | null> {
+  if (!ws) return null; // no workspace → can't map a stack frame to a source file
   for (const u of urls) {
     const rel = u ? urlToWorkspacePath(u, origin) : null;
     if (!rel) continue;
@@ -448,6 +473,65 @@ async function reloadAndVerify(
 
 type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
 
+/* ── context tools (Track B §B1 — on-demand, read-only, secret-scrubbed) ──── */
+
+async function browserCookies(_input: unknown, ctx: ToolContext): Promise<ToolResult> {
+  const rec = requireTab(ctx);
+  const res = (await sendCdp(rec, 'Network.getCookies')) as {
+    cookies?: Array<{
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      httpOnly?: boolean;
+      secure?: boolean;
+      expires?: number;
+    }>;
+  };
+  const cookies = res?.cookies ?? [];
+  if (cookies.length === 0) {
+    return { summary: 'no cookies', text: 'The page has no cookies.' };
+  }
+  const lines = cookies.map((c) => {
+    const flags = [c.httpOnly ? 'httpOnly' : '', c.secure ? 'secure' : '']
+      .filter(Boolean)
+      .join(' ');
+    return `${c.name}=${c.value}  [${c.domain}${c.path}${flags ? ` ${flags}` : ''}]`;
+  });
+  return {
+    summary: `${cookies.length} cookie${cookies.length === 1 ? '' : 's'}`,
+    text: clip(scrubText(lines.join('\n'))),
+  };
+}
+
+async function browserStorage(input: { kind?: unknown }, ctx: ToolContext): Promise<ToolResult> {
+  const rec = requireTab(ctx);
+  const origin = tabOrigin(rec);
+  if (!origin) {
+    return { summary: 'storage', text: 'The page has no origin — cannot read web storage.', isError: true };
+  }
+  // DOMStorage commands need the domain enabled first (idempotent; shared safely
+  // with the Application panel — both read the one debugger's stream).
+  await sendCdp(rec, 'DOMStorage.enable').catch(() => {});
+  const want = input.kind === 'session' ? 'session' : input.kind === 'local' ? 'local' : 'both';
+  const read = async (isLocalStorage: boolean): Promise<string[]> => {
+    const res = (await sendCdp(rec, 'DOMStorage.getDOMStorageItems', {
+      storageId: { securityOrigin: origin, isLocalStorage },
+    })) as { entries?: [string, string][] };
+    return (res?.entries ?? []).map(([k, v]) => `${k}=${v}`);
+  };
+  const blocks: string[] = [];
+  if (want === 'local' || want === 'both') {
+    const items = await read(true).catch(() => []);
+    blocks.push(`localStorage (${items.length}):\n${items.join('\n') || '(empty)'}`);
+  }
+  if (want === 'session' || want === 'both') {
+    const items = await read(false).catch(() => []);
+    blocks.push(`sessionStorage (${items.length}):\n${items.join('\n') || '(empty)'}`);
+  }
+  return { summary: `storage @ ${origin}`, text: clip(scrubText(blocks.join('\n\n'))) };
+}
+
 const EXECUTORS: Record<string, Executor> = {
   read_file: readFile as Executor,
   list_files: listFiles as Executor,
@@ -460,6 +544,8 @@ const EXECUTORS: Record<string, Executor> = {
   read_network: readNetwork as Executor,
   read_network_body: readNetworkBody as Executor,
   reload_and_verify: reloadAndVerify as Executor,
+  browser_cookies: browserCookies as Executor,
+  browser_storage: browserStorage as Executor,
 };
 
 export async function executeTool(
@@ -573,6 +659,16 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       properties: { waitMs: { type: 'number', description: 'Settle wait, max 5000 (default 2500).' }, errorSignature: strProp('A substring of the error you expect to be gone.') },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'browser_cookies',
+    description: "Read the live page's cookies (name, value, domain, flags). Read-only; values are secret-scrubbed. Requires user approval. Use to debug auth/session state.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'browser_storage',
+    description: "Read the live page's localStorage and/or sessionStorage entries. Read-only; values are secret-scrubbed. Requires user approval.",
+    inputSchema: { type: 'object', properties: { kind: strProp("'local', 'session', or omit for both.") }, additionalProperties: false },
   },
   {
     name: ASK_USER,

@@ -45,8 +45,10 @@ test('devtools: opening the dock on a web tab renders the live DOM tree', async 
     await expect(dock).toBeVisible();
     await expect(dock.getByRole('treeitem').first()).toBeVisible();
 
-    // Panel switching works.
-    await dock.getByRole('button', { name: 'Console' }).click();
+    // The Console lives in the bottom drawer by default (Chrome-style); Esc
+    // opens the drawer (when DevTools has focus), revealing the REPL input.
+    await dock.focus();
+    await page.keyboard.press('Escape');
     await expect(dock.getByPlaceholder('Evaluate JavaScript')).toBeVisible();
   } finally {
     await app.close();
@@ -97,7 +99,9 @@ test('devtools: "Fix this" on a console error sends it to the composer (P0)', as
 
     const dock = page.getByLabel('DevTools', { exact: true });
     await expect(dock).toBeVisible();
-    await dock.getByRole('button', { name: 'Console' }).click();
+    // Console lives in the bottom drawer by default; Esc opens it.
+    await dock.focus();
+    await page.keyboard.press('Escape');
 
     // Drive a real console error through CDP via the REPL: console.error fires
     // Runtime.consoleAPICalled(type:'error'), which the relay surfaces as an
@@ -113,6 +117,44 @@ test('devtools: "Fix this" on a console error sends it to the composer (P0)', as
 
     // The error becomes a console-error Capture in the composer context.
     await expect(page.getByText('Added to context')).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test('devtools: Esc toggles the bottom drawer and a tab moves to the main bar', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(() =>
+      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
+    );
+    const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
+    await expect(wrench).toBeVisible();
+    await wrench.click();
+
+    const dock = page.getByLabel('DevTools', { exact: true });
+    await expect(dock).toBeVisible();
+
+    // Drawer starts closed (Console, its default tool, is hidden). Esc opens it.
+    const repl = dock.getByPlaceholder('Evaluate JavaScript');
+    await expect(repl).toHaveCount(0);
+    await dock.focus();
+    await page.keyboard.press('Escape');
+    await expect(repl).toBeVisible();
+    // Esc again closes it.
+    await page.keyboard.press('Escape');
+    await expect(repl).toHaveCount(0);
+
+    // Re-open, then move the Console tab up to the main bar via its context menu.
+    await page.keyboard.press('Escape');
+    const consoleTab = dock.getByRole('button', { name: 'Console', exact: true });
+    await expect(consoleTab).toBeVisible();
+    await consoleTab.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Move to top' }).click();
+    // The move keeps Console available (now in the main bar) — its REPL stays
+    // mounted as the active main panel.
+    await expect(dock.getByRole('button', { name: 'Console', exact: true })).toBeVisible();
+    await expect(repl).toBeVisible();
   } finally {
     await app.close();
   }

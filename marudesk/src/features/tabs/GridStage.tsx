@@ -26,11 +26,12 @@ const TAB_DND_MIME = 'application/x-marudesk-tab';
  * a measured placeholder whose rect is shipped to main (which positions the
  * matching WebContentsView there); feature tabs render their React view inline.
  *
- * Only mounted when `useGridStore.layout` is non-null — `Stage` keeps the
- * single-view path untouched otherwise.
+ * Mounted by `Stage` with the active tab's split group as `layout`; `Stage`
+ * keeps the single-view path for a standalone (ungrouped) active tab. Switching
+ * to a tab in a different group re-renders this with that group's tree (and
+ * re-measures); switching to a standalone tab unmounts it (→ clear-pane-bounds).
  */
-export function GridStage() {
-  const layout = useGridStore((s) => s.layout);
+export function GridStage({ layout }: { layout: LayoutNode }) {
   const draggingTabId = useGridStore((s) => s.draggingTabId);
   const rootRef = useRef<HTMLDivElement>(null);
   // Live element refs for every web pane, keyed by leaf id, so we can measure
@@ -107,8 +108,6 @@ export function GridStage() {
       void window.marudesk.invoke('browser:set-visible', true);
     };
   }, [draggingTabId]);
-
-  if (!layout) return null;
 
   return (
     <div

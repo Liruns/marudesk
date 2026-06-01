@@ -18,6 +18,12 @@ import {
   type SearchEngine,
   type ThemeMode,
 } from '../../../shared/settings';
+import {
+  MONO_FONT_PRESETS,
+  UI_FONT_PRESETS,
+  isGenericFamily,
+  type FontOption,
+} from '../../../shared/fonts';
 import { cn } from '../../lib/cn';
 import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
@@ -139,10 +145,13 @@ function AppearanceCategory() {
           onChange={(uiZoom) => void update({ appearance: { uiZoom } })}
         />
       </Field>
-      <Field label="UI font" hint="Empty uses the bundled Inter stack.">
-        <TextField
+      <Field
+        label="UI font"
+        hint="Falls back to the bundled Inter stack when unset or unavailable."
+      >
+        <FontField
           value={a.uiFontFamily}
-          placeholder="Default (Inter)"
+          presets={UI_FONT_PRESETS}
           onCommit={(uiFontFamily) => void update({ appearance: { uiFontFamily } })}
         />
       </Field>
@@ -155,10 +164,10 @@ function EditorCategory() {
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
-      <Field label="Font family">
-        <TextField
+      <Field label="Font family" hint="Falls back to JetBrains Mono if unavailable.">
+        <FontField
           value={a.editorFontFamily}
-          placeholder="Default (JetBrains Mono)"
+          presets={MONO_FONT_PRESETS}
           onCommit={(editorFontFamily) =>
             void update({ appearance: { editorFontFamily } })
           }
@@ -187,10 +196,10 @@ function TerminalCategory() {
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
-      <Field label="Font family">
-        <TextField
+      <Field label="Font family" hint="Falls back to JetBrains Mono if unavailable.">
+        <FontField
           value={a.terminalFontFamily}
-          placeholder="Default (JetBrains Mono)"
+          presets={MONO_FONT_PRESETS}
           onCommit={(terminalFontFamily) =>
             void update({ appearance: { terminalFontFamily } })
           }
@@ -450,6 +459,78 @@ function Stepper({
       >
         <Plus />
       </button>
+    </div>
+  );
+}
+
+const CUSTOM_FONT = '__custom__';
+
+/** Best-effort "is this font installed?" via FontFaceSet (renderer-only). */
+function isFontAvailable(family: string): boolean {
+  const f = family.trim();
+  if (!f || isGenericFamily(f)) return true;
+  try {
+    if (!document.fonts?.check) return true;
+    return document.fonts.check(`12px '${f.replace(/'/g, '')}'`);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Font picker: a dropdown of curated, cross-platform presets plus a "Custom…"
+ * escape hatch that reveals a free-text field. A typed family that isn't
+ * detected on this machine shows an inline note — it still works (the fallback
+ * stack renders) but the warning sets expectations, covering the "what if the
+ * user doesn't have this font installed" case.
+ */
+function FontField({
+  value,
+  presets,
+  onCommit,
+}: {
+  value: string;
+  presets: readonly FontOption[];
+  onCommit: (value: string) => void;
+}) {
+  const known = presets.some((p) => p.value === value);
+  const [customMode, setCustomMode] = useState(!known && value !== '');
+  const showCustom = customMode || (!known && value !== '');
+  const available = isFontAvailable(value);
+  return (
+    <div className="flex flex-col items-stretch gap-1.5 w-[240px] max-w-[40vw]">
+      <select
+        value={showCustom ? CUSTOM_FONT : value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === CUSTOM_FONT) {
+            setCustomMode(true);
+          } else {
+            setCustomMode(false);
+            if (v !== value) onCommit(v);
+          }
+        }}
+        className={cn(
+          'h-8 w-full rounded-md bg-surface-page border border-default px-2.5',
+          'text-body-sm text-fg-primary',
+          'focus:outline-none focus:border-accent transition-colors duration-fast',
+        )}
+      >
+        {presets.map((p) => (
+          <option key={p.value || 'default'} value={p.value}>
+            {p.label}
+          </option>
+        ))}
+        <option value={CUSTOM_FONT}>Custom…</option>
+      </select>
+      {showCustom ? (
+        <TextField value={value} placeholder="Font family name" onCommit={onCommit} />
+      ) : null}
+      {showCustom && value.trim() && !available ? (
+        <span className="text-caption text-warning">
+          “{value}” isn’t detected on this system — a fallback font is used.
+        </span>
+      ) : null}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   revertEdit,
   snapshot,
   startTurn,
+  testProviderConnection,
 } from './loop';
 
 /**
@@ -81,4 +82,11 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:snapshot', () => snapshot());
 
   defineHandler('agent:reset', () => reset());
+
+  // Settings "Test connection" — a minimal live request to verify a provider's
+  // key/OAuth actually works (OAuth providers have no /models endpoint to probe).
+  defineHandler('providers:test-connection', ([provider]) => {
+    if (!isProviderId(provider)) throw new Error('invalid provider');
+    return testProviderConnection(provider);
+  });
 }

@@ -36,7 +36,7 @@ export type NavState = {
  * (`isTabKind`) / title table (`FEATURE_TITLES`) all derive from this single
  * list and can't drift: add a kind here and it widens everywhere at once.
  */
-export const FEATURE_KINDS = ['home', 'terminal', 'editor', 'settings'] as const;
+export const FEATURE_KINDS = ['home', 'terminal', 'editor', 'settings', 'agent'] as const;
 
 /** A non-web tab kind (one of {@link FEATURE_KINDS}). */
 export type FeatureKind = (typeof FEATURE_KINDS)[number];
@@ -49,6 +49,7 @@ export type FeatureKind = (typeof FEATURE_KINDS)[number];
  *   terminal — an integrated shell (React)
  *   editor   — a code editor (React)
  *   settings — the app settings surface (React)
+ *   agent    — the full-surface AI Chat (React; also mirrored in the drawer)
  * Only `web` owns a WebContentsView; feature kinds render in the React stage.
  */
 export type TabKind = 'web' | FeatureKind;

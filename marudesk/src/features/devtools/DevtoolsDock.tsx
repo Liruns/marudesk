@@ -1,10 +1,8 @@
-import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { ExternalLink, PanelBottom, PanelRight, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useDevtoolsStore } from './store';
-import { PANELS } from './panel-list';
-import { PanelTab } from './panels';
-import { DevtoolsBody } from './DevtoolsBody';
+import { MainTabBar, DevtoolsContent } from './DevtoolsContent';
 
 /**
  * The DevTools dock: a React flex sibling of the browser stage (mounted by
@@ -16,6 +14,11 @@ import { DevtoolsBody } from './DevtoolsBody';
  * It reads its own parent element's rect to compute that web rect, so it needs
  * no knowledge of the toolbar above the stage — the flex wrapper is exactly
  * `[stage][dock]`.
+ *
+ * The bottom drawer (Chrome-style) lives INSIDE the dock body (DevtoolsContent),
+ * so opening it doesn't change the dock's outer rect — the web view needs no
+ * extra shrink. Esc toggles the drawer (when no Console autocomplete popup is
+ * intercepting it; that popup stops propagation so its own Esc closes it first).
  */
 
 const MIN_PAGE = 160;
@@ -23,10 +26,30 @@ const MIN_PAGE = 160;
 export function DevtoolsDock() {
   const side = useDevtoolsStore((s) => s.side);
   const size = useDevtoolsStore((s) => s.size);
-  const panel = useDevtoolsStore((s) => s.panel);
   const dropped = useDevtoolsStore((s) => s.dropped);
   const ref = useRef<HTMLDivElement>(null);
   const isRight = side === 'right';
+
+  // Esc toggles the bottom drawer (Chrome-style). A window-level (bubble)
+  // listener so it works regardless of which dock element has focus, but guarded
+  // so it never hijacks Esc from inputs OUTSIDE the dock (address bar, agent
+  // chat): it only acts when focus is within the dock or nowhere in particular.
+  // The Console autocomplete popup stops propagation on its own Esc (so the
+  // popup closes first), and a context menu marks the event defaultPrevented —
+  // both keep this from double-acting.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const dock = ref.current;
+      const active = document.activeElement;
+      const focusOutside =
+        active && active !== document.body && dock && !dock.contains(active);
+      if (focusOutside) return;
+      useDevtoolsStore.getState().toggleDrawer();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const onHandleDown = (e: ReactPointerEvent) => {
     e.preventDefault();
@@ -67,9 +90,10 @@ export function DevtoolsDock() {
   return (
     <div
       ref={ref}
+      tabIndex={-1}
       style={isRight ? { width: size } : { height: size }}
       className={cn(
-        'shrink-0 relative flex flex-col min-w-0 min-h-0 bg-surface-1 overflow-hidden',
+        'shrink-0 relative flex flex-col min-w-0 min-h-0 bg-surface-1 overflow-hidden outline-none',
         isRight ? 'border-l border-subtle' : 'border-t border-subtle',
       )}
       aria-label="DevTools"
@@ -86,16 +110,9 @@ export function DevtoolsDock() {
         aria-hidden
       />
 
-      {/* Header: panel tabs + dock controls */}
+      {/* Header: main panel tabs + dock controls */}
       <div className="shrink-0 h-9 flex items-center gap-0.5 pl-2 pr-1 border-b border-subtle bg-surface-2/40">
-        {PANELS.map((p) => (
-          <PanelTab
-            key={p.id}
-            label={p.label}
-            active={panel === p.id}
-            onClick={() => useDevtoolsStore.getState().setPanel(p.id)}
-          />
-        ))}
+        <MainTabBar />
         <div className="flex-1" />
         {dropped > 0 ? (
           <span
@@ -122,8 +139,8 @@ export function DevtoolsDock() {
         </DockIconButton>
       </div>
 
-      {/* Body */}
-      <DevtoolsBody />
+      {/* Body: main panel + bottom drawer */}
+      <DevtoolsContent />
     </div>
   );
 }

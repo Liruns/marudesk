@@ -66,6 +66,8 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
+    "dompurify": "^3.4.7",
+    "marked": "^15.0.12",
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.67",
     "@ai-sdk/openai-compatible": "^2.0.48",
@@ -85,6 +87,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/dompurify": "^3.0.5",
     "@playwright/test": "^1.60.0",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",

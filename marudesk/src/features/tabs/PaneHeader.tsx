@@ -8,6 +8,7 @@ import {
   Lock,
   RotateCw,
   SlidersHorizontal,
+  Sparkles,
   SquareTerminal,
   X,
 } from 'lucide-react';
@@ -33,6 +34,7 @@ const KIND_ICON: Record<TabKind, ComponentType<{ size?: number }>> = {
   editor: Code2,
   home: House,
   settings: SlidersHorizontal,
+  agent: Sparkles,
 };
 
 const KIND_LABEL: Record<Exclude<TabKind, 'web'>, string> = {
@@ -40,6 +42,7 @@ const KIND_LABEL: Record<Exclude<TabKind, 'web'>, string> = {
   editor: 'Editor',
   home: 'New Tab',
   settings: 'Settings',
+  agent: 'AI Chat',
 };
 
 export function PaneHeader({

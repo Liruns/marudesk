@@ -2,6 +2,7 @@ import {
   useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import {
@@ -48,6 +49,24 @@ function parentOf(rel: string): string {
   return i >= 0 ? rel.slice(0, i) : '';
 }
 
+// Explorer width is user-resizable (VSCode/Cursor pattern). Persisted locally so
+// it survives reloads; clamped so the panel can't be dragged uselessly thin or
+// eat the whole window.
+const EXPLORER_MIN = 180;
+const EXPLORER_MAX = 560;
+const EXPLORER_DEFAULT = 260;
+const EXPLORER_WIDTH_KEY = 'marudesk.explorerWidth';
+
+function readExplorerWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(EXPLORER_WIDTH_KEY));
+    if (Number.isFinite(v) && v >= EXPLORER_MIN && v <= EXPLORER_MAX) return v;
+  } catch {
+    // localStorage unavailable — fall through to the default.
+  }
+  return EXPLORER_DEFAULT;
+}
+
 /**
  * Left-hand Explorer sidebar — the workspace file tree, VSCode/Cursor pattern.
  * Hosts open/refresh/collapse/new in the header, the tree, inline rename/new
@@ -75,6 +94,36 @@ export function ExplorerPanel({ open }: Props) {
   const openFile = useEditorStore((s) => s.openFile);
 
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [width, setWidth] = useState(readExplorerWidth);
+  const [resizing, setResizing] = useState(false);
+
+  // Drag the right edge to resize. Pointer capture keeps move events flowing
+  // even when the cursor outruns the 1px seam; the stage to the right reflows
+  // automatically (its ResizeObserver re-reports web-view bounds to main).
+  const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const asideLeft = handle.parentElement?.getBoundingClientRect().left ?? 0;
+    handle.setPointerCapture(e.pointerId);
+    setResizing(true);
+    let last = width;
+    const onMove = (ev: PointerEvent) => {
+      last = Math.min(EXPLORER_MAX, Math.max(EXPLORER_MIN, ev.clientX - asideLeft));
+      setWidth(last);
+    };
+    const onDone = () => {
+      setResizing(false);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('lostpointercapture', onDone);
+      try {
+        localStorage.setItem(EXPLORER_WIDTH_KEY, String(Math.round(last)));
+      } catch {
+        // best-effort persistence
+      }
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('lostpointercapture', onDone);
+  };
 
   const tree = useMemo(
     () => (summary ? buildFileTree(summary.files) : []),
@@ -142,12 +191,13 @@ export function ExplorerPanel({ open }: Props) {
       aria-label="Explorer"
       aria-hidden={!open}
       className={cn(
-        'shrink-0 bg-surface-1 border-r border-subtle overflow-hidden',
-        'transition-[width] duration-standard',
+        'relative shrink-0 bg-surface-1 border-r border-subtle overflow-hidden',
+        // No width transition mid-drag — it would lag a frame behind the pointer.
+        resizing ? '' : 'transition-[width] duration-standard',
       )}
-      style={{ width: open ? 260 : 0 }}
+      style={{ width: open ? width : 0 }}
     >
-      <div className="w-[260px] h-full flex flex-col">
+      <div className="h-full flex flex-col" style={{ width }}>
         <header className="h-9 shrink-0 flex items-center justify-between pl-3 pr-1.5 border-b border-subtle">
           <h2 className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
             Explorer
@@ -252,6 +302,23 @@ export function ExplorerPanel({ open }: Props) {
           </div>
         )}
       </div>
+
+      {open ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize Explorer"
+          onPointerDown={onResizeStart}
+          className={cn(
+            'absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize',
+            'transition-colors duration-fast',
+            resizing ? 'bg-accent' : 'bg-transparent hover:bg-accent/60',
+          )}
+        >
+          {/* Wider invisible hit area, kept inside the panel (overflow-hidden). */}
+          <span aria-hidden className="absolute inset-y-0 -left-1 right-0" />
+        </div>
+      ) : null}
 
       {menu ? (
         <ContextMenu

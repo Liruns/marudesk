@@ -217,6 +217,7 @@ export async function getValidAccessToken(provider: ProviderId): Promise<string 
       await clearProviderOAuth(provider).catch(() => {});
       throw new Error(
         `${labelFor(provider)} OAuth session expired — reconnect in Settings → AI Providers.`,
+        { cause: err },
       );
     }
     throw err;

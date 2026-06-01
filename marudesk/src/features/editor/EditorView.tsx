@@ -1,13 +1,66 @@
-import { lazy, Suspense, useEffect, type ReactNode } from 'react';
-import { Ban, FileCode2, FileWarning } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Ban, Columns2, Eye, FileCode2, FileWarning, Pencil } from 'lucide-react';
 import { Spinner } from '../../components/ui';
+import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
 import { isDirty, untitledDocKey, useEditorStore, type FileBuf } from './store';
+import { MarkdownPreview } from './MarkdownPreview';
 
 // Monaco is heavy; load it on first file open rather than at app start.
 const MonacoView = lazy(() =>
   import('./MonacoView').then((m) => ({ default: m.MonacoView })),
 );
+
+type MarkdownMode = 'edit' | 'preview' | 'split';
+
+function isMarkdown(path: string | undefined): boolean {
+  if (!path) return false;
+  const lower = path.toLowerCase();
+  return lower.endsWith('.md') || lower.endsWith('.markdown');
+}
+
+/** Small segmented control for Edit / Split / Preview toggle. */
+function MarkdownModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: MarkdownMode;
+  onChange: (m: MarkdownMode) => void;
+}) {
+  const items: { value: MarkdownMode; Icon: typeof Pencil; label: string }[] = [
+    { value: 'edit', Icon: Pencil, label: 'Edit' },
+    { value: 'split', Icon: Columns2, label: 'Split' },
+    { value: 'preview', Icon: Eye, label: 'Preview' },
+  ];
+
+  return (
+    <div
+      className="flex items-center gap-px rounded bg-surface-2 p-px"
+      role="group"
+      aria-label="Markdown view mode"
+    >
+      {items.map(({ value, Icon, label }) => (
+        <button
+          key={value}
+          type="button"
+          title={label}
+          aria-label={label}
+          aria-pressed={mode === value}
+          onClick={() => onChange(value)}
+          className={cn(
+            'flex items-center justify-center size-5 rounded-sm transition-colors duration-fast',
+            'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
+            mode === value
+              ? 'bg-surface-3 text-fg-primary'
+              : 'text-fg-tertiary hover:text-fg-secondary',
+          )}
+        >
+          <Icon size={12} />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /**
  * The 'editor' tab kind. Resolves the active editor tab's bound file, loads it
@@ -33,6 +86,13 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   const ensureLoaded = useEditorStore((s) => s.ensureLoaded);
   const buf = useEditorStore((s) => (docKey ? s.files[docKey] : undefined));
 
+  // View mode for markdown files. The chosen mode is remembered across files; a
+  // non-markdown buffer always renders as plain Edit. Derived (not reset via an
+  // effect) so we don't setState in an effect — react-hooks/set-state-in-effect.
+  const [mdMode, setMdMode] = useState<MarkdownMode>('edit');
+  const isMd = isMarkdown(filePath);
+  const mode: MarkdownMode = isMd ? mdMode : 'edit';
+
   useEffect(() => {
     if (docKey) void ensureLoaded(docKey);
   }, [docKey, ensureLoaded]);
@@ -56,6 +116,7 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   if (buf.status === 'error') return <ErrorState path={docKey} buf={buf} />;
 
   const label = isUntitled ? editorTab?.title || 'Untitled' : filePath;
+  const content = buf.content ?? '';
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
@@ -67,6 +128,9 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
           {label}
         </span>
         <span className="flex-1" aria-hidden />
+        {isMd && (
+          <MarkdownModeToggle mode={mode} onChange={setMdMode} />
+        )}
         {buf.saving ? (
           <span className="text-accent">Saving…</span>
         ) : isDirty(buf) ? (
@@ -78,15 +142,40 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
           <span className="text-fg-tertiary">Saved</span>
         )}
       </header>
-      <Suspense
-        fallback={
-          <div className="flex-1 min-w-0 flex items-center justify-center">
-            <Spinner size={18} />
+
+      {/* Body: Monaco / Split / Preview depending on mode */}
+      <div className="flex-1 min-h-0 min-w-0 flex">
+        {/* Monaco pane — hidden in preview-only mode */}
+        {(mode === 'edit' || mode === 'split') && (
+          <div
+            className={cn(
+              'flex min-h-0 min-w-0',
+              mode === 'split' ? 'w-1/2 border-r border-subtle' : 'flex-1',
+            )}
+          >
+            <Suspense
+              fallback={
+                <div className="flex-1 min-w-0 flex items-center justify-center">
+                  <Spinner size={18} />
+                </div>
+              }
+            >
+              <MonacoView path={docKey} />
+            </Suspense>
           </div>
-        }
-      >
-        <MonacoView path={docKey} />
-      </Suspense>
+        )}
+
+        {/* Preview pane — shown in preview and split modes */}
+        {isMd && (mode === 'preview' || mode === 'split') && (
+          <MarkdownPreview
+            content={content}
+            className={cn(
+              'min-h-0 bg-surface-page',
+              mode === 'split' ? 'w-1/2' : 'flex-1',
+            )}
+          />
+        )}
+      </div>
     </div>
   );
 }

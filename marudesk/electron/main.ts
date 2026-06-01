@@ -114,6 +114,29 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   });
 
+  // App-level zoom: intercept Ctrl/Cmd +/-/0 on the HOST renderer so Chromium's
+  // built-in zoom (unmanaged, non-persisted, and asymmetric — Ctrl+Shift+- never
+  // mapped to zoom-out) can't fire. We forward the intent to the renderer, which
+  // zooms the active web page or scales the whole UI via the persisted
+  // Interface-zoom setting. A focused web *view* has its own handler
+  // (electron/browser/tabs.ts) for when the page itself holds keyboard focus.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.alt) return;
+    if (!(input.control || input.meta)) return;
+    const k = input.key;
+    const dir =
+      k === '=' || k === '+'
+        ? 'in'
+        : k === '-' || k === '_'
+          ? 'out'
+          : k === '0'
+            ? 'reset'
+            : null;
+    if (!dir) return;
+    event.preventDefault();
+    win.webContents.send('app:ui-zoom', dir);
+  });
+
   if (rendererDevUrl) {
     await win.loadURL(rendererDevUrl);
     win.webContents.openDevTools({ mode: 'detach' });

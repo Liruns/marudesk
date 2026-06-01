@@ -46,6 +46,11 @@ type ProvidersState = {
   selectedProvider: ProviderId;
   selectedModel: string;
 
+  /** Recently selected model keys, most-recent first (persisted) — drives the picker's Recent group. */
+  recentModelKeys: string[];
+  /** Favorited model keys (persisted) — pinned to the top of the picker. */
+  favoriteModelKeys: string[];
+
   /** Flat catalog: static {@link MODELS} + each built-in's live list + custom models. */
   models: ModelEntry[];
   /** User-configured custom OpenAI-compatible endpoints (with key presence). */
@@ -78,6 +83,8 @@ type ProvidersState = {
 type ProvidersActions = {
   /** Model-first selection — sets the key and syncs provider/model. */
   selectModel: (key: string) => void;
+  /** Toggle a model key in favorites (persisted). */
+  toggleFavorite: (key: string) => void;
   refreshProviderStatus: () => Promise<void>;
   refreshModels: (provider: BuiltinProviderId, force?: boolean) => Promise<void>;
   selectKeyProvider: (id: BuiltinProviderId) => void;
@@ -85,6 +92,11 @@ type ProvidersActions = {
   saveProviderKey: () => Promise<void>;
   clearProviderKey: () => Promise<void>;
   testConnection: (provider: BuiltinProviderId) => Promise<void>;
+  /** Real minimal-call connection test (Settings) — works for OAuth providers,
+   *  which have no /models endpoint to probe. Returns the ok/message verbatim. */
+  testProviderConnection: (
+    provider: BuiltinProviderId,
+  ) => Promise<{ ok: boolean; message: string }>;
   /** Whether the active model's provider has usable auth — key, keyless, or OAuth. */
   hasKeyForSelected: () => boolean;
 
@@ -128,6 +140,8 @@ function toEntries(provider: BuiltinProviderId, defs: ModelDef[]): ModelEntry[] 
       provider,
       contextWindow: stat?.contextWindow,
       tools: stat?.tools ?? true,
+      vision: stat?.vision,
+      reasoning: stat?.reasoning,
     };
   });
 }
@@ -174,9 +188,28 @@ function projectCustoms(
   };
 }
 
+/**
+ * Selection keys that were removed/renamed in the catalog, mapped to their
+ * replacement. Applied on load so an existing persisted pick doesn't keep
+ * failing: e.g. `openai-codex:gpt-5` 400s on the ChatGPT Codex backend ("not
+ * supported when using Codex with a ChatGPT account"), so remap it to the
+ * working `-codex` slug. The raw-key fallback in {@link deriveSelection} would
+ * otherwise resurrect the dead slug verbatim.
+ */
+const REMOVED_KEY_MIGRATIONS: Record<string, string> = {
+  'openai-codex:gpt-5': 'openai-codex:gpt-5-codex',
+  // xAI retired grok-2/3/4* and grok-code-fast-1 on 2026-05-15 (requests now
+  // redirect to grok-4.3) — remap dead persisted picks to the live models.
+  'xai:grok-4': 'xai:grok-4.3',
+  'xai:grok-3': 'xai:grok-4.3',
+  'xai:grok-3-mini': 'xai:grok-4.3',
+  'xai:grok-code-fast-1': 'xai:grok-build-0.1',
+};
+
 function loadSelectedKey(): string {
   try {
-    return localStorage.getItem(SELECTED_KEY) || DEFAULT_MODEL_KEY;
+    const raw = localStorage.getItem(SELECTED_KEY) || DEFAULT_MODEL_KEY;
+    return REMOVED_KEY_MIGRATIONS[raw] ?? raw;
   } catch {
     return DEFAULT_MODEL_KEY;
   }
@@ -185,6 +218,28 @@ function loadSelectedKey(): string {
 function persistSelectedKey(key: string): void {
   try {
     localStorage.setItem(SELECTED_KEY, key);
+  } catch {
+    // best-effort
+  }
+}
+
+const RECENT_KEY = 'marudesk.providers.recentModelKeys';
+const FAVORITES_KEY = 'marudesk.providers.favoriteModelKeys';
+const MAX_RECENT = 6;
+
+/** Load a persisted list of model keys (recents / favorites); tolerant of bad JSON. */
+function loadKeyList(storageKey: string): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistKeyList(storageKey: string, list: string[]): void {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(list));
   } catch {
     // best-effort
   }
@@ -215,6 +270,8 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
   selectedModelKey: initial.key,
   selectedProvider: initial.provider,
   selectedModel: initial.model,
+  recentModelKeys: loadKeyList(RECENT_KEY),
+  favoriteModelKeys: loadKeyList(FAVORITES_KEY),
 
   models: [...MODELS],
   customProviders: [],
@@ -241,9 +298,25 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
   selectModel: (key) => {
     const entry = findModel(get().models, key);
     if (!entry) return;
-    set({ selectedModelKey: key, selectedProvider: entry.provider, selectedModel: entry.id });
+    const recent = [key, ...get().recentModelKeys.filter((k) => k !== key)].slice(0, MAX_RECENT);
+    persistKeyList(RECENT_KEY, recent);
+    set({
+      selectedModelKey: key,
+      selectedProvider: entry.provider,
+      selectedModel: entry.id,
+      recentModelKeys: recent,
+    });
     persistSelectedKey(key);
     if (isBuiltinProviderId(entry.provider)) void get().refreshModels(entry.provider);
+  },
+
+  toggleFavorite: (key) => {
+    const has = get().favoriteModelKeys.includes(key);
+    const next = has
+      ? get().favoriteModelKeys.filter((k) => k !== key)
+      : [...get().favoriteModelKeys, key];
+    persistKeyList(FAVORITES_KEY, next);
+    set({ favoriteModelKeys: next });
   },
 
   hasKeyForSelected: () => {
@@ -368,6 +441,14 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
       set((s) => ({
         testByProvider: { ...s.testByProvider, [provider]: { status: 'error', message: toMessage(err) } },
       }));
+    }
+  },
+
+  testProviderConnection: async (provider) => {
+    try {
+      return await window.marudesk.invoke('providers:test-connection', provider);
+    } catch (err) {
+      return { ok: false, message: toMessage(err) };
     }
   },
 

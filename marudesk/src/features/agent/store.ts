@@ -6,7 +6,6 @@ import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
 import { useProvidersStore } from '../providers/store';
 import { useTabsStore } from '../tabs/store';
-import { useWorkspaceStore } from '../workspace/store';
 
 /**
  * Renderer projection of the agentic AI Chat (docs/agentic-chat-design.md §8).
@@ -74,10 +73,9 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     const provider = providers.selectedProvider;
     const model = providers.selectedModel;
     const hasKey = providers.hasKeyForSelected();
-    if (!useWorkspaceStore.getState().summary) {
-      set({ localError: 'Open a workspace before chatting with the agent.' });
-      return;
-    }
+    // AI Chat no longer requires an open workspace — file tools just degrade to a
+    // friendly "open a folder" message in main, while browser/page tools and a
+    // plain conversation work without one.
     if (!hasKey) {
       set({ localError: `No API key configured for ${provider}. Add one in Settings.` });
       return;
@@ -158,3 +156,15 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Open (or focus) the singleton full-surface AI Chat tab (v3 §5-B). The drawer
+ * companion and this tab project the same single conversation, so this never
+ * forks state — it just gives the chat a roomier home.
+ */
+export async function openAgentTab(): Promise<void> {
+  const tabsState = useTabsStore.getState();
+  const existing = tabsState.tabs.find((t) => t.kind === 'agent');
+  if (existing) await tabsState.activateTab(existing.id);
+  else await tabsState.newTab('agent');
+}

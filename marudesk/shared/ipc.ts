@@ -116,6 +116,7 @@ export const CHANNELS = {
   ],
   providers: [
     'providers:list-models',
+    'providers:test-connection',
     'providers:list-custom',
     'providers:add-custom',
     'providers:remove-custom',
@@ -325,6 +326,13 @@ export interface IpcMap {
     result: boolean;
   };
   'providers:list-models': { args: [provider: ProviderId]; result: ModelDef[] };
+  // A minimal live request to verify a provider's credentials actually work —
+  // for the Settings "Test connection" button, especially OAuth providers, which
+  // have no /models endpoint to probe. Returns a human-readable ok/error message.
+  'providers:test-connection': {
+    args: [provider: ProviderId];
+    result: { ok: boolean; message: string };
+  };
   // Custom OpenAI-compatible endpoints (OpenRouter / LM Studio / vLLM / …). The
   // config is non-secret (a plaintext file); the optional key lives in secrets
   // under `custom:<id>`. Each mutation returns the fresh list so the renderer
@@ -455,6 +463,11 @@ export interface EventPayloadMap {
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
   'terminal:exit': TerminalExitEvent;
+  // App-level zoom intent forwarded from main's host before-input-event, which
+  // intercepts Ctrl/Cmd +/-/0 so Chromium's built-in (unmanaged, non-persisted)
+  // zoom can't fire. The renderer applies page zoom for a web tab or scales the
+  // whole UI (the persisted Interface-zoom setting) otherwise — symmetric in/out.
+  'app:ui-zoom': 'in' | 'out' | 'reset';
 }
 
 export type EventChannel = keyof EventPayloadMap;
@@ -480,6 +493,7 @@ export const EVENT_CHANNELS = [
   'settings:changed',
   'terminal:data',
   'terminal:exit',
+  'app:ui-zoom',
 ] as const satisfies readonly EventChannel[];
 
 /* ── Compile-time coverage guards (no runtime cost) ─────────────────────── */

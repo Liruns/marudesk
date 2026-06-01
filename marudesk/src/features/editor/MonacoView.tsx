@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import {
-  EDITOR_FONT_MONO,
   EDITOR_OPTIONS,
   getModel,
   monaco,
@@ -8,6 +7,7 @@ import {
 } from './monaco-setup';
 import { useEditorStore } from './store';
 import { resolveTheme, subscribeAppearance } from '../settings/store';
+import { fontStack } from '../../../shared/fonts';
 import type { AppSettings } from '../../../shared/settings';
 
 // Cursor/scroll position per file, so switching tabs (or away to a web tab and
@@ -58,8 +58,7 @@ export function MonacoView({ path }: { path: string }) {
       // immediate call — the guard is just defensive.
       const ed = editorRef.current;
       if (!ed) return;
-      const fontFamily =
-        s.appearance.editorFontFamily.trim() || EDITOR_FONT_MONO;
+      const fontFamily = fontStack(s.appearance.editorFontFamily, 'mono');
       const fontSize = s.appearance.editorFontSize;
       const theme = monacoThemeFor(resolveTheme(s.appearance.theme));
       const key = `${fontFamily}|${fontSize}|${theme}`;

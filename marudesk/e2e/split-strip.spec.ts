@@ -28,15 +28,17 @@ test('split: tiling shows a strip group; exit collapses it', async () => {
     });
     await page.mouse.up();
 
-    // The split is live and the strip brackets the two tabs as a group.
-    await expect(page.getByRole('separator')).toHaveCount(1);
+    // The split is live and the strip brackets the two tabs as a group. Scope
+    // the divider count to <main> so the Explorer resize handle (also
+    // role="separator", a sibling of <main>) isn't counted.
+    await expect(page.getByRole('main').getByRole('separator')).toHaveCount(1);
     await expect(
       page.getByRole('group', { name: 'Split view group' }),
     ).toBeVisible();
 
     // Exit the split from the strip → grid collapses (no divider, no group).
     await page.getByRole('button', { name: 'Exit split view' }).click();
-    await expect(page.getByRole('separator')).toHaveCount(0);
+    await expect(page.getByRole('main').getByRole('separator')).toHaveCount(0);
     await expect(
       page.getByRole('group', { name: 'Split view group' }),
     ).toHaveCount(0);
