@@ -136,7 +136,10 @@ src/features/server/  # PC측 Settings UI: 서버 on/off, 포트, QR 표시, 기
 
 ## 4. 인증 & 신원 (self-signup + Google/GitHub OAuth + device pairing)
 
-**모델 A(권장, self-hosted): PC가 신원 권위 + 폰은 페어링된 기기.**
+> ⚠️ **이 절(Model A)은 사용자 D4 선택(Cloud relay)으로 대체됨 → 권위 설계는 `bridge-model-b-design.md` 참조.**
+> 아래 Model A 설명은 히스토리/대안(LAN-only self-hosted)으로만 남긴다.
+
+**모델 A(원안, self-hosted): PC가 신원 권위 + 폰은 페어링된 기기.**
 
 ### 4.1 소유자 계정(PC에 저장)
 - `Account = { id, method: 'local'|'google'|'github', email?, displayName?, passwordHash?(scrypt), providerSub? }`
@@ -231,7 +234,7 @@ v1은 위 표(사용자가 든 예시 충족)까지. 모든 호출은 감사 로
 | **M0** | ② | MCP 정리: `terminal_output` 제거, `delete_session/_memory` 추가, gated 일관화 | 무 | ✅ 완료 (커밋 `3ca37b9`, e2e 52) |
 | **M1** | ⑤ | `pc-control.ts`(`open_path`/`open_external`/`reveal_in_explorer`) + MCP `pc` 그룹 + `pcControl` 권한(기본 OFF) + 호출당 승인 | 무 | ✅ 완료 (커밋 `3ca37b9`) |
 | **M2** | ① | DevTools 런타임-컨텍스트 고도화: 전 레벨 console 캡처 + 에이전트 `read_console`(log/info/warning/error/debug 필터), 패널 파리티 freeze 유지 | 무 | ✅ 완료 — `extractConsoleMessage`(shared/runtime-evidence) + main-side `consoleBuffers`(state.ts) + `read_console` 툴; nav/delete에서 clear; 유닛 스펙 추가 |
-| **M3** | ②b | 외부 MCP 커넥터(stdio) transport + 관리 UI | 무 | |
+| **M3** | ②b | 외부(stdio) MCP 커넥터: `@modelcontextprotocol/sdk` Client 직접 구동(auto-exec X)→gated `McpTool` 래핑(루프 중재 유지), `mcp-servers.json` + Settings 관리 UI, graceful failure/timeout/env-allowlist | 무 | ✅ 완료 — e2e 59, harness:mcp 34/34, dep `@modelcontextprotocol/sdk` |
 | **M4** | ③ | `server/` 스캐폴드: **SSE+REST**(WS·새 의존성 없이 `node:http`만), agent:event 중계, 로컬 토큰만(인증 전 단계) | 무 | ✅ 스캐폴드 완료 — `electron/server/{index,router,token}.ts`+`shared/remote.ts`, **127.0.0.1 전용·기본 OFF·전 엔드포인트 Bearer 토큰(safeStorage, timingSafeEqual)**, `subscribeAgentEvents` 팬아웃, 헤드리스 하니스 16/16 (tsc/eslint 0, build, e2e 52/52). loop emit는 렌더러 push 유지 |
 | **M5** | ④ | auth: 자체가입 + Google/GitHub(소유자) + JWT + **device pairing/QR** + 기기관리 UI | **D4** | ⚠️확인 |
 | **M6** | ④ | `mobile/` Capacitor 앱: transport + 반응형 쉘 + Connect/Login/Chat → **APK 산출** | **D6** | ⚠️확인 |
