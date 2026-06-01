@@ -6,7 +6,7 @@ import {
   type TabState,
   type TabsSnapshot,
 } from '../../shared/browser';
-import type { ConsoleErrorEvidence } from '../../shared/runtime-evidence';
+import type { ConsoleErrorEvidence, ConsoleMessage } from '../../shared/runtime-evidence';
 import type { NetworkRecord } from '../../shared/network-evidence';
 import { coalesced } from '../coalesce';
 
@@ -101,6 +101,13 @@ let paneBounds: Map<string, Bounds> | null = null;
 const MAX_ERRORS_PER_TAB = 50;
 const errorBuffers = new Map<string, ConsoleErrorEvidence[]>();
 
+// All-level console capture (DevTools 고도화 / M2): a parallel ring of EVERY
+// console.* message (log/info/warning/error/debug), fed by the same always-on
+// Runtime stream, for the agent's `read_console` tool — the wedge play of "the AI
+// sees what the running app logged", not just errors. Bounded; cleared on nav/delete.
+const MAX_CONSOLE_PER_TAB = 200;
+const consoleBuffers = new Map<string, ConsoleMessage[]>();
+
 // On-demand network capture (P0.5): the agent's `read_network` tool lazily
 // enables Network on a tab and reads from this per-tab ring. Gated by
 // `networkCaptureTabs` so the always-on path stays Runtime-only (no Network
@@ -181,6 +188,7 @@ export function setTab(id: string, rec: TabRecord): void {
 
 export function deleteTab(id: string): boolean {
   errorBuffers.delete(id); // drop the always-on console-error buffer with the tab
+  consoleBuffers.delete(id);
   networkBuffers.delete(id);
   networkCaptureTabs.delete(id);
   return tabs.delete(id);
@@ -245,6 +253,29 @@ export function clearErrors(tabId: string): void {
 
 export function errorCount(tabId: string): number {
   return errorBuffers.get(tabId)?.length ?? 0;
+}
+
+/* ── all-level console buffer (M2 — agent read_console) ─────────────────── */
+
+/** Append a console message to a tab's all-level ring. */
+export function pushConsole(tabId: string, msg: ConsoleMessage): void {
+  let buf = consoleBuffers.get(tabId);
+  if (!buf) {
+    buf = [];
+    consoleBuffers.set(tabId, buf);
+  }
+  buf.push(msg);
+  if (buf.length > MAX_CONSOLE_PER_TAB) buf.splice(0, buf.length - MAX_CONSOLE_PER_TAB);
+}
+
+/** A tab's buffered console messages (oldest-first). A fresh array each call. */
+export function getConsole(tabId: string): ConsoleMessage[] {
+  const buf = consoleBuffers.get(tabId);
+  return buf ? [...buf] : [];
+}
+
+export function clearConsole(tabId: string): void {
+  consoleBuffers.delete(tabId);
 }
 
 /* ── on-demand network buffer (P0.5) ────────────────────────────────────── */

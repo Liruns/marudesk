@@ -1,6 +1,6 @@
 import { scrubText } from '../../shared/scrub';
 import type { SessionRecord } from '../../shared/context';
-import { getActiveTabId, getTab, tabValues, type TabRecord } from '../browser/state';
+import { getActiveTabId, getConsole, getTab, tabValues, type TabRecord } from '../browser/state';
 import { sendCdp } from '../browser/cdp';
 import { getRecentTerminalOutput, getTerminalList, getTerminalOutput } from '../terminal';
 import { readFileSafe } from '../workspace';
@@ -107,6 +107,56 @@ async function readPage(input: { tabId?: unknown }, ctx: ToolContext): Promise<T
   const url = tabUrl(rec);
   if (!text.trim()) return { summary: `read_page @ ${url}`, text: 'The page has no visible text yet (still loading or empty).' };
   return { summary: `read_page @ ${scrubText(url)}`, text: clip(scrubText(text)) };
+}
+
+/* ── devtools console (all levels — M2) ─────────────────────────────────── */
+
+/**
+ * Resolve a web tab id for a BUFFER read. Unlike resolveWebTab (which targets the
+ * live CDP client and rejects a tab with Chromium DevTools open), the always-on
+ * console buffer is valid regardless of who holds the live client.
+ */
+function resolveWebTabId(tabId: unknown, ctx: ToolContext): string {
+  const id = typeof tabId === 'string' && tabId ? tabId : ctx.tabId;
+  if (!id) throw new Error('no web tab — open a page, or pass a tabId from list_tabs');
+  const rec = getTab(id);
+  if (!rec || rec.kind !== 'web') {
+    throw new Error(`tab ${id} is not a web page (use list_tabs to see web tabs)`);
+  }
+  return id;
+}
+
+const CONSOLE_LEVELS = new Set(['log', 'info', 'warning', 'error', 'debug']);
+
+async function readConsole(
+  input: { tabId?: unknown; level?: unknown; limit?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const id = resolveWebTabId(input.tabId, ctx);
+  const raw = typeof input.level === 'string' ? input.level.toLowerCase() : 'all';
+  const level = raw === 'warn' ? 'warning' : raw;
+  if (level !== 'all' && !CONSOLE_LEVELS.has(level)) {
+    throw new Error(`level must be all|log|info|warning|error|debug (got "${raw}")`);
+  }
+  const limit =
+    typeof input.limit === 'number' ? Math.min(Math.max(1, Math.round(input.limit)), 200) : 40;
+  let msgs = getConsole(id);
+  if (level !== 'all') msgs = msgs.filter((m) => m.level === level);
+  msgs = msgs.slice(-limit);
+  if (msgs.length === 0) {
+    return {
+      summary: `console (${level === 'all' ? 'empty' : 'no ' + level})`,
+      text:
+        level === 'all'
+          ? 'No console output captured yet — the page may not have logged anything (reload to repopulate). For uncaught errors, try get_console_errors.'
+          : `No ${level}-level console messages captured.`,
+    };
+  }
+  const lines = msgs.map((m) => `[${m.level}] ${m.text}`);
+  return {
+    summary: `console → ${msgs.length} message${msgs.length === 1 ? '' : 's'}${level === 'all' ? '' : ` (${level})`}`,
+    text: clip(scrubText(lines.join('\n'))),
+  };
 }
 
 /* ── terminals ──────────────────────────────────────────────────────────── */
@@ -306,6 +356,19 @@ export const CONTEXT_TOOLS: McpTool[] = [
       "Read a web tab's visible, readable text (title + body innerText). Pass a tabId from list_tabs to read a non-active tab; omit it for the active page. Secret-scrubbed.",
     inputSchema: obj({ tabId: strProp('Optional web tab id (from list_tabs); defaults to the active tab.') }),
     exec: (input, ctx) => readPage(input, ctx),
+  },
+  {
+    name: 'read_console',
+    group: 'devtools',
+    requiresWeb: true,
+    description:
+      "Read the live page's console output at ANY level (log/info/warning/error/debug) — what the app printed via console.*, captured always-on. Pass level to filter, omit for everything; pass tabId (from list_tabs) for a non-active tab. For uncaught ERRORS with source-file mapping, use get_console_errors instead. Secret-scrubbed.",
+    inputSchema: obj({
+      level: strProp("Filter: 'log' | 'info' | 'warning' | 'error' | 'debug', or omit/'all' for everything."),
+      limit: { type: 'number', description: 'Max messages, newest (default 40, max 200).' },
+      tabId: strProp('Optional web tab id (from list_tabs); defaults to the active tab.'),
+    }),
+    exec: (input, ctx) => readConsole(input, ctx),
   },
   {
     name: 'list_terminals',

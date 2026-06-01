@@ -4,12 +4,13 @@ import {
   getDevtoolsWindow,
   getHost,
   isNetworkCaptureOn,
+  pushConsole,
   pushError,
   pushNetwork,
   setNetworkCapture,
   type TabRecord,
 } from './state';
-import { extractConsoleError } from '../../shared/runtime-evidence';
+import { extractConsoleError, extractConsoleMessage } from '../../shared/runtime-evidence';
 import { extractNetwork } from '../../shared/network-evidence';
 import { coalesced } from '../coalesce';
 
@@ -211,6 +212,10 @@ function wireListeners(rec: TabRecord, wc: WebContents): void {
       errorCountDirty.add(rec.id);
       scheduleFlush();
     }
+    // All-level console capture (M2): every console.* message into the parallel
+    // ring for the agent's read_console — same Runtime stream, no extra domain.
+    const cmsg = extractConsoleMessage(method, params);
+    if (cmsg) pushConsole(rec.id, cmsg);
     // On-demand network capture (P0.5): only when the agent enabled it for this
     // tab — keeps the always-on path Runtime-only. Buffer is raw; the tool
     // scrubs at egress.

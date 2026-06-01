@@ -36,6 +36,7 @@ import {
   Trash2,
   ExternalLink,
   FolderOpen,
+  ScrollText,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
@@ -563,6 +564,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   edit_file: { label: 'Edit', icon: FilePen },
   multi_edit: { label: 'Multi-edit', icon: FilePen },
   get_console_errors: { label: 'Console errors', icon: Bug, runtime: true },
+  read_console: { label: 'Console output', icon: ScrollText, runtime: true },
   query_dom: { label: 'Query DOM', icon: Code, runtime: true },
   eval_js: { label: 'Eval JS', icon: SquareTerminal, runtime: true },
   read_network: { label: 'Network', icon: Network, runtime: true },

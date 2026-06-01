@@ -38,6 +38,27 @@ export type ConsoleErrorEvidence = {
   timestamp: number;
 };
 
+/** Console severity for the agent's all-level `read_console` (vs error-only evidence). */
+export type ConsoleLevel = 'log' | 'info' | 'warning' | 'error' | 'debug';
+
+/**
+ * One captured console.* message at ANY level — what feeds the agent's
+ * `read_console` tool (electron/browser/state.ts consoleBuffers). Unlike
+ * {@link ConsoleErrorEvidence} (errors only, with source mapping for "fix this"),
+ * this keeps every level so the agent can see what the running app actually logged.
+ */
+export type ConsoleMessage = {
+  id: string;
+  level: ConsoleLevel;
+  /** Raw CDP console type (log/warning/error/info/debug/trace/dir/table/…). */
+  type: string;
+  /** Joined, bounded args text. */
+  text: string;
+  /** Top stack frame location, when CDP provided one. */
+  source?: { url: string; lineNumber?: number };
+  timestamp: number;
+};
+
 const MAX_MESSAGE = 1000;
 
 let seq = 0;
@@ -151,6 +172,56 @@ export function extractConsoleError(
   }
 
   return null;
+}
+
+const MAX_CONSOLE_TEXT = 2000;
+let cseq = 0;
+function consoleId(): string {
+  return `cmsg-${Date.now().toString(36)}-${++cseq}`;
+}
+
+/** CDP console `type` → coarse {@link ConsoleLevel}. */
+function consoleLevel(type: string): ConsoleLevel {
+  switch (type) {
+    case 'error':
+    case 'assert':
+      return 'error';
+    case 'warning':
+      return 'warning';
+    case 'info':
+      return 'info';
+    case 'debug':
+    case 'verbose':
+      return 'debug';
+    default:
+      return 'log';
+  }
+}
+
+/**
+ * Normalize a CDP `Runtime.consoleAPICalled` (ANY type) into a {@link ConsoleMessage},
+ * or null for other methods. The all-level twin of {@link extractConsoleError}
+ * (which keeps only errors): both run on the same always-on Runtime stream, so a
+ * console.error lands in both rings — the error ring (with source mapping) and
+ * here (as a plain message). Defensive about `unknown` params like its twin.
+ */
+export function extractConsoleMessage(method: string, params: unknown): ConsoleMessage | null {
+  if (method !== 'Runtime.consoleAPICalled') return null;
+  const p = (params ?? {}) as Record<string, unknown>;
+  const type = typeof p.type === 'string' ? p.type : 'log';
+  const args = Array.isArray(p.args) ? p.args : [];
+  let text = args.map(remoteObjectText).filter(Boolean).join(' ').trim();
+  if (text.length > MAX_CONSOLE_TEXT) text = text.slice(0, MAX_CONSOLE_TEXT) + '…';
+  const stack = toStack(p.stackTrace);
+  const top = stack.find((f) => f.url);
+  return {
+    id: consoleId(),
+    level: consoleLevel(type),
+    type,
+    text: text || `console.${type}`,
+    source: top ? { url: top.url, lineNumber: top.lineNumber } : undefined,
+    timestamp: typeof p.timestamp === 'number' ? p.timestamp : Date.now(),
+  };
 }
 
 /**

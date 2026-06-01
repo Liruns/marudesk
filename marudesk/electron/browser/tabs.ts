@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { applyReorder, type TabKind } from '../../shared/browser';
 import {
+  clearConsole,
   clearErrors,
   clearNetwork,
   clearTabs,
@@ -163,6 +164,7 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
     // stale — drop them, reset the badge, and re-enable Runtime (a navigation
     // can drop CDP domain enablement).
     clearErrors(rec.id);
+    clearConsole(rec.id);
     enableConsoleCapture(rec);
     refreshErrorBadge(rec.id);
     // The new document's network is fresh too; drop the old buffer and re-enable
