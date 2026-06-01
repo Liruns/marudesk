@@ -17,6 +17,7 @@
     "test:e2e": "npm run build && playwright test",
     "harness:server": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/harness.ts",
     "harness:e2e": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/e2e-harness.ts",
+    "harness:pair": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/pair-harness.ts",
     "harness:relay-bridge": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/relay-bridge-harness.ts",
     "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts"
   },

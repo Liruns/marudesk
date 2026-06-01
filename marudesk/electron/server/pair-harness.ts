@@ -1,0 +1,294 @@
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import type { AgentChatState, AgentSendInput, AgentSendResult } from '../../shared/agent';
+import { emptyAgentChatState } from '../../shared/agent';
+import {
+  b64urlToBytes,
+  bytesToB64url,
+  decodeQrPayload,
+  deriveSessionKey,
+  generateKeyPair,
+  importAesKey,
+  makePairProof,
+  open,
+  reqAad,
+  resAad,
+  seal,
+  SSE_AAD,
+  type Envelope,
+  type SessionKey,
+} from '../../shared/e2e.ts';
+import { createPairingManager } from './pairing.ts';
+import { handleRequest, type RouterDeps } from './router.ts';
+
+/**
+ * Headless harness for the T2 pairing handshake + E2E envelope path
+ * (docs/t2-secure-pairing-design.md §2/§3). Wires the REAL router + REAL pairing
+ * manager to a loopback http.Server with a fake in-memory device store + a mocked
+ * agent — no Electron, no safeStorage (run via `node --experimental-strip-types`,
+ * see package.json `harness:pair`). It drives a simulated phone (decode the QR,
+ * derive the key, prove possession) all the way through `/pair` + an encrypted
+ * `/agent/send` + snapshot + SSE, and asserts the adversarial paths too.
+ */
+
+const TOKEN = 'bearer-token-fixed';
+const VERSION = '9.9.9-test';
+
+/** A fake device key store the pairing manager populates and the router resolves against. */
+function makeDeviceStore(): {
+  resolver: RouterDeps['devices'];
+  add: (deviceId: string, rawKeyB64: string) => Promise<void>;
+} {
+  const keys = new Map<string, SessionKey>();
+  return {
+    resolver: {
+      getKey: (deviceId) => Promise.resolve(keys.get(deviceId) ?? null),
+      touch: () => {},
+    },
+    add: async (deviceId, rawKeyB64) => {
+      keys.set(deviceId, await importAesKey(b64urlToBytes(rawKeyB64)));
+    },
+  };
+}
+
+function buildDeps(approve: { mode: 'approve' | 'reject' }): {
+  deps: RouterDeps;
+  pairing: ReturnType<typeof createPairingManager>;
+} {
+  const state: AgentChatState = { ...emptyAgentChatState(), status: 'idle' };
+  const subs = new Set<(s: AgentChatState) => void>();
+  const store = makeDeviceStore();
+
+  // `pairing` is referenced inside onPairingRequest, but that closure only runs
+  // after construction returns, so the const is fully initialized by then.
+  const pairing = createPairingManager({
+    addDevice: (rec) => store.add(rec.deviceId, rec.key),
+    onPairingRequest: (info) => {
+      // Decide on a later tick, after handlePair is already awaiting the decision.
+      setTimeout(() => {
+        if (approve.mode === 'approve') pairing.approve(info.approvalId);
+        else pairing.reject(info.approvalId);
+      }, 0);
+    },
+    approvalTimeoutMs: 2000,
+  });
+
+  const deps: RouterDeps = {
+    token: TOKEN,
+    version: VERSION,
+    agent: {
+      startTurn: (input: AgentSendInput): Promise<AgentSendResult> => {
+        void input;
+        return Promise.resolve({ ok: true, turnId: 'turn-mock' });
+      },
+      abortTurn: () => true,
+      respond: () => true,
+      approveTool: () => true,
+      snapshot: () => state,
+      reset: () => true,
+    },
+    subscribe: (cb) => {
+      subs.add(cb);
+      return () => subs.delete(cb);
+    },
+    devices: store.resolver,
+    pair: (body) => pairing.handlePair(body),
+  };
+  return { deps, pairing };
+}
+
+type Reply = { status: number; body: string };
+
+function request(
+  port: number,
+  method: string,
+  path: string,
+  opts: { token?: string; deviceId?: string; json?: unknown } = {},
+): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const payload = opts.json === undefined ? undefined : JSON.stringify(opts.json);
+    const headers: Record<string, string> = {};
+    if (opts.token) headers.authorization = `Bearer ${opts.token}`;
+    if (opts.deviceId) headers['x-marudesk-device'] = opts.deviceId;
+    if (payload !== undefined) {
+      headers['content-type'] = 'application/json';
+      headers['content-length'] = String(Buffer.byteLength(payload));
+    }
+    const req = http.request({ host: '127.0.0.1', port, method, path, headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () =>
+        resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }),
+      );
+    });
+    req.on('error', reject);
+    if (payload !== undefined) req.write(payload);
+    req.end();
+  });
+}
+
+/** Open an E2E SSE connection and resolve the first encrypted frame's decoded event. */
+function firstSseFrame(port: number, deviceId: string, key: SessionKey): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let settling = false;
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'GET',
+        path: '/agent/events',
+        headers: { 'x-marudesk-device': deviceId, accept: 'text/event-stream' },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`SSE expected 200, got ${res.statusCode}`));
+          return;
+        }
+        let buf = '';
+        res.on('data', (c: Buffer) => {
+          if (settling) return;
+          buf += c.toString('utf8');
+          const idx = buf.indexOf('\n\n');
+          if (idx === -1) return;
+          const line = buf
+            .slice(0, idx)
+            .split('\n')
+            .find((l) => l.startsWith('data: '));
+          if (!line) return;
+          // We have the first frame: stop reading + tearing down the socket will
+          // fire an (expected) abort error — guard it so the open() result wins.
+          settling = true;
+          const env = JSON.parse(line.slice('data: '.length)) as Envelope;
+          req.destroy();
+          void open(key, env, SSE_AAD).then(resolve, reject);
+        });
+        res.on('error', (e) => {
+          if (!settling) reject(e);
+        });
+      },
+    );
+    req.on('error', (e) => {
+      if (!settling) reject(e);
+    });
+    req.end();
+    setTimeout(() => {
+      req.destroy();
+      reject(new Error('SSE timed out'));
+    }, 4000).unref();
+  });
+}
+
+/** Run one full pairing handshake against the server; returns the phone's view. */
+async function pairPhone(
+  port: number,
+  pairing: ReturnType<typeof createPairingManager>,
+  deviceName: string,
+): Promise<{ status: number; deviceId?: string; key: SessionKey }> {
+  const start = await pairing.startPairing({ urls: [{ label: 'lan', url: `http://x:1` }], pcName: 'PC' });
+  const qr = decodeQrPayload(start.qr);
+  assert.ok(qr, 'phone decodes the QR');
+  const phone = await generateKeyPair();
+  const key = await deriveSessionKey(phone.privateKey, b64urlToBytes(qr.pcPub), qr.code);
+  const proof = await makePairProof(key, qr.code);
+  const reply = await request(port, 'POST', '/pair', {
+    json: { code: qr.code, phPub: bytesToB64url(phone.publicKeyRaw), deviceName, proof },
+  });
+  if (reply.status !== 200) return { status: reply.status, key };
+  const sealed = JSON.parse(reply.body) as Envelope;
+  const result = (await open(key, sealed, resAad('/pair'))) as { deviceId: string };
+  return { status: 200, deviceId: result.deviceId, key };
+}
+
+async function main(): Promise<void> {
+  let passed = 0;
+  const check = (label: string, cond: boolean): void => {
+    assert.ok(cond, label);
+    passed += 1;
+    console.log(`  ok ${passed} - ${label}`);
+  };
+
+  // ── happy path: pair, then drive the agent over the encrypted channel ───────
+  const { deps, pairing } = buildDeps({ mode: 'approve' });
+  const server = http.createServer((req, res) => void handleRequest(req, res, deps));
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const { port } = server.address() as AddressInfo;
+
+  try {
+    const paired = await pairPhone(port, pairing, 'My Phone');
+    check('POST /pair with a valid code+proof + approval → 200', paired.status === 200);
+    check('the sealed /pair body opens to a deviceId', typeof paired.deviceId === 'string');
+    const { deviceId, key } = paired;
+
+    // E2E POST /agent/send: sealed body in, sealed result out.
+    const sendEnv = await seal(
+      key,
+      { provider: 'anthropic', model: 'claude-x', prompt: 'hi', captures: [] },
+      reqAad('POST', '/agent/send'),
+    );
+    const sendReply = await request(port, 'POST', '/agent/send', { deviceId, json: sendEnv });
+    check('E2E POST /agent/send → 200', sendReply.status === 200);
+    const sendResult = (await open(key, JSON.parse(sendReply.body) as Envelope, resAad('/agent/send'))) as AgentSendResult;
+    check('the sealed send result is startTurn output', sendResult.ok === true && sendResult.turnId === 'turn-mock');
+
+    // E2E GET /agent/snapshot: sealed snapshot.
+    const snapReply = await request(port, 'GET', '/agent/snapshot', { deviceId });
+    check('E2E GET /agent/snapshot → 200', snapReply.status === 200);
+    const snap = (await open(key, JSON.parse(snapReply.body) as Envelope, resAad('/agent/snapshot'))) as AgentChatState;
+    check('the sealed snapshot is the AgentChatState', snap.status === 'idle' && Array.isArray(snap.messages));
+
+    // E2E SSE: encrypted first frame.
+    const frame = (await firstSseFrame(port, deviceId!, key)) as { type: string; state: AgentChatState };
+    check('E2E SSE first frame decrypts to the snapshot', frame.type === 'snapshot' && frame.state.status === 'idle');
+
+    // ── adversarial ───────────────────────────────────────────────────────────
+    const unknownDev = await request(port, 'GET', '/agent/snapshot', { deviceId: 'no-such-device' });
+    check('unknown device id → 401', unknownDev.status === 401);
+
+    // A body sealed under a DIFFERENT key (wrong device) won't open → 401.
+    const stranger = await importAesKey(b64urlToBytes(bytesToB64url(new Uint8Array(32).fill(7))));
+    const forged = await seal(stranger, { turnId: 'x' }, reqAad('POST', '/agent/abort'));
+    const forgedReply = await request(port, 'POST', '/agent/abort', { deviceId, json: forged });
+    check('an envelope sealed under the wrong key → 401', forgedReply.status === 401);
+
+    // Tampered ciphertext on a genuine device → 401.
+    const good = await seal(key, { turnId: 't' }, reqAad('POST', '/agent/abort'));
+    const tampered: Envelope = { n: good.n, ct: bytesToB64url(b64urlToBytes(good.ct).map((b, i) => (i === 0 ? b ^ 0xff : b))) };
+    const tamperedReply = await request(port, 'POST', '/agent/abort', { deviceId, json: tampered });
+    check('a tampered envelope → 401', tamperedReply.status === 401);
+
+    // /pair with a code that was never issued → 403.
+    const badCode = await request(port, 'POST', '/pair', {
+      json: { code: 'ZZZZZZZZ', phPub: bytesToB64url(new Uint8Array(32)), deviceName: 'x', proof: { n: 'AA', ct: 'AA' } },
+    });
+    check('POST /pair with an unknown code → 403', badCode.status === 403);
+
+    // Bearer path still works alongside the E2E path.
+    const bearerSnap = await request(port, 'GET', '/agent/snapshot', { token: TOKEN });
+    check('bearer GET /agent/snapshot still → 200 (cleartext)', bearerSnap.status === 200);
+    check('bearer snapshot is cleartext JSON', (JSON.parse(bearerSnap.body) as AgentChatState).status === 'idle');
+    const noAuth = await request(port, 'GET', '/agent/snapshot');
+    check('no auth at all → 401', noAuth.status === 401);
+
+    // ── rejected approval → 403 (separate server with reject policy) ────────────
+    const { deps: depsReject, pairing: pairingReject } = buildDeps({ mode: 'reject' });
+    const serverReject = http.createServer((req, res) => void handleRequest(req, res, depsReject));
+    await new Promise<void>((r) => serverReject.listen(0, '127.0.0.1', r));
+    const rejectPort = (serverReject.address() as AddressInfo).port;
+    try {
+      const rejected = await pairPhone(rejectPort, pairingReject, 'Denied Phone');
+      check('a rejected pairing → 403 (no device minted)', rejected.status === 403);
+    } finally {
+      serverReject.close();
+    }
+
+    console.log(`\npairing + E2E harness: ${passed} assertions passed`);
+  } finally {
+    server.close();
+  }
+}
+
+main().catch((err) => {
+  console.error('pairing + E2E harness FAILED:', err);
+  process.exitCode = 1;
+});

@@ -1,8 +1,9 @@
 import http from 'node:http';
 import type { Socket } from 'node:net';
+import { hostname } from 'node:os';
 import { app } from 'electron';
 import type { AppSettings } from '../../shared/settings';
-import type { ServerStatus } from '../../shared/remote';
+import type { PairingRequestInfo, PairingStartInfo, ServerStatus } from '../../shared/remote';
 import {
   abortTurn,
   approveTool,
@@ -13,24 +14,28 @@ import {
   subscribeAgentEvents,
 } from '../agent/loop';
 import { defineHandler } from '../ipc/define-handler';
+import { nonEmptyStr, obj } from '../ipc/validate';
+import { addDevice, deviceResolver, listDeviceInfos, revokeDevice } from './devices';
 import { getConnectCandidates } from './pairing-urls';
+import { createPairingManager } from './pairing';
 import { handleRequest, type RouterDeps } from './router';
 import { getServerToken } from './token';
 
 /**
  * Lifecycle for the PC-side headless bridge server (docs/remote-mobile-bridge-design
- * §M4). The server runs IN the Electron main process and calls the agent loop's
- * exported functions DIRECTLY (no IPC), relaying state to a future companion app
- * over SSE + REST.
+ * §M4, T2 secure pairing in docs/t2-secure-pairing-design.md). The server runs IN
+ * the Electron main process and calls the agent loop's exported functions DIRECTLY
+ * (no IPC), relaying state to the companion app over SSE + REST.
  *
  * Security invariants (also enforced in ./router.ts):
- * - Binds 0.0.0.0 (all interfaces) so a phone on the LAN or Tailscale can reach
- *   it (T2 — docs/remote-mobile-bridge-design §3). Exposure is gated by: OFF by
- *   default, a required bearer token, and a Settings warning. App-level E2E
- *   encryption + device pairing are later T2 phases; until then prefer Tailscale
- *   (WireGuard-encrypted) over an untrusted public LAN.
+ * - Binds 0.0.0.0 (all interfaces) so a phone on the LAN or Tailscale can reach it
+ *   (T2 — docs/remote-mobile-bridge-design §3). Exposure is gated by: OFF by
+ *   default, a Settings warning, and authentication on every route.
+ * - Two authenticated paths: a bearer token (loopback companion) and per-device
+ *   E2E (a paired phone — X25519/AES-GCM, possession of the session key = identity).
+ *   `/pair` is the only anonymous route, itself gated by a one-time code + proof +
+ *   desktop approval.
  * - OFF by default — only listens when settings.server.enabled is true.
- * - Every request requires a bearer token (constant-time checked in the router).
  */
 
 const HOST = '0.0.0.0';
@@ -44,6 +49,18 @@ let transitioning = false;
 const sockets = new Set<Socket>();
 /** Renderer status-push sink (wired once from main.ts). */
 let onStatus: ((status: ServerStatus) => void) | null = null;
+/** Renderer pairing-request sink (wired once from main.ts). */
+let onPairingRequest: ((info: PairingRequestInfo) => void) | null = null;
+
+/**
+ * The singleton pairing manager (docs/t2-secure-pairing-design §2). Persists a
+ * paired device via the device store and forwards each approval request to the
+ * renderer (the user approves/rejects in Settings → Remote).
+ */
+const pairing = createPairingManager({
+  addDevice,
+  onPairingRequest: (info) => onPairingRequest?.(info),
+});
 
 /** Whether the bridge server is currently listening. */
 export function isServerRunning(): boolean {
@@ -53,6 +70,22 @@ export function isServerRunning(): boolean {
 /** Wire the renderer status-push once (from main.ts); see `server:status-changed`. */
 export function setServerStatusListener(fn: (status: ServerStatus) => void): void {
   onStatus = fn;
+}
+
+/** Wire the renderer pairing-request push once (from main.ts); see `server:pairing-request`. */
+export function setPairingRequestListener(fn: (info: PairingRequestInfo) => void): void {
+  onPairingRequest = fn;
+}
+
+/**
+ * Begin a pairing: mint a QR (the PC public key + the reachable URLs + a one-time
+ * code) for the phone to scan. Requires the server to be running so the candidate
+ * URLs are real.
+ */
+function startPairing(): Promise<PairingStartInfo> {
+  const status = getServerStatus();
+  if (!status.running) throw new Error('turn the local server on before pairing a device');
+  return pairing.startPairing({ urls: status.candidates, pcName: hostname() });
 }
 
 /**
@@ -68,9 +101,23 @@ export function getServerStatus(): ServerStatus {
   return { running: true, port: boundPort, candidates: getConnectCandidates(boundPort) };
 }
 
-/** Register the `server:*` IPC handlers (status only; never returns the token). */
+/**
+ * Register the `server:*` IPC handlers. Status + device pairing/management; never
+ * returns the bearer token or any device session key (only sanitized info).
+ */
 export function registerServerHandlers(): void {
   defineHandler('server:status', () => getServerStatus());
+  defineHandler('server:pairing-start', () => startPairing());
+  defineHandler('server:pairing-approve', ([payload]) =>
+    pairing.approve(nonEmptyStr(obj(payload).approvalId, 'approvalId')),
+  );
+  defineHandler('server:pairing-reject', ([payload]) =>
+    pairing.reject(nonEmptyStr(obj(payload).approvalId, 'approvalId')),
+  );
+  defineHandler('server:list-devices', () => listDeviceInfos());
+  defineHandler('server:revoke-device', ([payload]) =>
+    revokeDevice(nonEmptyStr(obj(payload).deviceId, 'deviceId')),
+  );
 }
 
 /** Start the bridge server on `port` (binds all interfaces). No-op if already running. */
@@ -84,6 +131,10 @@ export async function startServer(port: number): Promise<void> {
     version: app.getVersion(),
     agent: { startTurn, abortTurn, respond, approveTool, snapshot, reset },
     subscribe: subscribeAgentEvents,
+    // T2: the per-device E2E auth path + the /pair endpoint (paired phones over
+    // LAN/Tailscale). The bearer path stays for the loopback companion.
+    devices: deviceResolver,
+    pair: (body) => pairing.handlePair(body),
   };
 
   const srv = http.createServer((req, res) => {

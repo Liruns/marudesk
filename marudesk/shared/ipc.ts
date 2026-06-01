@@ -21,7 +21,13 @@ import type {
   ProviderStatus,
 } from './providers';
 import type { AppSettings, SettingsPatch } from './settings';
-import type { RelayStatus, ServerStatus } from './remote';
+import type {
+  PairedDeviceInfo,
+  PairingRequestInfo,
+  PairingStartInfo,
+  RelayStatus,
+  ServerStatus,
+} from './remote';
 import type {
   TerminalCreateOptions,
   TerminalCreated,
@@ -157,9 +163,18 @@ export const CHANNELS = {
   // cross IPC — only `{account|null, connected}` does. Auto-connect is driven by
   // settings.server.cloudEnabled + login state in electron/server/relay.ts.
   relay: ['relay:login', 'relay:logout', 'relay:status'],
-  // LAN/Tailscale bridge status (T2 — docs/remote-mobile-bridge-design §3). The
-  // Settings → Remote panel reads the running flag + reachable URLs; never the token.
-  server: ['server:status'],
+  // LAN/Tailscale bridge status + device pairing (T2 — docs/remote-mobile-bridge-design
+  // §3, docs/t2-secure-pairing-design.md). The Settings → Remote panel reads the
+  // running flag + reachable URLs, starts a pairing (QR), approves/rejects an
+  // incoming pairing, and lists/revokes paired devices. Never the token or any key.
+  server: [
+    'server:status',
+    'server:pairing-start',
+    'server:pairing-approve',
+    'server:pairing-reject',
+    'server:list-devices',
+    'server:revoke-device',
+  ],
   terminal: [
     'terminal:create',
     'terminal:input',
@@ -448,6 +463,19 @@ export interface IpcMap {
   // running flag + reachable LAN/Tailscale URLs for the Settings Remote panel;
   // pushed live on `server:status-changed`. Never carries the bearer token.
   'server:status': { args: []; result: ServerStatus };
+  // device pairing (T2 ③ — docs/t2-secure-pairing-design.md). `pairing-start` mints
+  // a QR (PC public key + reachable URLs + one-time code) for the phone to scan;
+  // `pairing-approve`/`-reject` answer the desktop approval card (correlated by the
+  // approvalId from the `server:pairing-request` event); `list/revoke-devices`
+  // manage paired phones. Sanitized only — never a session key.
+  'server:pairing-start': { args: []; result: PairingStartInfo };
+  'server:pairing-approve': { args: [payload: { approvalId: string }]; result: boolean };
+  'server:pairing-reject': { args: [payload: { approvalId: string }]; result: boolean };
+  'server:list-devices': { args: []; result: PairedDeviceInfo[] };
+  'server:revoke-device': {
+    args: [payload: { deviceId: string }];
+    result: PairedDeviceInfo[];
+  };
 
   // terminal
   'terminal:create': {
@@ -528,6 +556,9 @@ export interface EventPayloadMap {
   // bridge server status (T2): pushed when the server starts/stops so the Settings
   // Remote panel reflects running state + reachable URLs live. Never the token.
   'server:status-changed': ServerStatus;
+  // device pairing (T2 ③): a phone POSTed /pair with a valid code+proof and is
+  // awaiting the PC user's approve/reject. The card shows name + fingerprint.
+  'server:pairing-request': PairingRequestInfo;
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
@@ -560,6 +591,7 @@ export const EVENT_CHANNELS = [
   'agent:event',
   'relay:status-changed',
   'server:status-changed',
+  'server:pairing-request',
   'window:maximize-state',
   'settings:changed',
   'terminal:data',

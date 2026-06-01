@@ -27,6 +27,7 @@ import { registerClipboardHandlers } from './clipboard';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
+  setPairingRequestListener,
   setServerStatusListener,
   stopServer,
   syncServerToSettings,
@@ -224,6 +225,11 @@ void app.whenReady().then(() => {
   // LAN/Tailscale URLs) so the Settings Remote panel updates without polling.
   setServerStatusListener((status) =>
     getMainWindow()?.webContents.send('server:status-changed', status),
+  );
+  // Push a pairing request to the renderer so Settings can show the approve/reject
+  // card when a phone scans the QR (T2 ③ — docs/t2-secure-pairing-design.md).
+  setPairingRequestListener((info) =>
+    getMainWindow()?.webContents.send('server:pairing-request', info),
   );
   registerSettingsHandlers({
     broadcast: (settings) => {

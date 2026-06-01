@@ -41,6 +41,13 @@ type CryptoKey = Awaited<ReturnType<Subtle['importKey']>>;
 type CryptoKeyPair = { publicKey: CryptoKey; privateKey: CryptoKey };
 
 /**
+ * The AES-GCM session key type, exported as a portable alias so backend modules
+ * (electron/server/*, which lack the DOM lib) can name it without re-deriving it
+ * or pulling in `node:crypto`.
+ */
+export type SessionKey = CryptoKey;
+
+/**
  * UTF-8 encode into an ArrayBuffer-backed view. `TextEncoder.encode()` yields a
  * `Uint8Array<ArrayBufferLike>`, which TS 6 won't accept as WebCrypto's
  * `BufferSource` (it could be SharedArrayBuffer-backed); copying through the
@@ -128,14 +135,16 @@ function importPeerPublic(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
 }
 
 /**
- * ECDH(privateKey, peerPublic) → HKDF(salt = code) → AES-256-GCM key. Both sides
- * compute the identical key from their own private key + the peer's public key.
+ * ECDH(privateKey, peerPublic) → HKDF(salt = code) → 32 raw key bytes. Both sides
+ * compute the identical secret from their own private key + the peer's public key.
+ * Returned as raw bytes so the PC can persist it (safeStorage) and re-import per
+ * request via {@link importAesKey} — a paired device survives an app restart.
  */
-export async function deriveSessionKey(
+export async function deriveSharedSecret(
   privateKey: CryptoKey,
   peerPublicRaw: Uint8Array<ArrayBuffer>,
   code: string,
-): Promise<CryptoKey> {
+): Promise<Uint8Array<ArrayBuffer>> {
   const peer = await importPeerPublic(peerPublicRaw);
   const shared = await subtle().deriveBits({ name: 'X25519', public: peer }, privateKey, KEY_BITS);
   const ikm = await subtle().importKey('raw', shared, 'HKDF', false, ['deriveBits']);
@@ -144,7 +153,21 @@ export async function deriveSessionKey(
     ikm,
     KEY_BITS,
   );
-  return subtle().importKey('raw', okm, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  return new Uint8Array(okm);
+}
+
+/** Import 32 raw key bytes (from {@link deriveSharedSecret}) as an AES-256-GCM key. */
+export function importAesKey(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+  return subtle().importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+/** Derive + import in one step (the in-memory handshake path; persistence uses the pair above). */
+export async function deriveSessionKey(
+  privateKey: CryptoKey,
+  peerPublicRaw: Uint8Array<ArrayBuffer>,
+  code: string,
+): Promise<CryptoKey> {
+  return importAesKey(await deriveSharedSecret(privateKey, peerPublicRaw, code));
 }
 
 /* ── AEAD envelope ──────────────────────────────────────────────────────────── */
@@ -190,6 +213,15 @@ export async function verifyPairProof(
   } catch {
     return false;
   }
+}
+
+/** A short, human-comparable fingerprint of a raw public key (8 hex of SHA-256). */
+export async function fingerprint(publicKeyRaw: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await subtle().digest('SHA-256', publicKeyRaw);
+  return [...new Uint8Array(digest).slice(0, 4)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
 }
 
 /* ── AAD builders for the encrypted channel ─────────────────────────────────── */

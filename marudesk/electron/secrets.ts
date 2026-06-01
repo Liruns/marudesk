@@ -327,6 +327,78 @@ export async function clearRelaySession(): Promise<void> {
   }
 }
 
+/* ── paired device records (T2 ③ — docs/t2-secure-pairing-design.md §2) ────── */
+
+// Phones paired for the direct LAN/Tailscale bridge. Each record holds the E2E
+// session key (32-byte AES key, b64url) — a bearer-equivalent secret — so the whole
+// list is safeStorage-encrypted in its own file, 0600, and NEVER returned to the
+// renderer (only the sanitized PairedDeviceInfo crosses IPC). Coerced on read.
+const DEVICES_FILE = 'marudesk-devices.enc';
+
+export type StoredDevice = {
+  deviceId: string;
+  name: string;
+  /** b64url(raw X25519 public key) — identification / fingerprint only. */
+  phPub: string;
+  /** b64url(32-byte AES-GCM session key) — the E2E secret. */
+  key: string;
+  fingerprint: string;
+  /** ISO timestamp. */
+  createdAt: string;
+  /** ISO timestamp of last request, or null if not seen since pairing. */
+  lastSeenAt: string | null;
+};
+
+function devicesFilePath(): string {
+  return path.join(app.getPath('userData'), DEVICES_FILE);
+}
+
+function coerceDevice(value: unknown): StoredDevice | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.deviceId !== 'string' || v.deviceId.length === 0) return null;
+  if (typeof v.key !== 'string' || v.key.length === 0) return null;
+  if (typeof v.phPub !== 'string' || typeof v.fingerprint !== 'string') return null;
+  if (typeof v.name !== 'string' || typeof v.createdAt !== 'string') return null;
+  return {
+    deviceId: v.deviceId,
+    name: v.name,
+    phPub: v.phPub,
+    key: v.key,
+    fingerprint: v.fingerprint,
+    createdAt: v.createdAt,
+    lastSeenAt: typeof v.lastSeenAt === 'string' ? v.lastSeenAt : null,
+  };
+}
+
+/** The persisted paired-device list, or [] if none/undecryptable. Never throws. */
+export async function getPairedDevicesStored(): Promise<StoredDevice[]> {
+  let buf: Buffer;
+  try {
+    buf = await fs.readFile(devicesFilePath());
+  } catch {
+    return [];
+  }
+  if (buf.length === 0 || !safeStorage.isEncryptionAvailable()) return [];
+  try {
+    const parsed = JSON.parse(safeStorage.decryptString(buf)) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(coerceDevice).filter((d): d is StoredDevice => d !== null);
+  } catch {
+    return [];
+  }
+}
+
+/** Persist the paired-device list (safeStorage-encrypted, 0600). */
+export async function setPairedDevicesStored(devices: StoredDevice[]): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('safeStorage encryption unavailable; refuse to write plaintext device keys');
+  }
+  const file = devicesFilePath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, safeStorage.encryptString(JSON.stringify(devices)), { mode: 0o600 });
+}
+
 export function registerSecretsHandlers(): void {
   defineHandler('secrets:list-providers', () => listProviders());
 

@@ -228,3 +228,41 @@ export type ServerStatus = {
   /** Reachable base URLs (Tailscale-first, then LAN); empty when stopped. */
   candidates: ConnectCandidate[];
 };
+
+/* ── device pairing (T2 ③ — docs/t2-secure-pairing-design.md §2/§4) ─────────── */
+
+/**
+ * A paired phone as the Settings UI sees it — NEVER the session key (that lives
+ * safeStorage-encrypted in main). `fingerprint` is a short hash of the device's
+ * public key, shown so the user can tell devices apart / match the approval card.
+ */
+export type PairedDeviceInfo = {
+  deviceId: string;
+  name: string;
+  fingerprint: string;
+  /** ISO timestamp the device was paired. */
+  createdAt: string;
+  /** ISO timestamp of the device's last request, or null if it hasn't connected since. */
+  lastSeenAt: string | null;
+};
+
+/**
+ * A live pairing request awaiting the PC user's approve/reject (pushed on
+ * `server:pairing-request`). `approvalId` correlates the `server:pairing-approve`
+ * / `-reject` reply; the card shows the phone-supplied `name` + the `fingerprint`.
+ */
+export type PairingRequestInfo = {
+  approvalId: string;
+  name: string;
+  fingerprint: string;
+};
+
+/** `server:pairing-start` result — the QR string to render + the code/expiry for the UI. */
+export type PairingStartInfo = {
+  /** The base64url QR payload (encode as a QR; also shown as a manual code fallback). */
+  qr: string;
+  /** The one-time pairing code (shown under the QR for manual entry). */
+  code: string;
+  /** Epoch ms the code/QR expires. */
+  expiresAt: number;
+};
