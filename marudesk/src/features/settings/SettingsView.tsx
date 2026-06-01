@@ -1,5 +1,6 @@
 import { useState, type ComponentType, type ReactNode } from 'react';
 import {
+  Bot,
   Code2,
   Globe,
   Info,
@@ -14,6 +15,7 @@ import {
   FONT_SIZE_MIN,
   UI_ZOOM_MAX,
   UI_ZOOM_MIN,
+  type AgentApprovalMode,
   type DevtoolsDock,
   type SearchEngine,
   type ThemeMode,
@@ -46,6 +48,12 @@ const SEARCH_ENGINE_OPTIONS: { value: SearchEngine; label: string }[] = [
   { value: 'bing', label: 'Bing' },
 ];
 
+const APPROVAL_MODE_OPTIONS: { value: AgentApprovalMode; label: string }[] = [
+  { value: 'read-only', label: 'Read-only' },
+  { value: 'ask', label: 'Ask' },
+  { value: 'auto', label: 'Auto' },
+];
+
 const CATEGORIES: {
   id: SettingsCategory;
   label: string;
@@ -57,6 +65,7 @@ const CATEGORIES: {
   { id: 'terminal', label: 'Terminal', icon: SquareTerminal, blurb: 'Integrated terminal font and shell.' },
   { id: 'browser', label: 'Browser', icon: Globe, blurb: 'Search engine and embedded-browser behavior.' },
   { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.' },
+  { id: 'agent', label: 'AI Agent', icon: Bot, blurb: 'How much the agent may do without asking, and paths it must never edit.' },
   { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.' },
   { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.' },
 ];
@@ -114,6 +123,7 @@ export function SettingsView() {
           {category === 'terminal' ? <TerminalCategory /> : null}
           {category === 'browser' ? <BrowserCategory /> : null}
           {category === 'providers' ? <ProvidersSettings /> : null}
+          {category === 'agent' ? <AgentCategory /> : null}
           {category === 'devtools' ? <DevtoolsCategory /> : null}
           {category === 'about' ? <AboutCategory /> : null}
         </div>
@@ -264,6 +274,34 @@ function DevtoolsCategory() {
           value={devtools.defaultDock}
           options={DOCK_OPTIONS}
           onChange={(defaultDock) => void update({ devtools: { defaultDock } })}
+        />
+      </Field>
+    </Section>
+  );
+}
+
+function AgentCategory() {
+  const agent = useSettingsStore((s) => s.settings.agent);
+  const update = useSettingsStore((s) => s.update);
+  return (
+    <Section>
+      <Field
+        label="Approval mode"
+        hint="Read-only: observe only (no edits / no code). Ask: edits run; sensitive tools (run code, cookies, storage, terminal) ask first. Auto: no prompts."
+      >
+        <Segmented
+          value={agent.approvalMode}
+          options={APPROVAL_MODE_OPTIONS}
+          onChange={(approvalMode) => void update({ agent: { approvalMode } })}
+        />
+      </Field>
+      <Field
+        label="Never-edit paths"
+        hint="Globs the agent may never edit, one per line (* and ** supported)."
+      >
+        <GlobsField
+          value={agent.denyGlobs}
+          onCommit={(denyGlobs) => void update({ agent: { denyGlobs } })}
         />
       </Field>
     </Section>
@@ -574,6 +612,47 @@ function TextField({
       className={cn(
         'h-8 w-[240px] max-w-[40vw] rounded-md bg-surface-page border border-default px-3',
         'text-body-sm text-fg-primary placeholder:text-fg-tertiary',
+        'focus:outline-none focus:border-accent transition-colors duration-fast',
+      )}
+    />
+  );
+}
+
+/** Multiline editor for a list of path globs (one per line); commits on blur. */
+function GlobsField({
+  value,
+  onCommit,
+}: {
+  value: string[];
+  onCommit: (value: string[]) => void;
+}) {
+  const text = value.join('\n');
+  const [local, setLocal] = useState(text);
+  // Reset the draft when the committed list changes upstream (store-previous-prop).
+  const [committed, setCommitted] = useState(text);
+  if (text !== committed) {
+    setCommitted(text);
+    setLocal(text);
+  }
+  const commit = () => {
+    const next = local
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (next.join('\n') !== value.join('\n')) onCommit(next);
+  };
+  return (
+    <textarea
+      value={local}
+      spellCheck={false}
+      autoComplete="off"
+      rows={5}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      placeholder={'**/.env\n**/secrets/**'}
+      className={cn(
+        'w-[240px] max-w-[40vw] rounded-md bg-surface-page border border-default px-3 py-2',
+        'text-body-sm font-mono text-fg-primary placeholder:text-fg-tertiary resize-y',
         'focus:outline-none focus:border-accent transition-colors duration-fast',
       )}
     />

@@ -26,6 +26,16 @@ export type DevtoolsDock = 'right' | 'bottom' | 'chrome';
 /** Address-bar search provider used when input isn't a URL. */
 export type SearchEngine = 'google' | 'duckduckgo' | 'bing';
 
+/**
+ * How much the agent may do without asking (docs/agentic-chat-v4-design.md §B4):
+ * - `read-only`: read/observe only — file edits and code execution (eval_js) are
+ *   refused outright.
+ * - `ask`: edits run (they're reviewable/revertable), but sensitive tools
+ *   (eval_js, cookies, storage, terminal output) ask for per-call approval.
+ * - `auto`: everything runs without approval prompts.
+ */
+export type AgentApprovalMode = 'read-only' | 'ask' | 'auto';
+
 export type AppSettings = {
   version: 1;
   appearance: {
@@ -53,6 +63,16 @@ export type AppSettings = {
     /** Address-bar search provider for non-URL input. */
     searchEngine: SearchEngine;
   };
+  agent: {
+    /** How much the AI agent may do without asking — see {@link AgentApprovalMode}. */
+    approvalMode: AgentApprovalMode;
+    /**
+     * Path globs the agent may never edit (matched against workspace-relative
+     * paths). A second line of defense for secrets/config beyond the read-side
+     * SECRET_FILE guard. `*`/`**` supported.
+     */
+    denyGlobs: string[];
+  };
 };
 
 /**
@@ -67,6 +87,7 @@ export type SettingsPatch = {
   terminal?: Partial<AppSettings['terminal']>;
   devtools?: Partial<AppSettings['devtools']>;
   browser?: Partial<AppSettings['browser']>;
+  agent?: Partial<AppSettings['agent']>;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -89,6 +110,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   browser: {
     searchEngine: 'google',
   },
+  agent: {
+    approvalMode: 'ask',
+    denyGlobs: [
+      '**/.env',
+      '**/.env.*',
+      '**/*.pem',
+      '**/*.key',
+      '**/id_rsa',
+      '**/id_rsa.*',
+      '**/secrets/**',
+    ],
+  },
 };
 
 export const FONT_SIZE_MIN = 8;
@@ -101,6 +134,8 @@ export const UI_ZOOM_BASE_PX = 16;
 const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
 const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing'];
+const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto'];
+const MAX_DENY_GLOBS = 100;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
@@ -148,6 +183,19 @@ function asEnum<T extends string>(
 }
 
 /**
+ * Coerce to a string array (trimmed, non-empty entries, capped). A non-array
+ * falls back to `fallback`; an empty array is honored (the user cleared the
+ * list) so deny-globs can be intentionally emptied.
+ */
+function asStringArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+  return value
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .map((s) => s.trim())
+    .slice(0, MAX_DENY_GLOBS);
+}
+
+/**
  * Coerce arbitrary input into a valid AppSettings, using `base` (defaults, or
  * the current settings for a partial update) for any missing/invalid field.
  * Unknown keys are dropped; out-of-range numbers are clamped; bad enums fall
@@ -162,6 +210,7 @@ export function sanitizeSettings(
   const t = asRecord(root.terminal);
   const d = asRecord(root.devtools);
   const b = asRecord(root.browser);
+  const ag = asRecord(root.agent);
 
   return {
     version: 1,
@@ -207,6 +256,10 @@ export function sanitizeSettings(
         SEARCH_ENGINES,
         base.browser.searchEngine,
       ),
+    },
+    agent: {
+      approvalMode: asEnum(ag.approvalMode, APPROVAL_MODES, base.agent.approvalMode),
+      denyGlobs: asStringArray(ag.denyGlobs, base.agent.denyGlobs),
     },
   };
 }

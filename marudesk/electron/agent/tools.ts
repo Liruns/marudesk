@@ -8,6 +8,7 @@ import { readFileSafe } from '../workspace';
 import { applyPatch } from '../patch';
 import { getTab, getErrors, getNetwork, type TabRecord } from '../browser/state';
 import { sendCdp, enableNetworkCapture } from '../browser/cdp';
+import { getRecentTerminalOutput } from '../terminal';
 
 /**
  * The agent tool layer (docs/agentic-chat-design.md §4) — the §9 promotion of
@@ -38,6 +39,12 @@ export type ToolContext = {
   tabId?: string;
   /** Aborts an in-flight tool (e.g. the wait inside reload_and_verify). */
   signal: AbortSignal;
+  /**
+   * Path globs the agent may never edit (Settings → Agent, Track B §B4). Checked
+   * in applyEdits against each edit's workspace-relative path. Undefined/empty =
+   * no extra deny rules (the read-side SECRET_FILE guard still applies).
+   */
+  denyGlobs?: string[];
 };
 
 export type ToolResult = {
@@ -56,7 +63,12 @@ export type ToolResult = {
  * session tokens). This is the interim of Track B §B4's `ask` default until the
  * full glob-permission / approval-mode system lands.
  */
-export const GATED_TOOLS = new Set(['eval_js', 'browser_cookies', 'browser_storage']);
+export const GATED_TOOLS = new Set([
+  'eval_js',
+  'browser_cookies',
+  'browser_storage',
+  'terminal_output',
+]);
 
 /** `ask_user` is intercepted by the loop (it parks the turn), never executed here. */
 export const ASK_USER = 'ask_user';
@@ -242,6 +254,18 @@ async function applyEdits(
   label: string,
 ): Promise<ToolResult> {
   if (!ctx.ws) return noWorkspaceResult(label);
+  if (ctx.denyGlobs?.length) {
+    const blocked = ops.find((op) =>
+      ctx.denyGlobs!.some((g) => globToRegExp(g).test(op.path)),
+    );
+    if (blocked) {
+      return {
+        summary: `${label} blocked`,
+        text: `Blocked: "${blocked.path}" matches a denied path glob (Settings → Agent). Edit it yourself if this is intended.`,
+        isError: true,
+      };
+    }
+  }
   const res = await applyPatch(ctx.ws, ops);
   if (!res.ok) {
     const why = res.errors.map((e) => `${e.path}: ${e.reason}`).join('; ');
@@ -532,6 +556,16 @@ async function browserStorage(input: { kind?: unknown }, ctx: ToolContext): Prom
   return { summary: `storage @ ${origin}`, text: clip(scrubText(blocks.join('\n\n'))) };
 }
 
+async function terminalOutput(): Promise<ToolResult> {
+  const res = getRecentTerminalOutput(8000);
+  if (!res) return { summary: 'no terminal', text: 'No terminal session is open.' };
+  if (!res.output.trim()) {
+    return { summary: 'terminal (no output)', text: 'The most recent terminal has produced no output yet.' };
+  }
+  const note = res.count > 1 ? ` (most recent of ${res.count})` : '';
+  return { summary: `terminal output${note}`, text: clip(scrubText(res.output)) };
+}
+
 const EXECUTORS: Record<string, Executor> = {
   read_file: readFile as Executor,
   list_files: listFiles as Executor,
@@ -546,6 +580,7 @@ const EXECUTORS: Record<string, Executor> = {
   reload_and_verify: reloadAndVerify as Executor,
   browser_cookies: browserCookies as Executor,
   browser_storage: browserStorage as Executor,
+  terminal_output: terminalOutput as Executor,
 };
 
 export async function executeTool(
@@ -669,6 +704,11 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     name: 'browser_storage',
     description: "Read the live page's localStorage and/or sessionStorage entries. Read-only; values are secret-scrubbed. Requires user approval.",
     inputSchema: { type: 'object', properties: { kind: strProp("'local', 'session', or omit for both.") }, additionalProperties: false },
+  },
+  {
+    name: 'terminal_output',
+    description: "Read the recent output (scrollback) of the most-recently-used integrated terminal. Read-only; ANSI-stripped and secret-scrubbed. Requires user approval. Use to see command results / build or test logs the user ran.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: ASK_USER,

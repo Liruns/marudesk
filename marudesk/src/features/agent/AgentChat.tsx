@@ -23,6 +23,7 @@ import {
   SquareTerminal,
   Network,
   RefreshCw,
+  Plus,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
@@ -44,9 +45,11 @@ import type {
 import { openSettingsTab } from '../settings/store';
 import { useProvidersStore } from '../providers/store';
 import { useWorkspaceStore } from '../workspace/store';
+import { useWebPageStore } from '../browser/store';
 import { useAgentStore } from './store';
 import { toDiffLines } from './diff';
 import { ModelPalette } from './ModelPalette';
+import { ContextPopover } from './ContextPopover';
 
 const STATUS_LABEL: Record<AgentStatus, string> = {
   idle: 'Ready',
@@ -77,6 +80,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const refreshStatus = useProvidersStore((s) => s.refreshProviderStatus);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const plusButtonRef = useRef<HTMLButtonElement>(null);
+  const [contextOpen, setContextOpen] = useState(false);
 
   // Subscribe to the server-owned snapshot stream while mounted; hydrate once so
   // we catch up on whatever happened while the panel was on another tab.
@@ -108,6 +114,33 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       e.preventDefault();
       void send();
     }
+  };
+
+  /**
+   * Insert an @-mention at the current cursor position in the textarea. Falls
+   * back to appending at the end if the element is not focused. After insertion
+   * the textarea re-focuses so the user can keep typing.
+   */
+  const handleInsertMention = (mention: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setDraft(draft ? `${draft} ${mention} ` : `${mention} `);
+      return;
+    }
+    const start = el.selectionStart ?? draft.length;
+    const end = el.selectionEnd ?? draft.length;
+    const before = draft.slice(0, start);
+    const after = draft.slice(end);
+    // Add a leading space if we're not at the beginning and the char before isn't whitespace.
+    const spaceBefore = start > 0 && !/\s$/.test(before) ? ' ' : '';
+    const newDraft = `${before}${spaceBefore}${mention} ${after}`;
+    setDraft(newDraft);
+    // Restore focus and position cursor after the mention.
+    requestAnimationFrame(() => {
+      el.focus();
+      const cursor = start + spaceBefore.length + mention.length + 1;
+      el.setSelectionRange(cursor, cursor);
+    });
   };
 
   return (
@@ -180,7 +213,13 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           ) : null}
 
           <div className="flex items-end gap-2">
+            <ContextButton
+              buttonRef={plusButtonRef}
+              open={contextOpen}
+              onToggle={() => setContextOpen((v) => !v)}
+            />
             <textarea
+              ref={textareaRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
@@ -210,8 +249,71 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               </Button>
             )}
           </div>
+
+          {contextOpen ? (
+            <ContextPopover
+              anchorRef={plusButtonRef}
+              onClose={() => setContextOpen(false)}
+              onInsertMention={handleInsertMention}
+            />
+          ) : null}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ── "+" context button ─────────────────────────────────────────────────── */
+
+/**
+ * The "+" button that opens the context popover. Shows a count badge when any
+ * captures are currently selected — so the user can glance at the composer and
+ * know context is already attached before hitting Send.
+ */
+function ContextButton({
+  buttonRef,
+  open,
+  onToggle,
+}: {
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const selectedIds = useWebPageStore((s) => s.selectedCaptureIds);
+  const selectedCount = selectedIds.size;
+
+  return (
+    <div className="relative shrink-0 self-end mb-[3px]">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={onToggle}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Add context"
+        title="Add context (captures, tabs)"
+        className={cn(
+          'size-8 flex items-center justify-center rounded border transition-colors duration-fast',
+          open
+            ? 'border-accent bg-accent-subtle/30 text-accent'
+            : 'border-default bg-surface-page text-fg-tertiary hover:border-accent/60 hover:text-fg-secondary',
+        )}
+      >
+        <Plus size={14} />
+      </button>
+      {selectedCount > 0 ? (
+        <span
+          aria-label={`${selectedCount} capture${selectedCount === 1 ? '' : 's'} selected`}
+          className={cn(
+            'pointer-events-none absolute -top-1.5 -right-1.5',
+            'flex items-center justify-center',
+            'min-w-[16px] h-4 rounded-pill px-1',
+            'bg-accent text-white text-[10px] font-medium tabular-nums leading-none',
+          )}
+        >
+          {selectedCount}
+        </span>
+      ) : null}
     </div>
   );
 }

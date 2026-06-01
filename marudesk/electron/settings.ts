@@ -113,7 +113,9 @@ export function registerSettingsHandlers(deps: {
 function mergeDeep(base: AppSettings, partial: unknown): unknown {
   if (!partial || typeof partial !== 'object') return base;
   const p = partial as Record<string, unknown>;
-  const section = (key: 'appearance' | 'terminal' | 'devtools' | 'browser') => {
+  const section = (
+    key: 'appearance' | 'terminal' | 'devtools' | 'browser' | 'agent',
+  ) => {
     const incoming = p[key];
     if (!incoming || typeof incoming !== 'object') return base[key];
     return { ...base[key], ...(incoming as Record<string, unknown>) };
@@ -124,5 +126,6 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
     terminal: section('terminal'),
     devtools: section('devtools'),
     browser: section('browser'),
+    agent: section('agent'),
   };
 }

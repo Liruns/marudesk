@@ -20,6 +20,8 @@ import { getProviderApiKey } from '../secrets';
 import { CLAUDE_CODE_SYSTEM_PREFIX, supportsOAuth } from '../oauth/config';
 import { getValidAccessToken } from '../oauth/flow';
 import { getCustomProvider } from '../custom-providers';
+import { getSettingsSync } from '../settings';
+import type { AgentApprovalMode } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
@@ -201,10 +203,22 @@ type RunOpts = {
   tabId?: string;
   turnId: string;
   signal: AbortSignal;
+  /** How much the agent may do without asking (Settings → Agent, §B4). */
+  approvalMode: AgentApprovalMode;
+  /** Path globs the agent may never edit (passed to the tool context). */
+  denyGlobs: string[];
 };
 
+/** Tools that mutate the workspace — refused outright in read-only mode. */
+const WRITE_TOOLS = new Set(['edit_file', 'multi_edit']);
+
 async function runLoop(opts: RunOpts): Promise<void> {
-  const ctx: ToolContext = { ws: opts.ws, tabId: opts.tabId, signal: opts.signal };
+  const ctx: ToolContext = {
+    ws: opts.ws,
+    tabId: opts.tabId,
+    signal: opts.signal,
+    denyGlobs: opts.denyGlobs,
+  };
   // Build the model + tool set once per turn (provider/model/auth are fixed for it).
   const model = buildModel(opts.provider, opts.model, opts.auth, opts.baseUrl);
   const tools = aiTools(TOOL_SCHEMAS);
@@ -339,8 +353,29 @@ async function runLoop(opts: RunOpts): Promise<void> {
         continue;
       }
 
-      // Gated tools (eval_js): park for explicit approval.
-      if (GATED_TOOLS.has(call.name)) {
+      // Read-only mode: refuse mutations + code execution outright (don't even
+      // prompt). Reads still run; sensitive read tools below still ask. (§B4)
+      if (
+        opts.approvalMode === 'read-only' &&
+        (WRITE_TOOLS.has(call.name) || call.name === 'eval_js')
+      ) {
+        call.state = 'denied';
+        call.resultText = 'Blocked: read-only mode.';
+        emit();
+        toolResultParts.push(
+          toolResult(
+            call.id,
+            call.name,
+            'Blocked: the agent is in read-only mode. Switch to Ask or Auto in Settings → Agent to allow edits and code execution.',
+            true,
+          ),
+        );
+        continue;
+      }
+
+      // Gated tools (eval_js / cookies / storage / terminal output): park for
+      // explicit approval — unless the mode is `auto`, which auto-approves. (§B4)
+      if (GATED_TOOLS.has(call.name) && opts.approvalMode !== 'auto') {
         call.state = 'awaiting_approval';
         state.status = 'waiting_for_user';
         state.pendingApproval = {
@@ -579,6 +614,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     transcript.push({ role: 'user', content: userText });
     emit();
 
+    const agentSettings = getSettingsSync().agent;
     void runLoop({
       auth,
       baseUrl,
@@ -588,6 +624,8 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       tabId: input.tabId,
       turnId,
       signal: controller.signal,
+      approvalMode: agentSettings.approvalMode,
+      denyGlobs: agentSettings.denyGlobs,
     }).catch((err) => finish('failed', undefined, (err as Error).message));
 
     return { ok: true, turnId };

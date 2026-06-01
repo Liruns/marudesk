@@ -35,6 +35,8 @@ type Session = {
   buffer: string[];
   buffered: number;
   ready: boolean;
+  /** Bounded recent output tail (raw bytes) for the agent's terminal_output tool. */
+  scrollback: string;
 };
 
 const sessions = new Map<string, Session>();
@@ -43,6 +45,11 @@ const DIM_MIN = 1;
 const DIM_MAX = 1000;
 const MAX_TERMINALS = 64;
 const MAX_EARLY_BUFFER_BYTES = 1024 * 1024;
+// Recent scrollback kept per session so the agent's `terminal_output` tool can
+// read what the shell printed (node-pty streams to the renderer's xterm, which
+// main can't query — so we retain a bounded tail here). Raw bytes; the tool
+// strips ANSI + scrubs secrets at egress.
+const SCROLLBACK_MAX = 16 * 1024;
 
 // Strip secret-shaped vars so a user command (`env`, `Get-ChildItem Env:`) and
 // any subprocess can't read them. The shell still inherits PATH/HOME/etc. — a
@@ -259,10 +266,15 @@ export function registerTerminalHandlers(deps: {
     }
 
     const id = randomUUID();
-    const rec: Session = { pty, buffer: [], buffered: 0, ready: false };
+    const rec: Session = { pty, buffer: [], buffered: 0, ready: false, scrollback: '' };
     sessions.set(id, rec);
 
     pty.onData((data) => {
+      // Retain a bounded scrollback tail for the agent's terminal_output tool.
+      rec.scrollback += data;
+      if (rec.scrollback.length > SCROLLBACK_MAX) {
+        rec.scrollback = rec.scrollback.slice(-SCROLLBACK_MAX);
+      }
       if (rec.ready) {
         sendToRenderer('terminal:data', { id, data });
       } else if (rec.buffered < MAX_EARLY_BUFFER_BYTES) {
@@ -325,4 +337,28 @@ function killSession(id: string): void {
 /** Kill every live PTY — call on window close / before quit. */
 export function disposeAllTerminals(): void {
   for (const id of [...sessions.keys()]) killSession(id);
+}
+
+// CSI (colors/cursor) + OSC (window-title) escape sequences, stripped before the
+// scrollback is handed to the agent so it reads plain text.
+const ANSI_ESCAPE =
+  // eslint-disable-next-line no-control-regex
+  /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+
+/**
+ * Recent output of the most-recently-created live terminal, ANSI-stripped and
+ * tail-trimmed, for the agent's `terminal_output` tool. Returns null when no
+ * terminal is open. (Main has no notion of the "focused" terminal; the newest
+ * session is the best heuristic for "the one the user is looking at".)
+ */
+export function getRecentTerminalOutput(
+  maxChars = 8000,
+): { count: number; output: string } | null {
+  if (sessions.size === 0) return null;
+  const ids = [...sessions.keys()];
+  const rec = sessions.get(ids[ids.length - 1]);
+  if (!rec) return null;
+  const stripped = rec.scrollback.replace(ANSI_ESCAPE, '');
+  const output = stripped.length > maxChars ? stripped.slice(-maxChars) : stripped;
+  return { count: sessions.size, output };
 }
