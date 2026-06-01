@@ -26,6 +26,12 @@ import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { openExternalUrl } from './safe-open';
 import { stopServer, syncServerToSettings } from './server';
+import {
+  disposeRelay,
+  registerRelayHandlers,
+  setRelayStatusListener,
+  syncRelayToSettings,
+} from './server/relay';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -202,6 +208,12 @@ void app.whenReady().then(() => {
   registerAgentHandlers();
   registerMcpHandlers();
   registerWindowControlHandlers();
+  registerRelayHandlers();
+  // Push live cloud-relay status (connected-as-host / session changes) to the
+  // renderer so Settings reflects it without polling. Sanitized — never tokens.
+  setRelayStatusListener((status) =>
+    getMainWindow()?.webContents.send('relay:status-changed', status),
+  );
   registerSettingsHandlers({
     broadcast: (settings) => {
       getMainWindow()?.webContents.send('settings:changed', settings);
@@ -209,6 +221,10 @@ void app.whenReady().then(() => {
       // the server.enabled/port change). Fire-and-forget — a bind failure is
       // handled inside and never crashes the app.
       void syncServerToSettings(settings);
+      // Reconcile the cloud-relay host (connect/disconnect on the cloudEnabled /
+      // relayUrl change). Also fire-and-forget — connection errors are swallowed
+      // by the relay-client's reconnect and never crash the app.
+      void syncRelayToSettings(settings);
     },
   });
   registerHistoryHandlers();
@@ -222,7 +238,12 @@ void app.whenReady().then(() => {
   // not just after the renderer's settings:get round-trips. Once loaded, reconcile
   // the bridge server with the persisted server.enabled/port (off by default, so
   // this is a no-op unless the user turned it on previously).
-  void getSettings().then((settings) => syncServerToSettings(settings));
+  void getSettings().then((settings) => {
+    void syncServerToSettings(settings);
+    // Connect the cloud-relay host if cloud is enabled AND a session is stored
+    // (off by default → a no-op unless the user logged in + enabled it before).
+    void syncRelayToSettings(settings);
+  });
   // Connect any user-configured external (stdio) MCP servers (off by default — the
   // config file ships empty, so this is a no-op until the user adds one). A
   // per-server spawn/init failure is handled inside the manager and never crashes
@@ -249,6 +270,8 @@ app.on('before-quit', () => {
   // Stop the bridge server so its loopback port is released and no SSE
   // connection lingers past app exit.
   void stopServer();
+  // Stop reconnecting + close the outbound cloud-relay host WS on quit.
+  disposeRelay();
   // Close every external MCP stdio connection so no spawned child process lingers
   // past app exit.
   void shutdownExternalMcp();

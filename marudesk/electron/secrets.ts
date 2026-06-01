@@ -8,6 +8,7 @@ import {
   type ProviderId,
   type ProviderStatus,
 } from '../shared/providers';
+import type { RelayAccount } from '../shared/remote';
 import { invalidateModelsCache } from './models';
 import { defineHandler } from './ipc/define-handler';
 import { str } from './ipc/validate';
@@ -229,6 +230,101 @@ export async function setServerTokenStored(token: string): Promise<void> {
   const file = serverTokenFilePath();
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, safeStorage.encryptString(token), { mode: 0o600 });
+}
+
+/* ── cloud-relay session (docs/bridge-model-b-design.md §B2/§3) ──────────────── */
+
+// The PC's cloud-account session for the relay: the relay base URL plus the
+// account's JWTs and public account. Stored safeStorage-encrypted in its own file
+// (the access/refresh tokens are bearer credentials — same handling as provider
+// secrets). NEVER returned to the renderer in plaintext: only a sanitized
+// `{ account, connected }` status crosses IPC (see electron/server/relay.ts).
+const RELAY_SESSION_FILE = 'marudesk-relay-session.enc';
+
+/** The persisted relay session shape (validated on read — trust nothing on disk). */
+export type RelaySession = {
+  relayUrl: string;
+  accessToken: string;
+  refreshToken: string;
+  account: RelayAccount;
+};
+
+function relaySessionFilePath(): string {
+  return path.join(app.getPath('userData'), RELAY_SESSION_FILE);
+}
+
+/** Coerce a stored blob back into a {@link RelaySession}, or null if malformed. */
+function coerceRelaySession(value: unknown): RelaySession | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.relayUrl !== 'string' || v.relayUrl.length === 0) return null;
+  if (typeof v.accessToken !== 'string' || v.accessToken.length === 0) return null;
+  if (typeof v.refreshToken !== 'string' || v.refreshToken.length === 0) return null;
+  const acc = v.account as Record<string, unknown> | undefined;
+  if (!acc || typeof acc !== 'object') return null;
+  if (
+    typeof acc.id !== 'string' ||
+    typeof acc.email !== 'string' ||
+    typeof acc.createdAt !== 'string' ||
+    (acc.method !== 'local' && acc.method !== 'google' && acc.method !== 'github')
+  ) {
+    return null;
+  }
+  const account: RelayAccount = {
+    id: acc.id,
+    method: acc.method,
+    email: acc.email,
+    createdAt: acc.createdAt,
+    ...(typeof acc.displayName === 'string' ? { displayName: acc.displayName } : {}),
+  };
+  return { relayUrl: v.relayUrl, accessToken: v.accessToken, refreshToken: v.refreshToken, account };
+}
+
+/** The stored relay session, or null if none/undecryptable. Never throws. */
+export async function getRelaySession(): Promise<RelaySession | null> {
+  let buf: Buffer;
+  try {
+    buf = await fs.readFile(relaySessionFilePath());
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    return null;
+  }
+  if (buf.length === 0) return null;
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return coerceRelaySession(JSON.parse(safeStorage.decryptString(buf)));
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the relay session (safeStorage-encrypted, 0600). */
+export async function setRelaySession(session: RelaySession): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('safeStorage encryption unavailable; refuse to write a plaintext relay session');
+  }
+  const file = relaySessionFilePath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, safeStorage.encryptString(JSON.stringify(session)), { mode: 0o600 });
+}
+
+/** Update just the tokens of the stored session (after a refresh). No-op if none stored. */
+export async function updateRelayTokens(
+  accessToken: string,
+  refreshToken: string,
+): Promise<void> {
+  const session = await getRelaySession();
+  if (!session) return;
+  await setRelaySession({ ...session, accessToken, refreshToken });
+}
+
+/** Forget the stored relay session (logout / disconnect). Best-effort. */
+export async function clearRelaySession(): Promise<void> {
+  try {
+    await fs.unlink(relaySessionFilePath());
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
 }
 
 export function registerSecretsHandlers(): void {

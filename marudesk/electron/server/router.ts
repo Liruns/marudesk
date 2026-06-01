@@ -1,11 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { AgentAnswers, AgentChatState, AgentSendInput, AgentSendResult } from '../../shared/agent';
+import type { AgentChatState } from '../../shared/agent';
 import {
   REMOTE_MAX_BODY_BYTES,
   REMOTE_SSE_PING_MS,
+  type RelayCommandName,
   type RemoteEvent,
 } from '../../shared/remote';
-import { parseAbort, parseApprove, parseRespond, parseSendInput } from '../agent/parse';
+import { dispatchAgentCommand, type AgentApi } from './dispatch';
 import { verifyToken } from './token';
 
 /**
@@ -28,14 +29,7 @@ export type RouterDeps = {
   /** App version for the /health probe. */
   version: string;
   /** The agent loop's public API (electron/agent/loop.ts), injected for testability. */
-  agent: {
-    startTurn(input: AgentSendInput): Promise<AgentSendResult>;
-    abortTurn(turnId: string): boolean;
-    respond(turnId: string, callId: string, answers: AgentAnswers): boolean;
-    approveTool(turnId: string, callId: string, approved: boolean): boolean;
-    snapshot(): AgentChatState;
-    reset(): boolean;
-  };
+  agent: AgentApi;
   /** Subscribe to the loop's state stream; returns an unsubscribe fn. */
   subscribe(cb: (state: AgentChatState) => void): () => void;
 };
@@ -192,58 +186,34 @@ export async function handleRequest(
     return;
   }
 
-  // ── POST routes (validated with the same parsers as the agent:* IPC) ─────
-  if (pathname === '/agent/send') {
+  // ── POST routes ──────────────────────────────────────────────────────────
+  // Each maps to a relay command verb dispatched through the SHARED dispatcher
+  // (./dispatch.ts) — the same validate(parse.ts)→loop path the Bridge Model B
+  // relay-client uses, so REST and relay can't drift. `reset` takes no body.
+  const REST_COMMANDS: Record<string, RelayCommandName> = {
+    '/agent/send': 'send',
+    '/agent/abort': 'abort',
+    '/agent/respond': 'respond',
+    '/agent/approve': 'approve',
+    '/agent/reset': 'reset',
+  };
+  const cmd = REST_COMMANDS[pathname];
+  if (cmd) {
     if (method !== 'POST') return sendError(res, 405, 'method not allowed');
-    let input: AgentSendInput;
+    let body: unknown;
     try {
-      input = parseSendInput(await readJsonBody(req, res));
-    } catch (err) {
-      if (!res.writableEnded) sendError(res, 400, (err as Error).message);
+      body = await readJsonBody(req, res);
+    } catch {
+      return; // readJsonBody already wrote the 4xx response
+    }
+    const outcome = await dispatchAgentCommand(deps.agent, cmd, body);
+    // A validation failure (bad command args) is a 400, mirroring the prior
+    // per-route parse-error handling; a successful dispatch returns its result.
+    if (!outcome.ok) {
+      sendError(res, 400, outcome.error);
       return;
     }
-    sendJson(res, 200, await deps.agent.startTurn(input));
-    return;
-  }
-  if (pathname === '/agent/abort') {
-    if (method !== 'POST') return sendError(res, 405, 'method not allowed');
-    let body: { turnId: string };
-    try {
-      body = parseAbort(await readJsonBody(req, res));
-    } catch (err) {
-      if (!res.writableEnded) sendError(res, 400, (err as Error).message);
-      return;
-    }
-    sendJson(res, 200, { ok: deps.agent.abortTurn(body.turnId) });
-    return;
-  }
-  if (pathname === '/agent/respond') {
-    if (method !== 'POST') return sendError(res, 405, 'method not allowed');
-    let body: { turnId: string; callId: string; answers: AgentAnswers };
-    try {
-      body = parseRespond(await readJsonBody(req, res));
-    } catch (err) {
-      if (!res.writableEnded) sendError(res, 400, (err as Error).message);
-      return;
-    }
-    sendJson(res, 200, { ok: deps.agent.respond(body.turnId, body.callId, body.answers) });
-    return;
-  }
-  if (pathname === '/agent/approve') {
-    if (method !== 'POST') return sendError(res, 405, 'method not allowed');
-    let body: { turnId: string; callId: string; approved: boolean };
-    try {
-      body = parseApprove(await readJsonBody(req, res));
-    } catch (err) {
-      if (!res.writableEnded) sendError(res, 400, (err as Error).message);
-      return;
-    }
-    sendJson(res, 200, { ok: deps.agent.approveTool(body.turnId, body.callId, body.approved) });
-    return;
-  }
-  if (pathname === '/agent/reset') {
-    if (method !== 'POST') return sendError(res, 405, 'method not allowed');
-    sendJson(res, 200, { ok: deps.agent.reset() });
+    sendJson(res, 200, outcome.result);
     return;
   }
 

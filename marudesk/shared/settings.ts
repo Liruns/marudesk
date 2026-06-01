@@ -92,6 +92,15 @@ export type AppSettings = {
     enabled: boolean;
     /** TCP port for the loopback bind (clamped to 1024–65535). */
     port: number;
+    /**
+     * Cloud relay (Bridge Model B — docs/bridge-model-b-design.md §B2). When
+     * `cloudEnabled` is on AND a cloud account is logged in, the PC holds an
+     * OUTBOUND host WS to the relay at `relayUrl` so a phone on the same account
+     * can drive the AI Chat from anywhere. Off by default; `relayUrl` is the
+     * non-secret base URL (the account tokens live encrypted in secrets.ts).
+     */
+    relayUrl: string;
+    cloudEnabled: boolean;
   };
 };
 
@@ -111,6 +120,9 @@ export type SettingsPatch = {
   pcControl?: Partial<AppSettings['pcControl']>;
   server?: Partial<AppSettings['server']>;
 };
+
+/** Default cloud-relay base URL — the B1 relay's localhost dev port. */
+export const DEFAULT_RELAY_URL = 'http://127.0.0.1:8788';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
@@ -150,6 +162,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   server: {
     enabled: false,
     port: 8787,
+    relayUrl: DEFAULT_RELAY_URL,
+    cloudEnabled: false,
   },
 };
 
@@ -206,6 +220,23 @@ const SHELL_SENTINELS: readonly string[] = ['system', 'default', 'os', 'auto', '
 function asShell(value: unknown, fallback: string): string {
   const s = asString(value, fallback);
   return SHELL_SENTINELS.includes(s.trim().toLowerCase()) ? '' : s;
+}
+
+/**
+ * Coerce a cloud-relay base URL: a trimmed http(s) URL (trailing slash stripped),
+ * else the fallback. A non-URL or non-http(s) value can never reach the relay
+ * client (which would otherwise build a request against junk).
+ */
+function asRelayUrl(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim().replace(/\/+$/, '');
+  if (trimmed.length === 0) return fallback;
+  try {
+    const u = new URL(trimmed);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? trimmed : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function asEnum<T extends string>(
@@ -305,6 +336,8 @@ export function sanitizeSettings(
     server: {
       enabled: asBool(sv.enabled, base.server.enabled),
       port: clampNumber(sv.port, base.server.port, SERVER_PORT_MIN, SERVER_PORT_MAX),
+      relayUrl: asRelayUrl(sv.relayUrl, base.server.relayUrl),
+      cloudEnabled: asBool(sv.cloudEnabled, base.server.cloudEnabled),
     },
   };
 }

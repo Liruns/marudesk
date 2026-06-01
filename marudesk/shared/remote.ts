@@ -63,3 +63,134 @@ export type RemoteError = { error: string };
  * room for leaner deltas later without breaking older clients.
  */
 export type RemoteEvent = { type: 'snapshot'; state: AgentChatState };
+
+/* ── Bridge Model B: relay app-level protocol (docs/bridge-model-b-design.md §3) ──
+ *
+ * These messages ride INSIDE the relay's opaque `payload` (the relay is a dumb
+ * pipe — it forwards `{ type:'relay', from, payload }` and never inspects the
+ * payload). PC-host and the phone-client agree on this small discriminated union,
+ * which mirrors the M4 SSE/REST surface 1:1: a client `cmd` is the matching
+ * `/agent/*` endpoint (validated by the SAME electron/agent/parse.ts parsers the
+ * REST router uses), and the host replies with an `ack` + pushes `event` snapshots
+ * on every agent:event. Both sides treat peer messages as UNTRUSTED — the relay
+ * does no validation, so {@link parseRelayCommand} is the trust boundary on the
+ * host and the client validates `event`/`ack` shape on its side.
+ */
+
+/** The agent commands a client may drive over the relay (mirror the M4 REST verbs). */
+export type RelayCommandName = 'send' | 'abort' | 'respond' | 'approve' | 'reset' | 'snapshot';
+
+export const RELAY_COMMANDS: readonly RelayCommandName[] = [
+  'send',
+  'abort',
+  'respond',
+  'approve',
+  'reset',
+  'snapshot',
+];
+
+/**
+ * client → host. `cid` correlates the {@link RelayAck} reply. `args` is the same
+ * shape the matching M4 endpoint / parse.ts validator expects (e.g. `send` →
+ * AgentSendInput); it stays `unknown` here because the host re-validates it with
+ * the shared parsers — the wire type never short-circuits that check.
+ */
+export type RelayCommand = {
+  k: 'cmd';
+  cid: string;
+  cmd: RelayCommandName;
+  args: unknown;
+};
+
+/** host → client: the authoritative chat state, pushed on every agent:event. */
+export type RelayStateEvent = { k: 'event'; state: AgentChatState };
+
+/** host → client: the reply to one {@link RelayCommand}, correlated by `cid`. */
+export type RelayAck = {
+  k: 'ack';
+  cid: string;
+  ok: boolean;
+  /** The command result (e.g. AgentSendResult for `send`, AgentChatState for `snapshot`). */
+  result?: unknown;
+  /** Set when `ok` is false — a human-readable validation/dispatch error. */
+  error?: string;
+};
+
+/** Everything a host sends to a client. */
+export type RelayHostMessage = RelayStateEvent | RelayAck;
+/** Everything a client sends to a host. */
+export type RelayClientMessage = RelayCommand;
+
+/**
+ * Defensively parse an inbound peer payload into a {@link RelayCommand}, or return
+ * null if it isn't a well-formed command. The relay forwards arbitrary peer bytes
+ * unvalidated, so the host MUST treat this as untrusted: we check the discriminant,
+ * `cid`, and a known `cmd`, but leave `args` opaque (the loop's own parse.ts
+ * validators are the deep check). Total + never throws.
+ */
+export function parseRelayCommand(payload: unknown): RelayCommand | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  if (p.k !== 'cmd') return null;
+  if (typeof p.cid !== 'string' || p.cid.length === 0) return null;
+  if (typeof p.cmd !== 'string' || !(RELAY_COMMANDS as readonly string[]).includes(p.cmd)) {
+    return null;
+  }
+  return { k: 'cmd', cid: p.cid, cmd: p.cmd as RelayCommandName, args: p.args };
+}
+
+/**
+ * Defensively parse an inbound host message (for the client side / harness): an
+ * `event` carrying a state, or an `ack`. Returns null on anything malformed.
+ */
+export function parseRelayHostMessage(payload: unknown): RelayHostMessage | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  if (p.k === 'event') {
+    return p.state && typeof p.state === 'object'
+      ? { k: 'event', state: p.state as AgentChatState }
+      : null;
+  }
+  if (p.k === 'ack') {
+    if (typeof p.cid !== 'string' || typeof p.ok !== 'boolean') return null;
+    return {
+      k: 'ack',
+      cid: p.cid,
+      ok: p.ok,
+      result: p.result,
+      error: typeof p.error === 'string' ? p.error : undefined,
+    };
+  }
+  return null;
+}
+
+/* ── Relay account / auth wire shapes (relay/src/http/router.ts) ──────────── */
+
+/** The public account the relay returns (no password material). */
+export type RelayAccount = {
+  id: string;
+  method: 'local' | 'google' | 'github';
+  email: string;
+  displayName?: string;
+  createdAt: string;
+};
+
+/** `POST /auth/{signup,login}` and `/auth/refresh` token fields. */
+export type RelayTokenPair = {
+  accessToken: string;
+  refreshToken: string;
+  expiresInSec: number;
+};
+
+/** `POST /auth/{signup,login}` response: the account plus a token pair. */
+export type RelayAuthResponse = RelayTokenPair & { account: RelayAccount };
+
+/**
+ * The sanitized cloud-relay status the renderer is allowed to see — never the
+ * tokens. `account` is the logged-in account (or null when logged out);
+ * `connected` is whether the PC currently holds an outbound host WS to the relay.
+ */
+export type RelayStatus = {
+  account: RelayAccount | null;
+  connected: boolean;
+};

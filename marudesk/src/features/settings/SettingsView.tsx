@@ -1,4 +1,4 @@
-import { useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import {
   Bot,
   Code2,
@@ -30,7 +30,9 @@ import {
   isGenericFamily,
   type FontOption,
 } from '../../../shared/fonts';
+import type { RelayStatus } from '../../../shared/remote';
 import { cn } from '../../lib/cn';
+import { Button } from '../../components/ui';
 import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
 import { McpServersSettings } from './McpServersSettings';
@@ -337,27 +339,208 @@ function RemoteCategory() {
   const server = useSettingsStore((s) => s.settings.server);
   const update = useSettingsStore((s) => s.update);
   return (
+    <div className="flex flex-col gap-6">
+      <Section>
+        <Field
+          label="Local server"
+          hint="Runs a local server (127.0.0.1 only) so a companion app on the same machine/LAN can drive the AI Chat. Off by default."
+        >
+          <Segmented
+            value={server.enabled ? 'on' : 'off'}
+            options={ON_OFF_OPTIONS}
+            onChange={(v) => void update({ server: { enabled: v === 'on' } })}
+          />
+        </Field>
+        <Field label="Port" hint="The loopback port the server listens on.">
+          <Stepper
+            value={server.port}
+            min={SERVER_PORT_MIN}
+            max={SERVER_PORT_MAX}
+            step={1}
+            name="server port"
+            onChange={(port) => void update({ server: { port } })}
+          />
+        </Field>
+      </Section>
+
+      <header className="flex flex-col gap-1">
+        <h3 className="text-body font-medium text-fg-primary">Cloud relay</h3>
+        <p className="text-caption text-fg-tertiary">
+          Log in to a marudesk relay so a phone on the same account can drive this PC&apos;s
+          AI Chat from anywhere — both sides connect out to the cloud (no port-forwarding).
+          The relay only brokers your account&apos;s messages; your code, credentials, and the
+          agent stay on this PC.
+        </p>
+      </header>
+      <CloudRelaySection />
+    </div>
+  );
+}
+
+/**
+ * Cloud-relay account + connection (Bridge Model B §B2). The relay URL + enable
+ * toggle persist in settings; the email/password login goes to main (which stores
+ * the tokens encrypted and connects the outbound host) and only a sanitized
+ * `{account, connected}` status comes back. The connected-as-host indicator
+ * updates live via the `relay:status-changed` event.
+ */
+function CloudRelaySection() {
+  const server = useSettingsStore((s) => s.settings.server);
+  const update = useSettingsStore((s) => s.update);
+
+  const [status, setStatus] = useState<RelayStatus>({ account: null, connected: false });
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Initial status + live updates from main (host connect/disconnect, session changes).
+  useEffect(() => {
+    let alive = true;
+    void window.marudesk.invoke('relay:status').then((s) => {
+      if (alive) setStatus(s);
+    });
+    const off = window.marudesk.on('relay:status-changed', (s) => setStatus(s));
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+
+  const submit = async (mode: 'login' | 'signup'): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await window.marudesk.invoke('relay:login', {
+        relayUrl: server.relayUrl,
+        email: email.trim(),
+        password,
+        mode,
+      });
+      setStatus(next);
+      setPassword('');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await window.marudesk.invoke('relay:logout'));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const account = status.account;
+
+  return (
     <Section>
       <Field
-        label="Local server"
-        hint="Runs a local server (127.0.0.1 only) so a future companion app can drive the AI Chat. Off by default."
+        label="Enable cloud relay"
+        hint="When on and logged in, this PC stays connected to the relay as your host. Off by default."
       >
         <Segmented
-          value={server.enabled ? 'on' : 'off'}
+          value={server.cloudEnabled ? 'on' : 'off'}
           options={ON_OFF_OPTIONS}
-          onChange={(v) => void update({ server: { enabled: v === 'on' } })}
+          onChange={(v) => void update({ server: { cloudEnabled: v === 'on' } })}
         />
       </Field>
-      <Field label="Port" hint="The loopback port the server listens on.">
-        <Stepper
-          value={server.port}
-          min={SERVER_PORT_MIN}
-          max={SERVER_PORT_MAX}
-          step={1}
-          name="server port"
-          onChange={(port) => void update({ server: { port } })}
+      <Field label="Relay URL" hint="The base URL of your marudesk relay (http or https).">
+        <TextField
+          value={server.relayUrl}
+          placeholder="http://127.0.0.1:8788"
+          onCommit={(relayUrl) => void update({ server: { relayUrl } })}
         />
       </Field>
+
+      {account ? (
+        <Field
+          label="Cloud account"
+          hint={
+            server.cloudEnabled
+              ? status.connected
+                ? "Connected to the relay as this account's host."
+                : 'Logged in. Connecting to the relay…'
+              : 'Logged in. Turn on “Enable cloud relay” to connect as host.'
+          }
+        >
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  'inline-block size-2 rounded-full',
+                  status.connected ? 'bg-success' : 'bg-fg-tertiary',
+                )}
+                aria-hidden
+              />
+              <span className="text-body-sm text-fg-secondary">{account.email}</span>
+            </div>
+            <Button variant="secondary" disabled={busy} onClick={() => void logout()}>
+              Log out
+            </Button>
+          </div>
+        </Field>
+      ) : (
+        <div className="flex flex-col gap-3 px-4 py-3">
+          <div className="flex flex-col gap-2">
+            <input
+              type="email"
+              value={email}
+              placeholder="Email"
+              autoComplete="username"
+              spellCheck={false}
+              onChange={(e) => setEmail(e.target.value)}
+              className={cn(
+                'h-8 w-full rounded-md bg-surface-page border border-default px-3',
+                'text-body-sm text-fg-primary placeholder:text-fg-tertiary',
+                'focus:outline-none focus:border-accent transition-colors duration-fast',
+              )}
+            />
+            <input
+              type="password"
+              value={password}
+              placeholder="Password"
+              autoComplete="current-password"
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !busy && email.trim() && password) void submit('login');
+              }}
+              className={cn(
+                'h-8 w-full rounded-md bg-surface-page border border-default px-3',
+                'text-body-sm text-fg-primary placeholder:text-fg-tertiary',
+                'focus:outline-none focus:border-accent transition-colors duration-fast',
+              )}
+            />
+          </div>
+          {error ? <span className="text-caption text-error">{error}</span> : null}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              disabled={busy || !email.trim() || !password}
+              onClick={() => void submit('login')}
+            >
+              Log in
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={busy || !email.trim() || !password}
+              onClick={() => void submit('signup')}
+            >
+              Sign up
+            </Button>
+          </div>
+          <p className="text-caption text-fg-tertiary">
+            Google and GitHub sign-in arrive once the relay&apos;s OAuth apps are configured.
+          </p>
+        </div>
+      )}
     </Section>
   );
 }

@@ -21,6 +21,7 @@ import type {
   ProviderStatus,
 } from './providers';
 import type { AppSettings, SettingsPatch } from './settings';
+import type { RelayStatus } from './remote';
 import type {
   TerminalCreateOptions,
   TerminalCreated,
@@ -151,6 +152,11 @@ export const CHANNELS = {
     'mcp:open-config',
   ],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
+  // Cloud relay (Bridge Model B §B2): log the PC's cloud account in/out and read
+  // the sanitized status (logged-in account + connected-as-host). Tokens never
+  // cross IPC — only `{account|null, connected}` does. Auto-connect is driven by
+  // settings.server.cloudEnabled + login state in electron/server/relay.ts.
+  relay: ['relay:login', 'relay:logout', 'relay:status'],
   terminal: [
     'terminal:create',
     'terminal:input',
@@ -418,6 +424,23 @@ export interface IpcMap {
   'settings:set': { args: [partial: SettingsPatch]; result: AppSettings };
   'settings:reset': { args: []; result: AppSettings };
 
+  // cloud relay (Bridge Model B §B2). `login` does email+password signup/login
+  // against the relay, stores the session (tokens encrypted in main), and connects
+  // as host when cloud is enabled. All return the sanitized status — never tokens.
+  'relay:login': {
+    args: [
+      payload: {
+        relayUrl: string;
+        email: string;
+        password: string;
+        mode: 'login' | 'signup';
+      },
+    ];
+    result: RelayStatus;
+  };
+  'relay:logout': { args: []; result: RelayStatus };
+  'relay:status': { args: []; result: RelayStatus };
+
   // terminal
   'terminal:create': {
     args: [opts: TerminalCreateOptions];
@@ -490,6 +513,10 @@ export interface EventPayloadMap {
   // tick) whenever a turn advances. The renderer replaces its projection
   // wholesale — see docs/agentic-chat-design.md §8.
   'agent:event': AgentChatState;
+  // Cloud relay (Bridge Model B §B2): the sanitized status, pushed when the host
+  // connects/disconnects or the session changes (so the Settings UI reflects the
+  // connected-as-host indicator live). Never carries tokens.
+  'relay:status-changed': RelayStatus;
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
@@ -520,6 +547,7 @@ export const EVENT_CHANNELS = [
   'devtools:inspect-at',
   'devtools:error-count',
   'agent:event',
+  'relay:status-changed',
   'window:maximize-state',
   'settings:changed',
   'terminal:data',
