@@ -14,6 +14,11 @@ import { registerSecretsHandlers } from './secrets';
 import { registerOAuthHandlers } from './oauth/handlers';
 import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
+import {
+  initExternalMcp,
+  registerMcpHandlers,
+  shutdownExternalMcp,
+} from './agent/mcp-handlers';
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
@@ -195,6 +200,7 @@ void app.whenReady().then(() => {
   registerModelsHandlers();
   registerCustomProviderHandlers();
   registerAgentHandlers();
+  registerMcpHandlers();
   registerWindowControlHandlers();
   registerSettingsHandlers({
     broadcast: (settings) => {
@@ -217,6 +223,11 @@ void app.whenReady().then(() => {
   // the bridge server with the persisted server.enabled/port (off by default, so
   // this is a no-op unless the user turned it on previously).
   void getSettings().then((settings) => syncServerToSettings(settings));
+  // Connect any user-configured external (stdio) MCP servers (off by default — the
+  // config file ships empty, so this is a no-op until the user adds one). A
+  // per-server spawn/init failure is handled inside the manager and never crashes
+  // the app — see docs/remote-mobile-bridge-design §M3.
+  void initExternalMcp();
   void createMainWindow();
 
   app.on('activate', () => {
@@ -238,6 +249,9 @@ app.on('before-quit', () => {
   // Stop the bridge server so its loopback port is released and no SSE
   // connection lingers past app exit.
   void stopServer();
+  // Close every external MCP stdio connection so no spawned child process lingers
+  // past app exit.
+  void shutdownExternalMcp();
 });
 
 app.on('web-contents-created', (_event, contents) => {

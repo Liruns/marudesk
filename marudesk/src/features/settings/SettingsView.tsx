@@ -6,6 +6,7 @@ import {
   Info,
   KeyRound,
   Palette,
+  Plug,
   Radio,
   RotateCcw,
   SquareTerminal,
@@ -32,6 +33,7 @@ import {
 import { cn } from '../../lib/cn';
 import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
+import { McpServersSettings } from './McpServersSettings';
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: 'Dark' },
@@ -74,6 +76,7 @@ const CATEGORIES: {
   { id: 'browser', label: 'Browser', icon: Globe, blurb: 'Search engine and embedded-browser behavior.' },
   { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.' },
   { id: 'agent', label: 'AI Agent', icon: Bot, blurb: 'How much the agent may do without asking, and paths it must never edit.' },
+  { id: 'mcp', label: 'MCP Servers', icon: Plug, blurb: 'Connect external MCP servers (stdio) so the AI Chat can use their tools.' },
   { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.' },
   { id: 'remote', label: 'Remote access', icon: Radio, blurb: 'A local server so a future companion app can drive the AI Chat.' },
   { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.' },
@@ -133,6 +136,7 @@ export function SettingsView() {
           {category === 'browser' ? <BrowserCategory /> : null}
           {category === 'providers' ? <ProvidersSettings /> : null}
           {category === 'agent' ? <AgentCategory /> : null}
+          {category === 'mcp' ? <McpServersSettings /> : null}
           {category === 'devtools' ? <DevtoolsCategory /> : null}
           {category === 'remote' ? <RemoteCategory /> : null}
           {category === 'about' ? <AboutCategory /> : null}

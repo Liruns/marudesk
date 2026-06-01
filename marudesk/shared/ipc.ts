@@ -8,6 +8,7 @@ import type {
 import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { ContextSyncPayload } from './context';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
+import type { McpServerStatus } from './mcp';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
@@ -141,6 +142,14 @@ export const CHANNELS = {
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],
+  // External (stdio) MCP connectors — Settings → MCP Servers lists/reloads/toggles
+  // user-configured servers (docs/remote-mobile-bridge-design §M3).
+  mcp: [
+    'mcp:list-servers',
+    'mcp:reload',
+    'mcp:set-enabled',
+    'mcp:open-config',
+  ],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
   terminal: [
     'terminal:create',
@@ -390,6 +399,19 @@ export interface IpcMap {
   // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget
   // (result void) — main caches it for the read_editor / read_explorer tools.
   'context:sync': { args: [payload: ContextSyncPayload]; result: void };
+
+  // external (stdio) MCP connectors (docs/remote-mobile-bridge-design §M3). The
+  // Settings UI lists per-server status, reloads from the config file, toggles a
+  // server's enabled flag, and reveals the config file for hand-editing. Each
+  // mutation returns the fresh statuses so the renderer reprojects without a
+  // follow-up fetch.
+  'mcp:list-servers': { args: []; result: McpServerStatus[] };
+  'mcp:reload': { args: []; result: McpServerStatus[] };
+  'mcp:set-enabled': {
+    args: [payload: { id: string; enabled: boolean }];
+    result: McpServerStatus[];
+  };
+  'mcp:open-config': { args: []; result: { path: string } };
 
   // settings
   'settings:get': { args: []; result: AppSettings };

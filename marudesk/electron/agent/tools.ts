@@ -735,6 +735,9 @@ export type McpGroup =
   | 'sessions'
   | 'memory'
   | 'pc'
+  // Tools from an external (stdio) MCP connector — third-party, so `gated` by
+  // default (see electron/agent/mcp-external.ts).
+  | 'mcp'
   | 'ask';
 
 /** A self-describing tool definition (JSON-Schema + the metadata the loop needs). */

@@ -19,6 +19,7 @@ export type SettingsCategory =
   | 'browser'
   | 'providers'
   | 'agent'
+  | 'mcp'
   | 'devtools'
   | 'remote'
   | 'about';
