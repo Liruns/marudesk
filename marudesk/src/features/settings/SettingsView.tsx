@@ -1,4 +1,10 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import {
   Bot,
   Check,
@@ -7,14 +13,21 @@ import {
   Globe,
   Info,
   KeyRound,
+  Loader2,
   Palette,
   Plug,
+  QrCode,
   Radio,
+  RefreshCw,
   RotateCcw,
+  Smartphone,
   SquareTerminal,
+  Trash2,
   TriangleAlert,
   Wrench,
+  X,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -33,7 +46,13 @@ import {
   isGenericFamily,
   type FontOption,
 } from '../../../shared/fonts';
-import type { RelayStatus, ServerStatus } from '../../../shared/remote';
+import type {
+  PairedDeviceInfo,
+  PairingRequestInfo,
+  PairingStartInfo,
+  RelayStatus,
+  ServerStatus,
+} from '../../../shared/remote';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { Button } from '../../components/ui';
@@ -368,6 +387,7 @@ function RemoteCategory() {
       </Section>
 
       {server.enabled ? <LocalServerReach /> : null}
+      {server.enabled ? <DevicePairing /> : null}
 
       <header className="flex flex-col gap-1">
         <h3 className="text-body font-medium text-fg-primary">Cloud relay</h3>
@@ -486,6 +506,275 @@ function CopyUrlButton({ url }: { url: string }) {
       {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
     </button>
   );
+}
+
+/**
+ * Device pairing for the direct bridge (T2 ③ — docs/t2-secure-pairing-design.md §4).
+ * "Pair a device" mints a QR (the PC public key + reachable URLs + a one-time code)
+ * that the phone scans; an approve/reject card appears when a phone completes the
+ * handshake; paired phones are listed with a revoke. Pairing exchanges a key, so a
+ * paired device's traffic is end-to-end encrypted even over plain Wi-Fi.
+ */
+function DevicePairing() {
+  const [devices, setDevices] = useState<PairedDeviceInfo[]>([]);
+  const [pending, setPending] = useState<PairingRequestInfo[]>([]);
+  const [start, setStart] = useState<PairingStartInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    void window.marudesk
+      .invoke('server:list-devices')
+      .then(setDevices)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    // A phone completed the handshake and awaits approval — show its card.
+    return window.marudesk.on('server:pairing-request', (info) =>
+      setPending((p) => [...p.filter((x) => x.approvalId !== info.approvalId), info]),
+    );
+  }, [refresh]);
+
+  const beginPair = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStart(await window.marudesk.invoke('server:pairing-start'));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decide = async (approvalId: string, approved: boolean): Promise<void> => {
+    setPending((p) => p.filter((x) => x.approvalId !== approvalId));
+    try {
+      await window.marudesk.invoke(
+        approved ? 'server:pairing-approve' : 'server:pairing-reject',
+        { approvalId },
+      );
+    } catch {
+      // The approval may have already timed out on the host; nothing to recover.
+    }
+    if (approved) {
+      setStart(null); // pairing done — drop the QR
+      refresh();
+    }
+  };
+
+  const revoke = async (device: PairedDeviceInfo): Promise<void> => {
+    if (!window.confirm(`Revoke “${device.name}”? It will lose access until paired again.`)) {
+      return;
+    }
+    try {
+      setDevices(await window.marudesk.invoke('server:revoke-device', { deviceId: device.deviceId }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <header className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <h3 className="text-body font-medium text-fg-primary">Paired devices</h3>
+          <p className="text-caption text-fg-tertiary">
+            Pairing exchanges an encryption key, so a paired phone&apos;s traffic is
+            end-to-end encrypted even over plain Wi-Fi.
+          </p>
+        </div>
+        {devices.length > 0 ? (
+          <button
+            type="button"
+            aria-label="Refresh device list"
+            onClick={refresh}
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary transition-colors duration-fast"
+          >
+            <RefreshCw size={14} />
+          </button>
+        ) : null}
+      </header>
+
+      {pending.map((req) => (
+        <ApprovalCard key={req.approvalId} req={req} onDecide={decide} />
+      ))}
+
+      {start ? (
+        <QrCard start={start} onClose={() => setStart(null)} />
+      ) : (
+        <Button
+          variant="secondary"
+          disabled={busy}
+          leadingIcon={<QrCode size={15} />}
+          onClick={() => void beginPair()}
+        >
+          Pair a device
+        </Button>
+      )}
+      {error ? <span className="text-caption text-error">{error}</span> : null}
+
+      {devices.length > 0 ? (
+        <Section>
+          {devices.map((d) => (
+            <DeviceRow key={d.deviceId} device={d} onRevoke={() => void revoke(d)} />
+          ))}
+        </Section>
+      ) : null}
+    </div>
+  );
+}
+
+/** The scannable QR card with the manual-code fallback + an expiry countdown. */
+function QrCard({ start, onClose }: { start: PairingStartInfo; onClose: () => void }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const remaining = useCountdown(start.expiresAt);
+  const expired = remaining <= 0;
+
+  useEffect(() => {
+    let alive = true;
+    void QRCode.toDataURL(start.qr, { width: 240, margin: 1, errorCorrectionLevel: 'M' })
+      .then((url) => {
+        if (alive) setDataUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [start.qr]);
+
+  return (
+    <Section>
+      <div className="flex flex-col items-center gap-3 px-4 py-5">
+        <div className="flex w-full items-center justify-between">
+          <span className="text-body-sm text-fg-primary">Scan from your phone</span>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="inline-flex size-7 items-center justify-center rounded text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary transition-colors duration-fast"
+          >
+            <X size={15} />
+          </button>
+        </div>
+        {expired ? (
+          <div className="flex h-[240px] w-[240px] items-center justify-center rounded-lg bg-surface-2 px-6 text-center text-caption text-fg-tertiary">
+            Code expired. Close this and tap “Pair a device” again.
+          </div>
+        ) : dataUrl ? (
+          <img
+            src={dataUrl}
+            width={240}
+            height={240}
+            alt="Pairing QR code"
+            className="rounded-lg bg-white p-2"
+          />
+        ) : (
+          <div className="flex h-[240px] w-[240px] items-center justify-center">
+            <Loader2 size={22} className="animate-spin text-fg-tertiary" />
+          </div>
+        )}
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-caption text-fg-tertiary">Or enter this code on your phone</span>
+          <span className="font-mono text-section tracking-[0.25em] text-fg-primary">
+            {start.code}
+          </span>
+          {!expired ? (
+            <span className="text-caption text-fg-tertiary">Expires in {remaining}s</span>
+          ) : null}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/** The approve/reject card for an incoming pairing request. */
+function ApprovalCard({
+  req,
+  onDecide,
+}: {
+  req: PairingRequestInfo;
+  onDecide: (approvalId: string, approved: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-subtle bg-accent-subtle px-4 py-3">
+      <div className="flex items-center gap-2.5">
+        <Smartphone size={18} className="shrink-0 text-accent" aria-hidden />
+        <div className="flex min-w-0 flex-col">
+          <span className="text-body-sm text-fg-primary">
+            Pair “{req.name}”?
+          </span>
+          <span className="text-caption text-fg-tertiary">
+            Fingerprint <span className="font-mono">{req.fingerprint}</span> — approve only if
+            it matches your phone.
+          </span>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="primary" size="sm" onClick={() => onDecide(req.approvalId, true)}>
+          Approve
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => onDecide(req.approvalId, false)}>
+          Reject
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** One paired-device row: name + fingerprint + last seen, with a revoke. */
+function DeviceRow({
+  device,
+  onRevoke,
+}: {
+  device: PairedDeviceInfo;
+  onRevoke: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Smartphone size={16} className="shrink-0 text-fg-tertiary" aria-hidden />
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-body-sm text-fg-primary">{device.name}</span>
+          <span className="text-caption text-fg-tertiary">
+            <span className="font-mono">{device.fingerprint}</span> ·{' '}
+            {device.lastSeenAt ? `last seen ${relativeTime(device.lastSeenAt)}` : 'not connected yet'}
+          </span>
+        </div>
+      </div>
+      <button
+        type="button"
+        aria-label={`Revoke ${device.name}`}
+        onClick={onRevoke}
+        className="inline-flex size-7 shrink-0 items-center justify-center rounded text-fg-tertiary hover:bg-surface-2 hover:text-error transition-colors duration-fast"
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
+/** Whole-second countdown to `expiresAt` (epoch ms); 0 once elapsed. */
+function useCountdown(expiresAt: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return Math.max(0, Math.ceil((expiresAt - now) / 1000));
+}
+
+/** Compact relative time ("just now", "5m ago", "3h ago", "2d ago") from an ISO string. */
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - Date.parse(iso);
+  const min = Math.floor(diffMs / 60_000);
+  if (!Number.isFinite(min) || min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
 }
 
 /**
