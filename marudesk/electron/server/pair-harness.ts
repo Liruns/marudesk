@@ -98,7 +98,7 @@ function buildDeps(approve: { mode: 'approve' | 'reject' }): {
   return { deps, pairing };
 }
 
-type Reply = { status: number; body: string };
+type Reply = { status: number; body: string; headers: http.IncomingHttpHeaders };
 
 function request(
   port: number,
@@ -119,7 +119,11 @@ function request(
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () =>
-        resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }),
+        resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString('utf8'),
+          headers: res.headers,
+        }),
       );
     });
     req.on('error', reject);
@@ -269,6 +273,18 @@ async function main(): Promise<void> {
     check('bearer snapshot is cleartext JSON', (JSON.parse(bearerSnap.body) as AgentChatState).status === 'idle');
     const noAuth = await request(port, 'GET', '/agent/snapshot');
     check('no auth at all → 401', noAuth.status === 401);
+
+    // CORS: the WebView preflights cross-origin; OPTIONS → 204 + allow-origin, and
+    // normal responses carry the header so the browser doesn't block them.
+    const preflight = await request(port, 'OPTIONS', '/agent/send');
+    check(
+      'OPTIONS preflight → 204 with Access-Control-Allow-Origin',
+      preflight.status === 204 && preflight.headers['access-control-allow-origin'] === '*',
+    );
+    check(
+      'a normal response carries the CORS allow-origin header',
+      bearerSnap.headers['access-control-allow-origin'] === '*',
+    );
 
     // ── rejected approval → 403 (separate server with reject policy) ────────────
     const { deps: depsReject, pairing: pairingReject } = buildDeps({ mode: 'reject' });

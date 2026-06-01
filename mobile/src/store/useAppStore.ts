@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import type { AgentChatState, RelayAccount } from '../types';
 import { emptyAgentChatState } from '../types';
 import { createTransport } from '../transport';
-import type { Transport, TransportStatusInfo } from '../transport';
+import { DirectTransport } from '../transport/DirectTransport';
+import type { DirectCreds, Transport, TransportStatusInfo } from '../transport/types';
+import { runPairing } from '../auth/pairing';
 import {
   login as apiLogin,
   signup as apiSignup,
@@ -10,6 +12,9 @@ import {
   normalizeRelayUrl,
 } from '../auth/relayClient';
 import { StorageKeys, storageGet, storageRemove, storageSet } from '../auth/storage';
+
+/** How the phone reaches the agent: the cloud relay (Model B) or a directly-paired PC (T2). */
+export type ConnMode = 'relay' | 'direct';
 
 /** Which top-level screen is showing. A tiny hand-rolled router (no deps). */
 export type Route = 'connect' | 'login' | 'chat' | 'account';
@@ -20,6 +25,11 @@ type AppState = {
   /** Set once we've read persisted tokens/URL from storage at boot. */
   hydrated: boolean;
   route: Route;
+
+  /** Which connection model is active (relay = Model B; direct = a paired PC, T2). */
+  mode: ConnMode;
+  /** The paired-PC credentials when `mode === 'direct'`, else null. */
+  direct: DirectCreds | null;
 
   relayUrl: string;
   account: RelayAccount | null;
@@ -40,6 +50,10 @@ type AppState = {
   signup: (email: string, password: string) => Promise<boolean>;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  /** Pair this phone to a PC from a scanned/pasted QR (T2 direct mode). */
+  pairWithQr: (qrString: string, deviceName: string) => Promise<boolean>;
+  /** Forget the paired PC and return to the connect screen. */
+  unpair: () => Promise<void>;
   connect: () => Promise<void>;
   reconnect: () => Promise<void>;
   clearAuthError: () => void;
@@ -61,17 +75,27 @@ let transport: Transport | null = null;
 let unsubState: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
 
+/** Install `t` as the active transport (disposing any previous one) and wire its streams. */
+function wire(set: (partial: Partial<AppState>) => void, t: Transport): Transport {
+  unsubState?.();
+  unsubStatus?.();
+  transport?.disconnect();
+  transport = t;
+  unsubState = t.onState((chat) => set({ chat }));
+  unsubStatus = t.onStatus((status) => set({ status }));
+  return t;
+}
+
+/** The active transport, creating the default (relay/stub) one on first need. */
 function ensureTransport(set: (partial: Partial<AppState>) => void): Transport {
-  if (transport) return transport;
-  transport = createTransport();
-  unsubState = transport.onState((chat) => set({ chat }));
-  unsubStatus = transport.onStatus((status) => set({ status }));
-  return transport;
+  return transport ?? wire(set, createTransport());
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
   route: 'connect',
+  mode: 'relay',
+  direct: null,
   relayUrl: DEFAULT_RELAY_URL,
   account: null,
   accessToken: null,
@@ -82,12 +106,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   authError: null,
 
   async hydrate() {
-    const [relayUrl, accessToken, refreshToken, accountRaw] = await Promise.all([
-      storageGet(StorageKeys.relayUrl),
-      storageGet(StorageKeys.accessToken),
-      storageGet(StorageKeys.refreshToken),
-      storageGet(StorageKeys.account),
-    ]);
+    const [relayUrl, accessToken, refreshToken, accountRaw, dBase, dDev, dKey] =
+      await Promise.all([
+        storageGet(StorageKeys.relayUrl),
+        storageGet(StorageKeys.accessToken),
+        storageGet(StorageKeys.refreshToken),
+        storageGet(StorageKeys.account),
+        storageGet(StorageKeys.directBaseUrl),
+        storageGet(StorageKeys.directDeviceId),
+        storageGet(StorageKeys.directKey),
+      ]);
     let account: RelayAccount | null = null;
     if (accountRaw) {
       try {
@@ -97,9 +125,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
     const url = relayUrl ?? DEFAULT_RELAY_URL;
-    // Decide the entry screen from what we have persisted.
-    const route: Route = accessToken && account ? 'chat' : relayUrl ? 'login' : 'connect';
-    set({ hydrated: true, relayUrl: url, accessToken, refreshToken, account, route });
+    const direct: DirectCreds | null =
+      dBase && dDev && dKey ? { baseUrl: dBase, deviceId: dDev, keyB64: dKey } : null;
+    const mode: ConnMode = direct ? 'direct' : 'relay';
+    // A paired PC is the entry; otherwise fall back to the relay sign-in flow.
+    const route: Route = direct
+      ? 'chat'
+      : accessToken && account
+        ? 'chat'
+        : relayUrl
+          ? 'login'
+          : 'connect';
+    set({ hydrated: true, relayUrl: url, accessToken, refreshToken, account, mode, direct, route });
     if (route === 'chat') void get().connect();
   },
 
@@ -165,7 +202,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async connect() {
-    const { relayUrl, accessToken } = get();
+    const { mode, direct, relayUrl, accessToken } = get();
+    if (mode === 'direct') {
+      if (!direct) {
+        set({ route: 'connect' });
+        return;
+      }
+      // Keep the concrete handle for its no-arg connect(), but install it as the
+      // active transport so the chat commands route through it.
+      const dt = new DirectTransport(direct);
+      wire(set, dt);
+      try {
+        await dt.connect();
+      } catch {
+        // The transport reports the failure via onStatus; nothing extra to do here.
+      }
+      return;
+    }
     if (!accessToken) {
       set({ route: 'login' });
       return;
@@ -185,6 +238,42 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearAuthError() {
     set({ authError: null });
+  },
+
+  async pairWithQr(qrString, deviceName) {
+    set({ busy: true, authError: null });
+    try {
+      const creds = await runPairing(qrString, deviceName.trim() || 'My phone');
+      await Promise.all([
+        storageSet(StorageKeys.directBaseUrl, creds.baseUrl),
+        storageSet(StorageKeys.directDeviceId, creds.deviceId),
+        storageSet(StorageKeys.directKey, creds.keyB64),
+      ]);
+      set({ mode: 'direct', direct: creds, route: 'chat' });
+      void get().connect();
+      return true;
+    } catch (err) {
+      set({ authError: messageOf(err) });
+      return false;
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  async unpair() {
+    transport?.disconnect();
+    await Promise.all([
+      storageRemove(StorageKeys.directBaseUrl),
+      storageRemove(StorageKeys.directDeviceId),
+      storageRemove(StorageKeys.directKey),
+    ]);
+    set({
+      mode: 'relay',
+      direct: null,
+      chat: emptyAgentChatState(),
+      status: { status: 'idle', hostOnline: false },
+      route: 'connect',
+    });
   },
 
   async sendPrompt(prompt, provider, model) {

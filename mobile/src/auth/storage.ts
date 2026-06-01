@@ -78,4 +78,8 @@ export const StorageKeys = {
   accessToken: 'accessToken',
   refreshToken: 'refreshToken',
   account: 'account', // JSON of RelayAccount
+  // T2 direct (paired) mode — the PC base URL + device id + b64url session key.
+  directBaseUrl: 'directBaseUrl',
+  directDeviceId: 'directDeviceId',
+  directKey: 'directKey',
 } as const;

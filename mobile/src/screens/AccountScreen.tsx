@@ -1,17 +1,21 @@
-import { ArrowLeft, LogOut, RefreshCw, Server, User, Cpu } from 'lucide-react';
+import { ArrowLeft, LogOut, RefreshCw, Server, User, Cpu, Smartphone, Trash2 } from 'lucide-react';
 import { Screen } from '../components/Screen';
 import { ConnectionChip } from '../components/StatusBadge';
 import { GoogleMark, GitHubMark } from '../components/ProviderMarks';
 import { useAppStore } from '../store/useAppStore';
 
-/** Step 4 — logged-in account, relay/PC connection status, reconnect, logout. */
+/** Step 4 — account / paired-PC, connection status, reconnect, log out / unpair. */
 export function AccountScreen() {
   const account = useAppStore((s) => s.account);
   const relayUrl = useAppStore((s) => s.relayUrl);
   const status = useAppStore((s) => s.status);
+  const mode = useAppStore((s) => s.mode);
+  const direct = useAppStore((s) => s.direct);
   const logout = useAppStore((s) => s.logout);
+  const unpair = useAppStore((s) => s.unpair);
   const reconnect = useAppStore((s) => s.reconnect);
   const setRoute = useAppStore((s) => s.setRoute);
+  const isDirect = mode === 'direct';
 
   return (
     <Screen
@@ -37,30 +41,30 @@ export function AccountScreen() {
               flexShrink: 0,
             }}
           >
-            <MethodIcon method={account?.method} />
+            {isDirect ? <Smartphone size={22} /> : <MethodIcon method={account?.method} />}
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {account?.displayName || account?.email || 'Signed in'}
+              {isDirect ? 'Paired PC' : account?.displayName || account?.email || 'Signed in'}
             </div>
             <div className="muted" style={{ fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {account?.email}
+              {isDirect ? direct?.baseUrl : account?.email}
             </div>
             <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
-              via {account?.method ?? 'local'}
+              {isDirect ? 'direct · end-to-end encrypted' : `via ${account?.method ?? 'local'}`}
             </div>
           </div>
         </div>
 
         {/* connection card */}
         <div className="card" style={{ padding: 4 }}>
-          <Row icon={<Server size={18} />} label="Relay">
+          <Row icon={<Server size={18} />} label={isDirect ? 'PC' : 'Relay'}>
             <span className="muted" style={{ fontSize: 13.5, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {relayUrl}
+              {isDirect ? direct?.baseUrl : relayUrl}
             </span>
           </Row>
           <Divider />
-          <Row icon={<Cpu size={18} />} label="PC host">
+          <Row icon={<Cpu size={18} />} label={isDirect ? 'Connection' : 'PC host'}>
             <ConnectionChip info={status} />
           </Row>
         </div>
@@ -73,9 +77,15 @@ export function AccountScreen() {
           <RefreshCw size={18} /> Reconnect
         </button>
 
-        <button className="btn btn-danger btn-block" onClick={() => void logout()}>
-          <LogOut size={18} /> Log out
-        </button>
+        {isDirect ? (
+          <button className="btn btn-danger btn-block" onClick={() => void unpair()}>
+            <Trash2 size={18} /> Unpair this PC
+          </button>
+        ) : (
+          <button className="btn btn-danger btn-block" onClick={() => void logout()}>
+            <LogOut size={18} /> Log out
+          </button>
+        )}
       </div>
     </Screen>
   );

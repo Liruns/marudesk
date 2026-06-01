@@ -42,6 +42,14 @@ export type TransportCommandArgs = {
 
 export type Unsubscribe = () => void;
 
+/**
+ * Credentials for the direct (paired) transport — the PC's reachable base URL, the
+ * device id (public, selects the key on the host), and the b64url AES session key
+ * established during pairing. Persisted on the phone (storage.ts); the key is a
+ * bearer-equivalent secret for this PC.
+ */
+export type DirectCreds = { baseUrl: string; deviceId: string; keyB64: string };
+
 export interface Transport {
   /**
    * Open the connection. For the relay this dials the outbound client WS and

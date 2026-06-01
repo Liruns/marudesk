@@ -93,7 +93,36 @@ PC /pair:
 - `ConnectScreen`: QR 스캔(Capacitor barcode) → QR payload 파싱 → 페어링 핸드셰이크 →
   성공 시 direct 모드로 Chat. 수동 URL+코드 fallback 유지.
 - WebCrypto X25519 capability 체크 → 미지원 WebView는 명확한 에러(최소 Chromium 버전 안내).
-- **Tailscale dogfood 체크리스트**(§7).
+
+### 5.1 카메라 스캔 네이티브 + Tailscale dogfood (남은 on-device 작업)
+
+코드는 모두 들어갔다. 실제 폰에서 돌리려면:
+
+1. **카메라 QR 스캔 플러그인**(현재 paste fallback만 동작; 스캔은 런타임 `@vite-ignore`
+   동적 import라 빌드는 초록):
+   ```
+   cd mobile
+   npm i @capacitor-mlkit/barcode-scanning
+   npx cap sync android         # 네이티브 프로젝트에 플러그인 반영
+   ```
+   AndroidManifest에 `android.permission.CAMERA` 추가(플러그인이 대개 자동). 미설치 시
+   ConnectScreen은 자동으로 "붙여넣기" 경로로 폴백한다.
+2. **APK 빌드 + 설치**: `npm run android:build` → Android Studio에서 run, 또는
+   `cd android && ./gradlew assembleDebug` → `adb install`.
+3. **Tailscale dogfood** (직결 경로, relay 불필요):
+   - [ ] PC와 폰 모두 Tailscale 로그인(같은 tailnet). PC에서 `tailscale status` 확인.
+   - [ ] PC marudesk: Settings → Remote → **Local server ON**. "Reachable at"에
+         `[Tailscale] http://100.x.x.x:8787` 후보가 보이는지 확인.
+   - [ ] **Pair a device** → QR 표시. 폰 앱 Connect → Scan → QR 스캔(또는 PC의 QR을
+         다른 방법으로 폰에 전달해 붙여넣기).
+   - [ ] PC에 **승인 카드**(기기명 + 지문) → Approve. 폰이 Chat으로 진입, SSE로 PC의
+         agent 상태가 그대로 보이는지.
+   - [ ] 폰에서 프롬프트 전송 → PC agent가 돌고, 스트리밍/툴카드/승인/질문이 폰에 미러링.
+         gated 도구 승인은 **PC(데스크톱)에서** 처리(원격 self-approval 차단 — §10.1 L-1).
+   - [ ] 같은 Wi-Fi(LAN 후보)로도 반복. 다른 네트워크에서 Tailscale로도 반복.
+   - [ ] Settings에서 기기 **revoke** → 폰 요청이 즉시 401 되는지.
+4. **알려진 한계**: 카메라 스캔은 네이티브 빌드 필요. WebCrypto X25519는 비교적 최신
+   Chromium(133+); 구형 Android System WebView에선 미동작 → 폰 WebView 업데이트 필요.
 
 ## 6. 마이그레이션 맵
 
@@ -108,9 +137,10 @@ PC /pair:
 
 | 단계 | 내용 | 검증 | 상태 |
 |---|---|---|---|
-| ② | `shared/e2e.ts` 크립토 핵심 + 봉투 + 핸드셰이크 헬퍼 + 헤드리스 하니스(전체 핸드셰이크·봉투 왕복·변조/AAD-불일치 거부) | `harness:e2e`, tsc/lint 0 | ⬜ |
-| ③ | `/pair` + DeviceKeyStore(safeStorage) + 승인 IPC/UI + 기기목록/폐기 + 라우터 봉투 통합 | harness:server 확장, e2e, build | ⬜ |
-| ④ | 모바일 DirectTransport + QR 스캔 + 결선 + Tailscale dogfood | mobile tsc/build, 실기기 | ⬜ |
+| ② | `shared/e2e.ts` 크립토 핵심 + 봉투 + 핸드셰이크 헬퍼 + 헤드리스 하니스 | `harness:e2e` 14/14, tsc/lint 0 | ✅ `aedd3ec` |
+| ③a | `/pair` + DeviceKeyStore(safeStorage) + 승인 IPC + 라우터 봉투 통합(bearer/E2E 이중 경로) + CORS | `harness:pair` 17/17, harness:server 16/16, e2e | ✅ `ec20115`(+CORS) |
+| ③b | Settings QR 카드(qrcode) + 승인 카드 + 기기목록/폐기 UI | build, e2e 60/60(remote-pairing) | ✅ `d64854a` |
+| ④ | 모바일: e2e.ts 복사 + DirectTransport(봉투+SSE fetch-stream) + 페어링 클라 + 스토어 direct 모드 + ConnectScreen(스캔/붙여넣기) + AccountScreen unpair | mobile tsc/build/smoke | ✅ 코드 완료; **카메라 플러그인 네이티브 + 실기기 dogfood 남음(§5.1)** |
 
 ## 8. 보안 체크리스트 (직결 노출 시)
 - [ ] `/pair` 외 모든 직결 라우트는 봉투 인증(키 소유) 또는 기존 bearer 필수.

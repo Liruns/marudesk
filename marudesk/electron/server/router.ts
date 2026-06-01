@@ -59,9 +59,28 @@ export type RouterDeps = {
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;
 
+/**
+ * CORS for the mobile client: a Capacitor WebView (origin capacitor://localhost or
+ * http://localhost) fetching the PC over the LAN is cross-origin, so without these
+ * the browser blocks the response. `*` is safe here — every route is still gated by
+ * the bearer token or a valid E2E envelope (no cookies/ambient credentials), so a
+ * permissive origin grants no access on its own. (A Host-header allowlist for
+ * DNS-rebinding — design §10.1 L-2 — remains a separate follow-up.)
+ */
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'authorization, content-type, x-marudesk-device',
+  'access-control-max-age': '600',
+} as const;
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, { ...JSON_HEADERS, 'content-length': Buffer.byteLength(payload) });
+  res.writeHead(status, {
+    ...JSON_HEADERS,
+    ...CORS_HEADERS,
+    'content-length': Buffer.byteLength(payload),
+  });
   res.end(payload);
 }
 
@@ -184,6 +203,7 @@ function handleSse(
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
     'x-accel-buffering': 'no',
+    ...CORS_HEADERS,
   });
 
   let tail: Promise<void> = Promise.resolve();
@@ -292,6 +312,14 @@ export async function handleRequest(
     return;
   }
   const method = req.method ?? 'GET';
+
+  // ── CORS preflight (the mobile WebView sends OPTIONS before a cross-origin
+  //    POST with the X-Marudesk-Device / content-type headers) ─────────────────
+  if (method === 'OPTIONS') {
+    res.writeHead(204, CORS_HEADERS);
+    res.end();
+    return;
+  }
 
   // ── pairing (anonymous; gated by the one-time code + key-possession proof) ──
   if (pathname === '/pair') {
