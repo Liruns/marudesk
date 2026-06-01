@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Capacitor native projects (regenerated via `cap add` / `cap sync`)
+android/
+ios/
+
+# Editor / OS
+.DS_Store
+*.log
+.vite/

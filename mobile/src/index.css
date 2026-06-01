@@ -1,0 +1,241 @@
+/*
+ * marudesk mobile — dark, touch-first design system.
+ * Brand-continuous with the marudesk desktop dark theme (deep slate + indigo
+ * accent) but laid out FOR touch: large tap targets, a bottom-anchored composer,
+ * keyboard-safe insets (env(safe-area-*)), and big readable type.
+ */
+
+:root {
+  /* surfaces */
+  --bg: #0b0d12;
+  --bg-elev: #12151c;
+  --bg-elev-2: #181c25;
+  --bg-input: #1b202b;
+  --border: #232936;
+  --border-strong: #2e3645;
+
+  /* text */
+  --fg: #e7ebf2;
+  --fg-muted: #99a2b2;
+  --fg-faint: #6b7384;
+
+  /* brand / accent */
+  --accent: #6d8bff;
+  --accent-strong: #5a78f0;
+  --accent-soft: rgba(109, 139, 255, 0.14);
+  --on-accent: #0b0d12;
+
+  /* status hues */
+  --ok: #46c08a;
+  --warn: #e0a64a;
+  --danger: #e3596b;
+  --danger-soft: rgba(227, 89, 107, 0.14);
+  --thinking: #b98bff;
+
+  /* shape + motion */
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-lg: 20px;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --tap: 48px; /* min touch target */
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 16px;
+  line-height: 1.5;
+  overscroll-behavior-y: none;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  /* dvh keeps layout correct as the mobile keyboard / URL bar resize the viewport */
+  height: 100dvh;
+  max-width: 560px; /* tablet/desktop preview stays phone-width + centered */
+  margin: 0 auto;
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: var(--fg);
+}
+
+/* ── reusable primitives ─────────────────────────────────────────────────── */
+
+.btn {
+  min-height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 15px;
+  transition: transform 0.05s ease, background 0.15s ease, opacity 0.15s ease;
+  user-select: none;
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.btn-primary:active {
+  background: var(--accent-strong);
+}
+.btn-secondary {
+  background: var(--bg-elev-2);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+}
+.btn-ghost {
+  color: var(--fg-muted);
+}
+.btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid rgba(227, 89, 107, 0.3);
+}
+.btn-block {
+  width: 100%;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.input {
+  min-height: var(--tap);
+  width: 100%;
+  padding: 0 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.input:focus {
+  border-color: var(--accent);
+}
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+.faint {
+  color: var(--fg-faint);
+}
+.error-text {
+  color: var(--danger);
+  font-size: 14px;
+}
+
+/* horizontal rule with text */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--fg-faint);
+  font-size: 13px;
+  margin: 4px 0;
+}
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+.caret {
+  display: inline-block;
+  width: 8px;
+  margin-left: 1px;
+  color: var(--accent);
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes dots {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
