@@ -35,7 +35,7 @@ type Session = {
   buffer: string[];
   buffered: number;
   ready: boolean;
-  /** Bounded recent output tail (raw bytes) for the agent's terminal_output tool. */
+  /** Bounded recent output tail (raw bytes) for the agent's read_terminal tool. */
   scrollback: string;
 };
 
@@ -45,7 +45,7 @@ const DIM_MIN = 1;
 const DIM_MAX = 1000;
 const MAX_TERMINALS = 64;
 const MAX_EARLY_BUFFER_BYTES = 1024 * 1024;
-// Recent scrollback kept per session so the agent's `terminal_output` tool can
+// Recent scrollback kept per session so the agent's `read_terminal` tool can
 // read what the shell printed (node-pty streams to the renderer's xterm, which
 // main can't query — so we retain a bounded tail here). Raw bytes; the tool
 // strips ANSI + scrubs secrets at egress.
@@ -270,7 +270,7 @@ export function registerTerminalHandlers(deps: {
     sessions.set(id, rec);
 
     pty.onData((data) => {
-      // Retain a bounded scrollback tail for the agent's terminal_output tool.
+      // Retain a bounded scrollback tail for the agent's read_terminal tool.
       rec.scrollback += data;
       if (rec.scrollback.length > SCROLLBACK_MAX) {
         rec.scrollback = rec.scrollback.slice(-SCROLLBACK_MAX);
@@ -347,7 +347,7 @@ const ANSI_ESCAPE =
 
 /**
  * Recent output of the most-recently-created live terminal, ANSI-stripped and
- * tail-trimmed, for the agent's `terminal_output` tool. Returns null when no
+ * tail-trimmed, for the agent's `read_terminal` tool. Returns null when no
  * terminal is open. (Main has no notion of the "focused" terminal; the newest
  * session is the best heuristic for "the one the user is looking at".)
  */

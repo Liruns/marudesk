@@ -5,8 +5,8 @@ import { sendCdp } from '../browser/cdp';
 import { getRecentTerminalOutput, getTerminalList, getTerminalOutput } from '../terminal';
 import { readFileSafe } from '../workspace';
 import { getEditorMirror, getEditorMirrors, getExplorerMirror } from './context-cache';
-import { listSessions, readSession } from './sessions-store';
-import { listMemory, readMemory, writeMemory } from './memory-store';
+import { deleteSession, listSessions, readSession } from './sessions-store';
+import { deleteMemory, listMemory, readMemory, writeMemory } from './memory-store';
 import type { McpTool, ToolContext, ToolResult } from './tools';
 
 /**
@@ -222,6 +222,16 @@ async function readSessionTool(input: { id?: unknown }): Promise<ToolResult> {
   return { summary: `session "${scrubText(rec.title)}"`, text: clip(scrubText(`${head}\n\n${flattenSession(rec)}`)) };
 }
 
+async function deleteSessionTool(input: { id?: unknown }): Promise<ToolResult> {
+  const id = typeof input.id === 'string' ? input.id : '';
+  if (!id) throw new Error('delete_session requires "id" (from list_sessions)');
+  const rec = await readSession(id);
+  if (!rec) return { summary: `delete_session ${id}`, text: `no saved session with id ${id} (use list_sessions)`, isError: true };
+  const ok = await deleteSession(id);
+  if (!ok) return { summary: `delete_session ${id} (failed)`, text: `could not delete session ${id}`, isError: true };
+  return { summary: `deleted session "${scrubText(rec.title)}"`, text: `Deleted session ${id} ("${scrubText(rec.title)}"). It will no longer appear in list_sessions.` };
+}
+
 /* ── memory ─────────────────────────────────────────────────────────────── */
 
 async function listMemoryTool(): Promise<ToolResult> {
@@ -251,6 +261,16 @@ async function writeMemoryTool(input: { name?: unknown; body?: unknown }): Promi
   return { summary: `remembered "${res.name}"`, text: `Saved memory "${res.name}". Recall it later with read_memory.` };
 }
 
+async function deleteMemoryTool(input: { name?: unknown }): Promise<ToolResult> {
+  const name = typeof input.name === 'string' ? input.name : '';
+  if (!name) throw new Error('delete_memory requires "name" (from list_memory)');
+  const entry = await readMemory(name);
+  if (!entry) return { summary: `delete_memory ${name}`, text: `no memory entry named "${name}" (use list_memory)`, isError: true };
+  const ok = await deleteMemory(name);
+  if (!ok) return { summary: `delete_memory ${entry.name} (failed)`, text: `could not delete memory "${entry.name}"`, isError: true };
+  return { summary: `deleted memory "${entry.name}"`, text: `Deleted memory "${entry.name}". It will no longer appear in list_memory.` };
+}
+
 /* ── descriptors ────────────────────────────────────────────────────────── */
 
 const strProp = (desc: string) => ({ type: 'string', description: desc });
@@ -262,10 +282,12 @@ const obj = (properties: Record<string, unknown>, required?: string[]) => ({
 });
 
 /**
- * The new context tools, as MCP descriptors. Read-only except `write_memory`
- * (flagged `write`, so read-only mode refuses it). None are `gated` — they're
- * low-risk reads of the user's own app state — except `read_terminal`, which can
- * surface command output, so it asks like `terminal_output`.
+ * The new context tools, as MCP descriptors. Most are low-risk read-only pulls of
+ * the user's own app state. The exceptions: `write_memory` mutates state (flagged
+ * `write`, so read-only mode refuses it); `read_terminal` can surface command
+ * output (so it's `gated` — per-call approval); and `delete_session` /
+ * `delete_memory` are destructive, so they're BOTH `write` (read-only refuses)
+ * AND `gated` (per-call approval) — deleting the user's saved data is never silent.
  */
 export const CONTEXT_TOOLS: McpTool[] = [
   {
@@ -331,6 +353,16 @@ export const CONTEXT_TOOLS: McpTool[] = [
     exec: (input) => readSessionTool(input),
   },
   {
+    name: 'delete_session',
+    group: 'sessions',
+    gated: true,
+    write: true,
+    description:
+      'Delete a saved chat session by id (from list_sessions). Destructive and irreversible — asks for approval. Use to remove a session the user no longer wants kept.',
+    inputSchema: obj({ id: strProp('Session id from list_sessions.') }, ['id']),
+    exec: (input) => deleteSessionTool(input),
+  },
+  {
     name: 'list_memory',
     group: 'memory',
     description: 'List saved memory entries (durable notes that persist across sessions) with a preview of each.',
@@ -352,5 +384,15 @@ export const CONTEXT_TOOLS: McpTool[] = [
       'Save (or overwrite) a memory entry so you can recall it in later turns and sessions. Use for durable user facts/preferences/project context — not transient chatter. Name is a short kebab-case slug.',
     inputSchema: obj({ name: strProp('Short kebab-case slug, e.g. "deploy-process".'), body: strProp('The note (markdown).') }, ['name', 'body']),
     exec: (input) => writeMemoryTool(input),
+  },
+  {
+    name: 'delete_memory',
+    group: 'memory',
+    gated: true,
+    write: true,
+    description:
+      'Delete a memory entry by name (from list_memory). Destructive and irreversible — asks for approval. Use to remove an entry that is wrong or obsolete, or to free space near the entry cap.',
+    inputSchema: obj({ name: strProp('Memory entry name from list_memory.') }, ['name']),
+    exec: (input) => deleteMemoryTool(input),
   },
 ];

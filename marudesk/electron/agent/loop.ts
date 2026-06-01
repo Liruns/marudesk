@@ -56,6 +56,7 @@ You also have a built-in context MCP — pull from the app ON DEMAND instead of 
 - list_tabs, then read_page (any web tab's visible text), read_editor (open buffers incl. UNSAVED edits), read_explorer (file-tree state).
 - list_terminals / read_terminal (command output the user ran), get_console_errors / read_network (DevTools).
 - list_sessions / read_session (your previous conversations) and list_memory / read_memory / write_memory (durable notes that persist across sessions — remember user facts, preferences, and project context so you don't re-ask).
+- open_path / open_external / reveal_in_explorer ACT on the computer (open a file/folder in its default app, open a URL in the system browser, reveal a path in the OS file manager) — available only when the user enabled "PC control" in Settings; each call asks for approval.
 Fetch only what you need for the task; don't dump everything.
 
 Operating rules:
@@ -106,11 +107,42 @@ function busy(): boolean {
   return state.status === 'thinking' || state.status === 'working' || state.status === 'waiting_for_user';
 }
 
-/* ── renderer push (coalesced) ──────────────────────────────────────────── */
+/* ── event fan-out (renderer push + in-process subscribers) ─────────────── */
+
+// In-process subscribers to the authoritative state stream. The headless server
+// (electron/server) subscribes here to relay `agent:event` over SSE — the loop's
+// functions are called directly (no IPC), so this is the renderer-side push's
+// peer for any non-renderer head. Kept module-level so it survives across turns.
+const subscribers = new Set<(state: AgentChatState) => void>();
+
+/**
+ * Subscribe to the authoritative {@link AgentChatState} stream — every state the
+ * renderer would receive on `agent:event` is also delivered here. Used by the
+ * in-process bridge server (docs/remote-mobile-bridge-design §M4) so a future
+ * companion app can mirror the same chat. Returns an unsubscribe fn. The callback
+ * must not throw (we isolate it so one bad subscriber can't break the others or
+ * the renderer push).
+ */
+export function subscribeAgentEvents(cb: (state: AgentChatState) => void): () => void {
+  subscribers.add(cb);
+  return () => {
+    subscribers.delete(cb);
+  };
+}
 
 const emit = coalesced(() => {
   const host = getHost();
   if (host && !host.isDestroyed()) host.webContents.send('agent:event', state);
+  // Notify any in-process subscribers (the bridge server) with the same snapshot
+  // the renderer just got. Isolated per-callback so a throwing subscriber neither
+  // breaks its peers nor the renderer push above.
+  for (const cb of subscribers) {
+    try {
+      cb(state);
+    } catch {
+      // A subscriber must never break the loop's fan-out.
+    }
+  }
 });
 
 /* ── message helpers ────────────────────────────────────────────────────── */

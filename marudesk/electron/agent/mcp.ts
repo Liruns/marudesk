@@ -8,6 +8,7 @@ import {
   type ToolResult,
 } from './tools';
 import { CONTEXT_TOOLS } from './context-sources';
+import { PC_CONTROL_TOOLS } from './pc-sources';
 
 /**
  * The MCP registry (docs/context-mcp-design §1.1) — the "one merge point" the v4
@@ -30,7 +31,7 @@ export interface McpServer {
 /** The built-in context server: the original tools + the new context sources. */
 const builtinServer: McpServer = {
   name: 'marudesk',
-  tools: [...BUILTIN_TOOLS, ...CONTEXT_TOOLS],
+  tools: [...BUILTIN_TOOLS, ...CONTEXT_TOOLS, ...PC_CONTROL_TOOLS],
 };
 
 const servers: McpServer[] = [builtinServer];

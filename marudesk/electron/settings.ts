@@ -114,7 +114,7 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
   if (!partial || typeof partial !== 'object') return base;
   const p = partial as Record<string, unknown>;
   const section = (
-    key: 'appearance' | 'terminal' | 'devtools' | 'browser' | 'agent',
+    key: 'appearance' | 'terminal' | 'devtools' | 'browser' | 'agent' | 'pcControl' | 'server',
   ) => {
     const incoming = p[key];
     if (!incoming || typeof incoming !== 'object') return base[key];
@@ -127,5 +127,7 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
     devtools: section('devtools'),
     browser: section('browser'),
     agent: section('agent'),
+    pcControl: section('pcControl'),
+    server: section('server'),
   };
 }

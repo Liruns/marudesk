@@ -89,3 +89,15 @@ export async function readSession(id: string): Promise<SessionRecord | null> {
     return null;
   }
 }
+
+/** Delete a saved session: its transcript file and its index row. Best-effort. */
+export async function deleteSession(id: string): Promise<boolean> {
+  try {
+    await fs.rm(recordPath(id), { force: true });
+    const rows = (await readIndex()).filter((r) => r.id !== id);
+    await writeIndex(rows);
+    return true;
+  } catch {
+    return false;
+  }
+}

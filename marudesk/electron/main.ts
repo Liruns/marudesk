@@ -20,6 +20,7 @@ import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { openExternalUrl } from './safe-open';
+import { stopServer, syncServerToSettings } from './server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -198,6 +199,10 @@ void app.whenReady().then(() => {
   registerSettingsHandlers({
     broadcast: (settings) => {
       getMainWindow()?.webContents.send('settings:changed', settings);
+      // Reconcile the bridge server with the new settings (start/stop/restart on
+      // the server.enabled/port change). Fire-and-forget — a bind failure is
+      // handled inside and never crashes the app.
+      void syncServerToSettings(settings);
     },
   });
   registerHistoryHandlers();
@@ -208,8 +213,10 @@ void app.whenReady().then(() => {
   registerClipboardHandlers();
   // Warm the settings cache so getSettingsSync() (the address-bar/new-tab search
   // engine resolver) reflects the persisted choice on the very first navigation,
-  // not just after the renderer's settings:get round-trips.
-  void getSettings();
+  // not just after the renderer's settings:get round-trips. Once loaded, reconcile
+  // the bridge server with the persisted server.enabled/port (off by default, so
+  // this is a no-op unless the user turned it on previously).
+  void getSettings().then((settings) => syncServerToSettings(settings));
   void createMainWindow();
 
   app.on('activate', () => {
@@ -228,6 +235,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   disposeAllTerminals();
+  // Stop the bridge server so its loopback port is released and no SSE
+  // connection lingers past app exit.
+  void stopServer();
 });
 
 app.on('web-contents-created', (_event, contents) => {

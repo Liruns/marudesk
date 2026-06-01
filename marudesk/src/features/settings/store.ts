@@ -20,6 +20,7 @@ export type SettingsCategory =
   | 'providers'
   | 'agent'
   | 'devtools'
+  | 'remote'
   | 'about';
 
 type SettingsState = {
@@ -87,6 +88,8 @@ function mergePatch(base: AppSettings, patch: SettingsPatch): AppSettings {
     devtools: { ...base.devtools, ...(patch.devtools ?? {}) },
     browser: { ...base.browser, ...(patch.browser ?? {}) },
     agent: { ...base.agent, ...(patch.agent ?? {}) },
+    pcControl: { ...base.pcControl, ...(patch.pcControl ?? {}) },
+    server: { ...base.server, ...(patch.server ?? {}) },
   };
 }
 

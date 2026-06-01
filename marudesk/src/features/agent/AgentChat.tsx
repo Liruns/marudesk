@@ -33,6 +33,9 @@ import {
   NotebookPen,
   LayoutGrid,
   FileCode,
+  Trash2,
+  ExternalLink,
+  FolderOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
@@ -568,7 +571,6 @@ const TOOL_META: Record<string, ToolMeta> = {
   // Context MCP — reads of the live app (runtime spine) vs. stored state.
   browser_cookies: { label: 'Cookies', icon: Cookie, runtime: true },
   browser_storage: { label: 'Web storage', icon: Database, runtime: true },
-  terminal_output: { label: 'Terminal output', icon: SquareTerminal, runtime: true },
   list_tabs: { label: 'List tabs', icon: LayoutGrid, runtime: true },
   read_page: { label: 'Read page', icon: Globe, runtime: true },
   list_terminals: { label: 'List terminals', icon: SquareTerminal, runtime: true },
@@ -577,9 +579,15 @@ const TOOL_META: Record<string, ToolMeta> = {
   read_explorer: { label: 'Explorer state', icon: FolderTree },
   list_sessions: { label: 'List sessions', icon: History },
   read_session: { label: 'Read session', icon: History },
+  delete_session: { label: 'Delete session', icon: Trash2 },
   list_memory: { label: 'List memory', icon: BookMarked },
   read_memory: { label: 'Read memory', icon: BookOpen },
   write_memory: { label: 'Write memory', icon: NotebookPen },
+  delete_memory: { label: 'Delete memory', icon: Trash2 },
+  // PC control (acts on the computer, outside the workspace).
+  open_path: { label: 'Open file/folder', icon: FolderOpen, runtime: true },
+  open_external: { label: 'Open URL', icon: ExternalLink, runtime: true },
+  reveal_in_explorer: { label: 'Reveal in file manager', icon: FolderTree, runtime: true },
 };
 
 /** reload_and_verify's verdict, parsed from the server-formatted result — the

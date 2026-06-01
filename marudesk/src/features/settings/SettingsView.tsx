@@ -6,6 +6,7 @@ import {
   Info,
   KeyRound,
   Palette,
+  Radio,
   RotateCcw,
   SquareTerminal,
   Wrench,
@@ -13,6 +14,8 @@ import {
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
+  SERVER_PORT_MAX,
+  SERVER_PORT_MIN,
   UI_ZOOM_MAX,
   UI_ZOOM_MIN,
   type AgentApprovalMode,
@@ -54,6 +57,11 @@ const APPROVAL_MODE_OPTIONS: { value: AgentApprovalMode; label: string }[] = [
   { value: 'auto', label: 'Auto' },
 ];
 
+const ON_OFF_OPTIONS: { value: 'on' | 'off'; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'on', label: 'On' },
+];
+
 const CATEGORIES: {
   id: SettingsCategory;
   label: string;
@@ -67,6 +75,7 @@ const CATEGORIES: {
   { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.' },
   { id: 'agent', label: 'AI Agent', icon: Bot, blurb: 'How much the agent may do without asking, and paths it must never edit.' },
   { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.' },
+  { id: 'remote', label: 'Remote access', icon: Radio, blurb: 'A local server so a future companion app can drive the AI Chat.' },
   { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.' },
 ];
 
@@ -125,6 +134,7 @@ export function SettingsView() {
           {category === 'providers' ? <ProvidersSettings /> : null}
           {category === 'agent' ? <AgentCategory /> : null}
           {category === 'devtools' ? <DevtoolsCategory /> : null}
+          {category === 'remote' ? <RemoteCategory /> : null}
           {category === 'about' ? <AboutCategory /> : null}
         </div>
       </div>
@@ -282,6 +292,7 @@ function DevtoolsCategory() {
 
 function AgentCategory() {
   const agent = useSettingsStore((s) => s.settings.agent);
+  const pcControl = useSettingsStore((s) => s.settings.pcControl);
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
@@ -302,6 +313,45 @@ function AgentCategory() {
         <GlobsField
           value={agent.denyGlobs}
           onCommit={(denyGlobs) => void update({ agent: { denyGlobs } })}
+        />
+      </Field>
+      <Field
+        label="PC control"
+        hint="Let the agent open files, folders, and URLs on this computer and reveal paths in the OS file manager. Acts OUTSIDE your workspace; each action asks for approval unless the mode is Auto. Off by default."
+      >
+        <Segmented
+          value={pcControl.enabled ? 'on' : 'off'}
+          options={ON_OFF_OPTIONS}
+          onChange={(v) => void update({ pcControl: { enabled: v === 'on' } })}
+        />
+      </Field>
+    </Section>
+  );
+}
+
+function RemoteCategory() {
+  const server = useSettingsStore((s) => s.settings.server);
+  const update = useSettingsStore((s) => s.update);
+  return (
+    <Section>
+      <Field
+        label="Local server"
+        hint="Runs a local server (127.0.0.1 only) so a future companion app can drive the AI Chat. Off by default."
+      >
+        <Segmented
+          value={server.enabled ? 'on' : 'off'}
+          options={ON_OFF_OPTIONS}
+          onChange={(v) => void update({ server: { enabled: v === 'on' } })}
+        />
+      </Field>
+      <Field label="Port" hint="The loopback port the server listens on.">
+        <Stepper
+          value={server.port}
+          min={SERVER_PORT_MIN}
+          max={SERVER_PORT_MAX}
+          step={1}
+          name="server port"
+          onChange={(port) => void update({ server: { port } })}
         />
       </Field>
     </Section>

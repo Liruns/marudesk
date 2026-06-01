@@ -8,7 +8,6 @@ import { readFileSafe } from '../workspace';
 import { applyPatch } from '../patch';
 import { getTab, getErrors, getNetwork, type TabRecord } from '../browser/state';
 import { sendCdp, enableNetworkCapture } from '../browser/cdp';
-import { getRecentTerminalOutput } from '../terminal';
 
 /**
  * The agent tool layer (docs/agentic-chat-design.md §4) — the §9 promotion of
@@ -67,7 +66,6 @@ export const GATED_TOOLS = new Set([
   'eval_js',
   'browser_cookies',
   'browser_storage',
-  'terminal_output',
 ]);
 
 /** `ask_user` is intercepted by the loop (it parks the turn), never executed here. */
@@ -556,16 +554,6 @@ async function browserStorage(input: { kind?: unknown }, ctx: ToolContext): Prom
   return { summary: `storage @ ${origin}`, text: clip(scrubText(blocks.join('\n\n'))) };
 }
 
-async function terminalOutput(): Promise<ToolResult> {
-  const res = getRecentTerminalOutput(8000);
-  if (!res) return { summary: 'no terminal', text: 'No terminal session is open.' };
-  if (!res.output.trim()) {
-    return { summary: 'terminal (no output)', text: 'The most recent terminal has produced no output yet.' };
-  }
-  const note = res.count > 1 ? ` (most recent of ${res.count})` : '';
-  return { summary: `terminal output${note}`, text: clip(scrubText(res.output)) };
-}
-
 const EXECUTORS: Record<string, Executor> = {
   read_file: readFile as Executor,
   list_files: listFiles as Executor,
@@ -580,7 +568,6 @@ const EXECUTORS: Record<string, Executor> = {
   reload_and_verify: reloadAndVerify as Executor,
   browser_cookies: browserCookies as Executor,
   browser_storage: browserStorage as Executor,
-  terminal_output: terminalOutput as Executor,
 };
 
 export async function executeTool(
@@ -601,6 +588,9 @@ export async function executeTool(
 export function describeToolInput(name: string, input: unknown): string {
   const o = (input ?? {}) as Record<string, unknown>;
   if (name === 'eval_js') return typeof o.expression === 'string' ? o.expression.slice(0, 500) : '(no expression)';
+  // PC-control / path tools: show the target plainly — this is an approval card.
+  if (typeof o.path === 'string') return o.path.slice(0, 300);
+  if (typeof o.url === 'string') return o.url.slice(0, 300);
   return JSON.stringify(o).slice(0, 300);
 }
 
@@ -706,11 +696,6 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     inputSchema: { type: 'object', properties: { kind: strProp("'local', 'session', or omit for both.") }, additionalProperties: false },
   },
   {
-    name: 'terminal_output',
-    description: "Read the recent output (scrollback) of the most-recently-used integrated terminal. Read-only; ANSI-stripped and secret-scrubbed. Requires user approval. Use to see command results / build or test logs the user ran.",
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
     name: ASK_USER,
     description: 'Ask the user one or more questions and wait for their answer. Use when the request is ambiguous or you need a decision before continuing.',
     inputSchema: {
@@ -749,6 +734,7 @@ export type McpGroup =
   | 'tabs'
   | 'sessions'
   | 'memory'
+  | 'pc'
   | 'ask';
 
 /** A self-describing tool definition (JSON-Schema + the metadata the loop needs). */
@@ -781,7 +767,6 @@ const TOOL_GROUP: Record<string, McpGroup> = {
   reload_and_verify: 'browser',
   browser_cookies: 'browser',
   browser_storage: 'browser',
-  terminal_output: 'terminal',
 };
 const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit']);
 const WEB_TOOL_NAMES = new Set([

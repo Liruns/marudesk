@@ -192,6 +192,45 @@ export async function clearProviderOAuth(provider: ProviderId): Promise<void> {
   await saveCreds(map);
 }
 
+/* ── bridge-server token (docs/remote-mobile-bridge-design §M4) ──────────── */
+
+// The headless bridge server's bearer secret, stored safeStorage-encrypted like
+// the provider credentials but in its own file (it isn't provider-keyed). Read
+// back defensively (trust nothing on disk). Never logged or sent to the renderer.
+const SERVER_TOKEN_FILE = 'marudesk-server-token.enc';
+
+function serverTokenFilePath(): string {
+  return path.join(app.getPath('userData'), SERVER_TOKEN_FILE);
+}
+
+/** The persisted bridge-server token, or null if none is stored yet. */
+export async function getServerTokenStored(): Promise<string | null> {
+  let buf: Buffer;
+  try {
+    buf = await fs.readFile(serverTokenFilePath());
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+  if (buf.length === 0) return null;
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('safeStorage encryption unavailable; cannot read the server token');
+  }
+  const token = safeStorage.decryptString(buf);
+  return token.length > 0 ? token : null;
+}
+
+/** Persist the bridge-server token (safeStorage-encrypted, 0600). */
+export async function setServerTokenStored(token: string): Promise<void> {
+  if (token.length === 0) throw new Error('refuse to store an empty server token');
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('safeStorage encryption unavailable; refuse to write a plaintext server token');
+  }
+  const file = serverTokenFilePath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, safeStorage.encryptString(token), { mode: 0o600 });
+}
+
 export function registerSecretsHandlers(): void {
   defineHandler('secrets:list-providers', () => listProviders());
 

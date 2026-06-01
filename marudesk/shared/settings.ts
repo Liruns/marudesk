@@ -73,6 +73,26 @@ export type AppSettings = {
      */
     denyGlobs: string[];
   };
+  /**
+   * PC control — whether the agent may act on the computer OUTSIDE the workspace
+   * (open files/folders/URLs in their default app, reveal a path in the file
+   * manager). Off by default; even when on, each such call asks for approval
+   * unless the mode is Auto. See docs/remote-mobile-bridge-design §5.
+   */
+  pcControl: {
+    enabled: boolean;
+  };
+  /**
+   * Remote bridge server — a local HTTP server (127.0.0.1 ONLY) that lets a future
+   * companion app drive the AI Chat agent (docs/remote-mobile-bridge-design §M4).
+   * Off by default; when on it binds loopback and requires a bearer token. LAN
+   * exposure / pairing / auth are later phases (M5/M6).
+   */
+  server: {
+    enabled: boolean;
+    /** TCP port for the loopback bind (clamped to 1024–65535). */
+    port: number;
+  };
 };
 
 /**
@@ -88,6 +108,8 @@ export type SettingsPatch = {
   devtools?: Partial<AppSettings['devtools']>;
   browser?: Partial<AppSettings['browser']>;
   agent?: Partial<AppSettings['agent']>;
+  pcControl?: Partial<AppSettings['pcControl']>;
+  server?: Partial<AppSettings['server']>;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -122,6 +144,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
       '**/secrets/**',
     ],
   },
+  pcControl: {
+    enabled: false,
+  },
+  server: {
+    enabled: false,
+    port: 8787,
+  },
 };
 
 export const FONT_SIZE_MIN = 8;
@@ -130,6 +159,9 @@ export const UI_ZOOM_MIN = 50;
 export const UI_ZOOM_MAX = 200;
 /** rem anchor: text-scale tokens are authored relative to this px base. */
 export const UI_ZOOM_BASE_PX = 16;
+/** Bridge-server port range — below 1024 needs privilege; cap at the TCP max. */
+export const SERVER_PORT_MIN = 1024;
+export const SERVER_PORT_MAX = 65535;
 
 const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
@@ -155,6 +187,10 @@ function clampNumber(
 
 function asString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+function asBool(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 /**
@@ -211,6 +247,8 @@ export function sanitizeSettings(
   const d = asRecord(root.devtools);
   const b = asRecord(root.browser);
   const ag = asRecord(root.agent);
+  const pc = asRecord(root.pcControl);
+  const sv = asRecord(root.server);
 
   return {
     version: 1,
@@ -260,6 +298,13 @@ export function sanitizeSettings(
     agent: {
       approvalMode: asEnum(ag.approvalMode, APPROVAL_MODES, base.agent.approvalMode),
       denyGlobs: asStringArray(ag.denyGlobs, base.agent.denyGlobs),
+    },
+    pcControl: {
+      enabled: asBool(pc.enabled, base.pcControl.enabled),
+    },
+    server: {
+      enabled: asBool(sv.enabled, base.server.enabled),
+      port: clampNumber(sv.port, base.server.port, SERVER_PORT_MIN, SERVER_PORT_MAX),
     },
   };
 }
