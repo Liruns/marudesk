@@ -1,7 +1,9 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import {
   Bot,
+  Check,
   Code2,
+  Copy,
   Globe,
   Info,
   KeyRound,
@@ -10,6 +12,7 @@ import {
   Radio,
   RotateCcw,
   SquareTerminal,
+  TriangleAlert,
   Wrench,
 } from 'lucide-react';
 import {
@@ -30,8 +33,9 @@ import {
   isGenericFamily,
   type FontOption,
 } from '../../../shared/fonts';
-import type { RelayStatus } from '../../../shared/remote';
+import type { RelayStatus, ServerStatus } from '../../../shared/remote';
 import { cn } from '../../lib/cn';
+import { toast } from '../../lib/toast';
 import { Button } from '../../components/ui';
 import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
@@ -343,7 +347,7 @@ function RemoteCategory() {
       <Section>
         <Field
           label="Local server"
-          hint="Runs a local server (127.0.0.1 only) so a companion app on the same machine/LAN can drive the AI Chat. Off by default."
+          hint="Runs a bridge server on this machine so a companion app on your Wi-Fi/LAN (or over Tailscale) can drive the AI Chat. Reachable from other devices on your network; a bearer token is required. Off by default."
         >
           <Segmented
             value={server.enabled ? 'on' : 'off'}
@@ -351,7 +355,7 @@ function RemoteCategory() {
             onChange={(v) => void update({ server: { enabled: v === 'on' } })}
           />
         </Field>
-        <Field label="Port" hint="The loopback port the server listens on.">
+        <Field label="Port" hint="The TCP port the server listens on (all interfaces).">
           <Stepper
             value={server.port}
             min={SERVER_PORT_MIN}
@@ -362,6 +366,8 @@ function RemoteCategory() {
           />
         </Field>
       </Section>
+
+      {server.enabled ? <LocalServerReach /> : null}
 
       <header className="flex flex-col gap-1">
         <h3 className="text-body font-medium text-fg-primary">Cloud relay</h3>
@@ -374,6 +380,111 @@ function RemoteCategory() {
       </header>
       <CloudRelaySection />
     </div>
+  );
+}
+
+/**
+ * Live LAN/Tailscale reachability for the local bridge server (T2 — docs/remote-
+ * mobile-bridge-design §3). Rendered only while the server is enabled. Surfaces
+ * (a) a security warning — the server is reachable by other devices and traffic
+ * isn't encrypted yet (end-to-end encryption + device pairing come next) — and
+ * (b) every base URL a phone can try, copyable, Tailscale-first. Status is fetched
+ * once and kept live via `server:status-changed` (pushed when the server
+ * starts/stops). Never sees the bearer token.
+ */
+function LocalServerReach() {
+  const [status, setStatus] = useState<ServerStatus>({
+    running: false,
+    port: null,
+    candidates: [],
+  });
+
+  useEffect(() => {
+    let alive = true;
+    void window.marudesk.invoke('server:status').then((s) => {
+      if (alive) setStatus(s);
+    });
+    const off = window.marudesk.on('server:status-changed', (s) => setStatus(s));
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2.5 rounded-lg bg-warning-subtle px-4 py-3">
+        <TriangleAlert size={16} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+        <p className="text-caption text-fg-secondary leading-relaxed">
+          While this is on, any device on your network can reach the bridge and traffic
+          isn’t encrypted yet — only turn it on where you trust the network (avoid public
+          or coffee-shop Wi-Fi). To reach it across networks, prefer{' '}
+          <span className="text-fg-primary">Tailscale</span>, whose tunnel is encrypted.
+          End-to-end encryption and device pairing are coming next.
+        </p>
+      </div>
+
+      <Section>
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <span className="text-body-sm text-fg-primary">Reachable at</span>
+          {status.running && status.candidates.length > 0 ? (
+            <ul className="flex flex-col gap-1.5">
+              {status.candidates.map((c) => (
+                <li
+                  key={c.url}
+                  className="flex items-center justify-between gap-3 rounded-md bg-surface-page px-3 py-2"
+                >
+                  <div className="flex min-w-0 flex-col">
+                    <span className="text-caption text-fg-tertiary">{c.label}</span>
+                    <span className="truncate font-mono text-body-sm text-fg-secondary">
+                      {c.url}
+                    </span>
+                  </div>
+                  <CopyUrlButton url={c.url} />
+                </li>
+              ))}
+            </ul>
+          ) : status.running ? (
+            <span className="text-caption text-fg-tertiary">
+              No Wi-Fi/LAN or Tailscale address detected yet. Connect to a network (or
+              start Tailscale), then reopen Settings.
+            </span>
+          ) : (
+            <span className="text-caption text-fg-tertiary">
+              Starting the server… reachable addresses will appear here.
+            </span>
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/** Copy one reachable URL to the clipboard, with a brief check-mark confirmation. */
+function CopyUrlButton({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async (): Promise<void> => {
+    try {
+      await window.marudesk.invoke('clipboard:write-text', url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      toast({ title: 'Copy failed', description: (err as Error).message, variant: 'error' });
+    }
+  };
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${url}`}
+      onClick={() => void copy()}
+      className={cn(
+        'inline-flex size-7 shrink-0 items-center justify-center rounded',
+        'text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary',
+        'transition-colors duration-fast',
+      )}
+    >
+      {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+    </button>
   );
 }
 

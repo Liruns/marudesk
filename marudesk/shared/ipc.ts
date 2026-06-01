@@ -21,7 +21,7 @@ import type {
   ProviderStatus,
 } from './providers';
 import type { AppSettings, SettingsPatch } from './settings';
-import type { RelayStatus } from './remote';
+import type { RelayStatus, ServerStatus } from './remote';
 import type {
   TerminalCreateOptions,
   TerminalCreated,
@@ -157,6 +157,9 @@ export const CHANNELS = {
   // cross IPC — only `{account|null, connected}` does. Auto-connect is driven by
   // settings.server.cloudEnabled + login state in electron/server/relay.ts.
   relay: ['relay:login', 'relay:logout', 'relay:status'],
+  // LAN/Tailscale bridge status (T2 — docs/remote-mobile-bridge-design §3). The
+  // Settings → Remote panel reads the running flag + reachable URLs; never the token.
+  server: ['server:status'],
   terminal: [
     'terminal:create',
     'terminal:input',
@@ -441,6 +444,11 @@ export interface IpcMap {
   'relay:logout': { args: []; result: RelayStatus };
   'relay:status': { args: []; result: RelayStatus };
 
+  // bridge server status (T2 — docs/remote-mobile-bridge-design §3). Read the
+  // running flag + reachable LAN/Tailscale URLs for the Settings Remote panel;
+  // pushed live on `server:status-changed`. Never carries the bearer token.
+  'server:status': { args: []; result: ServerStatus };
+
   // terminal
   'terminal:create': {
     args: [opts: TerminalCreateOptions];
@@ -517,6 +525,9 @@ export interface EventPayloadMap {
   // connects/disconnects or the session changes (so the Settings UI reflects the
   // connected-as-host indicator live). Never carries tokens.
   'relay:status-changed': RelayStatus;
+  // bridge server status (T2): pushed when the server starts/stops so the Settings
+  // Remote panel reflects running state + reachable URLs live. Never the token.
+  'server:status-changed': ServerStatus;
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   'terminal:data': TerminalDataEvent;
@@ -548,6 +559,7 @@ export const EVENT_CHANNELS = [
   'devtools:error-count',
   'agent:event',
   'relay:status-changed',
+  'server:status-changed',
   'window:maximize-state',
   'settings:changed',
   'terminal:data',

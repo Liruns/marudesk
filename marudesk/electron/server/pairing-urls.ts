@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
+import type { ConnectCandidate } from '../../shared/remote';
 
 /**
  * Reachable-URL discovery for the LAN/Tailscale bridge (T2 — docs/remote-mobile-
@@ -16,12 +17,9 @@ import { networkInterfaces } from 'node:os';
  * (no CLI / not logged in simply yields no Tailscale candidates).
  */
 
-export type ConnectCandidate = {
-  /** Human label for the Settings UI — "Tailscale", "Tailscale DNS", or the iface name. */
-  label: string;
-  /** Base URL a client should try, e.g. `http://100.101.102.103:8787`. */
-  url: string;
-};
+// {@link ConnectCandidate} lives in shared/remote.ts so the renderer (Settings UI)
+// can render the same shape main computes here.
+export type { ConnectCandidate };
 
 /**
  * Collect reachable base-URL candidates for `port`, Tailscale-preferred (it works

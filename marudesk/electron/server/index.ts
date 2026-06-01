@@ -2,6 +2,7 @@ import http from 'node:http';
 import type { Socket } from 'node:net';
 import { app } from 'electron';
 import type { AppSettings } from '../../shared/settings';
+import type { ServerStatus } from '../../shared/remote';
 import {
   abortTurn,
   approveTool,
@@ -11,6 +12,7 @@ import {
   startTurn,
   subscribeAgentEvents,
 } from '../agent/loop';
+import { defineHandler } from '../ipc/define-handler';
 import { getConnectCandidates } from './pairing-urls';
 import { handleRequest, type RouterDeps } from './router';
 import { getServerToken } from './token';
@@ -40,13 +42,38 @@ let boundPort: number | null = null;
 let transitioning = false;
 // Track live sockets so stop() doesn't hang on keep-alive / open SSE connections.
 const sockets = new Set<Socket>();
+/** Renderer status-push sink (wired once from main.ts). */
+let onStatus: ((status: ServerStatus) => void) | null = null;
 
 /** Whether the bridge server is currently listening. */
 export function isServerRunning(): boolean {
   return server !== null;
 }
 
-/** Start the bridge server on `port` (127.0.0.1). No-op if already running. */
+/** Wire the renderer status-push once (from main.ts); see `server:status-changed`. */
+export function setServerStatusListener(fn: (status: ServerStatus) => void): void {
+  onStatus = fn;
+}
+
+/**
+ * The sanitized status the renderer may see — running flag, bound port, and the
+ * reachable LAN/Tailscale URLs (computed live while running). Never the token.
+ * Recomputes candidates per call (it shells out to Tailscale with a short
+ * timeout), so it's read on demand / on start-stop, not polled.
+ */
+export function getServerStatus(): ServerStatus {
+  if (!server || boundPort === null) {
+    return { running: false, port: null, candidates: [] };
+  }
+  return { running: true, port: boundPort, candidates: getConnectCandidates(boundPort) };
+}
+
+/** Register the `server:*` IPC handlers (status only; never returns the token). */
+export function registerServerHandlers(): void {
+  defineHandler('server:status', () => getServerStatus());
+}
+
+/** Start the bridge server on `port` (binds all interfaces). No-op if already running. */
 export async function startServer(port: number): Promise<void> {
   if (server) return;
   // Resolve the bearer token up front (mints + persists one on first need) so a
@@ -100,12 +127,15 @@ export async function startServer(port: number): Promise<void> {
 
   server = srv;
   boundPort = port;
-  const candidates = getConnectCandidates(port);
+  // Compute the reachable URLs once and reuse them for the boot log AND the
+  // renderer push (one Tailscale shell-out, no divergence between the two).
+  const status = getServerStatus();
   console.log(`[server] bridge listening on ${HOST}:${port} — phone-reachable at:`);
-  for (const c of candidates) console.log(`  [${c.label}] ${c.url}`);
-  if (candidates.length === 0) {
+  for (const c of status.candidates) console.log(`  [${c.label}] ${c.url}`);
+  if (status.candidates.length === 0) {
     console.log('  (no LAN/Tailscale address detected yet)');
   }
+  onStatus?.(status);
 }
 
 /** Stop the bridge server if running. Destroys open sockets so it closes promptly. */
@@ -116,6 +146,8 @@ export function stopServer(): Promise<void> {
   boundPort = null;
   for (const s of sockets) s.destroy();
   sockets.clear();
+  // State already reflects "stopped" — tell the renderer right away (candidates → []).
+  onStatus?.(getServerStatus());
   return new Promise<void>((resolve) => {
     srv.close(() => resolve());
   });

@@ -194,3 +194,37 @@ export type RelayStatus = {
   account: RelayAccount | null;
   connected: boolean;
 };
+
+/* ── LAN/Tailscale direct bridge status (T2 — docs/remote-mobile-bridge-design §3) ──
+ *
+ * Unlike the cloud relay (both sides dial OUT to marudesk's server), T2 has the
+ * phone connect DIRECTLY to this PC over the LAN or a Tailscale tunnel. The PC
+ * can't know its own reachable address from inside, so main enumerates every
+ * plausible base URL (electron/server/pairing-urls.ts) and the Settings UI shows
+ * them (and a future pairing QR encodes them) for the phone to try in order.
+ */
+
+/**
+ * One reachable base URL for the bridge server, surfaced to the Settings UI.
+ * Computed in main from Tailscale (cross-network, tried first) + private LAN IPs.
+ */
+export type ConnectCandidate = {
+  /** Human label — "Tailscale", "Tailscale DNS", or the network-interface name. */
+  label: string;
+  /** Base URL a client should try, e.g. `http://100.101.102.103:8787`. */
+  url: string;
+};
+
+/**
+ * The sanitized bridge-server status the renderer may see (`server:status`, pushed
+ * live on `server:status-changed`). Never carries the bearer token — only whether
+ * the server is listening, the bound port, and where it's reachable.
+ */
+export type ServerStatus = {
+  /** Whether the bridge server is currently listening. */
+  running: boolean;
+  /** The port it's bound to while running, else null. */
+  port: number | null;
+  /** Reachable base URLs (Tailscale-first, then LAN); empty when stopped. */
+  candidates: ConnectCandidate[];
+};

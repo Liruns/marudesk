@@ -25,7 +25,12 @@ import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { openExternalUrl } from './safe-open';
-import { stopServer, syncServerToSettings } from './server';
+import {
+  registerServerHandlers,
+  setServerStatusListener,
+  stopServer,
+  syncServerToSettings,
+} from './server';
 import {
   disposeRelay,
   registerRelayHandlers,
@@ -213,6 +218,12 @@ void app.whenReady().then(() => {
   // renderer so Settings reflects it without polling. Sanitized — never tokens.
   setRelayStatusListener((status) =>
     getMainWindow()?.webContents.send('relay:status-changed', status),
+  );
+  registerServerHandlers();
+  // Push live bridge-server status (start/stop → running flag + reachable
+  // LAN/Tailscale URLs) so the Settings Remote panel updates without polling.
+  setServerStatusListener((status) =>
+    getMainWindow()?.webContents.send('server:status-changed', status),
   );
   registerSettingsHandlers({
     broadcast: (settings) => {

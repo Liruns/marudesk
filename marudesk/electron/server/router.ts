@@ -16,9 +16,10 @@ import { verifyToken } from './token';
  * event subscribe fn — so it is unit-testable headlessly with mocked deps, no
  * Electron required (see electron/server/harness.ts).
  *
- * Security posture (the server itself binds 127.0.0.1 only and is off by default
- * — see ./index.ts): EVERY route is behind the bearer-token guard, checked BEFORE
- * any work via a constant-time compare. POST bodies must be JSON and are capped.
+ * Security posture (the server binds all interfaces for LAN/Tailscale reach but is
+ * off by default — see ./index.ts): EVERY route is behind the bearer-token guard,
+ * checked BEFORE any work via a constant-time compare. POST bodies must be JSON and
+ * are capped.
  * The handler only relays the loop's already-scrubbed state; it never logs the
  * token or echoes request bodies.
  */
