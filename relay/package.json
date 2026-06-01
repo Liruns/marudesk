@@ -1,0 +1,22 @@
+{
+  "name": "marudesk-relay",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Cloud relay + auth backend for marudesk (Bridge Model B). Payload-agnostic dumb pipe brokering same-account host<->client WS, plus account/JWT/OAuth.",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types test/harness.ts",
+    "harness": "node --experimental-strip-types test/harness.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.3",
+    "@types/ws": "^8.5.13",
+    "typescript": "~6.0.2"
+  }
+}

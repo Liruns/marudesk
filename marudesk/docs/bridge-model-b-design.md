@@ -82,6 +82,20 @@ end-to-end 검증. 호스팅·OAuth 앱·Android SDK는 "실배포/실APK" 시�
   여기서도 적용 — 특히 **원격(폰) self-approval**: gated 도구 승인을 폰에서 할지/PC-UI 고정할지 B-단계에서 확정.
 - 비밀(계정 해시·JWT 시크릿·OAuth secret)은 서버에만; 클라이언트로 평문 유출 금지.
 
+### 6.1 B1 보안 리뷰 결과 (2026-06-01) — fix-now vs 배포 전(deferred)
+relay 보안 리뷰: **Critical 0.** 핵심 crypto는 견고 검증됨 — hand-rolled HS256 JWT(alg:none/swap 차단·exp 강제·constant-time sig), constant-time 비교, scrypt+salt 패스워드, **same-account WS 브로커 격리**, 사용자 열거 방지(dummy-verify). 위험은 crypto가 아니라 **상태성·배포 자세**에 집중.
+
+**즉시 수정(B1 fix 라운드 — 코드 적용):** H1 refresh-jti를 계정당 **Set**으로(다중 세션=멀티-헤드 지원, 일회용 회전) + M1 `/auth/logout`; H3 ephemeral 시크릿 + (public bind | production)이면 **起動 거부** + 제공 시크릿 `<32B` 거부; M2 Google `email_verified` 필수(계정 탈취 방지); M5 토큰 응답 `Cache-Control: no-store` + `nosniff`/`Referrer-Policy`; M6 WS 업그레이드 rate-limit + Origin allowlist.
+
+**배포 전 필수(deferred — 실인프라 필요, dev엔 무해):**
+- [ ] **H2** refresh/CSRF-state/rate-limit를 **공유 저장소(DB/Redis)**로 (현재 in-process → 재시작 시 리셋·다중 인스턴스 불가). file `AccountStore`→실 DB와 같은 경계에서.
+- [ ] **M3** TLS-종단 프록시 뒤에선 **신뢰 프록시 XFF**로 client IP 산출(현재 socket IP → 프록시 1버킷으로 붕괴).
+- [ ] **M4** OAuth 콜백이 토큰을 네비게이션 본문으로 반환 → **앱 deep-link + 1회용 code 교환**으로 변경(모바일 클라 B3 인증 플로우와 결합 → B3에서 처리).
+- [ ] **tokenEpoch** 계정 단위 일괄 무효화(분실/탈취 대응) + 짧은 refresh TTL 검토.
+- [ ] Lows: 계정당 peer 상한, 브로커 무파싱(E2E 대비), 감사 로그, 패스워드 breach 체크.
+
+배포(B4) 전 위 목록을 클리어한다.
+
 ## 7. 비목표(이번 라운드)
 - marudesk 자체 호스팅 SaaS 운영(사용자가 self-host). 멀티테넌시·팀.
 - E2E(end-to-end) 암호화는 설계만 — 1차는 relay-비저장 + TLS.
