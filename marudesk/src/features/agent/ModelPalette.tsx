@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Search, Check, Brain, Eye, Sparkles } from 'lucide-react';
-import { Badge } from '../../components/ui';
+import { Search, Check, Brain, Eye, Star, FlaskConical } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import {
   PROVIDERS,
@@ -9,6 +8,7 @@ import {
   type ProviderId,
 } from '../../../shared/providers';
 import { useProvidersStore } from '../providers/store';
+import { ProviderGlyph } from '../providers/ProviderGlyph';
 
 /**
  * Command-palette model picker (docs/agentic-chat-v4-design.md §A1). A centered,
@@ -169,15 +169,19 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
           ) : (
             sections.map((s) => (
               <div key={s.id}>
-                <div className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-caption uppercase tracking-wider text-fg-tertiary">
+                <div className="flex items-center gap-1.5 px-3 pb-1 pt-2.5 text-caption uppercase tracking-wider text-fg-tertiary">
                   <span>{s.label}</span>
-                  {s.experimental ? <Badge variant="neutral">experimental</Badge> : null}
+                  {s.experimental ? (
+                    <span className="inline-flex items-center gap-0.5 rounded-pill bg-warning-subtle px-1.5 py-px text-[10px] font-medium normal-case tracking-normal text-warning">
+                      <FlaskConical size={9} /> experimental
+                    </span>
+                  ) : null}
                   {!s.experimental && s.id !== 'favorites' && s.id !== 'recent' ? (
-                    s.hasKey ? (
-                      <span aria-hidden className="size-1 rounded-pill bg-accent" />
-                    ) : (
-                      <span className="normal-case tracking-normal text-fg-tertiary/70">· no key</span>
-                    )
+                    <span
+                      aria-hidden
+                      title={s.hasKey ? 'Connected' : 'No key / not connected'}
+                      className={cn('size-1.5 rounded-pill', s.hasKey ? 'bg-success' : 'bg-fg-tertiary/40')}
+                    />
                   ) : null}
                 </div>
                 {s.items.map((m) => {
@@ -194,11 +198,29 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
                       onClick={() => choose(m.key)}
                       onMouseEnter={() => setActive(idx)}
                       className={cn(
-                        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',
+                        'group flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',
                         isActive ? 'bg-surface-2 text-fg-primary' : 'text-fg-secondary',
                       )}
                     >
-                      {/* favorite toggle */}
+                      <ProviderGlyph provider={m.provider} label={m.label} size={18} />
+                      {query.trim() === '' && idx < 9 ? (
+                        <kbd className="shrink-0 rounded bg-surface-3 px-1 text-[10px] font-medium leading-[1.5] tabular-nums text-fg-tertiary">
+                          {idx + 1}
+                        </kbd>
+                      ) : null}
+                      <span className="flex-1 truncate">{m.label}</span>
+                      {/* capability badges reuse the AI-timeline hues: vision=blue (read),
+                          reasoning=peach (the same hue as the Thinking block). */}
+                      {m.vision ? <Eye size={12} className="shrink-0 text-ai-read" aria-label="vision" /> : null}
+                      {m.reasoning ? (
+                        <Brain size={12} className="shrink-0 text-ai-thinking" aria-label="reasoning" />
+                      ) : null}
+                      {m.contextWindow ? (
+                        <span className="shrink-0 rounded bg-surface-3/70 px-1 text-[10px] tabular-nums text-fg-tertiary">
+                          {formatContext(m.contextWindow)}
+                        </span>
+                      ) : null}
+                      {/* favorite: a real star icon (gold when set), hover-revealed otherwise */}
                       <span
                         role="button"
                         tabIndex={-1}
@@ -208,28 +230,21 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
                           toggleFavorite(m.key);
                         }}
                         className={cn(
-                          'shrink-0 text-[13px] leading-none transition-colors',
-                          isFavorite ? 'text-accent' : 'text-fg-tertiary/40 hover:text-fg-tertiary',
+                          'shrink-0 transition-opacity',
+                          isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
                         )}
                       >
-                        {isFavorite ? '★' : '☆'}
+                        <Star
+                          size={13}
+                          className={cn(isFavorite ? 'text-warning' : 'text-fg-tertiary/60 hover:text-fg-tertiary')}
+                          fill={isFavorite ? 'currentColor' : 'none'}
+                        />
                       </span>
-                      {query.trim() === '' && idx < 9 ? (
-                        <span className="w-3 shrink-0 text-center text-caption tabular-nums text-fg-tertiary/60">
-                          {idx + 1}
-                        </span>
-                      ) : null}
-                      <span className="flex-1 truncate">{m.label}</span>
-                      {m.vision ? <Eye size={12} className="shrink-0 text-fg-tertiary" aria-label="vision" /> : null}
-                      {m.reasoning ? (
-                        <Brain size={12} className="shrink-0 text-fg-tertiary" aria-label="reasoning" />
-                      ) : null}
-                      {m.contextWindow ? (
-                        <span className="shrink-0 text-caption tabular-nums text-fg-tertiary">
-                          {formatContext(m.contextWindow)}
-                        </span>
-                      ) : null}
-                      {isSelected ? <Check size={13} className="shrink-0 text-accent" /> : null}
+                      {isSelected ? (
+                        <Check size={13} className="shrink-0 text-accent" />
+                      ) : (
+                        <span aria-hidden className="w-[13px] shrink-0" />
+                      )}
                     </button>
                   );
                 })}
@@ -239,12 +254,11 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* footer hint bar */}
-        <div className="flex shrink-0 items-center gap-3 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
-          <Sparkles size={11} className="text-accent" />
-          <span>↑↓ move</span>
-          <span>↵ select</span>
-          <span>1–9 quick</span>
-          <span>esc close</span>
+        <div className="flex shrink-0 items-center gap-2.5 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
+          <Hint k="↑↓" label="move" />
+          <Hint k="↵" label="select" />
+          <Hint k="1–9" label="quick" />
+          <Hint k="esc" label="close" />
         </div>
       </div>
     </div>
@@ -258,6 +272,18 @@ type Section = {
   experimental?: boolean;
   items: ModelEntry[];
 };
+
+/** One footer key hint: a kbd chip + its action label. */
+function Hint({ k, label }: { k: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <kbd className="rounded bg-surface-3 px-1 text-[10px] font-medium leading-[1.5] text-fg-secondary">
+        {k}
+      </kbd>
+      <span>{label}</span>
+    </span>
+  );
+}
 
 /** Compact context-window label (e.g. 200000 → "200K", 1048576 → "1M"). */
 function formatContext(n: number): string {

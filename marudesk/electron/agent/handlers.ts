@@ -1,8 +1,10 @@
 import type { AgentAnswers, AgentSendInput } from '../../shared/agent';
+import type { ContextSyncPayload, EditorMirror, ExplorerMirror } from '../../shared/context';
 import { isCapturePayload, type CapturePayload } from '../../shared/composer';
 import { isProviderId } from '../../shared/providers';
 import { defineHandler } from '../ipc/define-handler';
 import { arr, nonEmptyStr, obj, optStr } from '../ipc/validate';
+import { updateContextCache } from './context-cache';
 import {
   abortTurn,
   acceptEdit,
@@ -14,6 +16,41 @@ import {
   startTurn,
   testProviderConnection,
 } from './loop';
+
+const MAX_MIRRORED_EDITORS = 40;
+const MAX_EDITOR_CONTENT = 24_000;
+const MAX_EXPANDED_DIRS = 500;
+
+/** Defensively coerce the renderer's context mirror into the cached shape. */
+function parseContextSync(payload: unknown): ContextSyncPayload {
+  const o = obj(payload);
+  const editorsRaw = Array.isArray(o.editors) ? o.editors : [];
+  const editors: EditorMirror[] = editorsRaw.slice(0, MAX_MIRRORED_EDITORS).flatMap((e) => {
+    if (!e || typeof e !== 'object') return [];
+    const r = e as Record<string, unknown>;
+    if (typeof r.path !== 'string') return [];
+    const content = typeof r.content === 'string' ? r.content : '';
+    const clipped = content.length > MAX_EDITOR_CONTENT;
+    return [
+      {
+        path: r.path,
+        dirty: !!r.dirty,
+        content: clipped ? content.slice(0, MAX_EDITOR_CONTENT) : content,
+        truncated: clipped || !!r.truncated,
+      },
+    ];
+  });
+  const ex = (o.explorer && typeof o.explorer === 'object' ? o.explorer : {}) as Record<string, unknown>;
+  const explorer: ExplorerMirror = {
+    root: typeof ex.root === 'string' ? ex.root : null,
+    expandedDirs: Array.isArray(ex.expandedDirs)
+      ? ex.expandedDirs.filter((d): d is string => typeof d === 'string').slice(0, MAX_EXPANDED_DIRS)
+      : [],
+    selectedPath: typeof ex.selectedPath === 'string' ? ex.selectedPath : null,
+    fileCount: typeof ex.fileCount === 'number' ? ex.fileCount : undefined,
+  };
+  return { editors, explorer };
+}
 
 /**
  * IPC surface for the agentic AI Chat. Like every other domain it validates the
@@ -82,6 +119,13 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:snapshot', () => snapshot());
 
   defineHandler('agent:reset', () => reset());
+
+  // Built-in context MCP mirror: cache the renderer's latest editor/explorer
+  // snapshot so the read_editor / read_explorer tools can read it (main can't
+  // observe unsaved buffers or the tree state directly).
+  defineHandler('context:sync', ([payload]) => {
+    updateContextCache(parseContextSync(payload));
+  });
 
   // Settings "Test connection" — a minimal live request to verify a provider's
   // key/OAuth actually works (OAuth providers have no /models endpoint to probe).

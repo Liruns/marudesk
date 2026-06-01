@@ -24,6 +24,15 @@ import {
   Network,
   RefreshCw,
   Plus,
+  Globe,
+  History,
+  Database,
+  Cookie,
+  BookMarked,
+  BookOpen,
+  NotebookPen,
+  LayoutGrid,
+  FileCode,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
@@ -44,6 +53,7 @@ import type {
 } from '../../../shared/agent';
 import { openSettingsTab } from '../settings/store';
 import { useProvidersStore } from '../providers/store';
+import { ProviderGlyph } from '../providers/ProviderGlyph';
 import { useWorkspaceStore } from '../workspace/store';
 import { useWebPageStore } from '../browser/store';
 import { useAgentStore } from './store';
@@ -387,9 +397,13 @@ function ProviderModelBar({ full }: { full?: boolean }) {
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           aria-expanded={open}
-          className="w-full h-8 px-2.5 rounded border border-default hover:border-accent flex items-center gap-2 text-body-sm text-fg-primary transition-colors duration-fast"
+          className="w-full h-8 px-2 rounded border border-default hover:border-accent flex items-center gap-2 text-body-sm text-fg-primary transition-colors duration-fast"
         >
-          <Sparkles size={13} className="text-accent shrink-0" />
+          <ProviderGlyph
+            provider={selectedProvider}
+            label={providerLabel(selectedProvider, customProviders)}
+            size={20}
+          />
           <span className="truncate flex-1 text-left">{current?.label ?? selectedModel}</span>
           {current?.contextWindow ? (
             <span className="text-caption text-fg-tertiary tabular-nums shrink-0">
@@ -551,6 +565,21 @@ const TOOL_META: Record<string, ToolMeta> = {
   read_network: { label: 'Network', icon: Network, runtime: true },
   read_network_body: { label: 'Response body', icon: Network, runtime: true },
   reload_and_verify: { label: 'Reload & verify', icon: RefreshCw, runtime: true },
+  // Context MCP — reads of the live app (runtime spine) vs. stored state.
+  browser_cookies: { label: 'Cookies', icon: Cookie, runtime: true },
+  browser_storage: { label: 'Web storage', icon: Database, runtime: true },
+  terminal_output: { label: 'Terminal output', icon: SquareTerminal, runtime: true },
+  list_tabs: { label: 'List tabs', icon: LayoutGrid, runtime: true },
+  read_page: { label: 'Read page', icon: Globe, runtime: true },
+  list_terminals: { label: 'List terminals', icon: SquareTerminal, runtime: true },
+  read_terminal: { label: 'Read terminal', icon: SquareTerminal, runtime: true },
+  read_editor: { label: 'Read editor', icon: FileCode },
+  read_explorer: { label: 'Explorer state', icon: FolderTree },
+  list_sessions: { label: 'List sessions', icon: History },
+  read_session: { label: 'Read session', icon: History },
+  list_memory: { label: 'List memory', icon: BookMarked },
+  read_memory: { label: 'Read memory', icon: BookOpen },
+  write_memory: { label: 'Write memory', icon: NotebookPen },
 };
 
 /** reload_and_verify's verdict, parsed from the server-formatted result — the

@@ -19,6 +19,7 @@ import {
   type CustomProviderInfo,
 } from '../../../shared/providers';
 import { useProvidersStore } from '../providers/store';
+import { ProviderGlyph } from '../providers/ProviderGlyph';
 
 /**
  * AI Providers settings — per-provider API-key management as an accordion of
@@ -95,6 +96,7 @@ function ProviderCard({
           size={14}
           className={cn('text-fg-tertiary shrink-0 transition-transform', expanded && 'rotate-90')}
         />
+        <ProviderGlyph provider={def.id} label={def.label} size={20} />
         <span className="text-body-sm text-fg-primary">{def.label}</span>
         {def.experimental ? <Badge variant="warning">experimental</Badge> : null}
         <span className="flex-1" />

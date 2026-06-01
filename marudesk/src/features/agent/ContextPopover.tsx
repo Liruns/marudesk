@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Plus,
   Settings,
+  Sparkles,
   SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
@@ -211,11 +212,18 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
 
       <div className="h-px bg-surface-3 shrink-0" />
 
-      {/* ── Footer hint ───────────────────────────────────────────────── */}
-      <p className="px-3 py-2 text-caption text-fg-tertiary leading-relaxed">
-        The agent can also fetch context on demand (DOM, network, cookies,
-        storage).
-      </p>
+      {/* ── Built-in context MCP ──────────────────────────────────────── */}
+      <div className="flex flex-col">
+        <div className="px-3 pt-2 pb-1 flex items-center gap-1.5 text-caption uppercase tracking-wider text-fg-tertiary">
+          <Sparkles size={11} className="text-accent" />
+          <span>Built-in context · MCP</span>
+        </div>
+        <p className="px-3 pb-2 text-caption text-fg-tertiary leading-relaxed">
+          The agent pulls these on demand: page text &amp; DOM, network,
+          cookies/storage, open editors (incl. unsaved), terminals, the file
+          tree, previous sessions, and memory.
+        </p>
+      </div>
     </div>,
     document.body,
   );

@@ -29,14 +29,10 @@ import { writeFileForEditor } from '../workspace';
 import { streamText, generateText, type ModelMessage } from 'ai';
 import { buildModel, aiTools, humanizeModelError, type ModelAuth } from './model';
 import { loadWorkspaceInstructions } from './instructions';
-import {
-  ASK_USER,
-  GATED_TOOLS,
-  TOOL_SCHEMAS,
-  describeToolInput,
-  executeTool,
-  type ToolContext,
-} from './tools';
+import { ASK_USER, describeToolInput, type ToolContext } from './tools';
+import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
+import { saveSession } from './sessions-store';
+import type { SessionRecord } from '../../shared/context';
 
 /**
  * The manual step-driven agent loop (docs/agentic-chat-design.md §5). main owns
@@ -55,6 +51,12 @@ const AGENT_MAX_TOKENS = 4_096;
 const SYSTEM_PROMPT = `You are marudesk's agentic coding assistant, running INSIDE a desktop IDE that owns the user's live browser (via the Chrome DevTools Protocol), the code editor, and the terminal for their open workspace.
 
 Your tools let you: read/search/edit workspace files; read the live page's captured console errors, DOM, and network; evaluate JS in the page (with the user's approval); and reload the page to re-observe.
+
+You also have a built-in context MCP — pull from the app ON DEMAND instead of assuming:
+- list_tabs, then read_page (any web tab's visible text), read_editor (open buffers incl. UNSAVED edits), read_explorer (file-tree state).
+- list_terminals / read_terminal (command output the user ran), get_console_errors / read_network (DevTools).
+- list_sessions / read_session (your previous conversations) and list_memory / read_memory / write_memory (durable notes that persist across sessions — remember user facts, preferences, and project context so you don't re-ask).
+Fetch only what you need for the task; don't dump everything.
 
 Operating rules:
 - Investigate before editing. Read the relevant files (read_file / grep) so each edit's oldString matches verbatim and is unique.
@@ -84,6 +86,16 @@ let starting = false;
 // The web tab the active turn targets — so finish() can stop the lazy network
 // capture it may have enabled (otherwise the relay keeps buffering forever).
 let activeTabId: string | undefined;
+// The current conversation's stable session id (assigned on the first turn after
+// a reset) + metadata, so finish() can persist the transcript to sessions-store
+// for the AI's `list_sessions` / `read_session` context tools (and a future
+// sessions UI). Reused across the conversation's turns — each save updates the
+// same record; reset() clears it so the next turn begins a new session.
+let conversationId: string | null = null;
+let conversationStartedAt = 0;
+let conversationProvider = '';
+let conversationModel = '';
+let conversationTitle = '';
 let seq = 0;
 
 function uid(prefix: string): string {
@@ -209,9 +221,6 @@ type RunOpts = {
   denyGlobs: string[];
 };
 
-/** Tools that mutate the workspace — refused outright in read-only mode. */
-const WRITE_TOOLS = new Set(['edit_file', 'multi_edit']);
-
 async function runLoop(opts: RunOpts): Promise<void> {
   const ctx: ToolContext = {
     ws: opts.ws,
@@ -221,7 +230,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
   };
   // Build the model + tool set once per turn (provider/model/auth are fixed for it).
   const model = buildModel(opts.provider, opts.model, opts.auth, opts.baseUrl);
-  const tools = aiTools(TOOL_SCHEMAS);
+  const tools = aiTools(listMcpTools());
   // Anthropic OAuth (subscription) requests are rejected unless the system prompt
   // starts with the Claude-Code identity line — prepend it for that path only.
   const baseSystem =
@@ -233,10 +242,16 @@ async function runLoop(opts: RunOpts): Promise<void> {
   // the Claude-Code prefix so the Anthropic-OAuth first-line requirement holds.
   const instructions = await loadWorkspaceInstructions(opts.ws);
   const system = instructions ? `${baseSystem}\n\n---\n\n${instructions}` : baseSystem;
-  // The ChatGPT codex backend (openai-codex) requires store:false and rejects
-  // max_output_tokens — omit the cap and pass the flag for that provider only.
+  // The ChatGPT codex backend (openai-codex) needs store:false, rejects
+  // max_output_tokens, AND requires the system prompt in the Responses API's
+  // top-level `instructions` field — it 400s `{"detail":"Instructions are
+  // required"}` when the system prompt is only an `input` message. So for codex
+  // we route `system` → `instructions` (and omit the streamText `system` below,
+  // so it isn't also duplicated into `input`).
   const codexBackend = opts.provider === 'openai-codex';
-  const providerOptions = codexBackend ? { openai: { store: false } } : undefined;
+  const providerOptions = codexBackend
+    ? { openai: { store: false, instructions: system } }
+    : undefined;
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (opts.signal.aborted) return finish('completed', '(stopped by user)');
@@ -263,7 +278,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
     try {
       const res = streamText({
         model,
-        system,
+        // codex carries the system prompt in providerOptions.openai.instructions
+        // (see above), so don't also pass it here or it lands twice.
+        system: codexBackend ? undefined : system,
         messages: transcript,
         tools,
         maxOutputTokens: codexBackend ? undefined : AGENT_MAX_TOKENS,
@@ -357,7 +374,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // prompt). Reads still run; sensitive read tools below still ask. (§B4)
       if (
         opts.approvalMode === 'read-only' &&
-        (WRITE_TOOLS.has(call.name) || call.name === 'eval_js')
+        (isWriteTool(call.name) || call.name === 'eval_js')
       ) {
         call.state = 'denied';
         call.resultText = 'Blocked: read-only mode.';
@@ -375,7 +392,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
       // Gated tools (eval_js / cookies / storage / terminal output): park for
       // explicit approval — unless the mode is `auto`, which auto-approves. (§B4)
-      if (GATED_TOOLS.has(call.name) && opts.approvalMode !== 'auto') {
+      if (isGatedTool(call.name) && opts.approvalMode !== 'auto') {
         call.state = 'awaiting_approval';
         state.status = 'waiting_for_user';
         state.pendingApproval = {
@@ -407,7 +424,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
       call.state = 'running';
       emit();
-      const out = await executeTool(call.name, call.input, ctx);
+      const out = await callMcpTool(call.name, call.input, ctx);
       call.state = out.isError ? 'error' : 'ok';
       call.summary = out.summary;
       call.resultText = out.text;
@@ -486,7 +503,41 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
     activeTabId = undefined;
   }
   controller = null;
+  // Persist the conversation so far (best-effort, fire-and-forget) — each turn's
+  // end updates the same session record, so list_sessions/read_session always
+  // reflect the latest state.
+  if (conversationId && state.messages.length > 0) void persistSession();
   emit();
+}
+
+/** Clip a tool result before persisting so a session file can't grow unbounded. */
+function snapshotMessagesForSave(): AgentMessage[] {
+  return state.messages.map((m) => ({
+    ...m,
+    parts: m.parts.map((p) => {
+      if (p.type !== 'tool') return p;
+      const rt = p.call.resultText;
+      return rt && rt.length > 4_000
+        ? { ...p, call: { ...p.call, resultText: `${rt.slice(0, 4_000)}…` } }
+        : p;
+    }),
+  }));
+}
+
+async function persistSession(): Promise<void> {
+  if (!conversationId) return;
+  const record: SessionRecord = {
+    id: conversationId,
+    title: conversationTitle || 'Untitled chat',
+    createdAt: conversationStartedAt || Date.now(),
+    updatedAt: Date.now(),
+    provider: conversationProvider,
+    model: conversationModel,
+    messageCount: state.messages.length,
+    messages: snapshotMessagesForSave(),
+    usage: { ...state.usage },
+  };
+  await saveSession(record);
 }
 
 /* ── public API (handlers.ts) ───────────────────────────────────────────── */
@@ -600,6 +651,16 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     const { auth, baseUrl } = resolved;
 
     const turnId = uid('turn');
+    // Open (or continue) the conversation's saved-session identity. The id +
+    // title are pinned on the first turn after a reset; provider/model track the
+    // latest turn (the user may switch models mid-conversation).
+    if (!conversationId) {
+      conversationId = uid('session');
+      conversationStartedAt = Date.now();
+      conversationTitle = input.prompt.trim().split('\n')[0].slice(0, 60) || 'Untitled chat';
+    }
+    conversationProvider = input.provider;
+    conversationModel = input.model;
     controller = new AbortController();
     activeTabId = input.tabId;
     state.turnId = turnId;
@@ -715,6 +776,9 @@ export function reset(): boolean {
   state = emptyAgentChatState();
   state.edits = keptEdits;
   transcript = [];
+  // The prior conversation was persisted on its last turn's finish(); drop its id
+  // so the next turn begins (and saves to) a fresh session.
+  conversationId = null;
   emit();
   return true;
 }

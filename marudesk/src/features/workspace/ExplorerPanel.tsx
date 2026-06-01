@@ -40,6 +40,7 @@ import {
 
 type Props = {
   open: boolean;
+  onRequestClose?: () => void;
 };
 
 type MenuState = { x: number; y: number; target: MenuTarget };
@@ -56,6 +57,11 @@ const EXPLORER_MIN = 180;
 const EXPLORER_MAX = 560;
 const EXPLORER_DEFAULT = 260;
 const EXPLORER_WIDTH_KEY = 'marudesk.explorerWidth';
+// Below this threshold on drag-release the panel closes entirely ("drag to
+// dismiss"). During the drag we allow live narrowing to EXPLORER_DRAG_FLOOR so
+// the user sees the panel shrinking visibly before they let go.
+const EXPLORER_CLOSE_AT = 120;
+const EXPLORER_DRAG_FLOOR = 60;
 
 function readExplorerWidth(): number {
   try {
@@ -75,7 +81,7 @@ function readExplorerWidth(): number {
  * The tree is built client-side from the workspace's flat file list; mutations
  * go through validated workspace:* channels (see fsActions / electron/fs-safe).
  */
-export function ExplorerPanel({ open }: Props) {
+export function ExplorerPanel({ open, onRequestClose }: Props) {
   const summary = useWorkspaceStore((s) => s.summary);
   const opening = useWorkspaceStore((s) => s.opening);
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
@@ -96,6 +102,9 @@ export function ExplorerPanel({ open }: Props) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [width, setWidth] = useState(readExplorerWidth);
   const [resizing, setResizing] = useState(false);
+  // Tracks whether we are in the "close zone" during an active drag — used to
+  // show the dismiss affordance without touching the persisted width state.
+  const [inCloseZone, setInCloseZone] = useState(false);
 
   // Drag the right edge to resize. Pointer capture keeps move events flowing
   // even when the cursor outruns the 1px seam; the stage to the right reflows
@@ -106,19 +115,43 @@ export function ExplorerPanel({ open }: Props) {
     const asideLeft = handle.parentElement?.getBoundingClientRect().left ?? 0;
     handle.setPointerCapture(e.pointerId);
     setResizing(true);
+    // `last` tracks the last raw drag value; `lastGood` is the last width that
+    // was within [MIN, MAX] and is the value we persist if the user closes.
     let last = width;
+    let lastGood = width >= EXPLORER_MIN ? width : EXPLORER_DEFAULT;
     const onMove = (ev: PointerEvent) => {
-      last = Math.min(EXPLORER_MAX, Math.max(EXPLORER_MIN, ev.clientX - asideLeft));
+      // During a drag, allow shrinking below EXPLORER_MIN down to the drag
+      // floor so the user sees the panel visibly narrow toward the close zone.
+      last = Math.min(EXPLORER_MAX, Math.max(EXPLORER_DRAG_FLOOR, ev.clientX - asideLeft));
+      if (last >= EXPLORER_MIN) lastGood = last;
       setWidth(last);
+      setInCloseZone(last < EXPLORER_CLOSE_AT);
     };
     const onDone = () => {
       setResizing(false);
+      setInCloseZone(false);
       handle.removeEventListener('pointermove', onMove);
       handle.removeEventListener('lostpointercapture', onDone);
-      try {
-        localStorage.setItem(EXPLORER_WIDTH_KEY, String(Math.round(last)));
-      } catch {
-        // best-effort persistence
+      if (last < EXPLORER_CLOSE_AT) {
+        // Close zone — dismiss the panel. Restore a sane width so it isn't
+        // 60px wide when the user reopens it via Ctrl+B or the ActivityBar.
+        const restore = lastGood >= EXPLORER_MIN ? lastGood : EXPLORER_DEFAULT;
+        setWidth(restore);
+        try {
+          localStorage.setItem(EXPLORER_WIDTH_KEY, String(Math.round(restore)));
+        } catch {
+          // best-effort persistence
+        }
+        onRequestClose?.();
+      } else {
+        // Normal release — clamp to valid range and persist.
+        const clamped = Math.min(EXPLORER_MAX, Math.max(EXPLORER_MIN, last));
+        setWidth(clamped);
+        try {
+          localStorage.setItem(EXPLORER_WIDTH_KEY, String(Math.round(clamped)));
+        } catch {
+          // best-effort persistence
+        }
       }
     };
     handle.addEventListener('pointermove', onMove);
@@ -185,6 +218,10 @@ export function ExplorerPanel({ open }: Props) {
     return items;
   };
 
+  // Close-zone affordance: dim content and tint the seam when the live drag
+  // width drops into the dismiss range, signalling that releasing will close.
+  const closeZoneActive = resizing && inCloseZone;
+
   return (
     <aside
       role="complementary"
@@ -197,7 +234,15 @@ export function ExplorerPanel({ open }: Props) {
       )}
       style={{ width: open ? width : 0 }}
     >
-      <div className="h-full flex flex-col" style={{ width }}>
+      <div
+        className={cn(
+          'h-full flex flex-col',
+          // Dim panel content when entering the close zone so the user knows
+          // releasing will dismiss — transition keeps it smooth.
+          closeZoneActive ? 'opacity-30 transition-opacity duration-fast' : 'transition-opacity duration-fast',
+        )}
+        style={{ width }}
+      >
         <header className="h-9 shrink-0 flex items-center justify-between pl-3 pr-1.5 border-b border-subtle">
           <h2 className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
             Explorer
@@ -312,11 +357,32 @@ export function ExplorerPanel({ open }: Props) {
           className={cn(
             'absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize',
             'transition-colors duration-fast',
-            resizing ? 'bg-accent' : 'bg-transparent hover:bg-accent/60',
+            // In the close zone the seam turns the error/warning token to signal
+            // that releasing will dismiss; otherwise standard accent on drag.
+            closeZoneActive
+              ? 'bg-error'
+              : resizing
+                ? 'bg-accent'
+                : 'bg-transparent hover:bg-accent/60',
           )}
         >
           {/* Wider invisible hit area, kept inside the panel (overflow-hidden). */}
           <span aria-hidden className="absolute inset-y-0 -left-1 right-0" />
+          {/* "Release to close" tooltip — only shown in the close zone. Floats
+              centered in the seam; overflow-hidden on the aside clips it so it
+              never bleeds into the stage area. */}
+          {closeZoneActive ? (
+            <span
+              aria-hidden
+              className={cn(
+                'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+                'whitespace-nowrap px-2 py-1 rounded',
+                'bg-surface-2 text-error text-caption pointer-events-none select-none',
+              )}
+            >
+              Release to close
+            </span>
+          ) : null}
         </div>
       ) : null}
 

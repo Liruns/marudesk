@@ -495,7 +495,7 @@ async function reloadAndVerify(
 
 /* ── registry ───────────────────────────────────────────────────────────── */
 
-type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
+export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
 
 /* ── context tools (Track B §B1 — on-demand, read-only, secret-scrubbed) ──── */
 
@@ -731,3 +731,96 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
 ];
+
+/* ── MCP descriptor layer (docs/context-mcp-design §1.1) ─────────────────── */
+
+/**
+ * A tool's source group — used to organize the built-in "marudesk" context MCP
+ * server and (later) to scope glob permissions. Browser/devtools/terminal/tabs
+ * read the LIVE running app over CDP / main state; files reads the workspace;
+ * sessions/memory read the new persistent stores; `ask` is the loop-intercepted
+ * ask_user.
+ */
+export type McpGroup =
+  | 'files'
+  | 'browser'
+  | 'devtools'
+  | 'terminal'
+  | 'tabs'
+  | 'sessions'
+  | 'memory'
+  | 'ask';
+
+/** A self-describing tool definition (JSON-Schema + the metadata the loop needs). */
+export type McpToolDef = ToolSchema & {
+  group: McpGroup;
+  /** Requires explicit per-call user approval (e.g. eval_js, cookies/storage). */
+  gated?: boolean;
+  /** Mutates the workspace/app state — refused outright in read-only mode. */
+  write?: boolean;
+  /** Needs a live web tab as its target. */
+  requiresWeb?: boolean;
+  /** Needs an open workspace folder. */
+  requiresWorkspace?: boolean;
+};
+
+/** A tool definition plus its in-process executor — what a built-in server holds. */
+export type McpTool = McpToolDef & { exec: Executor };
+
+const TOOL_GROUP: Record<string, McpGroup> = {
+  read_file: 'files',
+  list_files: 'files',
+  grep: 'files',
+  edit_file: 'files',
+  multi_edit: 'files',
+  get_console_errors: 'devtools',
+  read_network: 'devtools',
+  read_network_body: 'devtools',
+  query_dom: 'browser',
+  eval_js: 'browser',
+  reload_and_verify: 'browser',
+  browser_cookies: 'browser',
+  browser_storage: 'browser',
+  terminal_output: 'terminal',
+};
+const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit']);
+const WEB_TOOL_NAMES = new Set([
+  'get_console_errors',
+  'query_dom',
+  'eval_js',
+  'read_network',
+  'read_network_body',
+  'reload_and_verify',
+  'browser_cookies',
+  'browser_storage',
+]);
+const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_file', 'multi_edit']);
+
+/**
+ * The original file/runtime/context tools, expressed as MCP tools (schema +
+ * executor + derived metadata). The single source of truth for gated/write/group
+ * is the maps above + {@link GATED_TOOLS}; the loop reads these flags off the
+ * descriptor instead of hard-coding tool-name sets.
+ */
+export const BUILTIN_TOOLS: McpTool[] = TOOL_SCHEMAS.flatMap((s) => {
+  if (s.name === ASK_USER) return [];
+  const exec = EXECUTORS[s.name];
+  if (!exec) return [];
+  return [
+    {
+      ...s,
+      group: TOOL_GROUP[s.name] ?? 'files',
+      gated: GATED_TOOLS.has(s.name),
+      write: WRITE_TOOL_NAMES.has(s.name),
+      requiresWeb: WEB_TOOL_NAMES.has(s.name),
+      requiresWorkspace: WORKSPACE_TOOL_NAMES.has(s.name),
+      exec,
+    },
+  ];
+});
+
+/** The ask_user definition (listed to the model; execution is loop-intercepted). */
+export const ASK_USER_DEF: McpToolDef = {
+  ...TOOL_SCHEMAS.find((s) => s.name === ASK_USER)!,
+  group: 'ask',
+};

@@ -11,6 +11,7 @@ import { useDevtoolsEvents } from '../features/devtools/useDevtoolsEvents';
 import { ExplorerPanel } from '../features/workspace/ExplorerPanel';
 import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
+import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
 import { useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
@@ -46,6 +47,8 @@ function adjustUiZoom(dir: 'in' | 'out' | 'reset'): void {
 export function Shell() {
   useTabEvents();
   useDevtoolsEvents();
+  // Mirror editor buffers + explorer state to main for the built-in context MCP.
+  useContextSync();
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -167,7 +170,7 @@ export function Shell() {
           drawerOpen={drawerOpen}
           onToggleDrawer={() => setDrawerOpen((v) => !v)}
         />
-        <ExplorerPanel open={explorerOpen} />
+        <ExplorerPanel open={explorerOpen} onRequestClose={() => setExplorerOpen(false)} />
         <main className="flex-1 min-w-0 flex">
           <Stage />
         </main>

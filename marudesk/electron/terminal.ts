@@ -362,3 +362,35 @@ export function getRecentTerminalOutput(
   const output = stripped.length > maxChars ? stripped.slice(-maxChars) : stripped;
   return { count: sessions.size, output };
 }
+
+/**
+ * Enumerate the live terminals (insertion order — oldest first, newest last) with
+ * a size hint, for the agent's `list_terminals` context tool. Ids are the same
+ * ones `read_terminal` / `getTerminalOutput` accept.
+ */
+export function getTerminalList(): { id: string; bytes: number; lines: number }[] {
+  return [...sessions.entries()].map(([id, rec]) => {
+    const stripped = rec.scrollback.replace(ANSI_ESCAPE, '');
+    return {
+      id,
+      bytes: stripped.length,
+      lines: stripped ? stripped.split('\n').length : 0,
+    };
+  });
+}
+
+/**
+ * Recent scrollback of a SPECIFIC terminal by id, ANSI-stripped + tail-trimmed
+ * (for `read_terminal`). Returns null when no such terminal is live. The tool
+ * scrubs secrets at egress.
+ */
+export function getTerminalOutput(
+  id: string,
+  maxChars = 8000,
+): { output: string } | null {
+  const rec = sessions.get(id);
+  if (!rec) return null;
+  const stripped = rec.scrollback.replace(ANSI_ESCAPE, '');
+  const output = stripped.length > maxChars ? stripped.slice(-maxChars) : stripped;
+  return { output };
+}

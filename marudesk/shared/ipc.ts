@@ -6,6 +6,7 @@ import type {
   AgentSendResult,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
+import type { ContextSyncPayload } from './context';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
@@ -137,6 +138,9 @@ export const CHANNELS = {
     'agent:snapshot',
     'agent:reset',
   ],
+  // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
+  // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
+  context: ['context:sync'],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
   terminal: [
     'terminal:create',
@@ -381,6 +385,11 @@ export interface IpcMap {
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: []; result: boolean };
+
+  // context (built-in MCP mirror): the renderer pushes the surfaces main can't
+  // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget
+  // (result void) — main caches it for the read_editor / read_explorer tools.
+  'context:sync': { args: [payload: ContextSyncPayload]; result: void };
 
   // settings
   'settings:get': { args: []; result: AppSettings };
