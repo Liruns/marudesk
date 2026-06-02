@@ -31,36 +31,43 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
-      <div className="shrink-0 p-2">
+      <div className="shrink-0 px-2 py-2">
         <button
           type="button"
           onClick={() => {
             void resetChat();
             onPick?.();
           }}
-          className="flex w-full items-center gap-2 rounded-md border border-subtle px-2.5 py-1.5 text-body-sm text-fg-secondary transition-colors duration-fast hover:bg-surface-2 hover:text-fg-primary"
+          className={cn(
+            'flex w-full items-center gap-2 rounded border border-subtle',
+            'px-2.5 py-1.5 text-body-sm text-fg-secondary',
+            'transition-colors duration-fast',
+            'hover:border-accent/50 hover:bg-surface-2 hover:text-fg-primary',
+          )}
         >
-          <Plus size={14} className="shrink-0" />
+          <Plus size={13} className="shrink-0 text-fg-tertiary" />
           <span>New chat</span>
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {sessions.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-caption text-fg-tertiary">
-            <History size={20} className="opacity-40" />
-            <span>No saved chats yet.</span>
+          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-caption text-fg-tertiary">
+            <History size={18} className="opacity-30" />
+            <span className="leading-snug">No saved chats yet</span>
           </div>
         ) : (
-          <ul>
+          <ul className="py-1">
             {sessions.map((s) => {
               const isActive = s.id === activeId;
               return (
                 <li
                   key={s.id}
                   className={cn(
-                    'group flex items-center gap-1 pr-1.5 transition-colors duration-fast',
-                    isActive ? 'bg-surface-2' : 'hover:bg-surface-2/60',
+                    'group flex items-center gap-1 pr-1 transition-colors duration-fast',
+                    isActive
+                      ? 'bg-surface-2 border-l-2 border-l-accent'
+                      : 'border-l-2 border-l-transparent hover:bg-surface-2/50',
                   )}
                 >
                   <button
@@ -70,20 +77,22 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                       onPick?.();
                     }}
                     title={s.title}
-                    className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-2 pl-2.5 pr-1 py-1.5 text-left"
                   >
-                    <ProviderGlyph provider={s.provider as ProviderId} label={s.model || s.provider} size={16} />
-                    <span className="flex min-w-0 flex-1 flex-col">
+                    <ProviderGlyph provider={s.provider as ProviderId} label={s.model || s.provider} size={14} />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span
                         className={cn(
-                          'truncate text-body-sm',
-                          isActive ? 'text-fg-primary' : 'text-fg-secondary',
+                          'truncate text-[0.8125rem] leading-snug',
+                          isActive ? 'text-fg-primary font-medium' : 'text-fg-secondary',
                         )}
                       >
                         {s.title || 'Untitled chat'}
                       </span>
-                      <span className="truncate text-caption text-fg-tertiary tabular-nums">
-                        {relativeTime(s.updatedAt)} · {s.messageCount} msg
+                      <span className="truncate text-[0.6875rem] leading-none text-fg-tertiary/70 tabular-nums">
+                        {relativeTime(s.updatedAt)}
+                        <span className="mx-1 opacity-50">·</span>
+                        {s.messageCount} msg
                       </span>
                     </span>
                   </button>
@@ -94,9 +103,9 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                       void deleteSession(s.id);
                     }}
                     aria-label={`Delete chat: ${s.title || 'Untitled chat'}`}
-                    className="shrink-0 text-fg-tertiary/60 opacity-0 transition-opacity duration-fast hover:text-error group-hover:opacity-100"
+                    className="shrink-0 p-1 rounded text-fg-tertiary/40 opacity-0 transition-all duration-fast hover:text-error hover:bg-error-subtle/30 group-hover:opacity-100"
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={12} />
                   </button>
                 </li>
               );

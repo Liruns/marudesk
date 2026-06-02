@@ -84,6 +84,42 @@ const STATUS_LABEL: Record<AgentStatus, string> = {
   completed: 'Done',
 };
 
+/**
+ * Hook: returns elapsed seconds (0 when not busy) for the active busy turn.
+ * Resets to 0 each time `busy` flips true; ticks every second while busy.
+ * Uses a ref-anchored start time so the interval callback computes elapsed
+ * without needing a state setter in the effect body.
+ */
+function useElapsedTimer(busy: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!busy) {
+      startRef.current = null;
+      // Reset via interval-like mechanism to avoid inline setState in effect
+      const id = setTimeout(() => setElapsed(0), 0);
+      return () => clearTimeout(id);
+    }
+    startRef.current = Date.now();
+    const id = setInterval(() => {
+      if (startRef.current !== null) {
+        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [busy]);
+
+  return elapsed;
+}
+
+/** Format elapsed seconds as "0:05", "1:23", etc. */
+function formatElapsed(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
 function isBusy(s: AgentStatus): boolean {
   return s === 'thinking' || s === 'working' || s === 'waiting_for_user';
 }
@@ -150,6 +186,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   };
 
   const busy = isBusy(chat.status);
+  const elapsed = useElapsedTimer(busy);
   const empty = chat.messages.length === 0;
   // The full-surface `agent` tab centers the conversation in a readable column
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
@@ -208,8 +245,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto">
         <div
           className={cn(
-            'flex flex-col gap-3',
-            full ? 'mx-auto w-full max-w-3xl px-5 py-6' : 'px-3 py-3',
+            'flex flex-col gap-4',
+            full ? 'mx-auto w-full max-w-3xl px-5 py-6' : 'px-3 py-4',
             empty && 'min-h-full justify-center',
           )}
         >
@@ -255,34 +292,49 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             full ? 'mx-auto w-full max-w-3xl px-5 py-3' : 'px-3 py-2',
           )}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 min-w-0">
-              <StatusPill status={chat.status} />
+          {/* Status row: left = pill + usage; right = toggle cluster */}
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            {/* Left: status + usage */}
+            <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+              <StatusPill status={chat.status} elapsed={elapsed} />
               <UsageMeter />
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Right: toggles grouped in a single pill-shaped container */}
+            <div className="flex items-center gap-px rounded border border-subtle bg-surface-1 p-0.5 shrink-0">
               {isReasoningModel ? (
-                <EffortToggle
-                  value={reasoningEffort}
-                  onChange={(effort) => void updateSettings({ agent: { reasoningEffort: effort } })}
-                />
+                <>
+                  <EffortToggle
+                    value={reasoningEffort}
+                    onChange={(effort) => void updateSettings({ agent: { reasoningEffort: effort } })}
+                  />
+                  {/* Divider */}
+                  <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
+                </>
               ) : null}
               <ApprovalToggle
                 value={approvalMode}
                 onChange={(mode) => void updateSettings({ agent: { approvalMode: mode } })}
               />
               {!empty ? (
-                <VerbosityToggle value={verbosity} onChange={setVerbosity} />
+                <>
+                  <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
+                  <VerbosityToggle value={verbosity} onChange={setVerbosity} />
+                </>
               ) : null}
               {!busy && !empty ? (
-                <button
-                  type="button"
-                  onClick={() => void resetChat()}
-                  className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
-                  title="Start a new conversation"
-                >
-                  <Eraser size={12} /> New chat
-                </button>
+                <>
+                  <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
+                  <button
+                    type="button"
+                    onClick={() => void resetChat()}
+                    className="flex items-center gap-1 h-5 px-1.5 rounded-sm text-caption text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
+                    title="Start a new conversation"
+                  >
+                    <Eraser size={11} />
+                    <span className="text-[10px] leading-none">New</span>
+                  </button>
+                </>
               ) : null}
             </div>
           </div>
@@ -468,24 +520,24 @@ function ProviderModelBar({ full }: { full?: boolean }) {
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           aria-expanded={open}
-          className="w-full h-8 px-2 rounded border border-default hover:border-accent flex items-center gap-2 text-body-sm text-fg-primary transition-colors duration-fast"
+          className="w-full h-8 px-2.5 rounded border border-default hover:border-accent/70 bg-surface-page flex items-center gap-2 text-body-sm text-fg-primary transition-colors duration-fast group"
         >
           <ProviderGlyph
             provider={selectedProvider}
             label={providerLabel(selectedProvider, customProviders)}
-            size={20}
+            size={18}
           />
-          <span className="truncate flex-1 text-left">{current?.label ?? selectedModel}</span>
+          <span className="truncate flex-1 text-left font-medium text-[0.8125rem]">{current?.label ?? selectedModel}</span>
           {current?.contextWindow ? (
-            <span className="text-caption text-fg-tertiary tabular-nums shrink-0">
+            <span className="text-[0.6875rem] text-fg-tertiary/70 tabular-nums shrink-0 font-mono">
               {formatContext(current.contextWindow)}
             </span>
           ) : null}
           <span
             aria-hidden
-            className={cn('size-1.5 rounded-pill shrink-0', hasKey ? 'bg-accent' : 'bg-fg-tertiary/40')}
+            className={cn('size-1.5 rounded-pill shrink-0', hasKey ? 'bg-accent' : 'bg-fg-tertiary/30')}
           />
-          <ChevronDown size={13} className="text-fg-tertiary shrink-0" />
+          <ChevronDown size={12} className="text-fg-tertiary/60 group-hover:text-fg-tertiary shrink-0 transition-colors duration-fast" />
         </button>
 
         {!hasKey && statusChecked && isBuiltinProviderId(selectedProvider) ? (
@@ -525,10 +577,12 @@ function MessageView({
 }) {
   if (message.role === 'user') {
     return (
-      <div className="self-end max-w-[92%] rounded-lg bg-accent-subtle/40 border border-subtle px-3 py-2">
-        <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words">
-          {textOf(message)}
-        </p>
+      <div className="self-end max-w-[88%]">
+        <div className="rounded-xl bg-accent-subtle/30 border border-accent/20 px-3.5 py-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.15)]">
+          <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
+            {textOf(message)}
+          </p>
+        </div>
       </div>
     );
   }
@@ -548,7 +602,7 @@ function MessageView({
   // we suppress the empty text part's caret so there's only one.
   const reasoningStreaming = streaming && hasReasoning && answerText.trim().length === 0;
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
       {message.parts.map((part, i) => {
         if (part.type === 'reasoning') {
           // Summary hides intermediate reasoning; Verbose opens every Thinking
@@ -615,6 +669,7 @@ function ThinkingBlock({
 }) {
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? (!!streaming || !!defaultOpen);
+  const thinkingElapsed = useElapsedTimer(!!streaming);
   if (!text.trim() && !streaming) return null;
   return (
     <div className="rounded border border-subtle border-l-2 border-l-ai-thinking bg-surface-1 text-caption">
@@ -622,24 +677,37 @@ function ThinkingBlock({
         type="button"
         onClick={() => setUserOpen(!open)}
         aria-expanded={open}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
       >
         {streaming ? (
           <Loader2 size={12} className="text-ai-thinking animate-spin shrink-0" />
         ) : (
-          <Brain size={12} className="text-ai-thinking shrink-0" />
+          <Brain size={12} className="text-ai-thinking/70 shrink-0" />
         )}
-        <span className="text-fg-secondary flex-1">Thinking{streaming ? '…' : ''}</span>
+        <span className="text-fg-secondary flex-1 font-medium">
+          {streaming ? 'Thinking' : 'Thought'}
+        </span>
+        {streaming && thinkingElapsed > 0 ? (
+          <span className="text-ai-thinking/80 tabular-nums text-[10px]">
+            {formatElapsed(thinkingElapsed)}
+          </span>
+        ) : !streaming && text.trim() ? (
+          <span className="text-fg-tertiary/60 text-[10px]">
+            {Math.ceil(text.length / 200)}s
+          </span>
+        ) : null}
         <ChevronRight
-          size={12}
-          className={cn('text-fg-tertiary shrink-0 transition-transform', open && 'rotate-90')}
+          size={11}
+          className={cn('text-fg-tertiary/60 shrink-0 transition-transform duration-fast', open && 'rotate-90')}
         />
       </button>
       {open ? (
-        <p className="px-2 pb-2 pt-0 text-caption text-fg-tertiary whitespace-pre-wrap break-words leading-relaxed">
-          {text}
-          {streaming ? <StreamCaret /> : null}
-        </p>
+        <div className="px-2.5 pb-2 pt-0 border-t border-subtle/60">
+          <p className="mt-1.5 text-caption text-fg-tertiary/80 whitespace-pre-wrap break-words leading-relaxed">
+            {text}
+            {streaming ? <StreamCaret /> : null}
+          </p>
+        </div>
       ) : null}
     </div>
   );
@@ -716,6 +784,50 @@ function stringField(input: unknown, key: string): string {
   return v && typeof v[key] === 'string' ? (v[key] as string) : '';
 }
 
+/**
+ * Map a tool name to the AI-timeline hue token for its left-border accent.
+ * Four categories (matching tokens.css --ai-thinking/grep/read/edit):
+ *   thinking  → planning / reasoning tools
+ *   grep      → search / list tools
+ *   read      → read / query / observe tools
+ *   edit      → write / mutate / runtime-act tools
+ */
+function toolTimelineHue(name: string): 'thinking' | 'grep' | 'read' | 'edit' | null {
+  if (!name) return null;
+  // grep / search / list
+  if (['grep', 'list_files', 'list_tabs', 'list_terminals', 'list_sessions', 'list_memory'].includes(name))
+    return 'grep';
+  // read / observe / query
+  if ([
+    'read_file', 'read_console', 'query_dom', 'read_network', 'read_network_body',
+    'read_page', 'read_terminal', 'read_editor', 'read_explorer', 'read_session',
+    'read_memory', 'browser_cookies', 'browser_storage', 'get_console_errors',
+  ].includes(name))
+    return 'read';
+  // edit / mutate / act
+  if ([
+    'edit_file', 'multi_edit', 'eval_js', 'reload_and_verify', 'open_path',
+    'open_external', 'reveal_in_explorer', 'write_memory', 'delete_memory',
+    'delete_session',
+  ].includes(name))
+    return 'edit';
+  return null;
+}
+
+const TIMELINE_BORDER: Record<'thinking' | 'grep' | 'read' | 'edit', string> = {
+  thinking: 'border-l-ai-thinking',
+  grep:     'border-l-ai-grep',
+  read:     'border-l-ai-read',
+  edit:     'border-l-ai-edit',
+};
+
+const TIMELINE_ICON: Record<'thinking' | 'grep' | 'read' | 'edit', string> = {
+  thinking: 'text-ai-thinking',
+  grep:     'text-ai-grep',
+  read:     'text-ai-read',
+  edit:     'text-ai-edit',
+};
+
 function ToolCardView({ call, defaultOpen }: { call: ToolCall; defaultOpen?: boolean }) {
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? !!defaultOpen;
@@ -727,48 +839,58 @@ function ToolCardView({ call, defaultOpen }: { call: ToolCall; defaultOpen?: boo
       : call.name === 'get_console_errors'
         ? sourceConfidence(call.resultText)
         : null;
-  // eval_js's summary is bare; surface the expression that ran (also visible
-  // pre-approval) so the card shows what executed in the page.
   const expr = call.name === 'eval_js' ? stringField(call.input, 'expression') : '';
   const hasBody = !!call.resultText || !!expr;
   const running = call.state === 'running' || call.state === 'awaiting_approval';
+  const hue = toolTimelineHue(call.name);
 
   return (
     <div
       className={cn(
-        'rounded border bg-surface-1 text-caption',
-        meta.runtime ? 'border-subtle border-l-2 border-l-accent/50' : 'border-subtle',
+        'rounded border border-subtle bg-surface-1 text-caption',
+        // Left accent spine: AI timeline hue if categorised; accent tint for runtime; plain for others
+        hue
+          ? cn('border-l-2', TIMELINE_BORDER[hue])
+          : meta.runtime
+            ? 'border-l-2 border-l-accent/40'
+            : '',
       )}
     >
       <button
         type="button"
         onClick={() => setUserOpen(!open)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
       >
         <ToolStateIcon state={call.state} />
-        <Icon size={12} className={cn('shrink-0', meta.runtime ? 'text-accent' : 'text-fg-tertiary')} />
-        <span className="text-fg-secondary truncate flex-1">{call.summary ?? meta.label}</span>
+        <Icon
+          size={12}
+          className={cn(
+            'shrink-0',
+            hue ? TIMELINE_ICON[hue] : meta.runtime ? 'text-accent' : 'text-fg-tertiary',
+          )}
+        />
+        <span className="text-fg-secondary truncate flex-1 text-[0.75rem]">{call.summary ?? meta.label}</span>
         {badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : null}
         {hasBody ? (
-          <ChevronRight size={12} className={cn('text-fg-tertiary shrink-0 transition-transform', open && 'rotate-90')} />
+          <ChevronRight size={11} className={cn('text-fg-tertiary/60 shrink-0 transition-transform duration-fast', open && 'rotate-90')} />
         ) : null}
       </button>
       {open && hasBody ? (
-        <div className="flex flex-col gap-1.5 px-2 pb-2 pt-0">
+        <div className="flex flex-col gap-1.5 px-2.5 pb-2 pt-0 border-t border-subtle/60">
           {expr ? (
-            <pre className="m-0 rounded bg-surface-page px-2 py-1.5 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+            <pre className="m-0 mt-1.5 rounded bg-surface-page px-2 py-1.5 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
               {expr}
             </pre>
           ) : null}
           {call.resultText ? (
-            <pre className="m-0 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+            <pre className="m-0 mt-1 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
               {call.resultText}
             </pre>
           ) : null}
         </div>
       ) : null}
       {running ? null : call.error ? (
-        <div className="px-2 pb-1.5 text-error truncate" title={call.error}>
+        <div className="px-2.5 pb-1.5 text-error text-caption truncate border-t border-subtle/60" title={call.error}>
           {call.error}
         </div>
       ) : null}
@@ -1051,22 +1173,25 @@ function QuestionsCard({ pending }: { pending: PendingQuestions }) {
 
 /* ── misc ───────────────────────────────────────────────────────────────── */
 
-function StatusPill({ status }: { status: AgentStatus }) {
+function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elapsed?: number }) {
   const busy = isBusy(status);
   return (
-    <span className="flex items-center gap-1.5 text-caption text-fg-tertiary">
+    <span className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums">
       {busy ? (
-        <Loader2 size={11} className="animate-spin text-accent" />
+        <Loader2 size={11} className="animate-spin text-accent shrink-0" />
       ) : (
         <span
           aria-hidden
           className={cn(
-            'size-1.5 rounded-pill',
-            status === 'failed' ? 'bg-error' : status === 'completed' ? 'bg-accent' : 'bg-fg-tertiary',
+            'size-1.5 rounded-pill shrink-0',
+            status === 'failed' ? 'bg-error' : status === 'completed' ? 'bg-accent' : 'bg-fg-tertiary/50',
           )}
         />
       )}
-      {STATUS_LABEL[status]}
+      <span>{STATUS_LABEL[status]}</span>
+      {busy && elapsed > 0 ? (
+        <span className="text-fg-tertiary/70">{formatElapsed(elapsed)}</span>
+      ) : null}
     </span>
   );
 }
@@ -1093,7 +1218,7 @@ function VerbosityToggle({
     <div
       role="group"
       aria-label="Transcript detail"
-      className="flex items-center gap-0.5 rounded border border-subtle bg-surface-1 p-0.5"
+      className="flex items-center gap-0.5"
     >
       {VERBOSITY_OPTS.map((opt) => {
         const Icon = opt.icon;
@@ -1142,7 +1267,7 @@ function ApprovalToggle({
     <div
       role="group"
       aria-label="Approval mode"
-      className="flex items-center gap-0.5 rounded border border-subtle bg-surface-1 p-0.5"
+      className="flex items-center gap-0.5"
     >
       {APPROVAL_OPTS.map((opt) => {
         const Icon = opt.icon;
@@ -1194,9 +1319,9 @@ function EffortToggle({
     <div
       role="group"
       aria-label="Reasoning effort"
-      className="flex items-center gap-0.5 rounded border border-subtle bg-surface-1 p-0.5"
+      className="flex items-center gap-0.5"
     >
-      <Brain size={12} className="mx-0.5 text-fg-tertiary shrink-0" aria-hidden />
+      <Brain size={11} className="mx-0.5 text-fg-tertiary/60 shrink-0" aria-hidden />
       {EFFORT_OPTS.map((opt) => {
         const active = value === opt.value;
         return (
@@ -1235,28 +1360,38 @@ function EmptyState({
   onPick: (text: string) => void;
 }) {
   return (
-    <div className="flex flex-col items-center text-center gap-3 px-4 text-fg-tertiary">
-      <div className="flex size-10 items-center justify-center rounded-xl bg-accent-subtle ring-1 ring-accent/20">
-        <Sparkles size={18} className="text-accent" />
+    <div className="flex flex-col items-center text-center gap-4 px-4 py-2">
+      {/* Icon mark */}
+      <div className="flex size-12 items-center justify-center rounded-2xl bg-accent-subtle/60 ring-1 ring-accent/25 shadow-[0_0_0_4px_rgba(94,106,210,0.06)]">
+        <Sparkles size={20} className="text-accent" />
       </div>
-      <div className="flex flex-col items-center gap-1">
-        <p className="text-body-sm text-fg-secondary">Agentic AI Chat</p>
-        <p className="text-caption max-w-[260px]">
+
+      <div className="flex flex-col items-center gap-1.5">
+        <p className="text-body-sm font-medium text-fg-primary tracking-tight">Agentic AI Chat</p>
+        <p className="text-caption text-fg-tertiary max-w-[264px] leading-relaxed">
           {hasWorkspace
-            ? 'Describe a change or a bug. The agent reads files, inspects the live page over CDP, edits, then reloads to verify — revert anything.'
+            ? 'Describe a change or bug. The agent reads files, inspects the live page over CDP, edits, then reloads to verify — revert anything.'
             : 'Open a workspace, then ask the agent to fix a runtime error or change the UI.'}
         </p>
       </div>
+
       {hasWorkspace ? (
-        <div className="flex w-full max-w-[280px] flex-col items-stretch gap-1.5 pt-1">
+        <div className="flex w-full max-w-[288px] flex-col items-stretch gap-1.5">
           {SUGGESTIONS.map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => onPick(s)}
-              className="rounded-lg border border-subtle bg-surface-1 px-3 py-1.5 text-left text-caption text-fg-secondary hover:border-accent/60 hover:bg-surface-2 hover:text-fg-primary transition-colors duration-fast"
+              className={cn(
+                'group rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-left',
+                'text-caption text-fg-secondary',
+                'hover:border-accent/50 hover:bg-surface-2 hover:text-fg-primary',
+                'transition-colors duration-fast',
+                'flex items-center gap-2',
+              )}
             >
-              {s}
+              <span className="flex-1">{s}</span>
+              <ChevronRight size={11} className="text-fg-tertiary/40 group-hover:text-fg-tertiary transition-colors duration-fast shrink-0" />
             </button>
           ))}
         </div>

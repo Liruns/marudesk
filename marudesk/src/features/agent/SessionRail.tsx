@@ -13,34 +13,34 @@ export function SessionRail() {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-9 shrink-0 flex-col items-center border-r border-subtle bg-surface-1 py-2">
+      <aside className="flex h-full w-8 shrink-0 flex-col items-center border-r border-subtle bg-surface-1 py-2.5 gap-1">
         <button
           type="button"
           onClick={() => setCollapsed(false)}
           aria-label="Show session history"
           title="Session history"
-          className="text-fg-tertiary transition-colors duration-fast hover:text-fg-primary"
+          className="rounded p-1 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
         >
-          <History size={16} />
+          <History size={14} />
         </button>
       </aside>
     );
   }
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-subtle bg-surface-1">
+    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-subtle bg-surface-1">
       <header className="flex h-9 shrink-0 items-center justify-between border-b border-subtle pl-3 pr-1.5">
-        <span className="flex items-center gap-1.5 text-caption font-medium uppercase tracking-wider text-fg-tertiary">
-          <History size={12} />
+        <span className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-widest text-fg-tertiary/70 select-none">
+          <History size={11} />
           History
         </span>
         <button
           type="button"
           onClick={() => setCollapsed(true)}
           aria-label="Hide session history"
-          className="text-fg-tertiary transition-colors duration-fast hover:text-fg-primary"
+          className="rounded p-0.5 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
         >
-          <PanelLeftClose size={14} />
+          <PanelLeftClose size={13} />
         </button>
       </header>
       <SessionList className="flex-1" />
