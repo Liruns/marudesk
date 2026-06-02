@@ -490,8 +490,8 @@ function TabChip({
             ? 'bg-surface-3 text-fg-primary'
             : 'bg-surface-2 text-fg-primary'
           : grouped
-            ? 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3/50'
-            : 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/50',
+            ? 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-3/50'
+            : 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-2/50',
         dragging ? 'opacity-40' : '',
       )}
     >
@@ -560,12 +560,13 @@ function TabIndicator({ tab }: { tab: TabState }) {
       </span>
     );
   }
-  // Loading wins over the favicon (Chrome-style): the spinner signals progress.
+  // Loading wins over the favicon (Chrome-style): a quiet accent spinner ring
+  // signals progress. Reduced-motion freezes it to a static ring (no shimmer).
   if (tab.isLoading) {
     return (
       <span
         aria-hidden
-        className="size-2 rounded-pill bg-accent animate-pulse shrink-0"
+        className="size-4 shrink-0 rounded-full border-2 border-accent/25 border-t-accent animate-spin motion-reduce:animate-none"
       />
     );
   }
