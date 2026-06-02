@@ -234,6 +234,9 @@ export function TabStrip() {
     <div className="flex items-center flex-1 min-w-0 h-full pl-1.5">
       <div
         ref={scrollRef}
+        role="tablist"
+        aria-label="Open tabs"
+        aria-orientation="horizontal"
         className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
         style={{ maskImage, WebkitMaskImage: maskImage }}
       >
