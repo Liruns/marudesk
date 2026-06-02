@@ -23,7 +23,7 @@ import {
   tabValues,
   type TabRecord,
 } from './state';
-import { applyBoundsToActive, applyWebLayout, hideTab, showTab } from './layout';
+import { applyWebLayout, hideTab, showTab } from './layout';
 import { closeChromeDevtools } from './devtools';
 import {
   detachCdp,
@@ -401,8 +401,12 @@ export function activateTab(id: string): boolean {
   if (!rec) return false;
   const activeId = getActiveTabId();
   if (activeId === id) {
-    // Re-apply bounds in case they changed while this was active.
-    applyBoundsToActive();
+    // Re-apply layout in case bounds changed while this was active. MUST go
+    // through applyWebLayout, NOT applyBoundsToActive: in grid mode the latter
+    // yanks this view to the single-view full-stage rect, occluding the whole
+    // split — the "click the already-active browser chip and it covers the grid"
+    // bug. applyWebLayout keeps grid panes at their rects when grid mode is on.
+    applyWebLayout();
     return true;
   }
   // Hide the previous active web view (feature tabs have nothing to hide).

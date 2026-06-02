@@ -346,3 +346,19 @@ useTabsStore.subscribe((state) => {
 // the split destroyed the layout. With per-tab groups, switching tabs simply
 // re-derives which group renders (Stage uses groupForTab), so a split is hidden
 // while you're away and restored intact when you return.
+
+// Backstop: HTML5 `dragend` always fires on the drag source when a drag ends
+// (drop, Escape, or cancel), and `drop` fires on whatever accepted it. Clear the
+// strip-drag flag here too, so a component-level dragend that's missed (e.g. the
+// source chip re-rendered into a split group on drop) can't strand the flag —
+// which would re-arm the seed-split drop overlay over later single views (the
+// "press + after a split and the Split-view drop layer opens" bug). Idempotent.
+if (typeof window !== 'undefined') {
+  const clearDragFlag = () => {
+    if (useGridStore.getState().draggingTabId !== null) {
+      useGridStore.getState().setDraggingTab(null);
+    }
+  };
+  window.addEventListener('dragend', clearDragFlag);
+  window.addEventListener('drop', clearDragFlag);
+}

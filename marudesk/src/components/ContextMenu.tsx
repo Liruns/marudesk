@@ -54,6 +54,17 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     first?.focus();
   }, []);
 
+  // A WebContentsView composites ABOVE the React DOM, so a menu opened over a
+  // browser tab (e.g. the activity-bar gear) would otherwise render *behind* the
+  // page. Hide the embedded view while the menu is open; restore on close. No-op
+  // when the active tab owns no view (feature tabs / no web tab).
+  useEffect(() => {
+    void window.marudesk.invoke('browser:set-visible', false);
+    return () => {
+      void window.marudesk.invoke('browser:set-visible', true);
+    };
+  }, []);
+
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();

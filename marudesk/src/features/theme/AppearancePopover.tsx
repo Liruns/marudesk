@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ACCENTS, useThemeStore } from './store';
@@ -22,6 +23,15 @@ export function AppearancePopover({ onClose }: { onClose: () => void }) {
   const setAccent = useThemeStore((s) => s.setAccent);
   const mode = useSettingsStore((s) => s.settings.appearance.theme);
   const update = useSettingsStore((s) => s.update);
+
+  // A WebContentsView composites above React; hide the embedded view while the
+  // popover is open so it never renders behind a browser tab. Restored on close.
+  useEffect(() => {
+    void window.marudesk.invoke('browser:set-visible', false);
+    return () => {
+      void window.marudesk.invoke('browser:set-visible', true);
+    };
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50" onClick={onClose}>

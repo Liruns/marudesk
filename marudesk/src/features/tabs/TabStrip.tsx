@@ -195,10 +195,6 @@ export function TabStrip() {
       <div
         ref={scrollRef}
         className="flex items-end gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
-        onDoubleClick={(e) => {
-          // Double-clicking the empty strip area opens a new tab (Chrome-style).
-          if (e.target === e.currentTarget) void newTab();
-        }}
       >
         {stripNodes}
       </div>

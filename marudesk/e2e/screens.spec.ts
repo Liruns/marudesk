@@ -135,6 +135,17 @@ test('capture UX surfaces', async () => {
       console.log(`[screens] split-click skip: ${(err as Error).message}`);
     }
 
+    // 7b. "+" while a split is active must open a New Tab (home view), never the
+    // Split-view drop overlay (regression: a stranded strip-drag flag re-armed
+    // the seed-split layer over the fresh single view).
+    try {
+      await page.getByRole('button', { name: 'New tab' }).click();
+      await page.waitForTimeout(500);
+      await shot('13-plus-after-split');
+    } catch (err) {
+      console.log(`[screens] plus-after-split skip: ${(err as Error).message}`);
+    }
+
     // 8. Appearance popover (accent presets) from the activity-bar gear. Apply a
     // non-default accent to confirm the [data-accent] swap reskins the whole UI,
     // then reset to violet so the harness doesn't leave a sticky pref behind.
