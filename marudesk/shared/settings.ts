@@ -72,6 +72,12 @@ export type AppSettings = {
      * SECRET_FILE guard. `*`/`**` supported.
      */
     denyGlobs: string[];
+    /**
+     * Standing system instructions added to every agent turn — the user's own
+     * preferences (tone, conventions, what to avoid). Prepended after the base
+     * prompt, before any workspace AGENTS/CLAUDE files. Empty = none.
+     */
+    instructions: string;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -165,6 +171,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       '**/id_rsa.*',
       '**/secrets/**',
     ],
+    instructions: '',
   },
   pcControl: {
     enabled: false,
@@ -340,6 +347,7 @@ export function sanitizeSettings(
     agent: {
       approvalMode: asEnum(ag.approvalMode, APPROVAL_MODES, base.agent.approvalMode),
       denyGlobs: asStringArray(ag.denyGlobs, base.agent.denyGlobs),
+      instructions: asString(ag.instructions, base.agent.instructions),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

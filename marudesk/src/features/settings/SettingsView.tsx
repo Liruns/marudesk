@@ -338,6 +338,15 @@ function AgentCategory() {
         />
       </Field>
       <Field
+        label="Custom instructions"
+        hint="Standing instructions added to every chat — tone, conventions, things to avoid. Added after the base prompt, before any workspace AGENTS/CLAUDE files."
+      >
+        <InstructionsField
+          value={agent.instructions}
+          onCommit={(instructions) => void update({ agent: { instructions } })}
+        />
+      </Field>
+      <Field
         label="Never-edit paths"
         hint="Globs the agent may never edit, one per line (* and ** supported)."
       >
@@ -1375,6 +1384,41 @@ function GlobsField({
       className={cn(
         'w-[240px] max-w-[40vw] rounded-md bg-surface-page border border-default px-3 py-2',
         'text-body-sm font-mono text-fg-primary placeholder:text-fg-tertiary resize-y',
+        'focus:outline-none focus:border-accent transition-colors duration-fast',
+      )}
+    />
+  );
+}
+
+/** Free-text standing instructions for the agent (commit-on-blur, like GlobsField). */
+function InstructionsField({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [local, setLocal] = useState(value);
+  const [committed, setCommitted] = useState(value);
+  if (value !== committed) {
+    setCommitted(value);
+    setLocal(value);
+  }
+  const commit = () => {
+    if (local !== value) onCommit(local);
+  };
+  return (
+    <textarea
+      value={local}
+      spellCheck={false}
+      autoComplete="off"
+      rows={5}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      placeholder="e.g. Always reply in Korean. Prefer TypeScript. Keep diffs minimal."
+      className={cn(
+        'w-[320px] max-w-[40vw] rounded-md bg-surface-page border border-default px-3 py-2',
+        'text-body-sm text-fg-primary placeholder:text-fg-tertiary resize-y',
         'focus:outline-none focus:border-accent transition-colors duration-fast',
       )}
     />

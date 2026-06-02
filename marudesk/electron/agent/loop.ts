@@ -251,6 +251,8 @@ type RunOpts = {
   approvalMode: AgentApprovalMode;
   /** Path globs the agent may never edit (passed to the tool context). */
   denyGlobs: string[];
+  /** User's standing system instructions (Settings → Agent), prepended to the prompt. */
+  customInstructions: string;
   /**
    * Unattended bridge mode (Settings → Remote → "Skip approvals"): the desktop is
    * running headless for a paired phone, so gated tools auto-run instead of parking
@@ -280,8 +282,11 @@ async function runLoop(opts: RunOpts): Promise<void> {
   // Fold the repo's own instruction file (AGENTS.md / CLAUDE.md) into the system
   // prompt so the agent follows project conventions (Track B §B2). Appended AFTER
   // the Claude-Code prefix so the Anthropic-OAuth first-line requirement holds.
-  const instructions = await loadWorkspaceInstructions(opts.ws);
-  const system = instructions ? `${baseSystem}\n\n---\n\n${instructions}` : baseSystem;
+  const wsInstructions = await loadWorkspaceInstructions(opts.ws);
+  // base prompt → the user's standing instructions (Settings) → workspace AGENTS/CLAUDE.
+  const system = [baseSystem, opts.customInstructions, wsInstructions]
+    .filter((s): s is string => !!s && !!s.trim())
+    .join('\n\n---\n\n');
   // The ChatGPT codex backend (openai-codex) needs store:false, rejects
   // max_output_tokens, AND requires the system prompt in the Responses API's
   // top-level `instructions` field — it 400s `{"detail":"Instructions are
@@ -739,6 +744,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       signal: controller.signal,
       approvalMode: agentSettings.approvalMode,
       denyGlobs: agentSettings.denyGlobs,
+      customInstructions: agentSettings.instructions,
       // Unattended only when the bridge is actually exposed AND skip is opted in;
       // turning the server off restores normal approval prompts automatically.
       unattended: settings.server.enabled && settings.server.skipApprovals,
