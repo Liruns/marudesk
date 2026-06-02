@@ -4,6 +4,7 @@ import {
   GitBranch,
   KeyRound,
   MessageSquareText,
+  Palette,
   Search,
   Settings as SettingsIcon,
   SlidersHorizontal,
@@ -13,6 +14,7 @@ import { useWebPageStore } from '../features/browser/store';
 import { useAgentStore } from '../features/agent/store';
 import { openSettingsTab } from '../features/settings/store';
 import { ContextMenu } from './ContextMenu';
+import { AppearancePopover } from '../features/theme/AppearancePopover';
 
 type Props = {
   explorerOpen: boolean;
@@ -49,6 +51,7 @@ export function ActivityBar({
   // persistent attention dot on the rail so it's visible from any tab.
   const agentWaiting = useAgentStore((s) => s.chat.status === 'waiting_for_user');
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
 
   return (
     <nav
@@ -109,6 +112,12 @@ export function ActivityBar({
           onClose={() => setMenu(null)}
           items={[
             {
+              label: 'Appearance…',
+              icon: <Palette size={15} />,
+              onSelect: () => setAppearanceOpen(true),
+            },
+            { type: 'separator' },
+            {
               label: 'Settings',
               icon: <SlidersHorizontal size={15} />,
               onSelect: () => void openSettingsTab(),
@@ -121,6 +130,9 @@ export function ActivityBar({
             },
           ]}
         />
+      ) : null}
+      {appearanceOpen ? (
+        <AppearancePopover onClose={() => setAppearanceOpen(false)} />
       ) : null}
     </nav>
   );

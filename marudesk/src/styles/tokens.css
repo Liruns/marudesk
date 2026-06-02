@@ -106,3 +106,14 @@
   --scrollbar-thumb:       rgba(0, 0, 0, 0.18);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
 }
+
+/* Accent presets — reskin the single accent app-wide via a [data-accent]
+   attribute on <html>. Every component reads var(--accent)/-hover/-subtle (and
+   --ring rides --accent), so one attribute reskins the whole UI in both themes.
+   Declared after the light-theme block so an explicit accent wins over the
+   theme's violet hover/subtle defaults. No attribute = the default violet. */
+:root[data-accent='blue']  { --accent: #4C8DFF; --accent-hover: #6BA1FF; --accent-subtle: rgba(76, 141, 255, 0.14); }
+:root[data-accent='teal']  { --accent: #2DB8A8; --accent-hover: #45CBBB; --accent-subtle: rgba(45, 184, 168, 0.14); }
+:root[data-accent='green'] { --accent: #46B17F; --accent-hover: #5BC492; --accent-subtle: rgba(70, 177, 127, 0.14); }
+:root[data-accent='amber'] { --accent: #E0A03A; --accent-hover: #EDB155; --accent-subtle: rgba(224, 160, 58, 0.14); }
+:root[data-accent='rose']  { --accent: #E5618B; --accent-hover: #EE789D; --accent-subtle: rgba(229, 97, 139, 0.14); }
