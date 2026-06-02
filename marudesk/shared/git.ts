@@ -83,3 +83,11 @@ export type GitCommitResult = { shortHash: string; subject: string };
 
 /** Result of a remote op (`git:fetch`/`pull`/`push`): a short human summary. */
 export type GitRemoteResult = { ok: true; summary: string };
+
+/**
+ * Result of `git:available`: whether a usable `git` binary is on PATH. The
+ * Source Control panel checks this before anything else so a machine with no
+ * git shows a clear "install git" prompt instead of a stuck spinner / raw
+ * ENOENT from every command.
+ */
+export type GitAvailability = { installed: boolean; version?: string };

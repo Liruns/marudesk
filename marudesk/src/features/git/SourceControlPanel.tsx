@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Download,
   GitBranch,
   GitCommitHorizontal,
   History,
@@ -28,6 +29,7 @@ import { bucketChanges, useGitStore } from './store';
 import { baseName, dirName, statusBadge } from './statusMeta';
 import { DiffViewer } from './DiffViewer';
 import { useEditorStore } from '../editor/store';
+import { useTabsStore } from '../tabs/store';
 
 type Props = {
   open: boolean;
@@ -68,6 +70,7 @@ type DiffTarget = { path: string; staged: boolean };
  */
 export function SourceControlPanel({ open, onRequestClose }: Props) {
   const status = useGitStore((s) => s.status);
+  const available = useGitStore((s) => s.available);
   const branches = useGitStore((s) => s.branches);
   const log = useGitStore((s) => s.log);
   const loading = useGitStore((s) => s.loading);
@@ -213,16 +216,20 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                 <Plus size={15} />
               </IconButton>
             ) : null}
-            <IconButton label="Fetch" onClick={() => void fetch()} disabled={busy}>
-              <RefreshCw size={14} />
-            </IconButton>
+            {available?.installed === false ? null : (
+              <IconButton label="Fetch" onClick={() => void fetch()} disabled={busy}>
+                <RefreshCw size={14} />
+              </IconButton>
+            )}
             <IconButton label="Refresh" onClick={() => void refresh()} disabled={loading}>
               <RotateCcw size={14} />
             </IconButton>
           </div>
         </header>
 
-        {status === null ? (
+        {available && !available.installed ? (
+          <GitMissing />
+        ) : status === null ? (
           <div className="flex flex-1 items-center justify-center gap-2 text-fg-tertiary">
             <Spinner size={16} /> Loading…
           </div>
@@ -509,6 +516,35 @@ function NotARepo({ onInit, busy }: { onInit: () => void; busy: boolean }) {
       >
         {busy ? <Spinner size={14} /> : <GitBranch size={15} />}
         Initialize Repository
+      </button>
+    </div>
+  );
+}
+
+/** Empty-state when no `git` binary is on PATH (a graceful alternative to every
+ *  command failing with a raw ENOENT). marudesk doesn't bundle git — like
+ *  VSCode/Cursor/Zed it uses the system one — so we point the user at the
+ *  installer (opened in an in-app browser tab). */
+function GitMissing() {
+  const openDownloads = () =>
+    void useTabsStore.getState().newTab('web', 'https://git-scm.com/downloads');
+  return (
+    <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <span className="size-10 rounded-lg bg-surface-2 flex items-center justify-center text-fg-tertiary">
+        <GitBranch size={20} />
+      </span>
+      <p className="text-body-sm text-fg-secondary">Git isn’t installed</p>
+      <p className="text-caption text-fg-tertiary">
+        Source Control needs the{' '}
+        <code className="font-mono text-fg-secondary">git</code> command on your
+        PATH. Install it, then reopen this panel.
+      </p>
+      <button
+        type="button"
+        onClick={openDownloads}
+        className="mt-1 inline-flex items-center gap-2 h-8 px-3 rounded-md text-body-sm bg-accent text-white hover:opacity-90 transition-opacity duration-fast"
+      >
+        <Download size={15} /> Install Git
       </button>
     </div>
   );

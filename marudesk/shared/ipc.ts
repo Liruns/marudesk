@@ -8,6 +8,7 @@ import type {
 import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { ContextSyncPayload } from './context';
 import type {
+  GitAvailability,
   GitBranches,
   GitCommit,
   GitCommitResult,
@@ -130,6 +131,7 @@ export const CHANNELS = {
   // returns isRepo:false cleanly when the folder isn't a repo; discards are
   // destructive and the renderer confirms before calling.
   git: [
+    'git:available',
     'git:status',
     'git:init',
     'git:stage',
@@ -380,6 +382,7 @@ export interface IpcMap {
   // git (Source Control — electron/git.ts). Paths are workspace-relative POSIX.
   // `status` never throws for a non-repo (returns { isRepo: false }); `discard`
   // is destructive (renderer confirms first); remote ops never force.
+  'git:available': { args: []; result: GitAvailability };
   'git:status': { args: []; result: GitStatus };
   'git:init': { args: []; result: { ok: true } };
   'git:stage': { args: [payload: { paths: string[] }]; result: { ok: true } };

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import type {
+  GitAvailability,
   GitBranches,
   GitChange,
   GitCommit,
@@ -46,8 +47,41 @@ async function git(
     maxBuffer: MAX_BUFFER,
     timeout,
     // Keep porcelain output stable + English regardless of the user's locale.
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' },
+    // GIT_TERMINAL_PROMPT=0: execFile has no TTY, so a remote that needs creds
+    // would hang until the timeout — fail fast instead (a configured credential
+    // helper / SSH agent still authenticates non-interactively).
+    env: {
+      ...process.env,
+      GIT_OPTIONAL_LOCKS: '0',
+      LC_ALL: 'C',
+      GIT_TERMINAL_PROMPT: '0',
+    },
   });
+}
+
+/**
+ * Whether a usable `git` binary is on PATH. A positive result is cached (PATH
+ * rarely loses git mid-session); a negative one is NOT, so installing git and
+ * reopening Source Control recovers without restarting marudesk.
+ */
+let gitInstalled: GitAvailability | null = null;
+async function checkGitAvailable(): Promise<GitAvailability> {
+  if (gitInstalled) return gitInstalled;
+  try {
+    const { stdout } = await execFileAsync('git', ['--version'], {
+      timeout: FAST_TIMEOUT,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    gitInstalled = {
+      installed: true,
+      version: stdout.trim().replace(/^git version\s*/i, ''),
+    };
+    return gitInstalled;
+  } catch {
+    // ENOENT (no git) or any other failure → report missing; don't cache so a
+    // later install is picked up on the next check.
+    return { installed: false };
+  }
 }
 
 /** True when the workspace root is inside a git work tree. */
@@ -355,6 +389,9 @@ async function remote(
 }
 
 export function registerGitHandlers(): void {
+  // Probes PATH for a git binary — needs no workspace, unlike every op below.
+  defineHandler('git:available', () => checkGitAvailable());
+
   defineHandler('git:status', () => getStatus(requireWorkspace().root));
 
   defineHandler('git:init', async () => {

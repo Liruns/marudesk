@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  GitAvailability,
   GitBranches,
   GitChange,
   GitCommit,
@@ -18,6 +19,8 @@ import { toast } from '../../lib/toast';
 type GitState = {
   /** null until the first refresh resolves. */
   status: GitStatus | null;
+  /** null until first checked; { installed: false } when no git is on PATH. */
+  available: GitAvailability | null;
   branches: GitBranches | null;
   log: GitCommit[];
   loading: boolean;
@@ -44,6 +47,7 @@ type GitActions = {
 
 export const useGitStore = create<GitState & GitActions>((set, get) => ({
   status: null,
+  available: null,
   branches: null,
   log: [],
   loading: false,
@@ -53,9 +57,23 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
   refresh: async () => {
     set({ loading: true });
     try {
+      // Probe for a git binary first: with none, every git:* call just ENOENTs —
+      // surface a clear "install git" state instead of a stuck spinner.
+      const available = await window.marudesk.invoke('git:available');
+      if (!available.installed) {
+        set({
+          available,
+          status: null,
+          branches: null,
+          log: [],
+          loading: false,
+          error: null,
+        });
+        return;
+      }
       const status = await window.marudesk.invoke('git:status');
       if (!status.isRepo) {
-        set({ status, branches: null, log: [], loading: false, error: null });
+        set({ available, status, branches: null, log: [], loading: false, error: null });
         return;
       }
       // Branches + log are independent of status; fetch them together.
@@ -63,7 +81,7 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
         window.marudesk.invoke('git:branches'),
         window.marudesk.invoke('git:log'),
       ]);
-      set({ status, branches, log, loading: false, error: null });
+      set({ available, status, branches, log, loading: false, error: null });
     } catch (err) {
       set({ loading: false, error: toMessage(err) });
     }
