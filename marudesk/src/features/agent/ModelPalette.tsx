@@ -47,20 +47,30 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
       m.tools !== false &&
       (q === '' || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q));
     const byKey = (k: string) => models.find((m) => m.key === k);
-    const keyById = (id: ProviderId) => !!providerStatus.find((s) => s.id === id)?.hasKey;
+    // "Connected" = a usable auth path: an API key, a keyless provider (Ollama
+    // reports hasKey), OR an OAuth subscription login (Claude Pro etc.). Mirrors
+    // hasKeyForSelected so the picker and composer agree on what's usable — an
+    // OAuth-only provider has hasKey=false but oauth=true.
+    const keyById = (id: ProviderId) => {
+      const st = providerStatus.find((s) => s.id === id);
+      return !!st?.hasKey || !!st?.oauth;
+    };
+    // A model is usable if its provider is connected or it's a user-added custom
+    // endpoint — drives the "only show what I can actually run" filter.
+    const isUsable = (m: ModelEntry) => m.provider.startsWith('custom:') || keyById(m.provider);
     const itemsFor = (id: ProviderId) => models.filter((m) => m.provider === id && matches(m));
 
     const quick: Section[] = [];
     if (q === '') {
       const favItems = favoriteModelKeys
         .map(byKey)
-        .filter((m): m is ModelEntry => !!m && m.tools !== false);
+        .filter((m): m is ModelEntry => !!m && m.tools !== false && isUsable(m));
       if (favItems.length) quick.push({ id: 'favorites', label: 'Favorites', items: favItems });
       const favSet = new Set(favoriteModelKeys);
       const recentItems = recentModelKeys
         .filter((k) => !favSet.has(k))
         .map(byKey)
-        .filter((m): m is ModelEntry => !!m && m.tools !== false);
+        .filter((m): m is ModelEntry => !!m && m.tools !== false && isUsable(m));
       if (recentItems.length) quick.push({ id: 'recent', label: 'Recent', items: recentItems });
     }
 
@@ -84,8 +94,13 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
       items: itemsFor(p.id),
     }));
 
+    // Hide providers the user can't use yet — no key/login means every model
+    // there is a dead end. Favorites/Recent are already filtered to usable models;
+    // user-added custom endpoints always show.
     const all: Section[] = [...quick, ...builtin, ...custom, ...experimental].filter(
-      (s) => s.items.length > 0,
+      (s) =>
+        s.items.length > 0 &&
+        (s.id === 'favorites' || s.id === 'recent' || s.id.startsWith('custom:') || s.hasKey),
     );
     return { sections: all, flat: all.flatMap((s) => s.items) };
   }, [models, query, providerStatus, customProviders, recentModelKeys, favoriteModelKeys]);
@@ -164,7 +179,9 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {sections.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
-              No tool-capable models match “{query}”.
+              {query.trim()
+                ? `No connected models match “${query}”.`
+                : 'No connected providers yet — add a key or sign in under Settings → AI Providers.'}
             </div>
           ) : (
             sections.map((s) => (
