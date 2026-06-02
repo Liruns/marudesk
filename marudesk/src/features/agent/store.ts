@@ -249,3 +249,18 @@ export async function openAgentTab(): Promise<void> {
   if (existing) await tabsState.activateTab(existing.id);
   else await tabsState.newTab('agent');
 }
+
+/**
+ * Open (or focus) the AI Chat, prefill a prompt, and send it in one shot. Lets
+ * surfaces outside the composer (e.g. the DevTools console "Fix this" button)
+ * hand a ready-made request to the agent with a single click. Any captures that
+ * were already staged + selected in {@link useWebPageStore} ride along via
+ * `send()`. If a turn is already running, `send()` no-ops and the prefilled
+ * prompt simply waits in the composer.
+ */
+export async function askAgent(prompt: string): Promise<void> {
+  await openAgentTab();
+  const store = useAgentStore.getState();
+  store.setDraft(prompt);
+  await store.send();
+}

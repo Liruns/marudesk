@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, Trash2 } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
+import { askAgent } from '../../agent/store';
 import { RemoteValue } from '../components/RemoteValue';
 import { ConsoleInput } from './ConsoleInput';
 import type { ConsoleEntry, ConsoleKind, RemoteObject } from '../types';
@@ -102,7 +103,7 @@ function ConsoleRow({ entry, onFix }: { entry: ConsoleEntry; onFix?: () => void 
         <button
           type="button"
           onClick={onFix}
-          title="Add this error to the AI context"
+          title="Ask AI to fix this error"
           className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 h-5 mt-0.5 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
         >
           <Sparkles size={11} />
@@ -216,7 +217,17 @@ export function ConsolePanel() {
               entry={e}
               onFix={
                 !windowMode && (e.kind === 'error' || e.kind === 'exception')
-                  ? () => useDevtoolsStore.getState().captureConsoleError(e.id)
+                  ? () => {
+                      // Stage the error (with its source mapping) as a selected
+                      // capture, then open the chat and fire the existing
+                      // get_console_errors → edit → reload_and_verify loop.
+                      useDevtoolsStore.getState().captureConsoleError(e.id);
+                      void askAgent(
+                        "Fix this console error from the running page. It's attached " +
+                          'from DevTools with its source location — find the root cause ' +
+                          'in the source, fix it, then reload and verify the error is gone.',
+                      );
+                    }
                   : undefined
               }
             />
