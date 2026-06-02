@@ -55,7 +55,21 @@ export function PaneHeader({
   onClose: () => void;
 }) {
   return (
-    <div className="h-7 shrink-0 flex items-center gap-1 pl-2 pr-1 border-b border-subtle bg-surface-1">
+    <div
+      className={cn(
+        'relative h-7 shrink-0 flex items-center gap-1 pl-2 pr-1 border-b border-subtle',
+        // Focused pane's header lifts a step and grows an accent top edge — the
+        // same grouping cue the strip uses — so the live pane (the one the
+        // omnibox + keyboard drive) is unmistakable among the tiles.
+        focused ? 'bg-surface-2' : 'bg-surface-1',
+      )}
+    >
+      {focused ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-accent/70"
+        />
+      ) : null}
       {tab.kind === 'web' ? (
         focused ? (
           <WebOmnibox />
@@ -63,7 +77,7 @@ export function PaneHeader({
           <WebUrlStatic tab={tab} />
         )
       ) : (
-        <FeatureLabel tab={tab} />
+        <FeatureLabel tab={tab} focused={focused} />
       )}
       <button
         type="button"
@@ -140,20 +154,24 @@ function WebUrlStatic({ tab }: { tab: TabState }) {
   return (
     <div className="flex-1 min-w-0 flex items-center gap-1.5">
       <Scheme url={tab.url} isSecure={tab.isSecure} />
-      <span className="text-caption text-fg-tertiary truncate">
+      <span className="text-caption text-fg-secondary truncate">
         {tab.url || tab.title || 'New tab'}
       </span>
     </div>
   );
 }
 
-function FeatureLabel({ tab }: { tab: TabState }) {
+function FeatureLabel({ tab, focused }: { tab: TabState; focused: boolean }) {
   const Icon = KIND_ICON[tab.kind];
   const label =
     tab.title || KIND_LABEL[tab.kind as Exclude<TabKind, 'web'>] || 'Tab';
   return (
-    <div className="flex-1 min-w-0 flex items-center gap-1.5 text-fg-tertiary">
-      <Icon size={13} />
+    <div className="flex-1 min-w-0 flex items-center gap-1.5">
+      {/* Focused pane tints its glyph accent — same "active surface" cue the
+          strip uses for a feature tab's icon, so the live pane reads at a glance. */}
+      <span className={focused ? 'text-accent shrink-0' : 'text-fg-tertiary shrink-0'}>
+        <Icon size={13} />
+      </span>
       <span className="text-caption text-fg-secondary truncate">{label}</span>
     </div>
   );

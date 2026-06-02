@@ -5,7 +5,7 @@ import { useTabsStore } from '../tabs/store';
 import { useGridStore } from '../tabs/grid';
 import { useWorkspaceStore } from '../workspace/store';
 import type { TabKind } from '../../../shared/browser';
-import logoUrl from '../../assets/logo.png';
+import logoUrl from '../../assets/logo-mark.png';
 
 /**
  * The 'home' tab kind — marudesk's New Tab page and the first feature-tab: a
