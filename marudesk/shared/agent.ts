@@ -118,6 +118,12 @@ export type AgentChatState = {
   usage: { inputTokens: number; outputTokens: number };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
+  /**
+   * The saved-session id this conversation persists to — assigned on the first
+   * turn after a reset, restored on resume, null for a fresh not-yet-saved chat.
+   * Lets the sessions UI highlight which row is the live conversation.
+   */
+  activeSessionId: string | null;
 };
 
 export function emptyAgentChatState(): AgentChatState {
@@ -130,6 +136,7 @@ export function emptyAgentChatState(): AgentChatState {
     pendingQuestions: null,
     usage: { inputTokens: 0, outputTokens: 0 },
     error: null,
+    activeSessionId: null,
   };
 }
 

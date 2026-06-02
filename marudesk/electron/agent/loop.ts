@@ -31,8 +31,8 @@ import { buildModel, aiTools, humanizeModelError, type ModelAuth } from './model
 import { loadWorkspaceInstructions } from './instructions';
 import { ASK_USER, describeToolInput, type ToolContext } from './tools';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
-import { saveSession } from './sessions-store';
-import type { SessionRecord } from '../../shared/context';
+import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
+import type { SessionRecord, SessionSummary } from '../../shared/context';
 
 /**
  * The manual step-driven agent loop (docs/agentic-chat-design.md §5). main owns
@@ -577,6 +577,9 @@ async function persistSession(): Promise<void> {
     messageCount: state.messages.length,
     messages: snapshotMessagesForSave(),
     usage: { ...state.usage },
+    // Persist the provider-neutral transcript too, so a resumed session keeps
+    // full context (display messages can't reconstruct tool_use/result pairing).
+    transcript: [...transcript],
   };
   await saveSession(record);
 }
@@ -702,6 +705,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     }
     conversationProvider = input.provider;
     conversationModel = input.model;
+    state.activeSessionId = conversationId;
     controller = new AbortController();
     activeTabId = input.tabId;
     state.turnId = turnId;
@@ -826,4 +830,50 @@ export function reset(): boolean {
   conversationId = null;
   emit();
   return true;
+}
+
+/**
+ * Load a saved session as the active conversation (v3 §5-C). Refuses while a turn
+ * is in flight. The current conversation was already persisted on its last
+ * finish(), so replacing state here loses nothing; unresolved (applied) edits are
+ * kept exactly as reset() does, since those files are still modified on disk.
+ * Restores the provider-neutral transcript when present (sessions saved before
+ * that field resume as read-only history — messages render, but the model has no
+ * prior context to continue from).
+ */
+export async function resumeSession(id: string): Promise<boolean> {
+  if (busy()) return false;
+  const record = await readSession(id);
+  if (!record) return false;
+  const keptEdits = state.edits.filter((e) => e.status === 'applied');
+  state = emptyAgentChatState();
+  state.edits = keptEdits;
+  state.messages = record.messages ?? [];
+  state.usage = record.usage ? { ...record.usage } : { inputTokens: 0, outputTokens: 0 };
+  transcript = record.transcript ? [...record.transcript] : [];
+  conversationId = record.id;
+  conversationStartedAt = record.createdAt;
+  conversationTitle = record.title;
+  conversationProvider = record.provider;
+  conversationModel = record.model;
+  state.activeSessionId = conversationId;
+  emit();
+  return true;
+}
+
+/** Saved sessions, newest first (summaries only) — backs the sessions UI list. */
+export function listSavedSessions(): Promise<SessionSummary[]> {
+  return listSessions();
+}
+
+/**
+ * Delete a saved session. When it's the live conversation, clear the chat first
+ * so the next turn starts fresh; refuses if that conversation is mid-turn.
+ */
+export async function deleteSavedSession(id: string): Promise<boolean> {
+  if (conversationId === id) {
+    if (busy()) return false;
+    reset();
+  }
+  return deleteSession(id);
 }

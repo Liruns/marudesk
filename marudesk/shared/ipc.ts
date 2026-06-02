@@ -6,7 +6,7 @@ import type {
   AgentSendResult,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
-import type { ContextSyncPayload } from './context';
+import type { ContextSyncPayload, SessionSummary } from './context';
 import type {
   GitAvailability,
   GitBranches,
@@ -179,6 +179,9 @@ export const CHANNELS = {
     'agent:revert-edit',
     'agent:snapshot',
     'agent:reset',
+    'agent:list-sessions',
+    'agent:resume-session',
+    'agent:delete-session',
   ],
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
@@ -487,6 +490,11 @@ export interface IpcMap {
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: []; result: boolean };
+  // Session history (v3 §5-C): list past saved conversations, resume one as the
+  // active chat, or delete one. The list backs the sessions UI; resume swaps state.
+  'agent:list-sessions': { args: []; result: SessionSummary[] };
+  'agent:resume-session': { args: [payload: { id: string }]; result: boolean };
+  'agent:delete-session': { args: [payload: { id: string }]; result: boolean };
 
   // context (built-in MCP mirror): the renderer pushes the surfaces main can't
   // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget

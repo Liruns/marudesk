@@ -1,3 +1,4 @@
+import type { ModelMessage } from 'ai';
 import type { AgentMessage } from './agent';
 
 /**
@@ -63,6 +64,14 @@ export type SessionSummary = {
 export type SessionRecord = SessionSummary & {
   messages: AgentMessage[];
   usage?: { inputTokens: number; outputTokens: number };
+  /**
+   * The provider-neutral running transcript, so a resumed session can keep
+   * talking with full context (display `messages` alone can't reconstruct
+   * tool_use/tool_result pairing). main-only — written by the loop's
+   * persistSession, ignored by the renderer and the context MCP tools. Absent on
+   * sessions saved before this field existed (those resume as read-only history).
+   */
+  transcript?: ModelMessage[];
 };
 
 /* ── memory (persistent notes the AI can read/write) ────────────────────── */

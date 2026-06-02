@@ -105,3 +105,63 @@ test('agent: Home launcher opens the full-surface AI Chat tab (v3 §5-B)', async
     await app.close();
   }
 });
+
+test('agent: snapshot carries activeSessionId, null when fresh (sessions §5-C)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    const snap = await page.evaluate(() => window.marudesk.invoke('agent:snapshot'));
+    // The field exists on the contract and is null for a not-yet-saved chat.
+    expect(snap.activeSessionId).toBeNull();
+  } finally {
+    await app.close();
+  }
+});
+
+test('agent: session IPC round-trips — list / resume-missing / delete (§5-C)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    const list = await page.evaluate(() => window.marudesk.invoke('agent:list-sessions'));
+    expect(Array.isArray(list)).toBe(true);
+    // Resuming an unknown id is refused (not thrown) — the loop reads disk, finds
+    // nothing, returns false.
+    const resumed = await page.evaluate(() =>
+      window.marudesk.invoke('agent:resume-session', { id: 'session-does-not-exist' }),
+    );
+    expect(resumed).toBe(false);
+    // Deleting an unknown id is a best-effort no-op that still resolves a boolean.
+    const deleted = await page.evaluate(() =>
+      window.marudesk.invoke('agent:delete-session', { id: 'session-does-not-exist' }),
+    );
+    expect(typeof deleted).toBe('boolean');
+  } finally {
+    await app.close();
+  }
+});
+
+test('agent: full surface shows the session history rail (§5-C)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await page.getByRole('button', { name: /AI Chat/ }).click();
+    await expect(page.getByRole('tab', { name: 'AI Chat' })).toBeVisible();
+    // The left rail renders its header + the New chat affordance.
+    await expect(page.getByRole('main').getByText('History')).toBeVisible();
+    await expect(
+      page.getByRole('main').getByRole('button', { name: 'New chat' }),
+    ).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test('agent: drawer history overlay opens from the header (§5-C)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await page.getByRole('button', { name: 'Show context panel' }).click();
+    await expect(page.getByRole('tab', { name: 'Agent' })).toBeVisible();
+    // The History button in the drawer header reveals the sessions overlay.
+    await page.getByRole('button', { name: 'Session history' }).click();
+    await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});

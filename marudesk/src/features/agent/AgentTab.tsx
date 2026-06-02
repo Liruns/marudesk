@@ -1,4 +1,5 @@
 import { AgentChat } from './AgentChat';
+import { SessionRail } from './SessionRail';
 
 /**
  * The full-surface AI Chat — the `agent` tab kind (v3 §5-B, Antigravity/Claude/
@@ -10,8 +11,11 @@ import { AgentChat } from './AgentChat';
  */
 export function AgentTab() {
   return (
-    <div className="flex-1 min-w-0 flex flex-col min-h-0 bg-surface-page">
-      <AgentChat variant="full" />
+    <div className="flex-1 min-w-0 flex flex-row min-h-0 bg-surface-page">
+      <SessionRail />
+      <div className="flex-1 min-w-0 flex flex-col min-h-0">
+        <AgentChat variant="full" />
+      </div>
     </div>
   );
 }

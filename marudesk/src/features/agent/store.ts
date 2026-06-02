@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AgentAnswers, AgentChatState } from '../../../shared/agent';
 import { emptyAgentChatState } from '../../../shared/agent';
+import type { SessionSummary } from '../../../shared/context';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
@@ -40,6 +41,8 @@ type AgentState = {
   verbosity: TranscriptVerbosity;
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
+  /** Saved sessions (newest first) for the history list — loaded on demand. */
+  sessions: SessionSummary[];
 };
 
 type AgentActions = {
@@ -56,6 +59,12 @@ type AgentActions = {
   acceptEdit: (editId: string) => Promise<void>;
   revertEdit: (editId: string) => Promise<void>;
   resetChat: () => Promise<void>;
+  /** Refresh the saved-session list from main. */
+  loadSessions: () => Promise<void>;
+  /** Load a saved session as the active conversation, then re-hydrate the chat. */
+  resumeSession: (id: string) => Promise<void>;
+  /** Delete a saved session and refresh the list. */
+  deleteSession: (id: string) => Promise<void>;
 };
 
 function activeWebTabId(): string | undefined {
@@ -69,6 +78,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   draft: '',
   verbosity: loadVerbosity(),
   localError: null,
+  sessions: [],
 
   setDraft: (draft) => set({ draft }),
 
@@ -182,6 +192,39 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     try {
       await window.marudesk.invoke('agent:reset');
       set({ localError: null });
+      // The conversation just cleared was persisted on its last finish() — refresh
+      // the list so it shows up immediately in the history.
+      await get().loadSessions();
+    } catch {
+      // ignore
+    }
+  },
+
+  loadSessions: async () => {
+    try {
+      const sessions = await window.marudesk.invoke('agent:list-sessions');
+      set({ sessions });
+    } catch {
+      // best-effort; keep the prior list
+    }
+  },
+
+  resumeSession: async (id) => {
+    try {
+      const ok = await window.marudesk.invoke('agent:resume-session', { id });
+      if (ok) {
+        set({ localError: null });
+        await get().hydrate();
+      }
+    } catch {
+      // ignore — the next agent:event reflects the real state
+    }
+  },
+
+  deleteSession: async (id) => {
+    try {
+      await window.marudesk.invoke('agent:delete-session', { id });
+      await get().loadSessions();
     } catch {
       // ignore
     }

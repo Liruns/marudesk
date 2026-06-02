@@ -8,8 +8,11 @@ import {
   abortTurn,
   acceptEdit,
   approveTool,
+  deleteSavedSession,
+  listSavedSessions,
   reset,
   respond,
+  resumeSession,
   revertEdit,
   snapshot,
   startTurn,
@@ -89,6 +92,18 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:snapshot', () => snapshot());
 
   defineHandler('agent:reset', () => reset());
+
+  // Session history (v3 §5-C): list past conversations, resume one as the active
+  // chat, or delete one. list/delete proxy sessions-store; resume swaps loop state.
+  defineHandler('agent:list-sessions', () => listSavedSessions());
+
+  defineHandler('agent:resume-session', ([payload]) =>
+    resumeSession(nonEmptyStr(obj(payload).id, 'id')),
+  );
+
+  defineHandler('agent:delete-session', ([payload]) =>
+    deleteSavedSession(nonEmptyStr(obj(payload).id, 'id')),
+  );
 
   // Built-in context MCP mirror: cache the renderer's latest editor/explorer
   // snapshot so the read_editor / read_explorer tools can read it (main can't

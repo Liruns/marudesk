@@ -1,9 +1,11 @@
-import { CheckSquare, Maximize2, Square, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { CheckSquare, History, Maximize2, Square, Trash2 } from 'lucide-react';
 import { Badge } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from '../browser/store';
 import { useComposerStore } from '../composer/store';
 import { AgentChat } from '../agent/AgentChat';
+import { SessionList } from '../agent/SessionList';
 import { openAgentTab } from '../agent/store';
 import { CaptureCard } from './CaptureCard';
 
@@ -27,6 +29,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
   const setAllSelected = useWebPageStore((s) => s.setAllSelected);
   const tab = useComposerStore((s) => s.tab);
   const setTab = useComposerStore((s) => s.setTab);
+  const [showHistory, setShowHistory] = useState(false);
 
   const selectedCount = (() => {
     let n = 0;
@@ -46,12 +49,26 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
       )}
       style={{ width: open ? 380 : 0 }}
     >
-      <div className="w-[380px] h-full flex flex-col">
+      <div className="relative w-[380px] h-full flex flex-col">
         <header className="h-10 shrink-0 flex items-center justify-between px-3 border-b border-subtle">
           <h2 className="text-body-sm font-medium text-fg-primary">
             Context
           </h2>
           <div className="flex items-center gap-2">
+            {tab === 'agent' ? (
+              <button
+                type="button"
+                onClick={() => setShowHistory((v) => !v)}
+                aria-label="Session history"
+                title="Session history"
+                className={cn(
+                  'transition-colors duration-fast',
+                  showHistory ? 'text-fg-primary' : 'text-fg-tertiary hover:text-fg-primary',
+                )}
+              >
+                <History size={13} />
+              </button>
+            ) : null}
             {tab === 'agent' ? (
               <button
                 type="button"
@@ -155,6 +172,22 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             </div>
           </>
         )}
+        {showHistory && tab === 'agent' ? (
+          <div className="absolute inset-0 z-20 flex flex-col bg-surface-1">
+            <header className="h-10 shrink-0 flex items-center justify-between px-3 border-b border-subtle">
+              <h2 className="text-body-sm font-medium text-fg-primary">History</h2>
+              <button
+                type="button"
+                onClick={() => setShowHistory(false)}
+                aria-label="Close history"
+                className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body leading-none"
+              >
+                ×
+              </button>
+            </header>
+            <SessionList className="flex-1" onPick={() => setShowHistory(false)} />
+          </div>
+        ) : null}
       </div>
     </aside>
   );
