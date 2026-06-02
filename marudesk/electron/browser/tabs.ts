@@ -24,6 +24,7 @@ import {
   type TabRecord,
 } from './state';
 import { applyWebLayout, hideTab, showTab } from './layout';
+import { loadPinnedSpecs, savePinnedTabs } from './pinned-session';
 import { closeChromeDevtools } from './devtools';
 import {
   detachCdp,
@@ -472,6 +473,7 @@ export function activateTab(id: string): boolean {
 export function closeTab(id: string): boolean {
   const rec = getTab(id);
   if (!rec) return false;
+  const wasPinned = !!rec.pinned;
   // Detach our CDP debugger and tear down any built-in DevTools before the page
   // view goes away (detach before webContents.close).
   detachCdp(rec);
@@ -499,6 +501,8 @@ export function closeTab(id: string): boolean {
   } else {
     pushState();
   }
+  // Closing a pinned tab changes the restorable set.
+  if (wasPinned) savePinnedTabs();
   return true;
 }
 
@@ -530,7 +534,23 @@ export function setTabPinned(id: string, pinned: boolean): boolean {
   rec.pinned = pinned;
   reorderTabRecords(pinnedFirst(tabKeys()));
   pushState();
+  savePinnedTabs();
   return true;
+}
+
+/**
+ * Recreate the pinned tabs saved from a previous session, in order, so they sit
+ * at the front of the strip before the default home tab is opened. Web pins
+ * reload their URL; editor pins re-bind their file path. Called once at mount.
+ */
+function restorePinnedTabs(): void {
+  for (const spec of loadPinnedSpecs()) {
+    const rec =
+      spec.kind === 'web'
+        ? createTab('web', spec.url || undefined)
+        : createTab('editor', spec.filePath);
+    rec.pinned = true;
+  }
 }
 
 export function mountBrowserView(win: BrowserWindow): void {
@@ -544,8 +564,9 @@ export function mountBrowserView(win: BrowserWindow): void {
   // them to the Downloads folder and feeding the renderer's download shelf.
   registerDownloadHandler(inspectSession);
 
-  // Open on the dashboard (a feature tab). The embedded browser only appears
-  // once the user opens or navigates to a web tab.
+  // Restore last session's pinned tabs at the front, then open on the dashboard
+  // (a feature tab). The embedded browser only appears once a web tab exists.
+  restorePinnedTabs();
   createAndActivateTab('home');
 }
 
@@ -555,6 +576,9 @@ export function mountBrowserView(win: BrowserWindow): void {
  * closing any built-in DevTools first).
  */
 export function disposeBrowserView(): void {
+  // Snapshot the latest pinned URLs/paths before tearing the views down, so a
+  // pinned site that was navigated mid-session restores where it was left.
+  savePinnedTabs();
   for (const rec of tabValues()) {
     detachCdp(rec);
     closeChromeDevtools(rec);
