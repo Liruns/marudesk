@@ -91,7 +91,14 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     set({ verbosity });
   },
 
-  ingest: (chat) => set({ chat }),
+  ingest: (chat) => {
+    set({ chat });
+    // A turn that just ended persisted its (possibly brand-new) session — refresh
+    // the history list so it appears immediately, not only on the next New chat.
+    if ((chat.status === 'completed' || chat.status === 'failed') && chat.activeSessionId) {
+      void get().loadSessions();
+    }
+  },
 
   hydrate: async () => {
     try {

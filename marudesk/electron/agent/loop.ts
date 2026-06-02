@@ -294,7 +294,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     : undefined;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    if (opts.signal.aborted) return finish('completed', '(stopped by user)');
+    if (opts.signal.aborted) return finish('completed', 'Stopped');
     state.status = 'thinking';
 
     // Create the assistant message up front so streamed text deltas render live
@@ -356,7 +356,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         const i = state.messages.indexOf(assistantMsg);
         if (i !== -1) state.messages.splice(i, 1);
       }
-      if (opts.signal.aborted) return finish('completed', '(stopped by user)');
+      if (opts.signal.aborted) return finish('completed', 'Stopped');
       return finish(
         'failed',
         undefined,
@@ -476,10 +476,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
     }
 
     transcript.push({ role: 'tool', content: toolResultParts });
-    if (opts.signal.aborted) return finish('completed', '(stopped by user)');
+    if (opts.signal.aborted) return finish('completed', 'Stopped');
   }
 
-  finish('completed', '(stopped — reached the step limit; ask me to continue)');
+  finish('completed', 'Stopped at the step limit — ask me to continue');
 }
 
 async function handleAskUser(
@@ -524,9 +524,9 @@ async function handleAskUser(
 }
 
 function finish(status: AgentChatState['status'], note?: string, error?: string): void {
-  if (note) {
-    state.messages.push({ id: uid('m'), role: 'assistant', parts: [{ type: 'text', text: note }], timestamp: Date.now() });
-  }
+  // An early-end note (user Stop / step limit / dropped connection) shows as an
+  // interrupt LABEL, not a fake assistant message in the transcript (v3 polish).
+  state.endNote = note ?? null;
   state.status = status;
   state.error = error ?? null;
   state.pendingApproval = null;
@@ -544,11 +544,16 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
     activeTabId = undefined;
   }
   controller = null;
-  // Persist the conversation so far (best-effort, fire-and-forget) — each turn's
-  // end updates the same session record, so list_sessions/read_session always
-  // reflect the latest state.
-  if (conversationId && state.messages.length > 0) void persistSession();
   emit();
+  // Persist the conversation (best-effort) — each turn's end updates the same
+  // session record. Emit AGAIN once it's on disk so the renderer refreshes its
+  // sessions list only after the write lands; that fixes a list/write race that
+  // kept a brand-new conversation out of the history until the next New chat.
+  if (conversationId && state.messages.length > 0) {
+    void persistSession()
+      .then(() => emit())
+      .catch(() => {});
+  }
 }
 
 /** Clip a tool result before persisting so a session file can't grow unbounded. */
@@ -711,6 +716,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     state.turnId = turnId;
     state.status = 'thinking';
     state.error = null;
+    state.endNote = null;
     state.pendingApproval = null;
     state.pendingQuestions = null;
 
@@ -736,7 +742,15 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       // Unattended only when the bridge is actually exposed AND skip is opted in;
       // turning the server off restores normal approval prompts automatically.
       unattended: settings.server.enabled && settings.server.skipApprovals,
-    }).catch((err) => finish('failed', undefined, (err as Error).message));
+    }).catch((err) => {
+      // A user Stop surfaces here as an abort, not a real failure — label it
+      // ('Stopped') rather than showing an error banner.
+      if (controller?.signal.aborted || (err as Error)?.name === 'AbortError') {
+        finish('completed', 'Stopped');
+      } else {
+        finish('failed', undefined, (err as Error).message);
+      }
+    });
 
     return { ok: true, turnId };
   } finally {

@@ -111,6 +111,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const [contextOpen, setContextOpen] = useState(false);
+  // Stick-to-bottom: true while the user is at/near the bottom (auto-scroll on),
+  // false once they scroll up to re-read mid-stream (auto-scroll paused).
+  const stickToBottomRef = useRef(true);
 
   // Subscribe to the server-owned snapshot stream while mounted; hydrate once so
   // we catch up on whatever happened while the panel was on another tab.
@@ -124,11 +127,22 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     if (!statusChecked) void refreshStatus();
   }, [statusChecked, refreshStatus]);
 
-  // Pin to the bottom as the transcript grows.
+  // Pin to the bottom as the transcript grows — but only while the user is still
+  // near the bottom. If they scroll up (e.g. to re-read mid-stream) we stop
+  // yanking them down; scrolling back to the bottom re-arms it.
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [chat.messages, chat.status, chat.edits, chat.pendingApproval, chat.pendingQuestions]);
+  }, [chat.messages, chat.status, chat.edits, chat.pendingApproval, chat.pendingQuestions, chat.endNote]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Threshold large enough to survive a streaming chunk landing between the
+    // scroll event and the re-render, small enough that scrolling up clearly pauses.
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
 
   const busy = isBusy(chat.status);
   const empty = chat.messages.length === 0;
@@ -142,10 +156,16 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const receipt =
     chat.status === 'completed' ? buildReceipt(chat.messages) : null;
 
+  const handleSend = () => {
+    // A fresh prompt should snap back to the bottom even if the user scrolled up.
+    stickToBottomRef.current = true;
+    void send();
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      void send();
+      handleSend();
     }
   };
 
@@ -180,7 +200,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     <div className="flex flex-col h-full min-h-0">
       <ProviderModelBar full={full} />
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto">
         <div
           className={cn(
             'flex flex-col gap-3',
@@ -207,6 +227,13 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
           {chat.pendingApproval ? <ApprovalCard approval={chat.pendingApproval} /> : null}
           {chat.pendingQuestions ? <QuestionsCard pending={chat.pendingQuestions} /> : null}
+
+          {chat.endNote ? (
+            <div className="flex items-center justify-center gap-1.5 py-1 text-caption text-fg-tertiary">
+              <Square size={11} className="shrink-0" />
+              <span>{chat.endNote}</span>
+            </div>
+          ) : null}
 
           {chat.error ? (
             <div className="rounded border border-subtle bg-error-subtle/40 px-3 py-2 text-body-sm text-fg-secondary break-words">
@@ -285,7 +312,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 variant="primary"
                 size="md"
                 leadingIcon={<Send size={14} />}
-                onClick={() => void send()}
+                onClick={handleSend}
                 disabled={draft.trim().length === 0}
               >
                 Send

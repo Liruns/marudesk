@@ -124,6 +124,13 @@ export type AgentChatState = {
    * Lets the sessions UI highlight which row is the live conversation.
    */
   activeSessionId: string | null;
+  /**
+   * Short interrupt label for a turn that ended early — user Stop, step limit, or
+   * a dropped connection. Shown as a centered system line, NOT pushed into the
+   * transcript as a fake assistant message. null when the turn ran to completion
+   * or is still running. (Hard errors use {@link error} instead.)
+   */
+  endNote: string | null;
 };
 
 export function emptyAgentChatState(): AgentChatState {
@@ -137,6 +144,7 @@ export function emptyAgentChatState(): AgentChatState {
     usage: { inputTokens: 0, outputTokens: 0 },
     error: null,
     activeSessionId: null,
+    endNote: null,
   };
 }
 
