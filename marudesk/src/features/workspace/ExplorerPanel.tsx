@@ -53,15 +53,19 @@ function parentOf(rel: string): string {
 // Explorer width is user-resizable (VSCode/Cursor pattern). Persisted locally so
 // it survives reloads; clamped so the panel can't be dragged uselessly thin or
 // eat the whole window.
-const EXPLORER_MIN = 180;
+// Min usable width is deliberately narrow (a file tree stays readable well below
+// the old 180px floor) so the panel can be tucked in tight without dismissing.
+const EXPLORER_MIN = 120;
 const EXPLORER_MAX = 560;
 const EXPLORER_DEFAULT = 260;
 const EXPLORER_WIDTH_KEY = 'marudesk.explorerWidth';
 // Below this threshold on drag-release the panel closes entirely ("drag to
-// dismiss"). During the drag we allow live narrowing to EXPLORER_DRAG_FLOOR so
-// the user sees the panel shrinking visibly before they let go.
-const EXPLORER_CLOSE_AT = 120;
-const EXPLORER_DRAG_FLOOR = 60;
+// dismiss"). Kept well under EXPLORER_MIN so closing is intentional — you only
+// dismiss by dragging it nearly shut, not by merely making it narrow. During the
+// drag we allow live narrowing to EXPLORER_DRAG_FLOOR so the panel visibly
+// shrinks toward the close zone before the user lets go.
+const EXPLORER_CLOSE_AT = 72;
+const EXPLORER_DRAG_FLOOR = 44;
 
 function readExplorerWidth(): number {
   try {

@@ -157,6 +157,11 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
       // standalone here; if it somehow already belongs to a group, split that
       // group's leaf instead of minting a duplicate.
       const activeTabId = useTabsStore.getState().activeTabId;
+      // A seed split tiles the active tab beside a *different* dragged tab. Guard
+      // the degenerate case (dragging the active/only tab onto its own stage) so
+      // we never mint a group of one tab split with itself — the Stage overlay is
+      // already gated on this, this is the authoritative backstop.
+      if (!activeTabId || newTabId === activeTabId) return;
       const existing = groupForTab(groups, activeTabId);
       if (existing) {
         const leaf = leaves(existing).find((l) => l.tabId === activeTabId);

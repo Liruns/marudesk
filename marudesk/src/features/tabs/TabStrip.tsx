@@ -166,8 +166,10 @@ function SplitGroup({
       role="group"
       aria-label="Split view group"
       className={cn(
-        'flex items-end gap-0.5 self-stretch pl-0.5 pr-1 rounded-t-lg',
-        'bg-accent-subtle/15 ring-1 ring-inset ring-accent/25 no-drag',
+        'group/split flex items-end gap-0.5 self-stretch pl-1 pr-1 rounded-t-lg',
+        // Neutral, hairline-bracketed container (not a loud accent fill) so a
+        // split reads as a quiet grouping of its tabs rather than a colored box.
+        'bg-surface-2/40 ring-1 ring-inset ring-subtle no-drag',
       )}
     >
       <button
@@ -176,11 +178,11 @@ function SplitGroup({
         aria-label="Exit split view"
         title="Exit split view"
         className={cn(
-          'self-center size-6 rounded flex items-center justify-center shrink-0',
-          'text-accent/70 hover:text-accent hover:bg-surface-2 transition-colors duration-fast',
+          'self-center mr-0.5 size-5 rounded flex items-center justify-center shrink-0',
+          'text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
         )}
       >
-        <Columns2 size={13} />
+        <Columns2 size={12} />
       </button>
       {children}
     </div>

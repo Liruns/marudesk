@@ -22,9 +22,12 @@ test('grid: dragging a tab onto the stage splits into two panes', async () => {
     const box = await page.getByRole('main').boundingBox();
     if (!box) throw new Error('stage has no box');
 
-    // Drag the 2nd tab into the stage and toward the right edge → a row split
-    // placing the dropped tab on the right.
-    await page.getByRole('tab').nth(1).hover();
+    // The newly-added 2nd tab is active (it's the one on the stage). A split
+    // needs two DISTINCT tabs, so drag the OTHER (non-active) tab onto the stage
+    // — dragging the active tab onto its own stage is intentionally a no-op now
+    // (the "one tab, why is it split?" self-split bug). Drop toward the right
+    // edge → a row split placing the dropped tab on the right.
+    await page.getByRole('tab').nth(0).hover();
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, {
       steps: 12,

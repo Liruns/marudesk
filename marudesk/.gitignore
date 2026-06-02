@@ -33,3 +33,5 @@ release
 # Test artifacts (Playwright)
 test-results
 playwright-report
+# Screenshot harness output (e2e/screens.spec.ts — manual UX review aid)
+.screens

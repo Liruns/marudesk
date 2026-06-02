@@ -8,6 +8,7 @@ import {
 import {
   Bot,
   Check,
+  ChevronRight,
   Code2,
   Copy,
   Globe,
@@ -365,8 +366,8 @@ function RemoteCategory() {
     <div className="flex flex-col gap-6">
       <Section>
         <Field
-          label="Local server"
-          hint="Runs a bridge server on this machine so a companion app on your Wi-Fi/LAN (or over Tailscale) can drive the AI Chat. Reachable from other devices on your network; a bearer token is required. Off by default."
+          label="Phone access"
+          hint="Run a small server on this PC so the marudesk phone app can pair over your Wi-Fi/LAN (or Tailscale) and drive the AI Chat. You just scan a QR to connect — no addresses to type. Off by default."
         >
           <Segmented
             value={server.enabled ? 'on' : 'off'}
@@ -374,21 +375,13 @@ function RemoteCategory() {
             onChange={(v) => void update({ server: { enabled: v === 'on' } })}
           />
         </Field>
-        <Field label="Port" hint="The TCP port the server listens on (all interfaces).">
-          <Stepper
-            value={server.port}
-            min={SERVER_PORT_MIN}
-            max={SERVER_PORT_MAX}
-            step={1}
-            name="server port"
-            onChange={(port) => void update({ server: { port } })}
-          />
-        </Field>
       </Section>
 
-      {server.enabled ? <LocalServerReach /> : null}
-      {server.enabled ? <UnattendedToggle /> : null}
+      {/* QR pairing is the whole flow: tap "Pair a device", scan, approve. The
+          port / network addresses / unattended toggle are power-user details, so
+          they live behind Advanced instead of fronting the panel. */}
       {server.enabled ? <DevicePairing /> : null}
+      {server.enabled ? <AdvancedRemote /> : null}
 
       <header className="flex flex-col gap-1">
         <h3 className="text-body font-medium text-fg-primary">Cloud relay</h3>
@@ -400,6 +393,49 @@ function RemoteCategory() {
         </p>
       </header>
       <CloudRelaySection />
+    </div>
+  );
+}
+
+/**
+ * Power-user remote details, tucked behind a disclosure so the default Remote
+ * panel is just "toggle on → scan the QR". Holds the listen port, the raw
+ * reachable URLs (for Tailscale / manual entry), the unattended toggle, and the
+ * network-trust warning — none of which a phone-pairing user needs to see.
+ */
+function AdvancedRemote() {
+  const server = useSettingsStore((s) => s.settings.server);
+  const update = useSettingsStore((s) => s.update);
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 self-start text-caption uppercase tracking-wider text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+      >
+        <ChevronRight size={13} className={cn('transition-transform', open && 'rotate-90')} />
+        Advanced — port, network addresses, unattended
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-4">
+          <Section>
+            <Field label="Port" hint="The TCP port the server listens on (all interfaces).">
+              <Stepper
+                value={server.port}
+                min={SERVER_PORT_MIN}
+                max={SERVER_PORT_MAX}
+                step={1}
+                name="server port"
+                onChange={(port) => void update({ server: { port } })}
+              />
+            </Field>
+          </Section>
+          <LocalServerReach />
+          <UnattendedToggle />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -621,10 +657,11 @@ function DevicePairing() {
     <div className="flex flex-col gap-3">
       <header className="flex items-center justify-between gap-3">
         <div className="flex flex-col gap-0.5">
-          <h3 className="text-body font-medium text-fg-primary">Paired devices</h3>
+          <h3 className="text-body font-medium text-fg-primary">Pair your phone</h3>
           <p className="text-caption text-fg-tertiary">
-            Pairing exchanges an encryption key, so a paired phone&apos;s traffic is
-            end-to-end encrypted even over plain Wi-Fi.
+            Tap below, scan the QR from the marudesk app, and approve it here. Pairing
+            exchanges an encryption key, so traffic stays end-to-end encrypted even over
+            plain Wi-Fi.
           </p>
         </div>
         {devices.length > 0 ? (

@@ -32,13 +32,17 @@ export function Stage() {
 
   const kind = tabs.find((t) => t.id === activeTabId)?.kind ?? 'home';
 
-  // While a tab is dragged from the strip, a drop overlay sits over the single
-  // view so dropping it seeds a 2-pane grid (the first split). Only mounted
-  // mid-drag, so the normal single view is completely untouched otherwise.
+  // While a *different* tab is dragged from the strip, a drop overlay sits over
+  // the single view so dropping it seeds a 2-pane grid (the first split). A split
+  // needs two distinct tabs, so we never arm the overlay for the active tab being
+  // dragged onto its own stage — that's the "one tab, why does it split?" bug
+  // (you'd get a pane tiled with itself). With a single tab open, the only
+  // draggable chip is the active one, so the overlay simply never appears.
+  const canSeedSplit = !!draggingTabId && draggingTabId !== activeTabId;
   return (
     <div className="flex-1 min-w-0 flex relative">
       {tabKinds[kind].render()}
-      {draggingTabId ? <SeedDropOverlay draggedTabId={draggingTabId} /> : null}
+      {canSeedSplit ? <SeedDropOverlay draggedTabId={draggingTabId!} /> : null}
     </div>
   );
 }

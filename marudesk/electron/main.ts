@@ -155,12 +155,31 @@ async function createMainWindow(): Promise<BrowserWindow> {
     win.webContents.send('app:ui-zoom', dir);
   });
 
+  // The HOST renderer's zoom is owned entirely by the app's "Interface zoom"
+  // setting (a CSS root-font-size scale), never Chromium's built-in page zoom.
+  // Chromium persists a per-origin zoom level in the session, so a stray Ctrl+'+'
+  // pressed before the app-zoom interception above existed would otherwise stick
+  // FOREVER: it scales the whole chrome (oversized icons, menu, terminal) AND —
+  // because a zoomed renderer reports zoomed CSS-px rects that we hand to
+  // WebContentsView.setBounds() as DIP — shoves the embedded browser view toward
+  // the top-left at the wrong size. Pin the host to zoom 0 on every load and lock
+  // pinch-zoom so the Interface-zoom setting is the only zoom knob. Setting the
+  // level also rewrites the persisted value, so this self-heals a profile that
+  // already carries a stuck zoom.
+  const pinHostZoom = (): void => {
+    if (win.isDestroyed()) return;
+    win.webContents.setVisualZoomLevelLimits(1, 1);
+    win.webContents.setZoomLevel(0);
+  };
+  win.webContents.on('did-finish-load', pinHostZoom);
+
   if (rendererDevUrl) {
     await win.loadURL(rendererDevUrl);
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
     await win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+  pinHostZoom();
 
   mountBrowserView(win);
   mainWindow = win;
