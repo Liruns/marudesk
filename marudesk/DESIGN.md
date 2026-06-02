@@ -203,11 +203,23 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 | Flat | No shadow, no border | Body text, inline content |
 | Hairline (L1) | 1px `--border-subtle` | Default container outline |
 | Hairline strong (L1b) | 1px `--border-default` | Inputs, buttons |
+| Top-edge catch | `--highlight` (`shadow-highlight`) | Flush panels, launcher tiles, chips — a 1px inset highlight on the top edge |
+| Carved inset | `--inset-shadow` (`shadow-inset-soft`) | Recessed `inset` surfaces (code wells, inputs) — soft inner shadow |
+| Card | `--elevate-card` (`shadow-card`) | Elevated cards — stronger top highlight + soft drop |
 | Soft glow (L2) | `0 0 0 1px var(--border-default), 0 8px 24px rgba(0,0,0,0.32)` | Drawer leading edge, popover |
 | Lifted (L3) | `0 0 0 1px var(--border-default), 0 24px 56px rgba(0,0,0,0.48)` | Modal, command palette, picker |
 | Focus ring | `0 0 0 2px var(--surface-page), 0 0 0 4px var(--accent)` | Keyboard focus on interactive elements |
 
-**Philosophy.** Elevation on dark surfaces comes from borders first, shadows second. A diffuse, large-radius shadow (24px+) reads as light bending around a panel; a tight tight shadow reads as a sticker pasted onto the screen. Avoid the latter.
+**Depth fills (layered, not surfaces).** The surface scale is intentionally tight (~9% across four steps), so pure fills can read flat. Two background-image tokens add volume *over* a surface fill — the surface token still owns the base color:
+
+| Token | Tailwind | Use |
+|---|---|---|
+| `--surface-gradient` | `bg-surface-gradient` | Featured cards/tiles — a ~2.5% top→bottom lift fading by ~64% |
+| `--page-vignette` | `bg-vignette` | Page canvas — a barely-there top-center lift so the page reads as a lit stage |
+
+The leaf values (`--highlight-top`, `--highlight-top-strong`, the gradient and vignette stops) flip under `data-theme="light"` so depth reads correctly in both modes; the structural tokens above reference them.
+
+**Philosophy.** Elevation on dark surfaces comes from borders first, shadows second. A diffuse, large-radius shadow (24px+) reads as light bending around a panel; a tight shadow reads as a sticker pasted onto the screen. Avoid the latter. The top-edge catch and surface gradient are the quiet third instrument: they suggest light hitting an upper lip rather than a panel floating, so they layer *beneath* the border and never replace it.
 
 ## 7. Do's and Don'ts
 

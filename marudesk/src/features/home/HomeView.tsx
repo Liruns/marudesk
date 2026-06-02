@@ -54,7 +54,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
   };
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page">
+    <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
       <div className="min-h-full flex flex-col items-center justify-center px-8 py-16 gap-10">
         <div className="flex flex-col items-center gap-3">
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-16 select-none" />
@@ -182,12 +182,12 @@ function LauncherCard({
       onClick={onOpen}
       className={cn(
         'group flex flex-col items-start gap-2.5 p-4 rounded-xl text-left',
-        'bg-surface-1 border border-subtle',
-        'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-lg',
+        'bg-surface-1 bg-surface-gradient border border-subtle shadow-highlight',
+        'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-card',
         'transition duration-fast',
       )}
     >
-      <span className="flex size-9 items-center justify-center rounded-lg bg-surface-2 text-fg-secondary group-hover:bg-accent-subtle group-hover:text-accent transition-colors duration-fast">
+      <span className="flex size-9 items-center justify-center rounded-lg bg-surface-2 shadow-highlight text-fg-secondary group-hover:bg-accent-subtle group-hover:text-accent transition-colors duration-fast">
         {icon}
       </span>
       <span className="text-body-sm text-fg-primary font-medium">{label}</span>

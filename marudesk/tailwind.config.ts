@@ -84,6 +84,17 @@ const config: Config = {
       boxShadow: {
         glow: '0 0 0 1px var(--border-default), 0 8px 24px rgba(0, 0, 0, 0.32)',
         lifted: '0 0 0 1px var(--border-default), 0 24px 56px rgba(0, 0, 0, 0.48)',
+        // Depth language (§6): inset top-edge highlight, elevated card, carved-in
+        // inset. Layer beneath borders — they don't replace the hairline.
+        highlight: 'var(--highlight)',
+        card: 'var(--elevate-card)',
+        'inset-soft': 'var(--inset-shadow)',
+      },
+      backgroundImage: {
+        // Featured-surface gradient + page vignette — layered over a surface
+        // fill, which still owns the base color.
+        'surface-gradient': 'var(--surface-gradient)',
+        vignette: 'var(--page-vignette)',
       },
     },
   },

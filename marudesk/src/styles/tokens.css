@@ -75,6 +75,25 @@
   --ring:                  var(--accent);
   --scrollbar-thumb:       rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  /* Depth — the "shadows second" half of the elevation contract (§6).
+     The surface scale is intentionally tight (~9% across four steps), so pure
+     fills read flat. A 1px inset highlight on the top edge simulates light
+     catching the upper lip of a panel; a faint top→bottom gradient gives a
+     featured card volume without spending a surface step; inset variants get a
+     soft inner shadow so they read as carved in, not stacked on. Borders still
+     lead — these layer underneath them and never replace a border or a token. */
+  --highlight-top:        rgba(255, 255, 255, 0.05); /* top-edge catch, default surfaces */
+  --highlight-top-strong: rgba(255, 255, 255, 0.08); /* featured / elevated cards */
+  --highlight:     inset 0 1px 0 0 var(--highlight-top);
+  --elevate-card:  inset 0 1px 0 0 var(--highlight-top-strong), 0 1px 2px rgba(0, 0, 0, 0.24);
+  --inset-shadow:  inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  /* Featured-surface gradient — layered over a surface fill (the token still
+     owns the base color); a ~2.5% lift at the top fading out by ~64%. */
+  --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 64%);
+  /* Page vignette — a barely-there top-center lift so the canvas reads as a lit
+     stage. "Light pools up out of the page" (§1), made literal. */
+  --page-vignette: radial-gradient(120% 90% at 50% -8%, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0) 46%);
 }
 
 /* Light theme — applied via data-theme="light" on <html>. Only surfaces, text,
@@ -105,6 +124,17 @@
 
   --scrollbar-thumb:       rgba(0, 0, 0, 0.18);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
+
+  /* Depth on light surfaces: the top-edge catch is a near-white sheen rather
+     than a faint white wash, and drop alphas drop so shadows stay as hairlines.
+     --highlight / --elevate-card / --inset-shadow reference these, so only the
+     leaf values flip here. */
+  --highlight-top:        rgba(255, 255, 255, 0.7);
+  --highlight-top-strong: rgba(255, 255, 255, 0.9);
+  --elevate-card:  inset 0 1px 0 0 var(--highlight-top-strong), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --inset-shadow:  inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 64%);
+  --page-vignette: radial-gradient(120% 90% at 50% -8%, rgba(0, 0, 0, 0.012), rgba(0, 0, 0, 0) 46%);
 }
 
 /* Accent presets — reskin the single accent app-wide via a [data-accent]
