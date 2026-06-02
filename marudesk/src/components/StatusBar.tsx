@@ -3,7 +3,10 @@ import { useWebPageStore } from '../features/browser/store';
 import { useProvidersStore } from '../features/providers/store';
 import { useWorkspaceStore } from '../features/workspace/store';
 import { useGitStore } from '../features/git/store';
+import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { providerLabel } from '../../shared/providers';
+import type { AgentApprovalMode } from '../../shared/settings';
+import { cn } from '../lib/cn';
 
 /**
  * VSCode-style status strip pinned to the bottom of the window. Surfaces the
@@ -13,6 +16,18 @@ import { providerLabel } from '../../shared/providers';
  * Kept thin (24px) so it costs almost nothing vertically — the browser stage
  * is the canvas, this is just chrome.
  */
+const APPROVAL_LABEL: Record<AgentApprovalMode, string> = {
+  'read-only': 'Read-only',
+  ask: 'Ask',
+  auto: 'Auto',
+};
+/** Dot hue per mode: neutral (safe), accent (default), warning (hands-free). */
+const APPROVAL_DOT: Record<AgentApprovalMode, string> = {
+  'read-only': 'bg-fg-tertiary/40',
+  ask: 'bg-accent',
+  auto: 'bg-warning',
+};
+
 export function StatusBar() {
   const summary = useWorkspaceStore((s) => s.summary);
   const gitStatus = useGitStore((s) => s.status);
@@ -22,6 +37,7 @@ export function StatusBar() {
   const selectedModel = useProvidersStore((s) => s.selectedModel);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
   const customProviders = useProvidersStore((s) => s.customProviders);
+  const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
 
   const hasKey = providerStatus.find((p) => p.id === selectedProvider)?.hasKey;
   // Branch + ahead/behind, read passively from the git store (populated when
@@ -79,6 +95,15 @@ export function StatusBar() {
           {captures.length} capture{captures.length === 1 ? '' : 's'}
         </span>
       ) : null}
+      <button
+        type="button"
+        onClick={() => void openSettingsTab('agent')}
+        title="Agent approval mode — click to change"
+        className="flex items-center gap-1.5 hover:text-fg-secondary transition-colors duration-fast"
+      >
+        <span aria-hidden className={cn('size-1.5 rounded-pill shrink-0', APPROVAL_DOT[approvalMode])} />
+        <span>{APPROVAL_LABEL[approvalMode]}</span>
+      </button>
       <span className="flex items-center gap-1.5">
         <span
           aria-hidden

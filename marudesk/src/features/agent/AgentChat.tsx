@@ -42,6 +42,9 @@ import {
   ListTree,
   ChevronsDownUp,
   ChevronsUpDown,
+  Eye,
+  Hand,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
@@ -61,8 +64,9 @@ import type {
   PendingQuestions,
   ToolCall,
 } from '../../../shared/agent';
-import { openSettingsTab } from '../settings/store';
+import { openSettingsTab, useSettingsStore } from '../settings/store';
 import { useProvidersStore } from '../providers/store';
+import type { AgentApprovalMode } from '../../../shared/settings';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
 import { useWorkspaceStore } from '../workspace/store';
 import { useWebPageStore } from '../browser/store';
@@ -96,6 +100,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const resetChat = useAgentStore((s) => s.resetChat);
   const verbosity = useAgentStore((s) => s.verbosity);
   const setVerbosity = useAgentStore((s) => s.setVerbosity);
+  const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
+  const updateSettings = useSettingsStore((s) => s.update);
 
   const summary = useWorkspaceStore((s) => s.summary);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
@@ -223,6 +229,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               <UsageMeter />
             </div>
             <div className="flex items-center gap-2">
+              <ApprovalToggle
+                value={approvalMode}
+                onChange={(mode) => void updateSettings({ agent: { approvalMode: mode } })}
+              />
               {!empty ? (
                 <VerbosityToggle value={verbosity} onChange={setVerbosity} />
               ) : null}
@@ -1048,6 +1058,55 @@ function VerbosityToggle({
       className="flex items-center gap-0.5 rounded border border-subtle bg-surface-1 p-0.5"
     >
       {VERBOSITY_OPTS.map((opt) => {
+        const Icon = opt.icon;
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            aria-pressed={active}
+            title={opt.label}
+            className={cn(
+              'flex items-center justify-center size-5 rounded-sm transition-colors duration-fast',
+              active
+                ? 'bg-surface-3 text-fg-primary'
+                : 'text-fg-tertiary hover:text-fg-secondary',
+            )}
+          >
+            <Icon size={12} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const APPROVAL_OPTS: { value: AgentApprovalMode; icon: LucideIcon; label: string }[] = [
+  { value: 'read-only', icon: Eye, label: 'Read-only — observe only (no edits, no code)' },
+  { value: 'ask', icon: Hand, label: 'Ask — edits run; sensitive tools ask first' },
+  { value: 'auto', icon: Zap, label: 'Auto — run everything without asking' },
+];
+
+/**
+ * Inline approval-mode toggle (v3 §5-D) — the same three modes as Settings →
+ * Agent, surfaced beside the composer so autonomy can be dialed without leaving
+ * the chat. Writes straight to the persisted setting; the loop reads it per turn.
+ */
+function ApprovalToggle({
+  value,
+  onChange,
+}: {
+  value: AgentApprovalMode;
+  onChange: (v: AgentApprovalMode) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Approval mode"
+      className="flex items-center gap-0.5 rounded border border-subtle bg-surface-1 p-0.5"
+    >
+      {APPROVAL_OPTS.map((opt) => {
         const Icon = opt.icon;
         const active = value === opt.value;
         return (
