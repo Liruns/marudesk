@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react';
 import { TabStrip } from '../features/tabs/TabStrip';
 import { WindowControls } from './WindowControls';
+import logoUrl from '../assets/logo.png';
 
 /**
  * Frameless-window chrome: a single horizontal strip at the very top. The
@@ -48,11 +49,11 @@ export function TitleBar() {
           className="flex items-center shrink-0"
           style={{ paddingLeft: 76, paddingRight: 12 }}
         >
-          <span aria-hidden className="size-5 rounded-md bg-accent" />
+          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-5 select-none" />
         </div>
       ) : (
         <div className="w-12 shrink-0 flex items-center justify-center border-r border-subtle">
-          <span aria-hidden className="size-5 rounded-md bg-accent" />
+          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-5 select-none" />
         </div>
       )}
       <TabStrip />

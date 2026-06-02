@@ -5,6 +5,7 @@ import { useTabsStore } from '../tabs/store';
 import { useGridStore } from '../tabs/grid';
 import { useWorkspaceStore } from '../workspace/store';
 import type { TabKind } from '../../../shared/browser';
+import logoUrl from '../../assets/logo.png';
 
 /**
  * The 'home' tab kind — marudesk's New Tab page and the first feature-tab: a
@@ -56,9 +57,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
     <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page">
       <div className="min-h-full flex flex-col items-center justify-center px-8 py-16 gap-10">
         <div className="flex flex-col items-center gap-3">
-          <div className="size-12 rounded-2xl bg-accent-subtle ring-1 ring-accent/25 flex items-center justify-center">
-            <span className="size-4 rounded-pill bg-accent" aria-hidden />
-          </div>
+          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-16 select-none" />
           <div className="flex flex-col items-center gap-1">
             <h1 className="text-title text-fg-primary tracking-tight">marudesk</h1>
             <p className="text-body-sm text-fg-tertiary">Browser-native AI IDE</p>
