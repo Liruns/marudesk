@@ -19,6 +19,7 @@ import { registerModelDisposer } from './store';
 declare global {
   interface Window {
     MonacoEnvironment?: monaco.Environment;
+    __marudeskMonacoCancelGuard?: boolean;
   }
 }
 
@@ -43,6 +44,29 @@ window.MonacoEnvironment = {
     }
   },
 };
+
+// Monaco throws an internal "Canceled" error when an editor (and its in-flight
+// async contributions — occurrence/word highlighting, suggestions, etc.) is
+// disposed mid-work. That's expected teardown, but the rejected promise has no
+// catch inside Monaco, so it leaks as a noisy "Uncaught (in promise) Canceled":
+// most visibly under React StrictMode's mount→unmount→remount in dev, and on
+// fast editor-tab / split-mode switches in prod. Swallow ONLY that exact benign
+// cancellation (by Monaco's `name`/`message === 'Canceled'` signature); every
+// other rejection propagates untouched. Installed once, guarded by a window flag
+// so HMR re-imports don't stack duplicate listeners.
+if (!window.__marudeskMonacoCancelGuard) {
+  window.__marudeskMonacoCancelGuard = true;
+  window.addEventListener('unhandledrejection', (e) => {
+    const r: unknown = e.reason;
+    const canceled =
+      r === 'Canceled' ||
+      (typeof r === 'object' &&
+        r !== null &&
+        ((r as { name?: unknown }).name === 'Canceled' ||
+          (r as { message?: unknown }).message === 'Canceled'));
+    if (canceled) e.preventDefault();
+  });
+}
 
 export const MARUDESK_THEME = 'marudesk';
 

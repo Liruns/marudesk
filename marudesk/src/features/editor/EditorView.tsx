@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Ban, Columns2, Eye, FileCode2, FileWarning, Pencil } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
@@ -86,12 +86,38 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   const ensureLoaded = useEditorStore((s) => s.ensureLoaded);
   const buf = useEditorStore((s) => (docKey ? s.files[docKey] : undefined));
 
-  // View mode for markdown files. The chosen mode is remembered across files; a
-  // non-markdown buffer always renders as plain Edit. Derived (not reset via an
-  // effect) so we don't setState in an effect — react-hooks/set-state-in-effect.
-  const [mdMode, setMdMode] = useState<MarkdownMode>('edit');
+  // View mode for markdown files. Defaults to Split so a .md opens as live
+  // edit + rendered preview rather than a wall of plain text; the chosen mode
+  // is then remembered across files for the session. A non-markdown buffer
+  // always renders as plain Edit. Derived (not reset via an effect) so we don't
+  // setState in an effect — react-hooks/set-state-in-effect.
+  const [mdMode, setMdMode] = useState<MarkdownMode>('split');
   const isMd = isMarkdown(filePath);
   const mode: MarkdownMode = isMd ? mdMode : 'edit';
+
+  // Editor→preview scroll sync (split mode, best-effort by scroll fraction).
+  // A capture-phase scroll listener on the editor pane catches Monaco's
+  // internal scrollable element; we pass the fraction to the preview, which
+  // applies it imperatively. One-way, so there's no feedback loop to guard.
+  const editorPaneRef = useRef<HTMLDivElement | null>(null);
+  const [previewScrollRatio, setPreviewScrollRatio] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (mode !== 'split') return;
+    const pane = editorPaneRef.current;
+    if (!pane) return;
+    const onScroll = (e: Event) => {
+      const el = e.target as HTMLElement | null;
+      if (!el || typeof el.scrollTop !== 'number') return;
+      const max = el.scrollHeight - el.clientHeight;
+      if (max <= 0) return;
+      setPreviewScrollRatio(el.scrollTop / max);
+    };
+    // Monaco's scrollable element emits non-bubbling scroll events; capture.
+    pane.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => pane.removeEventListener('scroll', onScroll, { capture: true });
+    // buf?.status is included so the listener (re)attaches once the buffer
+    // resolves and the editor pane is actually in the DOM.
+  }, [mode, docKey, buf?.status]);
 
   useEffect(() => {
     if (docKey) void ensureLoaded(docKey);
@@ -148,6 +174,7 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
         {/* Monaco pane — hidden in preview-only mode */}
         {(mode === 'edit' || mode === 'split') && (
           <div
+            ref={editorPaneRef}
             className={cn(
               'flex min-h-0 min-w-0',
               mode === 'split' ? 'w-1/2 border-r border-subtle' : 'flex-1',
@@ -169,6 +196,7 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
         {isMd && (mode === 'preview' || mode === 'split') && (
           <MarkdownPreview
             content={content}
+            scrollRatio={mode === 'split' ? previewScrollRatio : undefined}
             className={cn(
               'min-h-0 bg-surface-page',
               mode === 'split' ? 'w-1/2' : 'flex-1',

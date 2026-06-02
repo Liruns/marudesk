@@ -1,42 +1,39 @@
-import { useMemo } from 'react';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
+import { useEffect, useRef } from 'react';
 import { cn } from '../../lib/cn';
-
-/** Configure marked once: synchronous, GitHub-flavored-ish. */
-marked.setOptions({ async: false, breaks: false, gfm: true });
-
-function renderMarkdown(source: string): string {
-  const raw = marked(source) as string;
-  return DOMPurify.sanitize(raw, {
-    USE_PROFILES: { html: true },
-    ADD_ATTR: ['target', 'rel'],
-  });
-}
-
-function handleLinks(e: React.MouseEvent<HTMLDivElement>) {
-  const target = e.target as HTMLElement;
-  const anchor = target.closest('a');
-  if (!anchor) return;
-  e.preventDefault();
-  const href = anchor.getAttribute('href');
-  if (href) window.open(href, '_blank', 'noopener,noreferrer');
-}
+import { Markdown } from '../../lib/markdown';
 
 interface MarkdownPreviewProps {
   content: string;
   className?: string;
+  /**
+   * Target scroll position as a 0..1 fraction of the preview's scrollable
+   * height, driven by the editor in split mode. Applied imperatively so we
+   * don't rerender on every scroll tick. Omit (or leave undefined) to let the
+   * preview scroll freely.
+   */
+  scrollRatio?: number;
 }
 
-export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+/**
+ * Markdown preview pane for the editor. Owns the scrollable container (so split
+ * mode can sync it to the editor) and delegates rendering, sanitisation, syntax
+ * highlighting, copy buttons, and external-link handling to the shared
+ * `<Markdown>` component (which supplies the `.md-prose` host).
+ */
+export function MarkdownPreview({ content, className, scrollRatio }: MarkdownPreviewProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || scrollRatio === undefined) return;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max <= 0) return;
+    el.scrollTop = scrollRatio * max;
+  }, [scrollRatio, content]);
 
   return (
-    <div
-      className={cn('overflow-y-auto', className)}
-      onClick={handleLinks}
-      // biome-ignore lint: preview pane intentionally renders sanitized HTML
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div ref={scrollRef} className={cn('overflow-y-auto', className)}>
+      <Markdown source={content} />
+    </div>
   );
 }

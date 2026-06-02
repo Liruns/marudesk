@@ -164,6 +164,9 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
       if (!activeTabId || newTabId === activeTabId) return;
       const existing = groupForTab(groups, activeTabId);
       if (existing) {
+        // The dragged tab is already tiled in this group — never seed a duplicate
+        // pane of it (the "same tab splits again" bug). Leave the layout as is.
+        if (leaves(existing).some((l) => l.tabId === newTabId)) return;
         const leaf = leaves(existing).find((l) => l.tabId === activeTabId);
         if (!leaf) return;
         const next = splitLeaf(existing, leaf.id, dir, newTabId, side);
@@ -181,9 +184,38 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
     }
     const group = findGroupByLeaf(groups, targetLeafId);
     if (!group) return;
+    const groupLeaves = leaves(group);
+    const targetLeaf = groupLeaves.find((l) => l.id === targetLeafId);
+    if (!targetLeaf) return;
+    // Dropping a tab onto the pane that already holds it: nothing to tile — a
+    // pane split with a copy of itself is the "why does the same tab split
+    // again?" bug. Just focus the pane and bail.
+    if (targetLeaf.tabId === newTabId) {
+      set({ focusedPaneId: targetLeafId });
+      return;
+    }
+    // The dragged tab is already tiled *elsewhere* in this group → treat the drop
+    // as a MOVE (relocate it beside the target) instead of minting a duplicate
+    // pane: split the target to host a fresh leaf, then drop the tab's old leaf.
+    const dup = groupLeaves.find(
+      (l) => l.tabId === newTabId && l.id !== targetLeafId,
+    );
+    if (dup) {
+      const moved = removeLeaf(
+        splitLeaf(group, targetLeafId, dir, newTabId, side),
+        dup.id,
+      );
+      const movedFresh = leaves(moved).find((l) => l.tabId === newTabId);
+      set({
+        groups: replaceGroup(groups, group, moved),
+        focusedPaneId: movedFresh?.id ?? focusedPaneId,
+      });
+      syncStripGrouping(moved);
+      return;
+    }
     const next = splitLeaf(group, targetLeafId, dir, newTabId, side);
     // The new leaf is the freshly-created one carrying newTabId; focus it.
-    const before = new Set(leaves(group).map((l) => l.id));
+    const before = new Set(groupLeaves.map((l) => l.id));
     const fresh = leaves(next).find(
       (l) => !before.has(l.id) && l.tabId === newTabId,
     );

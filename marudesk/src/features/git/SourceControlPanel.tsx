@@ -1,0 +1,656 @@
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  GitBranch,
+  GitCommitHorizontal,
+  History,
+  Minus,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+  Undo2,
+  Upload,
+} from 'lucide-react';
+import { Spinner } from '../../components/ui';
+import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import { cn } from '../../lib/cn';
+import type { GitChange } from '../../../shared/git';
+import { bucketChanges, useGitStore } from './store';
+import { baseName, dirName, statusBadge } from './statusMeta';
+import { DiffViewer } from './DiffViewer';
+import { useEditorStore } from '../editor/store';
+
+type Props = {
+  open: boolean;
+  onRequestClose?: () => void;
+};
+
+// Width persistence + drag-to-close, mirroring ExplorerPanel.
+const SC_MIN = 160;
+const SC_MAX = 600;
+const SC_DEFAULT = 300;
+const SC_WIDTH_KEY = 'marudesk.sourceControlWidth';
+const SC_CLOSE_AT = 88;
+const SC_DRAG_FLOOR = 52;
+
+function readWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(SC_WIDTH_KEY));
+    if (Number.isFinite(v) && v >= SC_MIN && v <= SC_MAX) return v;
+  } catch {
+    // localStorage unavailable — fall through to the default.
+  }
+  return SC_DEFAULT;
+}
+
+/** What the diff overlay is currently showing. */
+type DiffTarget = { path: string; staged: boolean };
+
+/**
+ * Left-hand Source Control sidebar — a VSCode-style git panel for the open
+ * workspace. Header carries the branch name + fetch/sync; below it a commit
+ * box, then Staged / Changes / Untracked sections (each row has stage/unstage/
+ * discard hover actions and opens a diff on click), then a collapsible recent
+ * commits log. Refreshes on open and after every mutating op (the store
+ * actions refresh themselves).
+ *
+ * Reuses ExplorerPanel's resize/drag-to-close mechanics so the two side panels
+ * feel identical.
+ */
+export function SourceControlPanel({ open, onRequestClose }: Props) {
+  const status = useGitStore((s) => s.status);
+  const branches = useGitStore((s) => s.branches);
+  const log = useGitStore((s) => s.log);
+  const loading = useGitStore((s) => s.loading);
+  const busy = useGitStore((s) => s.busy);
+  const error = useGitStore((s) => s.error);
+  const refresh = useGitStore((s) => s.refresh);
+  const init = useGitStore((s) => s.init);
+  const stage = useGitStore((s) => s.stage);
+  const stageAll = useGitStore((s) => s.stageAll);
+  const unstage = useGitStore((s) => s.unstage);
+  const discard = useGitStore((s) => s.discard);
+  const commit = useGitStore((s) => s.commit);
+  const checkout = useGitStore((s) => s.checkout);
+  const createBranch = useGitStore((s) => s.createBranch);
+  const fetch = useGitStore((s) => s.fetch);
+  const pull = useGitStore((s) => s.pull);
+  const push = useGitStore((s) => s.push);
+  const openFile = useEditorStore((s) => s.openFile);
+
+  const [width, setWidth] = useState(readWidth);
+  const [resizing, setResizing] = useState(false);
+  const [inCloseZone, setInCloseZone] = useState(false);
+  const [message, setMessage] = useState('');
+  const [logOpen, setLogOpen] = useState(false);
+  const [diff, setDiff] = useState<DiffTarget | null>(null);
+  const [branchMenu, setBranchMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Refresh status whenever the panel transitions to open (VSCode refreshes the
+  // SCM view on focus). No file-watching for the MVP — manual + post-op only.
+  useEffect(() => {
+    if (open) void refresh();
+  }, [open, refresh]);
+
+  const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const asideLeft = handle.parentElement?.getBoundingClientRect().left ?? 0;
+    handle.setPointerCapture(e.pointerId);
+    setResizing(true);
+    let last = width;
+    let lastGood = width >= SC_MIN ? width : SC_DEFAULT;
+    const onMove = (ev: PointerEvent) => {
+      last = Math.min(SC_MAX, Math.max(SC_DRAG_FLOOR, ev.clientX - asideLeft));
+      if (last >= SC_MIN) lastGood = last;
+      setWidth(last);
+      setInCloseZone(last < SC_CLOSE_AT);
+    };
+    const onDone = () => {
+      setResizing(false);
+      setInCloseZone(false);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('lostpointercapture', onDone);
+      if (last < SC_CLOSE_AT) {
+        const restore = lastGood >= SC_MIN ? lastGood : SC_DEFAULT;
+        setWidth(restore);
+        persistWidth(restore);
+        onRequestClose?.();
+      } else {
+        const clamped = Math.min(SC_MAX, Math.max(SC_MIN, last));
+        setWidth(clamped);
+        persistWidth(clamped);
+      }
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('lostpointercapture', onDone);
+  };
+
+  const buckets = useMemo(
+    () => (status?.isRepo ? bucketChanges(status.files) : null),
+    [status],
+  );
+  const hasStaged = !!buckets && buckets.staged.length > 0;
+  const hasUnstaged =
+    !!buckets && (buckets.changes.length > 0 || buckets.untracked.length > 0);
+  const canCommit = hasStaged && message.trim().length > 0 && !busy;
+
+  const onCommit = async () => {
+    if (!canCommit) return;
+    const ok = await commit(message.trim());
+    if (ok) setMessage('');
+  };
+
+  const onDiscard = (paths: string[], label: string) => {
+    if (paths.length === 0) return;
+    const ok = window.confirm(
+      paths.length === 1
+        ? `Discard changes in "${label}"? This cannot be undone.`
+        : `Discard changes in ${paths.length} files? This cannot be undone.`,
+    );
+    if (ok) void discard(paths);
+  };
+
+  const onCreateBranch = () => {
+    const name = window.prompt('New branch name')?.trim();
+    if (name) void createBranch(name);
+  };
+
+  // The branch switcher: every local branch (current marked), then "Create
+  // branch…". Stays small — this isn't a full branch manager for the MVP.
+  const branchMenuItems = (): MenuItem[] => {
+    const items: MenuItem[] = (branches?.branches ?? []).map((name) => ({
+      label: name,
+      icon: name === branches?.current ? <Check size={14} /> : <GitBranch size={14} />,
+      disabled: name === branches?.current,
+      onSelect: () => void checkout(name),
+    }));
+    items.push(
+      { type: 'separator' },
+      { label: 'Create branch…', icon: <Plus size={14} />, onSelect: onCreateBranch },
+    );
+    return items;
+  };
+
+  const closeZoneActive = resizing && inCloseZone;
+
+  return (
+    <aside
+      role="complementary"
+      aria-label="Source Control"
+      aria-hidden={!open}
+      className={cn(
+        'relative shrink-0 bg-surface-1 border-r border-subtle overflow-hidden',
+        resizing ? '' : 'transition-[width] duration-standard',
+      )}
+      style={{ width: open ? width : 0 }}
+    >
+      <div
+        className={cn(
+          'h-full flex flex-col',
+          closeZoneActive
+            ? 'opacity-30 transition-opacity duration-fast'
+            : 'transition-opacity duration-fast',
+        )}
+        style={{ width }}
+      >
+        <header className="h-9 shrink-0 flex items-center justify-between pl-3 pr-1.5 border-b border-subtle">
+          <h2 className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
+            Source Control
+          </h2>
+          <div className="flex items-center gap-0.5">
+            {status?.isRepo && hasUnstaged ? (
+              <IconButton label="Stage all changes" onClick={() => void stageAll()} disabled={busy}>
+                <Plus size={15} />
+              </IconButton>
+            ) : null}
+            <IconButton label="Fetch" onClick={() => void fetch()} disabled={busy}>
+              <RefreshCw size={14} />
+            </IconButton>
+            <IconButton label="Refresh" onClick={() => void refresh()} disabled={loading}>
+              <RotateCcw size={14} />
+            </IconButton>
+          </div>
+        </header>
+
+        {status === null ? (
+          <div className="flex flex-1 items-center justify-center gap-2 text-fg-tertiary">
+            <Spinner size={16} /> Loading…
+          </div>
+        ) : !status.isRepo ? (
+          <NotARepo onInit={() => void init()} busy={busy} />
+        ) : (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {/* branch + ahead/behind + sync/pull/push */}
+            <div className="shrink-0 flex items-center gap-1.5 px-3 h-8 border-b border-subtle">
+              <button
+                type="button"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setBranchMenu({ x: r.left, y: r.bottom + 4 });
+                }}
+                title={
+                  status.upstream
+                    ? `Tracking ${status.upstream} — click to switch branch`
+                    : 'Switch branch'
+                }
+                className="flex min-w-0 items-center gap-1.5 rounded px-1 -mx-1 h-6 text-fg-secondary hover:bg-surface-2 transition-colors"
+              >
+                <GitBranch size={13} className="shrink-0 text-fg-tertiary" />
+                <span className="truncate text-body-sm">
+                  {status.branch ?? (status.unborn ? 'no commits yet' : 'detached')}
+                </span>
+              </button>
+              {status.ahead > 0 || status.behind > 0 ? (
+                <span className="shrink-0 flex items-center gap-1 text-caption text-fg-tertiary tabular-nums">
+                  {status.behind > 0 ? <span title="behind">↓{status.behind}</span> : null}
+                  {status.ahead > 0 ? <span title="ahead">↑{status.ahead}</span> : null}
+                </span>
+              ) : null}
+              <span className="flex-1" aria-hidden />
+              <IconButton label="Pull" onClick={() => void pull()} disabled={busy || !status.upstream}>
+                <ChevronDown size={14} />
+              </IconButton>
+              <IconButton label="Push" onClick={() => void push()} disabled={busy || !status.upstream}>
+                <Upload size={13} />
+              </IconButton>
+            </div>
+
+            {/* commit box */}
+            <div className="shrink-0 p-2 border-b border-subtle">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  // Ctrl/Cmd+Enter commits (VSCode parity).
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    void onCommit();
+                  }
+                }}
+                rows={2}
+                placeholder={hasStaged ? 'Message (Ctrl+Enter to commit)' : 'Stage changes to commit'}
+                spellCheck={false}
+                className={cn(
+                  'w-full resize-none rounded border border-subtle bg-surface-2 px-2 py-1.5',
+                  'text-body-sm text-fg-primary placeholder:text-fg-tertiary',
+                  'focus:outline-none focus:border-accent',
+                )}
+              />
+              <button
+                type="button"
+                onClick={() => void onCommit()}
+                disabled={!canCommit}
+                className={cn(
+                  'mt-1.5 inline-flex w-full items-center justify-center gap-2 h-7 rounded text-body-sm font-medium',
+                  'transition-colors duration-fast',
+                  canCommit
+                    ? 'bg-accent text-white hover:bg-accent-hover'
+                    : 'bg-surface-2 text-fg-tertiary cursor-not-allowed',
+                )}
+              >
+                <Check size={14} /> Commit
+              </button>
+            </div>
+
+            {error ? (
+              <p className="shrink-0 px-3 py-1.5 text-caption text-error border-b border-subtle">
+                {error}
+              </p>
+            ) : null}
+
+            {/* change sections */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {buckets && buckets.staged.length === 0 && buckets.changes.length === 0 && buckets.untracked.length === 0 ? (
+                <p className="px-3 py-6 text-center text-body-sm text-fg-tertiary">
+                  No changes.
+                </p>
+              ) : null}
+
+              {buckets && buckets.staged.length > 0 ? (
+                <Section
+                  title="Staged Changes"
+                  count={buckets.staged.length}
+                  action={{
+                    icon: <Minus size={13} />,
+                    label: 'Unstage all',
+                    onClick: () => void unstage(buckets.staged.map((f) => f.path)),
+                  }}
+                >
+                  {buckets.staged.map((f) => (
+                    <FileRow
+                      key={`s:${f.path}`}
+                      change={f}
+                      staged
+                      onOpen={() => setDiff({ path: f.path, staged: true })}
+                      actions={[
+                        { icon: <Minus size={13} />, label: 'Unstage', onClick: () => void unstage([f.path]) },
+                      ]}
+                    />
+                  ))}
+                </Section>
+              ) : null}
+
+              {buckets && buckets.changes.length > 0 ? (
+                <Section
+                  title="Changes"
+                  count={buckets.changes.length}
+                  action={{
+                    icon: <Plus size={13} />,
+                    label: 'Stage all',
+                    onClick: () => void stage(buckets.changes.map((f) => f.path)),
+                  }}
+                >
+                  {buckets.changes.map((f) => (
+                    <FileRow
+                      key={`c:${f.path}`}
+                      change={f}
+                      staged={false}
+                      onOpen={() => setDiff({ path: f.path, staged: false })}
+                      actions={[
+                        {
+                          icon: <Undo2 size={13} />,
+                          label: 'Discard changes',
+                          danger: true,
+                          onClick: () => onDiscard([f.path], f.path),
+                        },
+                        { icon: <Plus size={13} />, label: 'Stage', onClick: () => void stage([f.path]) },
+                      ]}
+                    />
+                  ))}
+                </Section>
+              ) : null}
+
+              {buckets && buckets.untracked.length > 0 ? (
+                <Section
+                  title="Untracked"
+                  count={buckets.untracked.length}
+                  action={{
+                    icon: <Plus size={13} />,
+                    label: 'Stage all',
+                    onClick: () => void stage(buckets.untracked.map((f) => f.path)),
+                  }}
+                >
+                  {buckets.untracked.map((f) => (
+                    <FileRow
+                      key={`u:${f.path}`}
+                      change={f}
+                      staged={false}
+                      onOpen={() => void openFile(f.path)}
+                      actions={[
+                        {
+                          icon: <Trash2 size={13} />,
+                          label: 'Delete file',
+                          danger: true,
+                          onClick: () => onDiscard([f.path], f.path),
+                        },
+                        { icon: <Plus size={13} />, label: 'Stage', onClick: () => void stage([f.path]) },
+                      ]}
+                    />
+                  ))}
+                </Section>
+              ) : null}
+            </div>
+
+            {/* recent commits log */}
+            <div className="shrink-0 border-t border-subtle">
+              <button
+                type="button"
+                onClick={() => setLogOpen((v) => !v)}
+                className="flex w-full items-center gap-1.5 px-3 h-7 text-caption uppercase tracking-wide text-fg-tertiary hover:text-fg-secondary"
+              >
+                {logOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                <History size={12} />
+                <span>Recent</span>
+                {log.length > 0 ? <span className="tabular-nums">{log.length}</span> : null}
+              </button>
+              {logOpen ? (
+                <div className="max-h-40 overflow-y-auto pb-1">
+                  {log.length === 0 ? (
+                    <p className="px-3 py-2 text-caption text-fg-tertiary">No commits yet.</p>
+                  ) : (
+                    log.map((c) => (
+                      <div
+                        key={c.hash}
+                        className="px-3 py-1 flex items-baseline gap-2 text-caption"
+                        title={`${c.author} · ${c.relDate}`}
+                      >
+                        <GitCommitHorizontal size={11} className="shrink-0 translate-y-0.5 text-fg-tertiary" />
+                        <code className="shrink-0 text-fg-tertiary tabular-nums">{c.shortHash}</code>
+                        <span className="truncate text-fg-secondary">{c.subject}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {open ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize Source Control"
+          onPointerDown={onResizeStart}
+          className={cn(
+            'absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize',
+            'transition-colors duration-fast',
+            closeZoneActive ? 'bg-error' : resizing ? 'bg-accent' : 'bg-transparent hover:bg-accent/60',
+          )}
+        >
+          <span aria-hidden className="absolute inset-y-0 -left-1 right-0" />
+          {closeZoneActive ? (
+            <span
+              aria-hidden
+              className={cn(
+                'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+                'whitespace-nowrap px-2 py-1 rounded',
+                'bg-surface-2 text-error text-caption pointer-events-none select-none',
+              )}
+            >
+              Release to close
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {diff ? (
+        <DiffViewer
+          key={`${diff.staged ? 's' : 'w'}:${diff.path}`}
+          path={diff.path}
+          staged={diff.staged}
+          onClose={() => setDiff(null)}
+        />
+      ) : null}
+
+      {branchMenu ? (
+        <ContextMenu
+          x={branchMenu.x}
+          y={branchMenu.y}
+          items={branchMenuItems()}
+          onClose={() => setBranchMenu(null)}
+        />
+      ) : null}
+    </aside>
+  );
+}
+
+/** Empty-state when the workspace folder isn't a git repository. */
+function NotARepo({ onInit, busy }: { onInit: () => void; busy: boolean }) {
+  return (
+    <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <span className="size-10 rounded-lg bg-surface-2 flex items-center justify-center text-fg-tertiary">
+        <GitBranch size={20} />
+      </span>
+      <p className="text-body-sm text-fg-secondary">Not a git repository</p>
+      <p className="text-caption text-fg-tertiary">
+        Initialize a repository here to track changes with Source Control.
+      </p>
+      <button
+        type="button"
+        onClick={onInit}
+        disabled={busy}
+        className={cn(
+          'mt-1 inline-flex items-center gap-2 h-8 px-3 rounded-md text-body-sm',
+          'bg-accent text-white transition-opacity duration-fast',
+          busy ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-90',
+        )}
+      >
+        {busy ? <Spinner size={14} /> : <GitBranch size={15} />}
+        Initialize Repository
+      </button>
+    </div>
+  );
+}
+
+type RowAction = {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+};
+
+/** A collapsible-free section header + its rows + a header-level bulk action. */
+function Section({
+  title,
+  count,
+  action,
+  children,
+}: {
+  title: string;
+  count: number;
+  action: RowAction;
+  children: ReactNode;
+}) {
+  return (
+    <div className="group/section">
+      <div className="flex items-center gap-1.5 px-3 pb-0.5 pt-2 text-caption uppercase tracking-wide text-fg-tertiary">
+        <span>{title}</span>
+        <span className="tabular-nums">{count}</span>
+        <span className="flex-1" aria-hidden />
+        <button
+          type="button"
+          onClick={action.onClick}
+          aria-label={action.label}
+          title={action.label}
+          className="opacity-0 group-hover/section:opacity-100 size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition"
+        >
+          {action.icon}
+        </button>
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+/** One changed-file row: status badge + name + dir, hover-revealed actions. */
+function FileRow({
+  change,
+  staged,
+  onOpen,
+  actions,
+}: {
+  change: GitChange;
+  staged: boolean;
+  onOpen: () => void;
+  actions: RowAction[];
+}) {
+  const badge = statusBadge(change, staged);
+  const dir = dirName(change.path);
+  return (
+    <div className="group/row flex items-center h-6 pl-3 pr-1.5 hover:bg-surface-2">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={change.path}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+      >
+        <span className="truncate text-body-sm text-fg-primary">{baseName(change.path)}</span>
+        {dir ? <span className="truncate text-caption text-fg-tertiary">{dir}</span> : null}
+      </button>
+      <span className="flex shrink-0 items-center gap-0.5">
+        <span className="opacity-0 group-hover/row:opacity-100 flex items-center gap-0.5 transition-opacity">
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                a.onClick();
+              }}
+              aria-label={a.label}
+              title={a.label}
+              className={cn(
+                'size-5 rounded flex items-center justify-center',
+                'hover:bg-surface-3 transition-colors',
+                a.danger ? 'text-fg-tertiary hover:text-error' : 'text-fg-tertiary hover:text-fg-primary',
+              )}
+            >
+              {a.icon}
+            </button>
+          ))}
+        </span>
+        <span
+          aria-hidden
+          title={badge.title}
+          className={cn(
+            'w-4 text-center text-caption font-semibold tabular-nums',
+            badge.className,
+          )}
+        >
+          {badge.letter}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function persistWidth(w: number): void {
+  try {
+    localStorage.setItem(SC_WIDTH_KEY, String(Math.round(w)));
+  } catch {
+    // best-effort persistence
+  }
+}
+
+function IconButton({
+  label,
+  onClick,
+  disabled = false,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'size-6 rounded flex items-center justify-center shrink-0',
+        'transition-colors duration-fast',
+        disabled
+          ? 'text-fg-tertiary/40 cursor-not-allowed'
+          : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
+      )}
+    >
+      {children}
+    </button>
+  );
+}

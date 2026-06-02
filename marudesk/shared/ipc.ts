@@ -7,6 +7,14 @@ import type {
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { ContextSyncPayload } from './context';
+import type {
+  GitBranches,
+  GitCommit,
+  GitCommitResult,
+  GitRemoteResult,
+  GitStatus,
+} from './git';
+import type { SearchOptions, SearchResult } from './search';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
 import type { McpServerStatus } from './mcp';
 import type { DownloadAction, DownloadEntry } from './downloads';
@@ -117,6 +125,30 @@ export const CHANNELS = {
     'workspace:reveal',
   ],
   history: ['history:query'],
+  // Workspace Source Control (electron/git.ts). All run against the open
+  // workspace root via execFile git (argv arrays, never a shell). `status`
+  // returns isRepo:false cleanly when the folder isn't a repo; discards are
+  // destructive and the renderer confirms before calling.
+  git: [
+    'git:status',
+    'git:init',
+    'git:stage',
+    'git:stageAll',
+    'git:unstage',
+    'git:discard',
+    'git:diff',
+    'git:commit',
+    'git:branches',
+    'git:checkout',
+    'git:createBranch',
+    'git:log',
+    'git:fetch',
+    'git:pull',
+    'git:push',
+  ],
+  // Workspace content search (electron/search.ts). Prefers ripgrep, falls back
+  // to a Node walk reusing the workspace IGNORE_DIRS + binary/size skips.
+  search: ['search:content'],
   patch: ['patch:preview', 'patch:apply'],
   secrets: [
     'secrets:list-providers',
@@ -344,6 +376,40 @@ export interface IpcMap {
     result: MutateResult;
   };
   'workspace:reveal': { args: [payload: { path: string }]; result: { ok: true } };
+
+  // git (Source Control — electron/git.ts). Paths are workspace-relative POSIX.
+  // `status` never throws for a non-repo (returns { isRepo: false }); `discard`
+  // is destructive (renderer confirms first); remote ops never force.
+  'git:status': { args: []; result: GitStatus };
+  'git:init': { args: []; result: { ok: true } };
+  'git:stage': { args: [payload: { paths: string[] }]; result: { ok: true } };
+  'git:stageAll': { args: []; result: { ok: true } };
+  'git:unstage': { args: [payload: { paths: string[] }]; result: { ok: true } };
+  'git:discard': { args: [payload: { paths: string[] }]; result: { ok: true } };
+  'git:diff': {
+    args: [payload: { path: string; staged: boolean }];
+    result: { diff: string };
+  };
+  'git:commit': {
+    args: [payload: { message: string; amend?: boolean }];
+    result: GitCommitResult;
+  };
+  'git:branches': { args: []; result: GitBranches };
+  'git:checkout': { args: [payload: { name: string }]; result: { ok: true } };
+  'git:createBranch': {
+    args: [payload: { name: string; checkout?: boolean }];
+    result: { ok: true };
+  };
+  'git:log': { args: []; result: GitCommit[] };
+  'git:fetch': { args: []; result: GitRemoteResult };
+  'git:pull': { args: []; result: GitRemoteResult };
+  'git:push': { args: []; result: GitRemoteResult };
+
+  // search (content search — electron/search.ts)
+  'search:content': {
+    args: [payload: { query: string; opts: SearchOptions }];
+    result: SearchResult;
+  };
 
   // patch
   'patch:preview': { args: [ops: PatchOp[]]; result: PatchPreview };

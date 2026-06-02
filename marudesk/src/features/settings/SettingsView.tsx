@@ -60,6 +60,7 @@ import { Button } from '../../components/ui';
 import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
 import { McpServersSettings } from './McpServersSettings';
+import { RemoteGuide } from './RemoteGuide';
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: 'Dark' },
@@ -381,6 +382,12 @@ function RemoteCategory() {
           port / network addresses / unattended toggle are power-user details, so
           they live behind Advanced instead of fronting the panel. */}
       {server.enabled ? <DevicePairing /> : null}
+
+      {/* The how-to-pair guide shows whether or not the server is on, so people
+          can read the flow before flipping the toggle. When pairing is active the
+          QR (in DevicePairing, above) sits right over these steps that explain it. */}
+      <RemoteGuide />
+
       {server.enabled ? <AdvancedRemote /> : null}
 
       <header className="flex flex-col gap-1">

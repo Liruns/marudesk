@@ -58,7 +58,7 @@ const INDEXABLE_EXTENSIONS = new Set([
   '.less',
 ]);
 
-const IGNORE_DIRS = new Set([
+export const IGNORE_DIRS = new Set([
   'node_modules',
   '.git',
   'dist',

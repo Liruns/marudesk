@@ -9,12 +9,19 @@ import { useTabEvents } from '../features/tabs/useTabEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
 import { useDevtoolsEvents } from '../features/devtools/useDevtoolsEvents';
 import { ExplorerPanel } from '../features/workspace/ExplorerPanel';
+import { SourceControlPanel } from '../features/git/SourceControlPanel';
+import { SearchPanel } from '../features/search/SearchPanel';
+import { QuickOpen } from '../features/search/QuickOpen';
+import { useSearchStore } from '../features/search/store';
 import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
 import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
 import { useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
+
+/** The single active left-rail panel, or null when the rail is collapsed. */
+type LeftPanel = 'explorer' | 'search' | 'sourceControl' | null;
 
 /**
  * Step the persisted whole-UI zoom (the Settings "Interface zoom") by ±10%, or
@@ -49,8 +56,15 @@ export function Shell() {
   useDevtoolsEvents();
   // Mirror editor buffers + explorer state to main for the built-in context MCP.
   useContextSync();
-  const [explorerOpen, setExplorerOpen] = useState(true);
+  // The left rail shows one panel at a time (VSCode-style): toggling a view
+  // button opens that view or collapses the rail if it's already active.
+  const [leftPanel, setLeftPanel] = useState<LeftPanel>('explorer');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+
+  // Toggle a left-rail view: clicking the active view collapses the rail.
+  const toggleLeft = (panel: Exclude<LeftPanel, null>) =>
+    setLeftPanel((cur) => (cur === panel ? null : panel));
 
   // Keyboard shortcuts while the React chrome has focus. The mirror case — the
   // embedded web page having focus — is handled in the main process'
@@ -73,6 +87,22 @@ export function Shell() {
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
           target.isContentEditable);
+
+      // App-wide navigation, independent of the active tab kind and allowed even
+      // from a text field (these aren't native text-editing keys):
+      //   Ctrl/Cmd+P        — quick-open (go to file)
+      //   Ctrl/Cmd+Shift+F  — open + focus the content-search panel
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setQuickOpen(true);
+        return;
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setLeftPanel('search');
+        useSearchStore.getState().requestFocus();
+        return;
+      }
 
       const tabsState = useTabsStore.getState();
       const activeTab = tabsState.tabs.find((t) => t.id === tabsState.activeTabId);
@@ -125,7 +155,7 @@ export function Shell() {
       if (inEditable) return;
       if (key === 'b') {
         e.preventDefault();
-        setExplorerOpen((v) => !v);
+        toggleLeft('explorer');
         return;
       }
       if (key === 't') {
@@ -165,12 +195,27 @@ export function Shell() {
       <TitleBar />
       <div className="flex-1 min-h-0 flex">
         <ActivityBar
-          explorerOpen={explorerOpen}
-          onToggleExplorer={() => setExplorerOpen((v) => !v)}
+          explorerOpen={leftPanel === 'explorer'}
+          onToggleExplorer={() => toggleLeft('explorer')}
+          searchOpen={leftPanel === 'search'}
+          onToggleSearch={() => toggleLeft('search')}
+          sourceControlOpen={leftPanel === 'sourceControl'}
+          onToggleSourceControl={() => toggleLeft('sourceControl')}
           drawerOpen={drawerOpen}
           onToggleDrawer={() => setDrawerOpen((v) => !v)}
         />
-        <ExplorerPanel open={explorerOpen} onRequestClose={() => setExplorerOpen(false)} />
+        <ExplorerPanel
+          open={leftPanel === 'explorer'}
+          onRequestClose={() => setLeftPanel(null)}
+        />
+        <SearchPanel
+          open={leftPanel === 'search'}
+          onRequestClose={() => setLeftPanel(null)}
+        />
+        <SourceControlPanel
+          open={leftPanel === 'sourceControl'}
+          onRequestClose={() => setLeftPanel(null)}
+        />
         <main className="flex-1 min-w-0 flex">
           <Stage />
         </main>
@@ -178,6 +223,7 @@ export function Shell() {
       </div>
       <StatusBar />
       <ToastHost />
+      {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}
     </div>
   );
 }

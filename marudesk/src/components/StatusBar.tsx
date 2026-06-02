@@ -1,6 +1,8 @@
+import { GitBranch } from 'lucide-react';
 import { useWebPageStore } from '../features/browser/store';
 import { useProvidersStore } from '../features/providers/store';
 import { useWorkspaceStore } from '../features/workspace/store';
+import { useGitStore } from '../features/git/store';
 import { providerLabel } from '../../shared/providers';
 
 /**
@@ -13,6 +15,7 @@ import { providerLabel } from '../../shared/providers';
  */
 export function StatusBar() {
   const summary = useWorkspaceStore((s) => s.summary);
+  const gitStatus = useGitStore((s) => s.status);
   const inspectMode = useWebPageStore((s) => s.inspectMode);
   const captures = useWebPageStore((s) => s.captures);
   const selectedProvider = useProvidersStore((s) => s.selectedProvider);
@@ -21,6 +24,12 @@ export function StatusBar() {
   const customProviders = useProvidersStore((s) => s.customProviders);
 
   const hasKey = providerStatus.find((p) => p.id === selectedProvider)?.hasKey;
+  // Branch + ahead/behind, read passively from the git store (populated when
+  // the Source Control panel opens — the StatusBar never triggers a git call).
+  const branch =
+    gitStatus && gitStatus.isRepo ? (gitStatus.branch ?? 'detached') : null;
+  const ahead = gitStatus && gitStatus.isRepo ? gitStatus.ahead : 0;
+  const behind = gitStatus && gitStatus.isRepo ? gitStatus.behind : 0;
 
   return (
     <footer
@@ -55,6 +64,14 @@ export function StatusBar() {
           </>
         )}
       </span>
+      {branch ? (
+        <span className="flex items-center gap-1 min-w-0" title={`Branch: ${branch}`}>
+          <GitBranch size={11} className="shrink-0" />
+          <span className="truncate max-w-[160px] text-fg-secondary">{branch}</span>
+          {behind > 0 ? <span aria-label="behind">↓{behind}</span> : null}
+          {ahead > 0 ? <span aria-label="ahead">↑{ahead}</span> : null}
+        </span>
+      ) : null}
       <span className="flex-1" aria-hidden />
       {inspectMode ? <span className="text-accent">Inspect on</span> : null}
       {captures.length > 0 ? (

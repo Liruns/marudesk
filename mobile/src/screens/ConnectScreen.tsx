@@ -89,8 +89,14 @@ export function ConnectScreen() {
             <strong style={{ fontSize: 15 }}>Pair with your PC</strong>
           </div>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            On the PC: Settings → Remote → turn the local server on → “Pair a device”. Scan
-            the QR here. Same Wi-Fi, or Tailscale on both.
+            On the PC, open Settings → Remote, turn on phone access, then tap “Pair a device”
+            to show a QR. Scan it here (or paste the code shown under it). Both devices need
+            the same Wi-Fi/LAN, or Tailscale on both.
+          </p>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
+            After you scan, approve the request back on the PC — not here. You’ll see this
+            phone’s name and a short fingerprint there to confirm it’s really you. Then the
+            link is end-to-end encrypted, even on open Wi-Fi.
           </p>
 
           <div className="field">
