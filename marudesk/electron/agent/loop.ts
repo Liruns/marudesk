@@ -14,19 +14,19 @@ import { emptyAgentChatState } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
-import { getProvider, isBuiltinProviderId } from '../../shared/providers';
+import { getProvider, isBuiltinProviderId, MODELS } from '../../shared/providers';
 import { coalesced } from '../coalesce';
 import { getProviderApiKey } from '../secrets';
 import { CLAUDE_CODE_SYSTEM_PREFIX, supportsOAuth } from '../oauth/config';
 import { getValidAccessToken } from '../oauth/flow';
 import { getCustomProvider } from '../custom-providers';
 import { getSettingsSync } from '../settings';
-import type { AgentApprovalMode } from '../../shared/settings';
+import type { AgentApprovalMode, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { writeFileForEditor } from '../workspace';
-import { streamText, generateText, type ModelMessage } from 'ai';
+import { streamText, generateText, type JSONValue, type ModelMessage } from 'ai';
 import { buildModel, aiTools, humanizeModelError, type ModelAuth } from './model';
 import { loadWorkspaceInstructions } from './instructions';
 import { ASK_USER, describeToolInput, type ToolContext } from './tools';
@@ -47,6 +47,90 @@ const MAX_STEPS = 24;
 
 /** Per-step output-token cap (matches the prior hand-rolled driver). */
 const AGENT_MAX_TOKENS = 4_096;
+
+/**
+ * Anthropic's thinking knob is a token budget, not an enum — map the standard
+ * {@link ReasoningEffort} levels onto sensible budgets (the higher levels leave
+ * ample room under the per-step output cap's siblings; the SDK enforces the rest).
+ */
+const ANTHROPIC_THINKING_BUDGET: Record<ReasoningEffort, number> = {
+  minimal: 1024,
+  low: 4000,
+  medium: 12000,
+  high: 24000,
+};
+
+/**
+ * Map the standard reasoning-effort enum onto the active provider's NATIVE knob —
+ * no per-model hardcoding, so any model the catalog flags `reasoning` works
+ * automatically. Called only when the selected model actually reasons; otherwise
+ * the effort is ignored. The codex backend keeps its existing `openai` options
+ * (store:false + instructions), which the caller merges in first.
+ *
+ * - openai / openai-codex: `reasoningEffort` ('minimal'|'low'|'medium'|'high').
+ * - anthropic: extended thinking with a token budget (see {@link ANTHROPIC_THINKING_BUDGET}).
+ * - google / google-caa: `thinkingConfig.thinkingLevel` (+ surface the thoughts).
+ * - xai: OpenAI-compatible — the model reads `providerOptions.xai.reasoningEffort`.
+ * - everything else (ollama / custom endpoints): skipped — no known reasoning knob.
+ */
+function reasoningProviderOptions(
+  provider: AgentSendInput['provider'],
+  effort: ReasoningEffort,
+): Record<string, Record<string, JSONValue>> {
+  switch (provider) {
+    case 'openai':
+    case 'openai-codex':
+      return { openai: { reasoningEffort: effort } };
+    case 'anthropic':
+      return { anthropic: { thinking: { type: 'enabled', budgetTokens: ANTHROPIC_THINKING_BUDGET[effort] } } };
+    case 'google':
+    case 'google-caa':
+      return { google: { thinkingConfig: { thinkingLevel: effort, includeThoughts: true } } };
+    case 'xai':
+      return { xai: { reasoningEffort: effort } };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Assemble `streamText`'s `providerOptions` for the turn: the codex backend's
+ * required `{ openai: { store:false, instructions } }` (when applicable) MERGED
+ * with the per-provider reasoning knob (when the model reasons). Per-namespace
+ * merge keeps codex's `openai` options when openai reasoning also lands there.
+ */
+function buildProviderOptions(
+  provider: AgentSendInput['provider'],
+  system: string,
+  modelReasoning: boolean,
+  effort: ReasoningEffort,
+): Record<string, Record<string, JSONValue>> | undefined {
+  const opts: Record<string, Record<string, JSONValue>> =
+    provider === 'openai-codex' ? { openai: { store: false, instructions: system } } : {};
+  if (modelReasoning) {
+    for (const [ns, value] of Object.entries(reasoningProviderOptions(provider, effort))) {
+      opts[ns] = { ...opts[ns], ...value };
+    }
+  }
+  return Object.keys(opts).length > 0 ? opts : undefined;
+}
+
+/**
+ * Output-token cap for the turn. Anthropic extended thinking REQUIRES
+ * max_tokens > thinking.budget_tokens (or the API 400s), so a reasoning Claude
+ * turn gets its thinking budget plus answer headroom; every other provider uses
+ * the flat per-step cap (their reasoning tokens are managed server-side).
+ */
+function maxTokensForTurn(
+  provider: AgentSendInput['provider'],
+  modelReasoning: boolean,
+  effort: ReasoningEffort,
+): number {
+  if (modelReasoning && provider === 'anthropic') {
+    return ANTHROPIC_THINKING_BUDGET[effort] + AGENT_MAX_TOKENS;
+  }
+  return AGENT_MAX_TOKENS;
+}
 
 const SYSTEM_PROMPT = `You are marudesk's agentic coding assistant, running INSIDE a desktop IDE that owns the user's live browser (via the Chrome DevTools Protocol), the code editor, and the terminal for their open workspace.
 
@@ -251,6 +335,10 @@ type RunOpts = {
   approvalMode: AgentApprovalMode;
   /** Path globs the agent may never edit (passed to the tool context). */
   denyGlobs: string[];
+  /** Standard reasoning effort (Settings → Agent) — applied only when the model reasons. */
+  reasoningEffort: ReasoningEffort;
+  /** Whether the selected model is a reasoning model (catalog flag) — gates the effort knob. */
+  modelReasoning: boolean;
   /** User's standing system instructions (Settings → Agent), prepended to the prompt. */
   customInstructions: string;
   /**
@@ -294,9 +382,15 @@ async function runLoop(opts: RunOpts): Promise<void> {
   // we route `system` → `instructions` (and omit the streamText `system` below,
   // so it isn't also duplicated into `input`).
   const codexBackend = opts.provider === 'openai-codex';
-  const providerOptions = codexBackend
-    ? { openai: { store: false, instructions: system } }
-    : undefined;
+  // codex's store:false + instructions, merged with the per-provider reasoning
+  // knob when the selected model reasons (standard enum → native option; no
+  // per-model hardcoding). Non-reasoning models / unknown providers add nothing.
+  const providerOptions = buildProviderOptions(
+    opts.provider,
+    system,
+    opts.modelReasoning,
+    opts.reasoningEffort,
+  );
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (opts.signal.aborted) return finish('completed', 'Stopped');
@@ -328,7 +422,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
         system: codexBackend ? undefined : system,
         messages: transcript,
         tools,
-        maxOutputTokens: codexBackend ? undefined : AGENT_MAX_TOKENS,
+        maxOutputTokens: codexBackend
+          ? undefined
+          : maxTokensForTurn(opts.provider, opts.modelReasoning, opts.reasoningEffort),
         providerOptions,
         abortSignal: opts.signal,
       });
@@ -733,6 +829,11 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
 
     const settings = getSettingsSync();
     const agentSettings = settings.agent;
+    // Reasoning effort only takes effect for models the catalog flags `reasoning`;
+    // the builder ignores it otherwise (matched by provider + id, so a live-fetched
+    // or remapped id still resolves through the same static catalog entry).
+    const modelReasoning =
+      MODELS.find((m) => m.provider === input.provider && m.id === input.model)?.reasoning ?? false;
     void runLoop({
       auth,
       baseUrl,
@@ -745,6 +846,8 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       approvalMode: agentSettings.approvalMode,
       denyGlobs: agentSettings.denyGlobs,
       customInstructions: agentSettings.instructions,
+      reasoningEffort: agentSettings.reasoningEffort,
+      modelReasoning,
       // Unattended only when the bridge is actually exposed AND skip is opted in;
       // turning the server off restores normal approval prompts automatically.
       unattended: settings.server.enabled && settings.server.skipApprovals,

@@ -36,6 +36,15 @@ export type SearchEngine = 'google' | 'duckduckgo' | 'bing';
  */
 export type AgentApprovalMode = 'read-only' | 'ask' | 'auto';
 
+/**
+ * How hard a reasoning ("extended thinking") model should think before answering
+ * — a single standard enum the loop maps to each provider's native knob (OpenAI
+ * `reasoningEffort`, Anthropic thinking `budgetTokens`, Google `thinkingLevel`).
+ * Only models the catalog marks `reasoning` honor it; non-reasoning models ignore
+ * it entirely. See electron/agent/loop.ts.
+ */
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
 export type AppSettings = {
   version: 1;
   appearance: {
@@ -78,6 +87,12 @@ export type AppSettings = {
      * prompt, before any workspace AGENTS/CLAUDE files. Empty = none.
      */
     instructions: string;
+    /**
+     * How hard a reasoning model thinks before answering — see
+     * {@link ReasoningEffort}. Applied only when the selected model is a reasoning
+     * model (the loop maps it to the provider's native knob); ignored otherwise.
+     */
+    reasoningEffort: ReasoningEffort;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -172,6 +187,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       '**/secrets/**',
     ],
     instructions: '',
+    reasoningEffort: 'medium',
   },
   pcControl: {
     enabled: false,
@@ -199,6 +215,7 @@ const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
 const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing'];
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto'];
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 const MAX_DENY_GLOBS = 100;
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -348,6 +365,7 @@ export function sanitizeSettings(
       approvalMode: asEnum(ag.approvalMode, APPROVAL_MODES, base.agent.approvalMode),
       denyGlobs: asStringArray(ag.denyGlobs, base.agent.denyGlobs),
       instructions: asString(ag.instructions, base.agent.instructions),
+      reasoningEffort: asEnum(ag.reasoningEffort, REASONING_EFFORTS, base.agent.reasoningEffort),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

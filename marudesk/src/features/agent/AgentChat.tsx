@@ -66,7 +66,7 @@ import type {
 } from '../../../shared/agent';
 import { openSettingsTab, useSettingsStore } from '../settings/store';
 import { useProvidersStore } from '../providers/store';
-import type { AgentApprovalMode } from '../../../shared/settings';
+import type { AgentApprovalMode, ReasoningEffort } from '../../../shared/settings';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
 import { useWorkspaceStore } from '../workspace/store';
 import { useWebPageStore } from '../browser/store';
@@ -101,11 +101,16 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const verbosity = useAgentStore((s) => s.verbosity);
   const setVerbosity = useAgentStore((s) => s.setVerbosity);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
+  const reasoningEffort = useSettingsStore((s) => s.settings.agent.reasoningEffort);
   const updateSettings = useSettingsStore((s) => s.update);
 
   const summary = useWorkspaceStore((s) => s.summary);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
   const refreshStatus = useProvidersStore((s) => s.refreshProviderStatus);
+  // Reasoning-effort control is shown only for models the catalog flags `reasoning`.
+  const models = useProvidersStore((s) => s.models);
+  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  const isReasoningModel = !!findModel(models, selectedModelKey)?.reasoning;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -256,6 +261,12 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               <UsageMeter />
             </div>
             <div className="flex items-center gap-2">
+              {isReasoningModel ? (
+                <EffortToggle
+                  value={reasoningEffort}
+                  onChange={(effort) => void updateSettings({ agent: { reasoningEffort: effort } })}
+                />
+              ) : null}
               <ApprovalToggle
                 value={approvalMode}
                 onChange={(mode) => void updateSettings({ agent: { approvalMode: mode } })}
@@ -1151,6 +1162,58 @@ function ApprovalToggle({
             )}
           >
             <Icon size={12} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const EFFORT_OPTS: { value: ReasoningEffort; short: string; label: string }[] = [
+  { value: 'minimal', short: 'Min', label: 'Minimal — fastest, barely thinks' },
+  { value: 'low', short: 'Low', label: 'Low — quick, light reasoning' },
+  { value: 'medium', short: 'Med', label: 'Medium — balanced reasoning (default)' },
+  { value: 'high', short: 'High', label: 'High — deepest, slowest reasoning' },
+];
+
+/**
+ * Inline reasoning-effort dial — shown only when the selected model is a
+ * reasoning model. Mirrors {@link ApprovalToggle}: writes the persisted
+ * `agent.reasoningEffort`, which the loop maps to each provider's native thinking
+ * knob per turn. A leading Brain icon marks the group; the four levels use short
+ * text labels (vs. the icon-only Approval/Verbosity groups) so they stay legible.
+ */
+function EffortToggle({
+  value,
+  onChange,
+}: {
+  value: ReasoningEffort;
+  onChange: (v: ReasoningEffort) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Reasoning effort"
+      className="flex items-center gap-0.5 rounded border border-subtle bg-surface-1 p-0.5"
+    >
+      <Brain size={12} className="mx-0.5 text-fg-tertiary shrink-0" aria-hidden />
+      {EFFORT_OPTS.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            aria-pressed={active}
+            title={opt.label}
+            className={cn(
+              'flex items-center justify-center h-5 px-1 rounded-sm text-[10px] font-medium leading-none transition-colors duration-fast',
+              active
+                ? 'bg-surface-3 text-fg-primary'
+                : 'text-fg-tertiary hover:text-fg-secondary',
+            )}
+          >
+            {opt.short}
           </button>
         );
       })}
