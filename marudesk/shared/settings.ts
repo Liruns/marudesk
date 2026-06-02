@@ -101,6 +101,16 @@ export type AppSettings = {
      */
     relayUrl: string;
     cloudEnabled: boolean;
+    /**
+     * Unattended mode (T2 — docs/t2-secure-pairing-design.md). When on AND the
+     * server is enabled, it skips BOTH human approval gates so a phone can drive
+     * the PC hands-free: (1) device pairing auto-approves (no desktop card), and
+     * (2) gated agent tools (eval_js / cookies / storage / terminal) auto-run
+     * instead of waiting for approval. Off by default; a security trade-off only
+     * for a setup + network you fully trust. `read-only` agent mode still refuses
+     * writes/eval regardless.
+     */
+    skipApprovals: boolean;
   };
 };
 
@@ -164,6 +174,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     port: 8787,
     relayUrl: DEFAULT_RELAY_URL,
     cloudEnabled: false,
+    skipApprovals: false,
   },
 };
 
@@ -338,6 +349,7 @@ export function sanitizeSettings(
       port: clampNumber(sv.port, base.server.port, SERVER_PORT_MIN, SERVER_PORT_MAX),
       relayUrl: asRelayUrl(sv.relayUrl, base.server.relayUrl),
       cloudEnabled: asBool(sv.cloudEnabled, base.server.cloudEnabled),
+      skipApprovals: asBool(sv.skipApprovals, base.server.skipApprovals),
     },
   };
 }

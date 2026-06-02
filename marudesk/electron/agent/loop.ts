@@ -251,6 +251,14 @@ type RunOpts = {
   approvalMode: AgentApprovalMode;
   /** Path globs the agent may never edit (passed to the tool context). */
   denyGlobs: string[];
+  /**
+   * Unattended bridge mode (Settings → Remote → "Skip approvals"): the desktop is
+   * running headless for a paired phone, so gated tools auto-run instead of parking
+   * for approval — the same effect as `auto`, but scoped to "the server is exposed
+   * AND the user opted in". `read-only` still refuses writes/eval; this only skips
+   * the `ask`-mode gate. See docs/t2-secure-pairing-design.md.
+   */
+  unattended: boolean;
 };
 
 async function runLoop(opts: RunOpts): Promise<void> {
@@ -423,8 +431,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
       }
 
       // Gated tools (eval_js / cookies / storage / terminal output): park for
-      // explicit approval — unless the mode is `auto`, which auto-approves. (§B4)
-      if (isGatedTool(call.name) && opts.approvalMode !== 'auto') {
+      // explicit approval — unless the mode is `auto` or the bridge is in
+      // unattended mode, which auto-approve. (§B4)
+      if (isGatedTool(call.name) && opts.approvalMode !== 'auto' && !opts.unattended) {
         call.state = 'awaiting_approval';
         state.status = 'waiting_for_user';
         state.pendingApproval = {
@@ -707,7 +716,8 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     transcript.push({ role: 'user', content: userText });
     emit();
 
-    const agentSettings = getSettingsSync().agent;
+    const settings = getSettingsSync();
+    const agentSettings = settings.agent;
     void runLoop({
       auth,
       baseUrl,
@@ -719,6 +729,9 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       signal: controller.signal,
       approvalMode: agentSettings.approvalMode,
       denyGlobs: agentSettings.denyGlobs,
+      // Unattended only when the bridge is actually exposed AND skip is opted in;
+      // turning the server off restores normal approval prompts automatically.
+      unattended: settings.server.enabled && settings.server.skipApprovals,
     }).catch((err) => finish('failed', undefined, (err as Error).message));
 
     return { ok: true, turnId };

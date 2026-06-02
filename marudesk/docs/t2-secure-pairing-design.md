@@ -148,7 +148,11 @@ PC /pair:
 - [ ] 기기 레코드(키 포함)는 safeStorage만. 키는 렌더러/네트워크로 평문 유출 금지.
 - [ ] AAD로 봉투 맥락 고정(엔드포인트 횡단·proof 재사용 차단). 변조 = 복호 실패.
 - [ ] 기기 폐기 즉시 효력(키 삭제 → 이후 봉투 복호 불가).
-- [ ] L-1(원격 self-approval): 서버 ON 시 gated 도구 승인은 데스크톱 UI 고정 — §M5 정책 유지.
+- [ ] L-1(원격 self-approval): 기본은 gated 도구 승인을 데스크톱에 고정(안전 기본값).
+- [ ] **무인(skipApprovals) 모드**: 기본 OFF + 켜면 경고. ON일 때만 ① 페어링 자동 승인 +
+      ② gated 도구 무승인 실행(`server.enabled && server.skipApprovals`). L-1과의 관계 = "기본
+      안전, 신뢰 환경에서 사용자가 *명시적으로* 켜는 opt-out". `read-only` agent 모드는 무관하게
+      write/eval 거부. 서버 OFF면 자동으로 평소 승인 동작 복귀. (loop.ts `unattended`, harness:pair 18-19)
 - [ ] nonce는 메시지마다 랜덤 12B. (재전송 방지는 v1 비목표 — 채널은 기밀·인증됨, 명시.)
 - [ ] X25519 WebCrypto 미지원 WebView는 graceful 실패 + 안내(평문 폴백 금지).
 

@@ -52,25 +52,31 @@ function makeDeviceStore(): {
   };
 }
 
-function buildDeps(approve: { mode: 'approve' | 'reject' }): {
+function buildDeps(approve: { mode: 'approve' | 'reject' | 'auto' }): {
   deps: RouterDeps;
   pairing: ReturnType<typeof createPairingManager>;
+  cardShown: () => boolean;
 } {
   const state: AgentChatState = { ...emptyAgentChatState(), status: 'idle' };
   const subs = new Set<(s: AgentChatState) => void>();
   const store = makeDeviceStore();
+  let cards = 0;
 
   // `pairing` is referenced inside onPairingRequest, but that closure only runs
   // after construction returns, so the const is fully initialized by then.
   const pairing = createPairingManager({
     addDevice: (rec) => store.add(rec.deviceId, rec.key),
     onPairingRequest: (info) => {
+      cards += 1;
+      // 'auto' = unattended: handlePair auto-approves, so a card should never fire.
+      if (approve.mode === 'auto') return;
       // Decide on a later tick, after handlePair is already awaiting the decision.
       setTimeout(() => {
         if (approve.mode === 'approve') pairing.approve(info.approvalId);
         else pairing.reject(info.approvalId);
       }, 0);
     },
+    shouldAutoApprove: () => approve.mode === 'auto',
     approvalTimeoutMs: 2000,
   });
 
@@ -95,7 +101,7 @@ function buildDeps(approve: { mode: 'approve' | 'reject' }): {
     devices: store.resolver,
     pair: (body) => pairing.handlePair(body),
   };
-  return { deps, pairing };
+  return { deps, pairing, cardShown: () => cards > 0 };
 }
 
 type Reply = { status: number; body: string; headers: http.IncomingHttpHeaders };
@@ -296,6 +302,22 @@ async function main(): Promise<void> {
       check('a rejected pairing → 403 (no device minted)', rejected.status === 403);
     } finally {
       serverReject.close();
+    }
+
+    // ── unattended (skipApprovals): auto-approve pairing with NO desktop card ────
+    const { deps: depsAuto, pairing: pairingAuto, cardShown } = buildDeps({ mode: 'auto' });
+    const serverAuto = http.createServer((req, res) => void handleRequest(req, res, depsAuto));
+    await new Promise<void>((r) => serverAuto.listen(0, '127.0.0.1', r));
+    const autoPort = (serverAuto.address() as AddressInfo).port;
+    try {
+      const autoPaired = await pairPhone(autoPort, pairingAuto, 'Unattended Phone');
+      check(
+        'unattended auto-approves pairing → 200 + deviceId',
+        autoPaired.status === 200 && typeof autoPaired.deviceId === 'string',
+      );
+      check('unattended pairing showed NO approval card', !cardShown());
+    } finally {
+      serverAuto.close();
     }
 
     console.log(`\npairing + E2E harness: ${passed} assertions passed`);

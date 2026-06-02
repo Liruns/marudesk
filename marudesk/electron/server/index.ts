@@ -15,6 +15,7 @@ import {
 } from '../agent/loop';
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
+import { getSettingsSync } from '../settings';
 import { addDevice, deviceResolver, listDeviceInfos, revokeDevice } from './devices';
 import { getConnectCandidates } from './pairing-urls';
 import { createPairingManager } from './pairing';
@@ -60,6 +61,11 @@ let onPairingRequest: ((info: PairingRequestInfo) => void) | null = null;
 const pairing = createPairingManager({
   addDevice,
   onPairingRequest: (info) => onPairingRequest?.(info),
+  // Unattended mode (Settings → Remote → "Skip approvals"): auto-approve pairing.
+  shouldAutoApprove: () => {
+    const s = getSettingsSync().server;
+    return s.enabled && s.skipApprovals;
+  },
 });
 
 /** Whether the bridge server is currently listening. */

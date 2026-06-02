@@ -387,6 +387,7 @@ function RemoteCategory() {
       </Section>
 
       {server.enabled ? <LocalServerReach /> : null}
+      {server.enabled ? <UnattendedToggle /> : null}
       {server.enabled ? <DevicePairing /> : null}
 
       <header className="flex flex-col gap-1">
@@ -399,6 +400,46 @@ function RemoteCategory() {
         </p>
       </header>
       <CloudRelaySection />
+    </div>
+  );
+}
+
+/**
+ * Unattended ("skip approvals") toggle (T2 — docs/t2-secure-pairing-design.md).
+ * One switch that drops BOTH human gates so a paired phone can drive the PC
+ * hands-free: pairing auto-approves AND gated agent tools run without asking. Off
+ * by default; shows a prominent warning while on. A real security trade-off, so
+ * it's deliberately verbose.
+ */
+function UnattendedToggle() {
+  const skip = useSettingsStore((s) => s.settings.server.skipApprovals);
+  const update = useSettingsStore((s) => s.update);
+  return (
+    <div className="flex flex-col gap-3">
+      <Section>
+        <Field
+          label="Skip approvals (unattended)"
+          hint="Let a paired phone drive this PC hands-free: auto-approve new device pairings AND run sensitive tools (run code, cookies, storage, terminal) without asking. Off by default."
+        >
+          <Segmented
+            value={skip ? 'on' : 'off'}
+            options={ON_OFF_OPTIONS}
+            onChange={(v) => void update({ server: { skipApprovals: v === 'on' } })}
+          />
+        </Field>
+      </Section>
+      {skip ? (
+        <div className="flex gap-2.5 rounded-lg bg-warning-subtle px-4 py-3">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+          <p className="text-caption text-fg-secondary leading-relaxed">
+            Unattended is on: any device that scans your QR pairs automatically, and the
+            agent will run code and other sensitive tools on this PC without asking. Use it
+            only on devices and a network you fully trust.{' '}
+            <span className="text-fg-primary">Read-only</span> agent mode still blocks edits
+            and code regardless.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

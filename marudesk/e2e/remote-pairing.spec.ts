@@ -30,9 +30,16 @@ test('remote: toggling the local server reveals/hides the Wi-Fi warning + device
     await expect(page.getByRole('heading', { name: 'Paired devices' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Pair a device' })).toBeVisible();
 
-    // Turning it back off hides them again.
+    // Unattended ("skip approvals") toggle appears, and turning it on shows the
+    // security warning. (Local server is the 1st On/Off; skip-approvals is the 2nd.)
+    await expect(page.getByText('Skip approvals (unattended)')).toBeVisible();
+    await page.getByRole('radio', { name: 'On' }).nth(1).click();
+    await expect(page.getByText(/Unattended is on/i)).toBeVisible();
+
+    // Turning the server back off hides the warning + pairing UI again.
     await page.getByRole('radio', { name: 'Off' }).first().click();
     await expect(page.getByRole('button', { name: 'Pair a device' })).toHaveCount(0);
+    await expect(page.getByText(/Unattended is on/i)).toHaveCount(0);
   } finally {
     await app.close();
   }

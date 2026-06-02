@@ -52,6 +52,11 @@ export type PairingDeps = {
   addDevice(rec: StoredDevice): Promise<void>;
   /** Notify the renderer of a pairing request awaiting approve/reject. */
   onPairingRequest(info: PairingRequestInfo): void;
+  /**
+   * When this returns true, pairing auto-approves (unattended mode — skip the
+   * desktop card). Read live each handshake; default behavior (omitted) always asks.
+   */
+  shouldAutoApprove?: () => boolean;
   /** ms a pairing code/QR stays valid (default 90s). */
   codeTtlMs?: number;
   /** ms to wait for the user's approve/reject before auto-rejecting (default 60s). */
@@ -194,8 +199,10 @@ export function createPairingManager(deps: PairingDeps): PairingManager {
 
     const fp = await fingerprint(phPubRaw);
     const name = sanitizeName(parsed.deviceName);
-    const approvalId = randomId();
-    const approved = await awaitApproval({ approvalId, name, fingerprint: fp });
+    // Unattended mode auto-approves (no desktop card); otherwise wait for the user.
+    const approved = deps.shouldAutoApprove?.()
+      ? true
+      : await awaitApproval({ approvalId: randomId(), name, fingerprint: fp });
     if (!approved) return { status: 403, body: { error: 'pairing not approved' } };
 
     const deviceId = randomId();
