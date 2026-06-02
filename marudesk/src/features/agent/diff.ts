@@ -54,3 +54,28 @@ function cap(lines: DiffLine[]): DiffLine[] {
     { kind: 'context', content: `… ${lines.length - MAX_LINES} more line(s)` },
   ];
 }
+
+/**
+ * Added / removed line counts for the changed region (same common prefix/suffix
+ * trim as {@link toDiffLines}, but uncapped). Feeds the aggregate "+X / -Y"
+ * summary across all of a turn's edits in the Changes review header.
+ */
+export function diffStats(
+  before: string | null,
+  after: string,
+): { added: number; removed: number } {
+  if (before === null) {
+    return { added: after.length === 0 ? 0 : after.split('\n').length, removed: 0 };
+  }
+  const a = before.split('\n');
+  const b = after.split('\n');
+  let p = 0;
+  while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let sa = a.length - 1;
+  let sb = b.length - 1;
+  while (sa >= p && sb >= p && a[sa] === b[sb]) {
+    sa--;
+    sb--;
+  }
+  return { added: Math.max(0, sb - p + 1), removed: Math.max(0, sa - p + 1) };
+}

@@ -15,15 +15,36 @@ import { useTabsStore } from '../tabs/store';
  * same configured providers rather than duplicating that machinery.
  */
 
+/**
+ * Transcript density (Claude Desktop's Summary / Normal / Verbose dial). A local
+ * display preference persisted to localStorage — deliberately NOT part of the
+ * server-owned {@link AgentChatState}, since it only affects this renderer's view.
+ */
+export type TranscriptVerbosity = 'summary' | 'normal' | 'verbose';
+
+const VERBOSITY_KEY = 'marudesk.agent.verbosity';
+function loadVerbosity(): TranscriptVerbosity {
+  try {
+    const v = localStorage.getItem(VERBOSITY_KEY);
+    if (v === 'summary' || v === 'normal' || v === 'verbose') return v;
+  } catch {
+    // ignore — fall back to the default
+  }
+  return 'normal';
+}
+
 type AgentState = {
   chat: AgentChatState;
   draft: string;
+  /** Transcript detail level for the message list. */
+  verbosity: TranscriptVerbosity;
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
 };
 
 type AgentActions = {
   setDraft: (v: string) => void;
+  setVerbosity: (v: TranscriptVerbosity) => void;
   /** Replace the projection from an `agent:event` snapshot. */
   ingest: (chat: AgentChatState) => void;
   /** Pull the current state on mount (catches up after the panel was unmounted). */
@@ -46,9 +67,19 @@ function activeWebTabId(): string | undefined {
 export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
+  verbosity: loadVerbosity(),
   localError: null,
 
   setDraft: (draft) => set({ draft }),
+
+  setVerbosity: (verbosity) => {
+    try {
+      localStorage.setItem(VERBOSITY_KEY, verbosity);
+    } catch {
+      // ignore — the in-memory value still updates
+    }
+    set({ verbosity });
+  },
 
   ingest: (chat) => set({ chat }),
 

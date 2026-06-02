@@ -37,10 +37,16 @@ import {
   ExternalLink,
   FolderOpen,
   ScrollText,
+  TextQuote,
+  List,
+  ListTree,
+  ChevronsDownUp,
+  ChevronsUpDown,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../components/ui';
 import { cn } from '../../lib/cn';
+import { Markdown } from '../../lib/markdown';
 import {
   findModel,
   isBuiltinProviderId,
@@ -60,8 +66,8 @@ import { useProvidersStore } from '../providers/store';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
 import { useWorkspaceStore } from '../workspace/store';
 import { useWebPageStore } from '../browser/store';
-import { useAgentStore } from './store';
-import { toDiffLines } from './diff';
+import { useAgentStore, type TranscriptVerbosity } from './store';
+import { toDiffLines, diffStats } from './diff';
 import { ModelPalette } from './ModelPalette';
 import { ContextPopover } from './ContextPopover';
 
@@ -88,6 +94,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const send = useAgentStore((s) => s.send);
   const abort = useAgentStore((s) => s.abort);
   const resetChat = useAgentStore((s) => s.resetChat);
+  const verbosity = useAgentStore((s) => s.verbosity);
+  const setVerbosity = useAgentStore((s) => s.setVerbosity);
 
   const summary = useWorkspaceStore((s) => s.summary);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
@@ -177,6 +185,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 key={m.id}
                 message={m}
                 streaming={chat.status === 'thinking' && i === chat.messages.length - 1}
+                verbosity={verbosity}
               />
             ))
           )}
@@ -206,7 +215,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               <StatusPill status={chat.status} />
               <UsageMeter />
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {!empty ? (
+                <VerbosityToggle value={verbosity} onChange={setVerbosity} />
+              ) : null}
               {!busy && !empty ? (
                 <button
                   type="button"
@@ -447,7 +459,15 @@ function ProviderModelBar({ full }: { full?: boolean }) {
 
 /* ── messages ───────────────────────────────────────────────────────────── */
 
-function MessageView({ message, streaming }: { message: AgentMessage; streaming?: boolean }) {
+function MessageView({
+  message,
+  streaming,
+  verbosity,
+}: {
+  message: AgentMessage;
+  streaming?: boolean;
+  verbosity: TranscriptVerbosity;
+}) {
   if (message.role === 'user') {
     return (
       <div className="self-end max-w-[92%] rounded-lg bg-accent-subtle/40 border border-subtle px-3 py-2">
@@ -476,19 +496,36 @@ function MessageView({ message, streaming }: { message: AgentMessage; streaming?
     <div className="flex flex-col gap-2">
       {message.parts.map((part, i) => {
         if (part.type === 'reasoning') {
-          return <ThinkingBlock key={i} text={part.text} streaming={reasoningStreaming} />;
+          // Summary hides intermediate reasoning; Verbose opens every Thinking
+          // block; Normal keeps them collapsed.
+          if (verbosity === 'summary') return null;
+          return (
+            <ThinkingBlock
+              key={i}
+              text={part.text}
+              streaming={reasoningStreaming}
+              defaultOpen={verbosity === 'verbose'}
+            />
+          );
         }
         if (part.type === 'text') {
           const caret = streaming && i === lastTextIdx && !reasoningStreaming;
           if (!part.text.trim() && !caret) return null;
+          // Assistant answers are rendered as markdown (GFM + highlighted code
+          // + copy buttons) via the shared renderer. The streaming caret rides
+          // the live edge: it sits inline right after the rendered prose.
           return (
-            <p key={i} className="text-body-sm text-fg-secondary whitespace-pre-wrap break-words leading-relaxed">
-              {part.text}
+            <div key={i} className="text-body-sm text-fg-secondary">
+              <Markdown source={part.text} className="md-compact" />
               {caret ? <StreamCaret /> : null}
-            </p>
+            </div>
           );
         }
-        return <ToolCardView key={i} call={part.call} />;
+        // Tool cards: hidden in Summary, auto-expanded in Verbose.
+        if (verbosity === 'summary') return null;
+        return (
+          <ToolCardView key={i} call={part.call} defaultOpen={verbosity === 'verbose'} />
+        );
       })}
     </div>
   );
@@ -512,9 +549,17 @@ function StreamCaret() {
  * distinct from the answer prose. Reasoning is display-only (never sent back to
  * the provider — see loop.ts), so this purely projects the streamed part.
  */
-function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean }) {
+function ThinkingBlock({
+  text,
+  streaming,
+  defaultOpen,
+}: {
+  text: string;
+  streaming?: boolean;
+  defaultOpen?: boolean;
+}) {
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const open = userOpen ?? !!streaming;
+  const open = userOpen ?? (!!streaming || !!defaultOpen);
   if (!text.trim() && !streaming) return null;
   return (
     <div className="rounded border border-subtle border-l-2 border-l-ai-thinking bg-surface-1 text-caption">
@@ -616,8 +661,9 @@ function stringField(input: unknown, key: string): string {
   return v && typeof v[key] === 'string' ? (v[key] as string) : '';
 }
 
-function ToolCardView({ call }: { call: ToolCall }) {
-  const [open, setOpen] = useState(false);
+function ToolCardView({ call, defaultOpen }: { call: ToolCall; defaultOpen?: boolean }) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? !!defaultOpen;
   const meta = TOOL_META[call.name] ?? { label: call.name, icon: Wrench };
   const Icon = meta.icon;
   const badge =
@@ -641,7 +687,7 @@ function ToolCardView({ call }: { call: ToolCall }) {
     >
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setUserOpen(!open)}
         className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
       >
         <ToolStateIcon state={call.state} />
@@ -687,20 +733,96 @@ function ToolStateIcon({ state }: { state: ToolCall['state'] }) {
 /* ── edits (P2: accept / revert) ────────────────────────────────────────── */
 
 function ChangesSection({ edits }: { edits: AgentEdit[] }) {
+  const acceptEdit = useAgentStore((s) => s.acceptEdit);
+  const revertEdit = useAgentStore((s) => s.revertEdit);
+  // Which file diffs are expanded. "Expand all" fills it; per-file toggles flip
+  // a single id. Kept here (not per card) so the bulk control can drive them.
+  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
+
+  const totals = edits.reduce(
+    (acc, e) => {
+      const { added, removed } = diffStats(e.before, e.after);
+      acc.added += added;
+      acc.removed += removed;
+      return acc;
+    },
+    { added: 0, removed: 0 },
+  );
+  const applied = edits.filter((e) => e.status === 'applied');
+  const allOpen = edits.length > 0 && openIds.size === edits.length;
+
+  const toggleOne = (id: string) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAll = () =>
+    setOpenIds(allOpen ? new Set() : new Set(edits.map((e) => e.id)));
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-caption uppercase tracking-wider text-fg-tertiary">
-        Changes ({edits.length})
+      {/* Aggregate review header: file count + total +/- across the turn, with
+          bulk keep/revert and expand-all (Zed / Codex multi-file review parity). */}
+      <div className="flex items-center gap-2 text-caption">
+        <span className="uppercase tracking-wider text-fg-tertiary">
+          {edits.length} file{edits.length === 1 ? '' : 's'} changed
+        </span>
+        <span className="tabular-nums text-success">+{totals.added}</span>
+        <span className="tabular-nums text-error">−{totals.removed}</span>
+        <span className="flex-1" aria-hidden />
+        {applied.length > 0 ? (
+          <>
+            <button
+              type="button"
+              onClick={() => applied.forEach((e) => void acceptEdit(e.id))}
+              className="flex items-center gap-1 text-fg-tertiary hover:text-accent transition-colors"
+              title="Keep all changes"
+            >
+              <Check size={12} /> Keep all
+            </button>
+            <button
+              type="button"
+              onClick={() => applied.forEach((e) => void revertEdit(e.id))}
+              className="flex items-center gap-1 text-fg-tertiary hover:text-error transition-colors"
+              title="Revert all changes on disk"
+            >
+              <RotateCcw size={12} /> Revert all
+            </button>
+          </>
+        ) : null}
+        <button
+          type="button"
+          onClick={toggleAll}
+          aria-label={allOpen ? 'Collapse all diffs' : 'Expand all diffs'}
+          title={allOpen ? 'Collapse all diffs' : 'Expand all diffs'}
+          className="text-fg-tertiary hover:text-fg-secondary transition-colors"
+        >
+          {allOpen ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+        </button>
       </div>
       {edits.map((e) => (
-        <EditCard key={e.id} edit={e} />
+        <EditCard
+          key={e.id}
+          edit={e}
+          open={openIds.has(e.id)}
+          onToggle={() => toggleOne(e.id)}
+        />
       ))}
     </div>
   );
 }
 
-function EditCard({ edit }: { edit: AgentEdit }) {
-  const [open, setOpen] = useState(false);
+function EditCard({
+  edit,
+  open,
+  onToggle,
+}: {
+  edit: AgentEdit;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
   const lines = open ? toDiffLines(edit.before, edit.after) : [];
@@ -711,7 +833,7 @@ function EditCard({ edit }: { edit: AgentEdit }) {
         <Badge variant={edit.kind === 'create' ? 'success' : 'neutral'}>{edit.kind}</Badge>
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={onToggle}
           className="font-mono text-caption text-fg-secondary truncate flex-1 text-left hover:text-fg-primary"
           title={edit.path}
         >
@@ -839,6 +961,55 @@ function StatusPill({ status }: { status: AgentStatus }) {
       )}
       {STATUS_LABEL[status]}
     </span>
+  );
+}
+
+const VERBOSITY_OPTS: { value: TranscriptVerbosity; icon: LucideIcon; label: string }[] = [
+  { value: 'summary', icon: TextQuote, label: 'Summary — answers only' },
+  { value: 'normal', icon: List, label: 'Normal — steps collapsed' },
+  { value: 'verbose', icon: ListTree, label: 'Verbose — expand every step' },
+];
+
+/**
+ * Transcript detail dial (Claude Desktop parity). Summary shows only the agent's
+ * prose answers; Normal keeps tool/thinking steps collapsed; Verbose expands them.
+ * A compact 3-way segmented control sitting in the composer footer.
+ */
+function VerbosityToggle({
+  value,
+  onChange,
+}: {
+  value: TranscriptVerbosity;
+  onChange: (v: TranscriptVerbosity) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Transcript detail"
+      className="flex items-center gap-0.5 rounded border border-subtle bg-surface-1 p-0.5"
+    >
+      {VERBOSITY_OPTS.map((opt) => {
+        const Icon = opt.icon;
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            aria-pressed={active}
+            title={opt.label}
+            className={cn(
+              'flex items-center justify-center size-5 rounded-sm transition-colors duration-fast',
+              active
+                ? 'bg-surface-3 text-fg-primary'
+                : 'text-fg-tertiary hover:text-fg-secondary',
+            )}
+          >
+            <Icon size={12} />
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

@@ -8,6 +8,7 @@ import {
 import { Columns2, Copy, Globe, Lock, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from './store';
+import { useAgentStore } from '../agent/store';
 import { useGridStore, groupForTab } from './grid';
 import { leaves } from './layout';
 import { confirmCloseTab, isDirty, useEditorStore } from '../editor/store';
@@ -35,6 +36,10 @@ export function TabStrip() {
   const closeTab = useTabsStore((s) => s.closeTab);
   const newTab = useTabsStore((s) => s.newTab);
   const reorderTabs = useTabsStore((s) => s.reorderTabs);
+  // The agent tab gets a "needs you" dot when its turn parks on an approval or
+  // question — so a blocked agent is visible even from another tab (Antigravity
+  // "Blocked" parity).
+  const agentWaiting = useAgentStore((s) => s.chat.status === 'waiting_for_user');
 
   const setDraggingTab = useGridStore((s) => s.setDraggingTab);
   const groups = useGridStore((s) => s.groups);
@@ -123,6 +128,7 @@ export function TabStrip() {
       key={tab.id}
       tab={tab}
       active={tab.id === activeTabId}
+      attention={tab.kind === 'agent' && agentWaiting}
       dragging={tab.id === draggingId}
       dropTarget={
         tab.id === overId && draggingId !== null && draggingId !== tab.id
@@ -390,6 +396,7 @@ function SplitGroup({
 function TabChip({
   tab,
   active,
+  attention,
   onActivate,
   onContextMenu,
   onClose,
@@ -403,6 +410,7 @@ function TabChip({
 }: {
   tab: TabState;
   active: boolean;
+  attention?: boolean;
   onActivate: () => void;
   onContextMenu: (x: number, y: number) => void;
   onClose: () => void;
@@ -478,6 +486,13 @@ function TabChip({
       ) : null}
       <TabIndicator tab={tab} />
       <span className="flex-1 min-w-0 truncate font-medium">{label}</span>
+      {attention ? (
+        <span
+          aria-hidden
+          title="Agent needs your input"
+          className="size-1.5 rounded-pill bg-warning animate-pulse shrink-0"
+        />
+      ) : null}
       {canClose ? (
         <button
           type="button"
