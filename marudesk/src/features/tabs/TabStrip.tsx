@@ -52,6 +52,9 @@ export function TabStrip() {
     null,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Which edges of the overflowing strip have more tabs hidden past them —
+  // drives a soft fade mask so an overflowing strip reads as scrollable.
+  const [edge, setEdge] = useState({ l: false, r: false });
 
   // Each split is a persistent group; consecutive strip tabs in the SAME group
   // (kept contiguous by grid.syncStripGrouping) are bracketed as one merged
@@ -94,6 +97,24 @@ export function TabStrip() {
     );
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeTabId, tabs.length]);
+
+  // Track which edges have hidden tabs so the strip can fade them (scroll cue).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setEdge({ l: el.scrollLeft > 1, r: el.scrollLeft < max - 1 });
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [tabs.length, groups]);
 
   // Dismiss the context menu on Escape (outside-click is handled by its backdrop).
   useEffect(() => {
@@ -190,6 +211,17 @@ export function TabStrip() {
 
   const menuTab = menu ? tabs.find((t) => t.id === menu.tabId) : undefined;
 
+  // Soft fade over whichever edge(s) hide more tabs — purely a scroll affordance.
+  const F = 28;
+  const maskImage =
+    edge.l && edge.r
+      ? `linear-gradient(90deg, transparent 0, #000 ${F}px, #000 calc(100% - ${F}px), transparent 100%)`
+      : edge.l
+        ? `linear-gradient(90deg, transparent 0, #000 ${F}px)`
+        : edge.r
+          ? `linear-gradient(90deg, #000 calc(100% - ${F}px), transparent 100%)`
+          : undefined;
+
   return (
     // Chrome-style strip: vertically-centered floating pills that grow to share
     // the bar (flex-1, capped per chip) and shrink equally as more open, then
@@ -201,6 +233,7 @@ export function TabStrip() {
       <div
         ref={scrollRef}
         className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
+        style={{ maskImage, WebkitMaskImage: maskImage }}
       >
         {stripNodes}
         <button
