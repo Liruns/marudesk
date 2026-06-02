@@ -111,6 +111,18 @@ export function humanizeModelError(
 }
 
 /**
+ * Errors worth failing over to another model: rate-limit / quota (429) and
+ * transient server / overload (5xx, incl. Anthropic's 529). NOT auth (401/403)
+ * or bad-request (400/404) — a different provider won't fix a bad key or a
+ * malformed request, and silently masking those would hide a real misconfig.
+ */
+export function isFailoverError(err: unknown): boolean {
+  if (!APICallError.isInstance(err)) return false;
+  const s = err.statusCode;
+  return s === 429 || (typeof s === 'number' && s >= 500);
+}
+
+/**
  * Build an AI SDK model instance for the resolved provider/model/key. Custom
  * OpenAI-compatible endpoints (OpenRouter / LM Studio / vLLM …) arrive as a
  * `custom:<id>` provider and reuse the same `createOpenAICompatible` path with a

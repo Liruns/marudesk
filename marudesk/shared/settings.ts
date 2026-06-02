@@ -45,6 +45,15 @@ export type AgentApprovalMode = 'read-only' | 'ask' | 'auto';
  */
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
 
+/**
+ * A specific model to run, as a (provider, model-id) pair — the unit of the
+ * agent's fail-over chain. `provider` is really a {@link ProviderId}, but kept
+ * as a bare string here so settings stays decoupled from the provider catalog;
+ * the agent loop resolves each ref's credentials at fail-over time and skips any
+ * that aren't connected.
+ */
+export type ModelRef = { provider: string; model: string };
+
 export type AppSettings = {
   version: 1;
   appearance: {
@@ -93,6 +102,13 @@ export type AppSettings = {
      * model (the loop maps it to the provider's native knob); ignored otherwise.
      */
     reasoningEffort: ReasoningEffort;
+    /**
+     * Model fail-over chain: when the active model hits a rate limit / quota
+     * (429) or a transient server error (5xx), the agent retries the in-flight
+     * step on the next *connected* model in `order` before giving up. Off by
+     * default; `order` is the user's ranked list of (provider, model) pairs.
+     */
+    fallback: { enabled: boolean; order: ModelRef[] };
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -188,6 +204,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     ],
     instructions: '',
     reasoningEffort: 'medium',
+    fallback: { enabled: false, order: [] },
   },
   pcControl: {
     enabled: false,
@@ -297,6 +314,26 @@ function asStringArray(value: unknown, fallback: string[]): string[] {
     .slice(0, MAX_DENY_GLOBS);
 }
 
+const MAX_FALLBACK_MODELS = 20;
+
+/**
+ * Coerce the fail-over chain: an array of {provider, model} pairs with both
+ * fields non-empty strings, capped. A non-array falls back; an all-invalid array
+ * yields []; an empty array is honored (the user cleared the chain).
+ */
+function asModelRefArray(value: unknown, fallback: ModelRef[]): ModelRef[] {
+  if (!Array.isArray(value)) return fallback;
+  const out: ModelRef[] = [];
+  for (const item of value) {
+    const r = asRecord(item);
+    const provider = typeof r.provider === 'string' ? r.provider.trim() : '';
+    const model = typeof r.model === 'string' ? r.model.trim() : '';
+    if (provider && model) out.push({ provider, model });
+    if (out.length >= MAX_FALLBACK_MODELS) break;
+  }
+  return out;
+}
+
 /**
  * Coerce arbitrary input into a valid AppSettings, using `base` (defaults, or
  * the current settings for a partial update) for any missing/invalid field.
@@ -366,6 +403,10 @@ export function sanitizeSettings(
       denyGlobs: asStringArray(ag.denyGlobs, base.agent.denyGlobs),
       instructions: asString(ag.instructions, base.agent.instructions),
       reasoningEffort: asEnum(ag.reasoningEffort, REASONING_EFFORTS, base.agent.reasoningEffort),
+      fallback: {
+        enabled: asBool(asRecord(ag.fallback).enabled, base.agent.fallback.enabled),
+        order: asModelRefArray(asRecord(ag.fallback).order, base.agent.fallback.order),
+      },
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

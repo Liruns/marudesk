@@ -21,13 +21,13 @@ import { CLAUDE_CODE_SYSTEM_PREFIX, supportsOAuth } from '../oauth/config';
 import { getValidAccessToken } from '../oauth/flow';
 import { getCustomProvider } from '../custom-providers';
 import { getSettingsSync } from '../settings';
-import type { AgentApprovalMode, ReasoningEffort } from '../../shared/settings';
+import type { AgentApprovalMode, ModelRef, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
 import { getHost, getTab, setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { writeFileForEditor } from '../workspace';
 import { streamText, generateText, type JSONValue, type ModelMessage } from 'ai';
-import { buildModel, aiTools, humanizeModelError, type ModelAuth } from './model';
+import { buildModel, aiTools, humanizeModelError, isFailoverError, type ModelAuth } from './model';
 import { loadWorkspaceInstructions } from './instructions';
 import { ASK_USER, describeToolInput, type ToolContext } from './tools';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
@@ -349,6 +349,29 @@ type RunOpts = {
    * the `ask`-mode gate. See docs/t2-secure-pairing-design.md.
    */
   unattended: boolean;
+  /**
+   * Ordered model fail-over chain (Settings → Agent). Empty when the toggle is
+   * off. On a rate-limit/5xx the loop retries the current step on the next
+   * *connected* entry; the primary (provider/model above) is implicitly first
+   * and never reused.
+   */
+  fallbacks: ModelRef[];
+};
+
+/**
+ * The per-provider scaffolding for the model currently driving the turn —
+ * bundled so a mid-turn fail-over can swap all of it atomically (the system
+ * prompt, codex routing, and the reasoning/token knobs all depend on which
+ * provider/model is active, not just the model handle).
+ */
+type ActiveTurnModel = {
+  provider: AgentSendInput['provider'];
+  modelId: string;
+  model: ReturnType<typeof buildModel>;
+  system: string;
+  codexBackend: boolean;
+  providerOptions: ReturnType<typeof buildProviderOptions>;
+  maxOutputTokens: number | undefined;
 };
 
 async function runLoop(opts: RunOpts): Promise<void> {
@@ -358,39 +381,79 @@ async function runLoop(opts: RunOpts): Promise<void> {
     signal: opts.signal,
     denyGlobs: opts.denyGlobs,
   };
-  // Build the model + tool set once per turn (provider/model/auth are fixed for it).
-  const model = buildModel(opts.provider, opts.model, opts.auth, opts.baseUrl);
   const tools = aiTools(listMcpTools());
-  // Anthropic OAuth (subscription) requests are rejected unless the system prompt
-  // starts with the Claude-Code identity line — prepend it for that path only.
-  const baseSystem =
-    opts.auth.mode === 'oauth' && opts.provider === 'anthropic'
-      ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SYSTEM_PROMPT}`
-      : SYSTEM_PROMPT;
   // Fold the repo's own instruction file (AGENTS.md / CLAUDE.md) into the system
-  // prompt so the agent follows project conventions (Track B §B2). Appended AFTER
-  // the Claude-Code prefix so the Anthropic-OAuth first-line requirement holds.
+  // prompt so the agent follows project conventions (Track B §B2).
   const wsInstructions = await loadWorkspaceInstructions(opts.ws);
-  // base prompt → the user's standing instructions (Settings) → workspace AGENTS/CLAUDE.
-  const system = [baseSystem, opts.customInstructions, wsInstructions]
-    .filter((s): s is string => !!s && !!s.trim())
-    .join('\n\n---\n\n');
-  // The ChatGPT codex backend (openai-codex) needs store:false, rejects
-  // max_output_tokens, AND requires the system prompt in the Responses API's
-  // top-level `instructions` field — it 400s `{"detail":"Instructions are
-  // required"}` when the system prompt is only an `input` message. So for codex
-  // we route `system` → `instructions` (and omit the streamText `system` below,
-  // so it isn't also duplicated into `input`).
-  const codexBackend = opts.provider === 'openai-codex';
-  // codex's store:false + instructions, merged with the per-provider reasoning
-  // knob when the selected model reasons (standard enum → native option; no
-  // per-model hardcoding). Non-reasoning models / unknown providers add nothing.
-  const providerOptions = buildProviderOptions(
-    opts.provider,
-    system,
-    opts.modelReasoning,
-    opts.reasoningEffort,
-  );
+
+  // Build the per-provider scaffolding for a given model in ONE place, so a
+  // mid-turn fail-over (pickNextFallback) can rebuild all of it for the new
+  // provider — not just the model handle:
+  //  - Anthropic OAuth (subscription) is rejected unless the system prompt starts
+  //    with the Claude-Code identity line; prepend it for that path only, then
+  //    fold the user's standing instructions + workspace AGENTS/CLAUDE after it.
+  //  - The ChatGPT codex backend (openai-codex) routes `system` → the Responses
+  //    API `instructions` field (it 400s otherwise) and rejects max_output_tokens.
+  const activate = (a: {
+    provider: AgentSendInput['provider'];
+    modelId: string;
+    auth: ModelAuth;
+    baseUrl?: string;
+    modelReasoning: boolean;
+  }): ActiveTurnModel => {
+    const baseSystem =
+      a.auth.mode === 'oauth' && a.provider === 'anthropic'
+        ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SYSTEM_PROMPT}`
+        : SYSTEM_PROMPT;
+    const system = [baseSystem, opts.customInstructions, wsInstructions]
+      .filter((s): s is string => !!s && !!s.trim())
+      .join('\n\n---\n\n');
+    const codexBackend = a.provider === 'openai-codex';
+    return {
+      provider: a.provider,
+      modelId: a.modelId,
+      model: buildModel(a.provider, a.modelId, a.auth, a.baseUrl),
+      system,
+      codexBackend,
+      providerOptions: buildProviderOptions(a.provider, system, a.modelReasoning, opts.reasoningEffort),
+      maxOutputTokens: codexBackend
+        ? undefined
+        : maxTokensForTurn(a.provider, a.modelReasoning, opts.reasoningEffort),
+    };
+  };
+
+  let current = activate({
+    provider: opts.provider,
+    modelId: opts.model,
+    auth: opts.auth,
+    baseUrl: opts.baseUrl,
+    modelReasoning: opts.modelReasoning,
+  });
+
+  // Fail-over bookkeeping: never retry a model already tried this turn (seed with
+  // the primary). `pickNextFallback` walks the configured chain and returns the
+  // first *connected* candidate (resolving its creds), or null when spent.
+  const triedModels = new Set<string>([`${opts.provider}::${opts.model}`]);
+  const pickNextFallback = async (): Promise<ActiveTurnModel | null> => {
+    for (const ref of opts.fallbacks) {
+      const key = `${ref.provider}::${ref.model}`;
+      if (triedModels.has(key)) continue;
+      triedModels.add(key);
+      const candidateProvider = ref.provider as AgentSendInput['provider'];
+      const resolved = await resolveTurnAuth(candidateProvider);
+      if (!resolved.ok) continue; // not connected (no key / dead OAuth) → skip
+      const modelReasoning =
+        MODELS.find((m) => m.provider === candidateProvider && m.id === ref.model)?.reasoning ?? false;
+      return activate({
+        provider: candidateProvider,
+        modelId: ref.model,
+        auth: resolved.auth,
+        baseUrl: resolved.baseUrl,
+        modelReasoning,
+      });
+    }
+    return null;
+  };
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (opts.signal.aborted) return finish('completed', 'Stopped');
@@ -416,16 +479,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
     let toolUses: { id: string; name: string; input: unknown }[];
     try {
       const res = streamText({
-        model,
+        model: current.model,
         // codex carries the system prompt in providerOptions.openai.instructions
         // (see above), so don't also pass it here or it lands twice.
-        system: codexBackend ? undefined : system,
+        system: current.codexBackend ? undefined : current.system,
         messages: transcript,
         tools,
-        maxOutputTokens: codexBackend
-          ? undefined
-          : maxTokensForTurn(opts.provider, opts.modelReasoning, opts.reasoningEffort),
-        providerOptions,
+        maxOutputTokens: current.maxOutputTokens,
+        providerOptions: current.providerOptions,
         abortSignal: opts.signal,
       });
       // Consume the stream for live text; the assembled tool calls + usage come
@@ -458,10 +519,27 @@ async function runLoop(opts: RunOpts): Promise<void> {
         if (i !== -1) state.messages.splice(i, 1);
       }
       if (opts.signal.aborted) return finish('completed', 'Stopped');
+      // Provider exhausted (429) or a transient server error (5xx): fall over to
+      // the next configured model and retry THIS step. The transcript is
+      // provider-neutral, so only the per-provider scaffolding swaps; once we
+      // switch, the rest of the turn stays on the new model.
+      if (isFailoverError(err)) {
+        const next = await pickNextFallback();
+        if (next) {
+          // Discard any partial bubble from the failed attempt; the retry makes a
+          // fresh one. (429 usually fires before any text streams.)
+          const i = state.messages.indexOf(assistantMsg);
+          if (i !== -1) state.messages.splice(i, 1);
+          current = next;
+          emit();
+          step--; // re-run this step index on the new model
+          continue;
+        }
+      }
       return finish(
         'failed',
         undefined,
-        humanizeModelError(err, opts.provider, opts.model),
+        humanizeModelError(err, current.provider, current.modelId),
       );
     }
 
@@ -848,6 +926,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       customInstructions: agentSettings.instructions,
       reasoningEffort: agentSettings.reasoningEffort,
       modelReasoning,
+      fallbacks: agentSettings.fallback.enabled ? agentSettings.fallback.order : [],
       // Unattended only when the bridge is actually exposed AND skip is opted in;
       // turning the server off restores normal approval prompts automatically.
       unattended: settings.server.enabled && settings.server.skipApprovals,

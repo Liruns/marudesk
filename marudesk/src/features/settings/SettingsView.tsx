@@ -6,6 +6,8 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Bot,
   Check,
   ChevronRight,
@@ -17,6 +19,7 @@ import {
   Loader2,
   Palette,
   Plug,
+  Plus as PlusIcon,
   QrCode,
   Radio,
   RefreshCw,
@@ -38,6 +41,7 @@ import {
   UI_ZOOM_MIN,
   type AgentApprovalMode,
   type DevtoolsDock,
+  type ModelRef,
   type SearchEngine,
   type ThemeMode,
 } from '../../../shared/settings';
@@ -61,6 +65,9 @@ import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
 import { McpServersSettings } from './McpServersSettings';
 import { RemoteGuide } from './RemoteGuide';
+import { useProvidersStore } from '../providers/store';
+import { ProviderGlyph } from '../providers/ProviderGlyph';
+import type { ModelEntry, ProviderId } from '../../../shared/providers';
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: 'Dark' },
@@ -356,6 +363,28 @@ function AgentCategory() {
         />
       </Field>
       <Field
+        label="Model fallback"
+        hint="When your selected model is rate-limited or errors out, retry on the next connected model below instead of failing. Tried top-to-bottom; your selected model is always first."
+      >
+        <Segmented
+          value={agent.fallback.enabled ? 'on' : 'off'}
+          options={ON_OFF_OPTIONS}
+          onChange={(v) =>
+            void update({ agent: { fallback: { ...agent.fallback, enabled: v === 'on' } } })
+          }
+        />
+      </Field>
+      {agent.fallback.enabled ? (
+        <div className="px-4 py-3">
+          <FallbackChain
+            order={agent.fallback.order}
+            onChange={(order) =>
+              void update({ agent: { fallback: { ...agent.fallback, order } } })
+            }
+          />
+        </div>
+      ) : null}
+      <Field
         label="PC control"
         hint="Let the agent open files, folders, and URLs on this computer and reveal paths in the OS file manager. Acts OUTSIDE your workspace; each action asks for approval unless the mode is Auto. Off by default."
       >
@@ -366,6 +395,151 @@ function AgentCategory() {
         />
       </Field>
     </Section>
+  );
+}
+
+/**
+ * The model fail-over chain editor (Settings → Agent). A ranked list of
+ * (provider, model) pairs the agent tries in order when the active model is
+ * rate-limited / 5xx. Rows reorder with up/down + remove; "Add model" offers
+ * every connected, tool-capable model not already in the chain. Refs are stored
+ * as provider/model-id (so they survive a catalog refresh); labels + glyphs are
+ * resolved live — an unknown/offline ref shows its raw id + a "not connected"
+ * tag (the loop skips it at fail-over time).
+ */
+function FallbackChain({
+  order,
+  onChange,
+}: {
+  order: ModelRef[];
+  onChange: (order: ModelRef[]) => void;
+}) {
+  const models = useProvidersStore((s) => s.models);
+  const providerStatus = useProvidersStore((s) => s.providerStatus);
+  const statusChecked = useProvidersStore((s) => s.statusChecked);
+  const refreshProviderStatus = useProvidersStore((s) => s.refreshProviderStatus);
+  const [adding, setAdding] = useState(false);
+
+  // Populate connected-provider status (+ each connected provider's model list)
+  // if the AI Providers panel hasn't been opened yet this session, so candidates
+  // and labels resolve here too.
+  useEffect(() => {
+    if (!statusChecked) void refreshProviderStatus();
+  }, [statusChecked, refreshProviderStatus]);
+
+  const isConnected = (provider: string) => {
+    if (provider.startsWith('custom:')) return true;
+    const st = providerStatus.find((p) => p.id === provider);
+    return !!st?.hasKey || !!st?.oauth;
+  };
+  const labelFor = (ref: ModelRef) =>
+    models.find((m) => m.provider === ref.provider && m.id === ref.model)?.label ?? ref.model;
+
+  const inChain = new Set(order.map((r) => `${r.provider}:${r.model}`));
+  const candidates = models.filter(
+    (m) => m.tools !== false && isConnected(m.provider) && !inChain.has(`${m.provider}:${m.id}`),
+  );
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= order.length) return;
+    const next = order.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  const removeAt = (i: number) => onChange(order.filter((_, k) => k !== i));
+  const addModel = (m: ModelEntry) => {
+    onChange([...order, { provider: m.provider, model: m.id }]);
+    setAdding(false);
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      {order.length === 0 ? (
+        <p className="text-caption text-fg-tertiary">
+          No fallback models yet — add one or more below. The agent tries them in
+          order when your selected model is rate-limited.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-1">
+          {order.map((ref, i) => {
+            const connected = isConnected(ref.provider);
+            return (
+              <li
+                key={`${ref.provider}:${ref.model}`}
+                className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5"
+              >
+                <span className="w-4 shrink-0 text-center text-caption tabular-nums text-fg-tertiary">
+                  {i + 1}
+                </span>
+                <ProviderGlyph provider={ref.provider as ProviderId} label={labelFor(ref)} size={16} />
+                <span className="flex-1 truncate text-body-sm text-fg-secondary">{labelFor(ref)}</span>
+                {!connected ? (
+                  <span
+                    title="This provider isn't connected — it'll be skipped during fallback."
+                    className="shrink-0 rounded-pill bg-warning-subtle px-1.5 py-px text-[10px] font-medium text-warning"
+                  >
+                    not connected
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label="Move up"
+                  disabled={i === 0}
+                  onClick={() => move(i, -1)}
+                  className={STEP_BTN}
+                >
+                  <ArrowUp size={13} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move down"
+                  disabled={i === order.length - 1}
+                  onClick={() => move(i, 1)}
+                  className={STEP_BTN}
+                >
+                  <ArrowDown size={13} />
+                </button>
+                <button type="button" aria-label="Remove" onClick={() => removeAt(i)} className={STEP_BTN}>
+                  <X size={13} />
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {adding ? (
+        <div className="flex max-h-52 flex-col overflow-y-auto rounded-md border border-subtle bg-surface-1">
+          {candidates.length === 0 ? (
+            <p className="px-3 py-2 text-caption text-fg-tertiary">
+              No more connected models to add — connect a provider under Settings → AI Providers.
+            </p>
+          ) : (
+            candidates.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => addModel(m)}
+                className="flex items-center gap-2 px-3 py-1.5 text-left text-body-sm text-fg-secondary hover:bg-surface-2 transition-colors duration-fast"
+              >
+                <ProviderGlyph provider={m.provider} label={m.label} size={16} />
+                <span className="flex-1 truncate">{m.label}</span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-1.5 self-start rounded-md px-2 py-1 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
+        >
+          <PlusIcon size={13} />
+          Add model
+        </button>
+      )}
+    </div>
   );
 }
 
