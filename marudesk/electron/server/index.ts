@@ -16,6 +16,7 @@ import {
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { getSettingsSync } from '../settings';
+import { createApprovalGuard } from './approval-guard';
 import { addDevice, deviceResolver, listDeviceInfos, revokeDevice } from './devices';
 import { getConnectCandidates } from './pairing-urls';
 import { createPairingManager } from './pairing';
@@ -141,6 +142,9 @@ export async function startServer(port: number): Promise<void> {
     // LAN/Tailscale). The bearer path stays for the loopback companion.
     devices: deviceResolver,
     pair: (body) => pairing.handlePair(body),
+    // T2 L-1: a remote peer can't self-approve gated tools while exposed — those
+    // approvals stay pinned to the desktop UI (docs/t2-secure-pairing-design.md §8).
+    approvalGuard: createApprovalGuard(),
   };
 
   const srv = http.createServer((req, res) => {

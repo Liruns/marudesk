@@ -148,7 +148,12 @@ PC /pair:
 - [ ] 기기 레코드(키 포함)는 safeStorage만. 키는 렌더러/네트워크로 평문 유출 금지.
 - [ ] AAD로 봉투 맥락 고정(엔드포인트 횡단·proof 재사용 차단). 변조 = 복호 실패.
 - [ ] 기기 폐기 즉시 효력(키 삭제 → 이후 봉투 복호 불가).
-- [ ] L-1(원격 self-approval): 기본은 gated 도구 승인을 데스크톱에 고정(안전 기본값).
+- [x] L-1(원격 self-approval): gated 도구 승인을 데스크톱 UI에 고정. **구현됨** — bridge 명령은 전부
+      `electron/server/dispatch.ts`를 거치고(데스크톱 IPC는 loop를 직접 호출 → dispatch 미경유), 서버 노출 중
+      (`server.enabled || cloudEnabled`)엔 bridge발 *approve*(approved=true)를 gated 도구에 한해 거부한다
+      (원격 *deny*는 허용 — fail-safe: 폰에서 위험 도구 취소는 가능). 환경 사실(serverExposed + isGatedTool)은
+      `approval-guard.ts`로 주입(router/relay-client 공통, 하니스는 순수). (harness:pair: bridge approve 거부 /
+      deny 허용 / bearer도 동일 / 서버 OFF·non-gated는 평소대로 단언)
 - [ ] **무인(skipApprovals) 모드**: 기본 OFF + 켜면 경고. ON일 때만 ① 페어링 자동 승인 +
       ② gated 도구 무승인 실행(`server.enabled && server.skipApprovals`). L-1과의 관계 = "기본
       안전, 신뢰 환경에서 사용자가 *명시적으로* 켜는 opt-out". `read-only` agent 모드는 무관하게

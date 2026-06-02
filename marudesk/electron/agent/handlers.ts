@@ -69,6 +69,10 @@ export function registerAgentHandlers(): void {
     return respond(turnId, callId, answers);
   });
 
+  // The desktop UI's approve path: it calls the loop DIRECTLY (never the bridge
+  // dispatcher), so a gated approval made here at the desktop is always honored.
+  // Remote (bridge) self-approval of gated tools is what L-1 refuses, and that is
+  // enforced in electron/server/dispatch.ts — keep this path off the dispatcher.
   defineHandler('agent:approve-tool', ([payload]) => {
     const { turnId, callId, approved } = parseApprove(payload);
     return approveTool(turnId, callId, approved);

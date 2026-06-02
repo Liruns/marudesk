@@ -15,7 +15,7 @@ import {
   type Envelope,
   type SessionKey,
 } from '../../shared/e2e';
-import { dispatchAgentCommand, type AgentApi } from './dispatch';
+import { dispatchAgentCommand, type AgentApi, type ApprovalGuard } from './dispatch';
 import type { DeviceResolver } from './devices';
 import type { PairOutcome } from './pairing';
 import { verifyToken } from './token';
@@ -55,6 +55,13 @@ export type RouterDeps = {
   devices?: DeviceResolver;
   /** T2 E2E: handle `POST /pair`. Omit ⇒ `/pair` returns 404 (pairing disabled). */
   pair?: (body: unknown) => Promise<PairOutcome>;
+  /**
+   * T2 L-1: refuse a remote self-approval of a gated tool while the server is
+   * exposed, keeping gated approvals pinned to the desktop UI
+   * (docs/t2-secure-pairing-design.md §8). Omit ⇒ no restriction (e.g. the
+   * loopback-only dev/test harness).
+   */
+  approvalGuard?: ApprovalGuard;
 };
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;
@@ -286,7 +293,7 @@ async function handleAgentRoutes(
       // E2E only: a body that won't open isn't authentic for this device → 401.
       return sendError(res, 401, 'unauthorized');
     }
-    const outcome = await dispatchAgentCommand(deps.agent, cmd, args);
+    const outcome = await dispatchAgentCommand(deps.agent, cmd, args, deps.approvalGuard);
     if (!outcome.ok) return sendError(res, 400, outcome.error);
     return sendResult(res, codec, pathname, outcome.result);
   }

@@ -29,7 +29,9 @@ import { handleRequest, type RouterDeps } from './router.ts';
  * agent — no Electron, no safeStorage (run via `node --experimental-strip-types`,
  * see package.json `harness:pair`). It drives a simulated phone (decode the QR,
  * derive the key, prove possession) all the way through `/pair` + an encrypted
- * `/agent/send` + snapshot + SSE, and asserts the adversarial paths too.
+ * `/agent/send` + snapshot + SSE, asserts the adversarial paths, and checks the
+ * L-1 guard: a bridge-relayed `approve` of a gated tool is refused while the
+ * server is exposed (gated approvals stay pinned to the desktop).
  */
 
 const TOKEN = 'bearer-token-fixed';
@@ -52,15 +54,32 @@ function makeDeviceStore(): {
   };
 }
 
+type ApprovalCall = { turnId: string; callId: string; approved: boolean };
+
 function buildDeps(approve: { mode: 'approve' | 'reject' | 'auto' }): {
   deps: RouterDeps;
   pairing: ReturnType<typeof createPairingManager>;
   cardShown: () => boolean;
+  /** Controls for the L-1 self-approval assertions (drive the bridge approve path). */
+  approval: {
+    /** Toggle whether a bridge transport is exposed (the guard reads this live). */
+    setExposed: (v: boolean) => void;
+    /** Park (or clear) a tool awaiting approval, as the loop's snapshot would show it. */
+    setPending: (p: { turnId: string; callId: string; name: string } | null) => void;
+    /** Every approveTool() call that actually reached the mock loop (refusals never do). */
+    calls: ApprovalCall[];
+  };
 } {
   const state: AgentChatState = { ...emptyAgentChatState(), status: 'idle' };
   const subs = new Set<(s: AgentChatState) => void>();
   const store = makeDeviceStore();
   let cards = 0;
+  // L-1 fixtures: a mutable exposure flag + a small gated-tool set, injected into
+  // the router via deps.approvalGuard so the dispatcher's REAL refusal logic runs
+  // (production wires settings + isGatedTool here — see approval-guard.ts).
+  let exposed = false;
+  const GATED = new Set(['eval_js', 'browser_cookies', 'browser_storage', 'read_terminal']);
+  const approveCalls: ApprovalCall[] = [];
 
   // `pairing` is referenced inside onPairingRequest, but that closure only runs
   // after construction returns, so the const is fully initialized by then.
@@ -90,7 +109,11 @@ function buildDeps(approve: { mode: 'approve' | 'reject' | 'auto' }): {
       },
       abortTurn: () => true,
       respond: () => true,
-      approveTool: () => true,
+      // Record what actually reaches the loop — a refused (L-1) approve must NOT.
+      approveTool: (turnId, callId, approved) => {
+        approveCalls.push({ turnId, callId, approved });
+        return true;
+      },
       snapshot: () => state,
       reset: () => true,
     },
@@ -100,8 +123,27 @@ function buildDeps(approve: { mode: 'approve' | 'reject' | 'auto' }): {
     },
     devices: store.resolver,
     pair: (body) => pairing.handlePair(body),
+    // The real guard wiring (production injects settings + isGatedTool); here we
+    // drive both facts directly so the dispatcher's refusal is exercised, not a replica.
+    approvalGuard: {
+      serverExposed: () => exposed,
+      isGated: (name) => GATED.has(name),
+    },
   };
-  return { deps, pairing, cardShown: () => cards > 0 };
+  return {
+    deps,
+    pairing,
+    cardShown: () => cards > 0,
+    approval: {
+      setExposed: (v) => {
+        exposed = v;
+      },
+      setPending: (p) => {
+        state.pendingApproval = p ? { ...p, detail: 'preview' } : null;
+      },
+      calls: approveCalls,
+    },
+  };
 }
 
 type Reply = { status: number; body: string; headers: http.IncomingHttpHeaders };
@@ -219,7 +261,7 @@ async function main(): Promise<void> {
   };
 
   // ── happy path: pair, then drive the agent over the encrypted channel ───────
-  const { deps, pairing } = buildDeps({ mode: 'approve' });
+  const { deps, pairing, approval } = buildDeps({ mode: 'approve' });
   const server = http.createServer((req, res) => void handleRequest(req, res, deps));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const { port } = server.address() as AddressInfo;
@@ -290,6 +332,67 @@ async function main(): Promise<void> {
     check(
       'a normal response carries the CORS allow-origin header',
       bearerSnap.headers['access-control-allow-origin'] === '*',
+    );
+
+    // ── L-1: a remote (bridge) peer can't self-approve a gated tool while exposed
+    //    (docs/t2-secure-pairing-design.md §8). The desktop approves over IPC
+    //    straight into the loop; ONLY the bridge goes through dispatch, which is
+    //    where the guard lives. Drive the encrypted /agent/approve against our
+    //    paired device, toggling the injected exposure + parked-tool facts. ──────
+    const approveEnv = async (
+      turnId: string,
+      callId: string,
+      approved: boolean,
+    ): Promise<Reply> =>
+      request(port, 'POST', '/agent/approve', {
+        deviceId,
+        json: await seal(key, { turnId, callId, approved }, reqAad('POST', '/agent/approve')),
+      });
+
+    // Server exposed + a GATED tool parked → a remote APPROVE is refused and never
+    // reaches the loop; the desktop must confirm it.
+    approval.setExposed(true);
+    approval.setPending({ turnId: 'turn-gate', callId: 'call-gate', name: 'eval_js' });
+    const remoteApprove = await approveEnv('turn-gate', 'call-gate', true);
+    check('E2E approve(true) of a gated tool while exposed → 400 (desktop-pinned)', remoteApprove.status === 400);
+    check('the refusal returns an explanatory error (cleartext)', /desktop/i.test(remoteApprove.body));
+    check('the refused approve did NOT reach the loop.approveTool', approval.calls.length === 0);
+
+    // A remote DENY is still honored (fail-safe — a phone can still CANCEL a tool).
+    const remoteDeny = await approveEnv('turn-gate', 'call-gate', false);
+    check('E2E deny(false) of a gated tool while exposed → 200 (deny allowed)', remoteDeny.status === 200);
+    const denyResult = (await open(key, JSON.parse(remoteDeny.body) as Envelope, resAad('/agent/approve'))) as { ok: boolean };
+    check(
+      'the deny dispatched to approveTool(approved=false)',
+      denyResult.ok === true && approval.calls.length === 1 && approval.calls.every((c) => c.approved === false),
+    );
+
+    // The bearer (loopback companion) path is ALSO bridge-originated → same pinning.
+    approval.setPending({ turnId: 'turn-gate2', callId: 'call-gate2', name: 'eval_js' });
+    const bearerApprove = await request(port, 'POST', '/agent/approve', {
+      token: TOKEN,
+      json: { turnId: 'turn-gate2', callId: 'call-gate2', approved: true },
+    });
+    check('bearer approve(true) of a gated tool while exposed → 400 (also desktop-pinned)', bearerApprove.status === 400);
+    check('the bearer refusal also did NOT reach approveTool', approval.calls.length === 1);
+
+    // Server OFF ⇒ the desktop-only flow is unchanged: the guard doesn't interfere.
+    approval.setExposed(false);
+    const approveOff = await approveEnv('turn-gate2', 'call-gate2', true);
+    check('E2E approve(true) of a gated tool while NOT exposed → 200 (unchanged)', approveOff.status === 200);
+    check(
+      'with the server off the approve reached approveTool(approved=true)',
+      approval.calls.length === 2 && approval.calls.filter((c) => c.approved).length === 1,
+    );
+
+    // The gate is tool-scoped: a NON-gated parked tool is never pinned.
+    approval.setExposed(true);
+    approval.setPending({ turnId: 'turn-open', callId: 'call-open', name: 'read_file' });
+    const approveOpen = await approveEnv('turn-open', 'call-open', true);
+    check('E2E approve(true) of a NON-gated tool while exposed → 200 (not pinned)', approveOpen.status === 200);
+    check(
+      'the non-gated approve reached approveTool',
+      approval.calls.length === 3 && approval.calls.filter((c) => c.approved).length === 2,
     );
 
     // ── rejected approval → 403 (separate server with reject policy) ────────────

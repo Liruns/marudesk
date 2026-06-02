@@ -260,8 +260,10 @@ content-type 게이트, SSE cleanup, safeStorage 0600 토큰, 토큰 무로깅) 
 SSE backpressure 가드(`writableNeedDrain` → 멈춘 클라가 main 메모리 OOM 못 시킴), bearer 정규식 RFC 완화.
 
 **M5에서 LAN으로 바인드를 넓히기 직전 반드시 처리 (현재는 loopback이라 무해, 노출 순간 High 승격):**
-- [ ] **L-1 원격 self-approval 정책**: 토큰 보유자가 `eval_js`/write를 *요청+승인* 동시 가능. 서버 ON일 때
-      gated 도구 승인을 **데스크톱 UI에 고정**하거나, 서버 켜짐 시 기본 모드를 더 엄격하게(예: auto 금지).
+- [x] **L-1 원격 self-approval 정책**: ✅ 해결 — bridge발 `approve`는 전부 `electron/server/dispatch.ts`를
+      거치므로(데스크톱 IPC는 loop를 직접 호출, dispatch 미경유), 서버 노출 중 gated 도구의 원격 *승인*을 거부해
+      gated 승인을 **데스크톱 UI에 고정**한다. 원격 *거부*는 fail-safe로 허용. 주입형 가드 `approval-guard.ts`
+      (serverExposed=`enabled||cloudEnabled`, isGated=isGatedTool). 검증: harness:pair. (cf. t2 design §8)
 - [ ] **L-2 Host 헤더 allowlist**(DNS-rebinding 차단): `127.0.0.1:<port>`/페어링된 호스트 외 거부.
 - [ ] **M-2 요청 타임아웃**: `headersTimeout`/`requestTimeout`/`keepAliveTimeout` 설정(slowloris).
 - [ ] **M-1+ SSE 동시 연결 상한**(예: ~4) — 백프레셔 가드는 완료, 연결 수 cap은 M5.

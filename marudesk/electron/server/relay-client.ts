@@ -13,7 +13,7 @@ import {
   type RelayHostMessage,
   type RelayStateEvent,
 } from '../../shared/remote';
-import { dispatchAgentCommand, type AgentApi } from './dispatch';
+import { dispatchAgentCommand, type AgentApi, type ApprovalGuard } from './dispatch';
 import { relayConnectUrl, relayRefresh } from './relay-auth';
 
 /**
@@ -28,9 +28,10 @@ import { relayConnectUrl, relayRefresh } from './relay-auth';
  *     the SSE path's writableNeedDrain guard).
  *
  * Robustness: the relay is treated as a dumb, untrusted pipe — every peer payload
- * goes through {@link parseRelayCommand} before touching the loop, and the loop
- * still mediates approvals (a phone approving a gated tool is just `approveTool`;
- * read-only/ask rules are unchanged). Connection failures never crash main: we
+ * goes through {@link parseRelayCommand} before touching the loop, the shared
+ * dispatcher refuses a remote self-approval of a gated tool while the bridge is
+ * exposed (L-1, via {@link RelayClientDeps.approvalGuard}), and the loop mediates
+ * the rest (read-only/ask rules unchanged). Connection failures never crash main: we
  * reconnect with bounded backoff and refresh the access token (POST /auth/refresh)
  * on an unauthorized upgrade, stopping cleanly on logout/disable/quit.
  */
@@ -53,6 +54,12 @@ export type RelayClientDeps = {
   onTokens?: (accessToken: string, refreshToken: string) => void;
   /** Notified whenever the host's connected-ness changes (drives the renderer status). */
   onConnectedChange?: (connected: boolean) => void;
+  /**
+   * T2 L-1: refuse a remote self-approval of a gated tool while the bridge is
+   * exposed (docs/t2-secure-pairing-design.md §8) — gated approvals stay on the
+   * desktop. Omit ⇒ no restriction.
+   */
+  approvalGuard?: ApprovalGuard;
 };
 
 export type RelayClient = {
@@ -208,7 +215,7 @@ export function startRelayClient(deps: RelayClientDeps): RelayClient {
     if (frame.type !== 'relay') return;
     const command = parseRelayCommand(frame.payload);
     if (!command) return; // untrusted/malformed peer payload — drop silently
-    const outcome = await dispatchAgentCommand(deps.agent, command.cmd, command.args);
+    const outcome = await dispatchAgentCommand(deps.agent, command.cmd, command.args, deps.approvalGuard);
     const ack: RelayAck = outcome.ok
       ? { k: 'ack', cid: command.cid, ok: true, result: outcome.result }
       : { k: 'ack', cid: command.cid, ok: false, error: outcome.error };

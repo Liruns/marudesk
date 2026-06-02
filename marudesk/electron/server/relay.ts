@@ -20,6 +20,7 @@ import { defineHandler } from '../ipc/define-handler';
 import { enumOf, nonEmptyStr, obj, str } from '../ipc/validate';
 import { getSettingsSync } from '../settings';
 import type { AgentApi } from './dispatch';
+import { createApprovalGuard } from './approval-guard';
 import { normalizeRelayUrl, relayAuthenticate, relayLogout } from './relay-auth';
 import { startRelayClient, type RelayClient } from './relay-client';
 
@@ -84,6 +85,9 @@ function startClient(session: RelaySession): void {
     refreshToken: session.refreshToken,
     agent: AGENT,
     subscribe: subscribeAgentEvents,
+    // T2 L-1: same desktop-pinned gated-approval guard as the M4 server, so the
+    // cloud path can't be used for remote self-approval either.
+    approvalGuard: createApprovalGuard(),
     onTokens: (accessToken, refreshToken) => {
       // Persist rotated tokens so a restart resumes the session without re-login.
       void updateRelayTokens(accessToken, refreshToken);
