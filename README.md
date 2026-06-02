@@ -153,7 +153,7 @@ MaruDesk is a personal, in-development project used as a daily driver and portfo
 
 - Subscription OAuth for **ChatGPT** and **Gemini** uses undocumented backends and is **experimental**; API-key access and Claude / xAI OAuth are the stable paths.
 - MaruDesk is not affiliated with any model provider. Using subscription logins in a third-party client may be subject to each provider's terms — use at your own discretion.
-- No open-source license has been granted yet.
+- Released under the [MIT License](LICENSE).
 
 ## Documentation
 
@@ -162,3 +162,7 @@ MaruDesk is a personal, in-development project used as a daily driver and portfo
 - `marudesk/DESIGN.md` — design system
 - `marudesk/docs/` — product roadmap and architecture / design notes
 - `mobile/README.md`, `relay/README.md` — companion packages
+
+## License
+
+[MIT](LICENSE) © 2026 Liruns
