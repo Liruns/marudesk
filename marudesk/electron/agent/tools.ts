@@ -64,6 +64,10 @@ export type ToolResult = {
  */
 export const GATED_TOOLS = new Set([
   'eval_js',
+  'click',
+  'fill',
+  'press_key',
+  'scroll',
   'browser_cookies',
   'browser_storage',
 ]);
@@ -381,6 +385,135 @@ async function evalJs(input: { expression?: unknown }, ctx: ToolContext): Promis
   return { summary: 'eval_js', text: clip(scrubText(text ?? 'undefined')) };
 }
 
+/* ── interaction tools (CDP, write) ─────────────────────────────────────────
+ * The "agent drives the running app" wedge. Each builds a fixed, injection-safe
+ * JS expression (the selector/value/key are JSON-encoded *data*, never spliced
+ * as code) and runs it through the SAME Runtime.evaluate path as eval_js — so
+ * the CDP allowlist is unchanged (no Input. domain) and the attack surface is
+ * identical. All four are gated + write (read-only mode refuses them; ask mode
+ * approves per call), and every returned string is scrubbed + clipped. */
+
+async function click(input: { selector?: unknown }, ctx: ToolContext): Promise<ToolResult> {
+  const rec = requireTab(ctx);
+  const selector = typeof input.selector === 'string' ? input.selector : '';
+  if (!selector) throw new Error('click requires "selector"');
+  const expr = `(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return { ok: false };
+    el.scrollIntoView({ block: 'center' });
+    el.click();
+    return { ok: true };
+  })()`;
+  const out = await evaluate(rec, expr);
+  if (!out.ok) return { summary: `click ${selector}`, text: `click failed — ${scrubText(out.error)}`, isError: true };
+  const v = (out.value ?? {}) as { ok?: boolean };
+  if (!v.ok) return { summary: `click ${selector}`, text: `no element matches ${selector}`, isError: true };
+  return { summary: `clicked "${selector}"`, text: clip(scrubText(`clicked ${selector}`)) };
+}
+
+async function fill(
+  input: { selector?: unknown; value?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const rec = requireTab(ctx);
+  const selector = typeof input.selector === 'string' ? input.selector : '';
+  if (!selector) throw new Error('fill requires "selector"');
+  const value = typeof input.value === 'string' ? input.value : '';
+  // React (and other controlled inputs) ignore a plain `el.value =` because they
+  // track value via the prototype setter; call the NATIVE setter then dispatch
+  // input+change so the framework's onChange fires. contenteditable uses
+  // textContent + an input event.
+  const expr = `(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return { ok: false };
+    const value = ${JSON.stringify(value)};
+    el.focus();
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') {
+      const proto = tag === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+      setter.call(el, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (el.isContentEditable) {
+      el.textContent = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      return { ok: false, unfillable: true };
+    }
+    return { ok: true };
+  })()`;
+  const out = await evaluate(rec, expr);
+  if (!out.ok) return { summary: `fill ${selector}`, text: `fill failed — ${scrubText(out.error)}`, isError: true };
+  const v = (out.value ?? {}) as { ok?: boolean; unfillable?: boolean };
+  if (!v.ok) {
+    const why = v.unfillable
+      ? `${selector} is not an input/textarea/contenteditable`
+      : `no element matches ${selector}`;
+    return { summary: `fill ${selector}`, text: why, isError: true };
+  }
+  return { summary: `filled "${selector}"`, text: clip(scrubText(`filled ${selector}`)) };
+}
+
+async function pressKey(
+  input: { key?: unknown; selector?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const rec = requireTab(ctx);
+  const key = typeof input.key === 'string' ? input.key : '';
+  if (!key) throw new Error('press_key requires "key" (e.g. "Enter", "Escape", "Tab", "ArrowDown")');
+  const selector = typeof input.selector === 'string' ? input.selector : '';
+  // Dispatch a synthetic keydown+keyup on the target (selector element, focused
+  // first) or the active element. Good enough for standard key handlers
+  // (Enter/Escape/Tab/arrows); not a full trusted-event key press.
+  const expr = `(() => {
+    const sel = ${JSON.stringify(selector)};
+    let el = sel ? document.querySelector(sel) : document.activeElement;
+    if (sel) {
+      if (!el) return { ok: false };
+      el.focus();
+    }
+    el = el || document.body;
+    const key = ${JSON.stringify(key)};
+    el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+    return { ok: true };
+  })()`;
+  const out = await evaluate(rec, expr);
+  if (!out.ok) return { summary: `press_key ${key}`, text: `press_key failed — ${scrubText(out.error)}`, isError: true };
+  const v = (out.value ?? {}) as { ok?: boolean };
+  if (!v.ok) return { summary: `press_key ${key}`, text: `no element matches ${selector}`, isError: true };
+  const where = selector ? ` on "${selector}"` : '';
+  return { summary: `pressed ${key}${where}`, text: clip(scrubText(`pressed ${key}${where}`)) };
+}
+
+async function scroll(
+  input: { selector?: unknown; direction?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const rec = requireTab(ctx);
+  const selector = typeof input.selector === 'string' ? input.selector : '';
+  const direction = input.direction === 'up' ? 'up' : 'down';
+  // Selector → smooth-scroll it into view; otherwise scroll the window a screenful.
+  const expr = selector
+    ? `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return { ok: false };
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return { ok: true };
+      })()`
+    : `(() => {
+        window.scrollBy(0, ${direction === 'up' ? -600 : 600});
+        return { ok: true };
+      })()`;
+  const out = await evaluate(rec, expr);
+  if (!out.ok) return { summary: 'scroll', text: `scroll failed — ${scrubText(out.error)}`, isError: true };
+  const v = (out.value ?? {}) as { ok?: boolean };
+  if (!v.ok) return { summary: `scroll ${selector}`, text: `no element matches ${selector}`, isError: true };
+  const what = selector ? `scrolled "${selector}" into view` : `scrolled ${direction}`;
+  return { summary: what, text: clip(scrubText(what)) };
+}
+
 function formatNetwork(records: NetworkRecord[]): string {
   return records
     .map((r) => {
@@ -563,6 +696,10 @@ const EXECUTORS: Record<string, Executor> = {
   get_console_errors: getConsoleErrors as Executor,
   query_dom: queryDom as Executor,
   eval_js: evalJs as Executor,
+  click: click as Executor,
+  fill: fill as Executor,
+  press_key: pressKey as Executor,
+  scroll: scroll as Executor,
   read_network: readNetwork as Executor,
   read_network_body: readNetworkBody as Executor,
   reload_and_verify: reloadAndVerify as Executor,
@@ -588,6 +725,22 @@ export async function executeTool(
 export function describeToolInput(name: string, input: unknown): string {
   const o = (input ?? {}) as Record<string, unknown>;
   if (name === 'eval_js') return typeof o.expression === 'string' ? o.expression.slice(0, 500) : '(no expression)';
+  // Interaction tools (click/fill/press_key/scroll): show the action target plainly.
+  if (name === 'click') return typeof o.selector === 'string' ? `click ${o.selector}`.slice(0, 300) : '(no selector)';
+  if (name === 'fill') {
+    const sel = typeof o.selector === 'string' ? o.selector : '?';
+    const val = typeof o.value === 'string' ? o.value : '';
+    return `fill ${sel} = ${val}`.slice(0, 300);
+  }
+  if (name === 'press_key') {
+    const key = typeof o.key === 'string' ? o.key : '?';
+    const sel = typeof o.selector === 'string' ? ` on ${o.selector}` : '';
+    return `press ${key}${sel}`.slice(0, 300);
+  }
+  if (name === 'scroll') {
+    if (typeof o.selector === 'string') return `scroll to ${o.selector}`.slice(0, 300);
+    return `scroll ${o.direction === 'up' ? 'up' : 'down'}`;
+  }
   // PC-control / path tools: show the target plainly — this is an approval card.
   if (typeof o.path === 'string') return o.path.slice(0, 300);
   if (typeof o.url === 'string') return o.url.slice(0, 300);
@@ -665,6 +818,26 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     name: 'eval_js',
     description: 'Evaluate a JavaScript expression in the live page and return the result. Powerful — requires user approval each call. Use for runtime probing you cannot get from query_dom/get_console_errors.',
     inputSchema: { type: 'object', properties: { expression: strProp('JS expression to evaluate.') }, required: ['expression'], additionalProperties: false },
+  },
+  {
+    name: 'click',
+    description: 'Click an element in the active web tab. selector is a CSS selector — use query_dom first to find one. Scrolls the element into view, then clicks. Requires user approval each call.',
+    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector of the element to click.') }, required: ['selector'], additionalProperties: false },
+  },
+  {
+    name: 'fill',
+    description: 'Set the value of an input, textarea, or contenteditable in the active web tab (React-compatible — fires input/change so framework state updates). selector is a CSS selector; find one with query_dom first. Requires user approval each call.',
+    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector of the field.'), value: strProp('Text to set as the field value.') }, required: ['selector', 'value'], additionalProperties: false },
+  },
+  {
+    name: 'press_key',
+    description: 'Dispatch a key press (keydown+keyup) in the active web tab — e.g. "Enter", "Escape", "Tab", "ArrowDown". Targets the selector element (focused first) or the focused element if no selector. Good for submitting forms / triggering key handlers. Requires user approval each call.',
+    inputSchema: { type: 'object', properties: { key: strProp('Key name, e.g. "Enter", "Escape", "Tab", "ArrowDown".'), selector: strProp('Optional CSS selector to focus and target; defaults to the focused element.') }, required: ['key'], additionalProperties: false },
+  },
+  {
+    name: 'scroll',
+    description: 'Scroll the active web tab. With a selector (CSS), smooth-scrolls that element into view; without one, scrolls the window a screenful in the given direction. Requires user approval each call.',
+    inputSchema: { type: 'object', properties: { selector: strProp('Optional CSS selector to scroll into view.'), direction: { type: 'string', enum: ['up', 'down'], description: "Window scroll direction when no selector (default 'down')." } }, additionalProperties: false },
   },
   {
     name: 'read_network',
@@ -767,15 +940,23 @@ const TOOL_GROUP: Record<string, McpGroup> = {
   read_network_body: 'devtools',
   query_dom: 'browser',
   eval_js: 'browser',
+  click: 'browser',
+  fill: 'browser',
+  press_key: 'browser',
+  scroll: 'browser',
   reload_and_verify: 'browser',
   browser_cookies: 'browser',
   browser_storage: 'browser',
 };
-const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit']);
+const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit', 'click', 'fill', 'press_key', 'scroll']);
 const WEB_TOOL_NAMES = new Set([
   'get_console_errors',
   'query_dom',
   'eval_js',
+  'click',
+  'fill',
+  'press_key',
+  'scroll',
   'read_network',
   'read_network_body',
   'reload_and_verify',
