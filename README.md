@@ -1,6 +1,11 @@
-# MaruDesk
+<p align="center">
+  <img src="marudesk/src/assets/logo-full.png" alt="MaruDesk" width="360">
+</p>
 
-**An agentic workspace that fuses a real web browser, a code editor and terminal, and a multi-provider AI agent — and lets the agent observe the *running* app, not just the source.**
+<p align="center">
+  <strong>An agentic workspace where AI sees your <em>running</em> app — not just your source.</strong><br>
+  A desktop app that fuses a real web browser, a code editor and terminal, and a multi-provider AI agent.
+</p>
 
 MaruDesk is a desktop application (Electron) for building and debugging web software. Unlike source-only AI coding tools, it embeds a real Chromium browser and speaks the Chrome DevTools Protocol (CDP) in-process, so the agent can read the live DOM, console, and network of the app you are running and act on that runtime evidence — for example, turning a console error into a source fix and confirming the fix by reloading the page.
 
