@@ -36,6 +36,13 @@ type GridState = {
   groups: LayoutNode[];
   focusedPaneId: PaneId | null;
   /**
+   * A pane temporarily expanded to fill its grid (tmux/VSCode "zoom"). The split
+   * is preserved — only this leaf renders full-size while it's set. Cleared by any
+   * structural change (split/close/dissolve) and ignored if it isn't a leaf of the
+   * active group, so a stale id from another group never zooms the wrong split.
+   */
+  maximizedPaneId: PaneId | null;
+  /**
    * The tab id currently being dragged from the strip, or null. Drives the
    * seed-the-grid drop overlay in the single view: while a drag is in flight we
    * surface a drop layer over the stage (and hide the web view) so the first
@@ -69,6 +76,8 @@ type GridActions = {
    */
   remap: (oldId: string, newId: string) => void;
   focus: (leafId: PaneId) => void;
+  /** Toggle a pane to fill its grid (zoom); calling on the zoomed pane restores. */
+  toggleMaximize: (leafId: PaneId) => void;
   /** Mark a tab as being dragged from the strip (null clears it). */
   setDraggingTab: (tabId: string | null) => void;
   /** Dissolve the split group containing `tabId` (the strip's "exit split"). */
@@ -147,10 +156,13 @@ function syncStripGrouping(group: LayoutNode): void {
 export const useGridStore = create<GridState & GridActions>((set, get) => ({
   groups: [],
   focusedPaneId: null,
+  maximizedPaneId: null,
   draggingTabId: null,
 
   splitWith: (targetLeafId, newTabId, dir, side) => {
     const { groups, focusedPaneId } = get();
+    // A structural change exits any pane zoom (merges through later partial sets).
+    if (get().maximizedPaneId !== null) set({ maximizedPaneId: null });
     if (targetLeafId === null) {
       // Seed a fresh 2-pane group: the current active tab beside the dragged one.
       // The seed overlay only appears in the single view, so the active tab is
@@ -227,6 +239,8 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
     const { groups, focusedPaneId } = get();
     const group = findGroupByLeaf(groups, leafId);
     if (!group) return;
+    // Closing any pane exits zoom (merges through the later partial sets below).
+    if (get().maximizedPaneId !== null) set({ maximizedPaneId: null });
     const next = removeLeaf(group, leafId);
     const remaining = leaves(next);
 
@@ -306,6 +320,9 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
 
   focus: (leafId) => set({ focusedPaneId: leafId }),
 
+  toggleMaximize: (leafId) =>
+    set((s) => ({ maximizedPaneId: s.maximizedPaneId === leafId ? null : leafId })),
+
   setDraggingTab: (tabId) => set({ draggingTabId: tabId }),
 
   dissolveGroup: (tabId) => {
@@ -317,6 +334,7 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
     set({
       groups: replaceGroup(groups, group, null),
       focusedPaneId: focusedInGroup ? null : focusedPaneId,
+      maximizedPaneId: null,
     });
   },
 }));

@@ -6,6 +6,8 @@ import {
   Globe,
   House,
   Lock,
+  Maximize2,
+  Minimize2,
   RotateCw,
   SlidersHorizontal,
   Sparkles,
@@ -48,10 +50,14 @@ const KIND_LABEL: Record<Exclude<TabKind, 'web'>, string> = {
 export function PaneHeader({
   tab,
   focused,
+  maximized,
+  onToggleMaximize,
   onClose,
 }: {
   tab: TabState;
   focused: boolean;
+  maximized: boolean;
+  onToggleMaximize: () => void;
   onClose: () => void;
 }) {
   return (
@@ -83,11 +89,29 @@ export function PaneHeader({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
+          onToggleMaximize();
+        }}
+        aria-label={maximized ? 'Restore pane' : 'Maximize pane'}
+        title={maximized ? 'Restore pane' : 'Maximize pane'}
+        aria-pressed={maximized}
+        className={cn(
+          'size-5 shrink-0 rounded flex items-center justify-center transition-colors duration-fast',
+          maximized
+            ? 'text-accent hover:bg-surface-3'
+            : 'text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary',
+        )}
+      >
+        {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
           onClose();
         }}
         aria-label="Close pane"
         title="Close pane"
-        className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary transition-colors duration-fast"
+        className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
       >
         <X size={13} />
       </button>
@@ -149,13 +173,23 @@ function WebOmnibox() {
   );
 }
 
-/** Read-only URL for a blurred web pane. */
+/** Read-only URL for a blurred web pane — favicon (when known) aids recognition. */
 function WebUrlStatic({ tab }: { tab: TabState }) {
   return (
-    <div className="flex-1 min-w-0 flex items-center gap-1.5">
-      <Scheme url={tab.url} isSecure={tab.isSecure} />
+    <div className="flex-1 min-w-0 flex items-center gap-1.5 pl-1">
+      {tab.favicon ? (
+        <img
+          src={tab.favicon}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="size-3.5 shrink-0 rounded-[2px] object-contain"
+        />
+      ) : (
+        <Scheme url={tab.url} isSecure={tab.isSecure} />
+      )}
       <span className="text-caption text-fg-secondary truncate">
-        {tab.url || tab.title || 'New tab'}
+        {tab.title || tab.url || 'New tab'}
       </span>
     </div>
   );

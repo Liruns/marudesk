@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type DragEvent as ReactDragEvent,
 } from 'react';
+import { Columns2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from './store';
 import { tabKinds } from './registry';
@@ -33,6 +34,12 @@ const TAB_DND_MIME = 'application/x-marudesk-tab';
  */
 export function GridStage({ layout }: { layout: LayoutNode }) {
   const draggingTabId = useGridStore((s) => s.draggingTabId);
+  const maximizedPaneId = useGridStore((s) => s.maximizedPaneId);
+  // Honor a zoom only when the maximized leaf belongs to THIS group's tree — a
+  // stale id from another group falls through to the normal tiled render.
+  const maxLeaf = maximizedPaneId
+    ? (leaves(layout).find((l) => l.id === maximizedPaneId) ?? null)
+    : null;
   const rootRef = useRef<HTMLDivElement>(null);
   // Live element refs for every web pane, keyed by leaf id, so we can measure
   // their rects after layout/resize and report them to main in one batch.
@@ -74,7 +81,10 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
       }
     }
     void window.marudesk.invoke('browser:set-pane-bounds', { panes });
-  }, [layout]);
+    // maximizedPaneId is read indirectly (only the zoomed leaf mounts a web-pane
+    // el, so the others fall to the zero-rect branch above) — list it so toggling
+    // zoom re-measures and main re-positions/hides the views accordingly.
+  }, [layout, maximizedPaneId]);
 
   // HIGH-2: `measureAndSend` already re-creates when `layout` changes (it's in
   // the dep array above), so this effect re-runs on every layout change — not
@@ -125,7 +135,11 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
       className="flex-1 min-w-0 min-h-0 relative bg-surface-page"
       aria-label="Tab grid"
     >
-      <GridNode node={layout} registerWebPane={registerWebPane} />
+      {maxLeaf ? (
+        <PaneLeaf leaf={maxLeaf} registerWebPane={registerWebPane} />
+      ) : (
+        <GridNode node={layout} registerWebPane={registerWebPane} />
+      )}
     </div>
   );
 }
@@ -204,6 +218,8 @@ function Divider({ splitId, dir }: { splitId: PaneId; dir: 'row' | 'col' }) {
       role="separator"
       aria-orientation={isRow ? 'vertical' : 'horizontal'}
       onPointerDown={onPointerDown}
+      onDoubleClick={() => resize(splitId, 0.5)}
+      title="Drag to resize · double-click to even out"
       className={cn(
         'relative shrink-0 z-10 group',
         isRow ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
@@ -235,11 +251,14 @@ function PaneLeaf({
   const focus = useGridStore((s) => s.focus);
   const splitWith = useGridStore((s) => s.splitWith);
   const closePane = useGridStore((s) => s.closePane);
+  const maximizedPaneId = useGridStore((s) => s.maximizedPaneId);
+  const toggleMaximize = useGridStore((s) => s.toggleMaximize);
   const activateTab = useTabsStore((s) => s.activateTab);
   const [dropZone, setDropZone] = useState<DropZone | null>(null);
 
   const tab = tabs.find((t) => t.id === leaf.tabId);
   const focused = focusedPaneId === leaf.id;
+  const maximized = maximizedPaneId === leaf.id;
 
   const onDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
     if (!e.dataTransfer.types.includes(TAB_DND_MIME)) return;
@@ -288,6 +307,8 @@ function PaneLeaf({
         <PaneHeader
           tab={tab}
           focused={focused}
+          maximized={maximized}
+          onToggleMaximize={() => toggleMaximize(leaf.id)}
           onClose={() => closePane(leaf.id)}
         />
       ) : null}
@@ -308,7 +329,8 @@ function PaneContent({
 }) {
   if (!tab) {
     return (
-      <div className="flex-1 min-h-0 flex items-center justify-center text-center px-6 pointer-events-none">
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 text-center px-6 pointer-events-none">
+        <Columns2 size={20} className="text-fg-tertiary/60" aria-hidden />
         <p className="text-caption text-fg-tertiary">
           Empty pane — drag a tab here
         </p>
