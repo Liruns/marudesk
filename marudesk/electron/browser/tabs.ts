@@ -225,6 +225,32 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
       }
       return;
     }
+    // Tab navigation (Ctrl+Tab / Ctrl+Shift+Tab cycle, Ctrl/Cmd+1–9 jump). The
+    // renderer owns the tab list + activation, so forward the intent to the host
+    // — the mirror of Shell.tsx's window keydown for the chrome-focused case.
+    // Placed before the `wc` guard since these don't act on the page.
+    if (input.control && input.key === 'Tab') {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', {
+          type: 'cycle',
+          dir: input.shift ? -1 : 1,
+        });
+      }
+      return;
+    }
+    if (mod && !input.shift && !input.alt && /^[1-9]$/.test(input.key)) {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', {
+          type: 'jump',
+          digit: Number(input.key),
+        });
+      }
+      return;
+    }
     if (!wc) return;
 
     // Reload: F5 / Ctrl+R (normal), Ctrl+Shift+R (hard, ignore cache).

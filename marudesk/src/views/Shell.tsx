@@ -43,6 +43,29 @@ function adjustUiZoom(dir: 'in' | 'out' | 'reset'): void {
 }
 
 /**
+ * Run a tab-navigation shortcut against the live tab list. Shared by the window
+ * keydown handler (React chrome focused) and the `app:tab-shortcut` event (a
+ * focused web view forwarded it from main's before-input-event). `cycle` wraps;
+ * `jump` is 1-based with digit 9 meaning the last tab — Chrome parity.
+ */
+function runTabShortcut(
+  p: { type: 'cycle'; dir: 1 | -1 } | { type: 'jump'; digit: number },
+): void {
+  const st = useTabsStore.getState();
+  const { tabs, activeTabId } = st;
+  if (tabs.length === 0) return;
+  let idx: number;
+  if (p.type === 'cycle') {
+    const cur = tabs.findIndex((t) => t.id === activeTabId);
+    idx = ((cur < 0 ? 0 : cur) + p.dir + tabs.length) % tabs.length;
+  } else {
+    idx = p.digit >= 9 ? tabs.length - 1 : Math.min(p.digit - 1, tabs.length - 1);
+  }
+  const target = tabs[idx];
+  if (target && target.id !== activeTabId) void st.activateTab(target.id);
+}
+
+/**
  * IDE-style shell. Top to bottom:
  *   TitleBar  — drag region with brand mark, Chrome-style tabs, window controls
  *   Work row  — ActivityBar (left rail) + ExplorerPanel (files) + Stage (tabs) + ContextDrawer (collapsible)
@@ -101,6 +124,21 @@ export function Shell() {
         e.preventDefault();
         setLeftPanel('search');
         useSearchStore.getState().requestFocus();
+        return;
+      }
+
+      // Tab navigation (Chrome parity), allowed from any focus incl. text fields
+      // — browsers switch tabs even from the address bar:
+      //   Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs (wraps)
+      //   Ctrl/Cmd+1…9              — jump to tab N (9 = last)
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        runTabShortcut({ type: 'cycle', dir: e.shiftKey ? -1 : 1 });
+        return;
+      }
+      if (mod && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+        e.preventDefault();
+        runTabShortcut({ type: 'jump', digit: Number(e.key) });
         return;
       }
 
@@ -188,6 +226,13 @@ export function Shell() {
       if (active?.kind === 'web') void tabsState.zoom(dir);
       else adjustUiZoom(dir);
     });
+  }, []);
+
+  // Tab navigation forwarded from a focused web view (main intercepts Ctrl+Tab /
+  // Ctrl+Cmd+1–9 there since the page holds keyboard focus). Same handler the
+  // window keydown uses when the React chrome is focused.
+  useEffect(() => {
+    return window.marudesk.on('app:tab-shortcut', (p) => runTabShortcut(p));
   }, []);
 
   return (
