@@ -24,6 +24,7 @@ import {
   type TabRecord,
 } from './state';
 import { applyWebLayout, hideTab, showTab } from './layout';
+import { loadPinnedSpecs, savePinnedTabs } from './pinned-session';
 import { closeChromeDevtools } from './devtools';
 import {
   detachCdp,
@@ -222,6 +223,51 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
       const h = getHost();
       if (h && !h.isDestroyed()) {
         h.webContents.send('devtools:toggle', { tabId: rec.id });
+      }
+      return;
+    }
+    // Tab navigation (Ctrl+Tab / Ctrl+Shift+Tab cycle, Ctrl/Cmd+1–9 jump). The
+    // renderer owns the tab list + activation, so forward the intent to the host
+    // — the mirror of Shell.tsx's window keydown for the chrome-focused case.
+    // Placed before the `wc` guard since these don't act on the page.
+    if (input.control && input.key === 'Tab') {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', {
+          type: 'cycle',
+          dir: input.shift ? -1 : 1,
+        });
+      }
+      return;
+    }
+    if (mod && !input.shift && !input.alt && /^[1-9]$/.test(input.key)) {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', {
+          type: 'jump',
+          digit: Number(input.key),
+        });
+      }
+      return;
+    }
+    // Split-pane shortcuts: Ctrl+Alt+Arrow cycles pane focus, Ctrl+Shift+Enter
+    // zooms the focused pane. No-ops in the renderer when there's no split.
+    if (input.control && input.alt && (input.key === 'ArrowLeft' || input.key === 'ArrowRight' || input.key === 'ArrowUp' || input.key === 'ArrowDown')) {
+      event.preventDefault();
+      const h = getHost();
+      const dir = input.key === 'ArrowLeft' || input.key === 'ArrowUp' ? -1 : 1;
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', { type: 'pane-cycle', dir });
+      }
+      return;
+    }
+    if (input.control && input.shift && input.key === 'Enter') {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', { type: 'pane-maximize' });
       }
       return;
     }
@@ -427,6 +473,7 @@ export function activateTab(id: string): boolean {
 export function closeTab(id: string): boolean {
   const rec = getTab(id);
   if (!rec) return false;
+  const wasPinned = !!rec.pinned;
   // Detach our CDP debugger and tear down any built-in DevTools before the page
   // view goes away (detach before webContents.close).
   detachCdp(rec);
@@ -454,15 +501,56 @@ export function closeTab(id: string): boolean {
   } else {
     pushState();
   }
+  // Closing a pinned tab changes the restorable set.
+  if (wasPinned) savePinnedTabs();
   return true;
+}
+
+/** Stable partition keeping pinned tabs first; preserves order within each group. */
+function pinnedFirst(ids: string[]): string[] {
+  return [
+    ...ids.filter((id) => getTab(id)?.pinned),
+    ...ids.filter((id) => !getTab(id)?.pinned),
+  ];
 }
 
 export function reorderTabs(orderedIds: string[]): void {
   // Reorder via the shared policy (requested order, then any unlisted tabs
-  // appended), then rebuild the authoritative tab map in that order.
-  const order = applyReorder(tabKeys(), orderedIds);
+  // appended), then keep pinned tabs anchored at the front before rebuilding the
+  // authoritative tab map — a drag can't drop an ordinary tab ahead of a pin.
+  const order = pinnedFirst(applyReorder(tabKeys(), orderedIds));
   reorderTabRecords(order);
   pushState();
+}
+
+/**
+ * Pin/unpin a tab. Pinned tabs render favicon-only and stay at the front of the
+ * strip, so flipping the flag re-sorts pinned-first (Chrome/Edge "Pin tab").
+ */
+export function setTabPinned(id: string, pinned: boolean): boolean {
+  const rec = getTab(id);
+  if (!rec) return false;
+  if (!!rec.pinned === pinned) return true;
+  rec.pinned = pinned;
+  reorderTabRecords(pinnedFirst(tabKeys()));
+  pushState();
+  savePinnedTabs();
+  return true;
+}
+
+/**
+ * Recreate the pinned tabs saved from a previous session, in order, so they sit
+ * at the front of the strip before the default home tab is opened. Web pins
+ * reload their URL; editor pins re-bind their file path. Called once at mount.
+ */
+function restorePinnedTabs(): void {
+  for (const spec of loadPinnedSpecs()) {
+    const rec =
+      spec.kind === 'web'
+        ? createTab('web', spec.url || undefined)
+        : createTab('editor', spec.filePath);
+    rec.pinned = true;
+  }
 }
 
 export function mountBrowserView(win: BrowserWindow): void {
@@ -476,8 +564,9 @@ export function mountBrowserView(win: BrowserWindow): void {
   // them to the Downloads folder and feeding the renderer's download shelf.
   registerDownloadHandler(inspectSession);
 
-  // Open on the dashboard (a feature tab). The embedded browser only appears
-  // once the user opens or navigates to a web tab.
+  // Restore last session's pinned tabs at the front, then open on the dashboard
+  // (a feature tab). The embedded browser only appears once a web tab exists.
+  restorePinnedTabs();
   createAndActivateTab('home');
 }
 
@@ -487,6 +576,9 @@ export function mountBrowserView(win: BrowserWindow): void {
  * closing any built-in DevTools first).
  */
 export function disposeBrowserView(): void {
+  // Snapshot the latest pinned URLs/paths before tearing the views down, so a
+  // pinned site that was navigated mid-session restores where it was left.
+  savePinnedTabs();
   for (const rec of tabValues()) {
     detachCdp(rec);
     closeChromeDevtools(rec);

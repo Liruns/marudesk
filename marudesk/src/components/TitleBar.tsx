@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react';
 import { TabStrip } from '../features/tabs/TabStrip';
 import { WindowControls } from './WindowControls';
-import logoUrl from '../assets/logo.png';
+import logoUrl from '../assets/logo-mark.png';
 
 /**
  * Frameless-window chrome: a single horizontal strip at the very top. The
@@ -40,20 +40,21 @@ export function TitleBar() {
       aria-label="Window chrome"
       onDoubleClick={onDoubleClick}
     >
-      {/* Logo slot — reserved for a brand logo (placeholder mark for now). On
-          Windows/Linux it's a 48px column aligned with the ActivityBar below
-          (shared right border) so the left edge reads as one rail. On macOS it
-          shifts right to clear the traffic-light buttons. */}
+      {/* Logo slot — the glass M brand mark (trimmed asset, so it reads at full
+          size rather than lost in transparent padding). On Windows/Linux it's a
+          48px column aligned with the ActivityBar below (shared right border) so
+          the left edge reads as one rail. On macOS it shifts right to clear the
+          traffic-light buttons. */}
       {isMac ? (
         <div
           className="flex items-center shrink-0"
           style={{ paddingLeft: 76, paddingRight: 12 }}
         >
-          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-5 select-none" />
+          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       ) : (
         <div className="w-12 shrink-0 flex items-center justify-center border-r border-subtle">
-          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-5 select-none" />
+          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}
       <TabStrip />

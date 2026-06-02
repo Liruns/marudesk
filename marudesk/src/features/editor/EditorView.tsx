@@ -35,7 +35,7 @@ function MarkdownModeToggle({
 
   return (
     <div
-      className="flex items-center gap-px rounded bg-surface-2 p-px"
+      className="flex items-center gap-0.5"
       role="group"
       aria-label="Markdown view mode"
     >
@@ -52,7 +52,7 @@ function MarkdownModeToggle({
             'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
             mode === value
               ? 'bg-surface-3 text-fg-primary'
-              : 'text-fg-tertiary hover:text-fg-secondary',
+              : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3/50',
           )}
         >
           <Icon size={12} />
@@ -146,7 +146,10 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
-      <header className="h-7 shrink-0 flex items-center gap-2 px-3 border-b border-subtle text-caption">
+      {/* Header on surface-2 — the active tab's tone — so the editor's chrome
+          reads as one surface flowing out of its tab, matching the browser. */}
+      <header className="h-7 shrink-0 flex items-center gap-2 px-3 border-b border-subtle text-caption bg-surface-2">
+        <FileCode2 size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
         <span
           className="truncate text-fg-secondary"
           title={isUntitled ? 'Unsaved file — Ctrl+S to save' : filePath}

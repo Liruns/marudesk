@@ -5,7 +5,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react';
-import { Columns2, Copy, Globe, Lock, Plus, X } from 'lucide-react';
+import { Columns2, Copy, Globe, Lock, Pin, PinOff, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from './store';
 import { useAgentStore } from '../agent/store';
@@ -36,6 +36,7 @@ export function TabStrip() {
   const closeTab = useTabsStore((s) => s.closeTab);
   const newTab = useTabsStore((s) => s.newTab);
   const reorderTabs = useTabsStore((s) => s.reorderTabs);
+  const setPinned = useTabsStore((s) => s.setPinned);
   // The agent tab gets a "needs you" dot when its turn parks on an approval or
   // question — so a blocked agent is visible even from another tab (Antigravity
   // "Blocked" parity).
@@ -52,6 +53,9 @@ export function TabStrip() {
     null,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Which edges of the overflowing strip have more tabs hidden past them —
+  // drives a soft fade mask so an overflowing strip reads as scrollable.
+  const [edge, setEdge] = useState({ l: false, r: false });
 
   // Each split is a persistent group; consecutive strip tabs in the SAME group
   // (kept contiguous by grid.syncStripGrouping) are bracketed as one merged
@@ -95,6 +99,24 @@ export function TabStrip() {
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeTabId, tabs.length]);
 
+  // Track which edges have hidden tabs so the strip can fade them (scroll cue).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setEdge({ l: el.scrollLeft > 1, r: el.scrollLeft < max - 1 });
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [tabs.length, groups]);
+
   // Dismiss the context menu on Escape (outside-click is handled by its backdrop).
   useEffect(() => {
     if (!menu) return;
@@ -130,6 +152,7 @@ export function TabStrip() {
       active={tab.id === activeTabId}
       attention={tab.kind === 'agent' && agentWaiting}
       grouped={grouped}
+      pinned={!grouped && tab.pinned}
       dragging={tab.id === draggingId}
       dropTarget={
         tab.id === overId && draggingId !== null && draggingId !== tab.id
@@ -190,27 +213,49 @@ export function TabStrip() {
 
   const menuTab = menu ? tabs.find((t) => t.id === menu.tabId) : undefined;
 
+  // Soft fade over whichever edge(s) hide more tabs — purely a scroll affordance.
+  const F = 28;
+  const maskImage =
+    edge.l && edge.r
+      ? `linear-gradient(90deg, transparent 0, #000 ${F}px, #000 calc(100% - ${F}px), transparent 100%)`
+      : edge.l
+        ? `linear-gradient(90deg, transparent 0, #000 ${F}px)`
+        : edge.r
+          ? `linear-gradient(90deg, #000 calc(100% - ${F}px), transparent 100%)`
+          : undefined;
+
   return (
-    <div className="flex items-end gap-0.5 flex-1 min-w-0 h-full pt-1.5">
+    // Chrome-style strip: vertically-centered floating pills that grow to share
+    // the bar (flex-1, capped per chip) and shrink equally as more open, then
+    // scroll. The "+" button is the last interactive child so it hugs the right
+    // edge of the final tab; a trailing flex-1 filler (re-armed as a drag region
+    // since its parent opts out) eats whatever width is left so the empty stretch
+    // past the last tab still moves the window.
+    <div className="flex items-center flex-1 min-w-0 h-full pl-1.5">
       <div
         ref={scrollRef}
-        className="flex items-end gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
+        role="tablist"
+        aria-label="Open tabs"
+        aria-orientation="horizontal"
+        className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
+        style={{ maskImage, WebkitMaskImage: maskImage }}
       >
         {stripNodes}
+        <button
+          type="button"
+          onClick={() => void newTab()}
+          className={cn(
+            'size-7 rounded-md flex items-center justify-center shrink-0 ml-0.5',
+            'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
+            'transition-colors duration-fast',
+          )}
+          aria-label="New tab"
+          title="New tab (Ctrl+T)"
+        >
+          <Plus size={16} />
+        </button>
+        <div className="drag-region flex-1 self-stretch min-w-[12px]" aria-hidden />
       </div>
-      <button
-        type="button"
-        onClick={() => void newTab()}
-        className={cn(
-          'size-7 rounded flex items-center justify-center shrink-0 no-drag',
-          'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
-          'transition-colors duration-fast mb-1',
-        )}
-        aria-label="New tab"
-        title="New tab (Ctrl+T)"
-      >
-        <Plus size={14} />
-      </button>
       {menu && menuTab ? (
         <TabContextMenu
           x={menu.x}
@@ -223,6 +268,7 @@ export function TabStrip() {
             closeMany,
             duplicate: () => void newTab('web', menuTab.url),
             exitSplit: () => dissolveGroup(menu.tabId),
+            togglePin: () => void setPinned(menu.tabId, !menuTab.pinned),
           })}
         />
       ) : null}
@@ -246,6 +292,7 @@ function buildMenuItems({
   closeMany,
   duplicate,
   exitSplit,
+  togglePin,
 }: {
   tab: TabState;
   tabs: TabState[];
@@ -253,11 +300,24 @@ function buildMenuItems({
   closeMany: (ids: string[]) => void;
   duplicate: () => void;
   exitSplit: () => void;
+  togglePin: () => void;
 }): TabMenuItem[] {
   const idx = tabs.findIndex((t) => t.id === tab.id);
   const others = tabs.filter((t) => t.id !== tab.id).map((t) => t.id);
   const toRight = tabs.slice(idx + 1).map((t) => t.id);
   return [
+    // Pin/unpin sits at the top (Chrome). Hidden for a tab inside a split — a
+    // pinned tab is anchored at the front, which would yank it out of the group.
+    ...(!inGroup
+      ? [
+          {
+            key: 'pin',
+            label: tab.pinned ? 'Unpin tab' : 'Pin tab',
+            icon: tab.pinned ? PinOff : Pin,
+            onClick: togglePin,
+          },
+        ]
+      : []),
     { key: 'close', label: 'Close', icon: X, onClick: () => closeMany([tab.id]) },
     {
       key: 'others',
@@ -367,24 +427,21 @@ function SplitGroup({
       role="group"
       aria-label="Split view group"
       className={cn(
-        'group/split relative flex items-end gap-0.5 self-stretch pl-1.5 pr-1 rounded-t-md',
-        // Quiet tinted capsule + hairline so the tiles read as one split; a thin
-        // accent edge along the top is the grouping cue (not a loud fill box).
-        'bg-surface-2/25 ring-1 ring-inset ring-subtle no-drag',
+        // A rounded tinted capsule (one step up from the bar) wraps the merged
+        // tiles as one block; the faint accent ring is the single grouping cue,
+        // and the inset px frame lets the tint read as a border around the pills.
+        'group/split relative flex items-center gap-0.5 h-8 px-1 rounded-lg shrink-0',
+        'bg-surface-2/60 ring-1 ring-inset ring-accent/25 no-drag',
       )}
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-1.5 top-0 h-px rounded-full bg-accent/50"
-      />
       <button
         type="button"
         onClick={onExit}
         aria-label="Exit split view"
         title="Exit split view"
         className={cn(
-          'self-center mr-0.5 size-5 rounded flex items-center justify-center shrink-0',
-          'text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
+          'size-5 rounded flex items-center justify-center shrink-0',
+          'text-accent/70 hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
         )}
       >
         <Columns2 size={12} />
@@ -399,6 +456,7 @@ function TabChip({
   active,
   attention,
   grouped,
+  pinned,
   onActivate,
   onContextMenu,
   onClose,
@@ -414,6 +472,7 @@ function TabChip({
   active: boolean;
   attention?: boolean;
   grouped?: boolean;
+  pinned?: boolean;
   onActivate: () => void;
   onContextMenu: (x: number, y: number) => void;
   onClose: () => void;
@@ -472,25 +531,49 @@ function TabChip({
       onDragEnd={onDragEnd}
       title={tab.url || label}
       className={cn(
-        'group relative h-8 max-w-[220px] min-w-[120px] flex items-center gap-2 pl-3 pr-1.5',
+        // Floating pill (GM3-style): rounded on every corner, vertically centered
+        // in the bar. `grow-0 basis` + min-w makes tabs share width and shrink
+        // equally as more open (Chrome's equal-distribution), scrolling past the
+        // floor. Grouped chips are shorter so the split capsule frames them; a
+        // pinned chip is a fixed favicon-only square anchored at the front.
+        'group relative flex items-center rounded-md',
         'text-caption cursor-default select-none transition-colors duration-fast',
-        grouped ? 'rounded-md' : 'rounded-t-md border-t border-x',
+        pinned
+          ? 'h-8 w-9 shrink-0 justify-center'
+          : grouped
+            ? 'h-7 grow-0 basis-[170px] min-w-[64px] gap-2 pl-3 pr-1.5'
+            : 'h-8 flex-1 basis-0 min-w-[80px] max-w-[240px] gap-2 pl-3 pr-1.5',
         active
           ? grouped
-            ? 'bg-surface-1 text-fg-primary'
-            : 'bg-surface-1 border-subtle text-fg-primary'
+            ? 'bg-surface-3 text-fg-primary'
+            : 'bg-surface-2 text-fg-primary'
           : grouped
-            ? 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-1/50'
-            : 'bg-transparent border-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/40',
+            ? 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-3/50'
+            : 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-2/50',
         dragging ? 'opacity-40' : '',
       )}
     >
       {dropTarget ? (
         <span
           aria-hidden
-          className="absolute left-0 top-1 bottom-1 w-0.5 rounded-pill bg-accent"
+          className="absolute -left-1 top-1 bottom-1 w-0.5 rounded-pill bg-accent"
         />
       ) : null}
+      {pinned ? (
+        // Favicon-only: no label, no close. The attention dot still rides the
+        // corner so a pinned agent/web tab can still flag "needs you".
+        <span className="relative flex items-center justify-center">
+          <TabIndicator tab={tab} />
+          {attention ? (
+            <span
+              aria-hidden
+              title="Agent needs your input"
+              className="absolute -top-1.5 -right-1.5 size-1.5 rounded-pill bg-warning animate-pulse"
+            />
+          ) : null}
+        </span>
+      ) : (
+        <>
       <TabIndicator tab={tab} />
       <span className="flex-1 min-w-0 truncate font-medium">{label}</span>
       {attention ? (
@@ -508,9 +591,8 @@ function TabChip({
           title={dirty ? 'Unsaved changes — close tab' : 'Close tab'}
           className={cn(
             'size-5 rounded flex items-center justify-center shrink-0',
-            'text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary',
-            dirty ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            !dirty && active ? 'opacity-60' : '',
+            'text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary',
+            dirty || active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
           )}
         >
           {dirty ? (
@@ -535,6 +617,8 @@ function TabChip({
       ) : (
         <span className="size-5 shrink-0" aria-hidden />
       )}
+        </>
+      )}
     </div>
   );
 }
@@ -547,16 +631,17 @@ function TabIndicator({ tab }: { tab: TabState }) {
     const Icon = tabKinds[tab.kind].icon;
     return (
       <span className="text-accent shrink-0" aria-hidden>
-        <Icon size={12} />
+        <Icon size={14} />
       </span>
     );
   }
-  // Loading wins over the favicon (Chrome-style): the spinner signals progress.
+  // Loading wins over the favicon (Chrome-style): a quiet accent spinner ring
+  // signals progress. Reduced-motion freezes it to a static ring (no shimmer).
   if (tab.isLoading) {
     return (
       <span
         aria-hidden
-        className="size-2 rounded-pill bg-accent animate-pulse shrink-0"
+        className="size-4 shrink-0 rounded-full border-2 border-accent/25 border-t-accent animate-spin motion-reduce:animate-none"
       />
     );
   }
@@ -569,20 +654,20 @@ function TabIndicator({ tab }: { tab: TabState }) {
   if (!tab.url || tab.url === 'about:blank') {
     return (
       <span className="text-fg-tertiary shrink-0" aria-hidden>
-        <Globe size={12} />
+        <Globe size={14} />
       </span>
     );
   }
   if (tab.isSecure) {
     return (
       <span className="text-fg-secondary shrink-0" aria-hidden>
-        <Lock size={12} />
+        <Lock size={14} />
       </span>
     );
   }
   return (
     <span className="text-warning shrink-0" aria-hidden>
-      <Globe size={12} />
+      <Globe size={14} />
     </span>
   );
 }
@@ -592,7 +677,7 @@ function FaviconImg({ src }: { src: string }) {
   if (failed) {
     return (
       <span className="text-fg-tertiary shrink-0" aria-hidden>
-        <Globe size={12} />
+        <Globe size={14} />
       </span>
     );
   }
@@ -602,7 +687,7 @@ function FaviconImg({ src }: { src: string }) {
       alt=""
       aria-hidden
       draggable={false}
-      className="size-3.5 shrink-0 rounded-[2px] object-contain"
+      className="size-4 shrink-0 rounded-[3px] object-contain"
       onError={() => setFailed(true)}
     />
   );

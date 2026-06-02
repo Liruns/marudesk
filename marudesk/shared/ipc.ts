@@ -99,6 +99,7 @@ export const CHANNELS = {
     'browser:tabs-activate',
     'browser:tabs-snapshot',
     'browser:tabs-reorder',
+    'browser:tabs-set-pinned',
     'browser:tabs-bind-path',
   ],
   devtools: [
@@ -307,6 +308,11 @@ export interface IpcMap {
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };
+  // Pin/unpin a tab (favicon-only, kept at the front). Main re-sorts pinned-first.
+  'browser:tabs-set-pinned': {
+    args: [payload: { id: string; pinned: boolean }];
+    result: boolean;
+  };
   'browser:tabs-bind-path': {
     args: [payload: { id: string; path: string }];
     result: boolean;
@@ -645,6 +651,16 @@ export interface EventPayloadMap {
   // zoom can't fire. The renderer applies page zoom for a web tab or scales the
   // whole UI (the persisted Interface-zoom setting) otherwise — symmetric in/out.
   'app:ui-zoom': 'in' | 'out' | 'reset';
+  // Tab + split-pane shortcuts forwarded from a focused web view's
+  // before-input-event. The renderer owns the tab/grid state, so main just relays
+  // the intent — mirrors app:ui-zoom. Tab nav: Ctrl+Tab cycle (`jump` digit is
+  // 1-based; 9 = last tab). Pane: Ctrl+Alt+Arrow cycles pane focus, Ctrl+Shift+
+  // Enter zooms the focused pane.
+  'app:tab-shortcut':
+    | { type: 'cycle'; dir: 1 | -1 }
+    | { type: 'jump'; digit: number }
+    | { type: 'pane-cycle'; dir: 1 | -1 }
+    | { type: 'pane-maximize' };
 }
 
 export type EventChannel = keyof EventPayloadMap;
@@ -674,6 +690,7 @@ export const EVENT_CHANNELS = [
   'terminal:data',
   'terminal:exit',
   'app:ui-zoom',
+  'app:tab-shortcut',
 ] as const satisfies readonly EventChannel[];
 
 /* ── Compile-time coverage guards (no runtime cost) ─────────────────────── */

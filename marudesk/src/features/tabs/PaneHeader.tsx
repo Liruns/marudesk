@@ -6,6 +6,8 @@ import {
   Globe,
   House,
   Lock,
+  Maximize2,
+  Minimize2,
   RotateCw,
   SlidersHorizontal,
   Sparkles,
@@ -48,14 +50,32 @@ const KIND_LABEL: Record<Exclude<TabKind, 'web'>, string> = {
 export function PaneHeader({
   tab,
   focused,
+  maximized,
+  onToggleMaximize,
   onClose,
 }: {
   tab: TabState;
   focused: boolean;
+  maximized: boolean;
+  onToggleMaximize: () => void;
   onClose: () => void;
 }) {
   return (
-    <div className="h-7 shrink-0 flex items-center gap-1 pl-2 pr-1 border-b border-subtle bg-surface-1">
+    <div
+      className={cn(
+        'relative h-7 shrink-0 flex items-center gap-1 pl-2 pr-1 border-b border-subtle',
+        // Focused pane's header lifts a step and grows an accent top edge — the
+        // same grouping cue the strip uses — so the live pane (the one the
+        // omnibox + keyboard drive) is unmistakable among the tiles.
+        focused ? 'bg-surface-2' : 'bg-surface-1',
+      )}
+    >
+      {focused ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-accent/70"
+        />
+      ) : null}
       {tab.kind === 'web' ? (
         focused ? (
           <WebOmnibox />
@@ -63,8 +83,26 @@ export function PaneHeader({
           <WebUrlStatic tab={tab} />
         )
       ) : (
-        <FeatureLabel tab={tab} />
+        <FeatureLabel tab={tab} focused={focused} />
       )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleMaximize();
+        }}
+        aria-label={maximized ? 'Restore pane' : 'Maximize pane'}
+        title={maximized ? 'Restore pane' : 'Maximize pane'}
+        aria-pressed={maximized}
+        className={cn(
+          'size-5 shrink-0 rounded flex items-center justify-center transition-colors duration-fast',
+          maximized
+            ? 'text-accent hover:bg-surface-3'
+            : 'text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary',
+        )}
+      >
+        {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+      </button>
       <button
         type="button"
         onClick={(e) => {
@@ -73,7 +111,7 @@ export function PaneHeader({
         }}
         aria-label="Close pane"
         title="Close pane"
-        className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary transition-colors duration-fast"
+        className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
       >
         <X size={13} />
       </button>
@@ -135,25 +173,39 @@ function WebOmnibox() {
   );
 }
 
-/** Read-only URL for a blurred web pane. */
+/** Read-only URL for a blurred web pane — favicon (when known) aids recognition. */
 function WebUrlStatic({ tab }: { tab: TabState }) {
   return (
-    <div className="flex-1 min-w-0 flex items-center gap-1.5">
-      <Scheme url={tab.url} isSecure={tab.isSecure} />
-      <span className="text-caption text-fg-tertiary truncate">
-        {tab.url || tab.title || 'New tab'}
+    <div className="flex-1 min-w-0 flex items-center gap-1.5 pl-1">
+      {tab.favicon ? (
+        <img
+          src={tab.favicon}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="size-3.5 shrink-0 rounded-[2px] object-contain"
+        />
+      ) : (
+        <Scheme url={tab.url} isSecure={tab.isSecure} />
+      )}
+      <span className="text-caption text-fg-secondary truncate">
+        {tab.title || tab.url || 'New tab'}
       </span>
     </div>
   );
 }
 
-function FeatureLabel({ tab }: { tab: TabState }) {
+function FeatureLabel({ tab, focused }: { tab: TabState; focused: boolean }) {
   const Icon = KIND_ICON[tab.kind];
   const label =
     tab.title || KIND_LABEL[tab.kind as Exclude<TabKind, 'web'>] || 'Tab';
   return (
-    <div className="flex-1 min-w-0 flex items-center gap-1.5 text-fg-tertiary">
-      <Icon size={13} />
+    <div className="flex-1 min-w-0 flex items-center gap-1.5">
+      {/* Focused pane tints its glyph accent — same "active surface" cue the
+          strip uses for a feature tab's icon, so the live pane reads at a glance. */}
+      <span className={focused ? 'text-accent shrink-0' : 'text-fg-tertiary shrink-0'}>
+        <Icon size={13} />
+      </span>
       <span className="text-caption text-fg-secondary truncate">{label}</span>
     </div>
   );

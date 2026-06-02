@@ -42,6 +42,8 @@ type TabsActions = {
   activateTab: (id: string) => Promise<void>;
   refreshTabsSnapshot: () => Promise<void>;
   reorderTabs: (orderedIds: string[]) => void;
+  /** Pin/unpin a tab (favicon-only, kept at the front). Main re-sorts + pushes. */
+  setPinned: (id: string, pinned: boolean) => Promise<void>;
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
   reloadOrStop: () => Promise<void>;
@@ -106,6 +108,12 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
       return { tabs: next };
     });
     void window.marudesk.invoke('browser:tabs-reorder', orderedIds);
+  },
+
+  // Pin/unpin: main owns the pinned-first ordering and pushes a fresh snapshot,
+  // so there's nothing to set locally.
+  setPinned: async (id, pinned) => {
+    await window.marudesk.invoke('browser:tabs-set-pinned', { id, pinned });
   },
 
   goBack: async () => {
