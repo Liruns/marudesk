@@ -24,7 +24,10 @@
     background-color: var(--surface-page);
     color: var(--text-primary);
     font-family: var(--font-body);
-    font-feature-settings: 'tnum' 1, 'cv11' 1;
+    /* tnum: tabular figures · cv11: single-story a · calt/kern/liga: standard
+       shaping · ss03: rounder quotes & commas (a touch of warmth at UI sizes). */
+    font-feature-settings: 'tnum' 1, 'cv11' 1, 'calt' 1, 'kern' 1, 'liga' 1,
+      'ss03' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -34,6 +37,15 @@
   *::before,
   *::after {
     box-sizing: border-box;
+  }
+
+  /* Unified keyboard focus ring. Chromium only matches :focus-visible for
+     keyboard/programmatic focus, so a mouse click never leaves a ring. Elements
+     with their own focus style (Button, inputs via `focus:outline-none …`) win
+     on specificity, so this is a clean default for everything else — no doubling. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 
   .tabular {
@@ -52,6 +64,62 @@
 .no-drag {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+/* ─── Custom scrollbars ───────────────────────────────────────────────────────
+   Replaces the heavy native Electron/Chromium scrollbar app-wide. The thumb
+   carries a transparent border + padding-box clip so it reads as a slim ~4px
+   pill inside a comfortable ~10px hit area — easy to grab, quiet to look at.
+   (Embedded web pages render in their own WebContentsView and keep their own.)
+   `.scrollbar-none` opts a container out entirely — used by the tab strip and
+   download shelf, which scroll horizontally and never want a visible bar. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@layer utilities {
+  /* Hide a scroll container's bar without losing scrollability. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ─── Lucide icons ────────────────────────────────────────────────────────────
+   Drop the default 2px stroke to 1.5 globally — at the 11–18px sizes used in the
+   chrome, 1.5 reads refined where 2 looks heavy (matches Linear / VS Code). */
+svg.lucide {
+  stroke-width: 1.5;
+}
+
+/* Respect reduced-motion: collapse animations/transitions to near-instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ─── Markdown preview prose ──────────────────────────────────────────────────
@@ -178,4 +246,94 @@
   max-width: 100%;
   border-radius: var(--radius);
   display: block;
+}
+
+/* ─── highlight.js integration ────────────────────────────────────────────────
+   The github-dark theme (imported globally in main.tsx) provides token colours
+   via .hljs-* classes. It also sets a block background + padding on .hljs /
+   pre code.hljs; inside .md-prose we let the <pre> chrome own that, so the code
+   element stays transparent and unpadded — only the token colours bleed in. */
+.md-prose pre code.hljs,
+.md-prose code.hljs {
+  background: transparent;
+  padding: 0;
+}
+
+/* ─── Code block chrome: copy button + language label ─────────────────────────
+   <pre> is decorated by the shared Markdown renderer (src/lib/markdown.tsx),
+   which adds .md-codeblock plus the button/label elements. */
+.md-prose pre.md-codeblock {
+  position: relative;
+}
+.md-prose pre.md-codeblock .md-copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.15rem 0.45rem;
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast, 120ms) ease,
+    color var(--duration-fast, 120ms) ease;
+}
+.md-prose pre.md-codeblock:hover .md-copy-btn,
+.md-prose pre.md-codeblock .md-copy-btn:focus-visible {
+  opacity: 1;
+}
+.md-prose pre.md-codeblock .md-copy-btn:hover {
+  color: var(--text-primary);
+}
+.md-prose pre.md-codeblock .md-copy-btn.is-copied {
+  color: var(--accent);
+  opacity: 1;
+}
+.md-prose pre.md-codeblock .md-code-lang {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  user-select: none;
+}
+/* Give the first code line clearance so it doesn't run under the lang label. */
+.md-prose pre.md-codeblock:has(.md-code-lang) > code {
+  padding-top: 0.9rem;
+}
+
+/* ─── Compact prose (AI chat) ─────────────────────────────────────────────────
+   The default .md-prose adds page-like padding + a centred max-width meant for
+   the editor preview. In chat bubbles we strip that so assistant messages read
+   like inline prose; first/last block margins collapse to the bubble edge. */
+.md-prose.md-compact {
+  padding: 0;
+  max-width: none;
+  margin: 0;
+  line-height: 1.6;
+}
+.md-prose.md-compact > *:first-child {
+  margin-top: 0;
+}
+.md-prose.md-compact > *:last-child {
+  margin-bottom: 0;
+}
+.md-prose.md-compact h1 { font-size: 1.25rem; }
+.md-prose.md-compact h2 { font-size: 1.0625rem; }
+.md-prose.md-compact h3 { font-size: 0.9375rem; }
+.md-prose.md-compact h1,
+.md-prose.md-compact h2,
+.md-prose.md-compact h3,
+.md-prose.md-compact h4,
+.md-prose.md-compact h5,
+.md-prose.md-compact h6 {
+  margin-top: 1em;
 }

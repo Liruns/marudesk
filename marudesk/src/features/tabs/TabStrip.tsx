@@ -1,8 +1,15 @@
-import { useState, type MouseEvent, type ReactNode } from 'react';
-import { Columns2, Globe, Lock, Plus, X } from 'lucide-react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
+import { Columns2, Copy, Globe, Lock, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from './store';
 import { useGridStore, groupForTab } from './grid';
+import { leaves } from './layout';
 import { confirmCloseTab, isDirty, useEditorStore } from '../editor/store';
 import { tabKinds } from './registry';
 import type { TabState } from '../../../shared/browser';
@@ -32,8 +39,14 @@ export function TabStrip() {
   const setDraggingTab = useGridStore((s) => s.setDraggingTab);
   const groups = useGridStore((s) => s.groups);
   const dissolveGroup = useGridStore((s) => s.dissolveGroup);
+  const focusPane = useGridStore((s) => s.focus);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  // Right-click tab menu (close/close-others/close-right/duplicate/exit-split).
+  const [menu, setMenu] = useState<{ tabId: string; x: number; y: number } | null>(
+    null,
+  );
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Each split is a persistent group; consecutive strip tabs in the SAME group
   // (kept contiguous by grid.syncStripGrouping) are bracketed as one merged
@@ -68,6 +81,43 @@ export function TabStrip() {
     resetDrag();
   };
 
+  // Keep the active tab in view when the strip overflows horizontally (many
+  // tabs scroll the strip; activating an off-screen one should reveal it).
+  useEffect(() => {
+    const el = scrollRef.current?.querySelector<HTMLElement>(
+      '[data-tab-active="true"]',
+    );
+    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeTabId, tabs.length]);
+
+  // Dismiss the context menu on Escape (outside-click is handled by its backdrop).
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menu]);
+
+  // Close a set of tabs, honoring the unsaved-changes confirm for dirty editors.
+  const closeMany = (ids: string[]) => {
+    const byId = new Map(tabs.map((t) => [t.id, t] as const));
+    for (const id of ids) {
+      const t = byId.get(id);
+      if (t && confirmCloseTab(t)) void closeTab(id);
+    }
+  };
+
+  // Activating a tab that lives in a split also focuses its pane, so clicking a
+  // grouped chip highlights the right pane instead of just showing the group.
+  const focusTabPane = (tabId: string) => {
+    const g = groupForTab(groups, tabId);
+    if (!g) return;
+    const leaf = leaves(g).find((l) => l.tabId === tabId);
+    if (leaf) focusPane(leaf.id);
+  };
+
   const renderChip = (tab: TabState) => (
     <TabChip
       key={tab.id}
@@ -77,7 +127,11 @@ export function TabStrip() {
       dropTarget={
         tab.id === overId && draggingId !== null && draggingId !== tab.id
       }
-      onActivate={() => void activateTab(tab.id)}
+      onActivate={() => {
+        void activateTab(tab.id);
+        focusTabPane(tab.id);
+      }}
+      onContextMenu={(x, y) => setMenu({ tabId: tab.id, x, y })}
       onClose={() => {
         if (confirmCloseTab(tab)) void closeTab(tab.id);
       }}
@@ -127,9 +181,18 @@ export function TabStrip() {
   }
   flushRun();
 
+  const menuTab = menu ? tabs.find((t) => t.id === menu.tabId) : undefined;
+
   return (
     <div className="flex items-end gap-0.5 flex-1 min-w-0 h-full pt-1.5">
-      <div className="flex items-end gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag">
+      <div
+        ref={scrollRef}
+        className="flex items-end gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
+        onDoubleClick={(e) => {
+          // Double-clicking the empty strip area opens a new tab (Chrome-style).
+          if (e.target === e.currentTarget) void newTab();
+        }}
+      >
         {stripNodes}
       </div>
       <button
@@ -145,6 +208,141 @@ export function TabStrip() {
       >
         <Plus size={14} />
       </button>
+      {menu && menuTab ? (
+        <TabContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={buildMenuItems({
+            tab: menuTab,
+            tabs,
+            inGroup: !!groupIdOf(menu.tabId),
+            closeMany,
+            duplicate: () => void newTab('web', menuTab.url),
+            exitSplit: () => dissolveGroup(menu.tabId),
+          })}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type TabMenuItem = {
+  key: string;
+  label: string;
+  icon?: typeof Copy;
+  disabled?: boolean;
+  onClick: () => void;
+};
+
+/** Build the right-click menu entries for a tab. */
+function buildMenuItems({
+  tab,
+  tabs,
+  inGroup,
+  closeMany,
+  duplicate,
+  exitSplit,
+}: {
+  tab: TabState;
+  tabs: TabState[];
+  inGroup: boolean;
+  closeMany: (ids: string[]) => void;
+  duplicate: () => void;
+  exitSplit: () => void;
+}): TabMenuItem[] {
+  const idx = tabs.findIndex((t) => t.id === tab.id);
+  const others = tabs.filter((t) => t.id !== tab.id).map((t) => t.id);
+  const toRight = tabs.slice(idx + 1).map((t) => t.id);
+  return [
+    { key: 'close', label: 'Close', icon: X, onClick: () => closeMany([tab.id]) },
+    {
+      key: 'others',
+      label: 'Close others',
+      disabled: others.length === 0,
+      onClick: () => closeMany(others),
+    },
+    {
+      key: 'right',
+      label: 'Close tabs to the right',
+      disabled: toRight.length === 0,
+      onClick: () => closeMany(toRight),
+    },
+    ...(tab.kind === 'web'
+      ? [{ key: 'dup', label: 'Duplicate', icon: Copy, onClick: duplicate }]
+      : []),
+    ...(inGroup
+      ? [{ key: 'exit', label: 'Exit split', icon: Columns2, onClick: exitSplit }]
+      : []),
+  ];
+}
+
+/**
+ * Lightweight right-click menu for a tab. A full-screen backdrop captures the
+ * dismiss click (and a right-click elsewhere); the menu itself stops propagation.
+ * Anchored at the cursor — the strip sits at the top of the window, so it always
+ * has room to open downward.
+ */
+function TabContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  items: TabMenuItem[];
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      onClick={onClose}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <div
+        role="menu"
+        className={cn(
+          'absolute min-w-[190px] rounded-md py-1 no-drag',
+          'border border-subtle bg-surface-2 shadow-lg shadow-black/30',
+        )}
+        style={{ top: y, left: x }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {items.map((it) => {
+          const Icon = it.icon;
+          return (
+            <button
+              key={it.key}
+              type="button"
+              role="menuitem"
+              disabled={it.disabled}
+              onClick={() => {
+                if (it.disabled) return;
+                it.onClick();
+                onClose();
+              }}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-1.5 text-left text-caption',
+                'transition-colors duration-fast',
+                it.disabled
+                  ? 'text-fg-tertiary/50 cursor-default'
+                  : 'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary',
+              )}
+            >
+              {Icon ? (
+                <Icon size={13} className="shrink-0" aria-hidden />
+              ) : (
+                <span className="size-[13px] shrink-0" aria-hidden />
+              )}
+              <span className="flex-1 truncate">{it.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -193,6 +391,7 @@ function TabChip({
   tab,
   active,
   onActivate,
+  onContextMenu,
   onClose,
   canClose,
   dragging,
@@ -205,6 +404,7 @@ function TabChip({
   tab: TabState;
   active: boolean;
   onActivate: () => void;
+  onContextMenu: (x: number, y: number) => void;
   onClose: () => void;
   canClose: boolean;
   dragging: boolean;
@@ -234,9 +434,14 @@ function TabChip({
     <div
       role="tab"
       aria-selected={active}
+      data-tab-active={active}
       draggable
       onClick={onActivate}
       onMouseDown={onMiddleDown}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu(e.clientX, e.clientY);
+      }}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData(TAB_DND_MIME, tab.id);
@@ -272,7 +477,7 @@ function TabChip({
         />
       ) : null}
       <TabIndicator tab={tab} />
-      <span className="flex-1 min-w-0 truncate">{label}</span>
+      <span className="flex-1 min-w-0 truncate font-medium">{label}</span>
       {canClose ? (
         <button
           type="button"

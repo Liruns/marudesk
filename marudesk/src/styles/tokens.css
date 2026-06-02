@@ -69,6 +69,12 @@
   --space-4: 16px;
   --space-6: 24px;
   --space-8: 32px;
+
+  /* Focus ring + scrollbar. `--ring` rides the single violet accent (holds in
+     both themes); the scrollbar thumb is a quiet white wash, darkened for light. */
+  --ring:                  var(--accent);
+  --scrollbar-thumb:       rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
 }
 
 /* Light theme — applied via data-theme="light" on <html>. Only surfaces, text,
@@ -96,4 +102,7 @@
 
   --diff-add-bg:    rgba(76, 183, 130, 0.16);
   --diff-remove-bg: rgba(235, 87, 87, 0.14);
+
+  --scrollbar-thumb:       rgba(0, 0, 0, 0.18);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
 }
