@@ -38,6 +38,7 @@ import {
   createAndActivateTab,
   reorderTabs,
   replaceTab,
+  setTabPinned,
 } from './tabs';
 
 /**
@@ -327,6 +328,11 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:tabs-reorder', ([ids]) => {
     reorderTabs(arrayOf(ids, (x, i) => str(x, `ids[${i}]`), 'ids'));
     return true;
+  });
+
+  defineHandler('browser:tabs-set-pinned', ([payload]) => {
+    const p = obj(payload);
+    return setTabPinned(str(p.id, 'id'), bool(p.pinned, 'pinned'));
   });
 
   defineHandler('browser:tabs-bind-path', ([payload]) => {

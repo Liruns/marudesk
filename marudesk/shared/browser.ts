@@ -63,6 +63,12 @@ export type TabState = NavState & {
    * actual file read/write re-validates the path in the main process.
    */
   filePath?: string;
+  /**
+   * Pinned tabs render favicon-only (no title, no close) and are kept at the
+   * front of the strip — main enforces the pinned-first ordering, so the
+   * renderer just reflects it. Chrome/Edge "Pin tab".
+   */
+  pinned?: boolean;
 };
 
 export type TabsSnapshot = {

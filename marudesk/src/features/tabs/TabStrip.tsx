@@ -5,7 +5,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react';
-import { Columns2, Copy, Globe, Lock, Plus, X } from 'lucide-react';
+import { Columns2, Copy, Globe, Lock, Pin, PinOff, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from './store';
 import { useAgentStore } from '../agent/store';
@@ -36,6 +36,7 @@ export function TabStrip() {
   const closeTab = useTabsStore((s) => s.closeTab);
   const newTab = useTabsStore((s) => s.newTab);
   const reorderTabs = useTabsStore((s) => s.reorderTabs);
+  const setPinned = useTabsStore((s) => s.setPinned);
   // The agent tab gets a "needs you" dot when its turn parks on an approval or
   // question — so a blocked agent is visible even from another tab (Antigravity
   // "Blocked" parity).
@@ -151,6 +152,7 @@ export function TabStrip() {
       active={tab.id === activeTabId}
       attention={tab.kind === 'agent' && agentWaiting}
       grouped={grouped}
+      pinned={!grouped && tab.pinned}
       dragging={tab.id === draggingId}
       dropTarget={
         tab.id === overId && draggingId !== null && draggingId !== tab.id
@@ -263,6 +265,7 @@ export function TabStrip() {
             closeMany,
             duplicate: () => void newTab('web', menuTab.url),
             exitSplit: () => dissolveGroup(menu.tabId),
+            togglePin: () => void setPinned(menu.tabId, !menuTab.pinned),
           })}
         />
       ) : null}
@@ -286,6 +289,7 @@ function buildMenuItems({
   closeMany,
   duplicate,
   exitSplit,
+  togglePin,
 }: {
   tab: TabState;
   tabs: TabState[];
@@ -293,11 +297,24 @@ function buildMenuItems({
   closeMany: (ids: string[]) => void;
   duplicate: () => void;
   exitSplit: () => void;
+  togglePin: () => void;
 }): TabMenuItem[] {
   const idx = tabs.findIndex((t) => t.id === tab.id);
   const others = tabs.filter((t) => t.id !== tab.id).map((t) => t.id);
   const toRight = tabs.slice(idx + 1).map((t) => t.id);
   return [
+    // Pin/unpin sits at the top (Chrome). Hidden for a tab inside a split — a
+    // pinned tab is anchored at the front, which would yank it out of the group.
+    ...(!inGroup
+      ? [
+          {
+            key: 'pin',
+            label: tab.pinned ? 'Unpin tab' : 'Pin tab',
+            icon: tab.pinned ? PinOff : Pin,
+            onClick: togglePin,
+          },
+        ]
+      : []),
     { key: 'close', label: 'Close', icon: X, onClick: () => closeMany([tab.id]) },
     {
       key: 'others',
@@ -436,6 +453,7 @@ function TabChip({
   active,
   attention,
   grouped,
+  pinned,
   onActivate,
   onContextMenu,
   onClose,
@@ -451,6 +469,7 @@ function TabChip({
   active: boolean;
   attention?: boolean;
   grouped?: boolean;
+  pinned?: boolean;
   onActivate: () => void;
   onContextMenu: (x: number, y: number) => void;
   onClose: () => void;
@@ -512,12 +531,15 @@ function TabChip({
         // Floating pill (GM3-style): rounded on every corner, vertically centered
         // in the bar. `grow-0 basis` + min-w makes tabs share width and shrink
         // equally as more open (Chrome's equal-distribution), scrolling past the
-        // floor. Grouped chips are shorter so the split capsule frames them.
-        'group relative flex items-center gap-2 pl-3 pr-1.5 rounded-md',
+        // floor. Grouped chips are shorter so the split capsule frames them; a
+        // pinned chip is a fixed favicon-only square anchored at the front.
+        'group relative flex items-center rounded-md',
         'text-caption cursor-default select-none transition-colors duration-fast',
-        grouped
-          ? 'h-7 grow-0 basis-[170px] min-w-[64px]'
-          : 'h-8 flex-1 basis-0 min-w-[80px] max-w-[240px]',
+        pinned
+          ? 'h-8 w-9 shrink-0 justify-center'
+          : grouped
+            ? 'h-7 grow-0 basis-[170px] min-w-[64px] gap-2 pl-3 pr-1.5'
+            : 'h-8 flex-1 basis-0 min-w-[80px] max-w-[240px] gap-2 pl-3 pr-1.5',
         active
           ? grouped
             ? 'bg-surface-3 text-fg-primary'
@@ -534,6 +556,21 @@ function TabChip({
           className="absolute -left-1 top-1 bottom-1 w-0.5 rounded-pill bg-accent"
         />
       ) : null}
+      {pinned ? (
+        // Favicon-only: no label, no close. The attention dot still rides the
+        // corner so a pinned agent/web tab can still flag "needs you".
+        <span className="relative flex items-center justify-center">
+          <TabIndicator tab={tab} />
+          {attention ? (
+            <span
+              aria-hidden
+              title="Agent needs your input"
+              className="absolute -top-1.5 -right-1.5 size-1.5 rounded-pill bg-warning animate-pulse"
+            />
+          ) : null}
+        </span>
+      ) : (
+        <>
       <TabIndicator tab={tab} />
       <span className="flex-1 min-w-0 truncate font-medium">{label}</span>
       {attention ? (
@@ -576,6 +613,8 @@ function TabChip({
         </span>
       ) : (
         <span className="size-5 shrink-0" aria-hidden />
+      )}
+        </>
       )}
     </div>
   );

@@ -54,6 +54,9 @@ export type TabRecord = {
   crashed?: boolean;
   // Per-tab page zoom factor (1 = 100%); re-applied after navigation (zoom.ts).
   zoomFactor?: number;
+  // Pinned tab: favicon-only in the strip, kept at the front. The action layer
+  // (tabs.ts) re-sorts pinned-first whenever this flips or tabs reorder.
+  pinned?: boolean;
 };
 
 // Titles for feature tabs (web tabs derive their title from the page).
@@ -335,8 +338,9 @@ function navStateFor(rec: TabRecord): NavState {
 }
 
 function tabStateFor(rec: TabRecord): TabState {
+  const pinned = !!rec.pinned;
   if (rec.kind === 'web' && rec.view) {
-    return { id: rec.id, kind: 'web', ...navStateFor(rec) };
+    return { id: rec.id, kind: 'web', pinned, ...navStateFor(rec) };
   }
   if (rec.kind === 'editor') {
     const base = rec.filePath
@@ -345,6 +349,7 @@ function tabStateFor(rec: TabRecord): TabState {
     return {
       id: rec.id,
       kind: 'editor',
+      pinned,
       ...ZERO_NAV,
       title: base,
       filePath: rec.filePath,
@@ -353,6 +358,7 @@ function tabStateFor(rec: TabRecord): TabState {
   return {
     id: rec.id,
     kind: rec.kind,
+    pinned,
     ...ZERO_NAV,
     title: rec.kind === 'web' ? '' : FEATURE_TITLES[rec.kind],
   };

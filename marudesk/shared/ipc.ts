@@ -99,6 +99,7 @@ export const CHANNELS = {
     'browser:tabs-activate',
     'browser:tabs-snapshot',
     'browser:tabs-reorder',
+    'browser:tabs-set-pinned',
     'browser:tabs-bind-path',
   ],
   devtools: [
@@ -307,6 +308,11 @@ export interface IpcMap {
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };
+  // Pin/unpin a tab (favicon-only, kept at the front). Main re-sorts pinned-first.
+  'browser:tabs-set-pinned': {
+    args: [payload: { id: string; pinned: boolean }];
+    result: boolean;
+  };
   'browser:tabs-bind-path': {
     args: [payload: { id: string; path: string }];
     result: boolean;
