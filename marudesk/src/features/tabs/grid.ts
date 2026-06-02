@@ -78,6 +78,14 @@ type GridActions = {
   focus: (leafId: PaneId) => void;
   /** Toggle a pane to fill its grid (zoom); calling on the zoomed pane restores. */
   toggleMaximize: (leafId: PaneId) => void;
+  /**
+   * Move pane focus to the next/prev leaf (leaf order: left→right, top→bottom) in
+   * the active group, wrapping, and activate its tab. No-op outside a split. Backs
+   * the Ctrl+Alt+Arrow pane-navigation shortcut.
+   */
+  focusAdjacent: (dir: 1 | -1) => void;
+  /** Toggle zoom on the currently-focused pane (the keyboard path to maximize). */
+  maximizeFocused: () => void;
   /** Mark a tab as being dragged from the strip (null clears it). */
   setDraggingTab: (tabId: string | null) => void;
   /** Dissolve the split group containing `tabId` (the strip's "exit split"). */
@@ -322,6 +330,31 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
 
   toggleMaximize: (leafId) =>
     set((s) => ({ maximizedPaneId: s.maximizedPaneId === leafId ? null : leafId })),
+
+  focusAdjacent: (dir) => {
+    const { groups, focusedPaneId } = get();
+    const activeTabId = useTabsStore.getState().activeTabId;
+    const group = groupForTab(groups, activeTabId);
+    if (!group) return;
+    const ls = leaves(group);
+    if (ls.length < 2) return;
+    const cur = ls.findIndex((l) => l.id === focusedPaneId);
+    const next = ls[((cur < 0 ? 0 : cur) + dir + ls.length) % ls.length];
+    set({ focusedPaneId: next.id });
+    // Activate the landed pane's tab so the omnibox/keyboard target follows focus
+    // (mirrors clicking a pane). Same group → no group switch.
+    if (next.tabId) void useTabsStore.getState().activateTab(next.tabId);
+  },
+
+  maximizeFocused: () => {
+    const { groups, focusedPaneId } = get();
+    if (!focusedPaneId) return;
+    const activeTabId = useTabsStore.getState().activeTabId;
+    const group = groupForTab(groups, activeTabId);
+    // Only zoom a pane that's actually a tile of the active group.
+    if (!group || !leaves(group).some((l) => l.id === focusedPaneId)) return;
+    get().toggleMaximize(focusedPaneId);
+  },
 
   setDraggingTab: (tabId) => set({ draggingTabId: tabId }),
 

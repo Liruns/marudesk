@@ -4,6 +4,7 @@ import { StatusBar } from '../components/StatusBar';
 import { TitleBar } from '../components/TitleBar';
 import { Stage } from '../features/tabs/Stage';
 import { useTabsStore } from '../features/tabs/store';
+import { useGridStore } from '../features/tabs/grid';
 import { useWebPageStore } from '../features/browser/store';
 import { useTabEvents } from '../features/tabs/useTabEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
@@ -19,6 +20,7 @@ import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
 import { useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
+import type { EventPayload } from '../../shared/ipc';
 
 /** The single active left-rail panel, or null when the rail is collapsed. */
 type LeftPanel = 'explorer' | 'search' | 'sourceControl' | null;
@@ -43,14 +45,21 @@ function adjustUiZoom(dir: 'in' | 'out' | 'reset'): void {
 }
 
 /**
- * Run a tab-navigation shortcut against the live tab list. Shared by the window
+ * Run a tab/split-pane shortcut against the live state. Shared by the window
  * keydown handler (React chrome focused) and the `app:tab-shortcut` event (a
- * focused web view forwarded it from main's before-input-event). `cycle` wraps;
- * `jump` is 1-based with digit 9 meaning the last tab — Chrome parity.
+ * focused web view forwarded it from main's before-input-event). Tab `cycle`
+ * wraps; `jump` is 1-based with digit 9 meaning the last tab — Chrome parity.
+ * Pane ops delegate to the grid store (no-ops outside a split).
  */
-function runTabShortcut(
-  p: { type: 'cycle'; dir: 1 | -1 } | { type: 'jump'; digit: number },
-): void {
+function runShortcut(p: EventPayload<'app:tab-shortcut'>): void {
+  if (p.type === 'pane-cycle') {
+    useGridStore.getState().focusAdjacent(p.dir);
+    return;
+  }
+  if (p.type === 'pane-maximize') {
+    useGridStore.getState().maximizeFocused();
+    return;
+  }
   const st = useTabsStore.getState();
   const { tabs, activeTabId } = st;
   if (tabs.length === 0) return;
@@ -133,12 +142,34 @@ export function Shell() {
       //   Ctrl/Cmd+1…9              — jump to tab N (9 = last)
       if (e.ctrlKey && e.key === 'Tab') {
         e.preventDefault();
-        runTabShortcut({ type: 'cycle', dir: e.shiftKey ? -1 : 1 });
+        runShortcut({ type: 'cycle', dir: e.shiftKey ? -1 : 1 });
         return;
       }
       if (mod && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
         e.preventDefault();
-        runTabShortcut({ type: 'jump', digit: Number(e.key) });
+        runShortcut({ type: 'jump', digit: Number(e.key) });
+        return;
+      }
+      // Split-pane shortcuts: Ctrl+Alt+Arrow cycles pane focus, Ctrl+Shift+Enter
+      // zooms the focused pane (both no-op outside a split).
+      if (
+        e.ctrlKey &&
+        e.altKey &&
+        (e.key === 'ArrowLeft' ||
+          e.key === 'ArrowRight' ||
+          e.key === 'ArrowUp' ||
+          e.key === 'ArrowDown')
+      ) {
+        e.preventDefault();
+        runShortcut({
+          type: 'pane-cycle',
+          dir: e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1,
+        });
+        return;
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        runShortcut({ type: 'pane-maximize' });
         return;
       }
 
@@ -232,7 +263,7 @@ export function Shell() {
   // Ctrl+Cmd+1–9 there since the page holds keyboard focus). Same handler the
   // window keydown uses when the React chrome is focused.
   useEffect(() => {
-    return window.marudesk.on('app:tab-shortcut', (p) => runTabShortcut(p));
+    return window.marudesk.on('app:tab-shortcut', (p) => runShortcut(p));
   }, []);
 
   return (

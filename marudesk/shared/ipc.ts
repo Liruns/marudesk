@@ -645,11 +645,16 @@ export interface EventPayloadMap {
   // zoom can't fire. The renderer applies page zoom for a web tab or scales the
   // whole UI (the persisted Interface-zoom setting) otherwise — symmetric in/out.
   'app:ui-zoom': 'in' | 'out' | 'reset';
-  // Tab navigation forwarded from a focused web view's before-input-event
-  // (Ctrl+Tab / Ctrl+Shift+Tab cycle, Ctrl/Cmd+1–9 jump). The renderer owns the
-  // tab list + activation, so main just relays the intent — mirrors app:ui-zoom.
-  // `jump` digit is 1-based; 9 means "last tab" (Chrome parity).
-  'app:tab-shortcut': { type: 'cycle'; dir: 1 | -1 } | { type: 'jump'; digit: number };
+  // Tab + split-pane shortcuts forwarded from a focused web view's
+  // before-input-event. The renderer owns the tab/grid state, so main just relays
+  // the intent — mirrors app:ui-zoom. Tab nav: Ctrl+Tab cycle (`jump` digit is
+  // 1-based; 9 = last tab). Pane: Ctrl+Alt+Arrow cycles pane focus, Ctrl+Shift+
+  // Enter zooms the focused pane.
+  'app:tab-shortcut':
+    | { type: 'cycle'; dir: 1 | -1 }
+    | { type: 'jump'; digit: number }
+    | { type: 'pane-cycle'; dir: 1 | -1 }
+    | { type: 'pane-maximize' };
 }
 
 export type EventChannel = keyof EventPayloadMap;

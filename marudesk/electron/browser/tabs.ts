@@ -251,6 +251,25 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
       }
       return;
     }
+    // Split-pane shortcuts: Ctrl+Alt+Arrow cycles pane focus, Ctrl+Shift+Enter
+    // zooms the focused pane. No-ops in the renderer when there's no split.
+    if (input.control && input.alt && (input.key === 'ArrowLeft' || input.key === 'ArrowRight' || input.key === 'ArrowUp' || input.key === 'ArrowDown')) {
+      event.preventDefault();
+      const h = getHost();
+      const dir = input.key === 'ArrowLeft' || input.key === 'ArrowUp' ? -1 : 1;
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', { type: 'pane-cycle', dir });
+      }
+      return;
+    }
+    if (input.control && input.shift && input.key === 'Enter') {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', { type: 'pane-maximize' });
+      }
+      return;
+    }
     if (!wc) return;
 
     // Reload: F5 / Ctrl+R (normal), Ctrl+Shift+R (hard, ignore cache).
