@@ -130,6 +130,11 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
   // Same single server-owned state projects into both.
   const full = variant === 'full';
+  // Completion receipt (Antigravity "Walkthrough" parity): a one-line outcome
+  // shown when a finished turn actually probed the live app over CDP or ran a
+  // verify pass — surfacing the runtime-evidence wedge + the verify verdict.
+  const receipt =
+    chat.status === 'completed' ? buildReceipt(chat.messages) : null;
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -191,6 +196,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           )}
 
           {chat.edits.length > 0 ? <ChangesSection edits={chat.edits} /> : null}
+
+          {receipt ? <ReceiptCard receipt={receipt} /> : null}
 
           {chat.pendingApproval ? <ApprovalCard approval={chat.pendingApproval} /> : null}
           {chat.pendingQuestions ? <QuestionsCard pending={chat.pendingQuestions} /> : null}
@@ -865,6 +872,58 @@ function EditCard({
         )}
       </div>
       {open ? <DiffBlock filePath={edit.path} lines={lines} className="rounded-none border-0 border-t border-subtle" /> : null}
+    </div>
+  );
+}
+
+/* ── completion receipt (Antigravity "Walkthrough" parity) ──────────────── */
+
+type Receipt = {
+  runtime: number;
+  verdict: { variant: 'success' | 'warning'; label: string } | null;
+};
+
+/**
+ * Derive a runtime-verified outcome from a finished turn: how many CDP checks
+ * touched the live app, plus the last reload-and-verify verdict. Returns null
+ * unless the agent actually probed the running app or ran a verify pass — pure
+ * edits are covered by the Changes review, and plain Q&A needs no receipt.
+ */
+function buildReceipt(messages: AgentMessage[]): Receipt | null {
+  let runtime = 0;
+  let verdict: Receipt['verdict'] = null;
+  for (const m of messages) {
+    for (const part of m.parts) {
+      if (part.type !== 'tool') continue;
+      if (TOOL_META[part.call.name]?.runtime) runtime++;
+      if (part.call.name === 'reload_and_verify') {
+        const v = reloadVerdict(part.call.resultText);
+        if (v) verdict = v;
+      }
+    }
+  }
+  if (runtime === 0 && !verdict) return null;
+  return { runtime, verdict };
+}
+
+function ReceiptCard({ receipt }: { receipt: Receipt }) {
+  return (
+    <div className="rounded-lg border border-subtle bg-surface-1 p-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <span className="flex items-center gap-2 text-body-sm text-fg-primary">
+        <span className="flex size-5 items-center justify-center rounded-pill bg-success-subtle shrink-0">
+          <Check size={12} className="text-success" />
+        </span>
+        <span className="font-medium">Done</span>
+      </span>
+      {receipt.verdict ? (
+        <Badge variant={receipt.verdict.variant}>{receipt.verdict.label}</Badge>
+      ) : null}
+      {receipt.runtime > 0 ? (
+        <span className="flex items-center gap-1 text-caption text-fg-tertiary tabular-nums">
+          <span className="size-1.5 rounded-pill bg-accent shrink-0" aria-hidden />
+          {receipt.runtime} runtime check{receipt.runtime === 1 ? '' : 's'} on the live app
+        </span>
+      ) : null}
     </div>
   );
 }
