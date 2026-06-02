@@ -7,6 +7,10 @@
   A desktop app that fuses a real web browser, a code editor and terminal, and a multi-provider AI agent.
 </p>
 
+<p align="center">
+  <img src="docs/home.png" alt="MaruDesk — the new-tab shell with the activity bar, explorer, and surface cards" width="860">
+</p>
+
 MaruDesk is a desktop application (Electron) for building and debugging web software. Unlike source-only AI coding tools, it embeds a real Chromium browser and speaks the Chrome DevTools Protocol (CDP) in-process, so the agent can read the live DOM, console, and network of the app you are running and act on that runtime evidence — for example, turning a console error into a source fix and confirming the fix by reloading the page.
 
 > Status: in active development — built as a daily driver and portfolio project. See [Project status](#project-status).
@@ -18,6 +22,21 @@ Most AI coding assistants only see your source files. MaruDesk co-locates the su
 - A console error in the embedded DevTools carries a one-click **Fix this**: the agent maps the stack frame back to your source file, edits it, reloads the page, and verifies the error is gone (`get_console_errors → edit → reload_and_verify`).
 - The agent can click, type, and scroll the live page, read network requests, and evaluate expressions — the same things you would do by hand in DevTools.
 - Because the agent shares the workspace, terminals, and open tabs through an in-process context server, it works from what is actually on screen instead of guessing.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/ai-chat.png" alt="Agentic AI chat surface"><br>
+      <sub>Agentic AI chat — model bar, session-history rail, reasoning-effort dial, and the agent composer.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/split-view.png" alt="Tabs tiled in a split-pane grid"><br>
+      <sub>Tabs-as-features on a split-pane grid — browser, editor, terminal, and agent side by side.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
