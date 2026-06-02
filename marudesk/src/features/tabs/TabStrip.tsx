@@ -191,26 +191,33 @@ export function TabStrip() {
   const menuTab = menu ? tabs.find((t) => t.id === menu.tabId) : undefined;
 
   return (
-    <div className="flex items-end gap-0.5 flex-1 min-w-0 h-full pt-1.5">
+    // Chrome-style strip: vertically-centered floating pills that grow to share
+    // the bar (flex-1, capped per chip) and shrink equally as more open, then
+    // scroll. The "+" button is the last interactive child so it hugs the right
+    // edge of the final tab; a trailing flex-1 filler (re-armed as a drag region
+    // since its parent opts out) eats whatever width is left so the empty stretch
+    // past the last tab still moves the window.
+    <div className="flex items-center flex-1 min-w-0 h-full pl-1.5">
       <div
         ref={scrollRef}
-        className="flex items-end gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
+        className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto scrollbar-none no-drag"
       >
         {stripNodes}
+        <button
+          type="button"
+          onClick={() => void newTab()}
+          className={cn(
+            'size-7 rounded-md flex items-center justify-center shrink-0 ml-0.5',
+            'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
+            'transition-colors duration-fast',
+          )}
+          aria-label="New tab"
+          title="New tab (Ctrl+T)"
+        >
+          <Plus size={16} />
+        </button>
+        <div className="drag-region flex-1 self-stretch min-w-[12px]" aria-hidden />
       </div>
-      <button
-        type="button"
-        onClick={() => void newTab()}
-        className={cn(
-          'size-7 rounded flex items-center justify-center shrink-0 no-drag',
-          'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
-          'transition-colors duration-fast mb-1',
-        )}
-        aria-label="New tab"
-        title="New tab (Ctrl+T)"
-      >
-        <Plus size={14} />
-      </button>
       {menu && menuTab ? (
         <TabContextMenu
           x={menu.x}
@@ -367,24 +374,21 @@ function SplitGroup({
       role="group"
       aria-label="Split view group"
       className={cn(
-        'group/split relative flex items-end gap-0.5 self-stretch pl-1.5 pr-1 rounded-t-md',
-        // Quiet tinted capsule + hairline so the tiles read as one split; a thin
-        // accent edge along the top is the grouping cue (not a loud fill box).
-        'bg-surface-2/25 ring-1 ring-inset ring-subtle no-drag',
+        // A rounded tinted capsule (one step up from the bar) wraps the merged
+        // tiles as one block; the faint accent ring is the single grouping cue,
+        // and the inset px frame lets the tint read as a border around the pills.
+        'group/split relative flex items-center gap-0.5 h-8 px-1 rounded-lg shrink-0',
+        'bg-surface-2/60 ring-1 ring-inset ring-accent/25 no-drag',
       )}
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-1.5 top-0 h-px rounded-full bg-accent/50"
-      />
       <button
         type="button"
         onClick={onExit}
         aria-label="Exit split view"
         title="Exit split view"
         className={cn(
-          'self-center mr-0.5 size-5 rounded flex items-center justify-center shrink-0',
-          'text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
+          'size-5 rounded flex items-center justify-center shrink-0',
+          'text-accent/70 hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
         )}
       >
         <Columns2 size={12} />
@@ -472,23 +476,29 @@ function TabChip({
       onDragEnd={onDragEnd}
       title={tab.url || label}
       className={cn(
-        'group relative h-8 max-w-[220px] min-w-[120px] flex items-center gap-2 pl-3 pr-1.5',
+        // Floating pill (GM3-style): rounded on every corner, vertically centered
+        // in the bar. `grow-0 basis` + min-w makes tabs share width and shrink
+        // equally as more open (Chrome's equal-distribution), scrolling past the
+        // floor. Grouped chips are shorter so the split capsule frames them.
+        'group relative flex items-center gap-2 pl-3 pr-1.5 rounded-md',
         'text-caption cursor-default select-none transition-colors duration-fast',
-        grouped ? 'rounded-md' : 'rounded-t-md border-t border-x',
+        grouped
+          ? 'h-7 grow-0 basis-[170px] min-w-[64px]'
+          : 'h-8 flex-1 basis-0 min-w-[80px] max-w-[240px]',
         active
           ? grouped
-            ? 'bg-surface-1 text-fg-primary'
-            : 'bg-surface-1 border-subtle text-fg-primary'
+            ? 'bg-surface-3 text-fg-primary'
+            : 'bg-surface-2 text-fg-primary'
           : grouped
-            ? 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-1/50'
-            : 'bg-transparent border-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/40',
+            ? 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3/50'
+            : 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/50',
         dragging ? 'opacity-40' : '',
       )}
     >
       {dropTarget ? (
         <span
           aria-hidden
-          className="absolute left-0 top-1 bottom-1 w-0.5 rounded-pill bg-accent"
+          className="absolute -left-1 top-1 bottom-1 w-0.5 rounded-pill bg-accent"
         />
       ) : null}
       <TabIndicator tab={tab} />
@@ -508,9 +518,8 @@ function TabChip({
           title={dirty ? 'Unsaved changes — close tab' : 'Close tab'}
           className={cn(
             'size-5 rounded flex items-center justify-center shrink-0',
-            'text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary',
-            dirty ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            !dirty && active ? 'opacity-60' : '',
+            'text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary',
+            dirty || active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
           )}
         >
           {dirty ? (
@@ -547,7 +556,7 @@ function TabIndicator({ tab }: { tab: TabState }) {
     const Icon = tabKinds[tab.kind].icon;
     return (
       <span className="text-accent shrink-0" aria-hidden>
-        <Icon size={12} />
+        <Icon size={14} />
       </span>
     );
   }
@@ -569,20 +578,20 @@ function TabIndicator({ tab }: { tab: TabState }) {
   if (!tab.url || tab.url === 'about:blank') {
     return (
       <span className="text-fg-tertiary shrink-0" aria-hidden>
-        <Globe size={12} />
+        <Globe size={14} />
       </span>
     );
   }
   if (tab.isSecure) {
     return (
       <span className="text-fg-secondary shrink-0" aria-hidden>
-        <Lock size={12} />
+        <Lock size={14} />
       </span>
     );
   }
   return (
     <span className="text-warning shrink-0" aria-hidden>
-      <Globe size={12} />
+      <Globe size={14} />
     </span>
   );
 }
@@ -592,7 +601,7 @@ function FaviconImg({ src }: { src: string }) {
   if (failed) {
     return (
       <span className="text-fg-tertiary shrink-0" aria-hidden>
-        <Globe size={12} />
+        <Globe size={14} />
       </span>
     );
   }
@@ -602,7 +611,7 @@ function FaviconImg({ src }: { src: string }) {
       alt=""
       aria-hidden
       draggable={false}
-      className="size-3.5 shrink-0 rounded-[2px] object-contain"
+      className="size-4 shrink-0 rounded-[3px] object-contain"
       onError={() => setFailed(true)}
     />
   );
