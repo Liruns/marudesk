@@ -157,7 +157,7 @@ export function BrowserMenu() {
           'size-8 rounded-pill flex items-center justify-center shrink-0 transition-colors duration-fast',
           menu
             ? 'text-accent bg-accent-subtle/40 hover:bg-accent-subtle/60'
-            : 'text-fg-secondary hover:bg-surface-2 hover:text-fg-primary',
+            : 'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary',
         )}
       >
         <MoreVertical size={16} />

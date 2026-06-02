@@ -179,8 +179,11 @@ export function BrowserCanvas() {
 
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-surface-page">
-      {/* Toolbar */}
-      <div className="shrink-0 px-3 py-1.5 flex items-center gap-1.5 bg-surface-1 border-b border-subtle relative">
+      {/* Toolbar. Sits on surface-2 — the same tone as the active tab pill — so a
+          web tab's chrome reads as one continuous "active surface" flowing out of
+          its tab into the toolbar (Chrome/GM3), with the page stage a step darker
+          below. */}
+      <div className="shrink-0 px-3 py-1.5 flex items-center gap-1.5 bg-surface-2 border-b border-subtle relative">
         <NavIconButton
           label="Back"
           disabled={!nav.canGoBack}
@@ -208,6 +211,9 @@ export function BrowserCanvas() {
             className={cn(
               'h-8 w-full rounded-pill bg-surface-page border flex items-center pl-3 pr-2 gap-2',
               'border-default focus-within:border-accent',
+              // Clear omnibox focus ring (Chrome): the pill lifts off the toolbar
+              // when the address bar is active.
+              'focus-within:ring-2 focus-within:ring-accent/25',
               'transition-colors duration-fast',
             )}
           >
@@ -248,7 +254,7 @@ export function BrowserCanvas() {
             aria-label={`Zoom ${Math.round(nav.zoomFactor * 100)} percent — reset`}
             className={cn(
               'h-7 px-2 rounded-pill shrink-0 text-caption tabular-nums',
-              'text-fg-secondary hover:bg-surface-2 hover:text-fg-primary',
+              'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary',
               'transition-colors duration-fast',
             )}
           >
@@ -429,7 +435,7 @@ function NavIconButton({
           ? 'text-fg-tertiary opacity-40 cursor-not-allowed'
           : active
             ? 'text-accent bg-accent-subtle/40 hover:bg-accent-subtle/60'
-            : 'text-fg-secondary hover:bg-surface-2 hover:text-fg-primary',
+            : 'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary',
       )}
       {...rest}
     >
