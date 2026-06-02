@@ -55,12 +55,22 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
       for (const leaf of leaves(layout)) {
         if (!leaf.tabId) continue;
         const el = webPaneEls.current.get(leaf.id);
-        if (!el) continue; // feature panes render inline — no placeholder el
-        const r = el.getBoundingClientRect();
-        panes.push({
-          tabId: leaf.tabId,
-          rect: { x: r.left, y: r.top, width: r.width, height: r.height },
-        });
+        if (el) {
+          const r = el.getBoundingClientRect();
+          panes.push({
+            tabId: leaf.tabId,
+            rect: { x: r.left, y: r.top, width: r.width, height: r.height },
+          });
+        } else {
+          // Feature pane (no WebContentsView): report it with a zero rect so main
+          // still counts this tab as part of the active grid. main decides "is this
+          // tab inside the current grid?" purely from the pane map (layout.showTab);
+          // if a feature pane is missing here, activating its strip chip is misread
+          // as "switched to a tab outside the grid", which tears grid mode down and
+          // blanks the sibling web panes. applyPaneBounds skips view-less tabs, so
+          // this rect is never used to position anything.
+          panes.push({ tabId: leaf.tabId, rect: { x: 0, y: 0, width: 0, height: 0 } });
+        }
       }
     }
     void window.marudesk.invoke('browser:set-pane-bounds', { panes });

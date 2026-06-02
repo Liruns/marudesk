@@ -118,6 +118,40 @@ test('capture UX surfaces', async () => {
     } catch (err) {
       console.log(`[screens] split skip: ${(err as Error).message}`);
     }
+
+    // 7. Click a tab inside the split group. Regression guard: activating a
+    // feature chip used to be misread by main as "switched outside the grid",
+    // tearing down grid mode and blanking sibling panes. The grid must stay
+    // intact — and this also shows the cleaned-up merge bracket.
+    try {
+      const tabsInStrip = page.getByRole('tab');
+      const n = await tabsInStrip.count();
+      if (n >= 2) {
+        await tabsInStrip.nth(n - 2).click();
+        await page.waitForTimeout(400);
+        await shot('09-split-chip-click');
+      }
+    } catch (err) {
+      console.log(`[screens] split-click skip: ${(err as Error).message}`);
+    }
+
+    // 8. Appearance popover (accent presets) from the activity-bar gear. Apply a
+    // non-default accent to confirm the [data-accent] swap reskins the whole UI,
+    // then reset to violet so the harness doesn't leave a sticky pref behind.
+    try {
+      const rail = page.getByRole('navigation', { name: 'Activity bar' });
+      await rail.getByRole('button', { name: 'Settings' }).click({ timeout: 3000 });
+      await page.waitForTimeout(250);
+      await page.getByRole('menuitem', { name: /Appearance/ }).click({ timeout: 3000 });
+      await page.waitForTimeout(300);
+      await shot('10-appearance');
+      await page.getByRole('button', { name: 'Teal' }).click({ timeout: 3000 });
+      await page.waitForTimeout(400);
+      await shot('11-accent-teal');
+      await page.getByRole('button', { name: 'Violet' }).click({ timeout: 2000 });
+    } catch (err) {
+      console.log(`[screens] appearance skip: ${(err as Error).message}`);
+    }
   } finally {
     if (launched) await launched.app.close();
   }

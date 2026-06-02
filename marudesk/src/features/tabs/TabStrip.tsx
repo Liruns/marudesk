@@ -123,12 +123,13 @@ export function TabStrip() {
     if (leaf) focusPane(leaf.id);
   };
 
-  const renderChip = (tab: TabState) => (
+  const renderChip = (tab: TabState, grouped = false) => (
     <TabChip
       key={tab.id}
       tab={tab}
       active={tab.id === activeTabId}
       attention={tab.kind === 'agent' && agentWaiting}
+      grouped={grouped}
       dragging={tab.id === draggingId}
       dropTarget={
         tab.id === overId && draggingId !== null && draggingId !== tab.id
@@ -166,7 +167,7 @@ export function TabStrip() {
       const exitId = run[0].id;
       stripNodes.push(
         <SplitGroup key={`split-${runGroupId}`} onExit={() => dissolveGroup(exitId)}>
-          {run.map(renderChip)}
+          {run.map((t) => renderChip(t, true))}
         </SplitGroup>,
       );
     } else {
@@ -370,12 +371,16 @@ function SplitGroup({
       role="group"
       aria-label="Split view group"
       className={cn(
-        'group/split flex items-end gap-0.5 self-stretch pl-1 pr-1 rounded-t-lg',
-        // Neutral, hairline-bracketed container (not a loud accent fill) so a
-        // split reads as a quiet grouping of its tabs rather than a colored box.
-        'bg-surface-2/40 ring-1 ring-inset ring-subtle no-drag',
+        'group/split relative flex items-end gap-0.5 self-stretch pl-1.5 pr-1 rounded-t-md',
+        // Quiet tinted capsule + hairline so the tiles read as one split; a thin
+        // accent edge along the top is the grouping cue (not a loud fill box).
+        'bg-surface-2/25 ring-1 ring-inset ring-subtle no-drag',
       )}
     >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-1.5 top-0 h-px rounded-full bg-accent/50"
+      />
       <button
         type="button"
         onClick={onExit}
@@ -397,6 +402,7 @@ function TabChip({
   tab,
   active,
   attention,
+  grouped,
   onActivate,
   onContextMenu,
   onClose,
@@ -411,6 +417,7 @@ function TabChip({
   tab: TabState;
   active: boolean;
   attention?: boolean;
+  grouped?: boolean;
   onActivate: () => void;
   onContextMenu: (x: number, y: number) => void;
   onClose: () => void;
@@ -469,12 +476,16 @@ function TabChip({
       onDragEnd={onDragEnd}
       title={tab.url || label}
       className={cn(
-        'group relative h-8 max-w-[220px] min-w-[120px] rounded-t-md flex items-center gap-2 pl-3 pr-1.5',
-        'text-caption cursor-default select-none border-t border-x',
-        'transition-colors duration-fast',
+        'group relative h-8 max-w-[220px] min-w-[120px] flex items-center gap-2 pl-3 pr-1.5',
+        'text-caption cursor-default select-none transition-colors duration-fast',
+        grouped ? 'rounded-md' : 'rounded-t-md border-t border-x',
         active
-          ? 'bg-surface-1 border-subtle text-fg-primary'
-          : 'bg-transparent border-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/40',
+          ? grouped
+            ? 'bg-surface-1 text-fg-primary'
+            : 'bg-surface-1 border-subtle text-fg-primary'
+          : grouped
+            ? 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-1/50'
+            : 'bg-transparent border-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/40',
         dragging ? 'opacity-40' : '',
       )}
     >
