@@ -54,6 +54,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INSPECT_PARTITION = 'persist:inspect-target';
 const NEW_TAB_URL = 'about:blank';
 
+// Recently-closed restorable tabs (Ctrl/Cmd+Shift+T), newest last. Only kinds
+// with meaningful state to bring back are recorded — a web page's URL and a
+// saved editor file's path; transient/singleton kinds (home/terminal/…) aren't.
+type ClosedTab = { kind: TabKind; url?: string };
+const MAX_CLOSED_TABS = 10;
+const closedTabs: ClosedTab[] = [];
+
 export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
   const host = getHost();
   if (!host) throw new Error('createTab: host window not mounted');
@@ -478,6 +485,14 @@ export function closeTab(id: string): boolean {
   const rec = getTab(id);
   if (!rec) return false;
   const wasPinned = !!rec.pinned;
+  // Record a restorable spec before tearing the view down (getURL() needs the
+  // live webContents). Only web pages and saved editor files are worth reopening.
+  if (rec.kind === 'web') {
+    const url = rec.view?.webContents.getURL();
+    if (url && url !== NEW_TAB_URL) pushClosedTab({ kind: 'web', url });
+  } else if (rec.kind === 'editor' && rec.filePath) {
+    pushClosedTab({ kind: 'editor', url: rec.filePath });
+  }
   // Detach our CDP debugger and tear down any built-in DevTools before the page
   // view goes away (detach before webContents.close).
   detachCdp(rec);
@@ -507,6 +522,19 @@ export function closeTab(id: string): boolean {
   }
   // Closing a pinned tab changes the restorable set.
   if (wasPinned) savePinnedTabs();
+  return true;
+}
+
+function pushClosedTab(spec: ClosedTab): void {
+  closedTabs.push(spec);
+  if (closedTabs.length > MAX_CLOSED_TABS) closedTabs.shift();
+}
+
+/** Reopen the most recently closed tab (web page / saved editor file). */
+export function reopenClosedTab(): boolean {
+  const spec = closedTabs.pop();
+  if (!spec) return false;
+  createAndActivateTab(spec.kind, spec.url);
   return true;
 }
 

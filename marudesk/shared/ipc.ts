@@ -98,6 +98,7 @@ export const CHANNELS = {
     'browser:tabs-new',
     'browser:tabs-replace',
     'browser:tabs-close',
+    'browser:tabs-reopen',
     'browser:tabs-activate',
     'browser:tabs-snapshot',
     'browser:tabs-reorder',
@@ -312,6 +313,7 @@ export interface IpcMap {
     result: string | null;
   };
   'browser:tabs-close': { args: [id: string]; result: boolean };
+  'browser:tabs-reopen': { args: []; result: boolean };
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };

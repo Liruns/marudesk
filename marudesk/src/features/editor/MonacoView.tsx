@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import {
   EDITOR_OPTIONS,
   getModel,
@@ -6,6 +6,7 @@ import {
   monacoThemeFor,
 } from './monaco-setup';
 import { useEditorStore } from './store';
+import type { EditorStatus } from './EditorView';
 import { resolveTheme, subscribeAppearance } from '../settings/store';
 import { fontStack } from '../../../shared/fonts';
 import type { AppSettings } from '../../../shared/settings';
@@ -19,15 +20,34 @@ const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
  * the underlying model rather than recreating the editor. Models live in the
  * monaco-setup registry, so edits and undo history survive tab switches.
  */
-export function MonacoView({ path }: { path: string }) {
+export function MonacoView({
+  path,
+  wordWrap = false,
+  onStatus,
+  scrollRatio,
+  scrollApplyingRef,
+}: {
+  path: string;
+  /** Word-wrap toggle, owned by the status bar in EditorView. */
+  wordWrap?: boolean;
+  /** Report cursor + language up for the status bar. */
+  onStatus?: (status: EditorStatus) => void;
+  /** Target scroll as a 0..1 fraction, driven by the preview in split mode. */
+  scrollRatio?: number;
+  /** Set true by us right before a programmatic scroll, so EditorView's scroll
+   * listener can recognise the echo and not bounce it back to the preview. */
+  scrollApplyingRef?: MutableRefObject<boolean>;
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const pathRef = useRef(path);
-  // Keep the latest path in a ref for the create-once effect's save command and
-  // teardown. Writing a ref during render is disallowed, so sync it post-render.
+  const onStatusRef = useRef(onStatus);
+  // Keep the latest path + status callback in refs for the create-once effect's
+  // listeners. Writing a ref during render is disallowed, so sync post-render.
   useEffect(() => {
     pathRef.current = path;
-  }, [path]);
+    onStatusRef.current = onStatus;
+  }, [path, onStatus]);
 
   // Create the editor once.
   useEffect(() => {
@@ -38,7 +58,17 @@ export function MonacoView({ path }: { path: string }) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       void useEditorStore.getState().save(pathRef.current);
     });
+    // Report cursor position up for the status bar (language is reported on each
+    // model bind below, where it's known).
+    const cursorSub = editor.onDidChangeCursorPosition((e) => {
+      onStatusRef.current?.({
+        line: e.position.lineNumber,
+        column: e.position.column,
+        language: editor.getModel()?.getLanguageId() ?? 'plaintext',
+      });
+    });
     return () => {
+      cursorSub.dispose();
       viewStates.set(pathRef.current, editor.saveViewState());
       editor.dispose();
       editorRef.current = null;
@@ -80,6 +110,13 @@ export function MonacoView({ path }: { path: string }) {
     const vs = viewStates.get(path);
     if (vs) editor.restoreViewState(vs);
     editor.focus();
+    // Seed the status bar for the newly-bound file (cursor + its language).
+    const pos = editor.getPosition();
+    onStatusRef.current?.({
+      line: pos?.lineNumber ?? 1,
+      column: pos?.column ?? 1,
+      language: model.getLanguageId(),
+    });
     const sub = model.onDidChangeContent(() => {
       useEditorStore.getState().setContent(path, model.getValue());
     });
@@ -89,6 +126,22 @@ export function MonacoView({ path }: { path: string }) {
       sub.dispose();
     };
   }, [path]);
+
+  // Word wrap is a live toggle from the status bar.
+  useEffect(() => {
+    editorRef.current?.updateOptions({ wordWrap: wordWrap ? 'on' : 'off' });
+  }, [wordWrap]);
+
+  // Apply a preview-driven scroll fraction (split mode). Flag the echo first so
+  // EditorView's scroll listener doesn't bounce it back to the preview.
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (ed === null || scrollRatio === undefined) return;
+    const max = ed.getScrollHeight() - ed.getLayoutInfo().height;
+    if (max <= 0) return;
+    if (scrollApplyingRef) scrollApplyingRef.current = true;
+    ed.setScrollTop(scrollRatio * max);
+  }, [scrollRatio, scrollApplyingRef]);
 
   return <div ref={hostRef} className="flex-1 min-h-0 min-w-0" />;
 }

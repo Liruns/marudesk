@@ -36,6 +36,7 @@ import {
   activateTab,
   closeTab,
   createAndActivateTab,
+  reopenClosedTab,
   reorderTabs,
   replaceTab,
   setTabPinned,
@@ -337,6 +338,8 @@ export function registerBrowserHandlers(deps: {
   });
 
   defineHandler('browser:tabs-close', ([id]) => closeTab(str(id, 'id')));
+
+  defineHandler('browser:tabs-reopen', () => reopenClosedTab());
 
   defineHandler('browser:tabs-activate', ([id]) => activateTab(str(id, 'id')));
 

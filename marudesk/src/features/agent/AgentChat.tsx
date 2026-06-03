@@ -6,6 +6,7 @@ import {
   Square,
   Loader2,
   Check,
+  Copy,
   X,
   Wrench,
   RotateCcw,
@@ -50,6 +51,8 @@ import {
 import { Badge, Button, DiffBlock } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { Markdown } from '../../lib/markdown';
+import { toast } from '../../lib/toast';
+import { toMessage } from '../../lib/toMessage';
 import {
   findModel,
   isBuiltinProviderId,
@@ -626,7 +629,13 @@ function MessageView({
   // we suppress the empty text part's caret so there's only one.
   const reasoningStreaming = streaming && hasReasoning && answerText.trim().length === 0;
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="group/msg relative flex flex-col gap-2.5">
+      {/* Copy the assistant's prose — appears on hover, hidden mid-stream. */}
+      {!streaming && answerText.trim() ? (
+        <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">
+          <CopyButton text={answerText} label="Copy message" />
+        </div>
+      ) : null}
       {message.parts.map((part, i) => {
         if (part.type === 'reasoning') {
           // Summary hides intermediate reasoning; Verbose opens every Thinking
@@ -661,6 +670,32 @@ function MessageView({
         );
       })}
     </div>
+  );
+}
+
+/** A small clipboard button with a brief "copied" check, used on messages and
+ * tool output. */
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch (err) {
+      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={() => void copy()}
+      title={label}
+      aria-label={label}
+      className="inline-flex size-5 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
+    >
+      {copied ? <Check size={12} className="text-accent" /> : <Copy size={12} />}
+    </button>
   );
 }
 
@@ -907,9 +942,14 @@ function ToolCardView({ call, defaultOpen }: { call: ToolCall; defaultOpen?: boo
             </pre>
           ) : null}
           {call.resultText ? (
-            <pre className="m-0 mt-1 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
-              {call.resultText}
-            </pre>
+            <div className="group/out relative">
+              <div className="absolute top-1 right-1 opacity-0 group-hover/out:opacity-100 transition-opacity duration-fast">
+                <CopyButton text={call.resultText} label="Copy output" />
+              </div>
+              <pre className="m-0 mt-1 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
+                {call.resultText}
+              </pre>
+            </div>
           ) : null}
         </div>
       ) : null}
