@@ -89,12 +89,16 @@ const config: Config = {
         highlight: 'var(--highlight)',
         card: 'var(--elevate-card)',
         'inset-soft': 'var(--inset-shadow)',
+        // Soft accent halo for the primary input's focus state (rides --accent).
+        'focus-accent': 'var(--focus-glow)',
       },
       backgroundImage: {
         // Featured-surface gradient + page vignette — layered over a surface
         // fill, which still owns the base color.
         'surface-gradient': 'var(--surface-gradient)',
         vignette: 'var(--page-vignette)',
+        // Chromatic brand bloom behind hero marks — the one allowed accent glow.
+        'accent-glow': 'var(--accent-glow)',
       },
     },
   },

@@ -56,10 +56,18 @@ export function HomeView({ tabId }: { tabId?: string }) {
   return (
     <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
       <div className="min-h-full flex flex-col items-center justify-center px-8 py-16 gap-10">
-        <div className="flex flex-col items-center gap-3">
-          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-16 select-none" />
-          <div className="flex flex-col items-center gap-1">
-            <h1 className="text-title text-fg-primary tracking-tight">marudesk</h1>
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            {/* The single sanctioned chromatic bloom — brand light behind the
+                mark. Decorative, so it's hidden from a11y and ignores pointers. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -inset-6 -z-10 bg-accent-glow"
+            />
+            <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-16 select-none" />
+          </div>
+          <div className="flex flex-col items-center gap-1.5">
+            <h1 className="text-hero font-display text-fg-primary">marudesk</h1>
             <p className="text-body-sm text-fg-tertiary">Browser-native AI IDE</p>
           </div>
         </div>
@@ -68,7 +76,8 @@ export function HomeView({ tabId }: { tabId?: string }) {
           <div
             className={cn(
               'h-11 w-full rounded-pill bg-surface-1 border flex items-center pl-4 pr-2 gap-2',
-              'border-default focus-within:border-accent transition-colors duration-fast',
+              'border-default focus-within:border-accent focus-within:shadow-focus-accent',
+              'transition-[border-color,box-shadow] duration-fast',
             )}
           >
             <Globe size={16} className="text-fg-tertiary shrink-0" aria-hidden />

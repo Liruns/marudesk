@@ -93,7 +93,13 @@
   --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 64%);
   /* Page vignette — a barely-there top-center lift so the canvas reads as a lit
      stage. "Light pools up out of the page" (§1), made literal. */
-  --page-vignette: radial-gradient(120% 90% at 50% -8%, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0) 46%);
+  /* Accent moments — the one place chromatic brand light is allowed to bloom.
+     Both ride var(--accent) via color-mix, so they follow the single accent
+     (incl. every [data-accent] reskin) without per-preset upkeep. --accent-glow
+     is a radial bloom behind hero brand marks; --focus-glow is a soft accent
+     halo for the primary input's focus state (additive to its border). */
+  --accent-glow: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 72%);
+  --focus-glow:  0 0 0 3px var(--accent-subtle);
 }
 
 /* Light theme — applied via data-theme="light" on <html>. Only surfaces, text,
@@ -135,6 +141,9 @@
   --inset-shadow:  inset 0 1px 2px rgba(0, 0, 0, 0.05);
   --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 64%);
   --page-vignette: radial-gradient(120% 90% at 50% -8%, rgba(0, 0, 0, 0.012), rgba(0, 0, 0, 0) 46%);
+
+  /* Softer bloom on a white canvas so the hero glow stays a hint, not a stain. */
+  --accent-glow: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%);
 }
 
 /* Accent presets — reskin the single accent app-wide via a [data-accent]
