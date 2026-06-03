@@ -106,19 +106,28 @@ export function StatusBar() {
         <span aria-hidden className={cn('size-1.5 rounded-pill shrink-0', APPROVAL_DOT[approvalMode])} />
         <span>{APPROVAL_LABEL[approvalMode]}</span>
       </button>
-      <span className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => void openSettingsTab('providers')}
+        title={
+          hasKey
+            ? 'Model & provider — click to manage'
+            : 'No API key for this provider — click to add one'
+        }
+        className="flex items-center gap-1.5 hover:text-fg-secondary transition-colors duration-fast"
+      >
         <span
           aria-hidden
           className={
             hasKey
               ? 'size-1.5 rounded-pill bg-accent shrink-0'
-              : 'size-1.5 rounded-pill bg-fg-tertiary/40 shrink-0'
+              : 'size-1.5 rounded-pill bg-warning shrink-0'
           }
         />
         <span className="truncate max-w-[280px]">
           {providerLabel(selectedProvider, customProviders)} · {selectedModel}
         </span>
-      </span>
+      </button>
     </footer>
   );
 }

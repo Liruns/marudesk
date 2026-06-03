@@ -20,13 +20,16 @@ export type ToastItem = {
   title: string;
   description?: string;
   variant: ToastVariant;
+  /** Resolved auto-dismiss budget in ms (0 = sticky). Kept for the resume math. */
+  durationMs: number;
 };
 
 type ToastInput = {
   title: string;
   description?: string;
   variant?: ToastVariant;
-  /** Auto-dismiss after this many ms; 0 keeps it until dismissed. */
+  /** Auto-dismiss after this many ms; 0 keeps it until dismissed. Omit to use
+   *  the variant default (errors linger longer). */
   durationMs?: number;
 };
 
@@ -34,24 +37,67 @@ type ToastStore = {
   toasts: ToastItem[];
   push: (input: ToastInput) => number;
   dismiss: (id: number) => void;
+  /** Freeze a toast's auto-dismiss countdown (used while the pointer hovers). */
+  pause: (id: number) => void;
+  /** Resume a paused countdown from the time that was left when it paused. */
+  resume: (id: number) => void;
 };
 
 let seq = 0;
 
-export const useToastStore = create<ToastStore>((set) => ({
-  toasts: [],
-  push: ({ title, description, variant = 'neutral', durationMs = 3500 }) => {
-    const id = ++seq;
-    set((s) => ({ toasts: [...s.toasts, { id, title, description, variant }] }));
-    if (durationMs > 0) {
-      setTimeout(() => {
-        set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
-      }, durationMs);
-    }
-    return id;
-  },
-  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-}));
+// Per-toast dismiss timers, tracked outside React state so hover can pause and
+// resume them without re-rendering the queue. `deadline` lets resume() recover
+// the time that was left at the moment the pointer entered.
+type ToastTimer = { handle: ReturnType<typeof setTimeout>; deadline: number; remaining: number };
+const timers = new Map<number, ToastTimer>();
+
+// DESIGN.md §4 (Toast): 4500ms default, 10000ms for errors — an error is the
+// one variant worth lingering on. Callers can still pass 0 to make it sticky.
+function defaultDuration(variant: ToastVariant): number {
+  return variant === 'error' ? 10000 : 4500;
+}
+
+export const useToastStore = create<ToastStore>((set, get) => {
+  const arm = (id: number, ms: number) => {
+    if (ms <= 0) return;
+    const handle = setTimeout(() => {
+      timers.delete(id);
+      get().dismiss(id);
+    }, ms);
+    timers.set(id, { handle, deadline: Date.now() + ms, remaining: ms });
+  };
+  return {
+    toasts: [],
+    push: ({ title, description, variant = 'neutral', durationMs }) => {
+      const id = ++seq;
+      const ms = durationMs ?? defaultDuration(variant);
+      set((s) => ({
+        toasts: [...s.toasts, { id, title, description, variant, durationMs: ms }],
+      }));
+      arm(id, ms);
+      return id;
+    },
+    dismiss: (id) => {
+      const t = timers.get(id);
+      if (t) {
+        clearTimeout(t.handle);
+        timers.delete(id);
+      }
+      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+    },
+    pause: (id) => {
+      const t = timers.get(id);
+      if (!t) return;
+      clearTimeout(t.handle);
+      timers.set(id, { ...t, remaining: Math.max(0, t.deadline - Date.now()) });
+    },
+    resume: (id) => {
+      const t = timers.get(id);
+      if (!t) return;
+      arm(id, t.remaining);
+    },
+  };
+});
 
 /** Imperative helper for non-component code (stores, event handlers). */
 export function toast(input: ToastInput): number {

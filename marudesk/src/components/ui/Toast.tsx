@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
 type Variant = 'neutral' | 'success' | 'warning' | 'error';
@@ -48,9 +49,9 @@ export function Toast({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body-sm leading-none -mt-0.5"
+          className="-mr-1 -mt-1 flex size-5 shrink-0 items-center justify-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
         >
-          ×
+          <X size={13} aria-hidden />
         </button>
       ) : null}
     </div>
