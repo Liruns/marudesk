@@ -86,6 +86,8 @@ type AgentActions = {
   acceptEdit: (editId: string) => Promise<void>;
   revertEdit: (editId: string) => Promise<void>;
   resetChat: () => Promise<void>;
+  /** Summarize + replace the transcript to free context (claude-code `/compact`). */
+  compact: () => Promise<{ ok: boolean; reason?: string }>;
   /** Refresh the saved-session list from main. */
   loadSessions: () => Promise<void>;
   /** Load a saved session as the active conversation, then re-hydrate the chat. */
@@ -272,6 +274,14 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       await get().loadSessions();
     } catch {
       // ignore
+    }
+  },
+
+  compact: async () => {
+    try {
+      return await window.marudesk.invoke('agent:compact');
+    } catch (err) {
+      return { ok: false, reason: toMessage(err) };
     }
   },
 

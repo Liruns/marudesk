@@ -15,7 +15,7 @@
  */
 
 /** Renderer-resolved commands — each maps to a concrete composer action. */
-export type SlashActionId = 'new' | 'diff' | 'context' | 'help' | 'model';
+export type SlashActionId = 'new' | 'diff' | 'context' | 'help' | 'model' | 'compact';
 
 export type SlashActionCommand = {
   kind: 'action';
@@ -106,6 +106,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: 'context',
     description: 'Show what is in the context window right now',
     action: 'context',
+  },
+  {
+    kind: 'action',
+    name: 'compact',
+    description: 'Summarize the conversation to free up context',
+    action: 'compact',
   },
   {
     kind: 'action',

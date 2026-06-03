@@ -146,6 +146,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const send = useAgentStore((s) => s.send);
   const abort = useAgentStore((s) => s.abort);
   const resetChat = useAgentStore((s) => s.resetChat);
+  const compact = useAgentStore((s) => s.compact);
   const pendingImages = useAgentStore((s) => s.pendingImages);
   const addImages = useAgentStore((s) => s.addImages);
   const removeImage = useAgentStore((s) => s.removeImage);
@@ -337,6 +338,17 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         break;
       case 'context':
         setSlashInfo('context');
+        break;
+      case 'compact':
+        if (busy) {
+          toast({ title: 'Busy', description: 'Wait for the current turn to finish before compacting.' });
+          break;
+        }
+        toast({ title: 'Compacting…', description: 'Summarizing the conversation to free up context.' });
+        void compact().then((res) => {
+          if (res.ok) toast({ title: 'Conversation compacted', description: 'Earlier turns were summarized.' });
+          else toast({ title: 'Could not compact', description: res.reason ?? 'unknown error', variant: 'error' });
+        });
         break;
       case 'help':
         setSlashInfo('help');

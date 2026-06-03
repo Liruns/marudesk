@@ -8,6 +8,7 @@ import {
   abortTurn,
   acceptEdit,
   approveTool,
+  compactConversation,
   deleteSavedSession,
   listSavedSessions,
   reset,
@@ -92,6 +93,8 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:snapshot', () => snapshot());
 
   defineHandler('agent:reset', () => reset());
+
+  defineHandler('agent:compact', () => compactConversation());
 
   // Session history (v3 §5-C): list past conversations, resume one as the active
   // chat, or delete one. list/delete proxy sessions-store; resume swaps loop state.

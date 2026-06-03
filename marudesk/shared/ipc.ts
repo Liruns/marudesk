@@ -183,6 +183,7 @@ export const CHANNELS = {
     'agent:revert-edit',
     'agent:snapshot',
     'agent:reset',
+    'agent:compact',
     'agent:list-sessions',
     'agent:resume-session',
     'agent:delete-session',
@@ -506,6 +507,9 @@ export interface IpcMap {
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: []; result: boolean };
+  // Compact the conversation: summarize the transcript and replace it (claude-code
+  // / codex `/compact`). Returns ok, or a reason when there's nothing to compact.
+  'agent:compact': { args: []; result: { ok: boolean; reason?: string } };
   // Session history (v3 §5-C): list past saved conversations, resume one as the
   // active chat, or delete one. The list backs the sessions UI; resume swaps state.
   'agent:list-sessions': { args: []; result: SessionSummary[] };

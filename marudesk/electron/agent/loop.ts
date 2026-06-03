@@ -14,7 +14,7 @@ import { emptyAgentChatState } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
-import { getProvider, isBuiltinProviderId, MODELS } from '../../shared/providers';
+import { getProvider, isBuiltinProviderId, isProviderId, MODELS } from '../../shared/providers';
 import { coalesced } from '../coalesce';
 import { getProviderApiKey } from '../secrets';
 import { CLAUDE_CODE_SYSTEM_PREFIX, supportsOAuth } from '../oauth/config';
@@ -161,6 +161,12 @@ Paths are workspace-relative. To create a file, call edit_file with oldString=""
  * read tools but is barred from editing/eval and must end with a concrete plan
  * the user can approve before switching to Ask/Auto to execute it.
  */
+/** Marker prefixing the compaction summary in the rebuilt transcript (codex SUMMARY_PREFIX). */
+const SUMMARY_PREFIX = 'Summary of the earlier conversation (compacted to save context):';
+
+/** The summarization instruction sent to the model for `/compact`. */
+const COMPACT_INSTRUCTION = `Summarize the conversation below so it can replace the full history while preserving everything needed to continue the work. Capture: the user's goals and constraints, key decisions and their rationale, files and code touched, what was tried and what worked or failed, current state, and concrete next steps. Be specific (file paths, function names, error signatures) but concise. Output only the summary prose — no preamble.`;
+
 const PLAN_MODE_SYSTEM = `PLAN MODE IS ACTIVE. Do NOT edit files, run code, or change anything — write tools and eval are blocked this turn. Investigate with read/search tools, then end your reply with a concrete, ordered implementation plan: the files you would touch, the change in each, and how you would verify it. The user will review the plan and switch out of plan mode to execute it.`;
 
 /* ── module state ───────────────────────────────────────────────────────── */
@@ -865,6 +871,97 @@ export async function testProviderConnection(
     return { ok: true, message: `Connection works — ${model} responded.` };
   } catch (err) {
     return { ok: false, message: humanizeModelError(err, provider, model) };
+  }
+}
+
+/* ── compaction (claude-code / codex `/compact`) ────────────────────────── */
+
+/** Flatten the running transcript to plain text for the summarization prompt. */
+function serializeForCompaction(msgs: ModelMessage[]): string {
+  const lines: string[] = [];
+  for (const m of msgs) {
+    let text = '';
+    if (typeof m.content === 'string') {
+      text = m.content;
+    } else {
+      // Each part is one of the AI SDK content shapes; we only need a textual
+      // trace (prose + which tools ran), so read just these fields structurally.
+      const parts = m.content as ReadonlyArray<{ type: string; text?: string; toolName?: string }>;
+      const pieces: string[] = [];
+      for (const p of parts) {
+        if (p.type === 'text' && p.text) pieces.push(p.text);
+        else if (p.type === 'tool-call' && p.toolName) pieces.push(`[ran ${p.toolName}]`);
+        else if (p.type === 'tool-result' && p.toolName) pieces.push(`[result of ${p.toolName}]`);
+        else if (p.type === 'image') pieces.push('[image]');
+      }
+      text = pieces.join(' ');
+    }
+    text = text.trim();
+    if (text) lines.push(`${m.role}: ${text}`);
+  }
+  return lines.join('\n\n');
+}
+
+/**
+ * Compact the conversation (claude-code / codex `/compact`): summarize the full
+ * transcript with the conversation's own model, then replace the history with
+ * that summary so later turns keep context without the token weight. Uses the
+ * same provider-aware auth + system handling as a turn (anthropic-OAuth prefix,
+ * codex `store:false`). Standalone-compaction style: the prior history is
+ * cleared and represented by the summary, capped with a synthetic assistant ack
+ * so the next turn still alternates user→assistant→user (Anthropic requirement).
+ */
+export async function compactConversation(): Promise<{ ok: boolean; reason?: string }> {
+  if (busy() || starting) return { ok: false, reason: 'a turn is already in progress' };
+  if (!conversationProvider || !conversationModel || !isProviderId(conversationProvider)) {
+    return { ok: false, reason: 'nothing to compact yet' };
+  }
+  if (transcript.length < 2) return { ok: false, reason: 'conversation is too short to compact' };
+  const provider = conversationProvider;
+  const model = conversationModel;
+  starting = true;
+  try {
+    const resolved = await resolveTurnAuth(provider);
+    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    const m = buildModel(provider, model, resolved.auth, resolved.baseUrl);
+    const codexBackend = provider === 'openai-codex';
+    const system =
+      resolved.auth.mode === 'oauth' && provider === 'anthropic'
+        ? CLAUDE_CODE_SYSTEM_PREFIX
+        : undefined;
+    const convo = serializeForCompaction(transcript);
+    const res = await generateText({
+      model: m,
+      system,
+      prompt: `${COMPACT_INSTRUCTION}\n\n<conversation>\n${convo}\n</conversation>`,
+      maxOutputTokens: codexBackend ? undefined : 2048,
+      providerOptions: codexBackend ? { openai: { store: false } } : undefined,
+    });
+    const summary = res.text.trim();
+    if (!summary) return { ok: false, reason: 'the model returned an empty summary' };
+
+    transcript = [
+      { role: 'user', content: `${SUMMARY_PREFIX}\n${summary}` },
+      { role: 'assistant', content: 'Understood — I have the summary above and will continue from here.' },
+    ];
+    state.messages = [
+      {
+        id: uid('m'),
+        role: 'assistant',
+        parts: [{ type: 'text', text: `Compacted the earlier conversation.\n\n${summary}` }],
+        timestamp: Date.now(),
+      },
+    ];
+    state.usage = { inputTokens: 0, outputTokens: 0 };
+    state.error = null;
+    state.endNote = null;
+    emit();
+    if (conversationId) void persistSession().then(() => emit()).catch(() => {});
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: humanizeModelError(err, provider, model) };
+  } finally {
+    starting = false;
   }
 }
 
