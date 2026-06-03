@@ -70,6 +70,54 @@ export function parseRelayFrame(raw: unknown): RelayFrame | null {
   return null;
 }
 
+/* ── WebRTC signaling (mirror of shared/remote.ts §WebRTC signaling) ─────────
+ *
+ * The phone negotiates a direct P2P data channel with the PC and runs the same
+ * command/event protocol over it; the SDP/ICE exchange rides the relay as these
+ * `rtc-*` payloads. The phone is the offerer. Untrusted (relayed) → validated.
+ */
+
+/** A serialized ICE candidate (the wire form of RTCIceCandidateInit). */
+export type RtcIceCandidate = {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+};
+
+export type RtcOffer = { k: 'rtc-offer'; sid: string; sdp: string };
+export type RtcAnswer = { k: 'rtc-answer'; sid: string; sdp: string };
+export type RtcIce = { k: 'rtc-ice'; sid: string; candidate: RtcIceCandidate | null };
+export type RtcSignal = RtcOffer | RtcAnswer | RtcIce;
+
+function parseIceCandidate(value: unknown): RtcIceCandidate | null {
+  if (!value || typeof value !== 'object') return null;
+  const c = value as Record<string, unknown>;
+  if (typeof c.candidate !== 'string') return null;
+  return {
+    candidate: c.candidate,
+    sdpMid: typeof c.sdpMid === 'string' ? c.sdpMid : null,
+    sdpMLineIndex: typeof c.sdpMLineIndex === 'number' ? c.sdpMLineIndex : null,
+  };
+}
+
+/** Defensively parse a relay payload into an {@link RtcSignal}, or null if it isn't one. */
+export function parseRtcSignal(payload: unknown): RtcSignal | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.sid !== 'string' || p.sid.length === 0) return null;
+  if (p.k === 'rtc-offer' || p.k === 'rtc-answer') {
+    return typeof p.sdp === 'string' && p.sdp.length > 0
+      ? { k: p.k, sid: p.sid, sdp: p.sdp }
+      : null;
+  }
+  if (p.k === 'rtc-ice') {
+    const candidate = p.candidate === null ? null : parseIceCandidate(p.candidate);
+    if (p.candidate !== null && candidate === null) return null;
+    return { k: 'rtc-ice', sid: p.sid, candidate };
+  }
+  return null;
+}
+
 /**
  * Defensively parse an inbound host message (the relay envelope's `payload`): an
  * `event` carrying a chat state, or an `ack`. Returns null on anything malformed.

@@ -9,12 +9,14 @@ import { WebSocket } from 'ws';
 import type { AgentChatState } from '../../shared/agent';
 import {
   parseRelayCommand,
+  parseRtcSignal,
   type RelayAck,
   type RelayHostMessage,
   type RelayStateEvent,
 } from '../../shared/remote';
 import { dispatchAgentCommand, type AgentApi, type ApprovalGuard } from './dispatch';
 import { relayConnectUrl, relayRefresh } from './relay-auth';
+import { startWebrtcHost, type WebrtcHost } from './webrtc-host';
 
 /**
  * The PC's OUTBOUND relay host (Bridge Model B §B2). It keeps a single WS to the
@@ -92,15 +94,30 @@ export function startRelayClient(deps: RelayClientDeps): RelayClient {
     deps.onConnectedChange?.(next);
   }
 
-  /** Send a host→client message, wrapped in the relay's `{payload}` envelope. */
-  function send(message: RelayHostMessage): void {
+  /** Send an arbitrary payload, wrapped in the relay's `{payload}` envelope. */
+  function sendPayload(payload: unknown): void {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     try {
-      ws.send(JSON.stringify({ payload: message }));
+      ws.send(JSON.stringify({ payload }));
     } catch {
       // A send race against a closing socket: the reconnect path recovers.
     }
   }
+
+  /** Send a host→client agent message, wrapped in the relay's `{payload}` envelope. */
+  function send(message: RelayHostMessage): void {
+    sendPayload(message);
+  }
+
+  // The P2P data-channel host shares the loop API + L-1 guard; the relay only
+  // carries its SDP/ICE handshake (via sendPayload), and the resulting direct
+  // channel survives relay reconnects — its lifetime is this client's.
+  const webrtc: WebrtcHost = startWebrtcHost({
+    agent: deps.agent,
+    subscribe: deps.subscribe,
+    approvalGuard: deps.approvalGuard,
+    sendSignal: (signal) => sendPayload(signal),
+  });
 
   function scheduleReconnect(): void {
     if (stopped || reconnectTimer) return;
@@ -213,6 +230,13 @@ export function startRelayClient(deps: RelayClientDeps): RelayClient {
     // The relay wraps a peer message as { type:'relay', from, payload }. Ignore
     // its control frames ('ready') and anything that isn't a relay envelope.
     if (frame.type !== 'relay') return;
+    // WebRTC signaling rides the relay as opaque payloads — hand it to the P2P
+    // host before treating the frame as an agent command.
+    const signal = parseRtcSignal(frame.payload);
+    if (signal) {
+      webrtc.handleSignal(signal);
+      return;
+    }
     const command = parseRelayCommand(frame.payload);
     if (!command) return; // untrusted/malformed peer payload — drop silently
     const outcome = await dispatchAgentCommand(deps.agent, command.cmd, command.args, deps.approvalGuard);
@@ -229,6 +253,7 @@ export function startRelayClient(deps: RelayClientDeps): RelayClient {
     stop: () => {
       if (stopped) return;
       stopped = true;
+      webrtc.stop();
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
