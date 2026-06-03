@@ -33,7 +33,15 @@ async function readForPatch(absPath: string): Promise<string> {
       `file too large for patch: ${st.size} bytes (limit ${MAX_PATCH_FILE_SIZE})`,
     );
   }
-  return fs.readFile(absPath, 'utf8');
+  const buf = await fs.readFile(absPath);
+  // A NUL byte in the head marks a binary file (same heuristic as the editor's
+  // read guard, workspace.ts). A patch edits by re-encoding the whole decoded
+  // string, so reading a binary as lossy UTF-8 and writing it back would corrupt
+  // every byte outside the match — refuse it outright rather than mangle the file.
+  if (buf.subarray(0, 8192).includes(0)) {
+    throw new Error('file appears to be binary; patch only edits text files');
+  }
+  return buf.toString('utf8');
 }
 
 async function classifyOp(root: string, op: PatchOp): Promise<PatchOpPreview> {

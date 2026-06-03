@@ -76,18 +76,32 @@ function adopt(rec: TabRecord, sourceUrl: string, dataUrl: string): void {
   pushState();
 }
 
+// A favicon is never worth blocking on: a slow or stalled host should fall back
+// to the globe glyph rather than leave the fetch — and the cache slot it will
+// fill — pending for the rest of the session. Abort the request past this point.
+const FETCH_TIMEOUT_MS = 5000;
+
 async function fetchAsDataUrl(url: string): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await net.fetch(url, { redirect: 'follow' });
+    const res = await net.fetch(url, { redirect: 'follow', signal: ctrl.signal });
     if (!res.ok) return null;
     const type = (res.headers.get('content-type') || 'image/x-icon')
       .split(';')[0]
       .trim();
     if (!/^image\//i.test(type)) return null;
+    // Reject an oversized icon from its declared length before buffering the
+    // body, so a fast host can't stream megabytes into memory inside the
+    // timeout window. The post-decode check still covers a missing/lying header.
+    const declared = Number(res.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_FAVICON_BYTES) return null;
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0 || buf.length > MAX_FAVICON_BYTES) return null;
     return `data:${type};base64,${buf.toString('base64')}`;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
