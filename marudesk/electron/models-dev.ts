@@ -30,6 +30,8 @@ const PROVIDER_KEYS: Partial<Record<BuiltinProviderId, string>> = {
   openai: 'openai',
   google: 'google',
   xai: 'xai',
+  zai: 'zai',
+  opencode: 'opencode',
   // Skipped: ollama (local), openai-codex / google-caa (OAuth-only subscription
   // backends) — no clean models.dev mapping.
 };

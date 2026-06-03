@@ -13,7 +13,9 @@ export type BuiltinProviderId =
   | 'ollama'
   | 'xai'
   | 'openai-codex'
-  | 'google-caa';
+  | 'google-caa'
+  | 'zai'
+  | 'opencode';
 
 /**
  * A provider id: either a built-in, or a user-configured custom OpenAI-compatible
@@ -179,6 +181,37 @@ export const PROVIDERS: ProviderDef[] = [
     apiKeyPlaceholder: '(local — no key)',
     apiKeyHint: 'Runs locally at localhost:11434 (no key). Use a tool-capable model.',
   },
+  {
+    id: 'zai',
+    label: 'Z.ai (GLM)',
+    // Zhipu's GLM family via the OpenAI-compatible API at api.z.ai/api/paas/v4
+    // (Bearer auth). The live list is fetched once a key is set; these seed it.
+    // A GLM Coding Plan key instead targets api.z.ai/api/coding/paas/v4 — add it
+    // as a custom endpoint if you have a Coding-Plan-scoped key.
+    models: [
+      { id: 'glm-4.6', label: 'GLM-4.6' },
+      { id: 'glm-4.5', label: 'GLM-4.5' },
+      { id: 'glm-4.5-air', label: 'GLM-4.5 Air' },
+    ],
+    defaultModelId: 'glm-4.6',
+    apiKeyPlaceholder: '••••••••',
+    apiKeyHint: 'z.ai → API keys (ZHIPU_API_KEY)',
+  },
+  {
+    id: 'opencode',
+    label: 'OpenCode Zen',
+    // OpenCode's curated gateway (opencode.ai/zen/v1) re-exposes GPT/Claude/Gemini/
+    // Grok/Qwen/GLM/Kimi behind one OpenAI-compatible endpoint (Bearer auth). Model
+    // ids are passed bare; the live /models fetch refreshes this seed once a key is set.
+    models: [
+      { id: 'gpt-5.5', label: 'GPT-5.5' },
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'grok-code', label: 'Grok Code Fast 1' },
+    ],
+    defaultModelId: 'gpt-5.5',
+    apiKeyPlaceholder: '••••••••',
+    apiKeyHint: 'opencode.ai/zen → API keys (OPENCODE_API_KEY)',
+  },
 ];
 
 export function getProvider(id: ProviderId): ProviderDef {
@@ -333,6 +366,14 @@ export const MODELS: ModelEntry[] = [
   // Ollama (local; tool support varies — these two are tool-capable).
   { key: 'ollama:qwen2.5-coder', id: 'qwen2.5-coder', label: 'Qwen2.5 Coder', provider: 'ollama', tools: true },
   { key: 'ollama:llama3.1', id: 'llama3.1', label: 'Llama 3.1', provider: 'ollama', tools: true },
+  // Z.ai GLM (OpenAI-compatible at api.z.ai/api/paas/v4; tool-capable + reasoning).
+  { key: 'zai:glm-4.6', id: 'glm-4.6', label: 'GLM-4.6', provider: 'zai', contextWindow: 204_800, tools: true, reasoning: true },
+  { key: 'zai:glm-4.5', id: 'glm-4.5', label: 'GLM-4.5', provider: 'zai', contextWindow: 131_072, tools: true, reasoning: true },
+  { key: 'zai:glm-4.5-air', id: 'glm-4.5-air', label: 'GLM-4.5 Air', provider: 'zai', contextWindow: 131_072, tools: true, reasoning: true },
+  // OpenCode Zen gateway (opencode.ai/zen/v1) — curated multi-vendor catalog.
+  { key: 'opencode:gpt-5.5', id: 'gpt-5.5', label: 'GPT-5.5', provider: 'opencode', contextWindow: 400_000, tools: true, reasoning: true },
+  { key: 'opencode:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'opencode', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'opencode:grok-code', id: 'grok-code', label: 'Grok Code Fast 1', provider: 'opencode', contextWindow: 256_000, tools: true },
 ];
 
 export const DEFAULT_MODEL_KEY = modelKey('anthropic', 'claude-sonnet-4-6');

@@ -16,6 +16,8 @@ import { registerSecretsHandlers } from './secrets';
 import { registerOAuthHandlers } from './oauth/handlers';
 import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
+import { registerStorageHandlers } from './storage-handlers';
+import { closeDb } from './db';
 import {
   initExternalMcp,
   registerMcpHandlers,
@@ -235,6 +237,7 @@ void app.whenReady().then(() => {
   registerModelsHandlers();
   registerCustomProviderHandlers();
   registerAgentHandlers();
+  registerStorageHandlers();
   registerMcpHandlers();
   registerWindowControlHandlers();
   registerRelayHandlers();
@@ -315,6 +318,8 @@ app.on('before-quit', () => {
   // Close every external MCP stdio connection so no spawned child process lingers
   // past app exit.
   void shutdownExternalMcp();
+  // Close the SQLite handle (flushes the WAL) if it was opened.
+  closeDb();
 });
 
 app.on('web-contents-created', (_event, contents) => {

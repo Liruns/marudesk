@@ -120,6 +120,26 @@ export type AppSettings = {
     enabled: boolean;
   };
   /**
+   * What the app persists to disk between launches — managed from Settings →
+   * Data & Storage. App settings themselves are always saved (they're the
+   * record of these very toggles); these govern the optional, higher-volume
+   * stores so a user can keep the app stateless if they prefer.
+   */
+  storage: {
+    /**
+     * Save AI Chat sessions (transcripts) to the local store so they appear in
+     * the sessions history and can be resumed. Off = conversations are
+     * in-memory only and vanish on New chat / restart; the loop skips
+     * persistSession. Existing saved sessions are not deleted by toggling off.
+     */
+    persistSessions: boolean;
+    /**
+     * Restore the open tab set (web pages + saved editor files) on launch — not
+     * just pinned tabs. Off = only pinned tabs restore (the prior behavior).
+     */
+    persistTabs: boolean;
+  };
+  /**
    * Remote bridge server — a local HTTP server (127.0.0.1 ONLY) that lets a future
    * companion app drive the AI Chat agent (docs/remote-mobile-bridge-design §M4).
    * Off by default; when on it binds loopback and requires a bearer token. LAN
@@ -166,6 +186,7 @@ export type SettingsPatch = {
   agent?: Partial<AppSettings['agent']>;
   pcControl?: Partial<AppSettings['pcControl']>;
   server?: Partial<AppSettings['server']>;
+  storage?: Partial<AppSettings['storage']>;
 };
 
 /** Default cloud-relay base URL — the B1 relay's localhost dev port. */
@@ -215,6 +236,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     relayUrl: DEFAULT_RELAY_URL,
     cloudEnabled: false,
     skipApprovals: false,
+  },
+  storage: {
+    persistSessions: true,
+    persistTabs: true,
   },
 };
 
@@ -352,6 +377,7 @@ export function sanitizeSettings(
   const ag = asRecord(root.agent);
   const pc = asRecord(root.pcControl);
   const sv = asRecord(root.server);
+  const st = asRecord(root.storage);
 
   return {
     version: 1,
@@ -410,6 +436,10 @@ export function sanitizeSettings(
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),
+    },
+    storage: {
+      persistSessions: asBool(st.persistSessions, base.storage.persistSessions),
+      persistTabs: asBool(st.persistTabs, base.storage.persistTabs),
     },
     server: {
       enabled: asBool(sv.enabled, base.server.enabled),

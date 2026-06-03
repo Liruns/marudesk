@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Code2,
   Copy,
+  Database,
   Globe,
   Info,
   KeyRound,
@@ -71,6 +72,7 @@ import { RemoteGuide } from './RemoteGuide';
 import { useProvidersStore } from '../providers/store';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
 import type { ModelEntry, ProviderId } from '../../../shared/providers';
+import type { StorageStats } from '../../../shared/context';
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: 'Dark' },
@@ -125,6 +127,7 @@ const CATEGORIES: {
   { id: 'mcp', label: 'MCP Servers', icon: Plug, blurb: 'Connect external MCP servers (stdio) so the AI Chat can use their tools.', keywords: 'mcp server stdio tools context' },
   { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.', keywords: 'devtools dock inspect console network' },
   { id: 'remote', label: 'Remote access', icon: Radio, blurb: 'A local server so a future companion app can drive the AI Chat.', keywords: 'remote phone pair qr relay server mobile bridge' },
+  { id: 'data', label: 'Data & Storage', icon: Database, blurb: 'What the app saves between launches — chat sessions, tabs — and where it lives.', keywords: 'data storage save persist session tab history database sqlite clear export disk backup' },
   { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.', keywords: 'about version reset runtime' },
 ];
 
@@ -213,6 +216,7 @@ export function SettingsView() {
           {category === 'mcp' ? <McpServersSettings /> : null}
           {category === 'devtools' ? <DevtoolsCategory /> : null}
           {category === 'remote' ? <RemoteCategory /> : null}
+          {category === 'data' ? <DataCategory /> : null}
           {category === 'about' ? <AboutCategory /> : null}
         </div>
       </div>
@@ -1260,6 +1264,177 @@ function CloudRelaySection() {
         </div>
       )}
     </Section>
+  );
+}
+
+/** Human-readable byte size (B / KB / MB) for the storage usage readout. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Data & Storage: manage what the app persists between launches. Each store is a
+ * separate toggle (AI Chat sessions, open tabs); app settings themselves are
+ * always saved (they're the record of these toggles) but can be reset or revealed
+ * on disk. The usage readout shows which backend the session store uses (SQLite
+ * when the native module loaded, else the JSON fallback) and its size.
+ */
+function DataCategory() {
+  const storage = useSettingsStore((s) => s.settings.storage);
+  const update = useSettingsStore((s) => s.update);
+  const reset = useSettingsStore((s) => s.reset);
+  const [stats, setStats] = useState<StorageStats | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refreshStats = useCallback(async () => {
+    try {
+      setStats(await window.marudesk.invoke('storage:stats'));
+    } catch {
+      setStats(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void window.marudesk
+      .invoke('storage:stats')
+      .then((s) => {
+        if (alive) setStats(s);
+      })
+      .catch(() => {
+        if (alive) setStats(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const clearSessions = useCallback(async () => {
+    if (!window.confirm('Delete every saved AI Chat session? This cannot be undone.')) return;
+    setBusy(true);
+    try {
+      const removed = await window.marudesk.invoke('storage:clear-sessions');
+      toast({
+        title: `Cleared ${removed} saved session${removed === 1 ? '' : 's'}.`,
+        variant: 'success',
+      });
+      await refreshStats();
+    } catch {
+      toast({ title: 'Could not clear sessions.', variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }, [refreshStats]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Section>
+        <Field
+          label="Save AI Chat sessions"
+          hint="Keep conversation transcripts so they appear in chat history and can be resumed. Off = chats are in-memory only and vanish on New chat or restart. Existing saved chats are kept."
+        >
+          <Segmented
+            value={storage.persistSessions ? 'on' : 'off'}
+            options={ON_OFF_OPTIONS}
+            onChange={(v) => void update({ storage: { persistSessions: v === 'on' } })}
+          />
+        </Field>
+        <Field
+          label="Restore tabs on launch"
+          hint="Reopen the web pages and editor files you had open last time, with the active tab focused. Off = only pinned tabs come back."
+        >
+          <Segmented
+            value={storage.persistTabs ? 'on' : 'off'}
+            options={ON_OFF_OPTIONS}
+            onChange={(v) => void update({ storage: { persistTabs: v === 'on' } })}
+          />
+        </Field>
+      </Section>
+
+      <Section>
+        <Field
+          label="Session storage"
+          hint={
+            stats
+              ? `${stats.backend === 'sqlite' ? 'SQLite database' : 'JSON files'} · ${stats.sessionCount} session${stats.sessionCount === 1 ? '' : 's'} · ${formatBytes(stats.sessionBytes)}`
+              : 'Reading usage…'
+          }
+        >
+          <button
+            type="button"
+            onClick={() => void refreshStats()}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-md',
+              'text-body-sm text-fg-secondary bg-surface-2',
+              'hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
+            )}
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </Field>
+        <Field
+          label="Clear chat sessions"
+          hint="Delete all saved AI Chat transcripts and their search index."
+        >
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void clearSessions()}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-md',
+              'text-body-sm text-error bg-surface-2',
+              'hover:bg-surface-3 transition-colors duration-fast',
+              busy && 'opacity-50 pointer-events-none',
+            )}
+          >
+            <Trash2 size={14} />
+            Clear sessions
+          </button>
+        </Field>
+        <Field
+          label="Data folder"
+          hint="Open the folder holding settings.json, the session store, and other app data — for inspection or backup."
+        >
+          <button
+            type="button"
+            onClick={() => void window.marudesk.invoke('storage:reveal')}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-md',
+              'text-body-sm text-fg-secondary bg-surface-2',
+              'hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
+            )}
+          >
+            <Database size={14} />
+            Open folder
+          </button>
+        </Field>
+      </Section>
+
+      <Section>
+        <Field
+          label="Reset settings"
+          hint="App settings are always saved. This restores every setting to its default (does not delete chat sessions)."
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Reset all settings to their defaults?')) void reset();
+            }}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-md',
+              'text-body-sm text-fg-secondary bg-surface-2',
+              'hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast',
+            )}
+          >
+            <RotateCcw size={14} />
+            Reset to defaults
+          </button>
+        </Field>
+      </Section>
+    </div>
   );
 }
 

@@ -751,6 +751,9 @@ function snapshotMessagesForSave(): AgentMessage[] {
 
 async function persistSession(): Promise<void> {
   if (!conversationId) return;
+  // Respect the Data & Storage toggle: when session saving is off, conversations
+  // stay in-memory only (no transcript written, nothing added to history).
+  if (!getSettingsSync().storage.persistSessions) return;
   const record: SessionRecord = {
     id: conversationId,
     title: conversationTitle || 'Untitled chat',

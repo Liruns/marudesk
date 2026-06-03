@@ -6,7 +6,12 @@ import type {
   AgentSendResult,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
-import type { ContextSyncPayload, SessionSummary } from './context';
+import type {
+  ContextSyncPayload,
+  SessionSearchHit,
+  SessionSummary,
+  StorageStats,
+} from './context';
 import type {
   GitAvailability,
   GitBranches,
@@ -184,9 +189,13 @@ export const CHANNELS = {
     'agent:snapshot',
     'agent:reset',
     'agent:list-sessions',
+    'agent:search-sessions',
     'agent:resume-session',
     'agent:delete-session',
   ],
+  // Local data store management — Settings → Data & Storage reads stats, clears
+  // saved sessions, and reveals the data folder (docs/data-storage-design).
+  storage: ['storage:stats', 'storage:clear-sessions', 'storage:reveal'],
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],
@@ -509,8 +518,19 @@ export interface IpcMap {
   // Session history (v3 §5-C): list past saved conversations, resume one as the
   // active chat, or delete one. The list backs the sessions UI; resume swaps state.
   'agent:list-sessions': { args: []; result: SessionSummary[] };
+  'agent:search-sessions': {
+    args: [payload: { query: string }];
+    result: SessionSearchHit[];
+  };
   'agent:resume-session': { args: [payload: { id: string }]; result: boolean };
   'agent:delete-session': { args: [payload: { id: string }]; result: boolean };
+
+  // storage (Data & Storage settings panel): read store stats (backend +
+  // session count + bytes), clear all saved sessions, and reveal the userData
+  // folder in the OS file manager. Clearing returns the number removed.
+  'storage:stats': { args: []; result: StorageStats };
+  'storage:clear-sessions': { args: []; result: number };
+  'storage:reveal': { args: []; result: void };
 
   // context (built-in MCP mirror): the renderer pushes the surfaces main can't
   // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget
