@@ -82,7 +82,7 @@ type AgentActions = {
   send: () => Promise<void>;
   abort: () => Promise<void>;
   answer: (callId: string, answers: AgentAnswers) => Promise<void>;
-  approve: (callId: string, approved: boolean) => Promise<void>;
+  approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
   acceptEdit: (editId: string) => Promise<void>;
   revertEdit: (editId: string) => Promise<void>;
   resetChat: () => Promise<void>;
@@ -239,11 +239,11 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     }
   },
 
-  approve: async (callId, approved) => {
+  approve: async (callId, approved, always = false) => {
     const turnId = get().chat.turnId;
     if (!turnId) return;
     try {
-      await window.marudesk.invoke('agent:approve-tool', { turnId, callId, approved });
+      await window.marudesk.invoke('agent:approve-tool', { turnId, callId, approved, always });
     } catch {
       // ignore
     }

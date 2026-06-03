@@ -176,7 +176,15 @@ let state: AgentChatState = emptyAgentChatState();
 // (every tool_use is answered by a tool_result) so a later turn can reuse it.
 let transcript: ModelMessage[] = [];
 let controller: AbortController | null = null;
-let approvalResolver: ((approved: boolean) => void) | null = null;
+/** Approval decision from the UI: approved/denied, plus "always for this session". */
+type ApprovalDecision = { approved: boolean; always: boolean };
+let approvalResolver: ((decision: ApprovalDecision) => void) | null = null;
+/**
+ * Gated tools the user chose to "Allow always" for this conversation. Future
+ * calls to a tool in this set skip the approval prompt (claude-code "Allow
+ * always" parity). Cleared on reset/resume so it never leaks across conversations.
+ */
+const sessionAllowedTools = new Set<string>();
 let answersResolver: ((answers: AgentAnswers) => void) | null = null;
 // Synchronous re-entrancy guard: status is only set busy *after* an await in
 // startTurn, so two near-simultaneous sends could both pass busy(). This closes
@@ -319,8 +327,8 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): stri
 // a late agent:approve-tool / agent:respond can't resolve the wrong parked
 // promise. The turnId+callId guards in approveTool/respond are the primary gate;
 // this is belt-and-suspenders for the resolver lifecycle.
-function waitForApproval(): Promise<boolean> {
-  approvalResolver?.(false);
+function waitForApproval(): Promise<ApprovalDecision> {
+  approvalResolver?.({ approved: false, always: false });
   return new Promise((resolve) => {
     approvalResolver = resolve;
   });
@@ -631,8 +639,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
       // Gated tools (eval_js / cookies / storage / terminal output): park for
       // explicit approval — unless the mode is `auto` or the bridge is in
-      // unattended mode, which auto-approve. (§B4)
-      if (isGatedTool(call.name) && opts.approvalMode !== 'auto' && !opts.unattended) {
+      // unattended mode, which auto-approve, or the user already chose "Allow
+      // always" for this tool this conversation. (§B4)
+      if (
+        isGatedTool(call.name) &&
+        opts.approvalMode !== 'auto' &&
+        !opts.unattended &&
+        !sessionAllowedTools.has(call.name)
+      ) {
         call.state = 'awaiting_approval';
         state.status = 'waiting_for_user';
         state.pendingApproval = {
@@ -642,7 +656,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
           detail: describeToolInput(call.name, call.input),
         };
         emit();
-        const approved = await waitForApproval();
+        const decision = await waitForApproval();
         approvalResolver = null;
         state.pendingApproval = null;
         if (opts.signal.aborted) {
@@ -650,7 +664,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
           toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
           continue;
         }
-        if (!approved) {
+        // "Allow always": remember this tool so later calls skip the prompt.
+        if (decision.approved && decision.always) sessionAllowedTools.add(call.name);
+        if (!decision.approved) {
           call.state = 'denied';
           call.resultText = 'Denied by the user.';
           state.status = 'working';
@@ -731,7 +747,7 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
   state.pendingApproval = null;
   state.pendingQuestions = null;
   // Settle + drop any parked resolver so none leaks past the turn.
-  approvalResolver?.(false);
+  approvalResolver?.({ approved: false, always: false });
   approvalResolver = null;
   answersResolver?.({});
   answersResolver = null;
@@ -1084,7 +1100,7 @@ export function abortTurn(turnId: string): boolean {
   if (state.turnId !== turnId || !controller) return false;
   controller.abort();
   // Unblock a parked turn so the loop can observe the abort and bail cleanly.
-  approvalResolver?.(false);
+  approvalResolver?.({ approved: false, always: false });
   answersResolver?.({});
   return true;
 }
@@ -1096,10 +1112,15 @@ export function respond(turnId: string, callId: string, answers: AgentAnswers): 
   return true;
 }
 
-export function approveTool(turnId: string, callId: string, approved: boolean): boolean {
+export function approveTool(
+  turnId: string,
+  callId: string,
+  approved: boolean,
+  always = false,
+): boolean {
   if (state.pendingApproval?.turnId !== turnId || state.pendingApproval?.callId !== callId) return false;
   if (!approvalResolver) return false;
-  approvalResolver(approved);
+  approvalResolver({ approved, always });
   return true;
 }
 
@@ -1159,6 +1180,8 @@ export function reset(): boolean {
   state = emptyAgentChatState();
   state.edits = keptEdits;
   transcript = [];
+  // "Allow always" choices are conversation-scoped — drop them with the chat.
+  sessionAllowedTools.clear();
   // The prior conversation was persisted on its last turn's finish(); drop its id
   // so the next turn begins (and saves to) a fresh session.
   conversationId = null;
@@ -1180,6 +1203,7 @@ export async function resumeSession(id: string): Promise<boolean> {
   const record = await readSession(id);
   if (!record) return false;
   const keptEdits = state.edits.filter((e) => e.status === 'applied');
+  sessionAllowedTools.clear();
   state = emptyAgentChatState();
   state.edits = keptEdits;
   state.messages = record.messages ?? [];

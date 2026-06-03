@@ -91,11 +91,14 @@ export function parseApprove(payload: unknown): {
   turnId: string;
   callId: string;
   approved: boolean;
+  always: boolean;
 } {
   const o = obj(payload);
   return {
     turnId: nonEmptyStr(o.turnId, 'turnId'),
     callId: nonEmptyStr(o.callId, 'callId'),
     approved: typeof o.approved === 'boolean' ? o.approved : false,
+    // "Allow always for this session" — optional, defaults to false.
+    always: typeof o.always === 'boolean' ? o.always : false,
   };
 }

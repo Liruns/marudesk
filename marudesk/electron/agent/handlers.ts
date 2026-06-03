@@ -78,8 +78,8 @@ export function registerAgentHandlers(): void {
   // Remote (bridge) self-approval of gated tools is what L-1 refuses, and that is
   // enforced in electron/server/dispatch.ts — keep this path off the dispatcher.
   defineHandler('agent:approve-tool', ([payload]) => {
-    const { turnId, callId, approved } = parseApprove(payload);
-    return approveTool(turnId, callId, approved);
+    const { turnId, callId, approved, always } = parseApprove(payload);
+    return approveTool(turnId, callId, approved, always);
   });
 
   defineHandler('agent:accept-edit', ([payload]) =>

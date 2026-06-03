@@ -1798,6 +1798,14 @@ function ApprovalCard({ approval }: { approval: PendingApproval }) {
         <Button variant="primary" size="sm" onClick={() => void approve(approval.callId, true)}>
           Approve
         </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void approve(approval.callId, true, true)}
+          title={`Approve and stop asking for ${approval.name} this conversation`}
+        >
+          Allow always
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => void approve(approval.callId, false)}>
           Deny
         </Button>

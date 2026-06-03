@@ -497,7 +497,7 @@ export interface IpcMap {
   };
   // Resume a turn parked on a gated tool (eval_js / navigation) approval.
   'agent:approve-tool': {
-    args: [payload: { turnId: string; callId: string; approved: boolean }];
+    args: [payload: { turnId: string; callId: string; approved: boolean; always?: boolean }];
     result: boolean;
   };
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
