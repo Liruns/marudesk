@@ -12,7 +12,7 @@ export function Spinner({ size = 16, className, label = 'Working' }: SpinnerProp
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      className={cn('motion-safe:animate-spin shrink-0', className)}
+      className={cn('motion-safe:animate-spin-ai shrink-0', className)}
       role="status"
       aria-label={label}
     >

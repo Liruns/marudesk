@@ -98,6 +98,9 @@ const config: Config = {
         // `both` holds the 0% (hidden) state through any stagger delay.
         'fade-rise': 'fade-rise var(--motion-standard) var(--easing) both',
         'scale-in': 'scale-in var(--motion-standard) var(--easing)',
+        // Model-state Spinner: a calm 1.2s linear sweep (§4 Spinner), slower than
+        // Tailwind's default 1s so the four AI-timeline arcs read as unhurried.
+        'spin-ai': 'spin 1.2s linear infinite',
       },
       boxShadow: {
         glow: '0 0 0 1px var(--border-default), 0 8px 24px rgba(0, 0, 0, 0.32)',

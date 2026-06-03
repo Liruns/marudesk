@@ -40,7 +40,8 @@ export function Button({
       type={type}
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded font-medium',
-        'transition-colors duration-fast',
+        // Press feedback is a 1px settle, never a bounce (DESIGN.md §9).
+        'transition duration-fast active:scale-[0.99]',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-page',
         'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-inherit',
         VARIANT_CLASSES[variant],
