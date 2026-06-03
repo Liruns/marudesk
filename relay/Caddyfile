@@ -1,0 +1,8 @@
+# Public edge for the relay. Caddy provisions + renews a Let's Encrypt cert for
+# $RELAY_DOMAIN automatically and terminates TLS. `reverse_proxy` forwards the
+# auth HTTP API and transparently upgrades the WebSocket (/connect) — Caddy passes
+# `Connection: Upgrade` through without extra config.
+{$RELAY_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy relay:8788
+}
