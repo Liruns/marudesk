@@ -370,7 +370,7 @@ function TabContextMenu({
         role="menu"
         className={cn(
           'absolute min-w-[190px] rounded-md py-1 no-drag',
-          'border border-subtle bg-surface-2 shadow-lg shadow-black/30',
+          'border border-subtle bg-surface-2 shadow-glow',
         )}
         style={{ top: y, left: x }}
         onClick={(e) => e.stopPropagation()}

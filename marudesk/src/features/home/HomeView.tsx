@@ -54,21 +54,34 @@ export function HomeView({ tabId }: { tabId?: string }) {
   };
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page">
+    <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
       <div className="min-h-full flex flex-col items-center justify-center px-8 py-16 gap-10">
-        <div className="flex flex-col items-center gap-3">
-          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-16 select-none" />
-          <div className="flex flex-col items-center gap-1">
-            <h1 className="text-title text-fg-primary tracking-tight">marudesk</h1>
+        <div className="flex flex-col items-center gap-4 animate-fade-rise">
+          <div className="relative">
+            {/* The single sanctioned chromatic bloom — brand light behind the
+                mark. Decorative, so it's hidden from a11y and ignores pointers. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -inset-6 -z-10 bg-accent-glow"
+            />
+            <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-16 select-none" />
+          </div>
+          <div className="flex flex-col items-center gap-1.5">
+            <h1 className="text-hero font-display text-fg-primary">marudesk</h1>
             <p className="text-body-sm text-fg-tertiary">Browser-native AI IDE</p>
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className="w-full max-w-xl" role="search">
+        <form
+          onSubmit={onSubmit}
+          className="w-full max-w-xl animate-fade-rise [animation-delay:60ms]"
+          role="search"
+        >
           <div
             className={cn(
               'h-11 w-full rounded-pill bg-surface-1 border flex items-center pl-4 pr-2 gap-2',
-              'border-default focus-within:border-accent transition-colors duration-fast',
+              'border-default focus-within:border-accent focus-within:shadow-focus-accent',
+              'transition-[border-color,box-shadow] duration-fast',
             )}
           >
             <Globe size={16} className="text-fg-tertiary shrink-0" aria-hidden />
@@ -90,7 +103,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
           </div>
         </form>
 
-        <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-rise [animation-delay:120ms]">
           <LauncherCard
             label="AI Chat"
             hint="Agent that sees the running app"
@@ -118,7 +131,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
         </div>
 
         {recents.length > 0 ? (
-          <div className="w-full max-w-xl flex flex-col gap-0.5">
+          <div className="w-full max-w-xl flex flex-col gap-0.5 animate-fade-rise [animation-delay:180ms]">
             <p className="px-1 pb-1 text-caption uppercase tracking-wider text-fg-tertiary">
               Recent
             </p>
@@ -150,7 +163,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
           </div>
         ) : null}
 
-        <p className="text-caption text-fg-tertiary flex items-center gap-1.5">
+        <p className="text-caption text-fg-tertiary flex items-center gap-1.5 animate-fade-rise [animation-delay:240ms]">
           <kbd className="px-1.5 py-0.5 rounded bg-surface-2 border border-subtle text-fg-secondary">
             Ctrl
           </kbd>
@@ -182,12 +195,13 @@ function LauncherCard({
       onClick={onOpen}
       className={cn(
         'group flex flex-col items-start gap-2.5 p-4 rounded-xl text-left',
-        'bg-surface-1 border border-subtle',
-        'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-lg',
+        'bg-surface-1 bg-surface-gradient border border-subtle shadow-highlight',
+        'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-card',
+        'active:translate-y-0 active:scale-[0.99] active:shadow-highlight',
         'transition duration-fast',
       )}
     >
-      <span className="flex size-9 items-center justify-center rounded-lg bg-surface-2 text-fg-secondary group-hover:bg-accent-subtle group-hover:text-accent transition-colors duration-fast">
+      <span className="flex size-9 items-center justify-center rounded-lg bg-surface-2 shadow-highlight text-fg-secondary group-hover:bg-accent-subtle group-hover:text-accent transition-colors duration-fast">
         {icon}
       </span>
       <span className="text-body-sm text-fg-primary font-medium">{label}</span>

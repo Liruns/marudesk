@@ -94,7 +94,7 @@ function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) 
   return (
     <article
       className={cn(
-        'rounded border bg-surface-2 flex flex-col transition-colors duration-fast',
+        'rounded border bg-surface-2 bg-surface-gradient shadow-card flex flex-col transition-colors duration-fast',
         selected ? 'border-default' : 'border-subtle opacity-70',
       )}
     >
@@ -171,7 +171,7 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   return (
     <article
       className={cn(
-        'rounded border bg-surface-2 flex flex-col transition-colors duration-fast',
+        'rounded border bg-surface-2 bg-surface-gradient shadow-card flex flex-col transition-colors duration-fast',
         selected ? 'border-default' : 'border-subtle opacity-70',
       )}
     >

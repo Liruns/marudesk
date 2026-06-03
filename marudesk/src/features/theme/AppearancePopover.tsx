@@ -39,7 +39,7 @@ export function AppearancePopover({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-label="Appearance"
         onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-8 left-14 w-60 rounded-lg border border-subtle bg-surface-2 p-3 shadow-lg shadow-black/40 flex flex-col gap-3"
+        className="absolute bottom-8 left-14 w-60 rounded-lg border border-subtle bg-surface-2 p-3 shadow-glow flex flex-col gap-3"
       >
         {/* Accent */}
         <div className="flex flex-col gap-1.5">
