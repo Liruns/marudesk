@@ -33,8 +33,10 @@ export type SearchEngine = 'google' | 'duckduckgo' | 'bing';
  * - `ask`: edits run (they're reviewable/revertable), but sensitive tools
  *   (eval_js, cookies, storage, terminal output) ask for per-call approval.
  * - `auto`: everything runs without approval prompts.
+ * - `plan`: research-only (like read-only) but the agent is instructed to end
+ *   with a concrete step-by-step plan instead of editing (claude-code plan mode).
  */
-export type AgentApprovalMode = 'read-only' | 'ask' | 'auto';
+export type AgentApprovalMode = 'read-only' | 'ask' | 'auto' | 'plan';
 
 /**
  * How hard a reasoning ("extended thinking") model should think before answering
@@ -231,7 +233,7 @@ export const SERVER_PORT_MAX = 65535;
 const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
 const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing'];
-const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto'];
+const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
 const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 const MAX_DENY_GLOBS = 100;
 

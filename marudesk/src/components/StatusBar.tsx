@@ -17,12 +17,14 @@ import { cn } from '../lib/cn';
  * is the canvas, this is just chrome.
  */
 const APPROVAL_LABEL: Record<AgentApprovalMode, string> = {
+  plan: 'Plan',
   'read-only': 'Read-only',
   ask: 'Ask',
   auto: 'Auto',
 };
-/** Dot hue per mode: neutral (safe), accent (default), warning (hands-free). */
+/** Dot hue per mode: neutral (safe/plan), accent (default), warning (hands-free). */
 const APPROVAL_DOT: Record<AgentApprovalMode, string> = {
+  plan: 'bg-fg-tertiary/40',
   'read-only': 'bg-fg-tertiary/40',
   ask: 'bg-accent',
   auto: 'bg-warning',

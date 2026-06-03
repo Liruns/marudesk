@@ -155,6 +155,14 @@ Operating rules:
 
 Paths are workspace-relative. To create a file, call edit_file with oldString="".`;
 
+/**
+ * Plan-mode addendum (claude-code plan mode parity). Appended to the system
+ * prompt when {@link AgentApprovalMode} is `plan`: the agent researches with
+ * read tools but is barred from editing/eval and must end with a concrete plan
+ * the user can approve before switching to Ask/Auto to execute it.
+ */
+const PLAN_MODE_SYSTEM = `PLAN MODE IS ACTIVE. Do NOT edit files, run code, or change anything — write tools and eval are blocked this turn. Investigate with read/search tools, then end your reply with a concrete, ordered implementation plan: the files you would touch, the change in each, and how you would verify it. The user will review the plan and switch out of plan mode to execute it.`;
+
 /* ── module state ───────────────────────────────────────────────────────── */
 
 let state: AgentChatState = emptyAgentChatState();
@@ -405,7 +413,8 @@ async function runLoop(opts: RunOpts): Promise<void> {
       a.auth.mode === 'oauth' && a.provider === 'anthropic'
         ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SYSTEM_PROMPT}`
         : SYSTEM_PROMPT;
-    const system = [baseSystem, opts.customInstructions, wsInstructions]
+    const planAddendum = opts.approvalMode === 'plan' ? PLAN_MODE_SYSTEM : null;
+    const system = [baseSystem, planAddendum, opts.customInstructions, wsInstructions]
       .filter((s): s is string => !!s && !!s.trim())
       .join('\n\n---\n\n');
     const codexBackend = a.provider === 'openai-codex';
@@ -589,20 +598,25 @@ async function runLoop(opts: RunOpts): Promise<void> {
         continue;
       }
 
-      // Read-only mode: refuse mutations + code execution outright (don't even
-      // prompt). Reads still run; sensitive read tools below still ask. (§B4)
+      // Read-only and plan modes: refuse mutations + code execution outright
+      // (don't even prompt). Reads still run; sensitive read tools below still
+      // ask. Plan mode additionally steers the model toward a plan via the
+      // system addendum. (§B4)
       if (
-        opts.approvalMode === 'read-only' &&
+        (opts.approvalMode === 'read-only' || opts.approvalMode === 'plan') &&
         (isWriteTool(call.name) || call.name === 'eval_js')
       ) {
+        const planning = opts.approvalMode === 'plan';
         call.state = 'denied';
-        call.resultText = 'Blocked: read-only mode.';
+        call.resultText = planning ? 'Blocked: plan mode.' : 'Blocked: read-only mode.';
         emit();
         toolResultParts.push(
           toolResult(
             call.id,
             call.name,
-            'Blocked: the agent is in read-only mode. Switch to Ask or Auto in Settings → Agent to allow edits and code execution.',
+            planning
+              ? 'Blocked: plan mode is active — do not edit. Finish researching and present a step-by-step plan; the user will switch to Ask or Auto to execute it.'
+              : 'Blocked: the agent is in read-only mode. Switch to Ask or Auto in Settings → Agent to allow edits and code execution.',
             true,
           ),
         );

@@ -1568,6 +1568,7 @@ function VerbosityToggle({
 }
 
 const APPROVAL_OPTS: { value: AgentApprovalMode; icon: LucideIcon; label: string }[] = [
+  { value: 'plan', icon: NotebookPen, label: 'Plan — research only, then propose a step-by-step plan' },
   { value: 'read-only', icon: Eye, label: 'Read-only — observe only (no edits, no code)' },
   { value: 'ask', icon: Hand, label: 'Ask — edits run; sensitive tools ask first' },
   { value: 'auto', icon: Zap, label: 'Auto — run everything without asking' },
