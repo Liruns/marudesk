@@ -185,6 +185,18 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
+  // Auto-grow the composer to fit its content, up to the max height (max-h-40 =
+  // 160px); taller drafts then scroll. Resetting to `auto` first re-derives the
+  // baseline from the `rows` attribute, so the floor (2 rows drawer / 3 rows
+  // full) is preserved and the box shrinks back when text is deleted. Runs on
+  // every draft change so a multi-line paste expands instead of overflowing.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [draft]);
+
   const busy = isBusy(chat.status);
   const elapsed = useElapsedTimer(busy);
   const empty = chat.messages.length === 0;
@@ -202,6 +214,18 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     // A fresh prompt should snap back to the bottom even if the user scrolled up.
     stickToBottomRef.current = true;
     void send();
+  };
+
+  // Picking an empty-state suggestion drops it into the composer and lands the
+  // cursor there, so the user can tweak or just hit Enter without a second click.
+  const handlePickSuggestion = (text: string) => {
+    setDraft(text);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(text.length, text.length);
+    });
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -251,7 +275,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           )}
         >
           {empty ? (
-            <EmptyState hasWorkspace={!!summary} onPick={setDraft} />
+            <EmptyState hasWorkspace={!!summary} onPick={handlePickSuggestion} />
           ) : (
             chat.messages.map((m, i) => (
               <MessageView
@@ -1188,7 +1212,9 @@ function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elapsed?: nu
           )}
         />
       )}
-      <span>{STATUS_LABEL[status]}</span>
+      {/* Announce only the label (not the per-second elapsed tick) so screen
+          readers hear the turn lifecycle — Thinking → Working → Done — once. */}
+      <span aria-live="polite">{STATUS_LABEL[status]}</span>
       {busy && elapsed > 0 ? (
         <span className="text-fg-tertiary/70">{formatElapsed(elapsed)}</span>
       ) : null}
