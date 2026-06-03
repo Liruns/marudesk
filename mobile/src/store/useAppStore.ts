@@ -42,6 +42,12 @@ type AppState = {
   /** Async op flags for the auth/connect forms. */
   busy: boolean;
   authError: string | null;
+  /**
+   * The last failed chat command's message (e.g. the host refusing a remote
+   * self-approval of a gated tool, per the L-1 guard). Transient + dismissable;
+   * distinct from `chat.error`, which is PC-owned turn state.
+   */
+  commandError: string | null;
 
   // actions
   hydrate: () => Promise<void>;
@@ -57,6 +63,7 @@ type AppState = {
   connect: () => Promise<void>;
   reconnect: () => Promise<void>;
   clearAuthError: () => void;
+  clearCommandError: () => void;
 
   // chat commands (proxied to the active transport)
   sendPrompt: (prompt: string, provider: string, model: string) => Promise<void>;
@@ -104,6 +111,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   chat: emptyAgentChatState(),
   busy: false,
   authError: null,
+  commandError: null,
 
   async hydrate() {
     const [relayUrl, accessToken, refreshToken, accountRaw, dBase, dDev, dKey] =
@@ -240,6 +248,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ authError: null });
   },
 
+  clearCommandError() {
+    set({ commandError: null });
+  },
+
   async pairWithQr(qrString, deviceName) {
     set({ busy: true, authError: null });
     try {
@@ -278,30 +290,36 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async sendPrompt(prompt, provider, model) {
     const t = ensureTransport(set);
-    await t.send('send', { provider, model, prompt });
+    await runCommand(set, () => t.send('send', { provider, model, prompt }));
   },
 
   async abort() {
     const turnId = get().chat.turnId;
     if (!turnId || !transport) return;
-    await transport.send('abort', { turnId });
+    await runCommand(set, () => transport!.send('abort', { turnId }));
   },
 
   async approve(approved) {
     const pending = get().chat.pendingApproval;
     if (!pending || !transport) return;
-    await transport.send('approve', { turnId: pending.turnId, callId: pending.callId, approved });
+    // A refused remote approval (L-1: gated tools must be confirmed on the desktop)
+    // comes back as an `ok:false` ack; runCommand surfaces it as `commandError`.
+    await runCommand(set, () =>
+      transport!.send('approve', { turnId: pending.turnId, callId: pending.callId, approved }),
+    );
   },
 
   async respond(answers) {
     const pending = get().chat.pendingQuestions;
     if (!pending || !transport) return;
-    await transport.send('respond', { turnId: pending.turnId, callId: pending.callId, answers });
+    await runCommand(set, () =>
+      transport!.send('respond', { turnId: pending.turnId, callId: pending.callId, answers }),
+    );
   },
 
   async resetChat() {
     if (!transport) return;
-    await transport.send('reset', {});
+    await runCommand(set, () => transport!.send('reset', {}));
   },
 }));
 
@@ -317,6 +335,24 @@ async function persistAuth(account: RelayAccount, accessToken: string, refreshTo
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : 'Something went wrong';
+}
+
+/**
+ * Run a chat-command send and route any rejection (a lost-ack timeout or an
+ * `ok:false` ack — e.g. the host refusing a remote gated-tool approval) into
+ * `commandError` so the UI can show it, instead of an unhandled rejection. Clears
+ * any prior error on a fresh attempt.
+ */
+async function runCommand(
+  set: (partial: Partial<AppState>) => void,
+  run: () => Promise<void>,
+): Promise<void> {
+  set({ commandError: null });
+  try {
+    await run();
+  } catch (err) {
+    set({ commandError: messageOf(err) });
+  }
 }
 
 /** Test/HMR cleanup hook — drop transport subscriptions. */
