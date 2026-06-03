@@ -10,10 +10,8 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
-  Check,
   ChevronRight,
   Code2,
-  Copy,
   Database,
   Globe,
   Info,
@@ -64,7 +62,7 @@ import type {
 } from '../../../shared/remote';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
-import { Button } from '../../components/ui';
+import { Button, CopyButton } from '../../components/ui';
 import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
 import { McpServersSettings } from './McpServersSettings';
@@ -812,31 +810,17 @@ function LocalServerReach() {
   );
 }
 
-/** Copy one reachable URL to the clipboard, with a brief check-mark confirmation. */
+/** Copy one reachable URL to the clipboard, with a brief check-mark confirmation.
+ * Routes through the main-process clipboard bridge (the desktop window can't rely
+ * on `navigator.clipboard`); the icon/timing UX lives in the shared CopyButton. */
 function CopyUrlButton({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async (): Promise<void> => {
-    try {
-      await window.marudesk.invoke('clipboard:write-text', url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      toast({ title: 'Copy failed', description: (err as Error).message, variant: 'error' });
-    }
-  };
   return (
-    <button
-      type="button"
-      aria-label={`Copy ${url}`}
-      onClick={() => void copy()}
-      className={cn(
-        'inline-flex size-7 shrink-0 items-center justify-center rounded',
-        'text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary',
-        'transition-colors duration-fast',
-      )}
-    >
-      {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
-    </button>
+    <CopyButton
+      text={url}
+      label={`Copy ${url}`}
+      size="md"
+      write={(text) => window.marudesk.invoke('clipboard:write-text', text)}
+    />
   );
 }
 

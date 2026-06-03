@@ -22,6 +22,16 @@ import {
 } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { obj, str } from './ipc/validate';
+import {
+  COMMON_TAGS,
+  CONTENT_CANDIDATES,
+  IGNORE_DIRS,
+  INDEXABLE_EXTENSIONS,
+  MAX_FILE_SIZE,
+  MAX_FILES,
+  STOP_WORDS,
+  TOP_RESULTS,
+} from './workspace-config';
 
 const execFileAsync = promisify(execFile);
 
@@ -36,108 +46,6 @@ let currentWorkspace: WorkspaceSummary | null = null;
 export function getCurrentWorkspace(): WorkspaceSummary | null {
   return currentWorkspace;
 }
-
-const MAX_FILES = 5000;
-const MAX_FILE_SIZE = 256 * 1024;
-const CONTENT_CANDIDATES = 50;
-const TOP_RESULTS = 10;
-
-const INDEXABLE_EXTENSIONS = new Set([
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.vue',
-  '.svelte',
-  '.astro',
-  '.html',
-  '.htm',
-  '.css',
-  '.scss',
-  '.sass',
-  '.less',
-]);
-
-export const IGNORE_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'dist-electron',
-  'build',
-  'out',
-  '.next',
-  '.nuxt',
-  '.svelte-kit',
-  '.turbo',
-  '.cache',
-  '.vercel',
-  '.output',
-  'coverage',
-  'release',
-]);
-
-const COMMON_TAGS = new Set([
-  'div',
-  'span',
-  'p',
-  'a',
-  'ul',
-  'li',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'img',
-  'svg',
-  'path',
-  'br',
-  'hr',
-  'tr',
-  'td',
-  'th',
-]);
-
-const STOP_WORDS = new Set([
-  'the',
-  'and',
-  'for',
-  'are',
-  'with',
-  'you',
-  'have',
-  'this',
-  'that',
-  'from',
-  'not',
-  'but',
-  'all',
-  'any',
-  'can',
-  'has',
-  'will',
-  'was',
-  'were',
-  'been',
-  'they',
-  'their',
-  'them',
-  'than',
-  'into',
-  'over',
-  'your',
-  'our',
-  'its',
-  'who',
-  'what',
-  'when',
-  'where',
-  'why',
-  'how',
-]);
 
 async function openWorkspace(
   parentWindow: BrowserWindow,
