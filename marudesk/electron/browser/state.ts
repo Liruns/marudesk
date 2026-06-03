@@ -334,6 +334,8 @@ function navStateFor(rec: TabRecord): NavState {
     favicon: rec.favicon ?? '',
     crashed: rec.crashed ?? false,
     zoomFactor: rec.zoomFactor ?? 1,
+    audible: wc.isCurrentlyAudible(),
+    audioMuted: wc.isAudioMuted(),
   };
 }
 

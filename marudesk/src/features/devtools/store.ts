@@ -621,8 +621,21 @@ type DevtoolsState = {
   // (DevTools' "Preserve log") — `_handleNavigated` reads this. Sticky across
   // navigations; survives freshSlices (a UI preference, not per-page state).
   preserveLog: boolean;
+  // Console row gutter timestamps (DevTools' "Show timestamps"). A display-only
+  // UI preference; survives freshSlices like the filters above.
+  showTimestamps: boolean;
   // network
   network: NetworkEntry[];
+  // When true, network rows survive a main-frame navigation (DevTools' Network
+  // "Preserve log"). The requestIds become historical (response bodies may be
+  // evicted), but the rows stay for cross-navigation diffing. UI preference.
+  preserveNetworkLog: boolean;
+  // Page lifecycle timing for the Network summary bar, all CDP monotonic seconds
+  // and per-page (reset on navigation). `navStart` is the first request's start
+  // (the navigation baseline); DOMContentLoaded / Load come from the Page domain.
+  navStartTime: number | null;
+  domContentTime: number | null;
+  loadTime: number | null;
   // Sticky network conditions (DevTools' Disable cache / throttling). Re-applied
   // every time the Network domain is (re)enabled — they reset on navigation.
   // Survive freshSlices (preferences, not per-page state).
@@ -692,6 +705,7 @@ type DevtoolsActions = {
   ) => Promise<CompletionResult>;
   clearConsole: () => void;
   setPreserveLog: (on: boolean) => void;
+  setShowTimestamps: (on: boolean) => void;
   /** Mirror main's per-tab error count (devtools:error-count) for the badge. */
   setErrorCount: (tabId: string, count: number) => void;
   /** "Fix this": send a console error/exception row to the AI composer cart. */
@@ -701,6 +715,7 @@ type DevtoolsActions = {
   ) => Promise<{ name: string; value: RemoteObject }[]>;
   // network
   clearNetwork: () => void;
+  setPreserveNetworkLog: (on: boolean) => void;
   getResponseBody: (
     requestId: string,
   ) => Promise<{ body: string; base64Encoded: boolean } | null>;
@@ -770,6 +785,9 @@ function freshSlices(): Pick<
   | 'cookies'
   | 'appLoading'
   | 'dropped'
+  | 'navStartTime'
+  | 'domContentTime'
+  | 'loadTime'
 > {
   return {
     nodes: new Map(),
@@ -796,6 +814,9 @@ function freshSlices(): Pick<
     cookies: [],
     appLoading: false,
     dropped: 0,
+    navStartTime: null,
+    domContentTime: null,
+    loadTime: null,
   };
 }
 
@@ -892,6 +913,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     windowMode: false,
     errorCountByTab: {},
     preserveLog: false,
+    showTimestamps: false,
+    preserveNetworkLog: false,
     commandHistory: [],
     cacheDisabled: false,
     throttle: 'online',
@@ -1171,13 +1194,17 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       // Main-frame navigation: the debugger survives, but the document, nodeIds,
       // and execution contexts reset (and Chromium may drop domain enablement).
       // Clear stale per-page state and re-enable the active domains against the
-      // new document. Console is kept iff "Preserve log" is on (DevTools' toggle);
-      // everything else (DOM/styles/network) is always reset — those nodeIds /
-      // requestIds are meaningless on the new document.
+      // new document. Console + network are each kept iff their "Preserve log"
+      // toggle is on (DevTools' behavior); DOM/styles always reset — those
+      // nodeIds are meaningless on the new document. Page timing always resets.
       set({
         enabled: new Set(),
         ...(get().preserveLog ? {} : { console: [] }),
-        network: [],
+        ...(get().preserveNetworkLog ? {} : { network: [] }),
+        // Page timing is always per-document — reset even when logs are preserved.
+        navStartTime: null,
+        domContentTime: null,
+        loadTime: null,
         nodes: new Map(),
         childIds: new Map(),
         documentId: null,
@@ -1851,6 +1878,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
 
     setPreserveLog: (on) => set({ preserveLog: on }),
 
+    setShowTimestamps: (on) => set({ showTimestamps: on }),
+
     setErrorCount: (tabId, count) =>
       set((s) => {
         if (s.errorCountByTab[tabId] === count) return {};
@@ -1891,7 +1920,10 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
 
     /* ── network ─────────────────────────────────────────────────────── */
 
-    clearNetwork: () => set({ network: [] }),
+    clearNetwork: () =>
+      set({ network: [], navStartTime: null, domContentTime: null, loadTime: null }),
+
+    setPreserveNetworkLog: (on) => set({ preserveNetworkLog: on }),
 
     getResponseBody: async (requestId) => {
       const tabId = get().tabId;
@@ -2072,6 +2104,10 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         let netDirty = false;
         let styleSheets = s.styleSheets;
         let sheetsDirty = false;
+        // Page-lifecycle timing for the Network summary bar (CDP seconds).
+        let navStart = s.navStartTime;
+        let domContent = s.domContentTime;
+        let load = s.loadTime;
 
         const ensureDom = () => {
           if (!domDirty) {
@@ -2194,6 +2230,14 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
               }
               break;
             }
+            case 'Page.domContentEventFired': {
+              domContent = pAny.timestamp as number;
+              break;
+            }
+            case 'Page.loadEventFired': {
+              load = pAny.timestamp as number;
+              break;
+            }
 
             /* Overlay (element picker) */
             case 'Overlay.inspectNodeRequested': {
@@ -2294,6 +2338,9 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
                 requestHeaders: req.headers,
                 initiator: pAny.initiator as NetworkEntry['initiator'],
               };
+              // First request of the document is the navigation baseline the
+              // waterfall + DOMContentLoaded/Load offsets are measured against.
+              if (navStart === null) navStart = entry.startTime;
               const idx = netIndex!.get(requestId);
               if (idx === undefined) {
                 netIndex!.set(requestId, network.length);
@@ -2376,6 +2423,9 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         if (consoleDirty) next.console = consoleArr;
         if (netDirty) next.network = network;
         if (sheetsDirty) next.styleSheets = styleSheets;
+        if (navStart !== s.navStartTime) next.navStartTime = navStart;
+        if (domContent !== s.domContentTime) next.domContentTime = domContent;
+        if (load !== s.loadTime) next.loadTime = load;
         if (dropped) next.dropped = s.dropped + dropped;
         return next;
       });

@@ -117,6 +117,10 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
   const push = (): void => pushState();
   view.webContents.on('did-stop-loading', push);
   view.webContents.on('did-navigate-in-page', push);
+  // Audio activity drives the toolbar's speaker/mute affordance — push so the
+  // control appears/disappears as the page starts and stops making sound.
+  view.webContents.on('media-started-playing', push);
+  view.webContents.on('media-paused', push);
 
   // Title arrives after navigation: refresh the strip and record it against the
   // current URL in history (for the address-bar autocomplete labels).

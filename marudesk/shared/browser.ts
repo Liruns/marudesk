@@ -27,6 +27,14 @@ export type NavState = {
   crashed: boolean;
   /** Page zoom factor (1 = 100%). Per-tab; the toolbar shows a reset chip ≠ 1. */
   zoomFactor: number;
+  /**
+   * The page is currently producing audible audio. Drives the toolbar's
+   * speaker/mute affordance — Chrome only surfaces the control while a tab is
+   * audible (or already muted).
+   */
+  audible: boolean;
+  /** The tab's audio is muted (WebContents.setAudioMuted). Per-tab, sticky. */
+  audioMuted: boolean;
 };
 
 /**
@@ -87,6 +95,8 @@ export const ZERO_NAV: NavState = {
   favicon: '',
   crashed: false,
   zoomFactor: 1,
+  audible: false,
+  audioMuted: false,
 };
 
 /**

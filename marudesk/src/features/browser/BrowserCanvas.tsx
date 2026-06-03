@@ -16,6 +16,8 @@ import {
   MousePointerClick,
   RotateCw,
   TriangleAlert,
+  Volume2,
+  VolumeX,
   Wrench,
   X,
 } from 'lucide-react';
@@ -260,6 +262,19 @@ export function BrowserCanvas() {
           >
             {Math.round(nav.zoomFactor * 100)}%
           </button>
+        ) : null}
+
+        {nav.audible || nav.audioMuted ? (
+          <NavIconButton
+            label={nav.audioMuted ? 'Unmute tab' : 'Mute tab'}
+            active={nav.audioMuted}
+            aria-pressed={nav.audioMuted}
+            onClick={() =>
+              void window.marudesk.invoke('browser:set-audio-muted', !nav.audioMuted)
+            }
+          >
+            {nav.audioMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </NavIconButton>
         ) : null}
 
         {downloadCount > 0 ? (
