@@ -68,10 +68,12 @@ export function McpServersSettings() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-caption text-fg-tertiary">
-        Connect external MCP servers (stdio) so the AI Chat can use their tools — like
-        Claude Desktop&rsquo;s <span className="font-mono">mcpServers</span> config. Each
-        external tool still asks for your approval per call (unless the agent is in Auto
-        mode). Add or edit servers in the config file, then Reload.
+        Connect external MCP servers so the AI Chat can use their tools — local processes
+        (a <span className="font-mono">command</span>, like Claude Desktop&rsquo;s{' '}
+        <span className="font-mono">mcpServers</span>) or hosted servers (a{' '}
+        <span className="font-mono">url</span>, over HTTP). Each external tool still asks
+        for your approval per call (unless the agent is in Auto mode). Add or edit servers
+        in the config file, then Reload.
       </p>
 
       <div className="flex items-center gap-2">
@@ -133,8 +135,11 @@ function ServerCard({
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-body-sm font-medium text-fg-primary truncate">{status.id}</span>
           <StatusBadge status={status} />
+          <span className="text-caption uppercase tracking-wide text-fg-tertiary/70 shrink-0">
+            {status.transport === 'http' ? 'remote' : 'stdio'}
+          </span>
         </div>
-        <span className="text-caption font-mono text-fg-tertiary truncate">{status.command}</span>
+        <span className="text-caption font-mono text-fg-tertiary truncate">{status.target}</span>
         {status.state === 'error' && status.error ? (
           <span className="text-caption text-error truncate">{status.error}</span>
         ) : null}

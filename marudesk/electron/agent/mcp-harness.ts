@@ -158,6 +158,29 @@ async function main(): Promise<void> {
     check('(d) removed server drops out of the status list', !removed.some((x) => x.id === 'inj'));
   }
 
+  /* ── remote (Streamable-HTTP) transport: a `url` config connects over http ── */
+  {
+    const { client } = makeMockClient();
+    const url = 'https://mcp.example.com/mcp';
+    const cfg: McpServerConfig = { id: 'remote', url, enabled: true };
+    let capturedUrl = '';
+    const connect = async (c: McpServerConfig) => {
+      capturedUrl = c.url ?? '';
+      return { client };
+    };
+    const statuses = await syncExternalMcpServers([cfg], connect);
+    const s = statuses.find((x) => x.id === 'remote');
+    check('(http) remote server connects', s?.state === 'connected');
+    check('(http) status transport is "http"', s?.transport === 'http');
+    check('(http) status target is the url', s?.target === url);
+    check('(http) connect received the url config', capturedUrl === url);
+    check(
+      '(http) remote tool is namespaced + listed',
+      listMcpTools().map((t) => t.name).includes('remote__echo'),
+    );
+    await syncExternalMcpServers([], connect); // cleanup
+  }
+
   /* ── graceful failure: a server that fails to spawn (injected throw) ─────── */
   {
     const cfg: McpServerConfig = { id: 'broken', command: 'noop', enabled: true };

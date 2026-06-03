@@ -124,7 +124,7 @@ const CATEGORIES: {
   { id: 'browser', label: 'Browser', icon: Globe, blurb: 'Search engine and embedded-browser behavior.', keywords: 'search engine google duckduckgo bing browser web' },
   { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.', keywords: 'api key openai anthropic claude gemini grok ollama oauth model provider token' },
   { id: 'agent', label: 'AI Agent', icon: Bot, blurb: 'How much the agent may do without asking, and paths it must never edit.', keywords: 'approval reasoning effort instructions deny glob fallback pc control agent' },
-  { id: 'mcp', label: 'MCP Servers', icon: Plug, blurb: 'Connect external MCP servers (stdio) so the AI Chat can use their tools.', keywords: 'mcp server stdio tools context' },
+  { id: 'mcp', label: 'MCP Servers', icon: Plug, blurb: 'Connect external MCP servers (local stdio or remote HTTP) so the AI Chat can use their tools.', keywords: 'mcp server stdio http remote url tools context' },
   { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.', keywords: 'devtools dock inspect console network' },
   { id: 'remote', label: 'Remote access', icon: Radio, blurb: 'A local server so a future companion app can drive the AI Chat.', keywords: 'remote phone pair qr relay server mobile bridge' },
   { id: 'data', label: 'Data & Storage', icon: Database, blurb: 'What the app saves between launches — chat sessions, tabs — and where it lives.', keywords: 'data storage save persist session tab history database sqlite clear export disk backup' },

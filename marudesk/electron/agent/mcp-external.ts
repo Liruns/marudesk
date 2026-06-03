@@ -1,10 +1,13 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { scrubText } from '../../shared/scrub';
-import type {
-  McpConnectionState,
-  McpServerConfig,
-  McpServerStatus,
+import {
+  isRemoteMcp,
+  mcpTarget,
+  type McpConnectionState,
+  type McpServerConfig,
+  type McpServerStatus,
 } from '../../shared/mcp';
 import { registerMcpServer, unregisterMcpServer, type McpServer } from './mcp';
 import type { McpTool, ToolResult } from './tools';
@@ -88,7 +91,8 @@ function setStatus(
 ): McpServerStatus {
   const status: McpServerStatus = {
     id: config.id,
-    command: config.command,
+    transport: isRemoteMcp(config) ? 'http' : 'stdio',
+    target: mcpTarget(config),
     enabled: config.enabled,
     state,
     toolCount,
@@ -176,10 +180,31 @@ export function buildExternalServer(
   return { name: id, tools: wrapped };
 }
 
-/** Factory for the real stdio client — overridable by the harness via {@link connectServer}. */
+/**
+ * Default connect factory: dispatch to the Streamable-HTTP transport for a
+ * remote (`url`) server, else spawn over stdio. Overridable by the harness via
+ * {@link connectServer} so the wrapping logic is testable without a real
+ * process or network.
+ */
+async function connectDefault(config: McpServerConfig): Promise<{ client: McpClientLike }> {
+  return isRemoteMcp(config) ? connectHttp(config) : connectStdio(config);
+}
+
+/** Connect to a remote MCP server over Streamable HTTP (hosted MCPs). */
+async function connectHttp(config: McpServerConfig): Promise<{ client: McpClientLike }> {
+  const transport = new StreamableHTTPClientTransport(new URL(config.url ?? ''), {
+    // Headers may carry an Authorization bearer — never logged.
+    ...(config.headers ? { requestInit: { headers: config.headers } } : {}),
+  });
+  const client = new Client({ name: 'marudesk', version: '0.1.0' }, { capabilities: {} });
+  await client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
+  return { client: client as unknown as McpClientLike };
+}
+
+/** Factory for the real stdio client. */
 async function connectStdio(config: McpServerConfig): Promise<{ client: McpClientLike }> {
   const transport = new StdioClientTransport({
-    command: config.command,
+    command: config.command ?? '',
     args: config.args ?? [],
     // Merge the inherited safe env with the user's overrides. Values may be
     // secret — they're never logged.
@@ -215,7 +240,7 @@ function getInheritedEnv(): Record<string, string> {
  */
 export async function connectServer(
   config: McpServerConfig,
-  connect: (c: McpServerConfig) => Promise<{ client: McpClientLike }> = connectStdio,
+  connect: (c: McpServerConfig) => Promise<{ client: McpClientLike }> = connectDefault,
 ): Promise<McpServerStatus> {
   setStatus(config, 'connecting', 0);
   try {
@@ -300,8 +325,10 @@ export async function syncExternalMcpServers(
 function configChanged(a: McpServerConfig, b: McpServerConfig): boolean {
   return (
     a.command !== b.command ||
+    a.url !== b.url ||
     JSON.stringify(a.args ?? []) !== JSON.stringify(b.args ?? []) ||
-    JSON.stringify(a.env ?? {}) !== JSON.stringify(b.env ?? {})
+    JSON.stringify(a.env ?? {}) !== JSON.stringify(b.env ?? {}) ||
+    JSON.stringify(a.headers ?? {}) !== JSON.stringify(b.headers ?? {})
   );
 }
 
