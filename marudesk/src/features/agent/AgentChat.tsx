@@ -180,6 +180,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // Prompt-history recall: -1 means "not navigating"; otherwise the index into
   // promptHistory currently shown in the composer (ArrowUp/ArrowDown step it).
   const [histIndex, setHistIndex] = useState(-1);
+  // `@file` mention picker: the caret position drives which `@token` (if any) is
+  // active; `mentionIndex` is the highlighted file row.
+  const [caret, setCaret] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
   // Stick-to-bottom: true while the user is at/near the bottom (auto-scroll on),
   // false once they scroll up to re-read mid-stream (auto-scroll paused).
   const stickToBottomRef = useRef(true);
@@ -256,11 +260,43 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const slashItems = slashQ !== null && !slashDismissed ? filterSlash(slashQ) : [];
   const slashOpen = slashItems.length > 0;
 
-  const setDraftAndTrackSlash = (v: string) => {
+  // `@file` mention: active only when the caret sits in an `@token`, a workspace
+  // is open, and the slash menu isn't already showing.
+  const mention = !slashOpen ? mentionContext(draft, caret) : null;
+  const mentionItems = mention && summary ? matchFiles(summary.files, mention.query) : [];
+  const mentionOpen = mentionItems.length > 0;
+
+  // Replace the active `@token` with the picked file path + a trailing space.
+  const pickMention = (path: string) => {
+    const ctx = mentionContext(draft, caret);
+    if (!ctx) return;
+    const before = draft.slice(0, ctx.start);
+    const after = draft.slice(caret);
+    const inserted = `@${path} `;
+    const next = `${before}${inserted}${after}`;
+    setDraft(next);
+    const pos = before.length + inserted.length;
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+      setCaret(pos);
+    });
+  };
+
+  const syncCaret = () => {
+    const el = textareaRef.current;
+    if (el) setCaret(el.selectionStart ?? 0);
+  };
+
+  const setDraftAndTrackSlash = (v: string, nextCaret?: number) => {
     setDraft(v);
     setSlashDismissed(false);
     setSlashIndex(0);
+    setMentionIndex(0);
     setHistIndex(-1);
+    if (typeof nextCaret === 'number') setCaret(nextCaret);
     if (slashInfo) setSlashInfo(null);
   };
 
@@ -428,6 +464,31 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         return;
       }
     }
+    // While the `@file` menu is open it owns the arrow/Tab/Enter/Escape keys.
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionItems.length) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const path = mentionItems[Math.min(mentionIndex, mentionItems.length - 1)];
+        if (path) pickMention(path);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Collapse the menu by nudging the caret past the token's end.
+        setCaret(-1);
+        return;
+      }
+    }
     // Prompt-history recall (slash menu closed). ArrowUp only triggers from the
     // start of the field so multi-line editing keeps normal caret movement;
     // ArrowDown only while already navigating history.
@@ -473,6 +534,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       el.focus();
       const cursor = start + spaceBefore.length + mention.length + 1;
       el.setSelectionRange(cursor, cursor);
+      setCaret(cursor);
     });
   };
 
@@ -640,6 +702,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 onHover={setSlashIndex}
               />
             ) : null}
+            {mentionOpen ? (
+              <MentionMenu
+                items={mentionItems}
+                activeIndex={Math.min(mentionIndex, mentionItems.length - 1)}
+                onPick={pickMention}
+                onHover={setMentionIndex}
+              />
+            ) : null}
             <ContextButton
               buttonRef={plusButtonRef}
               open={contextOpen}
@@ -648,12 +718,15 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             <textarea
               ref={textareaRef}
               value={draft}
-              onChange={(e) => setDraftAndTrackSlash(e.target.value)}
+              onChange={(e) => setDraftAndTrackSlash(e.target.value, e.target.selectionStart ?? undefined)}
               onKeyDown={onKeyDown}
+              onKeyUp={syncCaret}
+              onClick={syncCaret}
+              onSelect={syncCaret}
               onPaste={handlePaste}
               onDrop={handleDrop}
               rows={full ? 3 : 2}
-              placeholder="Ask the agent, or type / for commands… (Enter to send)"
+              placeholder="Ask the agent — / for commands, @ for files… (Enter to send)"
               spellCheck={false}
               className={cn(
                 'flex-1 min-h-[44px] max-h-40 resize-none rounded bg-surface-page border border-default px-3 py-2',
@@ -725,6 +798,92 @@ async function readImageFiles(files: File[]): Promise<AgentImageInput[]> {
     }
   }
   return out;
+}
+
+/* ── @ file mentions ────────────────────────────────────────────────────── */
+
+/**
+ * Detect an in-progress `@file` mention at the caret. Returns the partial query
+ * and the `@`'s index, or null when the caret isn't inside a mention token. The
+ * `@` must sit at the start or after whitespace, with no whitespace between it
+ * and the caret — so `@` mid-word (e.g. an email) never triggers the picker.
+ */
+function mentionContext(text: string, caret: number): { query: string; start: number } | null {
+  for (let i = caret - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === '@') {
+      const before = i === 0 ? '' : text[i - 1];
+      if (i === 0 || /\s/.test(before)) return { query: text.slice(i + 1, caret), start: i };
+      return null;
+    }
+    if (/\s/.test(ch)) return null;
+  }
+  return null;
+}
+
+/** Rank workspace files for a mention query: basename prefix > path substring. */
+function matchFiles(files: { path: string }[], query: string, limit = 8): string[] {
+  const q = query.toLowerCase();
+  if (q === '') return files.slice(0, limit).map((f) => f.path);
+  const scored: { path: string; score: number }[] = [];
+  for (const f of files) {
+    const path = f.path.toLowerCase();
+    const base = path.slice(path.lastIndexOf('/') + 1);
+    let score = -1;
+    if (base.startsWith(q)) score = 0;
+    else if (base.includes(q)) score = 1;
+    else if (path.includes(q)) score = 2;
+    if (score >= 0) scored.push({ path: f.path, score });
+  }
+  scored.sort((a, b) => a.score - b.score || a.path.length - b.path.length);
+  return scored.slice(0, limit).map((s) => s.path);
+}
+
+/** The `@file` picker — mirrors {@link SlashMenu}, listing matched workspace files. */
+function MentionMenu({
+  items,
+  activeIndex,
+  onPick,
+  onHover,
+}: {
+  items: string[];
+  activeIndex: number;
+  onPick: (path: string) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <div
+      role="listbox"
+      aria-label="Workspace files"
+      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
+    >
+      {items.map((path, i) => {
+        const base = path.slice(path.lastIndexOf('/') + 1);
+        const dir = path.slice(0, path.length - base.length);
+        return (
+          <button
+            key={path}
+            type="button"
+            role="option"
+            aria-selected={i === activeIndex}
+            onMouseEnter={() => onHover(i)}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onPick(path);
+            }}
+            className={cn(
+              'w-full flex items-baseline gap-2 px-3 py-1.5 text-left transition-colors duration-fast',
+              i === activeIndex ? 'bg-surface-3' : 'hover:bg-surface-3/60',
+            )}
+          >
+            <FileCode size={12} className="shrink-0 self-center text-fg-tertiary" />
+            <span className="font-mono text-body-sm text-fg-primary shrink-0">{base}</span>
+            {dir ? <span className="font-mono text-caption text-fg-tertiary truncate">{dir}</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /* ── slash command menu ─────────────────────────────────────────────────── */
