@@ -75,7 +75,10 @@ async function pasteIntoTerm(session: Session): Promise<void> {
     const text = await window.marudesk.invoke('clipboard:read-text');
     if (text) session.term.paste(text);
   } catch {
-    // Clipboard unavailable — nothing to paste.
+    // Surface the failure instead of a dead Ctrl+V: a dim inline note (display
+    // only — not sent to the PTY) so the user knows the paste didn't land
+    // because the clipboard was locked or unreadable.
+    session.term.write('\r\n\x1b[2m[clipboard unavailable]\x1b[0m\r\n');
   }
 }
 
