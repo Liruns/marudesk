@@ -48,6 +48,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Badge, Button, CopyButton, DiffBlock } from '../../components/ui';
+import { useElapsedTimer, formatElapsed } from '../../hooks';
 import { cn } from '../../lib/cn';
 import { Markdown } from '../../lib/markdown';
 import { toast } from '../../lib/toast';
@@ -101,36 +102,6 @@ const STATUS_LABEL: Record<AgentStatus, string> = {
  * Uses a ref-anchored start time so the interval callback computes elapsed
  * without needing a state setter in the effect body.
  */
-function useElapsedTimer(busy: boolean): number {
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!busy) {
-      startRef.current = null;
-      // Reset via interval-like mechanism to avoid inline setState in effect
-      const id = setTimeout(() => setElapsed(0), 0);
-      return () => clearTimeout(id);
-    }
-    startRef.current = Date.now();
-    const id = setInterval(() => {
-      if (startRef.current !== null) {
-        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
-      }
-    }, 1000);
-    return () => clearInterval(id);
-  }, [busy]);
-
-  return elapsed;
-}
-
-/** Format elapsed seconds as "0:05", "1:23", etc. */
-function formatElapsed(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${m}:${String(sec).padStart(2, '0')}`;
-}
-
 function isBusy(s: AgentStatus): boolean {
   return s === 'thinking' || s === 'working' || s === 'waiting_for_user';
 }
