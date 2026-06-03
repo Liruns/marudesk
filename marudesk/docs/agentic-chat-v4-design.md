@@ -201,3 +201,23 @@
 - 멀티‑유저 OAuth, `marudesk://` 커스텀 프로토콜 — 기존 oauth 문서 non‑goals 유지.
 - 컴포저 통합 스위처(모델+추론강도+승인모드)는 A1(팔레트) 안착 후 선택적으로 추가(연구상 강력하나 A 우선순위는 팔레트).
 - codex/CAA model id의 **실계정 검증**은 코드가 아니라 dogfood로만 닫힌다(§A3).
+
+---
+
+## 8. 구현 현황 — claude-code / codex 흡수 라운드 (2026-06)
+
+claude-code · codex의 채팅 UX를 벤치마크해 다음을 컴포저에 흡수(landed):
+
+- **슬래시 커맨드**(`shared/slash-commands.ts` + 컴포저 `/` 메뉴): 로컬 액션
+  (`/new` `/diff` `/context` `/help` `/model`)과 프롬프트 매크로(`/init` `/review`
+  `/test` `/explain` `/commit`). 키보드 내비(↑/↓/Tab/Enter/Esc).
+- **Plan 모드**(`AgentApprovalMode='plan'`): read-only처럼 편집/eval 차단 + 시스템
+  애드덤으로 "단계별 계획 제시" 유도. 토글/Settings/StatusBar에 노출.
+- **이미지 입력**(`AgentImagePart`/`AgentImageInput`): 붙여넣기·드롭 → 비전 모델로
+  멀티모달 전달, 트랜스크립트 썸네일. `parse.ts`에서 IPC·릴레이 공통 검증.
+- **프롬프트 히스토리**(↑/↓ recall, localStorage, 100개 cap).
+- **메시지 큐잉**: 턴 진행 중 Enter → 대기 후 자동 전송(취소 가능).
+- **`@` 파일 멘션**: 캐럿 위치의 `@token`으로 워크스페이스 파일 picker(B3의 `@` 부분 실현).
+
+미해결(실환경 검증 필요): `/compact` 컨텍스트 압축(모델 호출), 모바일 릴레이 라이브
+와이어링(relay+phone E2E), 세션 teleport/핸드오프.

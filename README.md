@@ -44,7 +44,9 @@ Most AI coding assistants only see your source files. MaruDesk co-locates the su
 - **Many providers, one app.** Anthropic, OpenAI, Google (Gemini), xAI (Grok), Ollama (local), and any custom OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM, and similar).
 - **Bring your own subscription.** Connect by API key, or sign in with an OAuth subscription. Claude (Pro/Max) and xAI work today; ChatGPT and Gemini subscription backends are experimental.
 - **Provider fallback chain.** When the active model is rate-limited or errors (429 / 5xx), the agent automatically retries on the next connected model you have ranked, instead of failing the turn.
-- **Streaming, reasoning, and control.** Live token streaming, collapsible reasoning blocks, a per-provider reasoning-effort dial, and approval modes (read-only / ask / auto).
+- **Streaming, reasoning, and control.** Live token streaming, collapsible reasoning blocks, a per-provider reasoning-effort dial, and approval modes (plan / read-only / ask / auto).
+- **Composer that keeps up.** Slash commands (`/init`, `/review`, `/diff`, `/context`, …), `@`-mention workspace files, paste or drop images for vision models, recall past prompts with the arrow keys, and queue a message while a turn is still running.
+- **Plan mode.** Have the agent research read-only and propose a step-by-step plan before you let it edit.
 - **Sessions and memory.** Resume past conversations from a history rail; keep durable cross-session notes.
 
 ### Runtime-aware tools (the differentiator)
