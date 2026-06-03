@@ -58,6 +58,8 @@ type AgentState = {
   verbosity: TranscriptVerbosity;
   /** Recently sent prompts (newest last) for up/down recall in the composer. */
   promptHistory: string[];
+  /** A prompt typed while a turn was running, auto-sent when the turn finishes. */
+  queuedPrompt: string | null;
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
   /** Saved sessions (newest first) for the history list — loaded on demand. */
@@ -70,6 +72,8 @@ type AgentActions = {
   addImages: (images: AgentImageInput[]) => void;
   /** Remove one pending image by index. */
   removeImage: (index: number) => void;
+  /** Set (or clear) the prompt queued to auto-send when the current turn ends. */
+  setQueuedPrompt: (v: string | null) => void;
   setVerbosity: (v: TranscriptVerbosity) => void;
   /** Replace the projection from an `agent:event` snapshot. */
   ingest: (chat: AgentChatState) => void;
@@ -116,6 +120,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   draft: '',
   pendingImages: [],
   promptHistory: loadHistory(),
+  queuedPrompt: null,
   verbosity: loadVerbosity(),
   localError: null,
   sessions: [],
@@ -127,6 +132,8 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   removeImage: (index) =>
     set((s) => ({ pendingImages: s.pendingImages.filter((_, i) => i !== index) })),
+
+  setQueuedPrompt: (queuedPrompt) => set({ queuedPrompt }),
 
   setVerbosity: (verbosity) => {
     try {

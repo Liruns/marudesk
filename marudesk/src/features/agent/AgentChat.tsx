@@ -150,6 +150,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const addImages = useAgentStore((s) => s.addImages);
   const removeImage = useAgentStore((s) => s.removeImage);
   const promptHistory = useAgentStore((s) => s.promptHistory);
+  const queuedPrompt = useAgentStore((s) => s.queuedPrompt);
+  const setQueuedPrompt = useAgentStore((s) => s.setQueuedPrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
   const setVerbosity = useAgentStore((s) => s.setVerbosity);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
@@ -225,6 +227,17 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
   const busy = isBusy(chat.status);
   const elapsed = useElapsedTimer(busy);
+
+  // Auto-send a queued prompt once the running turn finishes (busy goes false).
+  useEffect(() => {
+    if (busy || !queuedPrompt) return;
+    const text = queuedPrompt;
+    setQueuedPrompt(null);
+    submitText(text);
+    // submitText closes over stable store actions; rerun only on these two.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, queuedPrompt]);
+
   const empty = chat.messages.length === 0;
   // The full-surface `agent` tab centers the conversation in a readable column
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
@@ -319,12 +332,15 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     });
   };
 
-  const handleSend = () => {
+  // Send a concrete prompt string: resolve slash commands first (action → run
+  // locally; prompt → expand into a templated instruction), then dispatch. Used
+  // by both the composer Send and the queued-prompt auto-send below.
+  const submitText = (raw: string) => {
+    const text = raw.trim();
+    if (text.length === 0) return;
     // A fresh prompt should snap back to the bottom even if the user scrolled up.
     stickToBottomRef.current = true;
-    // Intercept slash commands before they reach the model. Action commands run
-    // locally; prompt commands expand into a templated instruction and send.
-    const resolved = resolveSlash(draft);
+    const resolved = resolveSlash(text);
     if (resolved) {
       if (resolved.command.kind === 'action') {
         runSlashAction(resolved.command.action);
@@ -335,7 +351,21 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       void send();
       return;
     }
+    setDraft(text);
     void send();
+  };
+
+  const handleSend = () => {
+    const text = draft.trim();
+    if (text.length === 0) return;
+    // A turn is running: queue this prompt instead of dropping it (claude-code
+    // parity). It auto-sends when the turn finishes via the effect below.
+    if (busy) {
+      setQueuedPrompt(queuedPrompt ? `${queuedPrompt}\n${text}` : text);
+      setDraft('');
+      return;
+    }
+    submitText(text);
   };
 
   // Picking an empty-state suggestion drops it into the composer and lands the
@@ -554,6 +584,24 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           {localError ? (
             <div className="rounded border border-subtle bg-error-subtle/40 px-3 py-1.5 text-caption text-fg-secondary break-words">
               {localError}
+            </div>
+          ) : null}
+
+          {queuedPrompt ? (
+            <div className="flex items-start gap-2 rounded border border-subtle bg-surface-1 px-3 py-1.5">
+              <History size={12} className="mt-0.5 shrink-0 text-fg-tertiary" />
+              <span className="flex-1 min-w-0 text-caption text-fg-secondary break-words">
+                <span className="text-fg-tertiary">Queued · sends when this turn ends:</span>{' '}
+                {queuedPrompt}
+              </span>
+              <button
+                type="button"
+                onClick={() => setQueuedPrompt(null)}
+                aria-label="Cancel queued message"
+                className="shrink-0 text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+              >
+                <X size={12} />
+              </button>
             </div>
           ) : null}
 
