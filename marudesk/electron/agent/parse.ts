@@ -1,7 +1,33 @@
-import type { AgentAnswers, AgentSendInput } from '../../shared/agent';
+import type { AgentImageInput, AgentAnswers, AgentSendInput } from '../../shared/agent';
 import { isCapturePayload, type CapturePayload } from '../../shared/composer';
 import { isProviderId } from '../../shared/providers';
 import { arr, nonEmptyStr, obj, optStr } from '../ipc/validate';
+
+/** Upper bounds on attached images (untrusted: also arrives over the relay). */
+const MAX_IMAGES = 8;
+/** ~14M base64 chars ≈ 10 MB decoded — a generous ceiling for a screenshot. */
+const MAX_IMAGE_DATA_CHARS = 14_000_000;
+
+function isAgentImageInput(v: unknown): v is AgentImageInput {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.mediaType === 'string' &&
+    o.mediaType.startsWith('image/') &&
+    typeof o.data === 'string' &&
+    o.data.length > 0 &&
+    o.data.length <= MAX_IMAGE_DATA_CHARS
+  );
+}
+
+/** Optional `images` array on a send payload → validated, count-capped list. */
+function parseImages(value: unknown): AgentImageInput[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const list = arr(value, 'images');
+  if (list.length > MAX_IMAGES) throw new Error(`too many images (max ${MAX_IMAGES})`);
+  if (!list.every(isAgentImageInput)) throw new Error('images contains an invalid entry');
+  return list as AgentImageInput[];
+}
 
 /**
  * Untrusted-payload parsers for the agent loop's public API, shared by BOTH the
@@ -25,6 +51,7 @@ export function parseSendInput(payload: unknown): AgentSendInput {
     model: nonEmptyStr(o.model, 'model'),
     prompt: nonEmptyStr(o.prompt, 'prompt'),
     captures: captures as CapturePayload[],
+    images: parseImages(o.images),
     tabId: optStr(o.tabId, 'tabId'),
   };
 }
@@ -64,11 +91,14 @@ export function parseApprove(payload: unknown): {
   turnId: string;
   callId: string;
   approved: boolean;
+  always: boolean;
 } {
   const o = obj(payload);
   return {
     turnId: nonEmptyStr(o.turnId, 'turnId'),
     callId: nonEmptyStr(o.callId, 'callId'),
     approved: typeof o.approved === 'boolean' ? o.approved : false,
+    // "Allow always for this session" — optional, defaults to false.
+    always: typeof o.always === 'boolean' ? o.always : false,
   };
 }

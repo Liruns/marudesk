@@ -91,6 +91,7 @@ const SEARCH_ENGINE_OPTIONS: { value: SearchEngine; label: string }[] = [
 ];
 
 const APPROVAL_MODE_OPTIONS: { value: AgentApprovalMode; label: string }[] = [
+  { value: 'plan', label: 'Plan' },
   { value: 'read-only', label: 'Read-only' },
   { value: 'ask', label: 'Ask' },
   { value: 'auto', label: 'Auto' },
@@ -376,7 +377,7 @@ function AgentCategory() {
     <Section>
       <Field
         label="Approval mode"
-        hint="Read-only: observe only (no edits / no code). Ask: edits run; sensitive tools (run code, cookies, storage, terminal) ask first. Auto: no prompts."
+        hint="Plan: research only, then propose a step-by-step plan. Read-only: observe only (no edits / no code). Ask: edits run; sensitive tools (run code, cookies, storage, terminal) ask first. Auto: no prompts."
       >
         <Segmented
           value={agent.approvalMode}
@@ -410,6 +411,16 @@ function AgentCategory() {
         <GlobsField
           value={agent.denyGlobs}
           onCommit={(denyGlobs) => void update({ agent: { denyGlobs } })}
+        />
+      </Field>
+      <Field
+        label="Post-edit verify command"
+        hint="Runs in the workspace after any turn that edited files; the PASS/FAIL result is folded back into the chat. Leave blank to disable. Example: npm run typecheck."
+      >
+        <TextField
+          value={agent.verifyCommand}
+          placeholder="npm run typecheck"
+          onCommit={(verifyCommand) => void update({ agent: { verifyCommand } })}
         />
       </Field>
       <Field

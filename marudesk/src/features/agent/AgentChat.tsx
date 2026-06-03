@@ -61,12 +61,21 @@ import {
 import type {
   AgentChatState,
   AgentEdit,
+  AgentImageInput,
   AgentMessage,
   AgentStatus,
   PendingApproval,
   PendingQuestions,
   ToolCall,
 } from '../../../shared/agent';
+import {
+  filterSlash,
+  resolveSlash,
+  slashQuery,
+  SLASH_COMMANDS,
+  type SlashActionId,
+  type SlashCommand,
+} from '../../../shared/slash-commands';
 import { openSettingsTab, useSettingsStore } from '../settings/store';
 import { useProvidersStore } from '../providers/store';
 import type { AgentApprovalMode, ReasoningEffort } from '../../../shared/settings';
@@ -137,6 +146,13 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const send = useAgentStore((s) => s.send);
   const abort = useAgentStore((s) => s.abort);
   const resetChat = useAgentStore((s) => s.resetChat);
+  const compact = useAgentStore((s) => s.compact);
+  const pendingImages = useAgentStore((s) => s.pendingImages);
+  const addImages = useAgentStore((s) => s.addImages);
+  const removeImage = useAgentStore((s) => s.removeImage);
+  const promptHistory = useAgentStore((s) => s.promptHistory);
+  const queuedPrompt = useAgentStore((s) => s.queuedPrompt);
+  const setQueuedPrompt = useAgentStore((s) => s.setQueuedPrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
   const setVerbosity = useAgentStore((s) => s.setVerbosity);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
@@ -154,7 +170,21 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
+  const changesRef = useRef<HTMLDivElement>(null);
   const [contextOpen, setContextOpen] = useState(false);
+  // Slash-command menu (`/` in the composer). `slashIndex` is the highlighted
+  // row; `slashDismissed` lets Escape hide the menu without clearing the draft;
+  // `slashInfo` shows the local `/help` or `/context` readout above the composer.
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashInfo, setSlashInfo] = useState<'help' | 'context' | null>(null);
+  // Prompt-history recall: -1 means "not navigating"; otherwise the index into
+  // promptHistory currently shown in the composer (ArrowUp/ArrowDown step it).
+  const [histIndex, setHistIndex] = useState(-1);
+  // `@file` mention picker: the caret position drives which `@token` (if any) is
+  // active; `mentionIndex` is the highlighted file row.
+  const [caret, setCaret] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
   // Stick-to-bottom: true while the user is at/near the bottom (auto-scroll on),
   // false once they scroll up to re-read mid-stream (auto-scroll paused).
   const stickToBottomRef = useRef(true);
@@ -202,6 +232,17 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
   const busy = isBusy(chat.status);
   const elapsed = useElapsedTimer(busy);
+
+  // Auto-send a queued prompt once the running turn finishes (busy goes false).
+  useEffect(() => {
+    if (busy || !queuedPrompt) return;
+    const text = queuedPrompt;
+    setQueuedPrompt(null);
+    submitText(text);
+    // submitText closes over stable store actions; rerun only on these two.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, queuedPrompt]);
+
   const empty = chat.messages.length === 0;
   // The full-surface `agent` tab centers the conversation in a readable column
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
@@ -213,10 +254,180 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const receipt =
     chat.status === 'completed' ? buildReceipt(chat.messages) : null;
 
-  const handleSend = () => {
+  // Slash menu: visible while the draft is a bare `/token` (no argument yet) and
+  // not dismissed. Once the user types a space (an argument), the menu hides and
+  // the command runs on Enter via the resolver in handleSend.
+  const slashQ = slashQuery(draft);
+  const slashItems = slashQ !== null && !slashDismissed ? filterSlash(slashQ) : [];
+  const slashOpen = slashItems.length > 0;
+
+  // `@file` mention: active only when the caret sits in an `@token`, a workspace
+  // is open, and the slash menu isn't already showing.
+  const mention = !slashOpen ? mentionContext(draft, caret) : null;
+  const mentionItems = mention && summary ? matchFiles(summary.files, mention.query) : [];
+  const mentionOpen = mentionItems.length > 0;
+
+  // Replace the active `@token` with the picked file path + a trailing space.
+  const pickMention = (path: string) => {
+    const ctx = mentionContext(draft, caret);
+    if (!ctx) return;
+    const before = draft.slice(0, ctx.start);
+    const after = draft.slice(caret);
+    const inserted = `@${path} `;
+    const next = `${before}${inserted}${after}`;
+    setDraft(next);
+    const pos = before.length + inserted.length;
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+      setCaret(pos);
+    });
+  };
+
+  const syncCaret = () => {
+    const el = textareaRef.current;
+    if (el) setCaret(el.selectionStart ?? 0);
+  };
+
+  const setDraftAndTrackSlash = (v: string, nextCaret?: number) => {
+    setDraft(v);
+    setSlashDismissed(false);
+    setSlashIndex(0);
+    setMentionIndex(0);
+    setHistIndex(-1);
+    if (typeof nextCaret === 'number') setCaret(nextCaret);
+    if (slashInfo) setSlashInfo(null);
+  };
+
+  // Recall a previous prompt. `dir` is -1 for older (ArrowUp), +1 for newer
+  // (ArrowDown). Stepping past the newest entry clears back to an empty draft.
+  const recallHistory = (dir: -1 | 1) => {
+    if (promptHistory.length === 0) return;
+    const from = histIndex === -1 ? promptHistory.length : histIndex;
+    const next = from + dir;
+    if (next >= promptHistory.length) {
+      setHistIndex(-1);
+      setDraft('');
+      return;
+    }
+    const idx = Math.max(0, next);
+    const value = promptHistory[idx];
+    setHistIndex(idx);
+    setDraft(value);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(value.length, value.length);
+    });
+  };
+
+  const runSlashAction = (action: SlashActionId) => {
+    switch (action) {
+      case 'new':
+        void resetChat();
+        break;
+      case 'diff':
+        if (chat.edits.length > 0) {
+          changesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          toast({ title: 'No changes yet', description: 'This conversation has not edited any files.' });
+        }
+        break;
+      case 'context':
+        setSlashInfo('context');
+        break;
+      case 'compact':
+        if (busy) {
+          toast({ title: 'Busy', description: 'Wait for the current turn to finish before compacting.' });
+          break;
+        }
+        toast({ title: 'Compacting…', description: 'Summarizing the conversation to free up context.' });
+        void compact().then((res) => {
+          if (res.ok) toast({ title: 'Conversation compacted', description: 'Earlier turns were summarized.' });
+          else toast({ title: 'Could not compact', description: res.reason ?? 'unknown error', variant: 'error' });
+        });
+        break;
+      case 'help':
+        setSlashInfo('help');
+        break;
+      case 'copy': {
+        if (chat.messages.length === 0) {
+          toast({ title: 'Nothing to copy', description: 'This conversation is empty.' });
+          break;
+        }
+        const md = chat.messages
+          .map((m) => `**${m.role === 'user' ? 'User' : 'Assistant'}:**\n\n${textOf(m)}`)
+          .join('\n\n---\n\n');
+        void navigator.clipboard
+          .writeText(md)
+          .then(() => toast({ title: 'Conversation copied', description: 'Markdown is on your clipboard.' }))
+          .catch((err) => toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' }));
+        break;
+      }
+      case 'model':
+        window.dispatchEvent(new CustomEvent('marudesk:open-model-palette'));
+        break;
+    }
+  };
+
+  // Complete a picked menu command into the composer. Action commands run
+  // immediately; prompt commands fill the line (`/review `) so the user can add
+  // an argument, then Enter sends (handleSend expands it).
+  const pickSlash = (cmd: SlashCommand) => {
+    if (cmd.kind === 'action') {
+      runSlashAction(cmd.action);
+      setDraft('');
+      setSlashDismissed(true);
+      return;
+    }
+    const filled = `/${cmd.name} `;
+    setDraft(filled);
+    setSlashDismissed(true);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(filled.length, filled.length);
+    });
+  };
+
+  // Send a concrete prompt string: resolve slash commands first (action → run
+  // locally; prompt → expand into a templated instruction), then dispatch. Used
+  // by both the composer Send and the queued-prompt auto-send below.
+  const submitText = (raw: string) => {
+    const text = raw.trim();
+    if (text.length === 0) return;
     // A fresh prompt should snap back to the bottom even if the user scrolled up.
     stickToBottomRef.current = true;
+    const resolved = resolveSlash(text);
+    if (resolved) {
+      if (resolved.command.kind === 'action') {
+        runSlashAction(resolved.command.action);
+        setDraft('');
+        return;
+      }
+      setDraft(resolved.command.expand(resolved.arg));
+      void send();
+      return;
+    }
+    setDraft(text);
     void send();
+  };
+
+  const handleSend = () => {
+    const text = draft.trim();
+    if (text.length === 0) return;
+    // A turn is running: queue this prompt instead of dropping it (claude-code
+    // parity). It auto-sends when the turn finishes via the effect below.
+    if (busy) {
+      setQueuedPrompt(queuedPrompt ? `${queuedPrompt}\n${text}` : text);
+      setDraft('');
+      return;
+    }
+    submitText(text);
   };
 
   // Picking an empty-state suggestion drops it into the composer and lands the
@@ -231,7 +442,94 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     });
   };
 
+  // Paste/drop images straight into the composer (claude-code / codex image
+  // input). Non-image clipboard/drop content is left alone so text paste works.
+  const ingestImageFiles = async (files: File[]) => {
+    const images = await readImageFiles(files);
+    if (images.length > 0) addImages(images);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.some((f) => f.type.startsWith('image/'))) {
+      e.preventDefault();
+      void ingestImageFiles(files);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.dataTransfer.files);
+    if (files.some((f) => f.type.startsWith('image/'))) {
+      e.preventDefault();
+      void ingestImageFiles(files);
+    }
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // While the slash menu is open it owns the arrow/Tab/Enter keys.
+    if (slashOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % slashItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + slashItems.length) % slashItems.length);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const cmd = slashItems[Math.min(slashIndex, slashItems.length - 1)];
+        if (cmd) pickSlash(cmd);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashDismissed(true);
+        return;
+      }
+    }
+    // While the `@file` menu is open it owns the arrow/Tab/Enter/Escape keys.
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionItems.length) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const path = mentionItems[Math.min(mentionIndex, mentionItems.length - 1)];
+        if (path) pickMention(path);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Collapse the menu by nudging the caret past the token's end.
+        setCaret(-1);
+        return;
+      }
+    }
+    // Prompt-history recall (slash menu closed). ArrowUp only triggers from the
+    // start of the field so multi-line editing keeps normal caret movement;
+    // ArrowDown only while already navigating history.
+    const el = textareaRef.current;
+    const atStart = el ? el.selectionStart === 0 && el.selectionEnd === 0 : true;
+    if (e.key === 'ArrowUp' && (histIndex !== -1 || atStart) && promptHistory.length > 0) {
+      e.preventDefault();
+      recallHistory(-1);
+      return;
+    }
+    if (e.key === 'ArrowDown' && histIndex !== -1) {
+      e.preventDefault();
+      recallHistory(1);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -262,6 +560,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       el.focus();
       const cursor = start + spaceBefore.length + mention.length + 1;
       el.setSelectionRange(cursor, cursor);
+      setCaret(cursor);
     });
   };
 
@@ -290,7 +589,11 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             ))
           )}
 
-          {chat.edits.length > 0 ? <ChangesSection edits={chat.edits} /> : null}
+          {chat.edits.length > 0 ? (
+            <div ref={changesRef}>
+              <ChangesSection edits={chat.edits} />
+            </div>
+          ) : null}
 
           {receipt ? <ReceiptCard receipt={receipt} /> : null}
 
@@ -372,7 +675,67 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
           ) : null}
 
-          <div className="flex items-end gap-2">
+          {queuedPrompt ? (
+            <div className="flex items-start gap-2 rounded border border-subtle bg-surface-1 px-3 py-1.5">
+              <History size={12} className="mt-0.5 shrink-0 text-fg-tertiary" />
+              <span className="flex-1 min-w-0 text-caption text-fg-secondary break-words">
+                <span className="text-fg-tertiary">Queued · sends when this turn ends:</span>{' '}
+                {queuedPrompt}
+              </span>
+              <button
+                type="button"
+                onClick={() => setQueuedPrompt(null)}
+                aria-label="Cancel queued message"
+                className="shrink-0 text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ) : null}
+
+          {slashInfo ? (
+            <SlashInfoCard kind={slashInfo} onClose={() => setSlashInfo(null)} />
+          ) : null}
+
+          {pendingImages.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {pendingImages.map((img, i) => (
+                <div key={i} className="relative group/img">
+                  <img
+                    src={`data:${img.mediaType};base64,${img.data}`}
+                    alt="attachment"
+                    className="h-14 w-14 rounded border border-default object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(i)}
+                    aria-label="Remove image"
+                    className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-pill bg-surface-3 border border-default text-fg-secondary hover:text-fg-primary opacity-0 group-hover/img:opacity-100 transition-opacity duration-fast"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="relative flex items-end gap-2">
+            {slashOpen ? (
+              <SlashMenu
+                items={slashItems}
+                activeIndex={Math.min(slashIndex, slashItems.length - 1)}
+                onPick={pickSlash}
+                onHover={setSlashIndex}
+              />
+            ) : null}
+            {mentionOpen ? (
+              <MentionMenu
+                items={mentionItems}
+                activeIndex={Math.min(mentionIndex, mentionItems.length - 1)}
+                onPick={pickMention}
+                onHover={setMentionIndex}
+              />
+            ) : null}
             <ContextButton
               buttonRef={plusButtonRef}
               open={contextOpen}
@@ -381,10 +744,15 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             <textarea
               ref={textareaRef}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setDraftAndTrackSlash(e.target.value, e.target.selectionStart ?? undefined)}
               onKeyDown={onKeyDown}
+              onKeyUp={syncCaret}
+              onClick={syncCaret}
+              onSelect={syncCaret}
+              onPaste={handlePaste}
+              onDrop={handleDrop}
               rows={full ? 3 : 2}
-              placeholder="Ask the agent to fix an error, change the UI, inspect the page… (Enter to send)"
+              placeholder="Ask the agent — / for commands, @ for files… (Enter to send)"
               spellCheck={false}
               className={cn(
                 'flex-1 min-h-[44px] max-h-40 resize-none rounded bg-surface-page border border-default px-3 py-2',
@@ -419,6 +787,252 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           ) : null}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ── images ─────────────────────────────────────────────────────────────── */
+
+/** A bounded image thumbnail (composer attachment strip + transcript). */
+function ChatImage({ mediaType, data }: { mediaType: string; data: string }) {
+  return (
+    <img
+      src={`data:${mediaType};base64,${data}`}
+      alt="attached"
+      className="max-h-40 max-w-full rounded border border-subtle object-contain"
+    />
+  );
+}
+
+/**
+ * Read image files (from a paste or drop) into base64 attachment inputs. Skips
+ * non-image entries and anything that fails to read, so a mixed clipboard (text
+ * + image) still works.
+ */
+async function readImageFiles(files: File[]): Promise<AgentImageInput[]> {
+  const images = files.filter((f) => f.type.startsWith('image/'));
+  const out: AgentImageInput[] = [];
+  for (const file of images) {
+    try {
+      const buf = await file.arrayBuffer();
+      let binary = '';
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      out.push({ mediaType: file.type, data: btoa(binary) });
+    } catch {
+      // skip unreadable entries
+    }
+  }
+  return out;
+}
+
+/* ── @ file mentions ────────────────────────────────────────────────────── */
+
+/**
+ * Detect an in-progress `@file` mention at the caret. Returns the partial query
+ * and the `@`'s index, or null when the caret isn't inside a mention token. The
+ * `@` must sit at the start or after whitespace, with no whitespace between it
+ * and the caret — so `@` mid-word (e.g. an email) never triggers the picker.
+ */
+function mentionContext(text: string, caret: number): { query: string; start: number } | null {
+  for (let i = caret - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === '@') {
+      const before = i === 0 ? '' : text[i - 1];
+      if (i === 0 || /\s/.test(before)) return { query: text.slice(i + 1, caret), start: i };
+      return null;
+    }
+    if (/\s/.test(ch)) return null;
+  }
+  return null;
+}
+
+/** Rank workspace files for a mention query: basename prefix > path substring. */
+function matchFiles(files: { path: string }[], query: string, limit = 8): string[] {
+  const q = query.toLowerCase();
+  if (q === '') return files.slice(0, limit).map((f) => f.path);
+  const scored: { path: string; score: number }[] = [];
+  for (const f of files) {
+    const path = f.path.toLowerCase();
+    const base = path.slice(path.lastIndexOf('/') + 1);
+    let score = -1;
+    if (base.startsWith(q)) score = 0;
+    else if (base.includes(q)) score = 1;
+    else if (path.includes(q)) score = 2;
+    if (score >= 0) scored.push({ path: f.path, score });
+  }
+  scored.sort((a, b) => a.score - b.score || a.path.length - b.path.length);
+  return scored.slice(0, limit).map((s) => s.path);
+}
+
+/** The `@file` picker — mirrors {@link SlashMenu}, listing matched workspace files. */
+function MentionMenu({
+  items,
+  activeIndex,
+  onPick,
+  onHover,
+}: {
+  items: string[];
+  activeIndex: number;
+  onPick: (path: string) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <div
+      role="listbox"
+      aria-label="Workspace files"
+      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
+    >
+      {items.map((path, i) => {
+        const base = path.slice(path.lastIndexOf('/') + 1);
+        const dir = path.slice(0, path.length - base.length);
+        return (
+          <button
+            key={path}
+            type="button"
+            role="option"
+            aria-selected={i === activeIndex}
+            onMouseEnter={() => onHover(i)}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onPick(path);
+            }}
+            className={cn(
+              'w-full flex items-baseline gap-2 px-3 py-1.5 text-left transition-colors duration-fast',
+              i === activeIndex ? 'bg-surface-3' : 'hover:bg-surface-3/60',
+            )}
+          >
+            <FileCode size={12} className="shrink-0 self-center text-fg-tertiary" />
+            <span className="font-mono text-body-sm text-fg-primary shrink-0">{base}</span>
+            {dir ? <span className="font-mono text-caption text-fg-tertiary truncate">{dir}</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── slash command menu ─────────────────────────────────────────────────── */
+
+/**
+ * The `/` command menu (claude-code `/init` `/review`, codex `/diff` parity).
+ * Floats above the composer while the draft is a bare `/token`. Arrow keys move
+ * the selection, Enter/Tab pick, Escape dismisses — all driven from the
+ * composer's onKeyDown so focus stays in the textarea.
+ */
+function SlashMenu({
+  items,
+  activeIndex,
+  onPick,
+  onHover,
+}: {
+  items: SlashCommand[];
+  activeIndex: number;
+  onPick: (cmd: SlashCommand) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <div
+      role="listbox"
+      aria-label="Slash commands"
+      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
+    >
+      {items.map((cmd, i) => (
+        <button
+          key={cmd.name}
+          type="button"
+          role="option"
+          aria-selected={i === activeIndex}
+          onMouseEnter={() => onHover(i)}
+          // Pick on mousedown so the textarea doesn't lose focus first (which
+          // would tear down the menu before the click lands).
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onPick(cmd);
+          }}
+          className={cn(
+            'w-full flex items-baseline gap-2.5 px-3 py-1.5 text-left transition-colors duration-fast',
+            i === activeIndex ? 'bg-surface-3' : 'hover:bg-surface-3/60',
+          )}
+        >
+          <span className="font-mono text-body-sm text-fg-primary shrink-0">/{cmd.name}</span>
+          {cmd.kind === 'prompt' && cmd.argHint ? (
+            <span className="font-mono text-caption text-fg-tertiary shrink-0">{cmd.argHint}</span>
+          ) : null}
+          <span className="text-caption text-fg-tertiary truncate ml-auto pl-3">{cmd.description}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The local readout shown by `/help` (the command list) and `/context` (what is
+ * currently in the model's context window). Neither makes a model call.
+ */
+function SlashInfoCard({ kind, onClose }: { kind: 'help' | 'context'; onClose: () => void }) {
+  return (
+    <div className="rounded border border-subtle bg-surface-1 px-3 py-2.5">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-caption font-medium text-fg-secondary">
+          {kind === 'help' ? 'Slash commands' : 'Context window'}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Dismiss"
+          className="text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+        >
+          <X size={13} />
+        </button>
+      </div>
+      {kind === 'help' ? <SlashHelpBody /> : <SlashContextBody />}
+    </div>
+  );
+}
+
+function SlashHelpBody() {
+  return (
+    <div className="flex flex-col gap-1">
+      {SLASH_COMMANDS.map((cmd) => (
+        <div key={cmd.name} className="flex items-baseline gap-2.5 text-body-sm">
+          <span className="font-mono text-fg-primary shrink-0 w-20">/{cmd.name}</span>
+          <span className="text-caption text-fg-tertiary">{cmd.description}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SlashContextBody() {
+  const messages = useAgentStore((s) => s.chat.messages);
+  const usage = useAgentStore((s) => s.chat.usage);
+  const edits = useAgentStore((s) => s.chat.edits);
+  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  const selectedProvider = useProvidersStore((s) => s.selectedProvider);
+  const models = useProvidersStore((s) => s.models);
+  const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
+  const model = findModel(models, selectedModelKey);
+  const ctx = model?.contextWindow;
+  const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
+  const rows: Array<[string, string]> = [
+    ['Provider', providerLabel(selectedProvider)],
+    ['Model', model ? model.label : '—'],
+    ['Approval mode', approvalMode],
+    ['Messages', String(messages.length)],
+    ['Input tokens', usage.inputTokens.toLocaleString()],
+    ['Output tokens', usage.outputTokens.toLocaleString()],
+    ['Context window', ctx ? `${formatContext(ctx)} (${pct}% used)` : 'unknown'],
+    ['Files edited', String(edits.length)],
+  ];
+  return (
+    <div className="flex flex-col gap-1">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex items-baseline justify-between gap-3 text-body-sm">
+          <span className="text-caption text-fg-tertiary">{label}</span>
+          <span className="font-mono text-fg-primary tabular-nums">{value}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -536,6 +1150,14 @@ function ProviderModelBar({ full }: { full?: boolean }) {
 
   const [open, setOpen] = useState(false);
 
+  // The composer's `/model` command opens this palette via a window event, so the
+  // command stays decoupled from the bar's local open state.
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener('marudesk:open-model-palette', onOpen);
+    return () => window.removeEventListener('marudesk:open-model-palette', onOpen);
+  }, []);
+
   const current = findModel(models, selectedModelKey);
   const hasKey = !!providerStatus.find((s) => s.id === selectedProvider)?.hasKey;
 
@@ -603,12 +1225,20 @@ function MessageView({
   verbosity: TranscriptVerbosity;
 }) {
   if (message.role === 'user') {
+    const images = message.parts.filter((p) => p.type === 'image');
     return (
       <div className="self-end max-w-[88%]">
         <div className="rounded-xl bg-accent-subtle/30 border border-accent/20 px-3.5 py-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.15)]">
           <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
             {textOf(message)}
           </p>
+          {images.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {images.map((img, i) => (
+                <ChatImage key={i} mediaType={img.mediaType} data={img.data} />
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -660,6 +1290,13 @@ function MessageView({
             <div key={i} className="text-body-sm text-fg-secondary">
               <Markdown source={part.text} className="md-compact" />
               {caret ? <StreamCaret /> : null}
+            </div>
+          );
+        }
+        if (part.type === 'image') {
+          return (
+            <div key={i}>
+              <ChatImage mediaType={part.mediaType} data={part.data} />
             </div>
           );
         }
@@ -1179,6 +1816,14 @@ function ApprovalCard({ approval }: { approval: PendingApproval }) {
         <Button variant="primary" size="sm" onClick={() => void approve(approval.callId, true)}>
           Approve
         </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void approve(approval.callId, true, true)}
+          title={`Approve and stop asking for ${approval.name} this conversation`}
+        >
+          Allow always
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => void approve(approval.callId, false)}>
           Deny
         </Button>
@@ -1312,6 +1957,7 @@ function VerbosityToggle({
 }
 
 const APPROVAL_OPTS: { value: AgentApprovalMode; icon: LucideIcon; label: string }[] = [
+  { value: 'plan', icon: NotebookPen, label: 'Plan — research only, then propose a step-by-step plan' },
   { value: 'read-only', icon: Eye, label: 'Read-only — observe only (no edits, no code)' },
   { value: 'ask', icon: Hand, label: 'Ask — edits run; sensitive tools ask first' },
   { value: 'auto', icon: Zap, label: 'Auto — run everything without asking' },
