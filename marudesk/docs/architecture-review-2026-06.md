@@ -37,39 +37,54 @@ All changes below typecheck across the three packages and `marudesk` builds clea
   `Transport.connect()` asymmetry in `mobile/src/transport/types.ts` (relay
   credentials are relay-only; `DirectTransport` uses constructor `DirectCreds`).
 
-## Prioritized backlog (needs focused, test-backed work)
+## Second pass — modularization (done, verified)
 
-These are intentionally **not** done in this pass: each touches a large file's
-runtime behavior and deserves its own change with manual UI/harness verification.
+A follow-up pass took the backlog's pure-reorganization items. Each is behavior-
+preserving and verified by typecheck/build (and the MCP harness where relevant).
 
-### P1 — split the agent core
+- **P1 — `electron/agent/tools.ts` → `tools/`.** The 1060-line file became a
+  folder with a barrel that preserves the `./tools` import surface:
+  `types.ts` (shapes + tool-name sets), `executors.ts` (executors + `executeTool`
+  + `describeToolInput`), `schemas.ts` (the JSON-Schema list), `registry.ts` (the
+  MCP descriptor layer). Verified by the MCP harness (39/39).
+- **P1 — reasoning config out of `loop.ts`.** The pure reasoning-effort →
+  provider-option helpers (`buildProviderOptions`, `maxTokensForTurn`, the
+  Anthropic budget map) moved to `agent/reasoning-config.ts`.
+- **P2 — console autocomplete out of `devtools/store.ts`.** The completion
+  cluster (Command Line API list, `parseCompletionContext`, member/global CDP
+  lookups, `rankCompletions`, the `Completion*` types) moved to
+  `devtools/console/completion.ts`; the store re-exports the types so
+  `ConsoleInput` is unchanged. (CSS-edit helpers were already in `css-source.ts`.)
+- **P3 — `src/hooks/`.** Added `useIpcListener`, `useElapsedTimer`/`formatElapsed`,
+  `useCountdown`; `AgentChat`/`SettingsView` now import the timer hooks instead of
+  defining them locally, and the two duplicate status-subscription effects in
+  `SettingsView` use `useIpcListener`.
 
-- `electron/agent/loop.ts` (~1305 lines) mixes the turn loop with the approval
-  gate, reasoning-effort/provider-option assembly, and the tool-execution
-  sub-loop. Extract `agent/approval-gate.ts`, `agent/reasoning-config.ts`, and a
-  turn executor. Enables reuse from the bridge dispatcher (`server/dispatch.ts`).
-- `electron/agent/tools.ts` (~1060 lines) — pure reorg into `tools/executor.ts`
-  (executors + `executeTool`), `tools/schemas.ts` (schemas + gated/ask defs),
-  `tools/mcp.ts` (MCP defs + tool-group name sets), with `tools.ts` kept as a
-  barrel. No logic change; verify via the MCP/agent harnesses.
+## Prioritized backlog (still open — needs focused, test-backed work)
+
+These touch large files' runtime behavior (or stateful turn logic) and deserve
+their own change with manual UI/harness verification, so they were deliberately
+left for a focused pass:
+
+### P1 — the rest of the agent loop
+
+- `electron/agent/loop.ts` still owns the approval gate (parking, gated-tool
+  filtering, "allow always") interleaved with live turn state. Extracting
+  `agent/approval-gate.ts` + a turn executor needs the resolvers and in-flight
+  state moved together and is best done with the agent harness driving a real
+  turn — not a blind reorg.
 
 ### P2 — split the oversized renderer surfaces
 
-- `src/features/devtools/store.ts` (~2440) — lift console autocomplete, CSS-edit
-  helpers, and DOM indexing into `devtools/{console,css,dom}/` modules; the
-  store keeps state, the helpers become unit-testable.
-- `src/features/agent/AgentChat.tsx` (~2113) → `AgentChat/` folder
+- `src/features/devtools/store.ts` (~2180 after the console split) — lift DOM
+  indexing/traversal into `devtools/dom/` next.
+- `src/features/agent/AgentChat.tsx` (~2100) → `AgentChat/` folder
   (`MessageView`, `SlashMenu`, `ContextPopover`, `Composer`).
-- `src/features/settings/SettingsView.tsx` (~1849) → category subfolders
+- `src/features/settings/SettingsView.tsx` (~1830) → category subfolders
   (`Appearance`, `Remote`, `Data`, `About`).
 
-### P3 — commonization & boilerplate
+### P3 — remaining commonization
 
-- `src/hooks/` for the repeated patterns: a typed `useIpcListener`, `usePrevious`
-  (the store-previous-prop fields in Settings), and the scattered
-  `useElapsedTimer`/`useCountdown`. (Note: the already-batched event hooks
-  `useTabEvents`/`useDevtoolsEvents` intentionally group their subscriptions and
-  should stay as-is.)
 - Shared `StatusDot` and a `SegmentedControl` (one exists inline in Settings) to
   replace repeated inline variants.
 - `electron/` shared error helpers (`wrapError`, `assertNotNull`) for the mixed
@@ -78,7 +93,10 @@ runtime behavior and deserves its own change with manual UI/harness verification
 ### P4 — structure polish
 
 - `electron/workspace/` and `electron/server/relay/` subdirectories to group the
-  files currently flat at those roots.
+  files currently flat at those roots. Note: the relay group is fiddlier than it
+  looks — `relay-bridge-harness.ts` resolves `RELAY_DIR` from `import.meta.url`,
+  so a move must re-derive that path. Pure cosmetics; do it only alongside other
+  relay work.
 - `mobile/PROTOCOL.md` documenting the relay/host frame layering, plus a
   round-trip test for `relay-frames.ts` parsers against known wire samples to
   catch drift from `marudesk/shared/remote.ts`.
