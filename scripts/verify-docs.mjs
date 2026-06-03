@@ -30,14 +30,15 @@ const checks = [
     run() {
       const readme = read("README.md");
 
-      mustInclude(readme, "# toy-prj");
+      mustInclude(readme, "MaruDesk");
       mustInclude(readme, "marudesk");
       mustInclude(readme, "mobile");
       mustInclude(readme, "relay");
-      mustInclude(readme, "Quick start");
-      mustInclude(readme, "Verification");
-      mustInclude(readme, "per package");
+      mustInclude(readme, "Repository layout");
+      mustInclude(readme, "Getting started");
+      mustInclude(readme, "Development and verification");
       mustInclude(readme, "no root package");
+      mustInclude(readme, "install per package");
     },
   },
   {
