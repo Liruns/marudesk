@@ -81,6 +81,24 @@ const config: Config = {
       transitionTimingFunction: {
         DEFAULT: 'cubic-bezier(0.2, 0, 0, 1)',
       },
+      // Entrance motion only — short, single-easing (§9), no overshoot. Both ride
+      // the motion tokens so a global easing/duration change flows through. The
+      // reduced-motion block in index.css collapses these to a near-instant snap.
+      keyframes: {
+        'fade-rise': {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'scale-in': {
+          '0%': { opacity: '0', transform: 'translateY(4px) scale(0.98)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+      },
+      animation: {
+        // `both` holds the 0% (hidden) state through any stagger delay.
+        'fade-rise': 'fade-rise var(--motion-standard) var(--easing) both',
+        'scale-in': 'scale-in var(--motion-standard) var(--easing)',
+      },
       boxShadow: {
         glow: '0 0 0 1px var(--border-default), 0 8px 24px rgba(0, 0, 0, 0.32)',
         lifted: '0 0 0 1px var(--border-default), 0 24px 56px rgba(0, 0, 0, 0.48)',

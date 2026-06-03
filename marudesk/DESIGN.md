@@ -255,7 +255,18 @@ The renderer is sized by Electron; we do not target browser-tab embedding.
 | `--motion-standard` | 200ms | Panel slides, drawer open/close, modal enter |
 | `--easing` | `cubic-bezier(0.2, 0, 0, 1)` | Default for every transition |
 
-`prefers-reduced-motion: reduce` disables slide transitions and Spinner rotation (Spinner becomes a static dot).
+### Entrance keyframes
+
+Two short, single-easing entrances give the UI character without breaking the "one cubic-bezier, no overshoot" rule. Both ride the motion tokens.
+
+| Animation | Tailwind | Use |
+|---|---|---|
+| `fade-rise` | `animate-fade-rise` | First-paint surfaces — opacity + 8px rise. Stagger siblings with `[animation-delay:Nms]` (Home cascades the brand, field, launcher, recents, hint at 0/60/120/180/240ms). |
+| `scale-in` | `animate-scale-in` | Modal / picker open — a 0.98→1 settle (QuickOpen, ModelPalette, DiffViewer). |
+
+Press feedback is a 1px settle, not a bounce: interactive tiles drop their hover lift and ease to `scale-[0.99]` on `:active`.
+
+`prefers-reduced-motion: reduce` disables slide transitions and Spinner rotation (Spinner becomes a static dot), and collapses these entrances (duration **and** delay) to a near-instant snap.
 
 ## 10. Voice & Tone
 

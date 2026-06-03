@@ -56,7 +56,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
   return (
     <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
       <div className="min-h-full flex flex-col items-center justify-center px-8 py-16 gap-10">
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-4 animate-fade-rise">
           <div className="relative">
             {/* The single sanctioned chromatic bloom — brand light behind the
                 mark. Decorative, so it's hidden from a11y and ignores pointers. */}
@@ -72,7 +72,11 @@ export function HomeView({ tabId }: { tabId?: string }) {
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className="w-full max-w-xl" role="search">
+        <form
+          onSubmit={onSubmit}
+          className="w-full max-w-xl animate-fade-rise [animation-delay:60ms]"
+          role="search"
+        >
           <div
             className={cn(
               'h-11 w-full rounded-pill bg-surface-1 border flex items-center pl-4 pr-2 gap-2',
@@ -99,7 +103,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
           </div>
         </form>
 
-        <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-rise [animation-delay:120ms]">
           <LauncherCard
             label="AI Chat"
             hint="Agent that sees the running app"
@@ -127,7 +131,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
         </div>
 
         {recents.length > 0 ? (
-          <div className="w-full max-w-xl flex flex-col gap-0.5">
+          <div className="w-full max-w-xl flex flex-col gap-0.5 animate-fade-rise [animation-delay:180ms]">
             <p className="px-1 pb-1 text-caption uppercase tracking-wider text-fg-tertiary">
               Recent
             </p>
@@ -159,7 +163,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
           </div>
         ) : null}
 
-        <p className="text-caption text-fg-tertiary flex items-center gap-1.5">
+        <p className="text-caption text-fg-tertiary flex items-center gap-1.5 animate-fade-rise [animation-delay:240ms]">
           <kbd className="px-1.5 py-0.5 rounded bg-surface-2 border border-subtle text-fg-secondary">
             Ctrl
           </kbd>
@@ -193,6 +197,7 @@ function LauncherCard({
         'group flex flex-col items-start gap-2.5 p-4 rounded-xl text-left',
         'bg-surface-1 bg-surface-gradient border border-subtle shadow-highlight',
         'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-card',
+        'active:translate-y-0 active:scale-[0.99] active:shadow-highlight',
         'transition duration-fast',
       )}
     >
