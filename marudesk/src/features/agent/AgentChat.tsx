@@ -149,6 +149,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const pendingImages = useAgentStore((s) => s.pendingImages);
   const addImages = useAgentStore((s) => s.addImages);
   const removeImage = useAgentStore((s) => s.removeImage);
+  const promptHistory = useAgentStore((s) => s.promptHistory);
   const verbosity = useAgentStore((s) => s.verbosity);
   const setVerbosity = useAgentStore((s) => s.setVerbosity);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
@@ -174,6 +175,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashInfo, setSlashInfo] = useState<'help' | 'context' | null>(null);
+  // Prompt-history recall: -1 means "not navigating"; otherwise the index into
+  // promptHistory currently shown in the composer (ArrowUp/ArrowDown step it).
+  const [histIndex, setHistIndex] = useState(-1);
   // Stick-to-bottom: true while the user is at/near the bottom (auto-scroll on),
   // false once they scroll up to re-read mid-stream (auto-scroll paused).
   const stickToBottomRef = useRef(true);
@@ -243,7 +247,31 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     setDraft(v);
     setSlashDismissed(false);
     setSlashIndex(0);
+    setHistIndex(-1);
     if (slashInfo) setSlashInfo(null);
+  };
+
+  // Recall a previous prompt. `dir` is -1 for older (ArrowUp), +1 for newer
+  // (ArrowDown). Stepping past the newest entry clears back to an empty draft.
+  const recallHistory = (dir: -1 | 1) => {
+    if (promptHistory.length === 0) return;
+    const from = histIndex === -1 ? promptHistory.length : histIndex;
+    const next = from + dir;
+    if (next >= promptHistory.length) {
+      setHistIndex(-1);
+      setDraft('');
+      return;
+    }
+    const idx = Math.max(0, next);
+    const value = promptHistory[idx];
+    setHistIndex(idx);
+    setDraft(value);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(value.length, value.length);
+    });
   };
 
   const runSlashAction = (action: SlashActionId) => {
@@ -369,6 +397,21 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         setSlashDismissed(true);
         return;
       }
+    }
+    // Prompt-history recall (slash menu closed). ArrowUp only triggers from the
+    // start of the field so multi-line editing keeps normal caret movement;
+    // ArrowDown only while already navigating history.
+    const el = textareaRef.current;
+    const atStart = el ? el.selectionStart === 0 && el.selectionEnd === 0 : true;
+    if (e.key === 'ArrowUp' && (histIndex !== -1 || atStart) && promptHistory.length > 0) {
+      e.preventDefault();
+      recallHistory(-1);
+      return;
+    }
+    if (e.key === 'ArrowDown' && histIndex !== -1) {
+      e.preventDefault();
+      recallHistory(1);
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

@@ -25,6 +25,20 @@ import { useTabsStore } from '../tabs/store';
 export type TranscriptVerbosity = 'summary' | 'normal' | 'verbose';
 
 const VERBOSITY_KEY = 'marudesk.agent.verbosity';
+const HISTORY_KEY = 'marudesk.agent.promptHistory';
+const HISTORY_CAP = 100;
+
+function loadHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
+  } catch {
+    // ignore — start with an empty history
+  }
+  return [];
+}
 function loadVerbosity(): TranscriptVerbosity {
   try {
     const v = localStorage.getItem(VERBOSITY_KEY);
@@ -42,6 +56,8 @@ type AgentState = {
   pendingImages: AgentImageInput[];
   /** Transcript detail level for the message list. */
   verbosity: TranscriptVerbosity;
+  /** Recently sent prompts (newest last) for up/down recall in the composer. */
+  promptHistory: string[];
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
   /** Saved sessions (newest first) for the history list — loaded on demand. */
@@ -99,6 +115,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
   pendingImages: [],
+  promptHistory: loadHistory(),
   verbosity: loadVerbosity(),
   localError: null,
   sessions: [],
@@ -169,7 +186,14 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       .filter((c) => web.selectedCaptureIds.has(c.id))
       .map(toPayload);
 
-    set({ localError: null, draft: '', pendingImages: [] });
+    // Record the prompt for up/down recall (dedupe consecutive repeats, cap len).
+    const history = [...get().promptHistory.filter((h) => h !== text), text].slice(-HISTORY_CAP);
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch {
+      // ignore — in-memory history still updates
+    }
+    set({ localError: null, draft: '', pendingImages: [], promptHistory: history });
     try {
       const res = await window.marudesk.invoke('agent:send', {
         provider,
