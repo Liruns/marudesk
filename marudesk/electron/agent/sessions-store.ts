@@ -26,6 +26,13 @@ import { getDb } from '../db';
 
 const MAX_SESSIONS = 200;
 
+/**
+ * The full-text index tables kept in sync with `sessions` (see electron/db.ts):
+ * the default word/prefix index and a trigram index for substring + CJK search.
+ * Hardcoded literals — never interpolate anything user-controlled into SQL here.
+ */
+const FTS_TABLES = ['sessions_fts', 'sessions_fts_trigram'] as const;
+
 function summaryOf(record: SessionRecord): SessionSummary {
   return {
     id: record.id,
@@ -96,12 +103,15 @@ function dbUpsert(db: NonNullable<ReturnType<typeof getDb>>, record: SessionReco
       messageCount: rec.messageCount,
       record: JSON.stringify(rec),
     });
-    db.prepare('DELETE FROM sessions_fts WHERE id = ?').run(rec.id);
-    db.prepare('INSERT INTO sessions_fts (id, title, body) VALUES (?, ?, ?)').run(
-      rec.id,
-      rec.title,
-      flattenBody(rec),
-    );
+    const body = flattenBody(rec);
+    for (const table of FTS_TABLES) {
+      db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(rec.id);
+      db.prepare(`INSERT INTO ${table} (id, title, body) VALUES (?, ?, ?)`).run(
+        rec.id,
+        rec.title,
+        body,
+      );
+    }
     // Prune the oldest beyond the cap (and their fts rows).
     const stale = db
       .prepare(
@@ -110,7 +120,7 @@ function dbUpsert(db: NonNullable<ReturnType<typeof getDb>>, record: SessionReco
       .all(MAX_SESSIONS) as { id: string }[];
     for (const s of stale) {
       db.prepare('DELETE FROM sessions WHERE id = ?').run(s.id);
-      db.prepare('DELETE FROM sessions_fts WHERE id = ?').run(s.id);
+      for (const table of FTS_TABLES) db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(s.id);
     }
   });
   tx(record);
@@ -224,21 +234,32 @@ export async function searchSessions(query: string, limit = 30): Promise<Session
   const db = getDb();
   if (db) {
     await migrateJsonIntoDb(db);
-    const match = ftsQuery(q);
-    if (!match) return [];
-    try {
-      return db
-        .prepare(
-          `SELECT s.id, s.title, s.createdAt, s.updatedAt, s.provider, s.model, s.messageCount,
-                  snippet(sessions_fts, 2, '⟦', '⟧', '…', 12) AS snippet
-           FROM sessions_fts f JOIN sessions s ON s.id = f.id
-           WHERE sessions_fts MATCH ?
-           ORDER BY s.updatedAt DESC LIMIT ?`,
-        )
-        .all(match, cap) as SessionSearchHit[];
-    } catch {
-      return [];
-    }
+    // Union two indexes: the word/prefix index (good for whole tokens, e.g.
+    // "refac*") and the trigram index (arbitrary substrings + CJK/Hangul, e.g.
+    // "팩토"). Dedupe by id, newest first. Either MATCH can throw on an odd
+    // query (e.g. trigram needs ≥3 chars) — guard each independently.
+    const byId = new Map<string, SessionSearchHit>();
+    const runMatch = (table: string, match: string) => {
+      try {
+        const rows = db
+          .prepare(
+            `SELECT s.id, s.title, s.createdAt, s.updatedAt, s.provider, s.model, s.messageCount,
+                    snippet(${table}, 2, '⟦', '⟧', '…', 12) AS snippet
+             FROM ${table} f JOIN sessions s ON s.id = f.id
+             WHERE ${table} MATCH ?
+             ORDER BY s.updatedAt DESC LIMIT ?`,
+          )
+          .all(match, cap) as SessionSearchHit[];
+        for (const r of rows) if (!byId.has(r.id)) byId.set(r.id, r);
+      } catch {
+        // skip this index for this query
+      }
+    };
+    const wordMatch = ftsQuery(q);
+    if (wordMatch) runMatch('sessions_fts', wordMatch);
+    // Trigram takes the raw query as a quoted substring (no prefix star).
+    runMatch('sessions_fts_trigram', `"${q.replace(/"/g, '""')}"`);
+    return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, cap);
   }
   // JSON fallback: scan record files for the substring (case-insensitive).
   const needle = q.toLowerCase();
@@ -283,7 +304,7 @@ export async function deleteSession(id: string): Promise<boolean> {
   if (db) {
     try {
       db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
-      db.prepare('DELETE FROM sessions_fts WHERE id = ?').run(id);
+      for (const table of FTS_TABLES) db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
       return true;
     } catch {
       return false;
@@ -305,7 +326,7 @@ export async function clearAllSessions(): Promise<number> {
   if (db) {
     try {
       const n = (db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n;
-      db.exec('DELETE FROM sessions; DELETE FROM sessions_fts;');
+      db.exec(`DELETE FROM sessions; DELETE FROM ${FTS_TABLES.join('; DELETE FROM ')};`);
       return n;
     } catch {
       return 0;

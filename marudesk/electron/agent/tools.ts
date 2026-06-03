@@ -309,9 +309,14 @@ async function applyEdits(
       continue;
     }
     if (isStaleForEdit(abs, current)) {
+      // Self-heal (oh-my-openagent's mismatch UX): instead of just telling the
+      // agent to re-read, hand back the CURRENT line-numbered content inline and
+      // re-anchor the tracker to it — so the agent can redo the edit against the
+      // fresh text in the same turn (the retry then passes this guard).
+      recordRead(abs, current);
       return {
         summary: `${label} blocked (stale)`,
-        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Re-read the file, then redo the edit against its current text.`,
+        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${clip(numberLines(current))}`,
         isError: true,
       };
     }

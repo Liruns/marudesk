@@ -54,6 +54,18 @@ function migrate(conn: Db): void {
       title,
       body
     );
+
+    -- A second, trigram-tokenized index over the same text (hermes-agent ships
+    -- both). The default tokenizer only matches whole words/prefixes; trigram
+    -- matches arbitrary substrings (≥3 chars) and handles CJK / Hangul, so a
+    -- search like "팩토" or "uthH" finds mid-word/mid-token hits the word index
+    -- misses. searchSessions unions the two.
+    CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts_trigram USING fts5(
+      id UNINDEXED,
+      title,
+      body,
+      tokenize = 'trigram'
+    );
   `);
 }
 
