@@ -11,7 +11,7 @@ import type {
 import { isInsideRoot } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { bool, obj, str } from './ipc/validate';
-import { IGNORE_DIRS } from './workspace';
+import { IGNORE_DIRS } from './workspace-config';
 
 /**
  * Workspace content search. Prefers ripgrep (fast, respects .gitignore) and

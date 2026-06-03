@@ -58,9 +58,16 @@ export type DirectCreds = { baseUrl: string; deviceId: string; keyB64: string };
 
 export interface Transport {
   /**
-   * Open the connection. For the relay this dials the outbound client WS and
-   * authenticates with `accessToken`; for the stub it just starts the fake feed.
-   * Idempotent-ish: calling again after a disconnect should reconnect.
+   * Open the connection. Idempotent-ish: calling again after a disconnect should
+   * reconnect.
+   *
+   * `relayUrl` + `accessToken` are the *relay* credentials and only apply to
+   * relay-backed transports: `RelayTransport` dials the outbound client WS and
+   * authenticates with them, and `StubTransport` ignores them. The paired
+   * `DirectTransport` connects to a specific PC over the LAN/Tailscale using
+   * {@link DirectCreds} captured at construction, so it ignores these args (it
+   * may be invoked as `connect()`); a method that takes fewer parameters still
+   * satisfies this signature.
    */
   connect(relayUrl: string, accessToken: string): Promise<void>;
 

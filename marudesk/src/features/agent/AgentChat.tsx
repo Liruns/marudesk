@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Sparkles,
   Brain,
@@ -6,7 +6,6 @@ import {
   Square,
   Loader2,
   Check,
-  Copy,
   X,
   Wrench,
   RotateCcw,
@@ -48,7 +47,8 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import { Badge, Button, DiffBlock } from '../../components/ui';
+import { Badge, Button, CopyButton, DiffBlock } from '../../components/ui';
+import { useElapsedTimer, formatElapsed } from '../../hooks';
 import { cn } from '../../lib/cn';
 import { Markdown } from '../../lib/markdown';
 import { toast } from '../../lib/toast';
@@ -102,36 +102,6 @@ const STATUS_LABEL: Record<AgentStatus, string> = {
  * Uses a ref-anchored start time so the interval callback computes elapsed
  * without needing a state setter in the effect body.
  */
-function useElapsedTimer(busy: boolean): number {
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!busy) {
-      startRef.current = null;
-      // Reset via interval-like mechanism to avoid inline setState in effect
-      const id = setTimeout(() => setElapsed(0), 0);
-      return () => clearTimeout(id);
-    }
-    startRef.current = Date.now();
-    const id = setInterval(() => {
-      if (startRef.current !== null) {
-        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
-      }
-    }, 1000);
-    return () => clearInterval(id);
-  }, [busy]);
-
-  return elapsed;
-}
-
-/** Format elapsed seconds as "0:05", "1:23", etc. */
-function formatElapsed(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${m}:${String(sec).padStart(2, '0')}`;
-}
-
 function isBusy(s: AgentStatus): boolean {
   return s === 'thinking' || s === 'working' || s === 'waiting_for_user';
 }
@@ -258,13 +228,23 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // not dismissed. Once the user types a space (an argument), the menu hides and
   // the command runs on Enter via the resolver in handleSend.
   const slashQ = slashQuery(draft);
-  const slashItems = slashQ !== null && !slashDismissed ? filterSlash(slashQ) : [];
+  const slashItems = useMemo(
+    () => (slashQ !== null && !slashDismissed ? filterSlash(slashQ) : []),
+    [slashQ, slashDismissed],
+  );
   const slashOpen = slashItems.length > 0;
 
   // `@file` mention: active only when the caret sits in an `@token`, a workspace
   // is open, and the slash menu isn't already showing.
   const mention = !slashOpen ? mentionContext(draft, caret) : null;
-  const mentionItems = mention && summary ? matchFiles(summary.files, mention.query) : [];
+  // `matchFiles` scores the whole workspace index, so keep it off the hot path
+  // of unrelated re-renders (composer focus, streaming ticks) — only the query
+  // and the file set move it.
+  const mentionQuery = mention?.query ?? null;
+  const mentionItems = useMemo(
+    () => (mentionQuery !== null && summary ? matchFiles(summary.files, mentionQuery) : []),
+    [mentionQuery, summary],
+  );
   const mentionOpen = mentionItems.length > 0;
 
   // Replace the active `@token` with the picked file path + a trailing space.
@@ -1215,7 +1195,7 @@ function ProviderModelBar({ full }: { full?: boolean }) {
 
 /* ── messages ───────────────────────────────────────────────────────────── */
 
-function MessageView({
+const MessageView = memo(function MessageView({
   message,
   streaming,
   verbosity,
@@ -1308,33 +1288,7 @@ function MessageView({
       })}
     </div>
   );
-}
-
-/** A small clipboard button with a brief "copied" check, used on messages and
- * tool output. */
-function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    } catch (err) {
-      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
-    }
-  };
-  return (
-    <button
-      type="button"
-      onClick={() => void copy()}
-      title={label}
-      aria-label={label}
-      className="inline-flex size-5 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
-    >
-      {copied ? <Check size={12} className="text-accent" /> : <Copy size={12} />}
-    </button>
-  );
-}
+});
 
 /** Blinking caret shown at the live edge of streaming assistant text (§6.3). */
 function StreamCaret() {
@@ -1524,7 +1478,13 @@ const TIMELINE_ICON: Record<'thinking' | 'grep' | 'read' | 'edit', string> = {
   edit:     'text-ai-edit',
 };
 
-function ToolCardView({ call, defaultOpen }: { call: ToolCall; defaultOpen?: boolean }) {
+const ToolCardView = memo(function ToolCardView({
+  call,
+  defaultOpen,
+}: {
+  call: ToolCall;
+  defaultOpen?: boolean;
+}) {
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? !!defaultOpen;
   const meta = TOOL_META[call.name] ?? { label: call.name, icon: Wrench };
@@ -1597,7 +1557,7 @@ function ToolCardView({ call, defaultOpen }: { call: ToolCall; defaultOpen?: boo
       ) : null}
     </div>
   );
-}
+});
 
 function ToolStateIcon({ state }: { state: ToolCall['state'] }) {
   if (state === 'running') return <Loader2 size={12} className="text-accent animate-spin shrink-0" />;

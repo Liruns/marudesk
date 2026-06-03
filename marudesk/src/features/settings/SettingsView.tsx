@@ -10,10 +10,8 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
-  Check,
   ChevronRight,
   Code2,
-  Copy,
   Database,
   Globe,
   Info,
@@ -64,7 +62,8 @@ import type {
 } from '../../../shared/remote';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
-import { Button } from '../../components/ui';
+import { Button, CopyButton } from '../../components/ui';
+import { useCountdown, useIpcListener } from '../../hooks';
 import { useSettingsStore, type SettingsCategory } from './store';
 import { ProvidersSettings } from './ProvidersSettings';
 import { McpServersSettings } from './McpServersSettings';
@@ -756,12 +755,11 @@ function LocalServerReach() {
     void window.marudesk.invoke('server:status').then((s) => {
       if (alive) setStatus(s);
     });
-    const off = window.marudesk.on('server:status-changed', (s) => setStatus(s));
     return () => {
       alive = false;
-      off();
     };
   }, []);
+  useIpcListener('server:status-changed', setStatus);
 
   return (
     <div className="flex flex-col gap-4">
@@ -812,31 +810,17 @@ function LocalServerReach() {
   );
 }
 
-/** Copy one reachable URL to the clipboard, with a brief check-mark confirmation. */
+/** Copy one reachable URL to the clipboard, with a brief check-mark confirmation.
+ * Routes through the main-process clipboard bridge (the desktop window can't rely
+ * on `navigator.clipboard`); the icon/timing UX lives in the shared CopyButton. */
 function CopyUrlButton({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async (): Promise<void> => {
-    try {
-      await window.marudesk.invoke('clipboard:write-text', url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      toast({ title: 'Copy failed', description: (err as Error).message, variant: 'error' });
-    }
-  };
   return (
-    <button
-      type="button"
-      aria-label={`Copy ${url}`}
-      onClick={() => void copy()}
-      className={cn(
-        'inline-flex size-7 shrink-0 items-center justify-center rounded',
-        'text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary',
-        'transition-colors duration-fast',
-      )}
-    >
-      {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
-    </button>
+    <CopyButton
+      text={url}
+      label={`Copy ${url}`}
+      size="md"
+      write={(text) => window.marudesk.invoke('clipboard:write-text', text)}
+    />
   );
 }
 
@@ -1090,15 +1074,6 @@ function DeviceRow({
 }
 
 /** Whole-second countdown to `expiresAt` (epoch ms); 0 once elapsed. */
-function useCountdown(expiresAt: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  return Math.max(0, Math.ceil((expiresAt - now) / 1000));
-}
-
 /** Compact relative time ("just now", "5m ago", "3h ago", "2d ago") from an ISO string. */
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - Date.parse(iso);
@@ -1133,12 +1108,11 @@ function CloudRelaySection() {
     void window.marudesk.invoke('relay:status').then((s) => {
       if (alive) setStatus(s);
     });
-    const off = window.marudesk.on('relay:status-changed', (s) => setStatus(s));
     return () => {
       alive = false;
-      off();
     };
   }, []);
+  useIpcListener('relay:status-changed', setStatus);
 
   const submit = async (mode: 'login' | 'signup'): Promise<void> => {
     setBusy(true);
