@@ -68,7 +68,7 @@ export function DiffViewer({
         className="absolute inset-0 cursor-default bg-black/30"
         onClick={onClose}
       />
-      <div className="relative mx-4 mt-[10vh] flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lg">
+      <div className="relative mx-4 mt-[10vh] flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lifted">
         <header className="flex h-10 shrink-0 items-center gap-2 border-b border-subtle pl-3 pr-1.5">
           <span className="truncate font-mono text-body-sm text-fg-secondary" title={path}>
             {path}

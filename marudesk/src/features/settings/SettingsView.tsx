@@ -1289,7 +1289,7 @@ function NavItem({
 
 function Section({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col rounded-lg border border-subtle bg-surface-1 divide-y divide-subtle">
+    <div className="flex flex-col rounded-lg border border-subtle bg-surface-1 shadow-highlight divide-y divide-subtle">
       {children}
     </div>
   );

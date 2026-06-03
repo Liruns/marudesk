@@ -156,7 +156,7 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
         className="absolute inset-0 cursor-default bg-black/30"
         onClick={onClose}
       />
-      <div className="relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lg">
+      <div className="relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lifted">
         {/* search */}
         <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-11">
           <Search size={15} className="shrink-0 text-fg-tertiary" />
