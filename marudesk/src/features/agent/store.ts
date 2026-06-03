@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AgentAnswers, AgentChatState } from '../../../shared/agent';
+import type { AgentAnswers, AgentChatState, AgentImageInput } from '../../../shared/agent';
 import { emptyAgentChatState } from '../../../shared/agent';
 import type { SessionSummary } from '../../../shared/context';
 import { toMessage } from '../../lib/toMessage';
@@ -25,6 +25,20 @@ import { useTabsStore } from '../tabs/store';
 export type TranscriptVerbosity = 'summary' | 'normal' | 'verbose';
 
 const VERBOSITY_KEY = 'marudesk.agent.verbosity';
+const HISTORY_KEY = 'marudesk.agent.promptHistory';
+const HISTORY_CAP = 100;
+
+function loadHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
+  } catch {
+    // ignore — start with an empty history
+  }
+  return [];
+}
 function loadVerbosity(): TranscriptVerbosity {
   try {
     const v = localStorage.getItem(VERBOSITY_KEY);
@@ -38,8 +52,14 @@ function loadVerbosity(): TranscriptVerbosity {
 type AgentState = {
   chat: AgentChatState;
   draft: string;
+  /** Images pasted/dropped into the composer, sent with the next turn. */
+  pendingImages: AgentImageInput[];
   /** Transcript detail level for the message list. */
   verbosity: TranscriptVerbosity;
+  /** Recently sent prompts (newest last) for up/down recall in the composer. */
+  promptHistory: string[];
+  /** A prompt typed while a turn was running, auto-sent when the turn finishes. */
+  queuedPrompt: string | null;
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
   /** Saved sessions (newest first) for the history list — loaded on demand. */
@@ -48,6 +68,12 @@ type AgentState = {
 
 type AgentActions = {
   setDraft: (v: string) => void;
+  /** Append pasted/dropped images to the pending attachment strip. */
+  addImages: (images: AgentImageInput[]) => void;
+  /** Remove one pending image by index. */
+  removeImage: (index: number) => void;
+  /** Set (or clear) the prompt queued to auto-send when the current turn ends. */
+  setQueuedPrompt: (v: string | null) => void;
   setVerbosity: (v: TranscriptVerbosity) => void;
   /** Replace the projection from an `agent:event` snapshot. */
   ingest: (chat: AgentChatState) => void;
@@ -56,10 +82,12 @@ type AgentActions = {
   send: () => Promise<void>;
   abort: () => Promise<void>;
   answer: (callId: string, answers: AgentAnswers) => Promise<void>;
-  approve: (callId: string, approved: boolean) => Promise<void>;
+  approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
   acceptEdit: (editId: string) => Promise<void>;
   revertEdit: (editId: string) => Promise<void>;
   resetChat: () => Promise<void>;
+  /** Summarize + replace the transcript to free context (claude-code `/compact`). */
+  compact: () => Promise<{ ok: boolean; reason?: string }>;
   /** Refresh the saved-session list from main. */
   loadSessions: () => Promise<void>;
   /** Load a saved session as the active conversation, then re-hydrate the chat. */
@@ -92,11 +120,22 @@ function maybeRefreshGitForEdits(chat: AgentChatState): void {
 export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
+  pendingImages: [],
+  promptHistory: loadHistory(),
+  queuedPrompt: null,
   verbosity: loadVerbosity(),
   localError: null,
   sessions: [],
 
   setDraft: (draft) => set({ draft }),
+
+  addImages: (images) =>
+    set((s) => ({ pendingImages: [...s.pendingImages, ...images].slice(0, 8) })),
+
+  removeImage: (index) =>
+    set((s) => ({ pendingImages: s.pendingImages.filter((_, i) => i !== index) })),
+
+  setQueuedPrompt: (queuedPrompt) => set({ queuedPrompt }),
 
   setVerbosity: (verbosity) => {
     try {
@@ -132,7 +171,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   },
 
   send: async () => {
-    const { draft, chat } = get();
+    const { draft, chat, pendingImages } = get();
     const text = draft.trim();
     if (text.length === 0) return;
     if (chat.status === 'thinking' || chat.status === 'working' || chat.status === 'waiting_for_user') {
@@ -156,18 +195,27 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       .filter((c) => web.selectedCaptureIds.has(c.id))
       .map(toPayload);
 
-    set({ localError: null, draft: '' });
+    // Record the prompt for up/down recall (dedupe consecutive repeats, cap len).
+    const history = [...get().promptHistory.filter((h) => h !== text), text].slice(-HISTORY_CAP);
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch {
+      // ignore — in-memory history still updates
+    }
+    set({ localError: null, draft: '', pendingImages: [], promptHistory: history });
     try {
       const res = await window.marudesk.invoke('agent:send', {
         provider,
         model,
         prompt: text,
         captures,
+        images: pendingImages.length > 0 ? pendingImages : undefined,
         tabId: activeWebTabId(),
       });
-      if (!res.ok) set({ localError: res.reason, draft: text });
+      // Restore the draft + images so the user can retry without re-attaching.
+      if (!res.ok) set({ localError: res.reason, draft: text, pendingImages });
     } catch (err) {
-      set({ localError: toMessage(err), draft: text });
+      set({ localError: toMessage(err), draft: text, pendingImages });
     }
   },
 
@@ -191,11 +239,11 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     }
   },
 
-  approve: async (callId, approved) => {
+  approve: async (callId, approved, always = false) => {
     const turnId = get().chat.turnId;
     if (!turnId) return;
     try {
-      await window.marudesk.invoke('agent:approve-tool', { turnId, callId, approved });
+      await window.marudesk.invoke('agent:approve-tool', { turnId, callId, approved, always });
     } catch {
       // ignore
     }
@@ -226,6 +274,14 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       await get().loadSessions();
     } catch {
       // ignore
+    }
+  },
+
+  compact: async () => {
+    try {
+      return await window.marudesk.invoke('agent:compact');
+    } catch (err) {
+      return { ok: false, reason: toMessage(err) };
     }
   },
 

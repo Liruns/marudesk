@@ -48,13 +48,27 @@ export type ToolCall = {
 export type AgentTextPart = { type: 'text'; text: string };
 export type AgentToolPart = { type: 'tool'; call: ToolCall };
 /**
+ * An image the user pasted/dropped into the composer (claude-code / codex image
+ * input parity). `data` is raw base64 (no `data:` prefix); `mediaType` is the
+ * MIME type, e.g. `image/png`. Rendered as a thumbnail in the transcript and
+ * forwarded to vision-capable models as a multimodal content part.
+ */
+export type AgentImagePart = { type: 'image'; mediaType: string; data: string };
+/**
  * The model's streamed reasoning ("extended thinking"). Display-only — rendered
  * as a collapsible "Thinking" block (Claude/Codex Desktop parity, v3 §5-A) and
  * NOT round-tripped into the provider transcript (avoids the signed-thinking-block
  * round-trip constraints; the loop keeps reasoning out of `ModelMessage[]`).
  */
 export type AgentReasoningPart = { type: 'reasoning'; text: string };
-export type AgentPart = AgentTextPart | AgentToolPart | AgentReasoningPart;
+export type AgentPart =
+  | AgentTextPart
+  | AgentToolPart
+  | AgentReasoningPart
+  | AgentImagePart;
+
+/** A user-attached image forwarded with the first turn (see {@link AgentImagePart}). */
+export type AgentImageInput = { mediaType: string; data: string };
 
 export type AgentRole = 'user' | 'assistant';
 
@@ -156,6 +170,8 @@ export type AgentSendInput = {
   prompt: string;
   /** Captures selected in the Captures tab, attached as first-turn context. */
   captures: CapturePayload[];
+  /** Images pasted/dropped into the composer, forwarded to vision models. */
+  images?: AgentImageInput[];
   /** The active web tab, so runtime tools (console/dom/network) have a target. */
   tabId?: string;
 };

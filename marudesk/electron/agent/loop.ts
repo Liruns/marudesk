@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import type {
   AgentAnswers,
   AgentChatState,
@@ -14,7 +16,7 @@ import { emptyAgentChatState } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
-import { getProvider, isBuiltinProviderId, MODELS } from '../../shared/providers';
+import { getProvider, isBuiltinProviderId, isProviderId, MODELS } from '../../shared/providers';
 import { coalesced } from '../coalesce';
 import { getProviderApiKey } from '../secrets';
 import { CLAUDE_CODE_SYSTEM_PREFIX, supportsOAuth } from '../oauth/config';
@@ -157,6 +159,20 @@ Operating rules:
 
 Paths are workspace-relative. To create a file, call edit_file with oldString="".`;
 
+/**
+ * Plan-mode addendum (claude-code plan mode parity). Appended to the system
+ * prompt when {@link AgentApprovalMode} is `plan`: the agent researches with
+ * read tools but is barred from editing/eval and must end with a concrete plan
+ * the user can approve before switching to Ask/Auto to execute it.
+ */
+/** Marker prefixing the compaction summary in the rebuilt transcript (codex SUMMARY_PREFIX). */
+const SUMMARY_PREFIX = 'Summary of the earlier conversation (compacted to save context):';
+
+/** The summarization instruction sent to the model for `/compact`. */
+const COMPACT_INSTRUCTION = `Summarize the conversation below so it can replace the full history while preserving everything needed to continue the work. Capture: the user's goals and constraints, key decisions and their rationale, files and code touched, what was tried and what worked or failed, current state, and concrete next steps. Be specific (file paths, function names, error signatures) but concise. Output only the summary prose — no preamble.`;
+
+const PLAN_MODE_SYSTEM = `PLAN MODE IS ACTIVE. Do NOT edit files, run code, or change anything — write tools and eval are blocked this turn. Investigate with read/search tools, then end your reply with a concrete, ordered implementation plan: the files you would touch, the change in each, and how you would verify it. The user will review the plan and switch out of plan mode to execute it.`;
+
 /* ── module state ───────────────────────────────────────────────────────── */
 
 let state: AgentChatState = emptyAgentChatState();
@@ -164,7 +180,15 @@ let state: AgentChatState = emptyAgentChatState();
 // (every tool_use is answered by a tool_result) so a later turn can reuse it.
 let transcript: ModelMessage[] = [];
 let controller: AbortController | null = null;
-let approvalResolver: ((approved: boolean) => void) | null = null;
+/** Approval decision from the UI: approved/denied, plus "always for this session". */
+type ApprovalDecision = { approved: boolean; always: boolean };
+let approvalResolver: ((decision: ApprovalDecision) => void) | null = null;
+/**
+ * Gated tools the user chose to "Allow always" for this conversation. Future
+ * calls to a tool in this set skip the approval prompt (claude-code "Allow
+ * always" parity). Cleared on reset/resume so it never leaks across conversations.
+ */
+const sessionAllowedTools = new Set<string>();
 let answersResolver: ((answers: AgentAnswers) => void) | null = null;
 // Synchronous re-entrancy guard: status is only set busy *after* an await in
 // startTurn, so two near-simultaneous sends could both pass busy(). This closes
@@ -306,14 +330,56 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): stri
   return lines.join('\n');
 }
 
+/* ── post-edit verify hook (claude-code / codex PostToolUse) ─────────────── */
+
+const execAsync = promisify(exec);
+const VERIFY_TIMEOUT_MS = 120_000;
+const VERIFY_OUTPUT_MAX = 2000;
+
+/**
+ * Run the user's configured post-edit verify command (Settings → Agent) at the
+ * end of a turn that edited files, and return a PASS/FAIL note to fold into the
+ * conversation — so a broken edit surfaces immediately and is in context for the
+ * next turn. Returns null when the hook is off, no workspace is open, or the turn
+ * made no edits. The command is user-configured (trusted, opt-in); it runs in the
+ * workspace root with a hard timeout.
+ */
+async function runVerifyNote(turnId: string, ws: WorkspaceSummary | null): Promise<string | null> {
+  const cmd = getSettingsSync().agent.verifyCommand.trim();
+  if (!cmd || !ws) return null;
+  // Only verify when this turn actually changed files on disk.
+  if (!state.edits.some((e) => e.turnId === turnId)) return null;
+  state.status = 'working';
+  emit();
+  let passed = false;
+  let detail = '';
+  try {
+    const { stdout, stderr } = await execAsync(cmd, {
+      cwd: ws.root,
+      timeout: VERIFY_TIMEOUT_MS,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    passed = true;
+    detail = `${stdout}${stderr}`.trim();
+  } catch (err) {
+    const e = err as { killed?: boolean; stdout?: string; stderr?: string; message?: string };
+    detail = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message || 'command failed';
+    if (e.killed) detail = `timed out after ${VERIFY_TIMEOUT_MS / 1000}s\n${detail}`;
+  }
+  const tail = scrubText(detail).slice(-VERIFY_OUTPUT_MAX);
+  return `\n\n---\n**Post-edit verify** \`${cmd}\`: ${passed ? '✓ PASS' : '✗ FAIL'}${
+    tail ? `\n\n\`\`\`\n${tail}\n\`\`\`` : ''
+  }`;
+}
+
 /* ── parking (approval / ask_user) ──────────────────────────────────────── */
 
 // Settle-then-replace: never leave a live resolver from a prior call behind, so
 // a late agent:approve-tool / agent:respond can't resolve the wrong parked
 // promise. The turnId+callId guards in approveTool/respond are the primary gate;
 // this is belt-and-suspenders for the resolver lifecycle.
-function waitForApproval(): Promise<boolean> {
-  approvalResolver?.(false);
+function waitForApproval(): Promise<ApprovalDecision> {
+  approvalResolver?.({ approved: false, always: false });
   return new Promise((resolve) => {
     approvalResolver = resolve;
   });
@@ -412,7 +478,8 @@ async function runLoop(opts: RunOpts): Promise<void> {
       a.auth.mode === 'oauth' && a.provider === 'anthropic'
         ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SYSTEM_PROMPT}`
         : SYSTEM_PROMPT;
-    const system = [baseSystem, opts.customInstructions, wsInstructions]
+    const planAddendum = opts.approvalMode === 'plan' ? PLAN_MODE_SYSTEM : null;
+    const system = [baseSystem, planAddendum, opts.customInstructions, wsInstructions]
       .filter((s): s is string => !!s && !!s.trim())
       .join('\n\n---\n\n');
     const codexBackend = a.provider === 'openai-codex';
@@ -576,7 +643,18 @@ async function runLoop(opts: RunOpts): Promise<void> {
     transcript.push({ role: 'assistant', content: assistantContent });
     emit();
 
-    if (calls.length === 0) return finish('completed');
+    if (calls.length === 0) {
+      // Post-edit verify hook: if this turn changed files and a verify command is
+      // configured, run it and fold the result into this assistant message (UI +
+      // model context) before completing.
+      const note = await runVerifyNote(opts.turnId, opts.ws);
+      if (note) {
+        assistantMsg.parts.push({ type: 'text', text: note });
+        assistantContent.push({ type: 'text', text: note });
+        emit();
+      }
+      return finish('completed');
+    }
 
     // Execute each tool call; collect one tool_result per call (transcript stays valid).
     state.status = 'working';
@@ -596,20 +674,25 @@ async function runLoop(opts: RunOpts): Promise<void> {
         continue;
       }
 
-      // Read-only mode: refuse mutations + code execution outright (don't even
-      // prompt). Reads still run; sensitive read tools below still ask. (§B4)
+      // Read-only and plan modes: refuse mutations + code execution outright
+      // (don't even prompt). Reads still run; sensitive read tools below still
+      // ask. Plan mode additionally steers the model toward a plan via the
+      // system addendum. (§B4)
       if (
-        opts.approvalMode === 'read-only' &&
+        (opts.approvalMode === 'read-only' || opts.approvalMode === 'plan') &&
         (isWriteTool(call.name) || call.name === 'eval_js')
       ) {
+        const planning = opts.approvalMode === 'plan';
         call.state = 'denied';
-        call.resultText = 'Blocked: read-only mode.';
+        call.resultText = planning ? 'Blocked: plan mode.' : 'Blocked: read-only mode.';
         emit();
         toolResultParts.push(
           toolResult(
             call.id,
             call.name,
-            'Blocked: the agent is in read-only mode. Switch to Ask or Auto in Settings → Agent to allow edits and code execution.',
+            planning
+              ? 'Blocked: plan mode is active — do not edit. Finish researching and present a step-by-step plan; the user will switch to Ask or Auto to execute it.'
+              : 'Blocked: the agent is in read-only mode. Switch to Ask or Auto in Settings → Agent to allow edits and code execution.',
             true,
           ),
         );
@@ -618,8 +701,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
       // Gated tools (eval_js / cookies / storage / terminal output): park for
       // explicit approval — unless the mode is `auto` or the bridge is in
-      // unattended mode, which auto-approve. (§B4)
-      if (isGatedTool(call.name) && opts.approvalMode !== 'auto' && !opts.unattended) {
+      // unattended mode, which auto-approve, or the user already chose "Allow
+      // always" for this tool this conversation. (§B4)
+      if (
+        isGatedTool(call.name) &&
+        opts.approvalMode !== 'auto' &&
+        !opts.unattended &&
+        !sessionAllowedTools.has(call.name)
+      ) {
         call.state = 'awaiting_approval';
         state.status = 'waiting_for_user';
         state.pendingApproval = {
@@ -629,7 +718,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
           detail: describeToolInput(call.name, call.input),
         };
         emit();
-        const approved = await waitForApproval();
+        const decision = await waitForApproval();
         approvalResolver = null;
         state.pendingApproval = null;
         if (opts.signal.aborted) {
@@ -637,7 +726,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
           toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
           continue;
         }
-        if (!approved) {
+        // "Allow always": remember this tool so later calls skip the prompt.
+        if (decision.approved && decision.always) sessionAllowedTools.add(call.name);
+        if (!decision.approved) {
           call.state = 'denied';
           call.resultText = 'Denied by the user.';
           state.status = 'working';
@@ -718,7 +809,7 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
   state.pendingApproval = null;
   state.pendingQuestions = null;
   // Settle + drop any parked resolver so none leaks past the turn.
-  approvalResolver?.(false);
+  approvalResolver?.({ approved: false, always: false });
   approvalResolver = null;
   answersResolver?.({});
   answersResolver = null;
@@ -864,6 +955,97 @@ export async function testProviderConnection(
   }
 }
 
+/* ── compaction (claude-code / codex `/compact`) ────────────────────────── */
+
+/** Flatten the running transcript to plain text for the summarization prompt. */
+function serializeForCompaction(msgs: ModelMessage[]): string {
+  const lines: string[] = [];
+  for (const m of msgs) {
+    let text = '';
+    if (typeof m.content === 'string') {
+      text = m.content;
+    } else {
+      // Each part is one of the AI SDK content shapes; we only need a textual
+      // trace (prose + which tools ran), so read just these fields structurally.
+      const parts = m.content as ReadonlyArray<{ type: string; text?: string; toolName?: string }>;
+      const pieces: string[] = [];
+      for (const p of parts) {
+        if (p.type === 'text' && p.text) pieces.push(p.text);
+        else if (p.type === 'tool-call' && p.toolName) pieces.push(`[ran ${p.toolName}]`);
+        else if (p.type === 'tool-result' && p.toolName) pieces.push(`[result of ${p.toolName}]`);
+        else if (p.type === 'image') pieces.push('[image]');
+      }
+      text = pieces.join(' ');
+    }
+    text = text.trim();
+    if (text) lines.push(`${m.role}: ${text}`);
+  }
+  return lines.join('\n\n');
+}
+
+/**
+ * Compact the conversation (claude-code / codex `/compact`): summarize the full
+ * transcript with the conversation's own model, then replace the history with
+ * that summary so later turns keep context without the token weight. Uses the
+ * same provider-aware auth + system handling as a turn (anthropic-OAuth prefix,
+ * codex `store:false`). Standalone-compaction style: the prior history is
+ * cleared and represented by the summary, capped with a synthetic assistant ack
+ * so the next turn still alternates user→assistant→user (Anthropic requirement).
+ */
+export async function compactConversation(): Promise<{ ok: boolean; reason?: string }> {
+  if (busy() || starting) return { ok: false, reason: 'a turn is already in progress' };
+  if (!conversationProvider || !conversationModel || !isProviderId(conversationProvider)) {
+    return { ok: false, reason: 'nothing to compact yet' };
+  }
+  if (transcript.length < 2) return { ok: false, reason: 'conversation is too short to compact' };
+  const provider = conversationProvider;
+  const model = conversationModel;
+  starting = true;
+  try {
+    const resolved = await resolveTurnAuth(provider);
+    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    const m = buildModel(provider, model, resolved.auth, resolved.baseUrl);
+    const codexBackend = provider === 'openai-codex';
+    const system =
+      resolved.auth.mode === 'oauth' && provider === 'anthropic'
+        ? CLAUDE_CODE_SYSTEM_PREFIX
+        : undefined;
+    const convo = serializeForCompaction(transcript);
+    const res = await generateText({
+      model: m,
+      system,
+      prompt: `${COMPACT_INSTRUCTION}\n\n<conversation>\n${convo}\n</conversation>`,
+      maxOutputTokens: codexBackend ? undefined : 2048,
+      providerOptions: codexBackend ? { openai: { store: false } } : undefined,
+    });
+    const summary = res.text.trim();
+    if (!summary) return { ok: false, reason: 'the model returned an empty summary' };
+
+    transcript = [
+      { role: 'user', content: `${SUMMARY_PREFIX}\n${summary}` },
+      { role: 'assistant', content: 'Understood — I have the summary above and will continue from here.' },
+    ];
+    state.messages = [
+      {
+        id: uid('m'),
+        role: 'assistant',
+        parts: [{ type: 'text', text: `Compacted the earlier conversation.\n\n${summary}` }],
+        timestamp: Date.now(),
+      },
+    ];
+    state.usage = { inputTokens: 0, outputTokens: 0 };
+    state.error = null;
+    state.endNote = null;
+    emit();
+    if (conversationId) void persistSession().then(() => emit()).catch(() => {});
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: humanizeModelError(err, provider, model) };
+  } finally {
+    starting = false;
+  }
+}
+
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
   // `starting` closes the window between this check and `state.status` going
   // busy (there's an `await getProviderApiKey` before we set it), so two
@@ -910,9 +1092,30 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     state.pendingQuestions = null;
 
     const userText = buildUserText(input, ws);
+    const images = input.images ?? [];
     const promptNote = input.captures.length > 0 ? `${input.prompt.trim()}\n\n(+${input.captures.length} attached capture${input.captures.length === 1 ? '' : 's'})` : input.prompt.trim();
-    state.messages.push({ id: uid('m'), role: 'user', parts: [{ type: 'text', text: promptNote }], timestamp: Date.now() });
-    transcript.push({ role: 'user', content: userText });
+    // Show the prompt text plus any pasted images as thumbnails in the transcript.
+    const userParts: AgentMessage['parts'] = [{ type: 'text', text: promptNote }];
+    for (const img of images) {
+      userParts.push({ type: 'image', mediaType: img.mediaType, data: img.data });
+    }
+    state.messages.push({ id: uid('m'), role: 'user', parts: userParts, timestamp: Date.now() });
+    // Forward images to the model as multimodal content parts alongside the text.
+    if (images.length > 0) {
+      transcript.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: userText },
+          ...images.map((img) => ({
+            type: 'image' as const,
+            image: img.data,
+            mediaType: img.mediaType,
+          })),
+        ],
+      });
+    } else {
+      transcript.push({ role: 'user', content: userText });
+    }
     emit();
 
     const settings = getSettingsSync();
@@ -962,7 +1165,7 @@ export function abortTurn(turnId: string): boolean {
   if (state.turnId !== turnId || !controller) return false;
   controller.abort();
   // Unblock a parked turn so the loop can observe the abort and bail cleanly.
-  approvalResolver?.(false);
+  approvalResolver?.({ approved: false, always: false });
   answersResolver?.({});
   return true;
 }
@@ -974,10 +1177,15 @@ export function respond(turnId: string, callId: string, answers: AgentAnswers): 
   return true;
 }
 
-export function approveTool(turnId: string, callId: string, approved: boolean): boolean {
+export function approveTool(
+  turnId: string,
+  callId: string,
+  approved: boolean,
+  always = false,
+): boolean {
   if (state.pendingApproval?.turnId !== turnId || state.pendingApproval?.callId !== callId) return false;
   if (!approvalResolver) return false;
-  approvalResolver(approved);
+  approvalResolver({ approved, always });
   return true;
 }
 
@@ -1040,6 +1248,8 @@ export function reset(): boolean {
   // Forget tracked reads — the next conversation starts fresh, so a file read in
   // the prior chat shouldn't gate an edit here.
   clearReadTracker();
+  // "Allow always" choices are conversation-scoped — drop them with the chat.
+  sessionAllowedTools.clear();
   // The prior conversation was persisted on its last turn's finish(); drop its id
   // so the next turn begins (and saves to) a fresh session.
   conversationId = null;
@@ -1061,6 +1271,7 @@ export async function resumeSession(id: string): Promise<boolean> {
   const record = await readSession(id);
   if (!record) return false;
   const keptEdits = state.edits.filter((e) => e.status === 'applied');
+  sessionAllowedTools.clear();
   state = emptyAgentChatState();
   state.edits = keptEdits;
   state.messages = record.messages ?? [];
