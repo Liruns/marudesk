@@ -1,6 +1,7 @@
 import type { AgentChatState } from '../types';
 import { Emitter } from './emitter';
-import { parseRelayFrame, parseRelayHostMessage } from './relay-frames';
+import { P2pUpgrade } from './p2p';
+import { parseRelayFrame, parseRelayHostMessage, parseRtcSignal, type RelayHostMessage } from './relay-frames';
 import type {
   Transport,
   TransportCommand,
@@ -42,6 +43,8 @@ export class RelayTransport implements Transport {
   private readonly stateEmitter = new Emitter<AgentChatState>();
   private readonly statusEmitter = new Emitter<TransportStatusInfo>();
   private readonly pending = new Map<string, Pending>();
+  /** The direct P2P upgrade, live once a host is online; null = relay-only. */
+  private p2p: P2pUpgrade | null = null;
 
   private relayUrl = '';
   private accessToken = '';
@@ -64,6 +67,8 @@ export class RelayTransport implements Transport {
   disconnect(): void {
     this.stopped = true;
     this.clearReconnect();
+    this.p2p?.stop();
+    this.p2p = null;
     this.failAllPending('disconnected');
     const socket = this.ws;
     this.ws = null;
@@ -87,26 +92,47 @@ export class RelayTransport implements Transport {
   }
 
   send<K extends TransportCommand>(cmd: K, args: TransportCommandArgs[K]): Promise<void> {
-    const ws = this.ws;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error('not connected'));
-    }
     const cid = uuid();
-    const frame = { payload: { k: 'cmd', cid, cmd, args } };
+    const command = { k: 'cmd', cid, cmd, args };
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(cid);
         reject(new Error(`"${cmd}" timed out`));
       }, COMMAND_TIMEOUT_MS);
       this.pending.set(cid, { resolve, reject, timer });
-      try {
-        ws.send(JSON.stringify(frame));
-      } catch (err) {
+      // Prefer the direct P2P channel; fall back to the relay socket. The ack
+      // settles `cid` from whichever path the host replies on (handleHostMessage).
+      let sent = this.p2p?.send(JSON.stringify(command)) ?? false;
+      if (!sent) sent = this.trySendOverRelay(command);
+      if (!sent) {
         clearTimeout(timer);
         this.pending.delete(cid);
-        reject(err instanceof Error ? err : new Error('send failed'));
+        reject(new Error('not connected'));
       }
     });
+  }
+
+  /** Send a command over the relay socket, wrapped in its `{payload}` envelope. */
+  private trySendOverRelay(command: unknown): boolean {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(JSON.stringify({ payload: command }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Send a signaling message to the PC over the relay (P2P handshake only). */
+  private sendSignalOverRelay(payload: unknown): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify({ payload }));
+    } catch {
+      /* the P2P attempt times out and we stay on the relay */
+    }
   }
 
   /* ── socket lifecycle ──────────────────────────────────────────────────── */
@@ -146,20 +172,35 @@ export class RelayTransport implements Transport {
       this.opened = true;
       this.attempt = 0;
       this.hostOnline = frame.peers.hosts > 0;
-      this.setStatus({ status: 'connected', hostOnline: this.hostOnline });
+      this.setStatus({ status: 'connected', hostOnline: this.hostOnline, p2p: this.p2p?.isOpen() ?? false });
       // Pull the current state so a phone joining mid-session paints immediately.
       void this.send('snapshot', {}).catch(() => {
         /* a snapshot failure is non-fatal; the next agent:event repaints anyway */
       });
+      // If a PC is already online, try to upgrade to a direct P2P channel.
+      if (this.hostOnline) this.startP2p();
+      return;
+    }
+
+    // WebRTC signaling from the host (answer / ICE) rides the relay payload too.
+    const signal = parseRtcSignal(frame.payload);
+    if (signal) {
+      this.p2p?.handleSignal(signal);
       return;
     }
 
     // A relay envelope from the host: any host traffic means a PC is online.
     const msg = parseRelayHostMessage(frame.payload);
-    if (!msg) return;
+    if (msg) this.handleHostMessage(msg);
+  }
+
+  /** Handle a validated host message from EITHER the relay or the P2P channel. */
+  private handleHostMessage(msg: RelayHostMessage): void {
     if (!this.hostOnline) {
       this.hostOnline = true;
-      this.setStatus({ status: 'connected', hostOnline: true });
+      this.setStatus({ status: 'connected', hostOnline: true, p2p: this.p2p?.isOpen() ?? false });
+      // A host just appeared (and we're relay-connected) — attempt the P2P upgrade.
+      this.startP2p();
     }
     if (msg.k === 'event') {
       this.stateEmitter.emit(msg.state);
@@ -174,11 +215,44 @@ export class RelayTransport implements Transport {
     else p.reject(new Error(msg.error ?? 'command failed'));
   }
 
+  /** Start a single WebRTC upgrade attempt (no-op if one is already in flight). */
+  private startP2p(): void {
+    if (this.stopped || this.p2p) return;
+    const p2p = new P2pUpgrade({
+      sid: uuid(),
+      sendSignal: (sig) => this.sendSignalOverRelay(sig),
+      onHostMessage: (msg) => this.handleHostMessage(msg),
+      onOpen: () => {
+        if (!this.stopped) this.setStatus({ status: 'connected', hostOnline: true, p2p: true });
+      },
+      onClose: () => {
+        // P2P failed or dropped — drop it and stay on the relay path (still connected).
+        if (this.p2p === p2p) this.p2p = null;
+        if (!this.stopped) {
+          this.setStatus({ status: 'connected', hostOnline: this.hostOnline, p2p: false });
+        }
+      },
+    });
+    this.p2p = p2p;
+    void p2p.start();
+  }
+
   private onClose(socket: WebSocket): void {
     if (this.ws === socket) this.ws = null;
+    if (this.stopped) return;
+
+    // If a direct P2P channel is open, the relay was only a signaling/fallback
+    // path: the host is still reachable and in-flight commands still get their
+    // acks over the channel. Keep the session up and reconnect the relay quietly.
+    if (this.p2p?.isOpen()) {
+      this.setStatus({ status: 'connected', hostOnline: true, p2p: true });
+      this.scheduleReconnect();
+      return;
+    }
+
+    // Relay was the only path to the host — it's now unreachable.
     this.hostOnline = false;
     this.failAllPending('connection closed');
-    if (this.stopped) return;
 
     if (!this.opened) {
       // Never reached `ready` — the relay most likely rejected the upgrade (expired

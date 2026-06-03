@@ -1,4 +1,4 @@
-import { Loader2, Wifi, WifiOff, AlertTriangle, CircleDot } from 'lucide-react';
+import { Loader2, Wifi, WifiOff, AlertTriangle, CircleDot, Zap } from 'lucide-react';
 import type { AgentStatus } from '../types';
 import type { TransportStatusInfo } from '../transport';
 
@@ -47,8 +47,15 @@ export function ConnectionChip({ info }: { info: TransportStatusInfo }) {
     color = 'var(--fg-muted)';
   } else if (info.status === 'connected') {
     if (info.hostOnline) {
-      label = 'PC online';
+      // Distinguish a direct P2P channel (traffic bypasses the cloud) from
+      // relay-only — a Zap for the fast path, plain Wi-Fi for the relay.
       color = 'var(--ok)';
+      if (info.p2p) {
+        icon = <Zap size={14} />;
+        label = 'PC · direct';
+      } else {
+        label = 'PC · relay';
+      }
     } else {
       icon = <CircleDot size={14} />;
       label = 'Waiting for PC';
