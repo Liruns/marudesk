@@ -33,6 +33,7 @@ import { ASK_USER, describeToolInput, type ToolContext } from './tools';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
 import { clearReadTracker } from './read-tracker';
+import { keywordModePreamble } from './keyword-modes';
 import type { SessionRecord, SessionSummary } from '../../shared/context';
 
 /**
@@ -283,6 +284,11 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): stri
     // Scrub: URLs can carry tokens in query params (and captures carry page text).
     if (url) lines.push(`Active web tab URL: ${scrubText(url)}`);
   }
+  // Keyword modes (e.g. "ulw"/ultrawork): steer the model via a prepended
+  // preamble. Applied to the model-facing text only — the chat shows the
+  // original message unchanged.
+  const preamble = keywordModePreamble(input.prompt);
+  if (preamble) lines.push('', preamble);
   lines.push('', `User request: ${input.prompt.trim()}`);
   if (input.captures.length > 0) {
     lines.push('', 'Attached context (selected by the user):');

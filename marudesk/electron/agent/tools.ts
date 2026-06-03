@@ -971,6 +971,7 @@ export type McpGroup =
   | 'tabs'
   | 'sessions'
   | 'memory'
+  | 'skills'
   | 'pc'
   // Tools from an external (stdio) MCP connector — third-party, so `gated` by
   // default (see electron/agent/mcp-external.ts).
