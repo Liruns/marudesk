@@ -238,8 +238,17 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
   `trusted`/`tools`(노출 도구 이름) 추가. Settings → MCP Servers가 트랜스포트 아이콘, Trusted 배지,
   연결 시 도구 목록을 렌더.
 
-### 8.5 검증
-- `npm run harness:mcp` — sanitize(유니온/trust/disabledTools/URL drop/중복), buildExternalServer(trust→
-  ungated, disabledTools 필터), 상태 필드(transport/target/trusted/tools), crash(onclose), 그리고 **실제
-  Streamable HTTP 왕복**(in-proc mock HTTP 서버 `mcp-mock-http-server.ts` 대상)까지 62개 assertion.
+### 8.5 도구 결과 콘텐츠 매핑
+- MCP `callTool`은 content **배열**(text/image/audio/resource/resource_link) + 선택적
+  `structuredContent`를 돌려준다. 기존엔 비-text를 전부 `[type content omitted]`로 버렸다.
+- 고도화: 비-text를 **컴팩트 텍스트 노트**로 렌더 — image/audio는 `[image image/png, 12.3 KB]`(blob 미인라인),
+  resource_link는 이름+uri, embedded text resource는 본문 인라인, binary resource는 mime+size 노트.
+  content가 없고 `structuredContent`만 있으면 JSON 직렬화. **바이너리 blob은 절대 transcript에 인라인하지
+  않음**(컨텍스트 비대화 + 시크릿 스캔 비용 방지). egress `scrubText`/길이 클립 유지.
+
+### 8.6 검증
+- `npm run harness:mcp` — sanitize(유니온/trust/disabledTools/URL drop/중복), 콘텐츠 매핑(text/image/
+  resource/link/structured/empty), buildExternalServer(trust→ungated, disabledTools 필터), 상태
+  필드(transport/target/trusted/tools), crash(onclose), 그리고 **실제 Streamable HTTP 왕복**(in-proc
+  mock HTTP 서버 `mcp-mock-http-server.ts` 대상)까지 70개 assertion.
 - `npm run typecheck` / `npm run lint` / `npm run build` 통과.

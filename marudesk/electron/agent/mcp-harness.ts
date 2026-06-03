@@ -15,6 +15,7 @@ import {
   disposeExternalMcpServers,
   listMcpServerStatuses,
   syncExternalMcpServers,
+  toToolResult,
   type McpCallToolResult,
   type McpClientLike,
   type McpExternalToolInfo,
@@ -180,6 +181,33 @@ async function main(): Promise<void> {
     const errOut = await boom.exec({}, ctx);
     check('(b) isError result maps to ToolResult.isError', errOut.isError === true);
     check('(b) error result still carries its text', errOut.text.includes('kaboom'));
+  }
+
+  /* ── unit: toToolResult maps text / image / resource / link / structured ──── */
+  {
+    const big = 'A'.repeat(4096); // ~3 KB decoded
+    const out = toToolResult('t', {
+      content: [
+        { type: 'text', text: 'hello' },
+        { type: 'image', mimeType: 'image/png', data: big },
+        { type: 'resource_link', uri: 'file:///x.ts', name: 'x.ts', mimeType: 'text/plain' },
+        { type: 'resource', resource: { uri: 'mem://note', text: 'inline body' } },
+        { type: 'resource', resource: { uri: 'blob://b', mimeType: 'application/pdf', blob: big } },
+        { type: 'weird', foo: 1 },
+      ],
+    });
+    check('content: text part is kept verbatim', out.text.includes('hello'));
+    check('content: image noted with mime + size, blob not inlined', /\[image image\/png, [\d.]+ KB\]/.test(out.text) && !out.text.includes(big));
+    check('content: resource_link surfaces name + uri', out.text.includes('[resource link "x.ts": file:///x.ts'));
+    check('content: embedded text resource is inlined', out.text.includes('[resource mem://note]') && out.text.includes('inline body'));
+    check('content: binary resource noted with mime + size, blob not inlined', out.text.includes('[resource blob://b (application/pdf)') && out.text.includes('KB]'));
+    check('content: unknown type keeps the omitted fallback', out.text.includes('[weird content omitted]'));
+
+    const structured = toToolResult('t', { structuredContent: { ok: true, n: 2 } });
+    check('content: structuredContent stringified when no content parts', structured.text.includes('"ok":true') && structured.text.includes('"n":2'));
+
+    const empty = toToolResult('t', {});
+    check('content: empty result yields "(no content)"', empty.text === '(no content)');
   }
 
   /* ── unit: trust → ungated, disabledTools filtered out ──────────────────── */
