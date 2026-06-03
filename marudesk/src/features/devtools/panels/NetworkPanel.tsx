@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Trash2, X } from 'lucide-react';
+import { Sparkles, Trash2, X } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { toast } from '../../../lib/toast';
 import { toMessage } from '../../../lib/toMessage';
+import { askAgent } from '../../agent/store';
 import { useDevtoolsStore, type ThrottlePreset } from '../store';
 import type { NetworkEntry } from '../types';
 
@@ -86,6 +87,32 @@ function buildCurl(entry: NetworkEntry): string {
     parts.push(`-H ${q(`${k}: ${v}`)}`);
   }
   return parts.join(' \\\n  ');
+}
+
+/** A request worth handing to the agent: a transport failure or a 4xx/5xx response. */
+function isFailure(entry: NetworkEntry): boolean {
+  return entry.failed === true || (entry.status !== undefined && entry.status >= 400);
+}
+
+/**
+ * Seed an agent turn with the one failed request's identity (method/url/status)
+ * so it targets the right entry, then hand off to its own `read_network` /
+ * `read_network_body` tools to pull headers + body and find the root cause —
+ * mirroring the console "Fix this" flow (which leans on `get_console_errors`).
+ */
+function buildNetworkFixPrompt(entry: NetworkEntry): string {
+  const outcome = entry.failed
+    ? `failed at the transport level${entry.errorText ? ` (${entry.errorText})` : ''}`
+    : `returned ${entry.status ?? '?'}${entry.statusText ? ` ${entry.statusText}` : ''}`;
+  return (
+    `A network request on the running page is broken and needs fixing.\n` +
+    `  ${entry.method ?? 'GET'} ${entry.url}\n` +
+    `  Outcome: ${outcome}\n\n` +
+    `Use read_network (and read_network_body for this request) to inspect the ` +
+    `actual response/headers, find the root cause in the workspace source — the ` +
+    `client call site or the server/handler — fix it, then reload and verify the ` +
+    `request succeeds.`
+  );
 }
 
 function fmtSize(entry: NetworkEntry): string {
@@ -215,6 +242,8 @@ function Initiator({ initiator }: { initiator: NetworkEntry['initiator'] }) {
 }
 
 function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }) {
+  // The agent chat lives in the main window; hide the hand-off in the popout.
+  const windowMode = useDevtoolsStore((s) => s.windowMode);
   const [body, setBody] = useState<string | null>(null);
   const [bodyState, setBodyState] = useState<'idle' | 'loading' | 'empty'>('idle');
   // Reset the loaded body when the selected request changes, using the
@@ -254,6 +283,17 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
           {fileName(entry.url)}
         </span>
         <div className="flex items-center gap-1 shrink-0">
+          {!windowMode && isFailure(entry) ? (
+            <button
+              type="button"
+              onClick={() => void askAgent(buildNetworkFixPrompt(entry))}
+              title="Ask AI to fix this request"
+              className="h-5 px-1.5 rounded inline-flex items-center gap-1 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
+            >
+              <Sparkles size={11} />
+              Fix this
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void copyCurl()}
