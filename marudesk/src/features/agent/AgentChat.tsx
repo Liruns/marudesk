@@ -67,6 +67,14 @@ import type {
   PendingQuestions,
   ToolCall,
 } from '../../../shared/agent';
+import {
+  filterSlash,
+  resolveSlash,
+  slashQuery,
+  SLASH_COMMANDS,
+  type SlashActionId,
+  type SlashCommand,
+} from '../../../shared/slash-commands';
 import { openSettingsTab, useSettingsStore } from '../settings/store';
 import { useProvidersStore } from '../providers/store';
 import type { AgentApprovalMode, ReasoningEffort } from '../../../shared/settings';
@@ -154,7 +162,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
+  const changesRef = useRef<HTMLDivElement>(null);
   const [contextOpen, setContextOpen] = useState(false);
+  // Slash-command menu (`/` in the composer). `slashIndex` is the highlighted
+  // row; `slashDismissed` lets Escape hide the menu without clearing the draft;
+  // `slashInfo` shows the local `/help` or `/context` readout above the composer.
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashInfo, setSlashInfo] = useState<'help' | 'context' | null>(null);
   // Stick-to-bottom: true while the user is at/near the bottom (auto-scroll on),
   // false once they scroll up to re-read mid-stream (auto-scroll paused).
   const stickToBottomRef = useRef(true);
@@ -213,9 +228,81 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const receipt =
     chat.status === 'completed' ? buildReceipt(chat.messages) : null;
 
+  // Slash menu: visible while the draft is a bare `/token` (no argument yet) and
+  // not dismissed. Once the user types a space (an argument), the menu hides and
+  // the command runs on Enter via the resolver in handleSend.
+  const slashQ = slashQuery(draft);
+  const slashItems = slashQ !== null && !slashDismissed ? filterSlash(slashQ) : [];
+  const slashOpen = slashItems.length > 0;
+
+  const setDraftAndTrackSlash = (v: string) => {
+    setDraft(v);
+    setSlashDismissed(false);
+    setSlashIndex(0);
+    if (slashInfo) setSlashInfo(null);
+  };
+
+  const runSlashAction = (action: SlashActionId) => {
+    switch (action) {
+      case 'new':
+        void resetChat();
+        break;
+      case 'diff':
+        if (chat.edits.length > 0) {
+          changesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          toast({ title: 'No changes yet', description: 'This conversation has not edited any files.' });
+        }
+        break;
+      case 'context':
+        setSlashInfo('context');
+        break;
+      case 'help':
+        setSlashInfo('help');
+        break;
+      case 'model':
+        window.dispatchEvent(new CustomEvent('marudesk:open-model-palette'));
+        break;
+    }
+  };
+
+  // Complete a picked menu command into the composer. Action commands run
+  // immediately; prompt commands fill the line (`/review `) so the user can add
+  // an argument, then Enter sends (handleSend expands it).
+  const pickSlash = (cmd: SlashCommand) => {
+    if (cmd.kind === 'action') {
+      runSlashAction(cmd.action);
+      setDraft('');
+      setSlashDismissed(true);
+      return;
+    }
+    const filled = `/${cmd.name} `;
+    setDraft(filled);
+    setSlashDismissed(true);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(filled.length, filled.length);
+    });
+  };
+
   const handleSend = () => {
     // A fresh prompt should snap back to the bottom even if the user scrolled up.
     stickToBottomRef.current = true;
+    // Intercept slash commands before they reach the model. Action commands run
+    // locally; prompt commands expand into a templated instruction and send.
+    const resolved = resolveSlash(draft);
+    if (resolved) {
+      if (resolved.command.kind === 'action') {
+        runSlashAction(resolved.command.action);
+        setDraft('');
+        return;
+      }
+      setDraft(resolved.command.expand(resolved.arg));
+      void send();
+      return;
+    }
     void send();
   };
 
@@ -232,6 +319,30 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // While the slash menu is open it owns the arrow/Tab/Enter keys.
+    if (slashOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % slashItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + slashItems.length) % slashItems.length);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const cmd = slashItems[Math.min(slashIndex, slashItems.length - 1)];
+        if (cmd) pickSlash(cmd);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashDismissed(true);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -290,7 +401,11 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             ))
           )}
 
-          {chat.edits.length > 0 ? <ChangesSection edits={chat.edits} /> : null}
+          {chat.edits.length > 0 ? (
+            <div ref={changesRef}>
+              <ChangesSection edits={chat.edits} />
+            </div>
+          ) : null}
 
           {receipt ? <ReceiptCard receipt={receipt} /> : null}
 
@@ -372,7 +487,19 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
           ) : null}
 
-          <div className="flex items-end gap-2">
+          {slashInfo ? (
+            <SlashInfoCard kind={slashInfo} onClose={() => setSlashInfo(null)} />
+          ) : null}
+
+          <div className="relative flex items-end gap-2">
+            {slashOpen ? (
+              <SlashMenu
+                items={slashItems}
+                activeIndex={Math.min(slashIndex, slashItems.length - 1)}
+                onPick={pickSlash}
+                onHover={setSlashIndex}
+              />
+            ) : null}
             <ContextButton
               buttonRef={plusButtonRef}
               open={contextOpen}
@@ -381,10 +508,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             <textarea
               ref={textareaRef}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setDraftAndTrackSlash(e.target.value)}
               onKeyDown={onKeyDown}
               rows={full ? 3 : 2}
-              placeholder="Ask the agent to fix an error, change the UI, inspect the page… (Enter to send)"
+              placeholder="Ask the agent, or type / for commands… (Enter to send)"
               spellCheck={false}
               className={cn(
                 'flex-1 min-h-[44px] max-h-40 resize-none rounded bg-surface-page border border-default px-3 py-2',
@@ -419,6 +546,127 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           ) : null}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ── slash command menu ─────────────────────────────────────────────────── */
+
+/**
+ * The `/` command menu (claude-code `/init` `/review`, codex `/diff` parity).
+ * Floats above the composer while the draft is a bare `/token`. Arrow keys move
+ * the selection, Enter/Tab pick, Escape dismisses — all driven from the
+ * composer's onKeyDown so focus stays in the textarea.
+ */
+function SlashMenu({
+  items,
+  activeIndex,
+  onPick,
+  onHover,
+}: {
+  items: SlashCommand[];
+  activeIndex: number;
+  onPick: (cmd: SlashCommand) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <div
+      role="listbox"
+      aria-label="Slash commands"
+      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
+    >
+      {items.map((cmd, i) => (
+        <button
+          key={cmd.name}
+          type="button"
+          role="option"
+          aria-selected={i === activeIndex}
+          onMouseEnter={() => onHover(i)}
+          // Pick on mousedown so the textarea doesn't lose focus first (which
+          // would tear down the menu before the click lands).
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onPick(cmd);
+          }}
+          className={cn(
+            'w-full flex items-baseline gap-2.5 px-3 py-1.5 text-left transition-colors duration-fast',
+            i === activeIndex ? 'bg-surface-3' : 'hover:bg-surface-3/60',
+          )}
+        >
+          <span className="font-mono text-body-sm text-fg-primary shrink-0">/{cmd.name}</span>
+          {cmd.kind === 'prompt' && cmd.argHint ? (
+            <span className="font-mono text-caption text-fg-tertiary shrink-0">{cmd.argHint}</span>
+          ) : null}
+          <span className="text-caption text-fg-tertiary truncate ml-auto pl-3">{cmd.description}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The local readout shown by `/help` (the command list) and `/context` (what is
+ * currently in the model's context window). Neither makes a model call.
+ */
+function SlashInfoCard({ kind, onClose }: { kind: 'help' | 'context'; onClose: () => void }) {
+  return (
+    <div className="rounded border border-subtle bg-surface-1 px-3 py-2.5">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-caption font-medium text-fg-secondary">
+          {kind === 'help' ? 'Slash commands' : 'Context window'}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Dismiss"
+          className="text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+        >
+          <X size={13} />
+        </button>
+      </div>
+      {kind === 'help' ? <SlashHelpBody /> : <SlashContextBody />}
+    </div>
+  );
+}
+
+function SlashHelpBody() {
+  return (
+    <div className="flex flex-col gap-1">
+      {SLASH_COMMANDS.map((cmd) => (
+        <div key={cmd.name} className="flex items-baseline gap-2.5 text-body-sm">
+          <span className="font-mono text-fg-primary shrink-0 w-20">/{cmd.name}</span>
+          <span className="text-caption text-fg-tertiary">{cmd.description}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SlashContextBody() {
+  const messages = useAgentStore((s) => s.chat.messages);
+  const usage = useAgentStore((s) => s.chat.usage);
+  const edits = useAgentStore((s) => s.chat.edits);
+  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  const models = useProvidersStore((s) => s.models);
+  const model = findModel(models, selectedModelKey);
+  const ctx = model?.contextWindow;
+  const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
+  const rows: Array<[string, string]> = [
+    ['Model', model ? model.label : '—'],
+    ['Messages', String(messages.length)],
+    ['Input tokens', usage.inputTokens.toLocaleString()],
+    ['Output tokens', usage.outputTokens.toLocaleString()],
+    ['Context window', ctx ? `${formatContext(ctx)} (${pct}% used)` : 'unknown'],
+    ['Files edited', String(edits.length)],
+  ];
+  return (
+    <div className="flex flex-col gap-1">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex items-baseline justify-between gap-3 text-body-sm">
+          <span className="text-caption text-fg-tertiary">{label}</span>
+          <span className="font-mono text-fg-primary tabular-nums">{value}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -535,6 +783,14 @@ function ProviderModelBar({ full }: { full?: boolean }) {
   const selectKeyProvider = useProvidersStore((s) => s.selectKeyProvider);
 
   const [open, setOpen] = useState(false);
+
+  // The composer's `/model` command opens this palette via a window event, so the
+  // command stays decoupled from the bar's local open state.
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener('marudesk:open-model-palette', onOpen);
+    return () => window.removeEventListener('marudesk:open-model-palette', onOpen);
+  }, []);
 
   const current = findModel(models, selectedModelKey);
   const hasKey = !!providerStatus.find((s) => s.id === selectedProvider)?.hasKey;
