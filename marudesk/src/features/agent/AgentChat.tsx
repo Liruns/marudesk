@@ -353,6 +353,20 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       case 'help':
         setSlashInfo('help');
         break;
+      case 'copy': {
+        if (chat.messages.length === 0) {
+          toast({ title: 'Nothing to copy', description: 'This conversation is empty.' });
+          break;
+        }
+        const md = chat.messages
+          .map((m) => `**${m.role === 'user' ? 'User' : 'Assistant'}:**\n\n${textOf(m)}`)
+          .join('\n\n---\n\n');
+        void navigator.clipboard
+          .writeText(md)
+          .then(() => toast({ title: 'Conversation copied', description: 'Markdown is on your clipboard.' }))
+          .catch((err) => toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' }));
+        break;
+      }
       case 'model':
         window.dispatchEvent(new CustomEvent('marudesk:open-model-palette'));
         break;
@@ -995,12 +1009,16 @@ function SlashContextBody() {
   const usage = useAgentStore((s) => s.chat.usage);
   const edits = useAgentStore((s) => s.chat.edits);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  const selectedProvider = useProvidersStore((s) => s.selectedProvider);
   const models = useProvidersStore((s) => s.models);
+  const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
   const model = findModel(models, selectedModelKey);
   const ctx = model?.contextWindow;
   const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
   const rows: Array<[string, string]> = [
+    ['Provider', providerLabel(selectedProvider)],
     ['Model', model ? model.label : '—'],
+    ['Approval mode', approvalMode],
     ['Messages', String(messages.length)],
     ['Input tokens', usage.inputTokens.toLocaleString()],
     ['Output tokens', usage.outputTokens.toLocaleString()],

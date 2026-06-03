@@ -15,7 +15,7 @@
  */
 
 /** Renderer-resolved commands — each maps to a concrete composer action. */
-export type SlashActionId = 'new' | 'diff' | 'context' | 'help' | 'model' | 'compact';
+export type SlashActionId = 'new' | 'diff' | 'context' | 'help' | 'model' | 'compact' | 'copy';
 
 export type SlashActionCommand = {
   kind: 'action';
@@ -104,8 +104,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     kind: 'action',
     name: 'context',
-    description: 'Show what is in the context window right now',
+    aliases: ['status'],
+    description: 'Show the session config and what is in the context window',
     action: 'context',
+  },
+  {
+    kind: 'action',
+    name: 'copy',
+    description: 'Copy the whole conversation as markdown',
+    action: 'copy',
   },
   {
     kind: 'action',
