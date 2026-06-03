@@ -1,81 +1,24 @@
 import path from 'node:path';
-import type { WorkspaceSummary } from '../../shared/workspace';
-import type { AppliedChange } from '../../shared/patch';
-import { scrubText, scrubHeaders } from '../../shared/scrub';
-import { urlToWorkspacePath } from '../../shared/runtime-evidence';
-import type { NetworkRecord } from '../../shared/network-evidence';
-import { readFileSafe } from '../workspace';
-import { resolveWorkspacePath } from '../fs-safe';
-import { applyPatch } from '../patch';
-import { isStaleForEdit, recordRead, updateAfterWrite } from './read-tracker';
-import { getTab, getErrors, getNetwork, type TabRecord } from '../browser/state';
-import { sendCdp, enableNetworkCapture } from '../browser/cdp';
+import type { WorkspaceSummary } from '../../../shared/workspace';
+import { scrubText, scrubHeaders } from '../../../shared/scrub';
+import { urlToWorkspacePath } from '../../../shared/runtime-evidence';
+import type { NetworkRecord } from '../../../shared/network-evidence';
+import { readFileSafe } from '../../workspace';
+import { resolveWorkspacePath } from '../../fs-safe';
+import { applyPatch } from '../../patch';
+import { isStaleForEdit, recordRead, updateAfterWrite } from '../read-tracker';
+import { getTab, getErrors, getNetwork, type TabRecord } from '../../browser/state';
+import { sendCdp, enableNetworkCapture } from '../../browser/cdp';
+import type { Executor, ToolContext, ToolResult } from './types';
 
 /**
- * The agent tool layer (docs/agentic-chat-design.md §4) — the §9 promotion of
+ * The agent tool executors (docs/agentic-chat-design.md §4) — the §9 promotion of
  * the assist-era capabilities into model-callable tools. Every executor delegates
  * to the SAME validated path the rest of the app uses (readFileSafe's symlink/
  * root guards, applyPatch's atomic 3-phase write, sendCdp's allowlist) — no new
  * fs/CDP permission surface. Every page-originated string that flows back to the
  * model is passed through shared/scrub.ts (P0.5).
  */
-
-/* ── shapes ─────────────────────────────────────────────────────────────── */
-
-export type ToolSchema = {
-  name: string;
-  description: string;
-  /** JSON Schema for the tool input (Anthropic `input_schema`). */
-  inputSchema: object;
-};
-
-export type ToolContext = {
-  /**
-   * The open workspace, or null when the user is chatting without a folder open.
-   * File tools (read/list/grep/edit) are then unavailable and return a friendly
-   * error; the browser/page tools (console/dom/network/eval) work regardless.
-   */
-  ws: WorkspaceSummary | null;
-  /** The active web tab id — runtime tools (console/dom/network) target it. */
-  tabId?: string;
-  /** Aborts an in-flight tool (e.g. the wait inside reload_and_verify). */
-  signal: AbortSignal;
-  /**
-   * Path globs the agent may never edit (Settings → Agent, Track B §B4). Checked
-   * in applyEdits against each edit's workspace-relative path. Undefined/empty =
-   * no extra deny rules (the read-side SECRET_FILE guard still applies).
-   */
-  denyGlobs?: string[];
-};
-
-export type ToolResult = {
-  /** One-line card header, e.g. "edit src/App.tsx". */
-  summary: string;
-  /** tool_result content for the model — already scrubbed + clipped. */
-  text: string;
-  isError?: boolean;
-  /** File edits applied by this call, for the chat's diff/revert history (P2). */
-  edits?: AppliedChange[];
-};
-
-/**
- * Tools that require explicit user approval per call: code execution (eval_js)
- * and the sensitive read-only context tools (cookies / web storage often hold
- * session tokens). This is the interim of Track B §B4's `ask` default until the
- * full glob-permission / approval-mode system lands.
- */
-export const GATED_TOOLS = new Set([
-  'eval_js',
-  'click',
-  'fill',
-  'press_key',
-  'scroll',
-  'browser_cookies',
-  'browser_storage',
-]);
-
-/** `ask_user` is intercepted by the loop (it parks the turn), never executed here. */
-export const ASK_USER = 'ask_user';
 
 const MAX_TOOL_TEXT = 12_000;
 const MAX_FILE_READ = 16_000;
@@ -688,10 +631,6 @@ async function reloadAndVerify(
   };
 }
 
-/* ── registry ───────────────────────────────────────────────────────────── */
-
-export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
-
 /* ── context tools (Track B §B1 — on-demand, read-only, secret-scrubbed) ──── */
 
 async function browserCookies(_input: unknown, ctx: ToolContext): Promise<ToolResult> {
@@ -751,7 +690,9 @@ async function browserStorage(input: { kind?: unknown }, ctx: ToolContext): Prom
   return { summary: `storage @ ${origin}`, text: clip(scrubText(blocks.join('\n\n'))) };
 }
 
-const EXECUTORS: Record<string, Executor> = {
+/* ── registry ───────────────────────────────────────────────────────────── */
+
+export const EXECUTORS: Record<string, Executor> = {
   read_file: readFile as Executor,
   list_files: listFiles as Executor,
   grep: grep as Executor,
@@ -810,251 +751,3 @@ export function describeToolInput(name: string, input: unknown): string {
   if (typeof o.url === 'string') return o.url.slice(0, 300);
   return JSON.stringify(o).slice(0, 300);
 }
-
-const strProp = (desc: string) => ({ type: 'string', description: desc });
-
-export const TOOL_SCHEMAS: ToolSchema[] = [
-  {
-    name: 'read_file',
-    description: 'Read a UTF-8 workspace file (relative path). Output is line-numbered ("N\\t<text>") for reference only — those number+tab prefixes are NOT part of the file. Read before editing: your oldString must match the file text exactly (without the prefixes), and an edit to a file that changed since you read it is refused until you re-read it.',
-    inputSchema: { type: 'object', properties: { path: strProp('Workspace-relative path.') }, required: ['path'], additionalProperties: false },
-  },
-  {
-    name: 'list_files',
-    description: 'List indexed workspace files, optionally filtered by a glob (e.g. "src/**/*.tsx").',
-    inputSchema: { type: 'object', properties: { glob: strProp('Optional glob; * and ** supported.') }, additionalProperties: false },
-  },
-  {
-    name: 'grep',
-    description: 'Case-insensitive literal substring search across indexed files. Returns path:line: text. Narrow with a glob.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        pattern: strProp('Literal substring to find.'),
-        glob: strProp('Optional path glob to narrow the search.'),
-        maxResults: { type: 'number', description: 'Cap on hits (default 60).' },
-      },
-      required: ['pattern'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'edit_file',
-    description: 'Apply ONE string-replace edit. oldString must be a unique verbatim substring of the current file; set oldString="" to create a new file with newString as its contents. Atomic.',
-    inputSchema: {
-      type: 'object',
-      properties: { path: strProp('Workspace-relative path.'), oldString: strProp('Unique substring to replace (or "" to create).'), newString: strProp('Replacement (or full contents for a new file).') },
-      required: ['path', 'oldString', 'newString'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'multi_edit',
-    description: 'Apply several string-replace edits across one or more files atomically (all-or-nothing). Prefer this when a fix spans multiple sites.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        edits: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: { path: strProp('Workspace-relative path.'), oldString: strProp('Unique substring (or "" to create).'), newString: strProp('Replacement.') },
-            required: ['path', 'oldString', 'newString'],
-            additionalProperties: false,
-          },
-        },
-      },
-      required: ['edits'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_console_errors',
-    description: 'Read the live page\'s captured runtime errors (always-on). Each carries a confidence-tagged source file when its stack maps deterministically to a workspace file. Start here for a "fix this error" task.',
-    inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max errors (default 20).' } }, additionalProperties: false },
-  },
-  {
-    name: 'query_dom',
-    description: 'Inspect the live DOM: returns the matched element\'s outerHTML + key computed styles. Read-only.',
-    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector.') }, required: ['selector'], additionalProperties: false },
-  },
-  {
-    name: 'eval_js',
-    description: 'Evaluate a JavaScript expression in the live page and return the result. Powerful — requires user approval each call. Use for runtime probing you cannot get from query_dom/get_console_errors.',
-    inputSchema: { type: 'object', properties: { expression: strProp('JS expression to evaluate.') }, required: ['expression'], additionalProperties: false },
-  },
-  {
-    name: 'click',
-    description: 'Click an element in the active web tab. selector is a CSS selector — use query_dom first to find one. Scrolls the element into view, then clicks. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector of the element to click.') }, required: ['selector'], additionalProperties: false },
-  },
-  {
-    name: 'fill',
-    description: 'Set the value of an input, textarea, or contenteditable in the active web tab (React-compatible — fires input/change so framework state updates). selector is a CSS selector; find one with query_dom first. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector of the field.'), value: strProp('Text to set as the field value.') }, required: ['selector', 'value'], additionalProperties: false },
-  },
-  {
-    name: 'press_key',
-    description: 'Dispatch a key press (keydown+keyup) in the active web tab — e.g. "Enter", "Escape", "Tab", "ArrowDown". Targets the selector element (focused first) or the focused element if no selector. Good for submitting forms / triggering key handlers. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { key: strProp('Key name, e.g. "Enter", "Escape", "Tab", "ArrowDown".'), selector: strProp('Optional CSS selector to focus and target; defaults to the focused element.') }, required: ['key'], additionalProperties: false },
-  },
-  {
-    name: 'scroll',
-    description: 'Scroll the active web tab. With a selector (CSS), smooth-scrolls that element into view; without one, scrolls the window a screenful in the given direction. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { selector: strProp('Optional CSS selector to scroll into view.'), direction: { type: 'string', enum: ['up', 'down'], description: "Window scroll direction when no selector (default 'down')." } }, additionalProperties: false },
-  },
-  {
-    name: 'read_network',
-    description: 'List recent network responses/failures captured from the live page (lazily enables capture). For TRIAGE: a failing status is often backend/infra, not a frontend bug. Secrets in URLs/headers are scrubbed.',
-    inputSchema: { type: 'object', properties: { urlFilter: strProp('Optional substring to filter URLs.'), max: { type: 'number', description: 'Max rows (default 40).' } }, additionalProperties: false },
-  },
-  {
-    name: 'read_network_body',
-    description: 'Fetch a captured response body by requestId (from read_network). Secrets are scrubbed. Use to inspect a malformed response shape (e.g. "10%" where a number was expected).',
-    inputSchema: { type: 'object', properties: { requestId: strProp('requestId from read_network.') }, required: ['requestId'], additionalProperties: false },
-  },
-  {
-    name: 'reload_and_verify',
-    description: 'Reload the page, wait for it to settle, then re-read the console. REQUIRED after editing to fix a runtime error — pass the error message as errorSignature to confirm it is GONE or STILL PRESENT. This closed loop is how you prove a fix worked.',
-    inputSchema: {
-      type: 'object',
-      properties: { waitMs: { type: 'number', description: 'Settle wait, max 5000 (default 2500).' }, errorSignature: strProp('A substring of the error you expect to be gone.') },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_cookies',
-    description: "Read the live page's cookies (name, value, domain, flags). Read-only; values are secret-scrubbed. Requires user approval. Use to debug auth/session state.",
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    name: 'browser_storage',
-    description: "Read the live page's localStorage and/or sessionStorage entries. Read-only; values are secret-scrubbed. Requires user approval.",
-    inputSchema: { type: 'object', properties: { kind: strProp("'local', 'session', or omit for both.") }, additionalProperties: false },
-  },
-  {
-    name: ASK_USER,
-    description: 'Ask the user one or more questions and wait for their answer. Use when the request is ambiguous or you need a decision before continuing.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        questions: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: { question: strProp('The question.'), options: { type: 'array', items: { type: 'string' }, description: 'Optional suggested answers.' } },
-            required: ['question'],
-            additionalProperties: false,
-          },
-        },
-      },
-      required: ['questions'],
-      additionalProperties: false,
-    },
-  },
-];
-
-/* ── MCP descriptor layer (docs/context-mcp-design §1.1) ─────────────────── */
-
-/**
- * A tool's source group — used to organize the built-in "marudesk" context MCP
- * server and (later) to scope glob permissions. Browser/devtools/terminal/tabs
- * read the LIVE running app over CDP / main state; files reads the workspace;
- * sessions/memory read the new persistent stores; `ask` is the loop-intercepted
- * ask_user.
- */
-export type McpGroup =
-  | 'files'
-  | 'browser'
-  | 'devtools'
-  | 'terminal'
-  | 'tabs'
-  | 'sessions'
-  | 'memory'
-  | 'skills'
-  | 'pc'
-  // Tools from an external (stdio) MCP connector — third-party, so `gated` by
-  // default (see electron/agent/mcp-external.ts).
-  | 'mcp'
-  | 'ask';
-
-/** A self-describing tool definition (JSON-Schema + the metadata the loop needs). */
-export type McpToolDef = ToolSchema & {
-  group: McpGroup;
-  /** Requires explicit per-call user approval (e.g. eval_js, cookies/storage). */
-  gated?: boolean;
-  /** Mutates the workspace/app state — refused outright in read-only mode. */
-  write?: boolean;
-  /** Needs a live web tab as its target. */
-  requiresWeb?: boolean;
-  /** Needs an open workspace folder. */
-  requiresWorkspace?: boolean;
-};
-
-/** A tool definition plus its in-process executor — what a built-in server holds. */
-export type McpTool = McpToolDef & { exec: Executor };
-
-const TOOL_GROUP: Record<string, McpGroup> = {
-  read_file: 'files',
-  list_files: 'files',
-  grep: 'files',
-  edit_file: 'files',
-  multi_edit: 'files',
-  get_console_errors: 'devtools',
-  read_network: 'devtools',
-  read_network_body: 'devtools',
-  query_dom: 'browser',
-  eval_js: 'browser',
-  click: 'browser',
-  fill: 'browser',
-  press_key: 'browser',
-  scroll: 'browser',
-  reload_and_verify: 'browser',
-  browser_cookies: 'browser',
-  browser_storage: 'browser',
-};
-const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit', 'click', 'fill', 'press_key', 'scroll']);
-const WEB_TOOL_NAMES = new Set([
-  'get_console_errors',
-  'query_dom',
-  'eval_js',
-  'click',
-  'fill',
-  'press_key',
-  'scroll',
-  'read_network',
-  'read_network_body',
-  'reload_and_verify',
-  'browser_cookies',
-  'browser_storage',
-]);
-const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_file', 'multi_edit']);
-
-/**
- * The original file/runtime/context tools, expressed as MCP tools (schema +
- * executor + derived metadata). The single source of truth for gated/write/group
- * is the maps above + {@link GATED_TOOLS}; the loop reads these flags off the
- * descriptor instead of hard-coding tool-name sets.
- */
-export const BUILTIN_TOOLS: McpTool[] = TOOL_SCHEMAS.flatMap((s) => {
-  if (s.name === ASK_USER) return [];
-  const exec = EXECUTORS[s.name];
-  if (!exec) return [];
-  return [
-    {
-      ...s,
-      group: TOOL_GROUP[s.name] ?? 'files',
-      gated: GATED_TOOLS.has(s.name),
-      write: WRITE_TOOL_NAMES.has(s.name),
-      requiresWeb: WEB_TOOL_NAMES.has(s.name),
-      requiresWorkspace: WORKSPACE_TOOL_NAMES.has(s.name),
-      exec,
-    },
-  ];
-});
-
-/** The ask_user definition (listed to the model; execution is loop-intercepted). */
-export const ASK_USER_DEF: McpToolDef = {
-  ...TOOL_SCHEMAS.find((s) => s.name === ASK_USER)!,
-  group: 'ask',
-};
