@@ -197,9 +197,49 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
 - **Sessions/Memory 신규 영속화**: `userData/sessions/{index.json,<id>.json}`,
   `userData/marudesk-memory/<slug>.md`. 세션은 대화별 stable id로 매 턴 finish에서 갱신 저장.
 - **남은 것(후속)**: 세션/메모리 브라우징 UI(현재는 MCP 접근만), devtools 전 레벨 console 미러,
-  외부 MCP transport(B5), 멀티모달 page screenshot.
+  멀티모달 page screenshot, 원격 MCP OAuth 인증. (외부 MCP transport는 §8에서 stdio + 원격
+  HTTP/SSE로 고도화됨.)
 
 ## 7. Non-goals
-- 외부(stdio/remote) MCP 클라이언트 연결 — 추상화는 깔되 연결 UI/transport는 후속(v4 §B5).
 - 세션/메모리 풀 UI(브라우징·편집 패널)는 최소만. MCP 접근이 이번 핵심.
 - 멀티모달(스크린샷) 페이지 캡처 — 후속.
+- OAuth 기반 원격 MCP 인증 흐름(authProvider) — 지금은 정적 `headers`(예: `Authorization`)만. 후속.
+
+---
+
+## 8. 외부 MCP 고도화 (remote transport · trust · 헬스)
+
+> v5가 §0/§B5에서 깔아둔 `McpServer` 머지 지점 위에서 외부 커넥터를 실사용 가능한 수준으로
+> 보완·고도화한다. **루프 불변식(승인/read-only/ask_user 중재)은 그대로** — 외부 도구는 여전히
+> `client.callTool`을 우리가 직접 호출하는 plain 도구다(SDK 자동실행 클라이언트 미사용).
+
+### 8.1 원격(HTTP) 트랜스포트
+- 기존: stdio(로컬 프로세스)만. 추가: **Streamable HTTP**(현행 스펙 트랜스포트) + **SSE**(레거시) 폴백.
+- 설정(`mcp-servers.json`)이 트랜스포트별 판별 유니온이 된다:
+  - stdio(기본): `{ id, command, args?, env?, enabled }` — `transport` 생략 또는 `'stdio'`.
+  - http: `{ id, transport: 'http'|'sse', url, headers?, enabled }`.
+- `transport: 'http'`는 Streamable HTTP를 먼저 시도하고 실패 시 SSE로 graceful 다운그레이드.
+  `transport: 'sse'`는 바로 SSE. `headers`(예: `Authorization`)는 모든 요청에 실리며 **로그 금지**.
+- 하위호환: `transport` 없는 기존 stdio 엔트리는 그대로 동작. `command` 없이 `url`만 있으면 http로 추론.
+- `sanitizeMcpConfig`가 트랜스포트별로 검증: http 엔트리는 http(s) URL 필수(아니면 drop).
+
+### 8.2 신뢰(trust)와 도구 필터(disabledTools)
+- `trust: true` → 그 서버의 도구는 **gated 해제**(호출당 승인 생략, read-only/auto 규칙은 유지).
+  사용자가 직접 통제·신뢰하는 서버에만. 기본은 `false`(third-party는 호출당 승인).
+- `disabledTools: string[]` → 서버의 특정 도구(자기 이름 기준)를 **모델에 아예 노출 안 함**.
+
+### 8.3 헬스(crash detection)
+- 연결 성공 후 트랜스포트가 비정상 종료(프로세스 exit/네트워크 끊김)하면 클라이언트 `onclose`로 감지 →
+  죽은 도구를 unregister 하고 상태를 `error('connection closed')`로 표시. 의도적 teardown은 `onclose`를
+  먼저 떼므로 오발 안 함.
+
+### 8.4 Settings 표면
+- `McpServerStatus`에 `transport`/`target`(시크릿 제거된 엔드포인트 라벨: command 또는 URL origin+path)/
+  `trusted`/`tools`(노출 도구 이름) 추가. Settings → MCP Servers가 트랜스포트 아이콘, Trusted 배지,
+  연결 시 도구 목록을 렌더.
+
+### 8.5 검증
+- `npm run harness:mcp` — sanitize(유니온/trust/disabledTools/URL drop/중복), buildExternalServer(trust→
+  ungated, disabledTools 필터), 상태 필드(transport/target/trusted/tools), crash(onclose), 그리고 **실제
+  Streamable HTTP 왕복**(in-proc mock HTTP 서버 `mcp-mock-http-server.ts` 대상)까지 62개 assertion.
+- `npm run typecheck` / `npm run lint` / `npm run build` 통과.

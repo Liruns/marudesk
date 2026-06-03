@@ -1,16 +1,24 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { scrubText } from '../../shared/scrub';
-import type {
-  McpConnectionState,
-  McpServerConfig,
-  McpServerStatus,
+import {
+  isHttpMcpConfig,
+  mcpDisplayTarget,
+  mcpTransportOf,
+  type McpConnectionState,
+  type McpServerConfig,
+  type McpServerStatus,
 } from '../../shared/mcp';
 import { registerMcpServer, unregisterMcpServer, type McpServer } from './mcp';
 import type { McpTool, ToolResult } from './tools';
 
 /**
- * External (stdio) MCP connector manager (docs/remote-mobile-bridge-design §M3).
+ * External MCP connector manager (docs/remote-mobile-bridge-design §M3, extended in
+ * docs/context-mcp-design §8). Connects user-configured servers over **stdio** (a
+ * spawned local process) or **remote HTTP** (Streamable HTTP, with a legacy SSE
+ * fallback) and surfaces their tools to the agent loop.
  *
  * THE invariant: marudesk's agent loop never auto-executes tools — it lists
  * schemas only and routes each call back through `callMcpTool` for approval /
@@ -23,15 +31,20 @@ import type { McpTool, ToolResult } from './tools';
  *
  * Tool metadata: external tools are namespaced `<id>__<tool>`, grouped `'mcp'`, and
  * `gated: true` by default — they're third-party and side-effecting, so the user
- * approves each call (unless Auto mode). They are NOT marked `write` (that would
- * make read-only mode blanket-refuse even read tools); gating is the control.
+ * approves each call (unless Auto mode). A server the user marks `trust: true` in
+ * the config exposes its tools UN-gated (still under read-only/auto rules). External
+ * tools are NOT marked `write` (that would make read-only mode blanket-refuse even
+ * read tools); gating is the control. A server's `disabledTools` are filtered out
+ * entirely so the model never sees them.
  *
- * Graceful failure: a server that fails to spawn / initialize is logged, marked
- * `error`, and skipped — it never crashes the app. The default config is empty, so
- * this ships inert (nothing is spawned until the user configures a server).
+ * Graceful failure: a server that fails to connect / initialize is logged, marked
+ * `error`, and skipped — it never crashes the app. A connected server whose
+ * transport later drops (process exit, network loss) is detected via the client's
+ * `onclose` hook, marked `error`, and its tools removed. The default config is
+ * empty, so this ships inert (nothing connects until the user configures a server).
  */
 
-/** How long to wait for spawn + MCP `initialize` before giving up on a server. */
+/** How long to wait for connect + MCP `initialize` before giving up on a server. */
 const CONNECT_TIMEOUT_MS = 10_000;
 /** Per tool-call timeout passed to `client.callTool`. */
 const CALL_TIMEOUT_MS = 60_000;
@@ -47,6 +60,8 @@ export type McpClientLike = {
     options?: { timeout?: number },
   ): Promise<McpCallToolResult>;
   close(): Promise<void>;
+  /** Invoked by the transport when the connection drops — we use it for crash detection. */
+  onclose?: () => void;
 };
 
 /** A tool as reported by `client.listTools()` (only the fields we consume). */
@@ -84,15 +99,18 @@ function setStatus(
   config: McpServerConfig,
   state: McpConnectionState,
   toolCount: number,
-  error?: string,
+  extra?: { error?: string; tools?: string[] },
 ): McpServerStatus {
   const status: McpServerStatus = {
     id: config.id,
-    command: config.command,
+    transport: mcpTransportOf(config),
+    target: mcpDisplayTarget(config),
     enabled: config.enabled,
+    trusted: config.trust === true,
     state,
     toolCount,
-    ...(error ? { error: scrubText(error) } : {}),
+    ...(extra?.tools ? { tools: extra.tools } : {}),
+    ...(extra?.error ? { error: scrubText(extra.error) } : {}),
   };
   statuses.set(config.id, status);
   return status;
@@ -125,21 +143,36 @@ function toToolResult(name: string, res: McpCallToolResult): ToolResult {
   };
 }
 
+/** Per-server wrapping options derived from the config (trust + tool filter). */
+export type ExternalServerOptions = {
+  /** When true, the server's tools are NOT gated (auto-approve). Default false. */
+  trusted?: boolean;
+  /** Tool names (un-namespaced) to hide from the agent entirely. */
+  disabledTools?: readonly string[];
+};
+
 /**
  * Wrap a connected client's tools as namespaced {@link McpTool}s. Each `exec`
  * strips the `<id>__` prefix back to the server's own tool name and calls
  * `client.callTool` (with a timeout); the loop mediates it via callMcpTool. A
  * thrown SDK error (timeout / transport) is caught here into an error ToolResult so
- * one bad call can't break the turn. Exported for the headless harness.
+ * one bad call can't break the turn.
+ *
+ * `opts.disabledTools` are filtered out (the model never sees them); `opts.trusted`
+ * flips `gated` off so a trusted server's tools auto-approve. Exported for the
+ * headless harness.
  */
 export function buildExternalServer(
   id: string,
   client: McpClientLike,
   tools: McpExternalToolInfo[],
+  opts: ExternalServerOptions = {},
 ): McpServer {
   const prefix = `${id}__`;
+  const hidden = new Set(opts.disabledTools ?? []);
+  const gated = opts.trusted !== true;
   const wrapped: McpTool[] = tools
-    .filter((t) => typeof t.name === 'string' && t.name.length > 0)
+    .filter((t) => typeof t.name === 'string' && t.name.length > 0 && !hidden.has(t.name))
     .map((t) => {
       const toolName = t.name;
       const namespaced = `${prefix}${toolName}`;
@@ -153,7 +186,7 @@ export function buildExternalServer(
           : `[${id}] external MCP tool "${toolName}".`,
         inputSchema,
         group: 'mcp',
-        gated: true,
+        gated,
         async exec(input): Promise<ToolResult> {
           try {
             const res = await client.callTool(
@@ -176,8 +209,23 @@ export function buildExternalServer(
   return { name: id, tools: wrapped };
 }
 
-/** Factory for the real stdio client — overridable by the harness via {@link connectServer}. */
+/** A fresh MCP `Client` with marudesk's identity (no special capabilities). */
+function newClient(): Client {
+  return new Client({ name: 'marudesk', version: '0.1.0' }, { capabilities: {} });
+}
+
+/**
+ * Real connector factory — dispatches on transport. Overridable by the harness via
+ * {@link connectServer} / {@link syncExternalMcpServers}. Stdio spawns a local
+ * process; http/sse reach a remote endpoint.
+ */
+async function connectClient(config: McpServerConfig): Promise<{ client: McpClientLike }> {
+  return isHttpMcpConfig(config) ? connectHttp(config) : connectStdio(config);
+}
+
+/** Spawn a local stdio MCP server and run the initialize handshake. */
 async function connectStdio(config: McpServerConfig): Promise<{ client: McpClientLike }> {
+  if (isHttpMcpConfig(config)) throw new Error('not a stdio config'); // unreachable; narrows the union
   const transport = new StdioClientTransport({
     command: config.command,
     args: config.args ?? [],
@@ -187,14 +235,56 @@ async function connectStdio(config: McpServerConfig): Promise<{ client: McpClien
     // Pipe stderr so a spawn error surfaces in our log, not the user's console.
     stderr: 'pipe',
   });
-  const client = new Client(
-    { name: 'marudesk', version: '0.1.0' },
-    { capabilities: {} },
-  );
+  const client = newClient();
   // connect() spawns the process and runs the MCP initialize handshake; bound by a
   // connect timeout so a hung server can't wedge the manager.
   await client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
   return { client: client as unknown as McpClientLike };
+}
+
+/**
+ * Connect to a remote MCP server. For `transport: 'http'` we try Streamable HTTP
+ * first (the current spec transport) and, on a connect failure, fall back to legacy
+ * SSE — many older hosted servers still only speak SSE. For `transport: 'sse'` we go
+ * straight to SSE. User headers (e.g. `Authorization`) ride on every request; their
+ * values are secret and never logged.
+ */
+async function connectHttp(config: McpServerConfig): Promise<{ client: McpClientLike }> {
+  if (!isHttpMcpConfig(config)) throw new Error('not an http config'); // unreachable; narrows the union
+  const url = new URL(config.url);
+  const requestInit = config.headers ? { headers: config.headers } : undefined;
+
+  // For SSE the initial stream is a GET whose headers come from a custom fetch
+  // (EventSourceInit can't carry headers); reuse it for the POST channel too so
+  // auth headers apply uniformly.
+  const headerFetch: typeof fetch | undefined = config.headers
+    ? (input, init) =>
+        fetch(input, { ...init, headers: { ...(init?.headers ?? {}), ...config.headers } })
+    : undefined;
+
+  const tryConnect = async (kind: 'http' | 'sse'): Promise<McpClientLike> => {
+    const client = newClient();
+    const transport =
+      kind === 'http'
+        ? new StreamableHTTPClientTransport(url, { requestInit })
+        : new SSEClientTransport(url, { requestInit, ...(headerFetch ? { fetch: headerFetch } : {}) });
+    await client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
+    return client as unknown as McpClientLike;
+  };
+
+  if (config.transport === 'sse') return { client: await tryConnect('sse') };
+  try {
+    return { client: await tryConnect('http') };
+  } catch (err) {
+    // Streamable HTTP failed — retry as SSE before giving up (graceful downgrade).
+    console.warn(`[mcp] "${config.id}" Streamable HTTP failed, trying SSE fallback`);
+    try {
+      return { client: await tryConnect('sse') };
+    } catch {
+      // Surface the original (more informative) Streamable HTTP error.
+      throw err;
+    }
+  }
 }
 
 /** A minimal safe env to inherit (avoid leaking the full parent env to children). */
@@ -215,7 +305,7 @@ function getInheritedEnv(): Record<string, string> {
  */
 export async function connectServer(
   config: McpServerConfig,
-  connect: (c: McpServerConfig) => Promise<{ client: McpClientLike }> = connectStdio,
+  connect: (c: McpServerConfig) => Promise<{ client: McpClientLike }> = connectClient,
 ): Promise<McpServerStatus> {
   setStatus(config, 'connecting', 0);
   try {
@@ -228,19 +318,41 @@ export async function connectServer(
       await client.close().catch(() => {});
       throw err;
     }
-    const server = buildExternalServer(config.id, client, tools);
+    const server = buildExternalServer(config.id, client, tools, {
+      trusted: config.trust === true,
+      disabledTools: config.disabledTools,
+    });
     registerMcpServer(server);
-    const status = setStatus(config, 'connected', server.tools.length);
+    const toolNames = server.tools.map((t) => t.name.slice(`${config.id}__`.length));
+    const status = setStatus(config, 'connected', server.tools.length, { tools: toolNames });
     live.set(config.id, { config, client, status });
+    // Crash detection: if the transport drops after we're connected, drop the dead
+    // tools and mark the server errored so the agent + UI stop seeing stale tools.
+    client.onclose = () => handleUnexpectedClose(config.id);
     console.log(`[mcp] connected "${config.id}" — ${server.tools.length} tool(s)`);
     return status;
   } catch (err) {
     const message = (err as Error).message || 'failed to connect';
-    // Don't log the message verbatim (args/env could be sensitive) — id + a scrubbed
-    // reason is enough to debug.
+    // Don't log the message verbatim (args/env/headers could be sensitive) — id + a
+    // scrubbed reason is enough to debug.
     console.error(`[mcp] server "${config.id}" failed to connect: ${scrubText(message)}`);
-    return setStatus(config, 'error', 0, message);
+    return setStatus(config, 'error', 0, { error: message });
   }
+}
+
+/**
+ * Handle a live server's transport closing unexpectedly (process exit, network
+ * loss). We unregister its tools so the agent can't call into a dead connection and
+ * mark it `error` for the UI. A deliberate teardown (disconnectServer) clears the
+ * `onclose` first, so this only fires on real drops.
+ */
+function handleUnexpectedClose(id: string): void {
+  const entry = live.get(id);
+  if (!entry) return;
+  live.delete(id);
+  unregisterMcpServer(id);
+  console.error(`[mcp] server "${id}" connection closed unexpectedly`);
+  setStatus(entry.config, 'error', 0, { error: 'connection closed' });
 }
 
 /** Disconnect one live server: unregister its tools + close the transport. */
@@ -249,6 +361,8 @@ async function disconnectServer(id: string): Promise<void> {
   if (!entry) return;
   live.delete(id);
   unregisterMcpServer(id);
+  // Detach the crash handler first — this is a deliberate teardown, not a drop.
+  entry.client.onclose = undefined;
   await entry.client.close().catch(() => {});
 }
 
@@ -259,7 +373,7 @@ async function disconnectServer(id: string): Promise<void> {
  * UI still lists them. Called at startup and whenever the config changes.
  *
  * The `connect` factory is injectable for the harness; production passes the real
- * stdio connector.
+ * transport-dispatching connector.
  */
 export async function syncExternalMcpServers(
   configs: McpServerConfig[],
@@ -290,19 +404,36 @@ export async function syncExternalMcpServers(
     if (live.has(config.id)) continue;
     // Connect sequentially — a slow/hung server is bounded by CONNECT_TIMEOUT_MS,
     // and configs are few. Each call is graceful (never throws).
-    await connectServer(config, connect ?? connectStdio);
+    await connectServer(config, connect ?? connectClient);
   }
 
   return listMcpServerStatuses();
 }
 
-/** Whether a server's spawn-affecting fields changed (forces a reconnect). */
+/**
+ * Whether a server's connection-affecting fields changed (forces a reconnect).
+ * Covers the transport, its endpoint/secrets, and the wrapping options (trust /
+ * disabledTools) — the latter change the tool set the agent sees, so a reconnect
+ * re-wraps them.
+ */
 function configChanged(a: McpServerConfig, b: McpServerConfig): boolean {
-  return (
-    a.command !== b.command ||
-    JSON.stringify(a.args ?? []) !== JSON.stringify(b.args ?? []) ||
-    JSON.stringify(a.env ?? {}) !== JSON.stringify(b.env ?? {})
-  );
+  if (mcpTransportOf(a) !== mcpTransportOf(b)) return true;
+  if (a.trust !== b.trust) return true;
+  if (JSON.stringify(a.disabledTools ?? []) !== JSON.stringify(b.disabledTools ?? [])) return true;
+  if (isHttpMcpConfig(a) && isHttpMcpConfig(b)) {
+    return (
+      a.url !== b.url ||
+      JSON.stringify(a.headers ?? {}) !== JSON.stringify(b.headers ?? {})
+    );
+  }
+  if (!isHttpMcpConfig(a) && !isHttpMcpConfig(b)) {
+    return (
+      a.command !== b.command ||
+      JSON.stringify(a.args ?? []) !== JSON.stringify(b.args ?? []) ||
+      JSON.stringify(a.env ?? {}) !== JSON.stringify(b.env ?? {})
+    );
+  }
+  return true; // transport kind differs in a way the guards above didn't catch
 }
 
 /** Current status of every configured server (connected, disabled, or errored). */
