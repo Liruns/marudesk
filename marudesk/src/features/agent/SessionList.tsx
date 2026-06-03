@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { History, Plus, Search, Trash2 } from 'lucide-react';
 import type { ProviderId } from '../../../shared/providers';
+import type { SessionSearchHit } from '../../../shared/context';
 import { cn } from '../../lib/cn';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
 import { useAgentStore } from './store';
@@ -23,6 +24,9 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
   const deleteSession = useAgentStore((s) => s.deleteSession);
   const resetChat = useAgentStore((s) => s.resetChat);
   const [filter, setFilter] = useState('');
+  // Backend full-text results (title + transcript) — null while not searching, so
+  // the resting list is the store's recent `sessions`.
+  const [hits, setHits] = useState<SessionSearchHit[] | null>(null);
 
   // Refresh on mount so the list reflects the latest persisted sessions whenever
   // the rail/overlay opens (a turn that finished while it was closed shows up).
@@ -30,16 +34,39 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
     void loadSessions();
   }, [loadSessions]);
 
-  const visible = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return sessions;
-    return sessions.filter(
-      (s) =>
-        (s.title || '').toLowerCase().includes(q) ||
-        (s.model || '').toLowerCase().includes(q) ||
-        s.provider.toLowerCase().includes(q),
+  // Debounced full-text search over the saved transcripts (FTS5 when SQLite is
+  // active, a substring scan on the JSON fallback). An empty query clears back to
+  // the recent list. Stale responses are dropped via the `cancelled` guard.
+  useEffect(() => {
+    const q = filter.trim();
+    let cancelled = false;
+    // Run all state updates inside the (async) timeout callback so none fire
+    // synchronously in the effect body. An empty query clears back to recents.
+    const timer = setTimeout(
+      () => {
+        if (!q) {
+          setHits(null);
+          return;
+        }
+        void window.marudesk
+          .invoke('agent:search-sessions', { query: q })
+          .then((res) => {
+            if (!cancelled) setHits(res);
+          })
+          .catch(() => {
+            if (!cancelled) setHits([]);
+          });
+      },
+      q ? 200 : 0,
     );
-  }, [sessions, filter]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [filter]);
+
+  const searching = hits !== null;
+  const visible: SessionSearchHit[] = hits ?? sessions;
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
@@ -60,15 +87,15 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
           <Plus size={13} className="shrink-0 text-fg-tertiary" />
           <span>New chat</span>
         </button>
-        {sessions.length > 5 ? (
+        {sessions.length > 0 ? (
           <div className="mt-2 flex items-center gap-1.5 h-7 rounded-md bg-surface-page border border-subtle px-2 focus-within:border-accent">
             <Search size={12} className="shrink-0 text-fg-tertiary" aria-hidden />
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Search chats"
+              placeholder="Search chats & messages"
               spellCheck={false}
-              aria-label="Search chats"
+              aria-label="Search chats and messages"
               className="flex-1 min-w-0 bg-transparent text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
             />
           </div>
@@ -81,9 +108,9 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
             <History size={18} className="opacity-30" />
             <span className="leading-snug">No saved chats yet</span>
           </div>
-        ) : visible.length === 0 ? (
+        ) : searching && visible.length === 0 ? (
           <div className="px-4 py-8 text-center text-caption text-fg-tertiary">
-            No chats match “{filter}”
+            No chats match “{filter.trim()}”
           </div>
         ) : (
           <ul className="py-1">
@@ -123,6 +150,11 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                         <span className="mx-1 opacity-50">·</span>
                         {s.messageCount} msg
                       </span>
+                      {s.snippet ? (
+                        <span className="line-clamp-2 text-[0.6875rem] leading-snug text-fg-tertiary">
+                          <Snippet text={s.snippet} />
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                   <button
@@ -143,6 +175,27 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Render an FTS snippet, highlighting the matched terms. The store delimits each
+ * match with ⟦…⟧, so we split on those markers — odd segments are the matches.
+ */
+function Snippet({ text }: { text: string }) {
+  const parts = text.split(/⟦|⟧/);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="bg-transparent text-accent font-medium">
+            {part}
+          </mark>
+        ) : (
+          <Fragment key={i}>{part}</Fragment>
+        ),
+      )}
+    </>
   );
 }
 

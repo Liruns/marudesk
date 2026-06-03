@@ -25,6 +25,7 @@ import {
 } from './state';
 import { applyWebLayout, hideTab, showTab } from './layout';
 import { loadPinnedSpecs, savePinnedTabs } from './pinned-session';
+import { loadTabSession, saveTabSession } from './tab-session';
 import { closeChromeDevtools } from './devtools';
 import {
   detachCdp,
@@ -522,6 +523,8 @@ export function closeTab(id: string): boolean {
   }
   // Closing a pinned tab changes the restorable set.
   if (wasPinned) savePinnedTabs();
+  // Any close changes the restorable session set.
+  saveTabSession();
   return true;
 }
 
@@ -585,6 +588,31 @@ function restorePinnedTabs(): void {
   }
 }
 
+/**
+ * Restore the previous session's full tab set (web pages + saved editor files) in
+ * order, honoring each tab's pinned flag, then activate the tab that was active.
+ * Returns whether anything was restored — when false, the caller falls back to
+ * the default home tab. Gated by Settings → Data & Storage → "Restore tabs".
+ */
+function restoreTabSession(): boolean {
+  const session = loadTabSession();
+  if (session.tabs.length === 0) return false;
+  const ids: string[] = [];
+  for (const spec of session.tabs) {
+    const rec =
+      spec.kind === 'web'
+        ? createTab('web', spec.url || undefined)
+        : createTab('editor', spec.filePath);
+    rec.pinned = spec.pinned;
+    ids.push(rec.id);
+  }
+  // Keep the pinned-first invariant the strip enforces everywhere else.
+  reorderTabRecords(pinnedFirst(tabKeys()));
+  const activeId = session.activeIndex >= 0 ? ids[session.activeIndex] : ids[0];
+  if (activeId) activateTab(activeId);
+  return true;
+}
+
 export function mountBrowserView(win: BrowserWindow): void {
   setHost(win);
   // Configure inspect-partition once (permission denial).
@@ -596,10 +624,14 @@ export function mountBrowserView(win: BrowserWindow): void {
   // them to the Downloads folder and feeding the renderer's download shelf.
   registerDownloadHandler(inspectSession);
 
-  // Restore last session's pinned tabs at the front, then open on the dashboard
-  // (a feature tab). The embedded browser only appears once a web tab exists.
-  restorePinnedTabs();
-  createAndActivateTab('home');
+  // Restore the previous session. When "Restore tabs" is on we bring back the
+  // full open set (and the active tab); otherwise just the pinned tabs, at the
+  // front. Either way the dashboard (home) opens when nothing was restored — the
+  // embedded browser only appears once a web tab exists.
+  const restored = getSettingsSync().storage.persistTabs
+    ? restoreTabSession()
+    : (restorePinnedTabs(), false);
+  if (!restored) createAndActivateTab('home');
 }
 
 /**
@@ -608,9 +640,11 @@ export function mountBrowserView(win: BrowserWindow): void {
  * closing any built-in DevTools first).
  */
 export function disposeBrowserView(): void {
-  // Snapshot the latest pinned URLs/paths before tearing the views down, so a
-  // pinned site that was navigated mid-session restores where it was left.
+  // Snapshot the latest pinned URLs/paths and the full tab session before tearing
+  // the views down, so a site that was navigated mid-session restores where it
+  // was left (the "Continue where you left off" moment).
   savePinnedTabs();
+  saveTabSession();
   for (const rec of tabValues()) {
     detachCdp(rec);
     closeChromeDevtools(rec);

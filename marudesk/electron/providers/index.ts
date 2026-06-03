@@ -5,6 +5,8 @@ import { openaiDriver } from './openai';
 import { googleDriver } from './google';
 import { ollamaDriver } from './ollama';
 import { xaiDriver } from './xai';
+import { zaiDriver } from './zai';
+import { opencodeDriver } from './opencode';
 
 /**
  * OAuth-only subscription providers (openai-codex / google-caa) have no API-key
@@ -28,6 +30,8 @@ export const DRIVERS: Record<ProviderId, ProviderDriver> = {
   xai: xaiDriver,
   'openai-codex': oauthOnlyDriver,
   'google-caa': oauthOnlyDriver,
+  zai: zaiDriver,
+  opencode: opencodeDriver,
 };
 
 export type { ProviderDriver } from './types';

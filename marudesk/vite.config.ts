@@ -39,9 +39,10 @@ export default defineConfig({
               fileName: () => 'main.mjs',
             },
             rollupOptions: {
-              // node-pty is a native module — never bundle it; load from
-              // node_modules at runtime (the integrated terminal in main).
-              external: ['electron', 'node-pty'],
+              // node-pty and better-sqlite3 are native modules — never bundle
+              // them; load from node_modules at runtime (the integrated terminal
+              // and the SQLite session store, both in main).
+              external: ['electron', 'node-pty', 'better-sqlite3'],
               output: {
                 // Force a single-file main bundle (no code splitting). In lib
                 // mode rolldown still splits a bundled dep's dynamic `import()`

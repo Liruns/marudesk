@@ -34,6 +34,8 @@ import { loadWorkspaceInstructions } from './instructions';
 import { ASK_USER, describeToolInput, type ToolContext } from './tools';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
+import { clearReadTracker } from './read-tracker';
+import { keywordModePreamble } from './keyword-modes';
 import type { SessionRecord, SessionSummary } from '../../shared/context';
 
 /**
@@ -306,6 +308,11 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): stri
     // Scrub: URLs can carry tokens in query params (and captures carry page text).
     if (url) lines.push(`Active web tab URL: ${scrubText(url)}`);
   }
+  // Keyword modes (e.g. "ulw"/ultrawork): steer the model via a prepended
+  // preamble. Applied to the model-facing text only — the chat shows the
+  // original message unchanged.
+  const preamble = keywordModePreamble(input.prompt);
+  if (preamble) lines.push('', preamble);
   lines.push('', `User request: ${input.prompt.trim()}`);
   if (input.captures.length > 0) {
     lines.push('', 'Attached context (selected by the user):');
@@ -842,6 +849,9 @@ function snapshotMessagesForSave(): AgentMessage[] {
 
 async function persistSession(): Promise<void> {
   if (!conversationId) return;
+  // Respect the Data & Storage toggle: when session saving is off, conversations
+  // stay in-memory only (no transcript written, nothing added to history).
+  if (!getSettingsSync().storage.persistSessions) return;
   const record: SessionRecord = {
     id: conversationId,
     title: conversationTitle || 'Untitled chat',
@@ -1235,6 +1245,9 @@ export function reset(): boolean {
   state = emptyAgentChatState();
   state.edits = keptEdits;
   transcript = [];
+  // Forget tracked reads — the next conversation starts fresh, so a file read in
+  // the prior chat shouldn't gate an edit here.
+  clearReadTracker();
   // "Allow always" choices are conversation-scoped — drop them with the chat.
   sessionAllowedTools.clear();
   // The prior conversation was persisted on its last turn's finish(); drop its id

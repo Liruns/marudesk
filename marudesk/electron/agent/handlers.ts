@@ -4,6 +4,7 @@ import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { updateContextCache } from './context-cache';
 import { parseAbort, parseApprove, parseRespond, parseSendInput } from './parse';
+import { searchSessions } from './sessions-store';
 import {
   abortTurn,
   acceptEdit,
@@ -99,6 +100,13 @@ export function registerAgentHandlers(): void {
   // Session history (v3 §5-C): list past conversations, resume one as the active
   // chat, or delete one. list/delete proxy sessions-store; resume swaps loop state.
   defineHandler('agent:list-sessions', () => listSavedSessions());
+
+  // Full-text search over saved sessions (title + transcript). An empty query
+  // returns the recent list — the search field's resting state.
+  defineHandler('agent:search-sessions', ([payload]) => {
+    const query = obj(payload).query;
+    return searchSessions(typeof query === 'string' ? query : '');
+  });
 
   defineHandler('agent:resume-session', ([payload]) =>
     resumeSession(nonEmptyStr(obj(payload).id, 'id')),

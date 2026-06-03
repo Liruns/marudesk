@@ -22,6 +22,7 @@ export type SettingsCategory =
   | 'mcp'
   | 'devtools'
   | 'remote'
+  | 'data'
   | 'about';
 
 type SettingsState = {
@@ -91,6 +92,7 @@ function mergePatch(base: AppSettings, patch: SettingsPatch): AppSettings {
     agent: { ...base.agent, ...(patch.agent ?? {}) },
     pcControl: { ...base.pcControl, ...(patch.pcControl ?? {}) },
     server: { ...base.server, ...(patch.server ?? {}) },
+    storage: { ...base.storage, ...(patch.storage ?? {}) },
   };
 }
 

@@ -26,6 +26,8 @@ client and relay should treat the PC host as the owner of that state.
 - Tailwind tokens backed by `src/styles/tokens.css`
 - Playwright for Electron/runtime end-to-end coverage
 - Provider integrations through the AI SDK and provider-specific adapters
+- Local persistence: app settings/secrets/config as JSON, AI Chat sessions in a
+  SQLite store (`better-sqlite3`, with full-text search) that falls back to JSON
 
 ## Run locally
 
@@ -36,6 +38,14 @@ npm run dev
 
 `npm run dev` starts the Vite renderer and Electron shell for local desktop
 development.
+
+`better-sqlite3` is a native module (like `node-pty`). If the SQLite session
+store reports it fell back to JSON (Settings → Data & Storage), rebuild the
+native binaries against Electron's ABI:
+
+```bash
+npm run rebuild:native
+```
 
 ## Verification
 
@@ -65,6 +75,13 @@ npm run harness:mcp
   tests, and companion surfaces.
 - `src/features/*` contains renderer feature slices for browser, DevTools,
   editor, workspace, patch review, settings, git, terminal, and agent chat.
+- Local data is hybrid: settings (`electron/settings.ts`), secrets, MCP config,
+  and history stay JSON; AI Chat sessions live in `electron/db.ts` (SQLite) via
+  `electron/agent/sessions-store.ts`, which migrates legacy `sessions/*.json` on
+  first run and degrades to the JSON layout when the native module is
+  unavailable. Settings → **Data & Storage** manages what persists (chat
+  sessions, tab restore), shows usage, and can clear sessions or reveal the data
+  folder.
 
 Keep runtime evidence flows typed and narrow. If a value crosses from browser
 runtime to agent prompt or patch application, make the boundary explicit in

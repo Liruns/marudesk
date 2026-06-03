@@ -43,6 +43,11 @@ export type { ModelMessage };
 
 const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 const XAI_BASE_URL = 'https://api.x.ai/v1';
+// Z.ai's general OpenAI-compatible API. A GLM Coding Plan key instead needs
+// api.z.ai/api/coding/paas/v4 — that's wired as a custom endpoint, not here.
+const ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+// OpenCode's curated gateway (OpenCode Zen), OpenAI-compatible.
+const OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1';
 
 /**
  * Known-dead / hallucinated model slugs mapped to guidance. A second line of
@@ -189,6 +194,20 @@ export function buildModel(
     case 'ollama':
       // Local, keyless — Ollama exposes an OpenAI-compatible API on this port.
       return createOpenAICompatible({ name: 'ollama', baseURL: OLLAMA_BASE_URL })(modelId);
+    case 'zai':
+      // Z.ai (GLM) — OpenAI-compatible, Bearer API key.
+      return createOpenAICompatible({
+        name: 'zai',
+        baseURL: ZAI_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'opencode':
+      // OpenCode Zen gateway — OpenAI-compatible, Bearer API key.
+      return createOpenAICompatible({
+        name: 'opencode',
+        baseURL: OPENCODE_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
     default: {
       // custom:<id> — a user-configured OpenAI-compatible endpoint.
       if (!baseUrl) throw new Error(`custom provider ${provider} has no base URL`);
