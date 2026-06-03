@@ -914,9 +914,30 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     state.pendingQuestions = null;
 
     const userText = buildUserText(input, ws);
+    const images = input.images ?? [];
     const promptNote = input.captures.length > 0 ? `${input.prompt.trim()}\n\n(+${input.captures.length} attached capture${input.captures.length === 1 ? '' : 's'})` : input.prompt.trim();
-    state.messages.push({ id: uid('m'), role: 'user', parts: [{ type: 'text', text: promptNote }], timestamp: Date.now() });
-    transcript.push({ role: 'user', content: userText });
+    // Show the prompt text plus any pasted images as thumbnails in the transcript.
+    const userParts: AgentMessage['parts'] = [{ type: 'text', text: promptNote }];
+    for (const img of images) {
+      userParts.push({ type: 'image', mediaType: img.mediaType, data: img.data });
+    }
+    state.messages.push({ id: uid('m'), role: 'user', parts: userParts, timestamp: Date.now() });
+    // Forward images to the model as multimodal content parts alongside the text.
+    if (images.length > 0) {
+      transcript.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: userText },
+          ...images.map((img) => ({
+            type: 'image' as const,
+            image: img.data,
+            mediaType: img.mediaType,
+          })),
+        ],
+      });
+    } else {
+      transcript.push({ role: 'user', content: userText });
+    }
     emit();
 
     const settings = getSettingsSync();

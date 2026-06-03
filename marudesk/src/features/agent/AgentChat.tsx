@@ -61,6 +61,7 @@ import {
 import type {
   AgentChatState,
   AgentEdit,
+  AgentImageInput,
   AgentMessage,
   AgentStatus,
   PendingApproval,
@@ -145,6 +146,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const send = useAgentStore((s) => s.send);
   const abort = useAgentStore((s) => s.abort);
   const resetChat = useAgentStore((s) => s.resetChat);
+  const pendingImages = useAgentStore((s) => s.pendingImages);
+  const addImages = useAgentStore((s) => s.addImages);
+  const removeImage = useAgentStore((s) => s.removeImage);
   const verbosity = useAgentStore((s) => s.verbosity);
   const setVerbosity = useAgentStore((s) => s.setVerbosity);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
@@ -316,6 +320,29 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       el.focus();
       el.setSelectionRange(text.length, text.length);
     });
+  };
+
+  // Paste/drop images straight into the composer (claude-code / codex image
+  // input). Non-image clipboard/drop content is left alone so text paste works.
+  const ingestImageFiles = async (files: File[]) => {
+    const images = await readImageFiles(files);
+    if (images.length > 0) addImages(images);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.some((f) => f.type.startsWith('image/'))) {
+      e.preventDefault();
+      void ingestImageFiles(files);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.dataTransfer.files);
+    if (files.some((f) => f.type.startsWith('image/'))) {
+      e.preventDefault();
+      void ingestImageFiles(files);
+    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -491,6 +518,28 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             <SlashInfoCard kind={slashInfo} onClose={() => setSlashInfo(null)} />
           ) : null}
 
+          {pendingImages.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {pendingImages.map((img, i) => (
+                <div key={i} className="relative group/img">
+                  <img
+                    src={`data:${img.mediaType};base64,${img.data}`}
+                    alt="attachment"
+                    className="h-14 w-14 rounded border border-default object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(i)}
+                    aria-label="Remove image"
+                    className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-pill bg-surface-3 border border-default text-fg-secondary hover:text-fg-primary opacity-0 group-hover/img:opacity-100 transition-opacity duration-fast"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div className="relative flex items-end gap-2">
             {slashOpen ? (
               <SlashMenu
@@ -510,6 +559,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               value={draft}
               onChange={(e) => setDraftAndTrackSlash(e.target.value)}
               onKeyDown={onKeyDown}
+              onPaste={handlePaste}
+              onDrop={handleDrop}
               rows={full ? 3 : 2}
               placeholder="Ask the agent, or type / for commands… (Enter to send)"
               spellCheck={false}
@@ -548,6 +599,41 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       </footer>
     </div>
   );
+}
+
+/* ── images ─────────────────────────────────────────────────────────────── */
+
+/** A bounded image thumbnail (composer attachment strip + transcript). */
+function ChatImage({ mediaType, data }: { mediaType: string; data: string }) {
+  return (
+    <img
+      src={`data:${mediaType};base64,${data}`}
+      alt="attached"
+      className="max-h-40 max-w-full rounded border border-subtle object-contain"
+    />
+  );
+}
+
+/**
+ * Read image files (from a paste or drop) into base64 attachment inputs. Skips
+ * non-image entries and anything that fails to read, so a mixed clipboard (text
+ * + image) still works.
+ */
+async function readImageFiles(files: File[]): Promise<AgentImageInput[]> {
+  const images = files.filter((f) => f.type.startsWith('image/'));
+  const out: AgentImageInput[] = [];
+  for (const file of images) {
+    try {
+      const buf = await file.arrayBuffer();
+      let binary = '';
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      out.push({ mediaType: file.type, data: btoa(binary) });
+    } catch {
+      // skip unreadable entries
+    }
+  }
+  return out;
 }
 
 /* ── slash command menu ─────────────────────────────────────────────────── */
@@ -859,12 +945,20 @@ function MessageView({
   verbosity: TranscriptVerbosity;
 }) {
   if (message.role === 'user') {
+    const images = message.parts.filter((p) => p.type === 'image');
     return (
       <div className="self-end max-w-[88%]">
         <div className="rounded-xl bg-accent-subtle/30 border border-accent/20 px-3.5 py-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.15)]">
           <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
             {textOf(message)}
           </p>
+          {images.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {images.map((img, i) => (
+                <ChatImage key={i} mediaType={img.mediaType} data={img.data} />
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -916,6 +1010,13 @@ function MessageView({
             <div key={i} className="text-body-sm text-fg-secondary">
               <Markdown source={part.text} className="md-compact" />
               {caret ? <StreamCaret /> : null}
+            </div>
+          );
+        }
+        if (part.type === 'image') {
+          return (
+            <div key={i}>
+              <ChatImage mediaType={part.mediaType} data={part.data} />
             </div>
           );
         }

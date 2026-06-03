@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AgentAnswers, AgentChatState } from '../../../shared/agent';
+import type { AgentAnswers, AgentChatState, AgentImageInput } from '../../../shared/agent';
 import { emptyAgentChatState } from '../../../shared/agent';
 import type { SessionSummary } from '../../../shared/context';
 import { toMessage } from '../../lib/toMessage';
@@ -38,6 +38,8 @@ function loadVerbosity(): TranscriptVerbosity {
 type AgentState = {
   chat: AgentChatState;
   draft: string;
+  /** Images pasted/dropped into the composer, sent with the next turn. */
+  pendingImages: AgentImageInput[];
   /** Transcript detail level for the message list. */
   verbosity: TranscriptVerbosity;
   /** Local pre-turn error (no key / no workspace / send rejected). */
@@ -48,6 +50,10 @@ type AgentState = {
 
 type AgentActions = {
   setDraft: (v: string) => void;
+  /** Append pasted/dropped images to the pending attachment strip. */
+  addImages: (images: AgentImageInput[]) => void;
+  /** Remove one pending image by index. */
+  removeImage: (index: number) => void;
   setVerbosity: (v: TranscriptVerbosity) => void;
   /** Replace the projection from an `agent:event` snapshot. */
   ingest: (chat: AgentChatState) => void;
@@ -92,11 +98,18 @@ function maybeRefreshGitForEdits(chat: AgentChatState): void {
 export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
+  pendingImages: [],
   verbosity: loadVerbosity(),
   localError: null,
   sessions: [],
 
   setDraft: (draft) => set({ draft }),
+
+  addImages: (images) =>
+    set((s) => ({ pendingImages: [...s.pendingImages, ...images].slice(0, 8) })),
+
+  removeImage: (index) =>
+    set((s) => ({ pendingImages: s.pendingImages.filter((_, i) => i !== index) })),
 
   setVerbosity: (verbosity) => {
     try {
@@ -132,7 +145,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   },
 
   send: async () => {
-    const { draft, chat } = get();
+    const { draft, chat, pendingImages } = get();
     const text = draft.trim();
     if (text.length === 0) return;
     if (chat.status === 'thinking' || chat.status === 'working' || chat.status === 'waiting_for_user') {
@@ -156,18 +169,20 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       .filter((c) => web.selectedCaptureIds.has(c.id))
       .map(toPayload);
 
-    set({ localError: null, draft: '' });
+    set({ localError: null, draft: '', pendingImages: [] });
     try {
       const res = await window.marudesk.invoke('agent:send', {
         provider,
         model,
         prompt: text,
         captures,
+        images: pendingImages.length > 0 ? pendingImages : undefined,
         tabId: activeWebTabId(),
       });
-      if (!res.ok) set({ localError: res.reason, draft: text });
+      // Restore the draft + images so the user can retry without re-attaching.
+      if (!res.ok) set({ localError: res.reason, draft: text, pendingImages });
     } catch (err) {
-      set({ localError: toMessage(err), draft: text });
+      set({ localError: toMessage(err), draft: text, pendingImages });
     }
   },
 
