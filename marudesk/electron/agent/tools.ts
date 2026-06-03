@@ -5,7 +5,9 @@ import { scrubText, scrubHeaders } from '../../shared/scrub';
 import { urlToWorkspacePath } from '../../shared/runtime-evidence';
 import type { NetworkRecord } from '../../shared/network-evidence';
 import { readFileSafe } from '../workspace';
+import { resolveWorkspacePath } from '../fs-safe';
 import { applyPatch } from '../patch';
+import { isStaleForEdit, recordRead, updateAfterWrite } from './read-tracker';
 import { getTab, getErrors, getNetwork, type TabRecord } from '../browser/state';
 import { sendCdp, enableNetworkCapture } from '../browser/cdp';
 
@@ -104,6 +106,18 @@ function clip(s: string, max = MAX_TOOL_TEXT): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[clipped ${s.length - max} chars]`;
 }
 
+/**
+ * Prefix each line with a right-aligned 1-based number + tab (cat -n style), so
+ * the model can anchor edits and reason about locations. The numbers are display
+ * only — `oldString` for an edit must still be the verbatim file text WITHOUT
+ * these prefixes (the read_file/edit_file descriptions say so).
+ */
+function numberLines(content: string): string {
+  const lines = content.split('\n');
+  const width = String(lines.length).length;
+  return lines.map((l, i) => `${String(i + 1).padStart(width, ' ')}\t${l}`).join('\n');
+}
+
 function requireTab(ctx: ToolContext): TabRecord {
   if (!ctx.tabId) {
     throw new Error('no active web tab — open a web page so runtime tools have a target');
@@ -174,7 +188,14 @@ async function readFile(input: { path?: unknown }, ctx: ToolContext): Promise<To
     };
   }
   const content = await readFileSafe(ctx.ws.root, p, MAX_FILE_READ);
-  return { summary: `read ${p}`, text: clip(content) };
+  // Remember what the agent saw (bounded the same way the staleness check reads),
+  // so a later edit against a since-changed file is caught instead of clobbering.
+  try {
+    recordRead(resolveWorkspacePath(ctx.ws.root, p).abs, content);
+  } catch {
+    // A path that won't resolve can't be edited either — skip tracking.
+  }
+  return { summary: `read ${p}`, text: clip(numberLines(content)) };
 }
 
 async function listFiles(input: { glob?: unknown }, ctx: ToolContext): Promise<ToolResult> {
@@ -268,10 +289,48 @@ async function applyEdits(
       };
     }
   }
+  // Staleness guard: refuse an edit to a file that changed on disk since the
+  // agent read it (oh-my-openagent's hashline insight). Compare against the same
+  // MAX_FILE_READ-bounded view the agent saw so large-file reads line up. Skip
+  // creates (oldString === '') and unresolvable/missing paths — applyPatch emits
+  // the precise error for those.
+  for (const op of ops) {
+    if (op.oldString.length === 0) continue;
+    let abs: string;
+    try {
+      abs = resolveWorkspacePath(ctx.ws.root, op.path).abs;
+    } catch {
+      continue;
+    }
+    let current: string;
+    try {
+      current = await readFileSafe(ctx.ws.root, op.path, MAX_FILE_READ);
+    } catch {
+      continue;
+    }
+    if (isStaleForEdit(abs, current)) {
+      return {
+        summary: `${label} blocked (stale)`,
+        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Re-read the file, then redo the edit against its current text.`,
+        isError: true,
+      };
+    }
+  }
+
   const res = await applyPatch(ctx.ws, ops);
   if (!res.ok) {
     const why = res.errors.map((e) => `${e.path}: ${e.reason}`).join('; ');
     return { summary: `${label} failed`, text: `edit failed — ${why}`, isError: true };
+  }
+  // Re-anchor each edited file to its freshly-written content so a follow-up edit
+  // in the same turn validates against the new bytes, not the pre-edit read.
+  for (const c of res.changes ?? []) {
+    try {
+      const abs = resolveWorkspacePath(ctx.ws.root, c.path).abs;
+      updateAfterWrite(abs, await readFileSafe(ctx.ws.root, c.path, MAX_FILE_READ));
+    } catch {
+      // Best-effort — failing to re-anchor only risks a spurious re-read prompt.
+    }
   }
   const files = (res.changes ?? []).map((c) => c.path).join(', ');
   return {
@@ -752,7 +811,7 @@ const strProp = (desc: string) => ({ type: 'string', description: desc });
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'read_file',
-    description: 'Read a UTF-8 workspace file (relative path). Use before editing so your oldString matches exactly.',
+    description: 'Read a UTF-8 workspace file (relative path). Output is line-numbered ("N\\t<text>") for reference only — those number+tab prefixes are NOT part of the file. Read before editing: your oldString must match the file text exactly (without the prefixes), and an edit to a file that changed since you read it is refused until you re-read it.',
     inputSchema: { type: 'object', properties: { path: strProp('Workspace-relative path.') }, required: ['path'], additionalProperties: false },
   },
   {

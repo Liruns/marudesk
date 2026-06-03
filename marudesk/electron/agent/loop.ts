@@ -32,6 +32,7 @@ import { loadWorkspaceInstructions } from './instructions';
 import { ASK_USER, describeToolInput, type ToolContext } from './tools';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
+import { clearReadTracker } from './read-tracker';
 import type { SessionRecord, SessionSummary } from '../../shared/context';
 
 /**
@@ -1030,6 +1031,9 @@ export function reset(): boolean {
   state = emptyAgentChatState();
   state.edits = keptEdits;
   transcript = [];
+  // Forget tracked reads — the next conversation starts fresh, so a file read in
+  // the prior chat shouldn't gate an edit here.
+  clearReadTracker();
   // The prior conversation was persisted on its last turn's finish(); drop its id
   // so the next turn begins (and saves to) a fresh session.
   conversationId = null;
