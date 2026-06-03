@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import type {
   AgentAnswers,
   AgentChatState,
@@ -321,6 +323,48 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): stri
   return lines.join('\n');
 }
 
+/* ── post-edit verify hook (claude-code / codex PostToolUse) ─────────────── */
+
+const execAsync = promisify(exec);
+const VERIFY_TIMEOUT_MS = 120_000;
+const VERIFY_OUTPUT_MAX = 2000;
+
+/**
+ * Run the user's configured post-edit verify command (Settings → Agent) at the
+ * end of a turn that edited files, and return a PASS/FAIL note to fold into the
+ * conversation — so a broken edit surfaces immediately and is in context for the
+ * next turn. Returns null when the hook is off, no workspace is open, or the turn
+ * made no edits. The command is user-configured (trusted, opt-in); it runs in the
+ * workspace root with a hard timeout.
+ */
+async function runVerifyNote(turnId: string, ws: WorkspaceSummary | null): Promise<string | null> {
+  const cmd = getSettingsSync().agent.verifyCommand.trim();
+  if (!cmd || !ws) return null;
+  // Only verify when this turn actually changed files on disk.
+  if (!state.edits.some((e) => e.turnId === turnId)) return null;
+  state.status = 'working';
+  emit();
+  let passed = false;
+  let detail = '';
+  try {
+    const { stdout, stderr } = await execAsync(cmd, {
+      cwd: ws.root,
+      timeout: VERIFY_TIMEOUT_MS,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    passed = true;
+    detail = `${stdout}${stderr}`.trim();
+  } catch (err) {
+    const e = err as { killed?: boolean; stdout?: string; stderr?: string; message?: string };
+    detail = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message || 'command failed';
+    if (e.killed) detail = `timed out after ${VERIFY_TIMEOUT_MS / 1000}s\n${detail}`;
+  }
+  const tail = scrubText(detail).slice(-VERIFY_OUTPUT_MAX);
+  return `\n\n---\n**Post-edit verify** \`${cmd}\`: ${passed ? '✓ PASS' : '✗ FAIL'}${
+    tail ? `\n\n\`\`\`\n${tail}\n\`\`\`` : ''
+  }`;
+}
+
 /* ── parking (approval / ask_user) ──────────────────────────────────────── */
 
 // Settle-then-replace: never leave a live resolver from a prior call behind, so
@@ -592,7 +636,18 @@ async function runLoop(opts: RunOpts): Promise<void> {
     transcript.push({ role: 'assistant', content: assistantContent });
     emit();
 
-    if (calls.length === 0) return finish('completed');
+    if (calls.length === 0) {
+      // Post-edit verify hook: if this turn changed files and a verify command is
+      // configured, run it and fold the result into this assistant message (UI +
+      // model context) before completing.
+      const note = await runVerifyNote(opts.turnId, opts.ws);
+      if (note) {
+        assistantMsg.parts.push({ type: 'text', text: note });
+        assistantContent.push({ type: 'text', text: note });
+        emit();
+      }
+      return finish('completed');
+    }
 
     // Execute each tool call; collect one tool_result per call (transcript stays valid).
     state.status = 'working';

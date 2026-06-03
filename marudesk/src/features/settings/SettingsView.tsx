@@ -414,6 +414,16 @@ function AgentCategory() {
         />
       </Field>
       <Field
+        label="Post-edit verify command"
+        hint="Runs in the workspace after any turn that edited files; the PASS/FAIL result is folded back into the chat. Leave blank to disable. Example: npm run typecheck."
+      >
+        <TextField
+          value={agent.verifyCommand}
+          placeholder="npm run typecheck"
+          onCommit={(verifyCommand) => void update({ agent: { verifyCommand } })}
+        />
+      </Field>
+      <Field
         label="Model fallback"
         hint="When your selected model is rate-limited or errors out, retry on the next connected model below instead of failing. Tried top-to-bottom; your selected model is always first."
       >

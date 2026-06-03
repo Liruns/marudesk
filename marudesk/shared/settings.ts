@@ -111,6 +111,14 @@ export type AppSettings = {
      * default; `order` is the user's ranked list of (provider, model) pairs.
      */
     fallback: { enabled: boolean; order: ModelRef[] };
+    /**
+     * Post-edit verification command (claude-code / codex PostToolUse hook). When
+     * set, the agent runs it in the workspace at the end of any turn that edited
+     * files and folds the PASS/FAIL result back into the conversation, so a broken
+     * edit is caught and visible to both the user and the next turn. Empty = off.
+     * Example: `npm run typecheck`.
+     */
+    verifyCommand: string;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -207,6 +215,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     instructions: '',
     reasoningEffort: 'medium',
     fallback: { enabled: false, order: [] },
+    verifyCommand: '',
   },
   pcControl: {
     enabled: false,
@@ -409,6 +418,7 @@ export function sanitizeSettings(
         enabled: asBool(asRecord(ag.fallback).enabled, base.agent.fallback.enabled),
         order: asModelRefArray(asRecord(ag.fallback).order, base.agent.fallback.order),
       },
+      verifyCommand: asString(ag.verifyCommand, base.agent.verifyCommand),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),
