@@ -1,10 +1,17 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
-import { Code2, Folder, Globe, Sparkles, SquareTerminal } from 'lucide-react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
+import { Code2, Folder, Globe, History, Sparkles, SquareTerminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
 import { useGridStore } from '../tabs/grid';
 import { useWorkspaceStore } from '../workspace/store';
 import type { TabKind } from '../../../shared/browser';
+import type { HistoryEntry } from '../../../shared/history';
 import logoUrl from '../../assets/logo-mark.png';
 
 /**
@@ -29,6 +36,13 @@ export function HomeView({ tabId }: { tabId?: string }) {
   const recents = useWorkspaceStore((s) => s.recents);
   const openRecent = useWorkspaceStore((s) => s.openRecent);
   const [query, setQuery] = useState('');
+  // Address-bar history suggestions (home is a React surface, so the dropdown
+  // isn't occluded by a WebContentsView the way the browser toolbar's would be).
+  const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
+  const [highlight, setHighlight] = useState(-1);
+  const [recentFilter, setRecentFilter] = useState('');
+  // Latest typed value, so an out-of-order history:query result is discarded.
+  const latestQuery = useRef('');
 
   // Convert this very tab; fall back to a new tab only if we somehow can't
   // resolve our own id (keeps the launcher functional rather than dead). When
@@ -45,13 +59,61 @@ export function HomeView({ tabId }: { tabId?: string }) {
     });
   };
 
+  const onQueryChange = (value: string) => {
+    setQuery(value);
+    setHighlight(-1);
+    latestQuery.current = value;
+    const q = value.trim();
+    if (!q) {
+      setSuggestions([]);
+      return;
+    }
+    void window.marudesk
+      .invoke('history:query', q)
+      .then((entries) => {
+        // Drop a stale result if the user kept typing past this query.
+        if (latestQuery.current !== value) return;
+        setSuggestions(entries.slice(0, 6));
+      })
+      .catch(() => setSuggestions([]));
+  };
+
+  const go = (value: string) => {
+    const v = value.trim();
+    if (!v) return;
+    open('web', v);
+    setQuery('');
+    setSuggestions([]);
+    setHighlight(-1);
+  };
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    const value = query.trim();
-    if (!value) return;
-    open('web', value);
-    setQuery('');
+    if (highlight >= 0 && suggestions[highlight]) go(suggestions[highlight].url);
+    else go(query);
   };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight((h) => (h + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight((h) => (h <= 0 ? suggestions.length - 1 : h - 1));
+    } else if (e.key === 'Escape') {
+      setSuggestions([]);
+      setHighlight(-1);
+    }
+  };
+
+  const filteredRecents = useMemo(() => {
+    const q = recentFilter.trim().toLowerCase();
+    if (!q) return recents;
+    return recents.filter(
+      (r) => r.name.toLowerCase().includes(q) || r.root.toLowerCase().includes(q),
+    );
+  }, [recents, recentFilter]);
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
@@ -74,7 +136,7 @@ export function HomeView({ tabId }: { tabId?: string }) {
 
         <form
           onSubmit={onSubmit}
-          className="w-full max-w-xl animate-fade-rise [animation-delay:60ms]"
+          className="relative w-full max-w-xl animate-fade-rise [animation-delay:60ms]"
           role="search"
         >
           <div
@@ -93,7 +155,9 @@ export function HomeView({ tabId }: { tabId?: string }) {
               autoFocus
               placeholder="Search or enter a URL"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => onQueryChange(e.target.value)}
+              onKeyDown={onKeyDown}
+              onBlur={() => window.setTimeout(() => setSuggestions([]), 120)}
               className={cn(
                 'flex-1 min-w-0 bg-transparent text-body-sm text-fg-primary',
                 'placeholder:text-fg-tertiary focus:outline-none',
@@ -101,6 +165,41 @@ export function HomeView({ tabId }: { tabId?: string }) {
               aria-label="Search or enter a URL"
             />
           </div>
+          {suggestions.length > 0 ? (
+            <ul
+              className="absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-xl border border-default bg-surface-1 shadow-card py-1"
+              role="listbox"
+            >
+              {suggestions.map((s, i) => (
+                <li key={s.url} role="option" aria-selected={i === highlight}>
+                  <button
+                    type="button"
+                    // onMouseDown (not onClick) so it fires before the input's
+                    // onBlur clears the list.
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      go(s.url);
+                    }}
+                    onMouseEnter={() => setHighlight(i)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 px-3 py-1.5 text-left',
+                      i === highlight ? 'bg-surface-2' : 'hover:bg-surface-2',
+                    )}
+                  >
+                    <History size={14} className="shrink-0 text-fg-tertiary" aria-hidden />
+                    {s.title ? (
+                      <span className="shrink-0 max-w-[40%] truncate text-body-sm text-fg-secondary">
+                        {s.title}
+                      </span>
+                    ) : null}
+                    <span className="min-w-0 flex-1 truncate text-caption text-fg-tertiary">
+                      {s.url}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </form>
 
         <div className="w-full max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-rise [animation-delay:120ms]">
@@ -132,10 +231,25 @@ export function HomeView({ tabId }: { tabId?: string }) {
 
         {recents.length > 0 ? (
           <div className="w-full max-w-xl flex flex-col gap-0.5 animate-fade-rise [animation-delay:180ms]">
-            <p className="px-1 pb-1 text-caption uppercase tracking-wider text-fg-tertiary">
-              Recent
-            </p>
-            {recents.map((r) => (
+            <div className="flex items-center gap-2 px-1 pb-1">
+              <p className="text-caption uppercase tracking-wider text-fg-tertiary">
+                Recent
+              </p>
+              {recents.length > 5 ? (
+                <input
+                  value={recentFilter}
+                  onChange={(e) => setRecentFilter(e.target.value)}
+                  placeholder="Filter…"
+                  spellCheck={false}
+                  aria-label="Filter recent workspaces"
+                  className="ml-auto h-6 w-32 rounded bg-surface-1 border border-subtle px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent"
+                />
+              ) : null}
+            </div>
+            {filteredRecents.length === 0 ? (
+              <p className="px-3 py-2 text-caption text-fg-tertiary">No matches</p>
+            ) : null}
+            {filteredRecents.map((r) => (
               <button
                 key={r.root}
                 type="button"

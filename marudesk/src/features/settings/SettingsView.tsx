@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type ComponentType,
   type ReactNode,
@@ -24,6 +25,7 @@ import {
   Radio,
   RefreshCw,
   RotateCcw,
+  Search as SearchIcon,
   Smartphone,
   SquareTerminal,
   Trash2,
@@ -42,6 +44,7 @@ import {
   type AgentApprovalMode,
   type DevtoolsDock,
   type ModelRef,
+  type ReasoningEffort,
   type SearchEngine,
   type ThemeMode,
 } from '../../../shared/settings';
@@ -98,22 +101,31 @@ const ON_OFF_OPTIONS: { value: 'on' | 'off'; label: string }[] = [
   { value: 'on', label: 'On' },
 ];
 
+const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+];
+
 const CATEGORIES: {
   id: SettingsCategory;
   label: string;
   icon: ComponentType<{ size?: number }>;
   blurb: string;
+  /** Extra search terms so a setting can be found by a word not in its label. */
+  keywords: string;
 }[] = [
-  { id: 'appearance', label: 'Appearance', icon: Palette, blurb: 'Theme, interface zoom, and UI font.' },
-  { id: 'editor', label: 'Editor', icon: Code2, blurb: 'Code editor font and size.' },
-  { id: 'terminal', label: 'Terminal', icon: SquareTerminal, blurb: 'Integrated terminal font and shell.' },
-  { id: 'browser', label: 'Browser', icon: Globe, blurb: 'Search engine and embedded-browser behavior.' },
-  { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.' },
-  { id: 'agent', label: 'AI Agent', icon: Bot, blurb: 'How much the agent may do without asking, and paths it must never edit.' },
-  { id: 'mcp', label: 'MCP Servers', icon: Plug, blurb: 'Connect external MCP servers (stdio) so the AI Chat can use their tools.' },
-  { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.' },
-  { id: 'remote', label: 'Remote access', icon: Radio, blurb: 'A local server so a future companion app can drive the AI Chat.' },
-  { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.' },
+  { id: 'appearance', label: 'Appearance', icon: Palette, blurb: 'Theme, interface zoom, and UI font.', keywords: 'theme dark light zoom font color appearance ui' },
+  { id: 'editor', label: 'Editor', icon: Code2, blurb: 'Code editor font and size.', keywords: 'monaco font size code word wrap tab' },
+  { id: 'terminal', label: 'Terminal', icon: SquareTerminal, blurb: 'Integrated terminal font and shell.', keywords: 'shell bash zsh powershell font terminal pty' },
+  { id: 'browser', label: 'Browser', icon: Globe, blurb: 'Search engine and embedded-browser behavior.', keywords: 'search engine google duckduckgo bing browser web' },
+  { id: 'providers', label: 'AI Providers', icon: KeyRound, blurb: 'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.', keywords: 'api key openai anthropic claude gemini grok ollama oauth model provider token' },
+  { id: 'agent', label: 'AI Agent', icon: Bot, blurb: 'How much the agent may do without asking, and paths it must never edit.', keywords: 'approval reasoning effort instructions deny glob fallback pc control agent' },
+  { id: 'mcp', label: 'MCP Servers', icon: Plug, blurb: 'Connect external MCP servers (stdio) so the AI Chat can use their tools.', keywords: 'mcp server stdio tools context' },
+  { id: 'devtools', label: 'Browser DevTools', icon: Wrench, blurb: 'How the embedded browser DevTools opens.', keywords: 'devtools dock inspect console network' },
+  { id: 'remote', label: 'Remote access', icon: Radio, blurb: 'A local server so a future companion app can drive the AI Chat.', keywords: 'remote phone pair qr relay server mobile bridge' },
+  { id: 'about', label: 'About', icon: Info, blurb: 'Version and runtime details.', keywords: 'about version reset runtime' },
 ];
 
 function shellPlaceholder(): string {
@@ -135,6 +147,18 @@ export function SettingsView() {
   const category = useSettingsStore((s) => s.category);
   const setCategory = useSettingsStore((s) => s.setCategory);
   const active = CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0];
+  const [filter, setFilter] = useState('');
+
+  const shown = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return CATEGORIES;
+    return CATEGORIES.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.blurb.toLowerCase().includes(q) ||
+        c.keywords.includes(q),
+    );
+  }, [filter]);
 
   return (
     <div className="flex-1 min-h-0 flex bg-surface-page">
@@ -142,11 +166,24 @@ export function SettingsView() {
         <header className="h-11 shrink-0 flex items-center px-4 border-b border-subtle">
           <h1 className="text-body font-medium text-fg-primary">Settings</h1>
         </header>
+        <div className="shrink-0 px-2 pt-2">
+          <div className="flex items-center gap-1.5 h-7 rounded-md bg-surface-page border border-subtle px-2 focus-within:border-accent">
+            <SearchIcon size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search settings"
+              spellCheck={false}
+              aria-label="Search settings"
+              className="flex-1 min-w-0 bg-transparent text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
+            />
+          </div>
+        </div>
         <nav
           aria-label="Settings categories"
           className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-0.5"
         >
-          {CATEGORIES.map((c) => (
+          {shown.map((c) => (
             <NavItem
               key={c.id}
               active={c.id === category}
@@ -155,6 +192,9 @@ export function SettingsView() {
               label={c.label}
             />
           ))}
+          {shown.length === 0 ? (
+            <p className="px-3 py-2 text-caption text-fg-tertiary">No matching settings</p>
+          ) : null}
         </nav>
       </aside>
 
@@ -342,6 +382,16 @@ function AgentCategory() {
           value={agent.approvalMode}
           options={APPROVAL_MODE_OPTIONS}
           onChange={(approvalMode) => void update({ agent: { approvalMode } })}
+        />
+      </Field>
+      <Field
+        label="Reasoning effort"
+        hint="How hard reasoning-capable models think before answering. Higher is more thorough but slower; ignored by models without a reasoning mode. Also adjustable per-chat from the composer."
+      >
+        <Segmented
+          value={agent.reasoningEffort}
+          options={REASONING_EFFORT_OPTIONS}
+          onChange={(reasoningEffort) => void update({ agent: { reasoningEffort } })}
         />
       </Field>
       <Field

@@ -11,6 +11,11 @@ import { toMessage } from '../../lib/toMessage';
 
 /** Event a session fires (bubbling) to ask its surface to open the search bar. */
 export const TERMINAL_OPEN_SEARCH_EVENT = 'terminal:open-search';
+/** Event a session fires on its container once the shell/cwd are resolved. */
+export const TERMINAL_INFO_EVENT = 'terminal:info';
+
+/** Shell path + working directory, surfaced in the terminal header. */
+export type TerminalInfo = { shell: string; cwd: string };
 
 const IS_MAC =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
@@ -49,6 +54,7 @@ type Session = {
   fit: FitAddon;
   search: SearchAddon;
   ptyId: string | null;
+  info: TerminalInfo | null;
   cleanup: () => void;
 };
 
@@ -132,6 +138,13 @@ function handleTerminalKey(session: Session, e: KeyboardEvent): boolean {
     return stop();
   }
 
+  // Clear scrollback: Cmd+K on macOS, Ctrl+Shift+K elsewhere. Bare Ctrl+K is
+  // left alone so readline's kill-to-end-of-line still works in the shell.
+  if (e.code === 'KeyK' && (IS_MAC || e.shiftKey)) {
+    term.clear();
+    return stop();
+  }
+
   return true;
 }
 
@@ -196,6 +209,7 @@ export function acquireTerminalSession(tabId: string): Session {
     fit,
     search,
     ptyId: null,
+    info: null,
     cleanup: () => {},
   };
   sessions.set(tabId, session);
@@ -216,6 +230,11 @@ export function acquireTerminalSession(tabId: string): Session {
         return;
       }
       session.ptyId = res.id;
+      session.info = { shell: res.shell, cwd: res.cwd };
+      // Notify the mounted surface (if any) so its header can show shell + cwd.
+      session.container.dispatchEvent(
+        new CustomEvent(TERMINAL_INFO_EVENT, { bubbles: true }),
+      );
       offData = window.marudesk.on('terminal:data', (p) => {
         if (p.id === res.id) term.write(p.data);
       });
@@ -304,6 +323,25 @@ export function terminalClear(tabId: string): void {
 /** Focus the terminal's input. */
 export function terminalFocus(tabId: string): void {
   sessions.get(tabId)?.term.focus();
+}
+
+/** The resolved shell + cwd for a terminal tab, or null until the PTY is up. */
+export function terminalInfo(tabId: string): TerminalInfo | null {
+  return sessions.get(tabId)?.info ?? null;
+}
+
+/**
+ * Subscribe to search-result changes (match index + count) for the find bar's
+ * "x / y" counter. Returns an unsubscribe; no-op when the session is gone.
+ */
+export function terminalOnSearchResults(
+  tabId: string,
+  cb: (results: { resultIndex: number; resultCount: number }) => void,
+): () => void {
+  const session = sessions.get(tabId);
+  if (!session) return () => {};
+  const sub = session.search.onDidChangeResults(cb);
+  return () => sub.dispose();
 }
 
 /** Find the next match of `query` (wraps). No-op for an empty query. */

@@ -17,6 +17,7 @@ import type { HistoryEntry } from '../shared/history';
 
 const MAX_ENTRIES = 2000;
 const QUERY_LIMIT = 8;
+const RECENT_LIMIT = 8;
 const SAVE_DEBOUNCE_MS = 1500;
 
 let cache: Map<string, HistoryEntry> | null = null;
@@ -157,8 +158,19 @@ async function query(raw: string): Promise<HistoryEntry[]> {
   return [...prefix, ...substring].slice(0, QUERY_LIMIT);
 }
 
+/**
+ * The most-visited entries by frecency, for the browser stage's empty-state
+ * quick links (DevTools' / Chrome's "most visited" tiles). No query — just the
+ * top of the frecency ranking, capped at {@link RECENT_LIMIT}.
+ */
+async function recent(): Promise<HistoryEntry[]> {
+  const map = await load();
+  return [...map.values()].sort((a, b) => frecency(b) - frecency(a)).slice(0, RECENT_LIMIT);
+}
+
 export function registerHistoryHandlers(): void {
   defineHandler('history:query', ([raw]) =>
     query(typeof raw === 'string' ? raw : ''),
   );
+  defineHandler('history:recent', () => recent());
 }

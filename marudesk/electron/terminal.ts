@@ -288,7 +288,7 @@ export function registerTerminalHandlers(deps: {
       sessions.delete(id);
     });
 
-    return { id } satisfies TerminalCreated;
+    return { id, shell, cwd } satisfies TerminalCreated;
   });
 
   // The renderer calls this once it has attached its 'terminal:data' listener,

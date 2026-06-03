@@ -3,14 +3,15 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type {
-  CaptureInput,
-  FileEntry,
-  RankedFile,
-  ReadFileResult,
-  SaveAsResult,
-  WorkspaceSummary,
-  WriteFileResult,
+import {
+  MAX_EDITOR_FILE_SIZE,
+  type CaptureInput,
+  type FileEntry,
+  type RankedFile,
+  type ReadFileResult,
+  type SaveAsResult,
+  type WorkspaceSummary,
+  type WriteFileResult,
 } from '../shared/workspace';
 import {
   assertRealParentInsideRoot,
@@ -27,7 +28,8 @@ const execFileAsync = promisify(execFile);
 // Editor reads/writes cap larger than the indexer's content scan: big enough
 // for real source files, small enough to keep a file out of the editor (and
 // out of a full-file overwrite on save) when it's clearly not source.
-const MAX_EDITOR_FILE_SIZE = 2 * 1024 * 1024;
+// The limit itself lives in shared/workspace.ts so the renderer's "too large"
+// message can quote the same number.
 
 let currentWorkspace: WorkspaceSummary | null = null;
 

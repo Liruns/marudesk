@@ -16,7 +16,13 @@ export type TerminalCreateOptions = {
   shell?: string;
 };
 
-export type TerminalCreated = { id: string };
+export type TerminalCreated = {
+  id: string;
+  /** Resolved shell path the PTY was spawned with (for the surface header). */
+  shell: string;
+  /** Resolved working directory (workspace root, else home). */
+  cwd: string;
+};
 
 export type TerminalInput = { id: string; data: string };
 

@@ -13,6 +13,7 @@ import { ExplorerPanel } from '../features/workspace/ExplorerPanel';
 import { SourceControlPanel } from '../features/git/SourceControlPanel';
 import { SearchPanel } from '../features/search/SearchPanel';
 import { QuickOpen } from '../features/search/QuickOpen';
+import { TabPalette } from '../features/tabs/TabPalette';
 import { useSearchStore } from '../features/search/store';
 import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
@@ -93,6 +94,7 @@ export function Shell() {
   const [leftPanel, setLeftPanel] = useState<LeftPanel>('explorer');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [tabPalette, setTabPalette] = useState(false);
 
   // Toggle a left-rail view: clicking the active view collapses the rail.
   const toggleLeft = (panel: Exclude<LeftPanel, null>) =>
@@ -133,6 +135,18 @@ export function Shell() {
         e.preventDefault();
         setLeftPanel('search');
         useSearchStore.getState().requestFocus();
+        return;
+      }
+      // Tab switcher palette (Ctrl/Cmd+Shift+A) and reopen-closed-tab
+      // (Ctrl/Cmd+Shift+T) — Chrome parity, allowed from any focus.
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setTabPalette(true);
+        return;
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        void useTabsStore.getState().reopenClosedTab();
         return;
       }
 
@@ -300,6 +314,7 @@ export function Shell() {
       <StatusBar />
       <ToastHost />
       {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}
+      {tabPalette ? <TabPalette onClose={() => setTabPalette(false)} /> : null}
     </div>
   );
 }

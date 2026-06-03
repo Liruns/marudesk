@@ -29,6 +29,12 @@ export type ReadFileResult =
   | { ok: true; content: string }
   | { ok: false; reason: 'too-large' | 'binary' | 'not-a-file'; size?: number };
 
+/**
+ * Max size of a file the Monaco editor will open (bytes). Shared so the
+ * main-process guard and the renderer's "too large" message agree on the number.
+ */
+export const MAX_EDITOR_FILE_SIZE = 2 * 1024 * 1024;
+
 /** Result of `workspace:write-file` (throws on failure, so always ok here). */
 export type WriteFileResult = { ok: true };
 

@@ -90,12 +90,15 @@ export const CHANNELS = {
     'browser:find',
     'browser:stop-find',
     'browser:zoom',
+    'browser:set-audio-muted',
+    'browser:capture-page',
     'browser:downloads-list',
     'browser:download-action',
     'browser:downloads-clear',
     'browser:tabs-new',
     'browser:tabs-replace',
     'browser:tabs-close',
+    'browser:tabs-reopen',
     'browser:tabs-activate',
     'browser:tabs-snapshot',
     'browser:tabs-reorder',
@@ -126,7 +129,7 @@ export const CHANNELS = {
     'workspace:copy',
     'workspace:reveal',
   ],
-  history: ['history:query'],
+  history: ['history:query', 'history:recent'],
   // Workspace Source Control (electron/git.ts). All run against the open
   // workspace root via execFile git (argv arrays, never a shell). `status`
   // returns isRepo:false cleanly when the folder isn't a repo; discards are
@@ -284,6 +287,11 @@ export interface IpcMap {
     args: [payload: { direction: 'in' | 'out' | 'reset' }];
     result: number;
   };
+  // Mute / unmute the active web tab's audio (Chrome's tab speaker toggle).
+  'browser:set-audio-muted': { args: [muted: boolean]; result: void };
+  // Capture the active page to a PNG on the clipboard. Returns false when there's
+  // no active web view to capture.
+  'browser:capture-page': { args: []; result: boolean };
   // Download manager. The live list is also pushed on the browser:downloads
   // event whenever it changes; this invoke is the pull for an initial render.
   'browser:downloads-list': { args: []; result: DownloadEntry[] };
@@ -305,6 +313,7 @@ export interface IpcMap {
     result: string | null;
   };
   'browser:tabs-close': { args: [id: string]; result: boolean };
+  'browser:tabs-reopen': { args: []; result: boolean };
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };
@@ -429,6 +438,7 @@ export interface IpcMap {
 
   // history (address-bar autocomplete)
   'history:query': { args: [query: string]; result: HistoryEntry[] };
+  'history:recent': { args: []; result: HistoryEntry[] };
 
   // secrets / providers
   'secrets:list-providers': { args: []; result: ProviderStatus[] };

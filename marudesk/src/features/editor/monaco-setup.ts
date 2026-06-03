@@ -176,6 +176,11 @@ export const EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions 
     padding: { top: 10, bottom: 10 },
     fixedOverflowWidgets: true,
     scrollbar: { useShadows: false },
+    // Readability touches: colorize matching brackets, keep the enclosing
+    // scope pinned at the top while scrolling, and show bracket-pair guides.
+    bracketPairColorization: { enabled: true },
+    stickyScroll: { enabled: true },
+    guides: { bracketPairs: 'active' },
   };
 
 const LANGUAGE_BY_EXT: Record<string, string> = {

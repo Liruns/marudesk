@@ -1,10 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Ban, Columns2, Eye, FileCode2, FileWarning, Pencil } from 'lucide-react';
+import { Ban, Columns2, Eye, FileCode2, FileWarning, Pencil, WrapText } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
+import { MAX_EDITOR_FILE_SIZE } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { isDirty, untitledDocKey, useEditorStore, type FileBuf } from './store';
 import { MarkdownPreview } from './MarkdownPreview';
+
+/** What MonacoView reports up for the status bar. */
+export type EditorStatus = { line: number; column: number; language: string };
 
 // Monaco is heavy; load it on first file open rather than at app start.
 const MonacoView = lazy(() =>
@@ -101,11 +105,25 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   // applies it imperatively. One-way, so there's no feedback loop to guard.
   const editorPaneRef = useRef<HTMLDivElement | null>(null);
   const [previewScrollRatio, setPreviewScrollRatio] = useState<number | undefined>(undefined);
+  const [editorScrollRatio, setEditorScrollRatio] = useState<number | undefined>(undefined);
+  // Echo guard for the two-way split-scroll sync: MonacoView flips this true just
+  // before it applies a preview-driven scroll, so the scroll event that fires
+  // back here is recognised as our own and not bounced to the preview (which
+  // would ping-pong the two panes). MarkdownPreview guards its side the same way.
+  const editorScrollApplyingRef = useRef(false);
+  // Status-bar state lifted from Monaco (cursor + language) plus the word-wrap
+  // toggle, which is owned here and pushed down so the footer button can flip it.
+  const [status, setStatus] = useState<EditorStatus>({ line: 1, column: 1, language: 'plaintext' });
+  const [wordWrap, setWordWrap] = useState(false);
   useEffect(() => {
     if (mode !== 'split') return;
     const pane = editorPaneRef.current;
     if (!pane) return;
     const onScroll = (e: Event) => {
+      if (editorScrollApplyingRef.current) {
+        editorScrollApplyingRef.current = false;
+        return;
+      }
       const el = e.target as HTMLElement | null;
       if (!el || typeof el.scrollTop !== 'number') return;
       const max = el.scrollHeight - el.clientHeight;
@@ -190,7 +208,13 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
                 </div>
               }
             >
-              <MonacoView path={docKey} />
+              <MonacoView
+                path={docKey}
+                wordWrap={wordWrap}
+                onStatus={setStatus}
+                scrollRatio={mode === 'split' ? editorScrollRatio : undefined}
+                scrollApplyingRef={editorScrollApplyingRef}
+              />
             </Suspense>
           </div>
         )}
@@ -200,6 +224,7 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
           <MarkdownPreview
             content={content}
             scrollRatio={mode === 'split' ? previewScrollRatio : undefined}
+            onScrollRatio={mode === 'split' ? setEditorScrollRatio : undefined}
             className={cn(
               'min-h-0 bg-surface-page',
               mode === 'split' ? 'w-1/2' : 'flex-1',
@@ -207,6 +232,33 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
           />
         )}
       </div>
+
+      {/* Status bar — only while a Monaco pane is mounted (edit/split). */}
+      {mode !== 'preview' ? (
+        <footer className="h-6 shrink-0 flex items-center gap-3 px-3 border-t border-subtle bg-surface-2 text-caption text-fg-tertiary tabular-nums select-none">
+          <span>
+            Ln {status.line}, Col {status.column}
+          </span>
+          <span className="uppercase tracking-wide">{status.language}</span>
+          <span>Spaces: 2</span>
+          <span className="flex-1" aria-hidden />
+          <button
+            type="button"
+            aria-pressed={wordWrap}
+            title={wordWrap ? 'Word wrap on' : 'Word wrap off'}
+            onClick={() => setWordWrap((w) => !w)}
+            className={cn(
+              'inline-flex items-center gap-1 h-5 px-1.5 rounded-sm transition-colors duration-fast',
+              wordWrap
+                ? 'text-fg-primary bg-surface-3'
+                : 'hover:text-fg-secondary hover:bg-surface-3/50',
+            )}
+          >
+            <WrapText size={12} />
+            Wrap
+          </button>
+        </footer>
+      ) : null}
     </div>
   );
 }
@@ -222,9 +274,10 @@ function describeError(
 ): { title: string; hint: string; icon: ReactNode } {
   if (buf.reason === 'too-large') {
     const mb = buf.size ? (buf.size / 1048576).toFixed(1) : '?';
+    const limitMb = (MAX_EDITOR_FILE_SIZE / 1048576).toFixed(0);
     return {
       title: 'File too large',
-      hint: `${path} is ${mb} MB — beyond the editor limit.`,
+      hint: `${path} is ${mb} MB — over the ${limitMb} MB editor limit.`,
       icon: <FileWarning size={22} />,
     };
   }

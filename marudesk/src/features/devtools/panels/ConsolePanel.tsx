@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Trash2 } from 'lucide-react';
+import { Copy, Sparkles, Trash2 } from 'lucide-react';
 import { cn } from '../../../lib/cn';
+import { toast } from '../../../lib/toast';
+import { toMessage } from '../../../lib/toMessage';
 import { useDevtoolsStore } from '../store';
 import { askAgent } from '../../agent/store';
 import { RemoteValue } from '../components/RemoteValue';
@@ -65,18 +67,81 @@ function originText(entry: ConsoleEntry): string | null {
   return entry.lineNumber ? `${file}:${entry.lineNumber + 1}` : file;
 }
 
-function ConsoleRow({ entry, onFix }: { entry: ConsoleEntry; onFix?: () => void }) {
+/** `entry.timestamp` (epoch ms) → a `HH:MM:SS.mmm` gutter label. */
+function fmtClock(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+/** Plain-text rendering of an entry, for the clipboard. */
+function entryToText(entry: ConsoleEntry): string {
+  const parts: string[] = [];
+  if (entry.text !== undefined) parts.push(entry.text);
+  for (const a of entry.args) parts.push(remoteText(a));
   const origin = originText(entry);
+  const body = parts.join(' ');
+  return origin ? `${body}    ${origin}` : body;
+}
+
+/**
+ * A run of identical adjacent entries collapsed into one row (Chrome's console
+ * coalescing). `count` > 1 surfaces as a badge so a tight logging loop reads as
+ * "message ×42" instead of 42 rows.
+ */
+type ConsoleRowModel = { entry: ConsoleEntry; count: number };
+
+/** Whether a kind participates in coalescing — REPL echoes never collapse. */
+function coalescible(kind: ConsoleKind): boolean {
+  return !ALWAYS_KINDS.has(kind);
+}
+
+function ConsoleRow({
+  entry,
+  count,
+  showTimestamp,
+  onFix,
+}: {
+  entry: ConsoleEntry;
+  count: number;
+  showTimestamp: boolean;
+  onFix?: () => void;
+}) {
+  const origin = originText(entry);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(entryToText(entry));
+      toast({ title: 'Copied', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+    }
+  };
   return (
     <div
+      // content-visibility skips layout/paint for off-screen rows so a 1,500-row
+      // console stays smooth without a virtualization library.
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 24px' }}
       className={cn(
-        'px-2 py-1 border-b border-subtle/40 border-l-2 border-l-transparent flex gap-2 items-start',
+        'group px-2 py-1 border-b border-subtle/40 border-l-2 border-l-transparent flex gap-2 items-start',
         ROW_TINT[entry.kind],
       )}
     >
       <span className="shrink-0 mt-0.5 text-fg-tertiary font-mono text-caption select-none">
         {entry.kind === 'command' ? '›' : entry.kind === 'result' ? '‹' : ''}
       </span>
+      {showTimestamp ? (
+        <span className="shrink-0 mt-0.5 text-fg-tertiary font-mono text-caption tabular-nums select-none">
+          {fmtClock(entry.timestamp)}
+        </span>
+      ) : null}
+      {count > 1 ? (
+        <span
+          title={`${count} occurrences`}
+          className="shrink-0 mt-0.5 min-w-4 h-4 px-1 rounded-pill bg-surface-3 text-fg-secondary text-[10px] leading-4 text-center tabular-nums font-medium"
+        >
+          {count}
+        </span>
+      ) : null}
       <div className="flex-1 min-w-0 flex flex-wrap gap-x-2 gap-y-0.5 items-start">
         {entry.text !== undefined ? (
           <span
@@ -96,6 +161,15 @@ function ConsoleRow({ entry, onFix }: { entry: ConsoleEntry; onFix?: () => void 
           <RemoteValue key={i} obj={arg} expandable />
         ))}
       </div>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        title="Copy message"
+        aria-label="Copy message"
+        className="shrink-0 size-5 mt-0.5 rounded items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 hidden group-hover:flex"
+      >
+        <Copy size={12} />
+      </button>
       {origin ? (
         <span className="shrink-0 text-caption text-fg-tertiary font-mono">{origin}</span>
       ) : null}
@@ -114,9 +188,23 @@ function ConsoleRow({ entry, onFix }: { entry: ConsoleEntry; onFix?: () => void 
   );
 }
 
+/** Per-level counts for the filter-button badges (errors fold in exceptions). */
+function countByLevel(entries: ConsoleEntry[]): Record<Exclude<LevelFilter, 'all'>, number> {
+  const counts = { error: 0, warning: 0, info: 0, log: 0, debug: 0 };
+  for (const e of entries) {
+    if (e.kind === 'error' || e.kind === 'exception') counts.error++;
+    else if (e.kind === 'warning') counts.warning++;
+    else if (e.kind === 'info') counts.info++;
+    else if (e.kind === 'log') counts.log++;
+    else if (e.kind === 'debug') counts.debug++;
+  }
+  return counts;
+}
+
 export function ConsolePanel() {
   const entries = useDevtoolsStore((s) => s.console);
   const preserveLog = useDevtoolsStore((s) => s.preserveLog);
+  const showTimestamps = useDevtoolsStore((s) => s.showTimestamps);
   // No composer in the pop-out DevTools window → hide "Fix this" there.
   const windowMode = useDevtoolsStore((s) => s.windowMode);
   const [level, setLevel] = useState<LevelFilter>('all');
@@ -135,6 +223,34 @@ export function ConsolePanel() {
     });
   }, [entries, level, query]);
 
+  // Collapse runs of identical adjacent entries into counted rows.
+  const rows = useMemo<ConsoleRowModel[]>(() => {
+    const out: ConsoleRowModel[] = [];
+    let lastSig: string | null = null;
+    for (const e of visible) {
+      const sig = coalescible(e.kind) ? `${e.kind} ${entryText(e)}` : null;
+      const last = out[out.length - 1];
+      if (last && sig !== null && sig === lastSig) {
+        last.count++;
+      } else {
+        out.push({ entry: e, count: 1 });
+        lastSig = sig;
+      }
+    }
+    return out;
+  }, [visible]);
+
+  const counts = useMemo(() => countByLevel(entries), [entries]);
+
+  const copyAll = async () => {
+    try {
+      await navigator.clipboard.writeText(visible.map(entryToText).join('\n'));
+      toast({ title: `Copied ${visible.length} messages`, variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+    }
+  };
+
   // Auto-scroll to the newest entry while pinned to the bottom. A fresh REPL
   // echo (command/result) re-pins, so submitting an expression always scrolls
   // down even if the user had scrolled up to read earlier output.
@@ -143,7 +259,7 @@ export function ConsolePanel() {
     if (newestKind === 'command' || newestKind === 'result') pinnedRef.current = true;
     const el = scrollRef.current;
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
-  }, [visible.length, newestKind]);
+  }, [rows.length, newestKind]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -173,32 +289,70 @@ export function ConsolePanel() {
           className="h-6 w-28 min-w-0 rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
         <div className="flex items-center gap-0.5">
-          {LEVEL_FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={level === f.id}
-              onClick={() => setLevel(f.id)}
-              className={cn(
-                'h-6 px-1.5 rounded text-caption transition-colors duration-fast',
-                level === f.id
-                  ? 'bg-surface-page text-fg-primary'
-                  : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
+          {LEVEL_FILTERS.map((f) => {
+            const n = f.id === 'all' ? 0 : counts[f.id];
+            return (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={level === f.id}
+                onClick={() => setLevel(f.id)}
+                className={cn(
+                  'h-6 px-1.5 rounded text-caption transition-colors duration-fast inline-flex items-center gap-1',
+                  level === f.id
+                    ? 'bg-surface-page text-fg-primary'
+                    : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
+                )}
+              >
+                {f.label}
+                {n > 0 ? (
+                  <span
+                    className={cn(
+                      'tabular-nums text-[10px]',
+                      f.id === 'error'
+                        ? 'text-error'
+                        : f.id === 'warning'
+                          ? 'text-warning'
+                          : 'text-fg-tertiary',
+                    )}
+                  >
+                    {n > 999 ? '999+' : n}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
-        <label className="ml-auto flex items-center gap-1 px-1 text-caption text-fg-tertiary cursor-pointer select-none whitespace-nowrap">
-          <input
-            type="checkbox"
-            checked={preserveLog}
-            onChange={(e) => useDevtoolsStore.getState().setPreserveLog(e.target.checked)}
-            className="accent-accent"
-          />
-          Preserve log
-        </label>
+        <div className="ml-auto flex items-center gap-1 whitespace-nowrap">
+          <button
+            type="button"
+            aria-label="Copy all messages"
+            title="Copy all visible messages"
+            disabled={visible.length === 0}
+            onClick={() => void copyAll()}
+            className="size-6 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 disabled:opacity-40"
+          >
+            <Copy size={13} />
+          </button>
+          <label className="flex items-center gap-1 px-1 text-caption text-fg-tertiary cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showTimestamps}
+              onChange={(e) => useDevtoolsStore.getState().setShowTimestamps(e.target.checked)}
+              className="accent-accent"
+            />
+            Timestamps
+          </label>
+          <label className="flex items-center gap-1 px-1 text-caption text-fg-tertiary cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={preserveLog}
+              onChange={(e) => useDevtoolsStore.getState().setPreserveLog(e.target.checked)}
+              className="accent-accent"
+            />
+            Preserve log
+          </label>
+        </div>
       </div>
 
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-auto">
@@ -211,10 +365,12 @@ export function ConsolePanel() {
             No matching messages
           </div>
         ) : (
-          visible.map((e) => (
+          rows.map(({ entry: e, count }) => (
             <ConsoleRow
               key={e.id}
               entry={e}
+              count={count}
+              showTimestamp={showTimestamps}
               onFix={
                 !windowMode && (e.kind === 'error' || e.kind === 'exception')
                   ? () => {

@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from 'electron';
+import { clipboard, ipcMain, type BrowserWindow } from 'electron';
 import { type TabKind } from '../../shared/browser';
 import { defineHandler } from '../ipc/define-handler';
 import { arrayOf, bool, num, obj, str } from '../ipc/validate';
@@ -36,6 +36,7 @@ import {
   activateTab,
   closeTab,
   createAndActivateTab,
+  reopenClosedTab,
   reorderTabs,
   replaceTab,
   setTabPinned,
@@ -193,6 +194,23 @@ export function registerBrowserHandlers(deps: {
     return factor;
   });
 
+  defineHandler('browser:set-audio-muted', ([muted]) => {
+    const active = getActive();
+    if (!active || !active.view) return;
+    active.view.webContents.setAudioMuted(bool(muted, 'muted'));
+    // Reflect the new mute state in NavState so the toolbar control updates.
+    pushState();
+  });
+
+  defineHandler('browser:capture-page', async () => {
+    const active = getActive();
+    if (!active || !active.view) return false;
+    const image = await active.view.webContents.capturePage();
+    if (image.isEmpty()) return false;
+    clipboard.writeImage(image);
+    return true;
+  });
+
   defineHandler('browser:downloads-list', () => getDownloads());
 
   defineHandler('browser:download-action', ([payload]) => {
@@ -320,6 +338,8 @@ export function registerBrowserHandlers(deps: {
   });
 
   defineHandler('browser:tabs-close', ([id]) => closeTab(str(id, 'id')));
+
+  defineHandler('browser:tabs-reopen', () => reopenClosedTab());
 
   defineHandler('browser:tabs-activate', ([id]) => activateTab(str(id, 'id')));
 

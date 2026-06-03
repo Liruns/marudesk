@@ -5,7 +5,9 @@ import {
   ClipboardPaste,
   Copy,
   Eraser,
+  Folder,
   Search,
+  SquareTerminal,
   TextSelect,
   X,
 } from 'lucide-react';
@@ -21,10 +23,20 @@ import {
   terminalFindPrevious,
   terminalFocus,
   terminalHasSelection,
+  terminalInfo,
+  terminalOnSearchResults,
   terminalPaste,
   terminalSelectAll,
+  TERMINAL_INFO_EVENT,
   TERMINAL_OPEN_SEARCH_EVENT,
+  type TerminalInfo,
 } from './session';
+
+/** Last path segment of a POSIX/Windows path, for the compact header labels. */
+function basename(p: string): string {
+  const parts = p.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1] || p;
+}
 
 const IS_MAC =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
@@ -51,6 +63,7 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
     null,
   );
   const [searchOpen, setSearchOpen] = useState(false);
+  const [info, setInfo] = useState<TerminalInfo | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -58,6 +71,7 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
 
     const session = acquireTerminalSession(tabId);
     host.appendChild(session.container);
+    setInfo(terminalInfo(tabId));
     // Fit once layout has the host sized, then on every host resize.
     const raf = requestAnimationFrame(() => fitTerminalSession(tabId));
     const ro = new ResizeObserver(() => fitTerminalSession(tabId));
@@ -65,12 +79,17 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
     // Ctrl/Cmd+F inside xterm bubbles up as this event (session.ts).
     const onOpenSearch = () => setSearchOpen(true);
     host.addEventListener(TERMINAL_OPEN_SEARCH_EVENT, onOpenSearch);
+    // Shell/cwd resolve async; update the header when they arrive.
+    const onInfo = () => setInfo(terminalInfo(tabId));
+    host.addEventListener(TERMINAL_INFO_EVENT, onInfo);
     session.term.focus();
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       host.removeEventListener(TERMINAL_OPEN_SEARCH_EVENT, onOpenSearch);
+      host.removeEventListener(TERMINAL_INFO_EVENT, onInfo);
+      setInfo(null);
       // Detach but keep the session alive for re-mount; disposal is the tab's
       // job (see the prune subscription in session.ts).
       if (session.container.parentElement === host) {
@@ -127,6 +146,7 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
         {
           label: 'Clear',
           icon: <Eraser size={14} />,
+          shortcut: IS_MAC ? '⌘K' : 'Ctrl+Shift+K',
           onSelect: () => {
             terminalClear(tabId);
             terminalFocus(tabId);
@@ -136,25 +156,40 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
     : [];
 
   return (
-    <div className="relative flex-1 min-h-0 min-w-0">
-      <div
-        ref={hostRef}
-        onContextMenu={openMenu}
-        className="absolute inset-0 bg-surface-page overflow-hidden p-1.5"
-      />
-      {searchOpen && tabId ? (
-        <TerminalSearchBar
-          tabId={tabId}
-          onClose={() => {
-            setSearchOpen(false);
-            terminalClearSearch(tabId);
-            terminalFocus(tabId);
-          }}
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-surface-page">
+      {info ? (
+        <header className="h-6 shrink-0 flex items-center gap-2 px-3 border-b border-subtle bg-surface-2 text-caption text-fg-tertiary select-none">
+          <SquareTerminal size={12} className="shrink-0" aria-hidden />
+          <span className="text-fg-secondary">{basename(info.shell)}</span>
+          <span className="text-fg-tertiary/60" aria-hidden>
+            ·
+          </span>
+          <Folder size={12} className="shrink-0" aria-hidden />
+          <span className="truncate" title={info.cwd}>
+            {info.cwd}
+          </span>
+        </header>
+      ) : null}
+      <div className="relative flex-1 min-h-0 min-w-0">
+        <div
+          ref={hostRef}
+          onContextMenu={openMenu}
+          className="absolute inset-0 bg-surface-page overflow-hidden p-1.5"
         />
-      ) : null}
-      {menu ? (
-        <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />
-      ) : null}
+        {searchOpen && tabId ? (
+          <TerminalSearchBar
+            tabId={tabId}
+            onClose={() => {
+              setSearchOpen(false);
+              terminalClearSearch(tabId);
+              terminalFocus(tabId);
+            }}
+          />
+        ) : null}
+        {menu ? (
+          <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -168,12 +203,19 @@ function TerminalSearchBar({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const [results, setResults] = useState<{ resultIndex: number; resultCount: number }>({
+    resultIndex: -1,
+    resultCount: 0,
+  });
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
+
+  // Mirror the SearchAddon's match index/count for the "x / y" counter.
+  useEffect(() => terminalOnSearchResults(tabId, setResults), [tabId]);
 
   const next = () => terminalFindNext(tabId, query);
   const prev = () => terminalFindPrevious(tabId, query);
@@ -205,6 +247,13 @@ function TerminalSearchBar({
         spellCheck={false}
         className="w-40 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary outline-none"
       />
+      <span className="shrink-0 min-w-[3rem] px-1 text-right text-caption tabular-nums text-fg-tertiary">
+        {query
+          ? results.resultCount > 0
+            ? `${results.resultIndex + 1}/${results.resultCount}`
+            : '0/0'
+          : ''}
+      </span>
       <button
         type="button"
         className={btn}

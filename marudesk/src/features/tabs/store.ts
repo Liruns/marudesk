@@ -39,6 +39,8 @@ type TabsActions = {
    */
   replaceTab: (id: string, kind?: TabKind, url?: string) => Promise<string | null>;
   closeTab: (id: string) => Promise<void>;
+  /** Reopen the most recently closed tab (Ctrl/Cmd+Shift+T). No-op if none. */
+  reopenClosedTab: () => Promise<void>;
   activateTab: (id: string) => Promise<void>;
   refreshTabsSnapshot: () => Promise<void>;
   reorderTabs: (orderedIds: string[]) => void;
@@ -79,6 +81,10 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
 
   closeTab: async (id) => {
     await window.marudesk.invoke('browser:tabs-close', id);
+  },
+
+  reopenClosedTab: async () => {
+    await window.marudesk.invoke('browser:tabs-reopen');
   },
 
   activateTab: async (id) => {

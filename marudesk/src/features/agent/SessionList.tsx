@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { History, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { History, Plus, Search, Trash2 } from 'lucide-react';
 import type { ProviderId } from '../../../shared/providers';
 import { cn } from '../../lib/cn';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
@@ -22,12 +22,24 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
   const resumeSession = useAgentStore((s) => s.resumeSession);
   const deleteSession = useAgentStore((s) => s.deleteSession);
   const resetChat = useAgentStore((s) => s.resetChat);
+  const [filter, setFilter] = useState('');
 
   // Refresh on mount so the list reflects the latest persisted sessions whenever
   // the rail/overlay opens (a turn that finished while it was closed shows up).
   useEffect(() => {
     void loadSessions();
   }, [loadSessions]);
+
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter(
+      (s) =>
+        (s.title || '').toLowerCase().includes(q) ||
+        (s.model || '').toLowerCase().includes(q) ||
+        s.provider.toLowerCase().includes(q),
+    );
+  }, [sessions, filter]);
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
@@ -48,6 +60,19 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
           <Plus size={13} className="shrink-0 text-fg-tertiary" />
           <span>New chat</span>
         </button>
+        {sessions.length > 5 ? (
+          <div className="mt-2 flex items-center gap-1.5 h-7 rounded-md bg-surface-page border border-subtle px-2 focus-within:border-accent">
+            <Search size={12} className="shrink-0 text-fg-tertiary" aria-hidden />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search chats"
+              spellCheck={false}
+              aria-label="Search chats"
+              className="flex-1 min-w-0 bg-transparent text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
+            />
+          </div>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -56,9 +81,13 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
             <History size={18} className="opacity-30" />
             <span className="leading-snug">No saved chats yet</span>
           </div>
+        ) : visible.length === 0 ? (
+          <div className="px-4 py-8 text-center text-caption text-fg-tertiary">
+            No chats match “{filter}”
+          </div>
         ) : (
           <ul className="py-1">
-            {sessions.map((s) => {
+            {visible.map((s) => {
               const isActive = s.id === activeId;
               return (
                 <li

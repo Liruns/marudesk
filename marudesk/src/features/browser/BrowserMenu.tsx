@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Camera,
   Copy,
   CopyPlus,
   Download,
@@ -7,6 +8,8 @@ import {
   RotateCw,
   Search,
   Settings,
+  Volume2,
+  VolumeX,
   Wrench,
   X,
   ZoomIn,
@@ -16,6 +19,7 @@ import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
+import type { HistoryEntry } from '../../../shared/history';
 import { useWebPageStore } from './store';
 import { useDownloadsStore } from './downloads';
 import { useTabsStore } from '../tabs/store';
@@ -37,6 +41,7 @@ import { openSettingsTab } from '../settings/store';
  */
 export function BrowserMenu() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [recent, setRecent] = useState<HistoryEntry[]>([]);
   const currentUrl = useWebPageStore((s) => s.currentUrl);
   const nav = useTabsStore((s) => s.nav);
   const downloadCount = useDownloadsStore((s) => s.downloads.length);
@@ -52,6 +57,19 @@ export function BrowserMenu() {
       toast({ title: 'URL copied', description: url, variant: 'success' });
     } catch (err) {
       toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+    }
+  };
+
+  const screenshot = async () => {
+    try {
+      const ok = await window.marudesk.invoke('browser:capture-page');
+      toast(
+        ok
+          ? { title: 'Screenshot copied to clipboard', variant: 'success' }
+          : { title: 'Nothing to capture', variant: 'error' },
+      );
+    } catch (err) {
+      toast({ title: 'Screenshot failed', description: toMessage(err), variant: 'error' });
     }
   };
 
@@ -119,6 +137,22 @@ export function BrowserMenu() {
       onSelect: () => void copyUrl(),
     },
     {
+      label: 'Copy screenshot',
+      icon: <Camera size={15} />,
+      disabled: !hasUrl,
+      onSelect: () => void screenshot(),
+    },
+    ...(nav.audible || nav.audioMuted
+      ? [
+          {
+            label: nav.audioMuted ? 'Unmute tab' : 'Mute tab',
+            icon: nav.audioMuted ? <Volume2 size={15} /> : <VolumeX size={15} />,
+            onSelect: () =>
+              void window.marudesk.invoke('browser:set-audio-muted', !nav.audioMuted),
+          } satisfies MenuItem,
+        ]
+      : []),
+    {
       label: 'Duplicate tab',
       icon: <CopyPlus size={15} />,
       disabled: !url,
@@ -130,6 +164,17 @@ export function BrowserMenu() {
       shortcut: 'F12',
       onSelect: () => useDevtoolsStore.getState().toggle(),
     },
+    ...(recent.length > 0
+      ? [
+          { type: 'separator' } satisfies MenuItem,
+          ...recent.slice(0, 6).map(
+            (e): MenuItem => ({
+              label: e.title || e.url.replace(/^https?:\/\//i, ''),
+              onSelect: () => void window.marudesk.invoke('browser:navigate', e.url),
+            }),
+          ),
+        ]
+      : []),
     { type: 'separator' },
     {
       label: 'Browser settings…',
@@ -152,6 +197,11 @@ export function BrowserMenu() {
           // already fired by the time this click runs, so a re-click closes it.
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({ x: r.right, y: r.bottom + 6 });
+          // Refresh the "recently visited" tail each time the menu opens.
+          void window.marudesk
+            .invoke('history:recent')
+            .then(setRecent)
+            .catch(() => undefined);
         }}
         className={cn(
           'size-8 rounded-pill flex items-center justify-center shrink-0 transition-colors duration-fast',
