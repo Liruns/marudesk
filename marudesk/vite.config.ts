@@ -1,6 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
+
+// Absolute path to tslib's ESM build — see the resolve.alias note on the main
+// process build below.
+const tslibEsm = fileURLToPath(
+  new URL('./node_modules/tslib/tslib.es6.mjs', import.meta.url),
+);
 
 export default defineConfig({
   // Monaco is loaded lazily (React.lazy on the editor surface), so without this
@@ -30,6 +37,17 @@ export default defineConfig({
       {
         entry: 'electron/main.ts',
         vite: {
+          // asn1js (pulled in by the OAuth/secure-pairing crypto path) is compiled
+          // to CommonJS with `importHelpers`, so it does `require('tslib')`. In the
+          // single-file ESM main bundle, rolldown resolves that require to tslib's
+          // UMD build (`tslib.js`) whose CJS→ESM interop yields an `undefined`
+          // default — the main process then crashes at startup destructuring
+          // `__extends` off it. Pin tslib to its real ESM build so the helpers are
+          // genuine named exports. Scoped to the main build; renderer/preload
+          // resolve tslib normally.
+          resolve: {
+            alias: [{ find: /^tslib$/, replacement: tslibEsm }],
+          },
           build: {
             outDir: 'dist-electron',
             emptyOutDir: false,
