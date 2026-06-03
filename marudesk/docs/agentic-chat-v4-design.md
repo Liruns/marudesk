@@ -219,5 +219,24 @@ claude-code · codex의 채팅 UX를 벤치마크해 다음을 컴포저에 흡�
 - **메시지 큐잉**: 턴 진행 중 Enter → 대기 후 자동 전송(취소 가능).
 - **`@` 파일 멘션**: 캐럿 위치의 `@token`으로 워크스페이스 파일 picker(B3의 `@` 부분 실현).
 
-미해결(실환경 검증 필요): `/compact` 컨텍스트 압축(모델 호출), 모바일 릴레이 라이브
-와이어링(relay+phone E2E), 세션 teleport/핸드오프.
+미해결(실환경 검증 필요): 모바일 릴레이 라이브 와이어링(relay+phone E2E),
+세션 teleport/핸드오프.
+
+### 8.1 2차 라운드 (codex 코드 분석 후 흡수)
+
+codex Rust 소스(`compact.rs`, `slash_command.rs`, 승인 UX)를 코드 레벨로 분석해 흡수:
+
+- **`/compact`**(`loop.compactConversation`): codex 레시피 — 트랜스크립트를 대화 자체
+  모델로 요약해 치환, usage 리셋. 프로바이더 분기(anthropic-OAuth 프리픽스, codex
+  `store:false`)는 기존 turn 스캐폴딩 재사용. Anthropic 역할 교대를 위해 요약 뒤 합성
+  assistant ack를 둠.
+- **"Allow always"** 승인(`sessionAllowedTools`): 게이트 툴을 이 대화 동안 항상 허용.
+  reset/resume에서 클리어. 원격 always는 L-1 가드로 여전히 무효.
+- **`/copy`**(대화 markdown 복사) + **`/status`**(`/context` 별칭 — provider·model·승인
+  모드·토큰 표시).
+- **Post-edit verify 훅**(`agent.verifyCommand`): 편집한 턴 종료 시 워크스페이스에서
+  검증 명령 실행 → PASS/FAIL을 assistant 메시지에 환류. 증거 루프(편집→검증) 강화.
+
+보류(컷라인 밖): 통합 커맨드 팔레트(Shell 전반 리팩터·클릭 검증 불가), execpolicy/OS
+샌드박스(셸 실행 surface 생길 때), marudesk=MCP 서버, 서브에이전트, Fork/Side, 파일기반
+커맨드(`.marudesk/commands`). 트리거가 생길 때 착수.
