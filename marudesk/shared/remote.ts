@@ -164,6 +164,78 @@ export function parseRelayHostMessage(payload: unknown): RelayHostMessage | null
   return null;
 }
 
+/* ── WebRTC signaling (docs/webrtc-p2p-design.md) ─────────────────────────────
+ *
+ * To avoid relaying every byte of agent traffic through the cloud (and to work
+ * across NATs without Tailscale), the phone and PC negotiate a direct WebRTC
+ * RTCDataChannel and run the SAME {@link RelayCommand}/{@link RelayHostMessage}
+ * protocol over it. The negotiation (SDP offer/answer + ICE candidates) is the
+ * ONLY thing that still rides the relay — and because the relay is a payload-
+ * agnostic pipe, these `rtc-*` messages pass through it UNCHANGED (no relay code
+ * change). The phone is the offerer; the PC is the answerer. Once the channel is
+ * open, the relay path stays as a hot fallback for hostile NATs (ICE failure).
+ *
+ * `sid` is a per-attempt session id the offerer mints so concurrent phones (or a
+ * stale retry) can't cross-wire: each side ignores signals whose `sid` it didn't
+ * start / accept. Both peers treat these as UNTRUSTED (they arrive over the dumb
+ * relay), so {@link parseRtcSignal} validates shape before WebRTC ever sees it.
+ */
+
+/** A serialized ICE candidate (the wire form of RTCIceCandidateInit). */
+export type RtcIceCandidate = {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+};
+
+/** client → host: the phone's SDP offer that starts a P2P attempt. */
+export type RtcOffer = { k: 'rtc-offer'; sid: string; sdp: string };
+/** host → client: the PC's SDP answer for a given attempt. */
+export type RtcAnswer = { k: 'rtc-answer'; sid: string; sdp: string };
+/** Either direction: one trickled ICE candidate (`candidate: null` = end-of-candidates). */
+export type RtcIce = { k: 'rtc-ice'; sid: string; candidate: RtcIceCandidate | null };
+
+/** Everything exchanged over the relay purely to bootstrap the P2P data channel. */
+export type RtcSignal = RtcOffer | RtcAnswer | RtcIce;
+
+/** The relay payload `k` discriminators that carry WebRTC signaling. */
+export const RTC_SIGNAL_KINDS: readonly RtcSignal['k'][] = ['rtc-offer', 'rtc-answer', 'rtc-ice'];
+
+function parseIceCandidate(value: unknown): RtcIceCandidate | null {
+  if (!value || typeof value !== 'object') return null;
+  const c = value as Record<string, unknown>;
+  if (typeof c.candidate !== 'string') return null;
+  return {
+    candidate: c.candidate,
+    sdpMid: typeof c.sdpMid === 'string' ? c.sdpMid : null,
+    sdpMLineIndex: typeof c.sdpMLineIndex === 'number' ? c.sdpMLineIndex : null,
+  };
+}
+
+/**
+ * Defensively parse an inbound relay payload into a {@link RtcSignal}, or null if
+ * it isn't one (so a caller can fall through to {@link parseRelayCommand} /
+ * {@link parseRelayHostMessage}). Total + never throws; every field is checked
+ * because the relay forwards arbitrary peer bytes.
+ */
+export function parseRtcSignal(payload: unknown): RtcSignal | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.sid !== 'string' || p.sid.length === 0) return null;
+  if (p.k === 'rtc-offer' || p.k === 'rtc-answer') {
+    return typeof p.sdp === 'string' && p.sdp.length > 0
+      ? { k: p.k, sid: p.sid, sdp: p.sdp }
+      : null;
+  }
+  if (p.k === 'rtc-ice') {
+    // `candidate: null` is a valid end-of-candidates marker.
+    const candidate = p.candidate === null ? null : parseIceCandidate(p.candidate);
+    if (p.candidate !== null && candidate === null) return null;
+    return { k: 'rtc-ice', sid: p.sid, candidate };
+  }
+  return null;
+}
+
 /* ── Relay account / auth wire shapes (relay/src/http/router.ts) ──────────── */
 
 /** The public account the relay returns (no password material). */

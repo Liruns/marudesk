@@ -50,6 +50,50 @@ with/without a token, **same-account WS brokering in both directions**,
 refresh rotation (old token rejected), the OAuth 503 path, and the per-IP rate
 limit — then tears down every server + socket (no orphan listeners).
 
+## Deploy (public, with automatic HTTPS)
+
+This is the one piece WebRTC P2P can't remove: a public **rendezvous** with a
+stable address that introduces the two peers (and carries the rare relay
+fallback). You host it **once**; end users install nothing. `docker-compose.yml`
+brings up the relay behind a [Caddy](https://caddyserver.com/) sidecar that gets
+a Let's Encrypt cert automatically and proxies both the auth API and the
+`wss://…/connect` upgrade.
+
+```bash
+# 1. Point a DNS A/AAAA record for your domain at the server.
+# 2. Configure:
+cp .env.deploy.example .env
+#    set RELAY_DOMAIN=relay.example.com and JWT_SECRET=$(openssl rand -hex 48)
+# 3. Bring it up:
+docker compose up -d --build
+# 4. Verify (TLS + liveness):
+curl https://relay.example.com/health      # → {"ok":true,"name":"marudesk-relay"}
+```
+
+Then point the clients at it:
+
+- **PC**: marudesk → Settings → cloud relay, URL `https://relay.example.com`,
+  log in (and enable cloud) → the host dials out as `role=host`.
+- **Phone**: build the mobile app with `VITE_USE_RELAY=true`, enter the same
+  relay URL, log into the same account. It connects as `role=client`, then
+  upgrades to a **direct WebRTC P2P** channel where the network allows
+  (`../marudesk/docs/webrtc-p2p-design.md`), falling back to this relay otherwise.
+
+Notes:
+
+- **`JWT_SECRET`** must be a stable ≥32-byte secret (the image refuses to boot in
+  this `NODE_ENV=production`, non-loopback posture without one). Changing it logs
+  everyone out.
+- **CORS / WS Origin**: the Electron host sends no Origin (native) and always
+  connects; Android Capacitor uses `http(s)://localhost` (already allowed); **iOS**
+  WKWebView uses `capacitor://localhost` — add it to `CORS_ORIGINS` (the example
+  already does).
+- **Persistence**: accounts live in the `relay-data` volume (the dev file store —
+  fine for personal/small use; see the caveat below). Keep the `caddy-data` volume
+  too so certs survive redeploys.
+- **OAuth** (optional): set the provider id/secret + `OAUTH_REDIRECT_BASE=https://
+  relay.example.com` and register `https://relay.example.com/auth/<provider>/callback`.
+
 ## HTTP surface (JSON, body-capped, input-validated)
 
 | Method + path | Auth | Body | Result |
@@ -118,14 +162,14 @@ oauth/ is under src/oauth/providers.ts (Google/GitHub web flow + CSRF state)
 test/harness.ts        headless integration harness (npm test)
 ```
 
-## Deferred to deployment (design §4 prerequisites — expected)
+## Deferred to deployment (design §4 prerequisites)
 
-- **Hosting** (VPS / Fly / Render / Railway / Cloudflare) + a **domain** for the
-  OAuth redirect and **TLS**.
+- **Hosting** + a **domain** + **TLS** — now provided by `docker-compose.yml` +
+  Caddy (see **Deploy** above). Drop it on any VPS / Fly / Render / Railway box.
 - Real **Google / GitHub OAuth apps** (client id/secret + registered redirect
-  URIs `https://<domain>/auth/<provider>/callback`).
+  URIs `https://<domain>/auth/<provider>/callback`) — optional; unset ⇒ 503.
 - A real **database** behind the `AccountStore` interface (the file store is
-  dev-only: whole-file rewrite, single-process).
+  dev/small-scale: whole-file rewrite, single-process — fine for personal use).
 - A shared/edge **rate limiter** for multi-instance deployments (the in-memory
   token bucket is per-process).
 - Optional **end-to-end encryption** of the forwarded payload (the relay is

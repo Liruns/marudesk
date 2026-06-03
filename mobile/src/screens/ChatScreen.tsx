@@ -28,6 +28,8 @@ export function ChatScreen() {
   const respond = useAppStore((s) => s.respond);
   const resetChat = useAppStore((s) => s.resetChat);
   const reconnect = useAppStore((s) => s.reconnect);
+  const commandError = useAppStore((s) => s.commandError);
+  const clearCommandError = useAppStore((s) => s.clearCommandError);
 
   const [actionBusy, setActionBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -122,6 +124,9 @@ export function ChatScreen() {
         {chat.status === 'thinking' && <ThinkingRow />}
       </div>
 
+      {/* a failed command (e.g. the desktop refusing a remote gated-tool approval) */}
+      {commandError && <CommandErrorBanner message={commandError} onDismiss={clearCommandError} />}
+
       {/* gated interactions sit directly above the composer */}
       {chat.pendingApproval && (
         <ApprovalPrompt approval={chat.pendingApproval} busy={actionBusy} onDecision={(ok) => void withBusy(() => approve(ok))()} />
@@ -187,6 +192,36 @@ function ThinkingRow() {
         />
       ))}
       <span style={{ fontSize: 13, color: 'var(--fg-muted)' }}>thinking…</span>
+    </div>
+  );
+}
+
+function CommandErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 10,
+        margin: '0 14px 8px',
+        padding: '10px 12px',
+        borderRadius: 'var(--radius)',
+        background: 'var(--danger-soft)',
+        color: 'var(--danger)',
+        fontSize: 13.5,
+        lineHeight: 1.45,
+      }}
+      role="alert"
+    >
+      <span style={{ flex: 1, minWidth: 0 }}>{message}</span>
+      <button
+        className="btn-ghost"
+        aria-label="Dismiss"
+        style={{ fontSize: 13, fontWeight: 700, color: 'var(--danger)', padding: 0 }}
+        onClick={onDismiss}
+      >
+        Dismiss
+      </button>
     </div>
   );
 }

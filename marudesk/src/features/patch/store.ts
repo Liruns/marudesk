@@ -5,6 +5,7 @@ import type {
   PatchPreview,
 } from '../../../shared/patch';
 import { toMessage } from '../../lib/toMessage';
+import { useGitStore } from '../git/store';
 
 type PatchState = {
   opsText: string;
@@ -123,6 +124,9 @@ export const usePatchStore = create<PatchState & PatchActions>((set, get) => ({
         parsed.ops,
       );
       set({ lastResult: result });
+      // Edits just hit disk — keep Source Control in step (no-op when there's no
+      // repo). Mirrors the agent path, which refreshes git on applied edits too.
+      if (result.ok) void useGitStore.getState().refresh();
       // Refresh preview to reflect new disk state (or surface any residual mismatch).
       const fresh = await window.marudesk.invoke(
         'patch:preview',

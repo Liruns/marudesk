@@ -5,6 +5,7 @@ import type { SessionSummary } from '../../../shared/context';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
+import { useGitStore } from '../git/store';
 import { useProvidersStore } from '../providers/store';
 import { useTabsStore } from '../tabs/store';
 
@@ -73,6 +74,21 @@ function activeWebTabId(): string | undefined {
   return active?.kind === 'web' ? active.id : undefined;
 }
 
+/**
+ * Trigger a Source Control refresh when the agent's applied-edits set actually
+ * changes (a new edit, or an accept/revert flipping a status) — not on every
+ * streaming snapshot. The signature is the appended edits' `id:status`; an empty
+ * set (fresh chat / reset) is skipped since it implies no new disk change.
+ */
+let prevEditsSig = '';
+function maybeRefreshGitForEdits(chat: AgentChatState): void {
+  const sig = chat.edits.map((e) => `${e.id}:${e.status}`).join('|');
+  if (sig === prevEditsSig) return;
+  prevEditsSig = sig;
+  if (chat.edits.length === 0) return;
+  void useGitStore.getState().refresh();
+}
+
 export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
@@ -93,6 +109,12 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   ingest: (chat) => {
     set({ chat });
+    // When the agent writes (or accepts/reverts) a file edit, those changes land
+    // on disk — keep Source Control in step without a manual refresh. Keyed off the
+    // edits' id:status signature so the frequent streaming snapshots don't refire
+    // git: only an actual edit landing/changing does. (refresh() is a no-op when
+    // there's no repo, so this is safe regardless of workspace state.)
+    maybeRefreshGitForEdits(chat);
     // A turn that just ended persisted its (possibly brand-new) session — refresh
     // the history list so it appears immediately, not only on the next New chat.
     if ((chat.status === 'completed' || chat.status === 'failed') && chat.activeSessionId) {

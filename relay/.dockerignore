@@ -1,0 +1,12 @@
+# Keep the build context tiny + secret-free.
+node_modules
+relay-data
+.env
+.env.*
+!.env.deploy.example
+*.log
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+Caddyfile

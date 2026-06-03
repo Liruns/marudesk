@@ -23,6 +23,12 @@ export type TransportStatusInfo = {
   status: TransportStatus;
   /** True when a PC host is currently online for this account (vs. relay-only). */
   hostOnline: boolean;
+  /**
+   * True when a direct WebRTC peer-to-peer data channel to the PC is open, so
+   * agent traffic bypasses the cloud relay (relay-only otherwise). Undefined for
+   * transports that don't do P2P (stub/direct).
+   */
+  p2p?: boolean;
   /** Optional human-readable detail for the error/disconnected states. */
   detail?: string;
 };
