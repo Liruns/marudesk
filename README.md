@@ -65,7 +65,7 @@ Tabbed browsing on a split-pane grid, with favicons, history, downloads, find-in
 A React-built DevTools dock with Console, Network, Elements, Application, and Rendering panels plus a REPL — dockable or popped out into its own window. Chromium's own DevTools remain available as an escape hatch.
 
 ### Editor, terminal, explorer
-A Monaco code editor, a real shell terminal (node-pty) with find and copy/paste, a file explorer, and workspace-scoped file tools the agent can use — guarded by configurable never-edit globs.
+A Monaco code editor, a real shell terminal (node-pty) with find and copy/paste, a file explorer, and workspace-scoped file tools the agent can use — guarded by configurable never-edit globs. Workspace **content search** (Ctrl/Cmd+Shift+F, ripgrep with a Node fallback) adds case/word/regex toggles, include/exclude glob filters, highlighted match previews, and click-to-jump to the exact line and column.
 
 ### Context MCP and external MCP
 A built-in, in-process MCP server exposes tabs, the active page, terminals, editor buffers (including unsaved edits), the explorer tree, sessions, and memory to the agent. External MCP servers can also be connected.

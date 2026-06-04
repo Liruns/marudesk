@@ -63,6 +63,7 @@ npm run harness:e2e
 npm run harness:pair
 npm run harness:relay-bridge
 npm run harness:mcp
+npm run harness:search
 ```
 
 ## Architecture notes
@@ -79,6 +80,11 @@ npm run harness:mcp
   sources, and model loop behavior. Built-in context tools include workspace
   read/list helpers so an agent can inspect non-focused workspace roots without
   changing the user's active Explorer root.
+- `electron/search.ts` owns workspace content search (`search:content`),
+  preferring ripgrep and falling back to a Node walk; its pure helpers — glob
+  filtering, the per-line matcher, byte→char offset conversion, and preview/range
+  building — live in `electron/search-core.ts` and are covered by
+  `npm run harness:search`. The renderer slice is `src/features/search/*`.
 - `shared/*` contains transport-safe contracts used across Electron, renderer,
   tests, and companion surfaces.
 - `src/features/*` contains renderer feature slices for browser, DevTools,
