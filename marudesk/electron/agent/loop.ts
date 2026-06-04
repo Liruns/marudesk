@@ -1137,6 +1137,10 @@ export async function resumeSession(id: string): Promise<boolean> {
   if (!record) return false;
   const keptEdits = state.edits.filter((e) => e.status === 'applied');
   sessionAllowedTools.clear();
+  // Forget the prior conversation's tracked reads — same as reset(). A file read
+  // in the chat we're leaving must not gate (or wrongly clear staleness on) an
+  // edit in the resumed session.
+  clearReadTracker();
   state = emptyAgentChatState();
   state.edits = keptEdits;
   state.messages = record.messages ?? [];

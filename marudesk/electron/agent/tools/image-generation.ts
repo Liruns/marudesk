@@ -21,7 +21,7 @@ import {
   lstatOrNull,
   resolveWorkspacePath,
 } from '../../fs-safe';
-import { humanizeModelError, type ModelAuth } from '../model';
+import { humanizeModelError, isFailoverError, type ModelAuth } from '../model';
 import { resolveProviderAuth } from '../resolve-auth';
 import type { McpTool, ToolContext, ToolResult } from './types';
 
@@ -242,6 +242,7 @@ async function generateImageTool(
     preferredProvider: ctx.provider,
   });
   const authFailures: string[] = [];
+  let lastFailover: { label: string; text: string } | null = null;
   for (const candidate of candidates) {
     const resolved = await resolveProviderAuth(candidate.provider);
     if (!resolved.ok) {
@@ -287,12 +288,28 @@ async function generateImageTool(
       };
     } catch (err) {
       const modelError = err instanceof Error ? err : new Error(String(err));
+      const text = scrubText(humanizeModelError(modelError, candidate.provider, candidate.id));
+      // Rate-limit (429) / transient server error (5xx): fall over to the next
+      // ranked model, mirroring the chat loop's provider fallback. Any other
+      // error (bad request, unsupported option) won't be fixed by another model
+      // — surface it now rather than burning through the chain.
+      if (isFailoverError(err)) {
+        lastFailover = { label: candidate.label, text };
+        continue;
+      }
       return {
         summary: `generate_image ${candidate.label} failed`,
-        text: scrubText(humanizeModelError(modelError, candidate.provider, candidate.id)),
+        text,
         isError: true,
       };
     }
+  }
+  if (lastFailover) {
+    return {
+      summary: `generate_image ${lastFailover.label} failed`,
+      text: lastFailover.text,
+      isError: true,
+    };
   }
   return {
     summary: 'generate_image unavailable',
