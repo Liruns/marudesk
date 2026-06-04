@@ -212,14 +212,19 @@ function WorkspaceNode({
   const isRow = node.dir === 'row';
   return (
     <div className={cn('flex min-w-0 min-h-0 w-full h-full', isRow ? 'flex-row' : 'flex-col')}>
+      {/* Wrappers are flex containers so a leaf's `WorkspacePane` (a flex-1
+          <section>) fills both axes — matching the single-pane parent. Without
+          `flex` here the section sits in a plain block, `flex-1` resolves to zero
+          height, and the pane's stage (and its web views) collapse to 0px — the
+          "split the workspace and the selected tab shows nothing" bug. */}
       <div
-        className="min-w-0 min-h-0 relative"
+        className="min-w-0 min-h-0 relative flex"
         style={isRow ? { width: `${node.ratio * 100}%` } : { height: `${node.ratio * 100}%` }}
       >
         <WorkspaceNode node={node.a} workspaces={workspaces} />
       </div>
       <WorkspaceDivider splitId={node.id} dir={node.dir} />
-      <div className="flex-1 min-w-0 min-h-0 relative">
+      <div className="flex-1 min-w-0 min-h-0 relative flex">
         <WorkspaceNode node={node.b} workspaces={workspaces} />
       </div>
     </div>
