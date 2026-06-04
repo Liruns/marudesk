@@ -7,6 +7,7 @@ import {
   findModel,
   isBuiltinProviderId,
   isProviderId,
+  mergeInferredModelCapabilities,
   modelKey,
   type BuiltinProviderId,
   type CustomProviderInfo,
@@ -133,16 +134,22 @@ function byProvider<T>(make: (id: BuiltinProviderId) => T): Record<BuiltinProvid
 function toEntries(provider: BuiltinProviderId, defs: ModelDef[]): ModelEntry[] {
   return defs.map((d) => {
     const stat = MODELS.find((m) => m.provider === provider && m.id === d.id);
-    return {
+    return mergeInferredModelCapabilities({
       key: modelKey(provider, d.id),
       id: d.id,
       label: d.label,
       provider,
       contextWindow: stat?.contextWindow,
-      tools: stat?.tools ?? true,
+      tools: stat?.tools,
       vision: stat?.vision,
       reasoning: stat?.reasoning,
-    };
+      imageGeneration: stat?.imageGeneration,
+      imageEdit: stat?.imageEdit,
+      imageTransport: stat?.imageTransport,
+      videoGeneration: stat?.videoGeneration,
+      videoEdit: stat?.videoEdit,
+      videoTransport: stat?.videoTransport,
+    });
   });
 }
 
@@ -158,14 +165,17 @@ function mergeProviderModels(
 /** Flatten custom endpoints into provider-tagged model entries. */
 function customEntries(customs: CustomProviderInfo[]): ModelEntry[] {
   return customs.flatMap((c) =>
-    c.models.map((m) => ({
-      key: modelKey(customProviderId(c.id), m.id),
-      id: m.id,
-      label: m.label,
-      provider: customProviderId(c.id),
-      contextWindow: m.contextWindow,
-      tools: m.tools ?? true,
-    })),
+    c.models.map((m) => {
+      const provider = customProviderId(c.id);
+      return mergeInferredModelCapabilities({
+        key: modelKey(provider, m.id),
+        id: m.id,
+        label: m.label,
+        provider,
+        contextWindow: m.contextWindow,
+        tools: m.tools,
+      });
+    }),
   );
 }
 

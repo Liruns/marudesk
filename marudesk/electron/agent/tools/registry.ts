@@ -1,6 +1,8 @@
 import { ASK_USER, GATED_TOOLS, type McpGroup, type McpTool, type McpToolDef } from './types';
 import { TOOL_SCHEMAS } from './schemas';
 import { EXECUTORS } from './executors';
+import { IMAGE_GENERATION_TOOL } from './image-generation';
+import { VIDEO_GENERATION_TOOL } from './video-generation';
 
 /**
  * The MCP descriptor layer (docs/context-mcp-design §1.1) — pairs each tool's
@@ -51,7 +53,10 @@ const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_f
  * is the maps above + {@link GATED_TOOLS}; the loop reads these flags off the
  * descriptor instead of hard-coding tool-name sets.
  */
-export const BUILTIN_TOOLS: McpTool[] = TOOL_SCHEMAS.flatMap((s) => {
+export const BUILTIN_TOOLS: McpTool[] = [
+  IMAGE_GENERATION_TOOL,
+  VIDEO_GENERATION_TOOL,
+  ...TOOL_SCHEMAS.flatMap((s) => {
   if (s.name === ASK_USER) return [];
   const exec = EXECUTORS[s.name];
   if (!exec) return [];
@@ -66,7 +71,8 @@ export const BUILTIN_TOOLS: McpTool[] = TOOL_SCHEMAS.flatMap((s) => {
       exec,
     },
   ];
-});
+  }),
+];
 
 /** The ask_user definition (listed to the model; execution is loop-intercepted). */
 export const ASK_USER_DEF: McpToolDef = {

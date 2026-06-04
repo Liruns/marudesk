@@ -14,10 +14,10 @@ async function listModels(apiKey: string): Promise<ModelDef[]> {
   }
   const json = (await resp.json()) as { data?: { id: string }[] };
   const items = json.data ?? [];
-  // Keep only chat-compatible families to avoid embedding/whisper noise.
+  // Keep chat and media-generation families, while avoiding embedding/whisper/TTS noise.
   const keep = (id: string): boolean =>
-    /^(gpt-|o\d|chatgpt|claude-)/i.test(id) &&
-    !/embedding|whisper|tts|dall|image/i.test(id);
+    /^(gpt-|o\d|chatgpt|claude-|dall-e-|sora-2)/i.test(id) &&
+    !/embedding|whisper|tts/i.test(id);
   return items
     .filter((m) => typeof m.id === 'string' && keep(m.id))
     .map((m) => ({ id: m.id, label: prettifyId(m.id) }))

@@ -31,6 +31,15 @@ export type ModelDef = {
   label: string;
 };
 
+export type ImageGenerationTransport =
+  | 'openai-images'
+  | 'openai-compatible-images';
+
+export type VideoGenerationTransport =
+  | 'openai-videos'
+  | 'openai-compatible-videos'
+  | 'xai-videos';
+
 export type ProviderDef = {
   id: BuiltinProviderId;
   label: string;
@@ -93,6 +102,9 @@ export const PROVIDERS: ProviderDef[] = [
       { id: 'gpt-5-mini', label: 'GPT-5 mini' },
       { id: 'gpt-4.1', label: 'GPT-4.1' },
       { id: 'o4-mini', label: 'o4-mini' },
+      { id: 'gpt-image-2', label: 'GPT Image 2' },
+      { id: 'sora-2', label: 'Sora 2' },
+      { id: 'sora-2-pro', label: 'Sora 2 Pro' },
     ],
     defaultModelId: 'gpt-5',
     apiKeyPlaceholder: 'sk-...',
@@ -122,6 +134,8 @@ export const PROVIDERS: ProviderDef[] = [
     models: [
       { id: 'grok-4.3', label: 'Grok 4.3' },
       { id: 'grok-build-0.1', label: 'Grok Build (coding)' },
+      { id: 'grok-imagine-image-quality', label: 'Grok Imagine Image Quality' },
+      { id: 'grok-imagine-video', label: 'Grok Imagine Video' },
     ],
     defaultModelId: 'grok-4.3',
     apiKeyPlaceholder: 'xai-...',
@@ -317,6 +331,18 @@ export type ModelEntry = {
   vision?: boolean;
   /** A reasoning/extended-thinking model — drives the picker's capability badge. */
   reasoning?: boolean;
+  /** Can create images from text prompts. Distinct from `vision` image input. */
+  imageGeneration?: boolean;
+  /** Can edit or transform a source image. */
+  imageEdit?: boolean;
+  /** API dialect to use for image generation/edit calls. */
+  imageTransport?: ImageGenerationTransport;
+  /** Can create videos from text prompts or supported references. */
+  videoGeneration?: boolean;
+  /** Can edit or extend a source video. */
+  videoEdit?: boolean;
+  /** API dialect to use for video generation/edit calls. */
+  videoTransport?: VideoGenerationTransport;
 };
 
 /** The globally-unique selection key for a (provider, model id) pair. */
@@ -345,6 +371,9 @@ export const MODELS: ModelEntry[] = [
   { key: 'openai:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'openai', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
   { key: 'openai:gpt-4.1', id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai', contextWindow: 1_047_576, tools: true, vision: true },
   { key: 'openai:o4-mini', id: 'o4-mini', label: 'o4-mini', provider: 'openai', contextWindow: 200_000, tools: true, reasoning: true },
+  { key: 'openai:gpt-image-2', id: 'gpt-image-2', label: 'GPT Image 2', provider: 'openai', tools: false, vision: true, imageGeneration: true, imageEdit: true, imageTransport: 'openai-images' },
+  { key: 'openai:sora-2', id: 'sora-2', label: 'Sora 2', provider: 'openai', tools: false, vision: true, videoGeneration: true, videoEdit: true, videoTransport: 'openai-videos' },
+  { key: 'openai:sora-2-pro', id: 'sora-2-pro', label: 'Sora 2 Pro', provider: 'openai', tools: false, vision: true, videoGeneration: true, videoEdit: true, videoTransport: 'openai-videos' },
   // Google Gemini (~1M context).
   { key: 'google:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
   { key: 'google:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
@@ -353,6 +382,8 @@ export const MODELS: ModelEntry[] = [
   // and grok-code-fast-1 were retired 2026-05-15 — current models only.
   { key: 'xai:grok-4.3', id: 'grok-4.3', label: 'Grok 4.3', provider: 'xai', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
   { key: 'xai:grok-build-0.1', id: 'grok-build-0.1', label: 'Grok Build (coding)', provider: 'xai', contextWindow: 256_000, tools: true },
+  { key: 'xai:grok-imagine-image-quality', id: 'grok-imagine-image-quality', label: 'Grok Imagine Image Quality', provider: 'xai', tools: false, vision: true, imageGeneration: true, imageEdit: true, imageTransport: 'openai-compatible-images' },
+  { key: 'xai:grok-imagine-video', id: 'grok-imagine-video', label: 'Grok Imagine Video', provider: 'xai', tools: false, vision: true, videoGeneration: true, videoEdit: true, videoTransport: 'xai-videos' },
   // OpenAI ChatGPT (Codex backend, OAuth-only — Responses dialect). Experimental.
   // The bare `gpt-5` slug 400s ("not supported when using Codex with a ChatGPT
   // account"); use a codex/versioned slug. Accepted set tracks the Codex CLI (≠
@@ -377,6 +408,151 @@ export const MODELS: ModelEntry[] = [
 ];
 
 export const DEFAULT_MODEL_KEY = modelKey('anthropic', 'claude-sonnet-4-6');
+
+type ImageGenerationCapability = {
+  imageGeneration?: boolean;
+  imageEdit?: boolean;
+  imageTransport?: ImageGenerationTransport;
+};
+
+type VideoGenerationCapability = {
+  videoGeneration?: boolean;
+  videoEdit?: boolean;
+  videoTransport?: VideoGenerationTransport;
+};
+
+export function inferImageGenerationCapability(
+  provider: ProviderId,
+  modelId: string,
+): ImageGenerationCapability {
+  const id = modelId.toLowerCase();
+  if (provider === 'openai' && (/^gpt-image-/.test(id) || /^dall-e-/.test(id))) {
+    return {
+      imageGeneration: true,
+      imageEdit: /^gpt-image-/.test(id) || id === 'dall-e-2',
+      imageTransport: 'openai-images',
+    };
+  }
+  if ((provider === 'xai' || isCustomProviderId(provider)) && /^grok-imagine-image/.test(id)) {
+    return {
+      imageGeneration: true,
+      imageEdit: true,
+      imageTransport: 'openai-compatible-images',
+    };
+  }
+  if (isCustomProviderId(provider) && (/^gpt-image-/.test(id) || /^dall-e-/.test(id))) {
+    return {
+      imageGeneration: true,
+      imageEdit: /^gpt-image-/.test(id) || id === 'dall-e-2',
+      imageTransport: 'openai-compatible-images',
+    };
+  }
+  return {};
+}
+
+export function inferVideoGenerationCapability(
+  provider: ProviderId,
+  modelId: string,
+): VideoGenerationCapability {
+  const id = modelId.toLowerCase();
+  if (provider === 'openai' && /^sora-2/.test(id)) {
+    return {
+      videoGeneration: true,
+      videoEdit: true,
+      videoTransport: 'openai-videos',
+    };
+  }
+  if ((provider === 'xai' || isCustomProviderId(provider)) && /^grok-imagine-video/.test(id)) {
+    return {
+      videoGeneration: true,
+      videoEdit: true,
+      videoTransport: 'xai-videos',
+    };
+  }
+  if (isCustomProviderId(provider) && /^sora-2/.test(id)) {
+    return {
+      videoGeneration: true,
+      videoEdit: true,
+      videoTransport: 'openai-compatible-videos',
+    };
+  }
+  return {};
+}
+
+export function mergeInferredModelCapabilities(entry: ModelEntry): ModelEntry {
+  const inferred = inferImageGenerationCapability(entry.provider, entry.id);
+  const inferredVideo = inferVideoGenerationCapability(entry.provider, entry.id);
+  const imageGeneration = entry.imageGeneration ?? inferred.imageGeneration;
+  const videoGeneration = entry.videoGeneration ?? inferredVideo.videoGeneration;
+  return {
+    ...entry,
+    tools: entry.tools ?? (imageGeneration || videoGeneration ? false : true),
+    imageGeneration,
+    imageEdit: entry.imageEdit ?? inferred.imageEdit,
+    imageTransport: entry.imageTransport ?? inferred.imageTransport,
+    videoGeneration,
+    videoEdit: entry.videoEdit ?? inferredVideo.videoEdit,
+    videoTransport: entry.videoTransport ?? inferredVideo.videoTransport,
+  };
+}
+
+function imageCapable(model: ModelEntry): boolean {
+  const entry = mergeInferredModelCapabilities(model);
+  return entry.imageGeneration === true && !!entry.imageTransport;
+}
+
+function videoCapable(model: ModelEntry): boolean {
+  const entry = mergeInferredModelCapabilities(model);
+  return entry.videoGeneration === true && !!entry.videoTransport;
+}
+
+function pushUniqueMedia(
+  target: ModelEntry[],
+  seen: Set<string>,
+  candidate: ModelEntry | undefined,
+  capable: (model: ModelEntry) => boolean,
+): void {
+  if (!candidate || seen.has(candidate.key) || !capable(candidate)) return;
+  seen.add(candidate.key);
+  target.push(mergeInferredModelCapabilities(candidate));
+}
+
+function rankGenerationModels(input: {
+  models: readonly ModelEntry[];
+  selectedModelKey?: string;
+  preferredProvider?: ProviderId;
+  capable: (model: ModelEntry) => boolean;
+}): ModelEntry[] {
+  const all = input.models.map(mergeInferredModelCapabilities);
+  const selected = input.selectedModelKey ? findModel(all, input.selectedModelKey) : undefined;
+  const provider = input.preferredProvider ?? selected?.provider;
+  const ranked: ModelEntry[] = [];
+  const seen = new Set<string>();
+  pushUniqueMedia(ranked, seen, selected, input.capable);
+  if (provider) {
+    for (const model of all.filter((m) => m.provider === provider)) {
+      pushUniqueMedia(ranked, seen, model, input.capable);
+    }
+  }
+  for (const model of all) pushUniqueMedia(ranked, seen, model, input.capable);
+  return ranked;
+}
+
+export function rankImageGenerationModels(input: {
+  models: readonly ModelEntry[];
+  selectedModelKey?: string;
+  preferredProvider?: ProviderId;
+}): ModelEntry[] {
+  return rankGenerationModels({ ...input, capable: imageCapable });
+}
+
+export function rankVideoGenerationModels(input: {
+  models: readonly ModelEntry[];
+  selectedModelKey?: string;
+  preferredProvider?: ProviderId;
+}): ModelEntry[] {
+  return rankGenerationModels({ ...input, capable: videoCapable });
+}
 
 /**
  * A user-configured OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM,
