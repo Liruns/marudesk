@@ -179,6 +179,19 @@ OAuth 변경 없음.
 - **Hugging Face / Xiaomi MiMo 등 단발 API 키**: 필요 시 `custom:*` 커스텀 엔드포인트로 즉시 가능 —
   built-in 승격은 수요 보고 추후.
 
+## 8.5 진행 상태 (2026-06-04)
+
+- ✅ **P1/P2 API-키 built-in 5종 흡수 완료**: `openrouter` / `groq` / `cerebras` /
+  `mistral` / `deepseek`. 구현 = `shared/providers.ts`(union+`PROVIDERS`+`MODELS`) +
+  `electron/providers/openai-compatible.ts`(공용 드라이버 팩토리) + `DRIVERS` 등록 +
+  `electron/agent/model.ts`(base URL + `buildModel` case) + `electron/models-dev.ts`
+  (라이브 카탈로그 매핑). 글리프는 당분간 generic 모노그램(브랜드 마크는 후속).
+  - 검증: `tsc -b` 클린 · eslint 클린 · 카탈로그 정합성(14 providers / 44 models / 0 문제) ·
+    e2e `provider-catalog.spec.ts` 3/3 + 기존 oauth/agent/custom-providers 21/21.
+- ⏭ **P0 구독 OAuth는 후속 PR**: GitHub Copilot(신규 `device-code` flow + 토큰 교환)·
+  OpenRouter PKCE(키 교환)는 **실 구독 계정 없이는 라이브 검증 불가**하고 신규 flow/IPC 표면
+  변경이 커서, 안정적인 API-키 흡수분을 먼저 머지하고 별도로 진행한다(§9 위험 참고).
+
 ## 9. 위험 / 주의
 
 - **vendor 내부값 회전**: Copilot client_id(`Iv1.…`)·`copilot_internal/v2/token`·Editor 헤더,
