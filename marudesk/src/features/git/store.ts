@@ -6,6 +6,7 @@ import type {
   GitCommit,
   GitStatus,
 } from '../../../shared/git';
+import { getMessage, parseLocale, type Locale } from '../../i18n/messages';
 import { toMessage } from '../../lib/toMessage';
 import { toast } from '../../lib/toast';
 
@@ -123,8 +124,9 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
     await run(set, async () => {
       const res = await window.marudesk.invoke('git:commit', { message, amend });
       ok = true;
+      const locale = currentLocale();
       toast({
-        title: `Committed ${res.shortHash}`,
+        title: `${getMessage(locale, 'git.toast.committed')} ${res.shortHash}`,
         description: res.subject,
         variant: 'success',
       });
@@ -148,7 +150,7 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
   fetch: async () => {
     await run(set, async () => {
       const res = await window.marudesk.invoke('git:fetch');
-      toast({ title: 'Fetch', description: res.summary, variant: 'neutral' });
+      toast({ title: getMessage(currentLocale(), 'git.toast.fetch'), description: res.summary, variant: 'neutral' });
     });
     await get().refresh();
   },
@@ -156,7 +158,7 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
   pull: async () => {
     await run(set, async () => {
       const res = await window.marudesk.invoke('git:pull');
-      toast({ title: 'Pull', description: res.summary, variant: 'success' });
+      toast({ title: getMessage(currentLocale(), 'git.toast.pull'), description: res.summary, variant: 'success' });
     });
     await get().refresh();
   },
@@ -164,11 +166,19 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
   push: async () => {
     await run(set, async () => {
       const res = await window.marudesk.invoke('git:push');
-      toast({ title: 'Push', description: res.summary, variant: 'success' });
+      toast({ title: getMessage(currentLocale(), 'git.toast.push'), description: res.summary, variant: 'success' });
     });
     await get().refresh();
   },
 }));
+
+function currentLocale(): Locale {
+  try {
+    return parseLocale(localStorage.getItem('marudesk.locale')) ?? 'en';
+  } catch {
+    return 'en';
+  }
+}
 
 /**
  * Run a mutating op with the shared busy flag + error/toast handling, so every
@@ -185,7 +195,7 @@ async function run(
   } catch (err) {
     const msg = toMessage(err);
     set({ busy: false, error: msg });
-    toast({ title: 'Git error', description: msg, variant: 'error' });
+    toast({ title: getMessage(currentLocale(), 'git.toast.error'), description: msg, variant: 'error' });
   }
 }
 

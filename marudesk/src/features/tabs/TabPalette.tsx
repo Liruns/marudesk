@@ -11,6 +11,8 @@ import { fuzzyScore } from '../search/fuzzy';
 import { useTabsStore } from './store';
 import { tabKinds } from './registry';
 import type { TabState } from '../../../shared/browser';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 
 /**
  * Tab switcher palette (Ctrl/Cmd+Shift+A). A keyboard-first overlay that
@@ -21,13 +23,17 @@ import type { TabState } from '../../../shared/browser';
 const MAX_RESULTS = 50;
 
 /** The text a tab matches on: its display label plus the page url for web tabs. */
-function tabHaystack(tab: TabState): string {
-  const label = tab.title || tabKinds[tab.kind].title;
+function tabKindLabel(tab: TabState, t: (key: TranslationKey) => string): string {
+  return t(`tabs.kind.${tab.kind}` as TranslationKey);
+}
+
+function tabHaystack(tab: TabState, t: (key: TranslationKey) => string): string {
+  const label = tab.title || tabKindLabel(tab, t);
   return tab.kind === 'web' ? `${label} ${tab.url}` : label;
 }
 
-function tabLabel(tab: TabState): string {
-  return tab.title || tabKinds[tab.kind].title;
+function tabLabel(tab: TabState, t: (key: TranslationKey) => string): string {
+  return tab.title || tabKindLabel(tab, t);
 }
 
 export function TabPalette({ onClose }: { onClose: () => void }) {
@@ -38,6 +44,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
+  const { formatTabPaletteNoMatch, t } = useI18n();
 
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
@@ -49,12 +56,12 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
     if (q === '') return tabs.slice(0, MAX_RESULTS).map((tab) => ({ tab }));
     const scored: { tab: TabState; score: number }[] = [];
     for (const tab of tabs) {
-      const r = fuzzyScore(q, tabHaystack(tab));
+      const r = fuzzyScore(q, tabHaystack(tab, t));
       if (r) scored.push({ tab, score: r.score });
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, MAX_RESULTS);
-  }, [tabs, query]);
+  }, [tabs, query, t]);
 
   const activeIndex = results.length === 0 ? 0 : Math.min(active, results.length - 1);
 
@@ -89,7 +96,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-start justify-center"
       role="dialog"
       aria-modal="true"
-      aria-label="Search tabs"
+      aria-label={t('tabPalette.dialogLabel')}
     >
       <button
         type="button"
@@ -109,7 +116,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
               setActive(0);
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search tabs…"
+            placeholder={t('tabPalette.placeholder')}
             spellCheck={false}
             autoComplete="off"
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
@@ -119,7 +126,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {results.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
-              No tabs match “{query}”.
+              {formatTabPaletteNoMatch(query)}
             </div>
           ) : (
             results.map(({ tab }, idx) => {
@@ -142,14 +149,16 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
                   ) : (
                     <Icon size={14} />
                   )}
-                  <span className="shrink-0 max-w-[45%] truncate">{tabLabel(tab)}</span>
+                  <span className="shrink-0 max-w-[45%] truncate">{tabLabel(tab, t)}</span>
                   {tab.kind === 'web' && tab.url ? (
                     <span className="min-w-0 flex-1 truncate text-caption text-fg-tertiary">
                       {tab.url}
                     </span>
                   ) : null}
                   {tab.id === activeTabId ? (
-                    <span className="ml-auto shrink-0 text-caption text-fg-tertiary">current</span>
+                    <span className="ml-auto shrink-0 text-caption text-fg-tertiary">
+                      {t('tabPalette.current')}
+                    </span>
                   ) : null}
                 </button>
               );
@@ -158,9 +167,9 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
-          <Hint k="↑↓" label="move" />
-          <Hint k="↵" label="switch" />
-          <Hint k="esc" label="close" />
+          <Hint k="↑↓" label={t('palette.hint.move')} />
+          <Hint k="↵" label={t('tabPalette.hint.switch')} />
+          <Hint k="esc" label={t('palette.hint.close')} />
         </div>
       </div>
     </div>

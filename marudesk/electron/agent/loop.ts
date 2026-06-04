@@ -266,7 +266,7 @@ async function runVerifyNote(turnId: string, ws: WorkspaceSummary | null): Promi
   state.status = 'working';
   emit();
   let passed = false;
-  let detail = '';
+  let detail: string;
   try {
     const { stdout, stderr } = await execAsync(cmd, {
       cwd: ws.root,
@@ -875,7 +875,7 @@ export async function testProviderConnection(
 function serializeForCompaction(msgs: ModelMessage[]): string {
   const lines: string[] = [];
   for (const m of msgs) {
-    let text = '';
+    let text: string;
     if (typeof m.content === 'string') {
       text = m.content;
     } else {

@@ -49,6 +49,8 @@ import {
 } from 'lucide-react';
 import { Badge, Button, CopyButton, DiffBlock } from '../../components/ui';
 import { useElapsedTimer, formatElapsed } from '../../hooks';
+import { useI18n } from '../../i18n/useI18n';
+import type { Locale, TranslationKey } from '../../i18n/messages';
 import { cn } from '../../lib/cn';
 import { Markdown } from '../../lib/markdown';
 import { toast } from '../../lib/toast';
@@ -87,14 +89,39 @@ import { toDiffLines, diffStats } from './diff';
 import { ModelPalette } from './ModelPalette';
 import { ContextPopover } from './ContextPopover';
 
-const STATUS_LABEL: Record<AgentStatus, string> = {
-  idle: 'Ready',
-  thinking: 'Thinking…',
-  working: 'Working…',
-  waiting_for_user: 'Waiting for you',
-  failed: 'Stopped',
-  completed: 'Done',
+const STATUS_LABEL_KEY: Record<AgentStatus, TranslationKey> = {
+  idle: 'agent.chat.status.ready',
+  thinking: 'agent.chat.status.thinking',
+  working: 'agent.chat.status.working',
+  waiting_for_user: 'agent.chat.status.waiting',
+  failed: 'agent.chat.status.stopped',
+  completed: 'agent.chat.status.done',
 };
+
+function formatRuntimeChecks(locale: Locale, count: number): string {
+  if (locale === 'ko') return `실행 중인 앱에서 런타임 확인 ${count}회`;
+  return `${count} runtime check${count === 1 ? '' : 's'} on the live app`;
+}
+
+function formatChangedFiles(locale: Locale, count: number): string {
+  if (locale === 'ko') return `파일 ${count}개 변경됨`;
+  return `${count} file${count === 1 ? '' : 's'} changed`;
+}
+
+function formatSelectedCaptures(locale: Locale, count: number): string {
+  if (locale === 'ko') return `캡처 ${count}개 선택됨`;
+  return `${count} capture${count === 1 ? '' : 's'} selected`;
+}
+
+function formatContextWindow(locale: Locale, value: string, pct: number): string {
+  if (locale === 'ko') return `${value} (${pct}% 사용됨)`;
+  return `${value} (${pct}% used)`;
+}
+
+function formatUsageTitle(locale: Locale, input: string, output: string): string {
+  if (locale === 'ko') return `입력 ${input}개 - 출력 ${output}개 토큰`;
+  return `${input} input - ${output} output tokens`;
+}
 
 /**
  * Hook: returns elapsed seconds (0 when not busy) for the active busy turn.
@@ -107,6 +134,7 @@ function isBusy(s: AgentStatus): boolean {
 }
 
 export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' } = {}) {
+  const { t } = useI18n();
   const chat = useAgentStore((s) => s.chat);
   const draft = useAgentStore((s) => s.draft);
   const localError = useAgentStore((s) => s.localError);
@@ -313,7 +341,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         if (chat.edits.length > 0) {
           changesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
-          toast({ title: 'No changes yet', description: 'This conversation has not edited any files.' });
+          toast({
+            title: t('agent.chat.toast.noChanges.title'),
+            description: t('agent.chat.toast.noChanges.description'),
+          });
         }
         break;
       case 'context':
@@ -321,13 +352,29 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         break;
       case 'compact':
         if (busy) {
-          toast({ title: 'Busy', description: 'Wait for the current turn to finish before compacting.' });
+          toast({
+            title: t('agent.chat.toast.busy.title'),
+            description: t('agent.chat.toast.busy.description'),
+          });
           break;
         }
-        toast({ title: 'Compacting…', description: 'Summarizing the conversation to free up context.' });
+        toast({
+          title: t('agent.chat.toast.compacting.title'),
+          description: t('agent.chat.toast.compacting.description'),
+        });
         void compact().then((res) => {
-          if (res.ok) toast({ title: 'Conversation compacted', description: 'Earlier turns were summarized.' });
-          else toast({ title: 'Could not compact', description: res.reason ?? 'unknown error', variant: 'error' });
+          if (res.ok) {
+            toast({
+              title: t('agent.chat.toast.compacted.title'),
+              description: t('agent.chat.toast.compacted.description'),
+            });
+          } else {
+            toast({
+              title: t('agent.chat.toast.compactFailed.title'),
+              description: res.reason ?? t('agent.chat.toast.unknownError'),
+              variant: 'error',
+            });
+          }
         });
         break;
       case 'help':
@@ -335,16 +382,24 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         break;
       case 'copy': {
         if (chat.messages.length === 0) {
-          toast({ title: 'Nothing to copy', description: 'This conversation is empty.' });
+          toast({
+            title: t('agent.chat.toast.nothingToCopy.title'),
+            description: t('agent.chat.toast.nothingToCopy.description'),
+          });
           break;
         }
         const md = chat.messages
-          .map((m) => `**${m.role === 'user' ? 'User' : 'Assistant'}:**\n\n${textOf(m)}`)
+          .map((m) => `**${m.role === 'user' ? t('agent.chat.role.user') : t('agent.chat.role.assistant')}:**\n\n${textOf(m)}`)
           .join('\n\n---\n\n');
         void navigator.clipboard
           .writeText(md)
-          .then(() => toast({ title: 'Conversation copied', description: 'Markdown is on your clipboard.' }))
-          .catch((err) => toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' }));
+          .then(() =>
+            toast({
+              title: t('agent.chat.toast.copied.title'),
+              description: t('agent.chat.toast.copied.description'),
+            }),
+          )
+          .catch((err) => toast({ title: t('common.copyFailed'), description: toMessage(err), variant: 'error' }));
         break;
       }
       case 'model':
@@ -377,7 +432,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // Send a concrete prompt string: resolve slash commands first (action → run
   // locally; prompt → expand into a templated instruction), then dispatch. Used
   // by both the composer Send and the queued-prompt auto-send below.
-  const submitText = (raw: string) => {
+  function submitText(raw: string) {
     const text = raw.trim();
     if (text.length === 0) return;
     // A fresh prompt should snap back to the bottom even if the user scrolled up.
@@ -395,7 +450,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     }
     setDraft(text);
     void send();
-  };
+  }
 
   const handleSend = () => {
     const text = draft.trim();
@@ -639,10 +694,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                     type="button"
                     onClick={() => void resetChat()}
                     className="flex items-center gap-1 h-5 px-1.5 rounded-sm text-caption text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
-                    title="Start a new conversation"
+                    title={t('agent.chat.newConversation')}
                   >
                     <Eraser size={11} />
-                    <span className="text-[10px] leading-none">New</span>
+                    <span className="text-[10px] leading-none">{t('agent.chat.new')}</span>
                   </button>
                 </>
               ) : null}
@@ -659,13 +714,13 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             <div className="flex items-start gap-2 rounded border border-subtle bg-surface-1 px-3 py-1.5">
               <History size={12} className="mt-0.5 shrink-0 text-fg-tertiary" />
               <span className="flex-1 min-w-0 text-caption text-fg-secondary break-words">
-                <span className="text-fg-tertiary">Queued · sends when this turn ends:</span>{' '}
+                <span className="text-fg-tertiary">{t('agent.chat.queuedPrompt')}</span>{' '}
                 {queuedPrompt}
               </span>
               <button
                 type="button"
                 onClick={() => setQueuedPrompt(null)}
-                aria-label="Cancel queued message"
+                aria-label={t('agent.chat.cancelQueued')}
                 className="shrink-0 text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
               >
                 <X size={12} />
@@ -683,13 +738,13 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 <div key={i} className="relative group/img">
                   <img
                     src={`data:${img.mediaType};base64,${img.data}`}
-                    alt="attachment"
+                    alt={t('agent.chat.attachmentAlt')}
                     className="h-14 w-14 rounded border border-default object-cover"
                   />
                   <button
                     type="button"
                     onClick={() => removeImage(i)}
-                    aria-label="Remove image"
+                    aria-label={t('agent.chat.removeImage')}
                     className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-pill bg-surface-3 border border-default text-fg-secondary hover:text-fg-primary opacity-0 group-hover/img:opacity-100 transition-opacity duration-fast"
                   >
                     <X size={10} />
@@ -732,18 +787,18 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               onPaste={handlePaste}
               onDrop={handleDrop}
               rows={full ? 3 : 2}
-              placeholder="Ask the agent — / for commands, @ for files… (Enter to send)"
+              placeholder={t('agent.chat.promptPlaceholder')}
               spellCheck={false}
               className={cn(
                 'flex-1 min-h-[44px] max-h-40 resize-none rounded bg-surface-page border border-default px-3 py-2',
                 'font-mono text-body-sm text-fg-primary placeholder:text-fg-tertiary leading-relaxed',
                 'focus:outline-none focus:border-accent',
               )}
-              aria-label="Agent prompt"
+              aria-label={t('agent.chat.promptAria')}
             />
             {busy ? (
               <Button variant="secondary" size="md" leadingIcon={<Square size={14} />} onClick={() => void abort()}>
-                Stop
+                {t('agent.chat.stop')}
               </Button>
             ) : (
               <Button
@@ -753,7 +808,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 onClick={handleSend}
                 disabled={draft.trim().length === 0}
               >
-                Send
+                {t('agent.chat.send')}
               </Button>
             )}
           </div>
@@ -775,10 +830,11 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
 /** A bounded image thumbnail (composer attachment strip + transcript). */
 function ChatImage({ mediaType, data }: { mediaType: string; data: string }) {
+  const { t } = useI18n();
   return (
     <img
       src={`data:${mediaType};base64,${data}`}
-      alt="attached"
+      alt={t('agent.chat.attachedAlt')}
       className="max-h-40 max-w-full rounded border border-subtle object-contain"
     />
   );
@@ -857,10 +913,11 @@ function MentionMenu({
   onPick: (path: string) => void;
   onHover: (index: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="listbox"
-      aria-label="Workspace files"
+      aria-label={t('agent.chat.workspaceFiles')}
       className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
     >
       {items.map((path, i) => {
@@ -900,6 +957,38 @@ function MentionMenu({
  * the selection, Enter/Tab pick, Escape dismisses — all driven from the
  * composer's onKeyDown so focus stays in the textarea.
  */
+const SLASH_DESCRIPTION_KEYS: Record<string, TranslationKey> = {
+  init: 'agent.chat.slash.init',
+  review: 'agent.chat.slash.review',
+  test: 'agent.chat.slash.test',
+  explain: 'agent.chat.slash.explain',
+  commit: 'agent.chat.slash.commit',
+  diff: 'agent.chat.slash.diff',
+  context: 'agent.chat.slash.context',
+  copy: 'agent.chat.slash.copy',
+  compact: 'agent.chat.slash.compact',
+  model: 'agent.chat.slash.model',
+  new: 'agent.chat.slash.new',
+  help: 'agent.chat.slash.help',
+};
+
+const SLASH_ARG_HINT_KEYS: Record<string, TranslationKey> = {
+  review: 'agent.chat.slash.arg.optionalFocus',
+  test: 'agent.chat.slash.arg.optionalPath',
+  explain: 'agent.chat.slash.arg.fileOrSymbol',
+  commit: 'agent.chat.slash.arg.optionalIntent',
+};
+
+function slashDescription(name: string, t: (key: TranslationKey) => string): string {
+  const key = SLASH_DESCRIPTION_KEYS[name];
+  return key ? t(key) : name;
+}
+
+function slashArgHint(name: string, t: (key: TranslationKey) => string): string {
+  const key = SLASH_ARG_HINT_KEYS[name];
+  return key ? t(key) : '';
+}
+
 function SlashMenu({
   items,
   activeIndex,
@@ -911,10 +1000,11 @@ function SlashMenu({
   onPick: (cmd: SlashCommand) => void;
   onHover: (index: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="listbox"
-      aria-label="Slash commands"
+      aria-label={t('agent.chat.slashCommands')}
       className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
     >
       {items.map((cmd, i) => (
@@ -937,9 +1027,13 @@ function SlashMenu({
         >
           <span className="font-mono text-body-sm text-fg-primary shrink-0">/{cmd.name}</span>
           {cmd.kind === 'prompt' && cmd.argHint ? (
-            <span className="font-mono text-caption text-fg-tertiary shrink-0">{cmd.argHint}</span>
+            <span className="font-mono text-caption text-fg-tertiary shrink-0">
+              {slashArgHint(cmd.name, t)}
+            </span>
           ) : null}
-          <span className="text-caption text-fg-tertiary truncate ml-auto pl-3">{cmd.description}</span>
+          <span className="text-caption text-fg-tertiary truncate ml-auto pl-3">
+            {slashDescription(cmd.name, t)}
+          </span>
         </button>
       ))}
     </div>
@@ -951,16 +1045,17 @@ function SlashMenu({
  * currently in the model's context window). Neither makes a model call.
  */
 function SlashInfoCard({ kind, onClose }: { kind: 'help' | 'context'; onClose: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="rounded border border-subtle bg-surface-1 px-3 py-2.5">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-caption font-medium text-fg-secondary">
-          {kind === 'help' ? 'Slash commands' : 'Context window'}
+          {kind === 'help' ? t('agent.chat.slashCommands') : t('agent.chat.contextWindow')}
         </span>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Dismiss"
+          aria-label={t('agent.chat.dismiss')}
           className="text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
         >
           <X size={13} />
@@ -972,12 +1067,13 @@ function SlashInfoCard({ kind, onClose }: { kind: 'help' | 'context'; onClose: (
 }
 
 function SlashHelpBody() {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-1">
       {SLASH_COMMANDS.map((cmd) => (
         <div key={cmd.name} className="flex items-baseline gap-2.5 text-body-sm">
           <span className="font-mono text-fg-primary shrink-0 w-20">/{cmd.name}</span>
-          <span className="text-caption text-fg-tertiary">{cmd.description}</span>
+          <span className="text-caption text-fg-tertiary">{slashDescription(cmd.name, t)}</span>
         </div>
       ))}
     </div>
@@ -985,6 +1081,7 @@ function SlashHelpBody() {
 }
 
 function SlashContextBody() {
+  const { locale, t } = useI18n();
   const messages = useAgentStore((s) => s.chat.messages);
   const usage = useAgentStore((s) => s.chat.usage);
   const edits = useAgentStore((s) => s.chat.edits);
@@ -996,14 +1093,17 @@ function SlashContextBody() {
   const ctx = model?.contextWindow;
   const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
   const rows: Array<[string, string]> = [
-    ['Provider', providerLabel(selectedProvider)],
-    ['Model', model ? model.label : '—'],
-    ['Approval mode', approvalMode],
-    ['Messages', String(messages.length)],
-    ['Input tokens', usage.inputTokens.toLocaleString()],
-    ['Output tokens', usage.outputTokens.toLocaleString()],
-    ['Context window', ctx ? `${formatContext(ctx)} (${pct}% used)` : 'unknown'],
-    ['Files edited', String(edits.length)],
+    [t('agent.chat.context.provider'), providerLabel(selectedProvider)],
+    [t('agent.chat.context.model'), model ? model.label : '-'],
+    [t('agent.chat.context.approvalMode'), approvalMode],
+    [t('agent.chat.context.messages'), String(messages.length)],
+    [t('agent.chat.context.inputTokens'), usage.inputTokens.toLocaleString()],
+    [t('agent.chat.context.outputTokens'), usage.outputTokens.toLocaleString()],
+    [
+      t('agent.chat.context.contextWindow'),
+      ctx && pct !== null ? formatContextWindow(locale, formatContext(ctx), pct) : t('agent.chat.unknown'),
+    ],
+    [t('agent.chat.context.filesEdited'), String(edits.length)],
   ];
   return (
     <div className="flex flex-col gap-1">
@@ -1033,6 +1133,7 @@ function ContextButton({
   open: boolean;
   onToggle: () => void;
 }) {
+  const { locale, t } = useI18n();
   const selectedIds = useWebPageStore((s) => s.selectedCaptureIds);
   const selectedCount = selectedIds.size;
 
@@ -1044,8 +1145,8 @@ function ContextButton({
         onClick={onToggle}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label="Add context"
-        title="Add context (captures, tabs)"
+        aria-label={t('agent.context.addContext')}
+        title={t('agent.chat.addContextTitle')}
         className={cn(
           'size-8 flex items-center justify-center rounded border transition-colors duration-fast',
           open
@@ -1057,7 +1158,7 @@ function ContextButton({
       </button>
       {selectedCount > 0 ? (
         <span
-          aria-label={`${selectedCount} capture${selectedCount === 1 ? '' : 's'} selected`}
+          aria-label={formatSelectedCaptures(locale, selectedCount)}
           className={cn(
             'pointer-events-none absolute -top-1.5 -right-1.5',
             'flex items-center justify-center',
@@ -1087,6 +1188,7 @@ function formatContext(n: number): string {
  * actually consumed tokens.
  */
 function UsageMeter() {
+  const { locale } = useI18n();
   const usage = useAgentStore((s) => s.chat.usage);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
   const models = useProvidersStore((s) => s.models);
@@ -1096,7 +1198,11 @@ function UsageMeter() {
   return (
     <span
       className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums shrink-0"
-      title={`${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output tokens`}
+      title={formatUsageTitle(
+        locale,
+        usage.inputTokens.toLocaleString(),
+        usage.outputTokens.toLocaleString(),
+      )}
     >
       {pct !== null ? (
         <>
@@ -1119,6 +1225,7 @@ function UsageMeter() {
  * Settings when the active provider has no usable auth.
  */
 function ProviderModelBar({ full }: { full?: boolean }) {
+  const { t } = useI18n();
   const models = useProvidersStore((s) => s.models);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
   const selectedModel = useProvidersStore((s) => s.selectedModel);
@@ -1172,7 +1279,9 @@ function ProviderModelBar({ full }: { full?: boolean }) {
         {!hasKey && statusChecked && isBuiltinProviderId(selectedProvider) ? (
           <div className="mt-2 flex items-center justify-between gap-2 rounded border border-subtle bg-surface-2 px-2 py-1">
             <span className="text-caption text-fg-tertiary truncate">
-              No API key for {providerLabel(selectedProvider, customProviders)}.
+              {t('agent.chat.noApiKeyBefore')}
+              {providerLabel(selectedProvider, customProviders)}
+              {t('agent.chat.noApiKeyAfter')}
             </span>
             <button
               type="button"
@@ -1182,7 +1291,7 @@ function ProviderModelBar({ full }: { full?: boolean }) {
               }}
               className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-accent transition-colors duration-fast"
             >
-              <SettingsIcon size={12} /> Settings
+              <SettingsIcon size={12} /> {t('activity.settings')}
             </button>
           </div>
         ) : null}
@@ -1204,6 +1313,7 @@ const MessageView = memo(function MessageView({
   streaming?: boolean;
   verbosity: TranscriptVerbosity;
 }) {
+  const { t } = useI18n();
   if (message.role === 'user') {
     const images = message.parts.filter((p) => p.type === 'image');
     return (
@@ -1243,7 +1353,7 @@ const MessageView = memo(function MessageView({
       {/* Copy the assistant's prose — appears on hover, hidden mid-stream. */}
       {!streaming && answerText.trim() ? (
         <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">
-          <CopyButton text={answerText} label="Copy message" />
+          <CopyButton text={answerText} label={t('agent.chat.copyMessage')} />
         </div>
       ) : null}
       {message.parts.map((part, i) => {
@@ -1317,6 +1427,7 @@ function ThinkingBlock({
   streaming?: boolean;
   defaultOpen?: boolean;
 }) {
+  const { t } = useI18n();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? (!!streaming || !!defaultOpen);
   const thinkingElapsed = useElapsedTimer(!!streaming);
@@ -1335,7 +1446,7 @@ function ThinkingBlock({
           <Brain size={12} className="text-ai-thinking/70 shrink-0" />
         )}
         <span className="text-fg-secondary flex-1 font-medium">
-          {streaming ? 'Thinking' : 'Thought'}
+          {streaming ? t('agent.chat.thinking') : t('agent.chat.thought')}
         </span>
         {streaming && thinkingElapsed > 0 ? (
           <span className="text-ai-thinking/80 tabular-nums text-[10px]">
@@ -1367,7 +1478,7 @@ function textOf(message: AgentMessage): string {
   return message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
 }
 
-type ToolMeta = { label: string; icon: LucideIcon; runtime?: boolean };
+type ToolMeta = { labelKey: TranslationKey; icon: LucideIcon; runtime?: boolean };
 
 /**
  * Per-tool presentation. `runtime` tools read/act on the LIVE running page over
@@ -1376,56 +1487,56 @@ type ToolMeta = { label: string; icon: LucideIcon; runtime?: boolean };
  * the running app, not just the source.
  */
 const TOOL_META: Record<string, ToolMeta> = {
-  read_file: { label: 'Read', icon: FileText },
-  list_files: { label: 'List files', icon: FolderTree },
-  grep: { label: 'Search', icon: Search },
-  edit_file: { label: 'Edit', icon: FilePen },
-  multi_edit: { label: 'Multi-edit', icon: FilePen },
-  get_console_errors: { label: 'Console errors', icon: Bug, runtime: true },
-  read_console: { label: 'Console output', icon: ScrollText, runtime: true },
-  query_dom: { label: 'Query DOM', icon: Code, runtime: true },
-  eval_js: { label: 'Eval JS', icon: SquareTerminal, runtime: true },
-  read_network: { label: 'Network', icon: Network, runtime: true },
-  read_network_body: { label: 'Response body', icon: Network, runtime: true },
-  reload_and_verify: { label: 'Reload & verify', icon: RefreshCw, runtime: true },
+  read_file: { labelKey: 'agent.chat.tool.readFile', icon: FileText },
+  list_files: { labelKey: 'agent.chat.tool.listFiles', icon: FolderTree },
+  grep: { labelKey: 'agent.chat.tool.search', icon: Search },
+  edit_file: { labelKey: 'agent.chat.tool.edit', icon: FilePen },
+  multi_edit: { labelKey: 'agent.chat.tool.multiEdit', icon: FilePen },
+  get_console_errors: { labelKey: 'agent.chat.tool.consoleErrors', icon: Bug, runtime: true },
+  read_console: { labelKey: 'agent.chat.tool.consoleOutput', icon: ScrollText, runtime: true },
+  query_dom: { labelKey: 'agent.chat.tool.queryDom', icon: Code, runtime: true },
+  eval_js: { labelKey: 'agent.chat.tool.evalJs', icon: SquareTerminal, runtime: true },
+  read_network: { labelKey: 'agent.chat.tool.network', icon: Network, runtime: true },
+  read_network_body: { labelKey: 'agent.chat.tool.responseBody', icon: Network, runtime: true },
+  reload_and_verify: { labelKey: 'agent.chat.tool.reloadVerify', icon: RefreshCw, runtime: true },
   // Context MCP — reads of the live app (runtime spine) vs. stored state.
-  browser_cookies: { label: 'Cookies', icon: Cookie, runtime: true },
-  browser_storage: { label: 'Web storage', icon: Database, runtime: true },
-  list_tabs: { label: 'List tabs', icon: LayoutGrid, runtime: true },
-  read_page: { label: 'Read page', icon: Globe, runtime: true },
-  list_terminals: { label: 'List terminals', icon: SquareTerminal, runtime: true },
-  read_terminal: { label: 'Read terminal', icon: SquareTerminal, runtime: true },
-  read_editor: { label: 'Read editor', icon: FileCode },
-  read_explorer: { label: 'Explorer state', icon: FolderTree },
-  list_sessions: { label: 'List sessions', icon: History },
-  read_session: { label: 'Read session', icon: History },
-  delete_session: { label: 'Delete session', icon: Trash2 },
-  list_memory: { label: 'List memory', icon: BookMarked },
-  read_memory: { label: 'Read memory', icon: BookOpen },
-  write_memory: { label: 'Write memory', icon: NotebookPen },
-  delete_memory: { label: 'Delete memory', icon: Trash2 },
+  browser_cookies: { labelKey: 'agent.chat.tool.cookies', icon: Cookie, runtime: true },
+  browser_storage: { labelKey: 'agent.chat.tool.webStorage', icon: Database, runtime: true },
+  list_tabs: { labelKey: 'agent.chat.tool.listTabs', icon: LayoutGrid, runtime: true },
+  read_page: { labelKey: 'agent.chat.tool.readPage', icon: Globe, runtime: true },
+  list_terminals: { labelKey: 'agent.chat.tool.listTerminals', icon: SquareTerminal, runtime: true },
+  read_terminal: { labelKey: 'agent.chat.tool.readTerminal', icon: SquareTerminal, runtime: true },
+  read_editor: { labelKey: 'agent.chat.tool.readEditor', icon: FileCode },
+  read_explorer: { labelKey: 'agent.chat.tool.explorerState', icon: FolderTree },
+  list_sessions: { labelKey: 'agent.chat.tool.listSessions', icon: History },
+  read_session: { labelKey: 'agent.chat.tool.readSession', icon: History },
+  delete_session: { labelKey: 'agent.chat.tool.deleteSession', icon: Trash2 },
+  list_memory: { labelKey: 'agent.chat.tool.listMemory', icon: BookMarked },
+  read_memory: { labelKey: 'agent.chat.tool.readMemory', icon: BookOpen },
+  write_memory: { labelKey: 'agent.chat.tool.writeMemory', icon: NotebookPen },
+  delete_memory: { labelKey: 'agent.chat.tool.deleteMemory', icon: Trash2 },
   // PC control (acts on the computer, outside the workspace).
-  open_path: { label: 'Open file/folder', icon: FolderOpen, runtime: true },
-  open_external: { label: 'Open URL', icon: ExternalLink, runtime: true },
-  reveal_in_explorer: { label: 'Reveal in file manager', icon: FolderTree, runtime: true },
+  open_path: { labelKey: 'agent.chat.tool.openPath', icon: FolderOpen, runtime: true },
+  open_external: { labelKey: 'agent.chat.tool.openExternal', icon: ExternalLink, runtime: true },
+  reveal_in_explorer: { labelKey: 'agent.chat.tool.reveal', icon: FolderTree, runtime: true },
 };
 
 /** reload_and_verify's verdict, parsed from the server-formatted result — the
  * closed-loop highlight: did the fix actually clear the runtime error? */
-function reloadVerdict(text?: string): { variant: 'success' | 'warning'; label: string } | null {
+function reloadVerdict(text?: string): { variant: 'success' | 'warning'; labelKey: TranslationKey } | null {
   if (!text) return null;
   if (/^GONE\b/.test(text) || text.includes('No console errors after reload')) {
-    return { variant: 'success', label: 'errors gone' };
+    return { variant: 'success', labelKey: 'agent.chat.badge.errorsGone' };
   }
-  if (/^STILL PRESENT\b/.test(text)) return { variant: 'warning', label: 'still present' };
+  if (/^STILL PRESENT\b/.test(text)) return { variant: 'warning', labelKey: 'agent.chat.badge.stillPresent' };
   return null;
 }
 
 /** get_console_errors P1 confidence: did the stack map to a workspace file? */
-function sourceConfidence(text?: string): { variant: 'accent' | 'neutral'; label: string } | null {
+function sourceConfidence(text?: string): { variant: 'accent' | 'neutral'; labelKey: TranslationKey } | null {
   if (!text) return null;
-  if (text.includes('confidence: high')) return { variant: 'accent', label: 'source mapped' };
-  if (text.includes('confidence: low')) return { variant: 'neutral', label: 'no source' };
+  if (text.includes('confidence: high')) return { variant: 'accent', labelKey: 'agent.chat.badge.sourceMapped' };
+  if (text.includes('confidence: low')) return { variant: 'neutral', labelKey: 'agent.chat.badge.noSource' };
   return null;
 }
 
@@ -1485,10 +1596,12 @@ const ToolCardView = memo(function ToolCardView({
   call: ToolCall;
   defaultOpen?: boolean;
 }) {
+  const { t } = useI18n();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? !!defaultOpen;
-  const meta = TOOL_META[call.name] ?? { label: call.name, icon: Wrench };
-  const Icon = meta.icon;
+  const meta = TOOL_META[call.name];
+  const Icon = meta?.icon ?? Wrench;
+  const label = meta ? t(meta.labelKey) : call.name;
   const badge =
     call.name === 'reload_and_verify'
       ? reloadVerdict(call.resultText)
@@ -1507,7 +1620,7 @@ const ToolCardView = memo(function ToolCardView({
         // Left accent spine: AI timeline hue if categorised; accent tint for runtime; plain for others
         hue
           ? cn('border-l-2', TIMELINE_BORDER[hue])
-          : meta.runtime
+          : meta?.runtime
             ? 'border-l-2 border-l-accent/40'
             : '',
       )}
@@ -1522,11 +1635,11 @@ const ToolCardView = memo(function ToolCardView({
           size={12}
           className={cn(
             'shrink-0',
-            hue ? TIMELINE_ICON[hue] : meta.runtime ? 'text-accent' : 'text-fg-tertiary',
+            hue ? TIMELINE_ICON[hue] : meta?.runtime ? 'text-accent' : 'text-fg-tertiary',
           )}
         />
-        <span className="text-fg-secondary truncate flex-1 text-[0.75rem]">{call.summary ?? meta.label}</span>
-        {badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : null}
+        <span className="text-fg-secondary truncate flex-1 text-[0.75rem]">{call.summary ?? label}</span>
+        {badge ? <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge> : null}
         {hasBody ? (
           <ChevronRight size={11} className={cn('text-fg-tertiary/60 shrink-0 transition-transform duration-fast', open && 'rotate-90')} />
         ) : null}
@@ -1541,7 +1654,7 @@ const ToolCardView = memo(function ToolCardView({
           {call.resultText ? (
             <div className="group/out relative">
               <div className="absolute top-1 right-1 opacity-0 group-hover/out:opacity-100 transition-opacity duration-fast">
-                <CopyButton text={call.resultText} label="Copy output" />
+                <CopyButton text={call.resultText} label={t('agent.chat.copyOutput')} />
               </div>
               <pre className="m-0 mt-1 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
                 {call.resultText}
@@ -1571,6 +1684,7 @@ function ToolStateIcon({ state }: { state: ToolCall['state'] }) {
 /* ── edits (P2: accept / revert) ────────────────────────────────────────── */
 
 function ChangesSection({ edits }: { edits: AgentEdit[] }) {
+  const { locale, t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
   // Which file diffs are expanded. "Expand all" fills it; per-file toggles flip
@@ -1605,7 +1719,7 @@ function ChangesSection({ edits }: { edits: AgentEdit[] }) {
           bulk keep/revert and expand-all (Zed / Codex multi-file review parity). */}
       <div className="flex items-center gap-2 text-caption">
         <span className="uppercase tracking-wider text-fg-tertiary">
-          {edits.length} file{edits.length === 1 ? '' : 's'} changed
+          {formatChangedFiles(locale, edits.length)}
         </span>
         <span className="tabular-nums text-success">+{totals.added}</span>
         <span className="tabular-nums text-error">−{totals.removed}</span>
@@ -1616,25 +1730,25 @@ function ChangesSection({ edits }: { edits: AgentEdit[] }) {
               type="button"
               onClick={() => applied.forEach((e) => void acceptEdit(e.id))}
               className="flex items-center gap-1 text-fg-tertiary hover:text-accent transition-colors"
-              title="Keep all changes"
+              title={t('agent.chat.keepAllTitle')}
             >
-              <Check size={12} /> Keep all
+              <Check size={12} /> {t('agent.chat.keepAll')}
             </button>
             <button
               type="button"
               onClick={() => applied.forEach((e) => void revertEdit(e.id))}
               className="flex items-center gap-1 text-fg-tertiary hover:text-error transition-colors"
-              title="Revert all changes on disk"
+              title={t('agent.chat.revertAllTitle')}
             >
-              <RotateCcw size={12} /> Revert all
+              <RotateCcw size={12} /> {t('agent.chat.revertAll')}
             </button>
           </>
         ) : null}
         <button
           type="button"
           onClick={toggleAll}
-          aria-label={allOpen ? 'Collapse all diffs' : 'Expand all diffs'}
-          title={allOpen ? 'Collapse all diffs' : 'Expand all diffs'}
+          aria-label={allOpen ? t('agent.chat.collapseDiffs') : t('agent.chat.expandDiffs')}
+          title={allOpen ? t('agent.chat.collapseDiffs') : t('agent.chat.expandDiffs')}
           className="text-fg-tertiary hover:text-fg-secondary transition-colors"
         >
           {allOpen ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
@@ -1661,6 +1775,7 @@ function EditCard({
   open: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
   const lines = open ? toDiffLines(edit.before, edit.after) : [];
@@ -1683,22 +1798,22 @@ function EditCard({
               type="button"
               onClick={() => void acceptEdit(edit.id)}
               className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-accent transition-colors"
-              title="Keep this change"
+              title={t('agent.chat.keepTitle')}
             >
-              <Check size={12} /> Keep
+              <Check size={12} /> {t('agent.chat.keep')}
             </button>
             <button
               type="button"
               onClick={() => void revertEdit(edit.id)}
               className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-error transition-colors"
-              title="Revert this change on disk"
+              title={t('agent.chat.revertTitle')}
             >
-              <RotateCcw size={12} /> Revert
+              <RotateCcw size={12} /> {t('agent.chat.revert')}
             </button>
           </div>
         ) : (
           <Badge variant={edit.status === 'reverted' ? 'warning' : 'success'}>
-            {edit.status === 'reverted' ? 'reverted' : 'kept'}
+            {edit.status === 'reverted' ? t('agent.chat.reverted') : t('agent.chat.kept')}
           </Badge>
         )}
       </div>
@@ -1711,7 +1826,7 @@ function EditCard({
 
 type Receipt = {
   runtime: number;
-  verdict: { variant: 'success' | 'warning'; label: string } | null;
+  verdict: { variant: 'success' | 'warning'; labelKey: TranslationKey } | null;
 };
 
 /**
@@ -1738,21 +1853,22 @@ function buildReceipt(messages: AgentMessage[]): Receipt | null {
 }
 
 function ReceiptCard({ receipt }: { receipt: Receipt }) {
+  const { locale, t } = useI18n();
   return (
     <div className="rounded-lg border border-subtle bg-surface-1 p-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <span className="flex items-center gap-2 text-body-sm text-fg-primary">
         <span className="flex size-5 items-center justify-center rounded-pill bg-success-subtle shrink-0">
           <Check size={12} className="text-success" />
         </span>
-        <span className="font-medium">Done</span>
+        <span className="font-medium">{t('agent.chat.status.done')}</span>
       </span>
       {receipt.verdict ? (
-        <Badge variant={receipt.verdict.variant}>{receipt.verdict.label}</Badge>
+        <Badge variant={receipt.verdict.variant}>{t(receipt.verdict.labelKey)}</Badge>
       ) : null}
       {receipt.runtime > 0 ? (
         <span className="flex items-center gap-1 text-caption text-fg-tertiary tabular-nums">
           <span className="size-1.5 rounded-pill bg-accent shrink-0" aria-hidden />
-          {receipt.runtime} runtime check{receipt.runtime === 1 ? '' : 's'} on the live app
+          {formatRuntimeChecks(locale, receipt.runtime)}
         </span>
       ) : null}
     </div>
@@ -1762,30 +1878,32 @@ function ReceiptCard({ receipt }: { receipt: Receipt }) {
 /* ── approval / questions (parked turns) ────────────────────────────────── */
 
 function ApprovalCard({ approval }: { approval: PendingApproval }) {
+  const { t } = useI18n();
   const approve = useAgentStore((s) => s.approve);
   return (
     <div className="rounded border border-warning/40 bg-warning-subtle/30 p-2 flex flex-col gap-2">
       <div className="flex items-center gap-2 text-body-sm text-fg-primary">
         <AlertCircle size={14} className="text-warning" />
-        Approve <span className="font-mono">{approval.name}</span>?
+        {t('agent.chat.approveBefore')} <span className="font-mono">{approval.name}</span>
+        {t('agent.chat.approveAfter')}
       </div>
       <pre className="m-0 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded bg-surface-page px-2 py-1.5">
         {approval.detail}
       </pre>
       <div className="flex items-center gap-2">
         <Button variant="primary" size="sm" onClick={() => void approve(approval.callId, true)}>
-          Approve
+          {t('agent.chat.approve')}
         </Button>
         <Button
           variant="secondary"
           size="sm"
           onClick={() => void approve(approval.callId, true, true)}
-          title={`Approve and stop asking for ${approval.name} this conversation`}
+          title={`${t('agent.chat.allowAlwaysBefore')}${approval.name}${t('agent.chat.allowAlwaysAfter')}`}
         >
-          Allow always
+          {t('agent.chat.allowAlways')}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => void approve(approval.callId, false)}>
-          Deny
+          {t('agent.chat.deny')}
         </Button>
       </div>
     </div>
@@ -1793,6 +1911,7 @@ function ApprovalCard({ approval }: { approval: PendingApproval }) {
 }
 
 function QuestionsCard({ pending }: { pending: PendingQuestions }) {
+  const { t } = useI18n();
   const answer = useAgentStore((s) => s.answer);
   const [values, setValues] = useState<Record<string, string>>({});
 
@@ -1801,7 +1920,7 @@ function QuestionsCard({ pending }: { pending: PendingQuestions }) {
   return (
     <div className="rounded border border-accent/40 bg-accent-subtle/20 p-2 flex flex-col gap-2">
       <div className="flex items-center gap-2 text-body-sm text-fg-primary">
-        <Sparkles size={14} className="text-accent" /> The agent needs your input
+        <Sparkles size={14} className="text-accent" /> {t('agent.chat.needsInput')}
       </div>
       {pending.questions.map((q) => (
         <div key={q.id} className="flex flex-col gap-1">
@@ -1828,13 +1947,13 @@ function QuestionsCard({ pending }: { pending: PendingQuestions }) {
           <input
             value={values[q.id] ?? ''}
             onChange={(e) => setValues((v) => ({ ...v, [q.id]: e.target.value }))}
-            placeholder="Type your answer…"
+            placeholder={t('agent.chat.answerPlaceholder')}
             className="h-7 rounded bg-surface-page border border-default px-2 text-body-sm text-fg-primary focus:outline-none focus:border-accent"
           />
         </div>
       ))}
       <Button variant="primary" size="sm" onClick={submit}>
-        Send answer
+        {t('agent.chat.sendAnswer')}
       </Button>
     </div>
   );
@@ -1843,6 +1962,7 @@ function QuestionsCard({ pending }: { pending: PendingQuestions }) {
 /* ── misc ───────────────────────────────────────────────────────────────── */
 
 function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elapsed?: number }) {
+  const { t } = useI18n();
   const busy = isBusy(status);
   return (
     <span className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums">
@@ -1859,7 +1979,7 @@ function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elapsed?: nu
       )}
       {/* Announce only the label (not the per-second elapsed tick) so screen
           readers hear the turn lifecycle — Thinking → Working → Done — once. */}
-      <span aria-live="polite">{STATUS_LABEL[status]}</span>
+      <span aria-live="polite">{t(STATUS_LABEL_KEY[status])}</span>
       {busy && elapsed > 0 ? (
         <span className="text-fg-tertiary/70">{formatElapsed(elapsed)}</span>
       ) : null}
@@ -1867,10 +1987,10 @@ function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elapsed?: nu
   );
 }
 
-const VERBOSITY_OPTS: { value: TranscriptVerbosity; icon: LucideIcon; label: string }[] = [
-  { value: 'summary', icon: TextQuote, label: 'Summary — answers only' },
-  { value: 'normal', icon: List, label: 'Normal — steps collapsed' },
-  { value: 'verbose', icon: ListTree, label: 'Verbose — expand every step' },
+const VERBOSITY_OPTS: { value: TranscriptVerbosity; icon: LucideIcon; labelKey: TranslationKey }[] = [
+  { value: 'summary', icon: TextQuote, labelKey: 'agent.chat.verbosity.summary' },
+  { value: 'normal', icon: List, labelKey: 'agent.chat.verbosity.normal' },
+  { value: 'verbose', icon: ListTree, labelKey: 'agent.chat.verbosity.verbose' },
 ];
 
 /**
@@ -1885,10 +2005,11 @@ function VerbosityToggle({
   value: TranscriptVerbosity;
   onChange: (v: TranscriptVerbosity) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="group"
-      aria-label="Transcript detail"
+      aria-label={t('agent.chat.transcriptDetail')}
       className="flex items-center gap-0.5"
     >
       {VERBOSITY_OPTS.map((opt) => {
@@ -1900,7 +2021,7 @@ function VerbosityToggle({
             type="button"
             onClick={() => onChange(opt.value)}
             aria-pressed={active}
-            title={opt.label}
+            title={t(opt.labelKey)}
             className={cn(
               'flex items-center justify-center size-5 rounded-sm transition-colors duration-fast',
               active
@@ -1916,11 +2037,11 @@ function VerbosityToggle({
   );
 }
 
-const APPROVAL_OPTS: { value: AgentApprovalMode; icon: LucideIcon; label: string }[] = [
-  { value: 'plan', icon: NotebookPen, label: 'Plan — research only, then propose a step-by-step plan' },
-  { value: 'read-only', icon: Eye, label: 'Read-only — observe only (no edits, no code)' },
-  { value: 'ask', icon: Hand, label: 'Ask — edits run; sensitive tools ask first' },
-  { value: 'auto', icon: Zap, label: 'Auto — run everything without asking' },
+const APPROVAL_OPTS: { value: AgentApprovalMode; icon: LucideIcon; labelKey: TranslationKey }[] = [
+  { value: 'plan', icon: NotebookPen, labelKey: 'agent.chat.approval.plan' },
+  { value: 'read-only', icon: Eye, labelKey: 'agent.chat.approval.readOnly' },
+  { value: 'ask', icon: Hand, labelKey: 'agent.chat.approval.ask' },
+  { value: 'auto', icon: Zap, labelKey: 'agent.chat.approval.auto' },
 ];
 
 /**
@@ -1935,10 +2056,11 @@ function ApprovalToggle({
   value: AgentApprovalMode;
   onChange: (v: AgentApprovalMode) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="group"
-      aria-label="Approval mode"
+      aria-label={t('settings.agent.approval.label')}
       className="flex items-center gap-0.5"
     >
       {APPROVAL_OPTS.map((opt) => {
@@ -1950,7 +2072,7 @@ function ApprovalToggle({
             type="button"
             onClick={() => onChange(opt.value)}
             aria-pressed={active}
-            title={opt.label}
+            title={t(opt.labelKey)}
             className={cn(
               'flex items-center justify-center size-5 rounded-sm transition-colors duration-fast',
               active
@@ -1966,11 +2088,15 @@ function ApprovalToggle({
   );
 }
 
-const EFFORT_OPTS: { value: ReasoningEffort; short: string; label: string }[] = [
-  { value: 'minimal', short: 'Min', label: 'Minimal — fastest, barely thinks' },
-  { value: 'low', short: 'Low', label: 'Low — quick, light reasoning' },
-  { value: 'medium', short: 'Med', label: 'Medium — balanced reasoning (default)' },
-  { value: 'high', short: 'High', label: 'High — deepest, slowest reasoning' },
+const EFFORT_OPTS: {
+  value: ReasoningEffort;
+  shortKey: TranslationKey;
+  labelKey: TranslationKey;
+}[] = [
+  { value: 'minimal', shortKey: 'agent.chat.effort.minShort', labelKey: 'agent.chat.effort.minimal' },
+  { value: 'low', shortKey: 'agent.chat.effort.lowShort', labelKey: 'agent.chat.effort.low' },
+  { value: 'medium', shortKey: 'agent.chat.effort.mediumShort', labelKey: 'agent.chat.effort.medium' },
+  { value: 'high', shortKey: 'agent.chat.effort.highShort', labelKey: 'agent.chat.effort.high' },
 ];
 
 /**
@@ -1987,10 +2113,11 @@ function EffortToggle({
   value: ReasoningEffort;
   onChange: (v: ReasoningEffort) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="group"
-      aria-label="Reasoning effort"
+      aria-label={t('settings.agent.reasoning.label')}
       className="flex items-center gap-0.5"
     >
       <Brain size={11} className="mx-0.5 text-fg-tertiary/60 shrink-0" aria-hidden />
@@ -2002,7 +2129,7 @@ function EffortToggle({
             type="button"
             onClick={() => onChange(opt.value)}
             aria-pressed={active}
-            title={opt.label}
+            title={t(opt.labelKey)}
             className={cn(
               'flex items-center justify-center h-5 px-1 rounded-sm text-[10px] font-medium leading-none transition-colors duration-fast',
               active
@@ -2010,7 +2137,7 @@ function EffortToggle({
                 : 'text-fg-tertiary hover:text-fg-secondary',
             )}
           >
-            {opt.short}
+            {t(opt.shortKey)}
           </button>
         );
       })}
@@ -2018,10 +2145,10 @@ function EffortToggle({
   );
 }
 
-const SUGGESTIONS = [
-  'Fix the console error on this page',
-  'Why is this network request failing?',
-  'Change this component’s layout',
+const SUGGESTION_KEYS: TranslationKey[] = [
+  'agent.chat.suggestion.consoleError',
+  'agent.chat.suggestion.network',
+  'agent.chat.suggestion.layout',
 ];
 
 function EmptyState({
@@ -2031,6 +2158,7 @@ function EmptyState({
   hasWorkspace: boolean;
   onPick: (text: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col items-center text-center gap-4 px-4 py-2">
       {/* Icon mark */}
@@ -2039,21 +2167,23 @@ function EmptyState({
       </div>
 
       <div className="flex flex-col items-center gap-1.5">
-        <p className="text-body-sm font-medium text-fg-primary tracking-tight">Agentic AI Chat</p>
+        <p className="text-body-sm font-medium text-fg-primary tracking-tight">{t('agent.chat.empty.title')}</p>
         <p className="text-caption text-fg-tertiary max-w-[264px] leading-relaxed">
           {hasWorkspace
-            ? 'Describe a change or bug. The agent reads files, inspects the live page over CDP, edits, then reloads to verify — revert anything.'
-            : 'Open a workspace, then ask the agent to fix a runtime error or change the UI.'}
+            ? t('agent.chat.empty.workspace')
+            : t('agent.chat.empty.noWorkspace')}
         </p>
       </div>
 
       {hasWorkspace ? (
         <div className="flex w-full max-w-[288px] flex-col items-stretch gap-1.5">
-          {SUGGESTIONS.map((s) => (
+          {SUGGESTION_KEYS.map((key) => {
+            const suggestion = t(key);
+            return (
             <button
-              key={s}
+              key={key}
               type="button"
-              onClick={() => onPick(s)}
+              onClick={() => onPick(suggestion)}
               className={cn(
                 'group rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-left',
                 'text-caption text-fg-secondary',
@@ -2062,10 +2192,11 @@ function EmptyState({
                 'flex items-center gap-2',
               )}
             >
-              <span className="flex-1">{s}</span>
+              <span className="flex-1">{suggestion}</span>
               <ChevronRight size={11} className="text-fg-tertiary/40 group-hover:text-fg-tertiary transition-colors duration-fast shrink-0" />
             </button>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </div>

@@ -81,10 +81,7 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
       }
     }
     void window.marudesk.invoke('browser:set-pane-bounds', { panes });
-    // maximizedPaneId is read indirectly (only the zoomed leaf mounts a web-pane
-    // el, so the others fall to the zero-rect branch above) — list it so toggling
-    // zoom re-measures and main re-positions/hides the views accordingly.
-  }, [layout, maximizedPaneId]);
+  }, [layout]);
 
   // HIGH-2: `measureAndSend` already re-creates when `layout` changes (it's in
   // the dep array above), so this effect re-runs on every layout change — not
@@ -104,7 +101,7 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
       window.removeEventListener('resize', measureAndSend);
       window.removeEventListener('scroll', measureAndSend, true);
     };
-  }, [measureAndSend]);
+  }, [measureAndSend, maximizedPaneId]);
 
   // Leaving the grid (layout → null) is handled by Stage unmounting this; tell
   // main to drop grid mode and restore the single active view.

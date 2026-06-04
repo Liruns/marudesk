@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { ExternalLink } from 'lucide-react';
+import { useI18n } from '../../i18n/useI18n';
 import { useDevtoolsStore } from './store';
 import { MainTabBar, DevtoolsContent } from './DevtoolsContent';
 
@@ -18,6 +19,7 @@ import { MainTabBar, DevtoolsContent } from './DevtoolsContent';
  * the main window and cross-window capture is out of scope.
  */
 export function DevtoolsWindow({ tabId }: { tabId: string }) {
+  const { t } = useI18n();
   useEffect(() => {
     const store = useDevtoolsStore.getState();
     store.setWindowMode(true);
@@ -67,21 +69,21 @@ export function DevtoolsWindow({ tabId }: { tabId: string }) {
         <div className="flex-1" />
         {dropped > 0 ? (
           <span
-            title={`${dropped} events dropped (event flood)`}
+            title={`${dropped} ${t('devtools.droppedTitle')}`}
             className="text-caption text-warning px-1.5 tabular-nums"
           >
-            {dropped} dropped
+            {dropped} {t('devtools.dropped')}
           </span>
         ) : null}
         <button
           type="button"
-          aria-label="Dock back into the main window"
-          title="Dock back into the main window"
+          aria-label={t('devtools.dockBack')}
+          title={t('devtools.dockBack')}
           onClick={dockBack}
           className="h-7 px-2 rounded flex items-center gap-1 text-body-sm text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
         >
           <ExternalLink size={14} className="rotate-180" />
-          Dock back
+          {t('devtools.dockBackShort')}
         </button>
       </div>
       <DevtoolsContent />

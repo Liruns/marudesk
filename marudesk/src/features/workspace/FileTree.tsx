@@ -18,6 +18,7 @@ import {
   Image,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import type { FlatNode } from './tree';
 import type { Clipboard, PendingEdit } from './store';
 
@@ -67,6 +68,7 @@ export function FileTree({
   onCommitCreate,
   onCancelEdit,
 }: Props) {
+  const { t } = useI18n();
   const newInput =
     pendingEdit && pendingEdit.kind !== 'rename'
       ? {
@@ -83,7 +85,7 @@ export function FileTree({
   const newInputDepth = newInput ? (newInput.parentDir ? parentDepth + 1 : 0) : 0;
 
   return (
-    <ul role="tree" aria-label="Workspace files" className="py-1">
+    <ul role="tree" aria-label={t('workspace.tree.aria')} className="py-1">
       {newInput && newInput.parentDir === '' ? (
         <li>
           <NameInput

@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { Spinner } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import type { SearchFileResult } from '../../../shared/search';
 import { useSearchStore } from './store';
@@ -57,6 +58,12 @@ function readWidth(): number {
  * watches to focus its input.
  */
 export function SearchPanel({ open, onRequestClose }: Props) {
+  const {
+    formatSearchMatchLineTitle,
+    formatSearchNoResults,
+    formatSearchSummary,
+    t,
+  } = useI18n();
   const query = useSearchStore((s) => s.query);
   const options = useSearchStore((s) => s.options);
   const result = useSearchStore((s) => s.result);
@@ -136,7 +143,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
   return (
     <aside
       role="complementary"
-      aria-label="Search"
+      aria-label={t('search.panelLabel')}
       aria-hidden={!open}
       className={cn(
         'relative shrink-0 bg-surface-1 border-r border-subtle overflow-hidden',
@@ -155,7 +162,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
       >
         <header className="h-9 shrink-0 flex items-center justify-between pl-3 pr-1.5 border-b border-subtle">
           <h2 className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
-            Search
+            {t('search.panelLabel')}
           </h2>
         </header>
 
@@ -176,7 +183,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
                   clear();
                 }
               }}
-              placeholder="Search in files"
+              placeholder={t('search.placeholder')}
               spellCheck={false}
               autoComplete="off"
               className="flex-1 min-w-0 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
@@ -185,29 +192,29 @@ export function SearchPanel({ open, onRequestClose }: Props) {
               <button
                 type="button"
                 onClick={clear}
-                aria-label="Clear search"
-                title="Clear"
+                aria-label={t('search.clear')}
+                title={t('search.clear')}
                 className="shrink-0 size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-3"
               >
                 <X size={13} />
               </button>
             ) : null}
             <Toggle
-              label="Match case"
+              label={t('search.toggle.caseSensitive')}
               active={options.caseSensitive}
               onClick={() => toggleOption('caseSensitive')}
             >
               <CaseSensitive size={14} />
             </Toggle>
             <Toggle
-              label="Match whole word"
+              label={t('search.toggle.wholeWord')}
               active={options.wholeWord}
               onClick={() => toggleOption('wholeWord')}
             >
               <WholeWord size={14} />
             </Toggle>
             <Toggle
-              label="Use regular expression"
+              label={t('search.toggle.regex')}
               active={options.regex}
               onClick={() => toggleOption('regex')}
             >
@@ -216,10 +223,11 @@ export function SearchPanel({ open, onRequestClose }: Props) {
           </div>
           {result ? (
             <p className="mt-1.5 px-0.5 text-caption text-fg-tertiary tabular-nums">
-              {totalMatches === 0
-                ? 'No results'
-                : `${totalMatches} result${totalMatches === 1 ? '' : 's'} in ${result.files.length} file${result.files.length === 1 ? '' : 's'}`}
-              {result.truncated ? ' (showing first matches)' : ''}
+              {formatSearchSummary({
+                totalMatches,
+                fileCount: result.files.length,
+                truncated: result.truncated,
+              })}
             </p>
           ) : null}
         </div>
@@ -230,7 +238,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
             <p className="px-3 py-3 text-body-sm text-error break-words">{error}</p>
           ) : loading && !result ? (
             <div className="flex items-center justify-center gap-2 py-8 text-fg-tertiary">
-              <Spinner size={16} /> Searching…
+              <Spinner size={16} /> {t('search.loading')}
             </div>
           ) : result && result.files.length > 0 ? (
             result.files.map((file) => (
@@ -238,6 +246,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
                 key={file.path}
                 file={file}
                 collapsed={collapsed.has(file.path)}
+                formatSearchMatchLineTitle={formatSearchMatchLineTitle}
                 onToggle={() =>
                   setCollapsed((prev) => {
                     const next = new Set(prev);
@@ -247,15 +256,16 @@ export function SearchPanel({ open, onRequestClose }: Props) {
                   })
                 }
                 onOpen={() => void openFile(file.path)}
+                t={t}
               />
             ))
           ) : query.trim() && !loading ? (
             <p className="px-3 py-6 text-center text-body-sm text-fg-tertiary">
-              No results for “{query.trim()}”.
+              {formatSearchNoResults(query.trim())}
             </p>
           ) : (
             <p className="px-3 py-6 text-center text-caption text-fg-tertiary">
-              Type to search file contents.
+              {t('search.empty')}
             </p>
           )}
         </div>
@@ -265,7 +275,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize Search"
+          aria-label={t('search.resize')}
           onPointerDown={onResizeStart}
           className={cn(
             'absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize',
@@ -283,7 +293,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
                 'bg-surface-2 text-error text-caption pointer-events-none select-none',
               )}
             >
-              Release to close
+              {t('search.releaseToClose')}
             </span>
           ) : null}
         </div>
@@ -296,13 +306,17 @@ export function SearchPanel({ open, onRequestClose }: Props) {
 function FileGroup({
   file,
   collapsed,
+  formatSearchMatchLineTitle,
   onToggle,
   onOpen,
+  t,
 }: {
   file: SearchFileResult;
   collapsed: boolean;
+  formatSearchMatchLineTitle: (line: number) => string;
   onToggle: () => void;
   onOpen: () => void;
+  t: (key: 'search.expand' | 'search.collapse') => string;
 }) {
   const dir = dirName(file.path);
   return (
@@ -311,7 +325,7 @@ function FileGroup({
         <button
           type="button"
           onClick={onToggle}
-          aria-label={collapsed ? 'Expand' : 'Collapse'}
+          aria-label={collapsed ? t('search.expand') : t('search.collapse')}
           className="shrink-0 size-5 flex items-center justify-center text-fg-tertiary"
         >
           {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
@@ -335,7 +349,7 @@ function FileGroup({
               key={`${m.line}:${m.col}:${i}`}
               type="button"
               onClick={onOpen}
-              title={`Line ${m.line}`}
+              title={formatSearchMatchLineTitle(m.line)}
               className="flex w-full items-baseline gap-2 py-0.5 pl-7 pr-2 text-left hover:bg-surface-2"
             >
               <span className="shrink-0 text-caption text-fg-tertiary tabular-nums w-8 text-right">

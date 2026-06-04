@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button } from '../../components/ui';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import type { McpServerStatus } from '../../../shared/mcp';
 
 /**
@@ -21,6 +22,7 @@ import type { McpServerStatus } from '../../../shared/mcp';
  * routed through the same loop approval/read-only mediation as the built-in tools.
  */
 export function McpServersSettings() {
+  const { t } = useI18n();
   const [servers, setServers] = useState<McpServerStatus[] | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -68,12 +70,7 @@ export function McpServersSettings() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-caption text-fg-tertiary">
-        Connect external MCP servers so the AI Chat can use their tools — local processes
-        (a <span className="font-mono">command</span>, like Claude Desktop&rsquo;s{' '}
-        <span className="font-mono">mcpServers</span>) or hosted servers (a{' '}
-        <span className="font-mono">url</span>, over HTTP). Each external tool still asks
-        for your approval per call (unless the agent is in Auto mode). Add or edit servers
-        in the config file, then Reload.
+        {t('settings.mcp.description')}
       </p>
 
       <div className="flex items-center gap-2">
@@ -84,7 +81,7 @@ export function McpServersSettings() {
           onClick={() => void reload()}
           disabled={busy}
         >
-          Reload
+          {t('settings.mcp.reload')}
         </Button>
         <Button
           variant="ghost"
@@ -92,15 +89,15 @@ export function McpServersSettings() {
           leadingIcon={<ExternalLink size={14} />}
           onClick={openConfig}
         >
-          Open config file
+          {t('settings.mcp.openConfig')}
         </Button>
       </div>
 
       <div className="flex flex-col gap-2">
         {servers === null ? (
-          <EmptyRow text="Loading…" />
+          <EmptyRow text={t('settings.mcp.loading')} />
         ) : servers.length === 0 ? (
-          <EmptyRow text="No MCP servers configured. Open the config file to add one." />
+          <EmptyRow text={t('settings.mcp.empty')} />
         ) : (
           servers.map((s) => (
             <ServerCard key={s.id} status={s} busy={busy} onToggle={toggle} />
@@ -129,6 +126,7 @@ function ServerCard({
   busy: boolean;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-1 px-4 py-3">
       <div className="flex min-w-0 flex-col gap-1">
@@ -136,7 +134,9 @@ function ServerCard({
           <span className="text-body-sm font-medium text-fg-primary truncate">{status.id}</span>
           <StatusBadge status={status} />
           <span className="text-caption uppercase tracking-wide text-fg-tertiary/70 shrink-0">
-            {status.transport === 'http' ? 'remote' : 'stdio'}
+            {status.transport === 'http'
+              ? t('settings.mcp.transport.remote')
+              : t('settings.mcp.transport.stdio')}
           </span>
         </div>
         <span className="text-caption font-mono text-fg-tertiary truncate">{status.target}</span>
@@ -148,7 +148,7 @@ function ServerCard({
         type="button"
         role="switch"
         aria-checked={status.enabled}
-        aria-label={`${status.enabled ? 'Disable' : 'Enable'} ${status.id}`}
+        aria-label={`${status.enabled ? t('settings.mcp.toggle.disable') : t('settings.mcp.toggle.enable')} ${status.id}`}
         disabled={busy}
         onClick={() => void onToggle(status.id, !status.enabled)}
         className={cn(
@@ -169,11 +169,12 @@ function ServerCard({
 }
 
 function StatusBadge({ status }: { status: McpServerStatus }) {
+  const { formatMcpToolCount, t } = useI18n();
   if (status.state === 'connected') {
     return (
       <Badge variant="success" className="gap-1">
         <CheckCircle2 size={11} />
-        {status.toolCount} tool{status.toolCount === 1 ? '' : 's'}
+        {formatMcpToolCount(status.toolCount)}
       </Badge>
     );
   }
@@ -181,7 +182,7 @@ function StatusBadge({ status }: { status: McpServerStatus }) {
     return (
       <Badge variant="accent" className="gap-1">
         <Loader2 size={11} className="animate-spin" />
-        Connecting
+        {t('settings.mcp.status.connecting')}
       </Badge>
     );
   }
@@ -189,14 +190,14 @@ function StatusBadge({ status }: { status: McpServerStatus }) {
     return (
       <Badge variant="error" className="gap-1">
         <AlertCircle size={11} />
-        Error
+        {t('settings.mcp.status.error')}
       </Badge>
     );
   }
   return (
     <Badge variant="neutral" className="gap-1">
       <CircleSlash size={11} />
-      Disabled
+      {t('settings.mcp.status.disabled')}
     </Badge>
   );
 }

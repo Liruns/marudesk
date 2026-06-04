@@ -6,11 +6,14 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { X } from 'lucide-react';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useDevtoolsStore, type DevtoolsPanel, type ToolLocation } from './store';
-import { PANELS } from './panel-list';
 import { PanelById } from './DevtoolsBody';
+import { DevtoolsGate } from './DevtoolsGate';
+import { DrawerSplitter, DRAWER_MIN } from './DrawerSplitter';
 
 /**
  * The shared DevTools surface: the main panel area plus the Chrome-style bottom
@@ -27,9 +30,13 @@ import { PanelById } from './DevtoolsBody';
  * already sized to the dock's outer rect — needs no further shrink.
  */
 
-const DRAWER_MIN = 80;
-
-const PANEL_LABEL = new Map<DevtoolsPanel, string>(PANELS.map((p) => [p.id, p.label]));
+const PANEL_LABEL_KEYS: Record<DevtoolsPanel, TranslationKey> = {
+  application: 'devtools.panel.application',
+  console: 'devtools.panel.console',
+  elements: 'devtools.panel.elements',
+  network: 'devtools.panel.network',
+  rendering: 'devtools.panel.rendering',
+};
 
 /** Tools assigned to a location, in display order. */
 function useToolsIn(location: ToolLocation): DevtoolsPanel[] {
@@ -58,6 +65,7 @@ function ArrangeableTab({
   onClick: () => void;
   onContextMenu: (e: ReactPointerEvent | React.MouseEvent) => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -71,7 +79,7 @@ function ArrangeableTab({
           : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
       )}
     >
-      {PANEL_LABEL.get(panel) ?? panel}
+      {t(PANEL_LABEL_KEYS[panel])}
     </button>
   );
 }
@@ -100,14 +108,15 @@ function TabContextMenu({
   state: NonNullable<TabMenuState>;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const tools = useDevtoolsStore((s) => s.tools);
   const current = tools.find((t) => t.id === state.panel)?.location ?? 'main';
   const move = (location: ToolLocation) =>
     useDevtoolsStore.getState().moveTool(state.panel, location);
   const items: MenuItem[] =
     current === 'main'
-      ? [{ label: 'Move to bottom', onSelect: () => move('drawer') }]
-      : [{ label: 'Move to top', onSelect: () => move('main') }];
+      ? [{ label: t('devtools.moveToBottom'), onSelect: () => move('drawer') }]
+      : [{ label: t('devtools.moveToTop'), onSelect: () => move('main') }];
   return <ContextMenu x={state.x} y={state.y} items={items} onClose={onClose} />;
 }
 
@@ -138,6 +147,7 @@ export function MainTabBar() {
 
 /** The drawer's own tab bar + close button. */
 function DrawerTabs() {
+  const { t } = useI18n();
   const drawerTools = useToolsIn('drawer');
   const drawerPanel = useDevtoolsStore((s) => s.drawerPanel);
   const { open, node } = useTabMenu();
@@ -155,8 +165,8 @@ function DrawerTabs() {
       <div className="flex-1" />
       <button
         type="button"
-        aria-label="Close drawer"
-        title="Close drawer (Esc)"
+        aria-label={t('devtools.closeDrawer')}
+        title={t('devtools.closeDrawerTitle')}
         onClick={() => useDevtoolsStore.getState().setDrawerOpen(false)}
         className="size-6 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
       >
@@ -167,44 +177,12 @@ function DrawerTabs() {
   );
 }
 
-/** The draggable horizontal splitter between the main area and the drawer. */
-function DrawerSplitter() {
-  const onDown = (e: ReactPointerEvent) => {
-    e.preventDefault();
-    const move = (ev: PointerEvent) => {
-      // The drawer grows as the pointer moves UP; measure from the dock bottom.
-      // We read the nearest positioned container (the content wrapper) each move
-      // so a window resize mid-drag can't drift the height.
-      const wrapper = (e.target as HTMLElement).closest('[data-devtools-content]');
-      const rect = wrapper?.getBoundingClientRect();
-      if (!rect) return;
-      const next = rect.bottom - ev.clientY;
-      const max = rect.height - DRAWER_MIN; // leave room for the main area
-      useDevtoolsStore.getState().setDrawerHeight(Math.min(Math.max(next, DRAWER_MIN), max));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-  return (
-    <div
-      onPointerDown={onDown}
-      role="separator"
-      aria-orientation="horizontal"
-      aria-label="Resize drawer"
-      className="shrink-0 h-1 cursor-row-resize bg-transparent hover:bg-accent/50 active:bg-accent transition-colors"
-    />
-  );
-}
-
 /**
  * Session-gated content: the active main panel, plus the bottom drawer when
  * open. Both the dock and the pop-out window render this beneath their headers.
  */
 export function DevtoolsContent() {
+  const { t } = useI18n();
   const session = useDevtoolsStore((s) => s.session);
   const panel = useDevtoolsStore((s) => s.panel);
   const drawerOpen = useDevtoolsStore((s) => s.drawerOpen);
@@ -236,15 +214,15 @@ export function DevtoolsContent() {
     // the attaching→attached transition (the div is absent while the gate shows).
   }, [drawerHeight, session]);
 
-  if (session === 'detached') return <Gate kind="detached" />;
-  if (session === 'attaching') return <Gate kind="attaching" />;
+  if (session === 'detached') return <DevtoolsGate kind="detached" />;
+  if (session === 'attaching') return <DevtoolsGate kind="attaching" />;
 
   return (
     <div ref={wrapRef} data-devtools-content className="flex-1 min-h-0 flex flex-col">
       <div className="flex-1 min-h-0 overflow-hidden">
         {mainTools.length === 0 ? (
           <div className="h-full flex items-center justify-center text-caption text-fg-tertiary px-4 text-center">
-            All tools are in the drawer — right-click a drawer tab and choose “Move to top”.
+            {t('devtools.allToolsInDrawer')}
           </div>
         ) : (
           <PanelById panel={panel} />
@@ -264,32 +242,6 @@ export function DevtoolsContent() {
           </div>
         </>
       ) : null}
-    </div>
-  );
-}
-
-function Gate({ kind }: { kind: 'detached' | 'attaching' }) {
-  const reason = useDevtoolsStore((s) => s.detachReason);
-  if (kind === 'attaching') {
-    return (
-      <div className="flex-1 min-h-0 flex items-center justify-center text-body-sm text-fg-tertiary">
-        Connecting…
-      </div>
-    );
-  }
-  return (
-    <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="text-body-sm text-fg-secondary">DevTools disconnected</p>
-      {reason ? (
-        <p className="text-caption text-fg-tertiary max-w-xs break-words">{reason}</p>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => useDevtoolsStore.getState().reconnect()}
-        className="h-7 px-3 rounded-md bg-accent-subtle/50 text-accent text-body-sm hover:bg-accent-subtle/70 transition-colors duration-fast"
-      >
-        Reconnect
-      </button>
     </div>
   );
 }

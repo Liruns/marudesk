@@ -3,6 +3,7 @@ import { useTabsStore } from '../tabs/store';
 import { useGridStore, groupForTab } from '../tabs/grid';
 import { useSettingsStore } from '../settings/store';
 import { useWebPageStore } from '../browser/store';
+import { getMessage, parseLocale, type Locale, type TranslationKey } from '../../i18n/messages';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { cdpSend, cdpTry } from './cdp';
@@ -38,6 +39,18 @@ import {
   type StyleSheetHeader,
 } from './types';
 import type { PatchOp, PatchPreview } from '../../../shared/patch';
+
+function currentLocale(): Locale {
+  try {
+    return parseLocale(localStorage.getItem('marudesk.locale')) ?? 'en';
+  } catch {
+    return 'en';
+  }
+}
+
+function msg(key: TranslationKey): string {
+  return getMessage(currentLocale(), key);
+}
 
 /**
  * The custom DevTools session store. One dock, bound to the active web tab; it
@@ -686,8 +699,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     toggle: () => {
       if (groupForTab(useGridStore.getState().groups, useTabsStore.getState().activeTabId) !== null) {
         toast({
-          title: 'Exit the grid to use DevTools',
-          description: 'DevTools attaches to a single page at a time.',
+          title: msg('devtools.toast.exitGrid'),
+          description: msg('devtools.toast.exitGridDescription'),
           variant: 'warning',
         });
         return;
@@ -1173,7 +1186,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         return;
       }
       if (groupForTab(useGridStore.getState().groups, useTabsStore.getState().activeTabId) !== null) {
-        toast({ title: 'Exit the grid to use DevTools', variant: 'warning' });
+        toast({ title: msg('devtools.toast.exitGrid'), variant: 'warning' });
         return;
       }
 
@@ -1270,7 +1283,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const { tabId, selectedId, nodes, styles } = get();
       const node = selectedId !== null ? nodes.get(selectedId) : undefined;
       if (!tabId || selectedId === null || !node || node.nodeType !== NODE_TYPE.ELEMENT) {
-        toast({ title: 'Select an element first', variant: 'warning' });
+        toast({ title: msg('devtools.toast.selectElementFirst'), variant: 'warning' });
         return;
       }
       // Reuse the computed style the Elements panel already loaded for the
@@ -1288,7 +1301,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       if (get().tabId !== tabId) return; // navigated / rebound while assembling
       useWebPageStore.getState().addCapture(capture);
       toast({
-        title: 'Added to context',
+        title: msg('devtools.toast.addedToContext'),
         description: capture.selector || capture.tagName,
         variant: 'success',
       });
@@ -1378,7 +1391,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const styleSheetId = style.styleSheetId;
       const blockRange = style.range;
       if (!styleSheetId || !blockRange) {
-        toast({ title: 'This rule is read-only', variant: 'warning' });
+        toast({ title: msg('devtools.toast.ruleReadOnly'), variant: 'warning' });
         return;
       }
       const prop = style.cssProperties[propIndex];
@@ -1405,7 +1418,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
           edits: [{ styleSheetId, range: blockRange, text: newBlockText }],
         });
       } catch (err) {
-        toast({ title: 'Edit rejected', description: toMessage(err), variant: 'error' });
+        toast({ title: msg('devtools.toast.editRejected'), description: toMessage(err), variant: 'error' });
         return;
       }
       // The edit landed on the captured tab, but a rebind/nav during the
@@ -1429,7 +1442,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         await cdpSend(tabId, 'DOM.setAttributeValue', { nodeId, name, value });
       } catch (err) {
         toast({
-          title: 'Attribute edit rejected',
+          title: msg('devtools.toast.attributeRejected'),
           description: toMessage(err),
           variant: 'error',
         });
@@ -1483,16 +1496,16 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       try {
         const res = await window.marudesk.invoke('patch:apply', [pending.op]);
         if (res.ok) {
-          toast({ title: 'Saved to source', description: pending.path, variant: 'success' });
+          toast({ title: msg('devtools.toast.savedToSource'), description: pending.path, variant: 'success' });
         } else {
           toast({
-            title: 'Save failed',
+            title: msg('devtools.toast.saveFailed'),
             description: res.errors[0]?.reason ?? 'unknown error',
             variant: 'error',
           });
         }
       } catch (err) {
-        toast({ title: 'Save failed', description: toMessage(err), variant: 'error' });
+        toast({ title: msg('devtools.toast.saveFailed'), description: toMessage(err), variant: 'error' });
       }
       set({ pendingPatch: null });
     },
@@ -1650,7 +1663,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const capture = consoleEntryToErrorCapture(entry, url);
       useWebPageStore.getState().addCapture(capture);
       toast({
-        title: 'Added to context',
+        title: msg('devtools.toast.addedToContext'),
         description: capture.message.slice(0, 80),
         variant: 'success',
       });
@@ -1790,7 +1803,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const tabId = get().tabId;
       const origin = get().appOrigin;
       if (!tabId || !origin) {
-        toast({ title: 'No resolvable origin for this page', variant: 'warning' });
+        toast({ title: msg('devtools.toast.noOrigin'), variant: 'warning' });
         return;
       }
       // Deliberate, origin-scoped wipe (not the whole-browser Storage.clearCookies,
@@ -1800,7 +1813,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         storageTypes: 'all',
       });
       if (get().tabId !== tabId) return;
-      toast({ title: 'Site data cleared', description: origin, variant: 'success' });
+      toast({ title: msg('devtools.toast.siteDataCleared'), description: origin, variant: 'success' });
       await get().refreshApplication();
     },
 

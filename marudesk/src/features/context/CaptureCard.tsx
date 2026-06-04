@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardCopy, X } from 'lucide-react';
 import { Badge } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
@@ -29,6 +30,7 @@ function CardHeader({
   capture: Capture;
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const id = capture.id;
   const removeCapture = useWebPageStore((s) => s.removeCapture);
   const selected = useWebPageStore((s) => s.selectedCaptureIds.has(id));
@@ -38,9 +40,13 @@ function CardHeader({
   const copyEvidence = async () => {
     try {
       await navigator.clipboard.writeText(formatEvidencePack(capture));
-      toast({ title: 'Evidence copied', variant: 'success' });
+      toast({ title: t('context.capture.evidenceCopied'), variant: 'success' });
     } catch (err) {
-      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+      toast({
+        title: t('context.capture.copyFailed'),
+        description: toMessage(err),
+        variant: 'error',
+      });
     }
   };
   return (
@@ -49,15 +55,15 @@ function CardHeader({
         type="checkbox"
         checked={selected}
         onChange={() => toggleSelected(id)}
-        aria-label={selected ? 'Deselect capture' : 'Select capture'}
+        aria-label={t(selected ? 'context.capture.deselect' : 'context.capture.select')}
         className="mt-0.5 size-3.5 accent-accent shrink-0"
       />
       {children}
       <button
         type="button"
         onClick={() => void copyEvidence()}
-        aria-label="Copy evidence pack"
-        title="Copy as Markdown evidence pack"
+        aria-label={t('context.capture.copyEvidence')}
+        title={t('context.capture.copyEvidenceTitle')}
         className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast shrink-0"
       >
         <ClipboardCopy size={14} />
@@ -65,7 +71,7 @@ function CardHeader({
       <button
         type="button"
         onClick={() => removeCapture(id)}
-        aria-label="Remove capture"
+        aria-label={t('context.capture.remove')}
         className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast shrink-0"
       >
         <X size={14} />
@@ -76,7 +82,7 @@ function CardHeader({
 
 /** `url:line` → a short `basename:1-based-line` label (CDP lines are 0-based). */
 function sourceLabel(source: ConsoleErrorCapture['source']): string {
-  if (!source?.url) return '(no source)';
+  if (!source?.url) return '';
   let file: string;
   try {
     file = new URL(source.url).pathname.split('/').pop() || source.url;
@@ -87,6 +93,7 @@ function sourceLabel(source: ConsoleErrorCapture['source']): string {
 }
 
 function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) {
+  const { t } = useI18n();
   const selected = useWebPageStore((s) => s.selectedCaptureIds.has(capture.id));
   const [expanded, setExpanded] = useState(false);
   const hasStack = capture.stack.length > 0;
@@ -113,12 +120,12 @@ function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) 
             ) : (
               <span className="w-3.5 shrink-0" />
             )}
-            <Badge variant="error">error</Badge>
+            <Badge variant="error">{t('context.capture.consoleError')}</Badge>
             <span
               className="font-mono text-caption text-fg-tertiary truncate"
               title={capture.source?.url}
             >
-              {sourceLabel(capture.source)}
+              {sourceLabel(capture.source) || t('context.capture.noSource')}
             </span>
           </button>
         </CardHeader>
@@ -130,12 +137,14 @@ function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) 
       {expanded && hasStack ? (
         <div className="border-t border-subtle px-3 py-2 flex flex-col gap-1">
           <div className="text-caption text-fg-tertiary uppercase tracking-wide">
-            Stack
+            {t('context.capture.stack')}
           </div>
           <ul className="flex flex-col gap-0.5">
             {capture.stack.slice(0, 8).map((f, i) => (
               <li key={i} className="font-mono text-caption text-fg-secondary truncate">
-                <span className="text-fg-primary">{f.functionName || '(anonymous)'}</span>
+                <span className="text-fg-primary">
+                  {f.functionName || t('context.capture.anonymous')}
+                </span>
                 {f.url ? (
                   <span className="text-fg-tertiary">
                     {' '}
@@ -152,6 +161,7 @@ function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) 
 }
 
 function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
+  const { t } = useI18n();
   const selected = useWebPageStore((s) => s.selectedCaptureIds.has(capture.id));
   const summary = useWorkspaceStore((s) => s.summary);
   const ranking = useWorkspaceStore((s) => s.ranking[capture.id]);
@@ -193,7 +203,7 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
           </button>
         </CardHeader>
         <div className="font-mono text-caption text-fg-secondary break-all">
-          {capture.selector || '(no selector)'}
+          {capture.selector || t('context.capture.noSelector')}
         </div>
         {capture.text ? (
           <div className="text-body-sm text-fg-secondary line-clamp-2">
@@ -205,21 +215,21 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
       {expanded ? (
         <div className="border-t border-subtle px-3 py-2 flex flex-col gap-1.5">
           <div className="text-caption text-fg-tertiary uppercase tracking-wide">
-            Related source
+            {t('context.capture.relatedSource')}
           </div>
           {!summary ? (
             <div className="text-caption text-fg-tertiary">
-              Open a workspace to rank source files.
+              {t('context.capture.openWorkspace')}
             </div>
           ) : pending ? (
-            <div className="text-caption text-fg-tertiary">Ranking…</div>
+            <div className="text-caption text-fg-tertiary">{t('context.capture.ranking')}</div>
           ) : error ? (
             <div className="text-caption text-fg-tertiary break-all">
-              Error: {error}
+              {t('context.capture.errorPrefix')} {error}
             </div>
           ) : ranking === undefined ? null : ranking.length === 0 ? (
             <div className="text-caption text-fg-tertiary">
-              No matches in workspace.
+              {t('context.capture.noMatches')}
             </div>
           ) : (
             <ul className="flex flex-col gap-1">
