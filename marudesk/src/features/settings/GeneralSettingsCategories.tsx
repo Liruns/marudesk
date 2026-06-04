@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -6,7 +7,10 @@ import {
   type ThemeMode,
 } from '../../../shared/settings';
 import { MONO_FONT_PRESETS, UI_FONT_PRESETS } from '../../../shared/fonts';
+import { LOCALE_OPTIONS } from '../../i18n/messages';
 import { useI18n } from '../../i18n/useI18n';
+import { cn } from '../../lib/cn';
+import { ACCENTS, useThemeStore } from '../theme/store';
 import {
   Field,
   FontField,
@@ -27,8 +31,39 @@ function shellPlaceholder(): string {
   return 'Default (bash)';
 }
 
+function AccentSwatches() {
+  const accent = useThemeStore((s) => s.accent);
+  const setAccent = useThemeStore((s) => s.setAccent);
+  return (
+    <div className="flex items-center gap-1.5">
+      {ACCENTS.map((option) => {
+        const active = option.name === accent;
+        return (
+          <button
+            key={option.name}
+            type="button"
+            onClick={() => setAccent(option.name)}
+            aria-label={option.label}
+            aria-pressed={active}
+            title={option.label}
+            className={cn(
+              'flex size-6 items-center justify-center rounded-full transition-transform duration-fast hover:scale-110',
+              active
+                ? 'ring-2 ring-fg-primary/80 ring-offset-2 ring-offset-surface-1'
+                : '',
+            )}
+            style={{ backgroundColor: option.swatch }}
+          >
+            {active ? <Check size={12} className="text-white" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AppearanceCategory() {
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
   const a = useSettingsStore((s) => s.settings.appearance);
   const update = useSettingsStore((s) => s.update);
   const themeOptions = [
@@ -39,6 +74,10 @@ export function AppearanceCategory() {
     readonly value: ThemeMode;
     readonly label: string;
   }[];
+  const languageOptions = LOCALE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.nativeLabel,
+  }));
 
   return (
     <Section>
@@ -50,6 +89,22 @@ export function AppearanceCategory() {
           value={a.theme}
           options={themeOptions}
           onChange={(theme) => void update({ appearance: { theme } })}
+        />
+      </Field>
+      <Field
+        label={t('appearance.accent.label')}
+        hint={t('settings.appearance.accent.hint')}
+      >
+        <AccentSwatches />
+      </Field>
+      <Field
+        label={t('appearance.language.label')}
+        hint={t('settings.appearance.language.hint')}
+      >
+        <Segmented
+          value={locale}
+          options={languageOptions}
+          onChange={(next) => setLocale(next)}
         />
       </Field>
       <Field

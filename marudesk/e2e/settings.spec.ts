@@ -33,6 +33,44 @@ test('settings: opens as a tab; theme + zoom apply live', async () => {
   }
 });
 
+test('settings: search jumps to an individual setting in another category', async () => {
+  const { app, page } = await launchApp();
+  try {
+    // Given: the Settings tab is open on its default (Appearance) category.
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible();
+
+    // When: the user searches for a control that lives in another category.
+    await page.getByPlaceholder('Search settings').fill('shell');
+
+    // Then: the result surfaces and clicking it lands on the owning category.
+    const result = page.getByRole('button', { name: 'Default shell' });
+    await expect(result).toBeVisible();
+    await result.click();
+    await expect(page.getByRole('heading', { name: 'Terminal' })).toBeVisible();
+    await expect(page.getByText('Default shell', { exact: true })).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test('settings: Ctrl/Cmd+, opens the Settings tab', async () => {
+  const { app, page } = await launchApp();
+  try {
+    // Given: the app is focused on the default shell (no editor open).
+    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+
+    // When: the user presses the open-settings accelerator.
+    await page.keyboard.press('Control+Comma');
+
+    // Then: the Settings tab opens.
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
 test('settings: about exposes GitHub and update controls', async () => {
   const { app, page } = await launchApp();
   try {

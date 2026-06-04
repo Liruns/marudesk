@@ -31,6 +31,13 @@ type Props = {
   onToggleDrawer: () => void;
 };
 
+/** Platform-aware label for the "open Settings" accelerator (Ctrl/Cmd+,). */
+function settingsShortcut(): string {
+  const isMac =
+    typeof navigator !== 'undefined' && navigator.userAgent.includes('Macintosh');
+  return isMac ? '⌘,' : 'Ctrl+,';
+}
+
 /**
  * VSCode/Cursor-style activity bar: a thin vertical rail anchored to the left
  * edge of the work region. It's a view switcher — each button toggles a side
@@ -131,6 +138,7 @@ export function ActivityBar({
             {
               label: t('activity.settings'),
               icon: <SlidersHorizontal size={15} />,
+              shortcut: settingsShortcut(),
               onSelect: () => void openSettingsTab(),
             },
             { type: 'separator' },

@@ -16,7 +16,8 @@ import { ProvidersSettings } from './ProvidersSettings';
 import { RemoteCategory } from './RemoteSettingsCategory';
 import { NavItem } from './SettingsControls';
 import { getSettingsCategories } from './settingsCategories';
-import { useSettingsStore } from './store';
+import { SettingsSearchResults } from './SettingsSearchResults';
+import { type SettingsCategory, useSettingsStore } from './store';
 
 export function SettingsView() {
   const { t } = useI18n();
@@ -25,17 +26,12 @@ export function SettingsView() {
   const categories = useMemo(() => getSettingsCategories(t), [t]);
   const active = categories.find((c) => c.id === category);
   const [filter, setFilter] = useState('');
+  const searching = filter.trim().length > 0;
 
-  const shown = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return categories;
-    return categories.filter(
-      (c) =>
-        c.label.toLowerCase().includes(q) ||
-        c.blurb.toLowerCase().includes(q) ||
-        c.keywords.includes(q),
-    );
-  }, [categories, filter]);
+  const pickResult = (next: SettingsCategory) => {
+    setCategory(next);
+    setFilter('');
+  };
 
   if (!active) return null;
 
@@ -51,6 +47,12 @@ export function SettingsView() {
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && filter) {
+                  e.preventDefault();
+                  setFilter('');
+                }
+              }}
               placeholder={t('settings.search.placeholder')}
               spellCheck={false}
               aria-label={t('settings.search.aria')}
@@ -62,40 +64,55 @@ export function SettingsView() {
           aria-label={t('settings.categoriesLabel')}
           className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-0.5"
         >
-          {shown.map((c) => (
+          {categories.map((c) => (
             <NavItem
               key={c.id}
-              active={c.id === category}
-              onClick={() => setCategory(c.id)}
+              active={!searching && c.id === category}
+              onClick={() => pickResult(c.id)}
               icon={<c.icon size={15} />}
               label={c.label}
             />
           ))}
-          {shown.length === 0 ? (
-            <p className="px-3 py-2 text-caption text-fg-tertiary">
-              {t('settings.noMatches')}
-            </p>
-          ) : null}
         </nav>
       </aside>
 
       <div className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-2xl px-8 py-8 flex flex-col gap-6">
-          <header className="flex flex-col gap-1">
-            <h2 className="text-section text-fg-primary">{active.label}</h2>
-            <p className="text-body-sm text-fg-tertiary">{active.blurb}</p>
-          </header>
-          {category === 'appearance' ? <AppearanceCategory /> : null}
-          {category === 'editor' ? <EditorCategory /> : null}
-          {category === 'terminal' ? <TerminalCategory /> : null}
-          {category === 'browser' ? <BrowserCategory /> : null}
-          {category === 'providers' ? <ProvidersSettings /> : null}
-          {category === 'agent' ? <AgentCategory /> : null}
-          {category === 'mcp' ? <McpServersSettings /> : null}
-          {category === 'devtools' ? <DevtoolsCategory /> : null}
-          {category === 'remote' ? <RemoteCategory /> : null}
-          {category === 'data' ? <DataCategory /> : null}
-          {category === 'about' ? <AboutCategory /> : null}
+          {searching ? (
+            <>
+              <header className="flex flex-col gap-1">
+                <h2 className="text-section text-fg-primary">
+                  {t('settings.search.resultsTitle')}
+                </h2>
+                <p className="text-body-sm text-fg-tertiary">
+                  {t('settings.search.resultsBlurb')}
+                </p>
+              </header>
+              <SettingsSearchResults
+                query={filter}
+                categories={categories}
+                onPick={pickResult}
+              />
+            </>
+          ) : (
+            <>
+              <header className="flex flex-col gap-1">
+                <h2 className="text-section text-fg-primary">{active.label}</h2>
+                <p className="text-body-sm text-fg-tertiary">{active.blurb}</p>
+              </header>
+              {category === 'appearance' ? <AppearanceCategory /> : null}
+              {category === 'editor' ? <EditorCategory /> : null}
+              {category === 'terminal' ? <TerminalCategory /> : null}
+              {category === 'browser' ? <BrowserCategory /> : null}
+              {category === 'providers' ? <ProvidersSettings /> : null}
+              {category === 'agent' ? <AgentCategory /> : null}
+              {category === 'mcp' ? <McpServersSettings /> : null}
+              {category === 'devtools' ? <DevtoolsCategory /> : null}
+              {category === 'remote' ? <RemoteCategory /> : null}
+              {category === 'data' ? <DataCategory /> : null}
+              {category === 'about' ? <AboutCategory /> : null}
+            </>
+          )}
         </div>
       </div>
     </div>

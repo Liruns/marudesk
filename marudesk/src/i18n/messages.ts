@@ -508,6 +508,10 @@ const EN_MESSAGES = {
   'settings.appearance.uiFont.label': 'UI font',
   'settings.appearance.uiZoom.hint': 'Scales the whole UI.',
   'settings.appearance.uiZoom.label': 'Interface zoom',
+  'settings.appearance.accent.hint':
+    'Recolors active states, buttons, links, and focus rings.',
+  'settings.appearance.language.hint':
+    'Display language for the marudesk interface.',
   'settings.categoriesLabel': 'Settings categories',
   'settings.font.custom': 'Custom...',
   'settings.font.notDetectedAfter':
@@ -850,6 +854,9 @@ const EN_MESSAGES = {
   'settings.remoteGuide.title': 'How to connect your phone',
   'settings.search.aria': 'Search settings',
   'settings.search.placeholder': 'Search settings',
+  'settings.search.resultsTitle': 'Search results',
+  'settings.search.resultsBlurb': 'Settings matching your query.',
+  'settings.search.settingsGroup': 'Settings',
   'search.clear': 'Clear search',
   'search.collapse': 'Collapse',
   'search.empty': 'Type to search file contents.',
@@ -1569,6 +1576,9 @@ const KO_MESSAGES: Messages = {
   'settings.appearance.uiFont.label': 'UI 글꼴',
   'settings.appearance.uiZoom.hint': '전체 UI 크기를 조정합니다.',
   'settings.appearance.uiZoom.label': '인터페이스 확대/축소',
+  'settings.appearance.accent.hint':
+    '활성 상태, 버튼, 링크, 포커스 링의 색을 바꿉니다.',
+  'settings.appearance.language.hint': 'marudesk 인터페이스의 표시 언어.',
   'settings.categoriesLabel': '설정 카테고리',
   'settings.font.custom': '사용자 지정...',
   'settings.font.notDetectedAfter':
@@ -1908,6 +1918,9 @@ const KO_MESSAGES: Messages = {
   'settings.remoteGuide.title': '휴대폰 연결 방법',
   'settings.search.aria': '설정 검색',
   'settings.search.placeholder': '설정 검색',
+  'settings.search.resultsTitle': '검색 결과',
+  'settings.search.resultsBlurb': '검색어와 일치하는 설정.',
+  'settings.search.settingsGroup': '설정',
   'settings.title': '설정',
   'home.launcher.agent.hint': '실행 중인 앱을 보는 에이전트',
   'home.launcher.agent.label': 'AI 채팅',
