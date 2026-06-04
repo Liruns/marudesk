@@ -32,6 +32,11 @@ const PROVIDER_KEYS: Partial<Record<BuiltinProviderId, string>> = {
   xai: 'xai',
   zai: 'zai',
   opencode: 'opencode',
+  openrouter: 'openrouter',
+  groq: 'groq',
+  cerebras: 'cerebras',
+  mistral: 'mistral',
+  deepseek: 'deepseek',
   // Skipped: ollama (local), openai-codex / google-caa (OAuth-only subscription
   // backends) — no clean models.dev mapping.
 };

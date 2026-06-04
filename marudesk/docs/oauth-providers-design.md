@@ -184,3 +184,16 @@ API-key `openai`/`google`와 **다른 백엔드/모델/요청 형식**이라 **�
 - tsc 클린 · **e2e 49/49**(openai-codex/google-caa 계약 — loopback start 미호출).
 - **Code-Assist 변환 로직을 mock 백엔드로 헤드리스 4/4 검증**(`node --experimental-strip-types`: 봉투 wrap+unwrap / SSE unwrap / onboard 부트스트랩 / JWT account-id). loopback 서버 7/7도 유지.
 - ⚠️ **실 ChatGPT/Google 계정 dogfood 필수** — 라이브 라운드트립(특히 codex Responses 바디 세부·CAA SSE 프레이밍)은 미검증. codex 모델 id·`OpenAI-Beta`·CAA 헤더/LRO는 회전/변동 가능.
+
+---
+
+## 11. 다중 provider 흡수 확장 — 계획 (2026-06-04)
+
+§9.2의 config seam을 더 활용해 참고 레포(hermes-agent / opencode)가 지원하는 provider를 흡수하는
+로드맵은 별도 계획문서로 분리했다 → **[provider-expansion-plan.md](./provider-expansion-plan.md)**.
+
+- **P0 구독 OAuth 신규**: GitHub Copilot(신규 `device-code` flow + Copilot 토큰 교환),
+  OpenRouter(OAuth PKCE → API 키 교환, loopback 재사용).
+- **P1/P2 API-키 built-in 카탈로그**: Groq / Cerebras / Mistral / DeepSeek / Moonshot(Kimi) /
+  MiniMax / NVIDIA NIM / Novita / Vercel AI Gateway.
+- **비목표**: Azure/Bedrock/Vertex/SAP(클라우드 IAM), Nous Portal/Telegram/Discord 등(메신저 채널).

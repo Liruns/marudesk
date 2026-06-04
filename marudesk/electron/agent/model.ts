@@ -49,6 +49,12 @@ const XAI_BASE_URL = 'https://api.x.ai/v1';
 const ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
 // OpenCode's curated gateway (OpenCode Zen), OpenAI-compatible.
 const OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1';
+// OpenAI-compatible API-key gateways/vendors (docs/provider-expansion-plan.md).
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+const CEREBRAS_BASE_URL = 'https://api.cerebras.ai/v1';
+const MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 
 /**
  * Known-dead / hallucinated model slugs mapped to guidance. A second line of
@@ -204,6 +210,39 @@ export function buildModel(
       return createOpenAICompatible({
         name: 'opencode',
         baseURL: OPENCODE_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'openrouter':
+      // OpenRouter gateway — OpenAI-compatible. The optional ranking headers
+      // identify the app on openrouter.ai (harmless when omitted).
+      return createOpenAICompatible({
+        name: 'openrouter',
+        baseURL: OPENROUTER_BASE_URL,
+        apiKey: apiKey || undefined,
+        headers: { 'HTTP-Referer': 'https://marudesk.app', 'X-Title': 'marudesk' },
+      })(modelId);
+    case 'groq':
+      return createOpenAICompatible({
+        name: 'groq',
+        baseURL: GROQ_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'cerebras':
+      return createOpenAICompatible({
+        name: 'cerebras',
+        baseURL: CEREBRAS_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'mistral':
+      return createOpenAICompatible({
+        name: 'mistral',
+        baseURL: MISTRAL_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'deepseek':
+      return createOpenAICompatible({
+        name: 'deepseek',
+        baseURL: DEEPSEEK_BASE_URL,
         apiKey: apiKey || undefined,
       })(modelId);
     default: {
