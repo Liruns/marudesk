@@ -15,7 +15,8 @@ import {
   Stepper,
   TextField,
 } from './SettingsControls';
-import { DOCK_OPTIONS, SEARCH_ENGINE_OPTIONS } from './settingsOptions';
+import { SEARCH_ENGINE_OPTIONS } from './settingsOptions';
+import { useDockOptions } from './useLocalizedSettingsOptions';
 import { useSettingsStore } from './store';
 
 function shellPlaceholder(): string {
@@ -80,11 +81,15 @@ export function AppearanceCategory() {
 }
 
 export function EditorCategory() {
+  const { t } = useI18n();
   const a = useSettingsStore((s) => s.settings.appearance);
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
-      <Field label="Font family" hint="Falls back to JetBrains Mono if unavailable.">
+      <Field
+        label={t('settings.font.family.label')}
+        hint={t('settings.font.family.hint')}
+      >
         <FontField
           value={a.editorFontFamily}
           presets={MONO_FONT_PRESETS}
@@ -93,14 +98,14 @@ export function EditorCategory() {
           }
         />
       </Field>
-      <Field label="Font size">
+      <Field label={t('settings.font.size.label')}>
         <Stepper
           value={a.editorFontSize}
           min={FONT_SIZE_MIN}
           max={FONT_SIZE_MAX}
           step={1}
           suffix="px"
-          name="editor font size"
+          name={t('settings.font.size.label')}
           onChange={(editorFontSize) =>
             void update({ appearance: { editorFontSize } })
           }
@@ -111,12 +116,16 @@ export function EditorCategory() {
 }
 
 export function TerminalCategory() {
+  const { t } = useI18n();
   const settings = useSettingsStore((s) => s.settings);
   const a = settings.appearance;
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
-      <Field label="Font family" hint="Falls back to JetBrains Mono if unavailable.">
+      <Field
+        label={t('settings.font.family.label')}
+        hint={t('settings.font.family.hint')}
+      >
         <FontField
           value={a.terminalFontFamily}
           presets={MONO_FONT_PRESETS}
@@ -125,22 +134,22 @@ export function TerminalCategory() {
           }
         />
       </Field>
-      <Field label="Font size">
+      <Field label={t('settings.font.size.label')}>
         <Stepper
           value={a.terminalFontSize}
           min={FONT_SIZE_MIN}
           max={FONT_SIZE_MAX}
           step={1}
           suffix="px"
-          name="terminal font size"
+          name={t('settings.font.size.label')}
           onChange={(terminalFontSize) =>
             void update({ appearance: { terminalFontSize } })
           }
         />
       </Field>
       <Field
-        label="Default shell"
-        hint="Path or command for the integrated terminal. Leave blank for the OS default; an unknown shell falls back automatically."
+        label={t('settings.terminal.shell.label')}
+        hint={t('settings.terminal.shell.hint')}
       >
         <TextField
           value={settings.terminal.defaultShell}
@@ -153,13 +162,14 @@ export function TerminalCategory() {
 }
 
 export function BrowserCategory() {
+  const { t } = useI18n();
   const browser = useSettingsStore((s) => s.settings.browser);
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
       <Field
-        label="Search engine"
-        hint="Used when the address bar input isn't a URL."
+        label={t('settings.browser.searchEngine.label')}
+        hint={t('settings.browser.searchEngine.hint')}
       >
         <Segmented
           value={browser.searchEngine}
@@ -172,17 +182,19 @@ export function BrowserCategory() {
 }
 
 export function DevtoolsCategory() {
+  const { t } = useI18n();
+  const dockOptions = useDockOptions();
   const devtools = useSettingsStore((s) => s.settings.devtools);
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
       <Field
-        label="Open as"
-        hint="Right/Bottom dock our own inspector; Chrome opens the built-in DevTools window (for emulation, throttling, and the debugger)."
+        label={t('settings.devtools.dock.label')}
+        hint={t('settings.devtools.dock.hint')}
       >
         <Segmented
           value={devtools.defaultDock}
-          options={DOCK_OPTIONS}
+          options={dockOptions}
           onChange={(defaultDock) => void update({ devtools: { defaultDock } })}
         />
       </Field>

@@ -514,6 +514,20 @@ const EN_MESSAGES = {
     '" is not detected on this system - a fallback font is used.',
   'settings.font.notDetectedBefore': '"',
   'settings.font.placeholder': 'Font family name',
+  'settings.font.family.hint': 'Falls back to JetBrains Mono if unavailable.',
+  'settings.font.family.label': 'Font family',
+  'settings.font.size.label': 'Font size',
+  'settings.browser.searchEngine.hint':
+    "Used when the address bar input isn't a URL.",
+  'settings.browser.searchEngine.label': 'Search engine',
+  'settings.devtools.dock.bottom': 'Bottom',
+  'settings.devtools.dock.hint':
+    'Right/Bottom dock our own inspector; Chrome opens the built-in DevTools window (for emulation, throttling, and the debugger).',
+  'settings.devtools.dock.label': 'Open as',
+  'settings.devtools.dock.right': 'Right',
+  'settings.terminal.shell.hint':
+    'Path or command for the integrated terminal. Leave blank for the OS default; an unknown shell falls back automatically.',
+  'settings.terminal.shell.label': 'Default shell',
   'settings.category.about.blurb': 'Version and runtime details.',
   'settings.category.about.label': 'About',
   'settings.category.agent.blurb':
@@ -1561,6 +1575,19 @@ const KO_MESSAGES: Messages = {
     '" 글꼴이 이 시스템에서 감지되지 않았습니다 - 대체 글꼴을 사용합니다.',
   'settings.font.notDetectedBefore': '"',
   'settings.font.placeholder': '글꼴 패밀리 이름',
+  'settings.font.family.hint': '사용할 수 없으면 JetBrains Mono로 대체합니다.',
+  'settings.font.family.label': '글꼴 패밀리',
+  'settings.font.size.label': '글꼴 크기',
+  'settings.browser.searchEngine.hint': '주소창 입력이 URL이 아닐 때 사용합니다.',
+  'settings.browser.searchEngine.label': '검색 엔진',
+  'settings.devtools.dock.bottom': '아래쪽',
+  'settings.devtools.dock.hint':
+    '오른쪽/아래쪽은 자체 검사기를 창 안에 도킹하고, Chrome은 내장 DevTools 창(에뮬레이션, 스로틀링, 디버거용)을 엽니다.',
+  'settings.devtools.dock.label': '열기 방식',
+  'settings.devtools.dock.right': '오른쪽',
+  'settings.terminal.shell.hint':
+    '통합 터미널에서 사용할 경로나 명령. 비워 두면 OS 기본값을 사용하고, 알 수 없는 셸은 자동으로 대체됩니다.',
+  'settings.terminal.shell.label': '기본 셸',
   'settings.category.about.blurb': '버전과 런타임 정보.',
   'settings.category.about.label': '정보',
   'settings.category.agent.blurb':

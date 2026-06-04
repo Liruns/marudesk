@@ -1,10 +1,13 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import {
+  Bot,
   Files,
   GitBranch,
   KeyRound,
   MessageSquareText,
   Palette,
+  Plug,
+  Radio,
   Search,
   Settings as SettingsIcon,
   SlidersHorizontal,
@@ -132,9 +135,24 @@ export function ActivityBar({
             },
             { type: 'separator' },
             {
-              label: t('activity.apiProviders'),
+              label: t('settings.category.agent.label'),
+              icon: <Bot size={15} />,
+              onSelect: () => void openSettingsTab('agent'),
+            },
+            {
+              label: t('settings.category.providers.label'),
               icon: <KeyRound size={15} />,
               onSelect: () => void openSettingsTab('providers'),
+            },
+            {
+              label: t('settings.category.mcp.label'),
+              icon: <Plug size={15} />,
+              onSelect: () => void openSettingsTab('mcp'),
+            },
+            {
+              label: t('settings.category.remote.label'),
+              icon: <Radio size={15} />,
+              onSelect: () => void openSettingsTab('remote'),
             },
           ]}
         />
