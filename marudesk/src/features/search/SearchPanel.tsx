@@ -10,15 +10,21 @@ import {
   CaseSensitive,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Regex,
   Search,
+  SlidersHorizontal,
   WholeWord,
   X,
 } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
-import type { SearchFileResult } from '../../../shared/search';
+import type {
+  SearchFileResult,
+  SearchMatchRange,
+} from '../../../shared/search';
 import { useSearchStore } from './store';
 import { useEditorStore } from '../editor/store';
 import { baseName, dirName } from '../git/statusMeta';
@@ -49,8 +55,9 @@ function readWidth(): number {
 
 /**
  * Left-hand content-search sidebar. A debounced query input with case/word/
- * regex toggles, results grouped by file (each group collapsible), and a click
- * on a result opens the file in the editor. The search itself runs in main
+ * regex toggles plus include/exclude glob filters, results grouped by file
+ * (each group collapsible) with matches highlighted in the preview, and a click
+ * on a match opens the file at that line/column. The search itself runs in main
  * (search:content — ripgrep with a Node fallback); this panel just drives it.
  *
  * Reuses ExplorerPanel's resize/drag-to-close mechanics. Ctrl+Shift+F (handled
@@ -72,22 +79,28 @@ export function SearchPanel({ open, onRequestClose }: Props) {
   const focusNonce = useSearchStore((s) => s.focusNonce);
   const setQuery = useSearchStore((s) => s.setQuery);
   const toggleOption = useSearchStore((s) => s.toggleOption);
+  const setFilter = useSearchStore((s) => s.setFilter);
   const run = useSearchStore((s) => s.run);
   const clear = useSearchStore((s) => s.clear);
-  const openFile = useEditorStore((s) => s.openFile);
+  const openFileAt = useEditorStore((s) => s.openFileAt);
 
   const [width, setWidth] = useState(readWidth);
   const [resizing, setResizing] = useState(false);
   const [inCloseZone, setInCloseZone] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Open the include/exclude fields automatically if a filter is already set.
+  const [showFilters, setShowFilters] = useState(
+    () => !!(options.includes || options.excludes),
+  );
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Debounced search as the user types. A trailing-edge timer keyed on the
-  // query string; cleared on each keystroke so only the pause fires the search.
+  // Debounced search as the user types or flips an option. A trailing-edge timer
+  // keyed on the query + options; cleared on each change so only the pause fires
+  // the search (and toggles/filters re-run through the same single path).
   useEffect(() => {
     const id = setTimeout(() => void run(query), DEBOUNCE_MS);
     return () => clearTimeout(id);
-  }, [query, run]);
+  }, [query, options, run]);
 
   // Focus the input when the panel opens or Ctrl+Shift+F bumps the nonce.
   useEffect(() => {
@@ -139,6 +152,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
   );
 
   const closeZoneActive = resizing && inCloseZone;
+  const hasResults = !!result && result.files.length > 0;
 
   return (
     <aside
@@ -220,15 +234,73 @@ export function SearchPanel({ open, onRequestClose }: Props) {
             >
               <Regex size={14} />
             </Toggle>
+            <Toggle
+              label={t('search.toggle.filters')}
+              active={showFilters || !!(options.includes || options.excludes)}
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              <SlidersHorizontal size={14} />
+            </Toggle>
           </div>
+
+          {/* include / exclude glob filters */}
+          {showFilters ? (
+            <div className="mt-1.5 flex flex-col gap-1.5">
+              <input
+                value={options.includes}
+                onChange={(e) => setFilter('includes', e.target.value)}
+                placeholder={t('search.include.placeholder')}
+                aria-label={t('search.include.label')}
+                spellCheck={false}
+                autoComplete="off"
+                className="h-7 rounded border border-subtle bg-surface-2 px-2 text-caption font-mono text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent"
+              />
+              <input
+                value={options.excludes}
+                onChange={(e) => setFilter('excludes', e.target.value)}
+                placeholder={t('search.exclude.placeholder')}
+                aria-label={t('search.exclude.label')}
+                spellCheck={false}
+                autoComplete="off"
+                className="h-7 rounded border border-subtle bg-surface-2 px-2 text-caption font-mono text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent"
+              />
+            </div>
+          ) : null}
+
           {result ? (
-            <p className="mt-1.5 px-0.5 text-caption text-fg-tertiary tabular-nums">
-              {formatSearchSummary({
-                totalMatches,
-                fileCount: result.files.length,
-                truncated: result.truncated,
-              })}
-            </p>
+            <div className="mt-1.5 flex items-center gap-2 px-0.5">
+              <p className="flex-1 min-w-0 truncate text-caption text-fg-tertiary tabular-nums">
+                {formatSearchSummary({
+                  totalMatches,
+                  fileCount: result.files.length,
+                  truncated: result.truncated,
+                })}
+              </p>
+              {hasResults ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setCollapsed(new Set())}
+                    aria-label={t('search.expandAll')}
+                    title={t('search.expandAll')}
+                    className="shrink-0 size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-3"
+                  >
+                    <ChevronsUpDown size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCollapsed(new Set(result.files.map((f) => f.path)))
+                    }
+                    aria-label={t('search.collapseAll')}
+                    title={t('search.collapseAll')}
+                    className="shrink-0 size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-3"
+                  >
+                    <ChevronsDownUp size={13} />
+                  </button>
+                </>
+              ) : null}
+            </div>
           ) : null}
         </div>
 
@@ -240,7 +312,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
             <div className="flex items-center justify-center gap-2 py-8 text-fg-tertiary">
               <Spinner size={16} /> {t('search.loading')}
             </div>
-          ) : result && result.files.length > 0 ? (
+          ) : hasResults ? (
             result.files.map((file) => (
               <FileGroup
                 key={file.path}
@@ -255,7 +327,7 @@ export function SearchPanel({ open, onRequestClose }: Props) {
                     return next;
                   })
                 }
-                onOpen={() => void openFile(file.path)}
+                onOpenAt={(line, col) => void openFileAt(file.path, line, col)}
                 t={t}
               />
             ))
@@ -308,17 +380,18 @@ function FileGroup({
   collapsed,
   formatSearchMatchLineTitle,
   onToggle,
-  onOpen,
+  onOpenAt,
   t,
 }: {
   file: SearchFileResult;
   collapsed: boolean;
   formatSearchMatchLineTitle: (line: number) => string;
   onToggle: () => void;
-  onOpen: () => void;
+  onOpenAt: (line: number, col: number) => void;
   t: (key: 'search.expand' | 'search.collapse') => string;
 }) {
   const dir = dirName(file.path);
+  const first = file.matches[0];
   return (
     <div>
       <div className="group/file flex items-center h-6 pl-1 pr-2 hover:bg-surface-2">
@@ -332,7 +405,7 @@ function FileGroup({
         </button>
         <button
           type="button"
-          onClick={onOpen}
+          onClick={() => first && onOpenAt(first.line, first.col)}
           title={file.path}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
@@ -348,7 +421,7 @@ function FileGroup({
             <button
               key={`${m.line}:${m.col}:${i}`}
               type="button"
-              onClick={onOpen}
+              onClick={() => onOpenAt(m.line, m.col)}
               title={formatSearchMatchLineTitle(m.line)}
               className="flex w-full items-baseline gap-2 py-0.5 pl-7 pr-2 text-left hover:bg-surface-2"
             >
@@ -356,13 +429,44 @@ function FileGroup({
                 {m.line}
               </span>
               <span className="truncate font-mono text-caption text-fg-secondary">
-                {m.preview.trim()}
+                <Highlight text={m.preview} ranges={m.ranges} />
               </span>
             </button>
           ))
         : null}
     </div>
   );
+}
+
+/** Render preview text with each match span wrapped for highlight. */
+function Highlight({
+  text,
+  ranges,
+}: {
+  text: string;
+  ranges: SearchMatchRange[];
+}) {
+  if (ranges.length === 0) return <>{text}</>;
+  const out: ReactNode[] = [];
+  let cursor = 0;
+  ranges.forEach((r, i) => {
+    const start = Math.max(cursor, r.start);
+    if (start > cursor) out.push(text.slice(cursor, start));
+    const end = Math.max(start, r.end);
+    if (end > start) {
+      out.push(
+        <mark
+          key={`m${i}`}
+          className="rounded-sm bg-accent-subtle px-px text-accent"
+        >
+          {text.slice(start, end)}
+        </mark>,
+      );
+    }
+    cursor = Math.max(cursor, end);
+  });
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return <>{out}</>;
 }
 
 function persistWidth(w: number): void {

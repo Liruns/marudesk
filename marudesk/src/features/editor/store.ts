@@ -36,13 +36,28 @@ function docKeyForInput(input: EditorFileInput): string {
   return isWorkspaceFileRef(input) ? workspaceFileKey(input) : input;
 }
 
+/**
+ * A request to reveal a 1-based line/column in a document, set when a feature
+ * (the Search panel) opens a file at a specific match. MonacoView watches this
+ * and reveals once for each new `nonce`, so re-binding the model on a later tab
+ * switch doesn't re-jump to a stale position.
+ */
+export type RevealRequest = {
+  key: string;
+  line: number;
+  col: number;
+  nonce: number;
+};
+
 type EditorState = {
   files: Record<string, FileBuf>;
   fileRefs: Record<string, WorkspaceFileRef>;
+  revealRequest: RevealRequest | null;
 };
 
 type EditorActions = {
   openFile: (file: EditorFileInput) => Promise<void>;
+  openFileAt: (file: EditorFileInput, line: number, col: number) => Promise<void>;
   ensureLoaded: (file: EditorFileInput) => Promise<void>;
   setContent: (path: string, content: string) => void;
   save: (path: string) => Promise<void>;
@@ -62,6 +77,7 @@ export const useEditorStore = create<EditorState & EditorActions>(
   (set, get) => ({
     files: {},
     fileRefs: {},
+    revealRequest: null,
 
     openFile: async (file) => {
       const key = docKeyForInput(file);
@@ -86,6 +102,20 @@ export const useEditorStore = create<EditorState & EditorActions>(
         }
       }
       await get().ensureLoaded(file);
+    },
+
+    openFileAt: async (file, line, col) => {
+      await get().openFile(file);
+      // EditorView only mounts MonacoView once the buffer is ready, so the
+      // request is in place before the editor binds the model and can apply it.
+      set((s) => ({
+        revealRequest: {
+          key: docKeyForInput(file),
+          line,
+          col,
+          nonce: (s.revealRequest?.nonce ?? 0) + 1,
+        },
+      }));
     },
 
     ensureLoaded: async (file) => {
