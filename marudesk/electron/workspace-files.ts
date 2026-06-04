@@ -94,9 +94,12 @@ export async function readFileWindow(
     const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
     let text = buf.subarray(0, bytesRead).toString('utf8');
     // Drop the trailing partial line (which also carries any split multibyte
-    // char at the byte boundary) so the prefix ends cleanly on a newline.
+    // char at the byte boundary) so the prefix ends cleanly on a newline. When
+    // the prefix has no newline at all (one huge line), just drop a trailing
+    // replacement char left by a split multibyte sequence.
     const lastNl = text.lastIndexOf('\n');
     if (lastNl >= 0) text = text.slice(0, lastNl);
+    else if (text.endsWith('�')) text = text.slice(0, -1);
     return { content: text, size, truncated: true };
   } finally {
     await fh.close();

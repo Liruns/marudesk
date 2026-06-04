@@ -25,6 +25,9 @@ const MAX_TOOL_TEXT = 12_000;
 const MAX_GREP_RESULTS = 60;
 const MAX_GREP_FILES = 600;
 const GREP_CONCURRENCY = 8;
+// Per-line input bound + wall-clock budget for the regex path (ReDoS mitigation).
+const MAX_GREP_LINE_LEN = 2_000;
+const GREP_TIME_BUDGET_MS = 3_000;
 const MAX_DOM_HTML = 4_000;
 const RELOAD_WAIT_DEFAULT = 2_500;
 const RELOAD_WAIT_MAX = 5_000;
@@ -175,7 +178,10 @@ async function grep(
   const pattern = typeof input.pattern === 'string' ? input.pattern : '';
   if (!pattern) throw new Error('grep requires "pattern"');
   const caseSensitive = input.caseSensitive === true;
-  const max = typeof input.maxResults === 'number' ? Math.min(input.maxResults, 200) : MAX_GREP_RESULTS;
+  const max =
+    typeof input.maxResults === 'number'
+      ? Math.max(1, Math.min(Math.floor(input.maxResults), 200))
+      : MAX_GREP_RESULTS;
   const re = typeof input.glob === 'string' && input.glob.trim() ? globToRegExp(input.glob.trim()) : null;
 
   // Build the line matcher: a JS regex when regex=true, else a literal substring.
@@ -191,7 +197,11 @@ async function grep(
         isError: true,
       };
     }
-    matches = (line) => rx.test(line);
+    // Bound the input each test sees (long minified lines are the usual trigger)
+    // and cap total scan time below — JS RegExp can't be made fully ReDoS-proof
+    // in-process, but the pattern comes from the in-process model and these two
+    // bounds keep a slow pattern from wedging the whole scan.
+    matches = (line) => rx.test(line.length > MAX_GREP_LINE_LEN ? line.slice(0, MAX_GREP_LINE_LEN) : line);
   } else if (caseSensitive) {
     matches = (line) => line.includes(pattern);
   } else {
@@ -199,10 +209,15 @@ async function grep(
     matches = (line) => line.toLowerCase().includes(needle);
   }
 
-  const candidates = ws.files
+  // Skip credential files: grep has no SECRET_FILE read guard of its own, and the
+  // workspace index only filters IGNORE_DIRS, so without this a pattern could pull
+  // .env / *.pem / id_rsa contents straight to the model.
+  const filtered = ws.files
     .filter((f) => !BINARY_EXT.has(path.extname(f.path).toLowerCase()))
-    .filter((f) => (re ? re.test(f.path) : true))
-    .slice(0, MAX_GREP_FILES);
+    .filter((f) => !SECRET_FILE.test(f.path))
+    .filter((f) => (re ? re.test(f.path) : true));
+  const moreFiles = filtered.length > MAX_GREP_FILES;
+  const candidates = filtered.slice(0, MAX_GREP_FILES);
 
   // Read in bounded-concurrency batches (file I/O is the bottleneck), but scan
   // results in file order and stop once `max` hits are collected — deterministic
@@ -211,6 +226,8 @@ async function grep(
   const hits: string[] = [];
   let scanned = 0;
   let capped = false;
+  let timedOut = false;
+  const deadline = Date.now() + GREP_TIME_BUDGET_MS;
   batches: for (let i = 0; i < candidates.length && hits.length < max; i += GREP_CONCURRENCY) {
     const batch = candidates.slice(i, i + GREP_CONCURRENCY);
     const contents = await Promise.all(
@@ -219,6 +236,10 @@ async function grep(
     for (let j = 0; j < batch.length; j++) {
       const content = contents[j];
       if (content === null) continue;
+      if (Date.now() > deadline) {
+        timedOut = true;
+        break batches;
+      }
       scanned++;
       const lines = content.split('\n');
       for (let k = 0; k < lines.length; k++) {
@@ -232,13 +253,15 @@ async function grep(
       }
     }
   }
-  // Distinguish "found everything" from "hit the result/file caps" so the model
-  // knows to narrow with a glob or raise maxResults instead of trusting a partial.
+  // Distinguish "found everything" from "hit a cap" so the model knows to narrow
+  // with a glob or raise maxResults instead of trusting a partial result.
   const note = capped
     ? `\n…(stopped at ${max} hits — narrow with a glob or raise maxResults)`
-    : candidates.length >= MAX_GREP_FILES
-      ? `\n…(scanned the first ${MAX_GREP_FILES} matching files — narrow with a glob for the rest)`
-      : '';
+    : timedOut
+      ? `\n…(stopped after scanning ${scanned} files within the time budget — narrow with a glob)`
+      : moreFiles
+        ? `\n…(scanned the first ${MAX_GREP_FILES} matching files — narrow with a glob for the rest)`
+        : '';
   return {
     summary: `grep "${pattern}" → ${hits.length} hit${hits.length === 1 ? '' : 's'}`,
     text: hits.length ? clip(hits.join('\n')) + note : `no matches in ${scanned} files`,
