@@ -30,6 +30,16 @@
   CSP + 권한)가 필요해 보안 비용이 크다. v1은 **헤드리스 기여(도구 + 슬래시 커맨드)** 만 다루고,
   UI 패널 기여는 v2로 분리한다(§9).
 
+> **설계 리뷰 R2 — 프로세스 분리 ≠ 능력 격리(가장 중요한 정정).** `utilityProcess`/`child_process`는
+> 풀 Node라 `require('node:fs')`/`require('node:child_process')`/raw 소켓이 **그냥 된다**. 즉
+> 매니페스트 권한·`ctx.fs` 가드는 **협조적 플러그인만** 구속하고, 악성 플러그인은 `require` 한 줄로
+> 전부 우회한다. "기본 거부"가 실효가 있으려면 **런타임 강제 샌드박스**가 필요하고, 그건 advisory
+> 가드가 아니라 **load-bearing** 이라 **P1에 포함**한다([§3.2](#32-런타임-샌드박스-load-bearing-p1)).
+> 구체적으로 **Node Permission Model**(`node --permission --allow-fs-read=<pluginDir>`; fs/child_process/
+> worker_threads/native-addon을 런타임에서 차단)을 spawn `execArgv`로 **두 백엔드 모두**에 걸고,
+> Permission Model이 안 막는 **네트워크 모듈(`net`/`http`/`https`/`dns`)은 worker의 `Module._load`
+> 셰임으로 차단**(net 권한 미승인 시). 그래야 plugin이 켜진 순간에도 경계가 유지된다.
+
 ---
 
 ## 1. 타깃 구조 (target structure)
@@ -85,7 +95,8 @@ name 충돌 시 user를 가린다):
 매니저는 플러그인이 활성화될 때 **그 플러그인의 도구만 담은 `McpServer`** 를 만들어 등록한다:
 
 - 서버 이름/네임스페이스: `plugin:<id>` → 도구는 `plugin:<id>__<tool>` (외부 MCP의 `<id>__<tool>`과
-  동형).
+  동형). `plugin:`은 **예약 프리픽스** — 외부 MCP config가 이 프리픽스의 id를 쓰면 거부해 합성 서버
+  섀도잉을 막는다(R2).
 - 각 도구의 `exec`는 **host RPC** 로 위임한다: `exec(input)` → worker의 `callTool` → 결과를
   `ToolResult`로 매핑. 외부 MCP가 `client.callTool`로 위임하는 것과 정확히 같은 모양.
 - 메타데이터: `group: 'plugin'`(신규 `McpGroup` 값), `gated: true` 기본(서드파티·부작용 가능),
@@ -161,8 +172,16 @@ main (manager.ts / host.ts)                 utilityProcess (worker.ts)
 - **RPC 계약([rpc.ts](../electron/plugins/rpc.ts)):** 길이-상관 ID가 붙은 단방향 메시지 양방향.
   - host→worker: `load`, `callTool{name,input}`, `runCommand{name,arg}`, `deactivate`.
   - worker→host: `ready{contributions}`, `result{id,...}`, `error{id,...}`, `log{level,msg}`,
-    그리고 **권한 RPC** `fs.read/fs.write/http.fetch`(host가 응답).
-  - 모든 페이로드는 구조화-복제 가능한 JSON만(함수/클래스 전달 금지).
+    그리고 **권한 RPC** `fs.read/http.fetch`(host가 응답).
+  - **권한 RPC는 발신 핸들러의 `callId`를 반드시 실어 보낸다(R2 동시성 수정).** 한 워커가 동시
+    tool call A/B를 처리할 수 있는데(RPC는 id-상관), bare `fs.read`로는 host가 어느 ToolContext(=어느
+    ws/denyGlobs)에 속하는지 알 수 없다. `ctx`는 **핸들러 호출마다 새로 생성**되어 자기 `callId`를
+    캡처하고, 그 `ctx`가 내는 모든 fs/http RPC에 `callId`를 붙인다. host는 `callId`로 그 호출의
+    ToolContext를 찾아 가드한다. callId가 없거나 이미 끝난 호출이면 거부.
+  - 모든 페이로드는 구조화-복제 가능한 JSON만(함수/클래스 전달 금지). host는 수신 페이로드에서
+    `__proto__`/`constructor`/`prototype` 키를 **스트립**한다(프로토타입 오염 방지).
+  - **teardown 시 in-flight RPC 즉시 reject.** 워커를 kill/비활성할 때 host는 미해결 `callTool`
+    프라미스를 error-ToolResult로 **즉시 거부**한다(60s 타임아웃 대기 금지).
 - **타임아웃:** `callTool`/`runCommand`는 외부 MCP와 동일하게 60s, `load`/`ready`는 10s. 초과 시
   그 호출만 실패로 매핑(프로세스는 살림), 반복 실패/크래시는 플러그인 비활성 + `error`.
 - **크래시 격리:** worker가 죽어도 host가 잡아 `error` 상태로 전이하고 앱은 안 죽는다(외부 MCP의
@@ -205,19 +224,41 @@ type PluginContext = {
 > 호출의 ToolContext를 추적해 그 호출 동안의 fs/net RPC만 허가한다. activate/타이머에서의 fs 접근은
 > 컨텍스트(ws)가 없어 **거부**된다 — 의도된 제약.
 
+### 3.2 런타임 샌드박스 (load-bearing, P1)
+
+R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러그인이 **`ctx`를 안 거치고 Node를 직접
+부르는** 경로를 런타임에서 막아야 한다. 2중 방어:
+
+1. **Node Permission Model** — worker spawn 시 `execArgv`에 `--permission --allow-fs-read=<pluginDir>`
+   (+ 필요 시 `--allow-fs-write=<승인된 경로>`)를 건다. 그러면 `require('node:fs')`로 손에 넣어도
+   **fs 연산 자체가 런타임에서 거부**되고, `child_process`/`worker_threads`/native-addon은 기본 차단된다.
+   `utilityProcess.fork`/`child_process.fork` 둘 다 `execArgv`를 지원하므로 **두 백엔드 대칭**.
+2. **`Module._load` 셰임** — worker가 플러그인 `index.js`를 `require`하기 **전에** 자체 모듈 로더를
+   감싸, `net`/`http`/`https`/`http2`/`dns`/`tls`(및 `node:` 접두 변형)를 **net 권한 미승인 시 throw**.
+   Permission Model이 아직 네트워크를 안 막는 공백을 메운다. 허용된 네트워크는 오직 host가 중개하는
+   `ctx.http`뿐이고, 거기서 SSRF/리다이렉트/**DNS 리바인딩**(허용 도메인이 사설 IP로 해석되는 경우)을
+   host가 재검증한다.
+
+이 샌드박스가 없으면 "inert 출하"가 유일한 보호막이고 사용자가 플러그인을 켜는 순간 경계가 사라진다 —
+그래서 P3가 아니라 **P1**이다. (한계: Permission Model은 CPU/메모리는 안 막는다 → §8 워치독으로 보완.)
+
 ---
 
 ## 4. 권한 가드 ([permissions.ts](../electron/plugins/permissions.ts))
 
 기본 거부. host는 worker의 모든 권한 RPC에 대해:
 
-- **`fs:*`** — `relPath`를 **in-flight ToolContext의 `ws` 루트**로 resolve하고 **루트 밖 이탈 거부**,
-  심볼릭 링크는 realpath로 재검사. `fs:write`는 **기존 가드를 재사용**한다 — `ToolContext.denyGlobs`
-  (never-edit) + [workspace-mutate.ts](../electron/workspace-mutate.ts)/[fs-safe.ts](../electron/fs-safe.ts)의
-  SECRET_FILE 가드를 그대로 통과시키고 재구현하지 않는다. 권한 미선언/미승인이거나 ToolContext가
-  없으면(=핸들러 밖 호출) 즉시 거부.
-- **`net`** — `url` 호스트가 `manifest.net.allow` allowlist에 정확히 매치할 때만. 사설/loopback
-  IP·리다이렉트 호스트 변경 차단. 응답 본문은 상한(예: 1MB)으로 자른다.
+- **`fs:read`(P1)** — RPC의 `callId`로 그 호출의 ToolContext를 찾아 `relPath`를 **그 `ws` 루트**로
+  resolve하고 **루트 밖 이탈 거부**, 심볼릭 링크는 realpath로 재검사. 권한 미선언/미승인이거나 유효한
+  callId/ToolContext가 없으면(=핸들러 밖 호출, 끝난 호출) 즉시 거부.
+- **`fs:write`(별도 페이즈)** — P1에서 제외(R2). 플러그인 쓰기를 chat diff/revert에 노출하려면
+  `ToolResult.edits: AppliedChange[]` 채널이 필요한데 v1 ctx 도구 반환엔 그 채널이 없다([§7](#7-단계-계획-phased-roadmap)).
+  도입 시 [workspace-mutate.ts](../electron/workspace-mutate.ts)/[fs-safe.ts](../electron/fs-safe.ts)의
+  denyGlobs(never-edit)+SECRET_FILE 가드를 재사용하고, host가 그 쓰기를 `AppliedChange`로 만들어
+  합성 도구 결과의 `edits`에 실어 평소의 diff/승인 흐름을 타게 한다(재구현 금지).
+- **`net`** — `url` 호스트가 `manifest.net.allow` allowlist에 정확히 매치할 때만. host가 **직접 fetch**
+  (worker 아님)하고, 사설/loopback IP·리다이렉트 호스트 변경·**DNS 리바인딩**(허용 도메인이 사설 IP로
+  해석)을 재검증한다. 응답 본문은 상한(예: 1MB)으로 자른다.
 - 모든 거부는 worker에 명시적 `error`로 돌려 플러그인이 처리하게 한다(조용한 무시 금지).
 
 승인 UX: 설치/활성화 시 설정 패널이 **선언된 permissions를 칩으로 보여주고** 사용자가 승인해야
@@ -228,7 +269,15 @@ type PluginContext = {
 ## 5. 슬래시 커맨드 동적 레지스트리
 
 현재 [shared/slash-commands.ts](../shared/slash-commands.ts)는 **정적 배열** `SLASH_COMMANDS`이고
-렌더러가 `filterSlash`/`slashQuery`로 직접 읽는다. 플러그인 커맨드를 끼우려면:
+렌더러가 `filterSlash`/`slashQuery`로 직접 읽으며, prompt 커맨드는 **`expand(arg): string` 클로저**를
+들고 [AgentChat.tsx](../src/features/agent/AgentChat.tsx)가 `command.expand(arg)`로 호출한다.
+
+> **설계 리뷰 R2 — 이건 "재사용"이 아니라 신규 렌더러 배선이다.** 오늘 렌더러엔 `template`/`$ARGUMENTS`
+> 경로가 **없다**(클로저 `expand`만). 따라서 플러그인 슬래시는 ① 전송-안전한 새 변형
+> `{ name, description, argHint?, template }`, ② 렌더러의 `$ARGUMENTS` 치환 헬퍼, ③ `plugins:commands`
+> 스냅샷 IPC, ④ AgentChat 메뉴 머지 로직을 **새로 만들어야** 한다. 접근은 옳지만 P2 비용은 작지 않다.
+
+플러그인 커맨드를 끼우려면:
 
 - `shared/slash-commands.ts`는 **빌트인 목록 + 순수 헬퍼**로 유지(전송-안전).
 - 플러그인 커맨드는 **전송-안전한 데이터**(`{ name, description, argHint?, template }`)로만 표현된다 —
@@ -267,14 +316,22 @@ type PluginContext = {
 ## 7. 단계 계획 (Phased roadmap)
 
 - **P0 — 본 설계 문서 (현재).** 격리 모델·권한·기여 포인트·머지 지점 확정.
-- **P1 — 런타임 골격(헤드리스).** `shared/plugin.ts` + `electron/plugins/*` + worker + 합성
-  McpServer 등록. 예제 플러그인 `hello-world`(도구 1개) + main-process 하니스
-  (`harness:plugins`)로 spawn→activate→callTool→teardown E2E 검증.
-- **P2 — 슬래시 커맨드 기여 + 설정 패널.** `slash-registry` + `PluginsSettings.tsx` + 권한 승인
-  UX. 렌더러에서 끝까지 동작 확인.
-- **P3 — 권한 가드 강화 + 문서.** `fs`/`net` 가드 + never-edit glob 연동 + 보안 리뷰(§8) +
-  README/AGENTS 작성법.
+- **P1 — 런타임 골격(헤드리스) + 샌드박스(load-bearing).** `shared/plugin.ts` + `electron/plugins/*`
+  + worker + 합성 McpServer 등록. **R2: 런타임 샌드박스([§3.2](#32-런타임-샌드박스-load-bearing-p1))를
+  P1에 포함** — Permission Model `execArgv` + `Module._load` 네트워크 셰임. P1 능력은 **도구 +
+  `fs:read`(read-only)** 까지(쓰기는 별도). 예제 플러그인 `hello-world`(도구 1개) + 하니스
+  (`harness:plugins`)로 spawn→activate→callTool→teardown E2E 검증. 하니스는 child_process 백엔드로
+  돌고, 샌드박스 셰임의 거부 경로(`require('child_process')` throw 등)도 단언한다.
+- **P2 — 슬래시 커맨드 기여 + 설정 패널.** 신규 렌더러 배선(R2: 전송-안전 변형 + `$ARGUMENTS` 치환
+  + IPC 스냅샷 + 머지) + `PluginsSettings.tsx` + 권한 승인/재승인 UX. 렌더러에서 끝까지 동작 확인.
+- **P3 — `fs:write` + net 강화 + 문서.** `AppliedChange` 채널로 플러그인 쓰기를 chat diff/revert에
+  노출 + `net` host-중개 fetch(SSRF/DNS 리바인딩 가드) + 보안 리뷰(§8) + README/AGENTS 작성법.
 - **v2(분리) — UI 패널 기여.** 샌드박스된 `webContents` + CSP로 플러그인이 탭/패널을 그리는 경로.
+
+> **R2 재스코핑 근거:** ① 샌드박스는 플러그인 코드를 spawn하는 순간 필요한 *load-bearing* 보안이라
+> 뒤로 미루면 P1/P2가 무방비로 출하된다 → P1로 당김. ② `fs:write`는 diff/revert/내용-승인 채널
+> (`AppliedChange`)이 없으면 "보이지 않는 변경"이 되어 edit-mediation 불변식을 깬다 → 그 배선이 갖춰지는
+> P3로 미루고, P1은 read-only로 안전하게 출하.
 
 각 단계는 소유 패키지에서 `npm run typecheck` + 해당 하니스로 검증(AGENTS.md 규칙).
 
@@ -282,15 +339,25 @@ type PluginContext = {
 
 ## 8. 보안 체크리스트 (플러그인 코드를 spawn하는 순간 필수)
 
-- [ ] 플러그인 JS는 **main에서 절대 require/eval 안 함** — 오직 worker(`utilityProcess`) 안.
+- [ ] 플러그인 JS는 **main에서 절대 require/eval 안 함** — 오직 worker 안.
+- [ ] **(R2) 런타임 샌드박스가 P1에 존재** — Permission Model `execArgv`(fs/child_process/worker/addon
+      런타임 차단) + `Module._load` 네트워크 셰임. advisory 가드만으로 출하 금지.
 - [ ] worker.ts는 **Electron import 0** (순수 Node) — 그래야 하니스에서 child_process로 검증 가능(R1).
 - [ ] worker는 빈 `env`/한정 `cwd`로 spawn, main↔worker는 구조화 메시지 채널로만.
-- [ ] 모든 host↔worker 메시지는 **구조화-복제 가능한 JSON만**(함수/프로토타입 전달 금지).
-- [ ] `fs:*`는 **워크스페이스 루트 안 + never-edit glob + realpath(symlink) 재검사**.
-- [ ] `net`은 **manifest allowlist 도메인만**, 사설/loopback·리다이렉트 호스트 변경 차단, 본문 상한.
-- [ ] 권한은 **기본 거부**; 선언+사용자 승인 없으면 RPC 거부. 권한 변경 시 재승인.
+- [ ] 모든 host↔worker 메시지는 **구조화-복제 가능한 JSON만**; host는 `__proto__`/`constructor`/
+      `prototype` 키 스트립(프로토타입 오염 방지).
+- [ ] **(R2) fs/net RPC는 발신 `callId` 필수** → host가 호출별 ToolContext로 가드(동시성 안전).
+- [ ] `fs:read`는 **호출 ws 루트 안 + realpath(symlink) 재검사**; `fs:write`(P3)는 denyGlobs+SECRET_FILE
+      재사용 + `AppliedChange`로 diff 노출.
+- [ ] `net`(P3)은 **host 중개 + manifest allowlist 도메인만**, 사설/loopback·리다이렉트·**DNS 리바인딩**
+      차단, 본문 상한.
+- [ ] 권한은 **기본 거부**; 선언+사용자 승인 없으면 RPC 거부. **매니페스트 변경 감지 시 재승인까지 비활성**.
 - [ ] 도구 기여는 **gated 기본** → 기존 승인/read-only 흐름을 반드시 통과.
-- [ ] config 비면 **아무것도 spawn 안 함**(inert 출하), 크래시는 플러그인만 비활성.
+- [ ] **(R2) 예약 프리픽스 가드** — 외부 MCP id가 `plugin:*`를 못 쓰게 막아 합성 서버 섀도잉 방지.
+- [ ] **(R2) 런어웨이 워커 워치독** — activate/호출 외 busy-loop·메모리 누수 워커를 wall-clock/heap
+      임계로 kill + 비활성(Permission Model은 CPU/메모리를 안 막음).
+- [ ] **(R2) teardown 시 in-flight RPC 즉시 reject**(60s 타임아웃 대기 금지), 크래시는 플러그인만 비활성.
+- [ ] config 비면 **아무것도 spawn 안 함**(inert 출하).
 - [ ] worker 로그/에러는 scrub([shared/scrub](../shared/scrub.ts)) 후 표시.
 - [ ] `main`/`id`/경로 입력으로 폴더 이탈 불가(`..` 거부, 슬러그 강제).
 
