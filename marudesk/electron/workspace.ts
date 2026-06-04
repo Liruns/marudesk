@@ -8,6 +8,7 @@ export {
   readFileForEditor,
   readMediaForPreview,
   readFileSafe,
+  readFileWindow,
   saveAsForEditor,
   writeFileForEditor,
 } from './workspace-files';

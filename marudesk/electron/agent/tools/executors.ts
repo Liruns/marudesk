@@ -3,10 +3,11 @@ import type { WorkspaceSummary } from '../../../shared/workspace';
 import { scrubText, scrubHeaders } from '../../../shared/scrub';
 import { urlToWorkspacePath } from '../../../shared/runtime-evidence';
 import type { NetworkRecord } from '../../../shared/network-evidence';
-import { readFileSafe } from '../../workspace';
+import { readFileSafe, readFileWindow } from '../../workspace';
 import { resolveWorkspacePath } from '../../fs-safe';
 import { applyPatch } from '../../patch';
 import { isStaleForEdit, recordRead, updateAfterWrite } from '../read-tracker';
+import { pageLines } from '../text-window';
 import { getTab, getErrors, getNetwork, type TabRecord } from '../../browser/state';
 import { sendCdp, enableNetworkCapture } from '../../browser/cdp';
 import type { Executor, ToolContext, ToolResult } from './types';
@@ -21,10 +22,12 @@ import type { Executor, ToolContext, ToolResult } from './types';
  */
 
 const MAX_TOOL_TEXT = 12_000;
-const MAX_FILE_READ = 16_000;
 const MAX_GREP_RESULTS = 60;
 const MAX_GREP_FILES = 600;
 const GREP_CONCURRENCY = 8;
+// Per-line input bound + wall-clock budget for the regex path (ReDoS mitigation).
+const MAX_GREP_LINE_LEN = 2_000;
+const GREP_TIME_BUDGET_MS = 3_000;
 const MAX_DOM_HTML = 4_000;
 const RELOAD_WAIT_DEFAULT = 2_500;
 const RELOAD_WAIT_MAX = 5_000;
@@ -33,9 +36,15 @@ const RELOAD_WAIT_MAX = 5_000;
 const RELOAD_SETTLE = 800;
 const MAX_BODY_BYTES = 256_000;
 
-const INDEXABLE = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue', '.svelte', '.astro',
-  '.html', '.htm', '.css', '.scss', '.sass', '.less', '.json', '.md',
+// Skip obviously-binary files when grepping. Denylist (not an allowlist) so the
+// search covers any text source — .py, .go, .rs, .yaml, .toml, .sh, … — instead
+// of a fixed set of web/JS extensions.
+const BINARY_EXT = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.bmp', '.tiff',
+  '.pdf', '.zip', '.gz', '.tar', '.tgz', '.rar', '.7z', '.bz2', '.xz',
+  '.mp3', '.mp4', '.mov', '.avi', '.mkv', '.wav', '.flac', '.ogg', '.webm',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.exe', '.dll', '.so', '.dylib', '.bin', '.wasm', '.class', '.o', '.a',
 ]);
 
 // Defense-in-depth: refuse to hand obvious credential files to the model. These
@@ -47,18 +56,6 @@ const SECRET_FILE =
 
 function clip(s: string, max = MAX_TOOL_TEXT): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[clipped ${s.length - max} chars]`;
-}
-
-/**
- * Prefix each line with a right-aligned 1-based number + tab (cat -n style), so
- * the model can anchor edits and reason about locations. The numbers are display
- * only — `oldString` for an edit must still be the verbatim file text WITHOUT
- * these prefixes (the read_file/edit_file descriptions say so).
- */
-function numberLines(content: string): string {
-  const lines = content.split('\n');
-  const width = String(lines.length).length;
-  return lines.map((l, i) => `${String(i + 1).padStart(width, ' ')}\t${l}`).join('\n');
 }
 
 function requireTab(ctx: ToolContext): TabRecord {
@@ -119,7 +116,10 @@ function noWorkspaceResult(tool: string): ToolResult {
   };
 }
 
-async function readFile(input: { path?: unknown }, ctx: ToolContext): Promise<ToolResult> {
+async function readFile(
+  input: { path?: unknown; offset?: unknown; limit?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
   if (!ctx.ws) return noWorkspaceResult('read_file');
   const p = typeof input.path === 'string' ? input.path : '';
   if (!p) throw new Error('read_file requires "path"');
@@ -130,15 +130,22 @@ async function readFile(input: { path?: unknown }, ctx: ToolContext): Promise<To
       isError: true,
     };
   }
-  const content = await readFileSafe(ctx.ws.root, p, MAX_FILE_READ);
-  // Remember what the agent saw (bounded the same way the staleness check reads),
-  // so a later edit against a since-changed file is caught instead of clobbering.
+  // Read the whole file (up to the agent document limit) so the staleness anchor
+  // covers content beyond the displayed window — then page the DISPLAY by line.
+  const { content, truncated } = await readFileWindow(ctx.ws.root, p);
+  // Anchor the staleness guard to the full content we read, decoupled from the
+  // window shown below: an edit anywhere in the file is then validated correctly.
   try {
     recordRead(resolveWorkspacePath(ctx.ws.root, p).abs, content);
   } catch {
     // A path that won't resolve can't be edited either — skip tracking.
   }
-  return { summary: `read ${p}`, text: clip(numberLines(content)) };
+
+  const view = pageLines(content, { offset: input.offset, limit: input.limit, truncated });
+  return {
+    summary: `read ${p}${view.ranged ? ` (lines ${view.firstLine}-${view.lastLine})` : ''}`,
+    text: view.text,
+  };
 }
 
 async function listFiles(input: { glob?: unknown }, ctx: ToolContext): Promise<ToolResult> {
@@ -157,21 +164,60 @@ async function listFiles(input: { glob?: unknown }, ctx: ToolContext): Promise<T
 }
 
 async function grep(
-  input: { pattern?: unknown; glob?: unknown; maxResults?: unknown },
+  input: {
+    pattern?: unknown;
+    glob?: unknown;
+    maxResults?: unknown;
+    regex?: unknown;
+    caseSensitive?: unknown;
+  },
   ctx: ToolContext,
 ): Promise<ToolResult> {
   if (!ctx.ws) return noWorkspaceResult('grep');
   const ws = ctx.ws; // capture so the narrowing survives into the async closure below
   const pattern = typeof input.pattern === 'string' ? input.pattern : '';
   if (!pattern) throw new Error('grep requires "pattern"');
-  const needle = pattern.toLowerCase();
-  const max = typeof input.maxResults === 'number' ? Math.min(input.maxResults, 200) : MAX_GREP_RESULTS;
+  const caseSensitive = input.caseSensitive === true;
+  const max =
+    typeof input.maxResults === 'number'
+      ? Math.max(1, Math.min(Math.floor(input.maxResults), 200))
+      : MAX_GREP_RESULTS;
   const re = typeof input.glob === 'string' && input.glob.trim() ? globToRegExp(input.glob.trim()) : null;
 
-  const candidates = ws.files
-    .filter((f) => INDEXABLE.has(path.extname(f.path).toLowerCase()))
-    .filter((f) => (re ? re.test(f.path) : true))
-    .slice(0, MAX_GREP_FILES);
+  // Build the line matcher: a JS regex when regex=true, else a literal substring.
+  let matches: (line: string) => boolean;
+  if (input.regex === true) {
+    let rx: RegExp;
+    try {
+      rx = new RegExp(pattern, caseSensitive ? '' : 'i');
+    } catch (err) {
+      return {
+        summary: `grep (bad regex)`,
+        text: `invalid regular expression: ${(err as Error).message}`,
+        isError: true,
+      };
+    }
+    // Bound the input each test sees (long minified lines are the usual trigger)
+    // and cap total scan time below — JS RegExp can't be made fully ReDoS-proof
+    // in-process, but the pattern comes from the in-process model and these two
+    // bounds keep a slow pattern from wedging the whole scan.
+    matches = (line) => rx.test(line.length > MAX_GREP_LINE_LEN ? line.slice(0, MAX_GREP_LINE_LEN) : line);
+  } else if (caseSensitive) {
+    matches = (line) => line.includes(pattern);
+  } else {
+    const needle = pattern.toLowerCase();
+    matches = (line) => line.toLowerCase().includes(needle);
+  }
+
+  // Skip credential files: grep has no SECRET_FILE read guard of its own, and the
+  // workspace index only filters IGNORE_DIRS, so without this a pattern could pull
+  // .env / *.pem / id_rsa contents straight to the model.
+  const filtered = ws.files
+    .filter((f) => !BINARY_EXT.has(path.extname(f.path).toLowerCase()))
+    .filter((f) => !SECRET_FILE.test(f.path))
+    .filter((f) => (re ? re.test(f.path) : true));
+  const moreFiles = filtered.length > MAX_GREP_FILES;
+  const candidates = filtered.slice(0, MAX_GREP_FILES);
 
   // Read in bounded-concurrency batches (file I/O is the bottleneck), but scan
   // results in file order and stop once `max` hits are collected — deterministic
@@ -179,6 +225,9 @@ async function grep(
   // at most GREP_CONCURRENCY-1 files (acceptable, still bounded).
   const hits: string[] = [];
   let scanned = 0;
+  let capped = false;
+  let timedOut = false;
+  const deadline = Date.now() + GREP_TIME_BUDGET_MS;
   batches: for (let i = 0; i < candidates.length && hits.length < max; i += GREP_CONCURRENCY) {
     const batch = candidates.slice(i, i + GREP_CONCURRENCY);
     const contents = await Promise.all(
@@ -187,19 +236,35 @@ async function grep(
     for (let j = 0; j < batch.length; j++) {
       const content = contents[j];
       if (content === null) continue;
+      if (Date.now() > deadline) {
+        timedOut = true;
+        break batches;
+      }
       scanned++;
       const lines = content.split('\n');
       for (let k = 0; k < lines.length; k++) {
-        if (lines[k].toLowerCase().includes(needle)) {
+        if (matches(lines[k])) {
           hits.push(`${batch[j].path}:${k + 1}: ${lines[k].trim().slice(0, 200)}`);
-          if (hits.length >= max) break batches;
+          if (hits.length >= max) {
+            capped = true;
+            break batches;
+          }
         }
       }
     }
   }
+  // Distinguish "found everything" from "hit a cap" so the model knows to narrow
+  // with a glob or raise maxResults instead of trusting a partial result.
+  const note = capped
+    ? `\n…(stopped at ${max} hits — narrow with a glob or raise maxResults)`
+    : timedOut
+      ? `\n…(stopped after scanning ${scanned} files within the time budget — narrow with a glob)`
+      : moreFiles
+        ? `\n…(scanned the first ${MAX_GREP_FILES} matching files — narrow with a glob for the rest)`
+        : '';
   return {
     summary: `grep "${pattern}" → ${hits.length} hit${hits.length === 1 ? '' : 's'}`,
-    text: hits.length ? clip(hits.join('\n')) : `no matches in ${scanned} files`,
+    text: hits.length ? clip(hits.join('\n')) + note : `no matches in ${scanned} files`,
   };
 }
 
@@ -234,9 +299,9 @@ async function applyEdits(
   }
   // Staleness guard: refuse an edit to a file that changed on disk since the
   // agent read it (oh-my-openagent's hashline insight). Compare against the same
-  // MAX_FILE_READ-bounded view the agent saw so large-file reads line up. Skip
-  // creates (oldString === '') and unresolvable/missing paths — applyPatch emits
-  // the precise error for those.
+  // full-document view read_file anchors, so an edit anywhere in a large file is
+  // validated correctly. Skip creates (oldString === '') and unresolvable/missing
+  // paths — applyPatch emits the precise error for those.
   for (const op of ops) {
     if (op.oldString.length === 0) continue;
     let abs: string;
@@ -247,7 +312,7 @@ async function applyEdits(
     }
     let current: string;
     try {
-      current = await readFileSafe(ctx.ws.root, op.path, MAX_FILE_READ);
+      current = (await readFileWindow(ctx.ws.root, op.path)).content;
     } catch {
       continue;
     }
@@ -255,11 +320,13 @@ async function applyEdits(
       // Self-heal (oh-my-openagent's mismatch UX): instead of just telling the
       // agent to re-read, hand back the CURRENT line-numbered content inline and
       // re-anchor the tracker to it — so the agent can redo the edit against the
-      // fresh text in the same turn (the retry then passes this guard).
+      // fresh text in the same turn (the retry then passes this guard). The echo
+      // is windowed (a large file can't be dumped) but the anchor is the full read.
       recordRead(abs, current);
+      const view = pageLines(current);
       return {
         summary: `${label} blocked (stale)`,
-        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${clip(numberLines(current))}`,
+        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${view.text}`,
         isError: true,
       };
     }
@@ -275,7 +342,7 @@ async function applyEdits(
   for (const c of res.changes ?? []) {
     try {
       const abs = resolveWorkspacePath(ctx.ws.root, c.path).abs;
-      updateAfterWrite(abs, await readFileSafe(ctx.ws.root, c.path, MAX_FILE_READ));
+      updateAfterWrite(abs, (await readFileWindow(ctx.ws.root, c.path)).content);
     } catch {
       // Best-effort — failing to re-anchor only risks a spurious re-read prompt.
     }

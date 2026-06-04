@@ -8,7 +8,8 @@ import type { SessionRecord } from '../../shared/context';
 import { getActiveTabId, getConsole, getTab, tabValues, type TabRecord } from '../browser/state';
 import { sendCdp } from '../browser/cdp';
 import { getRecentTerminalOutput, getTerminalList, getTerminalOutput } from '../terminal';
-import { getWorkspaceSnapshot, readFileSafe } from '../workspace';
+import { getWorkspaceSnapshot, readFileWindow } from '../workspace';
+import { pageLines } from './text-window';
 import { getEditorMirror, getEditorMirrors, getExplorerMirror } from './context-cache';
 import { deleteSession, listSessions, readSession } from './sessions-store';
 import { deleteMemory, listMemory, readMemory, writeMemory } from './memory-store';
@@ -230,6 +231,8 @@ async function readWorkspaceFile(input: {
   workspaceId?: unknown;
   rootId?: unknown;
   path?: unknown;
+  offset?: unknown;
+  limit?: unknown;
 }): Promise<ToolResult> {
   const { record, root } = resolveWorkspaceRoot(input);
   const filePath = typeof input.path === 'string' ? input.path : '';
@@ -241,10 +244,17 @@ async function readWorkspaceFile(input: {
       isError: true,
     };
   }
-  const content = await readFileSafe(root.root, filePath, 16_000);
+  // Same line-addressable read as read_file: full document up to the agent
+  // limit (clean line boundaries — no split multibyte chars), paged for display.
+  const { content, truncated } = await readFileWindow(root.root, filePath);
+  const view = pageLines(scrubText(content), {
+    offset: input.offset,
+    limit: input.limit,
+    truncated,
+  });
   return {
-    summary: `read ${record.name}/${root.name}/${filePath}`,
-    text: clip(scrubText(content)),
+    summary: `read ${record.name}/${root.name}/${filePath}${view.ranged ? ` (lines ${view.firstLine}-${view.lastLine})` : ''}`,
+    text: view.text,
   };
 }
 
@@ -436,7 +446,7 @@ async function readEditor(
       };
     }
     try {
-      const content = await readFileSafe(diskRoot, target.diskPath, 16_000);
+      const { content } = await readFileWindow(diskRoot, target.diskPath);
       return { summary: `editor ${target.displayPath} (on disk)`, text: clip(scrubText(`(not open in the editor; reading the saved file)\n\n${content}`)) };
     } catch {
       /* fall through to the not-found message */
@@ -600,11 +610,13 @@ export const CONTEXT_TOOLS: McpTool[] = [
     name: 'read_workspace_file',
     group: 'files',
     description:
-      'Read a UTF-8 file from a specific workspace root, including a non-active workspace. Pass workspaceId/rootId from list_workspaces plus the root-relative path.',
+      'Read a UTF-8 file from a specific workspace root, including a non-active workspace. Pass workspaceId/rootId from list_workspaces plus the root-relative path. Large files are paged: read the next chunk with offset set to the line after the last one shown (the footer says when there is more).',
     inputSchema: obj({
       workspaceId: strProp('Workspace id from list_workspaces; omitted = active workspace.'),
       rootId: strProp('Root id from list_workspaces; omitted = active root.'),
       path: strProp('Root-relative POSIX path.'),
+      offset: { type: 'integer', description: '1-based line number to start reading from (default 1).' },
+      limit: { type: 'integer', description: 'Maximum lines to return (default 1500).' },
     }, ['path']),
     exec: (input) => readWorkspaceFile(input),
   },
