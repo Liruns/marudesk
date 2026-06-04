@@ -188,6 +188,33 @@ function recordFromLegacySummary(summary: WorkspaceSummary): WorkspaceRecord {
   return record;
 }
 
+/**
+ * Bridge a legacy single-root open/list onto the deck. Idempotent by root path:
+ * if a workspace already holds that folder, refresh that root in place and make
+ * it active instead of spawning a duplicate. Without this, every legacy
+ * `workspace:list(root)` (e.g. the Explorer's Refresh button or re-opening a
+ * recent) would pile a fresh workspace onto the rail.
+ */
+function upsertLegacyWorkspace(summary: WorkspaceSummary): WorkspaceRecord {
+  for (const record of workspaceRecords.values()) {
+    const index = record.roots.findIndex((root) => root.root === summary.root);
+    if (index === -1) continue;
+    const roots = [...record.roots];
+    roots[index] = {
+      ...roots[index],
+      files: summary.files,
+      source: summary.source,
+      truncated: summary.truncated,
+    };
+    const next: WorkspaceRecord = { ...record, roots, activeRootId: roots[index].id };
+    workspaceRecords.set(next.id, next);
+    activeWorkspaceId = next.id;
+    refreshCurrentWorkspace();
+    return next;
+  }
+  return recordFromLegacySummary(summary);
+}
+
 async function reindexRoot(root: WorkspaceRootSummary): Promise<WorkspaceRootSummary> {
   const next = await summarizeWorkspace(root.root);
   return {
@@ -258,7 +285,7 @@ export function registerWorkspaceHandlers(deps: {
     if (!win) return null;
     const summary = await openWorkspace(win);
     if (summary) {
-      recordFromLegacySummary(summary);
+      upsertLegacyWorkspace(summary);
       pushWorkspaceState();
     }
     return summary;
@@ -267,7 +294,7 @@ export function registerWorkspaceHandlers(deps: {
   defineHandler('workspace:list', async ([root]) => {
     if (typeof root === 'string' && root.length > 0) {
       const summary = await summarizeWorkspace(root);
-      recordFromLegacySummary(summary);
+      upsertLegacyWorkspace(summary);
       pushWorkspaceState();
       return summary;
     }

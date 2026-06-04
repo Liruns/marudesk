@@ -76,6 +76,37 @@ test('workspaces IPC: creates a multi-root workspace and reads root-qualified fi
   }
 });
 
+test('workspaces IPC: re-listing a root reuses its workspace instead of duplicating', async () => {
+  const roots = createFixtureRoots();
+  const { app, page } = await launchApp();
+  try {
+    const counts = await page.evaluate(async ({ fe }) => {
+      await window.marudesk.invoke('workspaces:create', {
+        name: 'Project A',
+        roots: [{ name: 'FE', path: fe }],
+      });
+      const total = (): Promise<number> =>
+        window.marudesk
+          .invoke('workspaces:list')
+          .then((snapshot) => snapshot.workspaces.length);
+      const created = await total();
+      // Legacy single-root bridge (Explorer Refresh / reopen a recent). Each
+      // call must refresh the existing workspace in place, never pile a fresh
+      // duplicate onto the rail.
+      await window.marudesk.invoke('workspace:list', fe);
+      await window.marudesk.invoke('workspace:list', fe);
+      const relisted = await total();
+      return { created, relisted };
+    }, { fe: roots.fe });
+
+    expect(counts.created).toBe(1);
+    expect(counts.relisted).toBe(1);
+  } finally {
+    await app.close();
+    fs.rmSync(roots.base, { recursive: true, force: true });
+  }
+});
+
 test('workspaces IPC: rejects traversal outside the selected root', async () => {
   const roots = createFixtureRoots();
   const { app, page } = await launchApp();
