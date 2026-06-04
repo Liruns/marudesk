@@ -104,7 +104,9 @@ export function MonacoView({
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    const initial = useEditorStore.getState().files[path]?.content ?? '';
+    const buf = useEditorStore.getState().files[path];
+    const initial =
+      buf?.status === 'ready' && buf.kind === 'text' ? buf.content : '';
     const model = getModel(path, initial);
     editor.setModel(model);
     const vs = viewStates.get(path);

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { FileCode2 } from 'lucide-react';
+import { FileCode2, FileImage } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
@@ -117,14 +117,15 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   if (buf.status === 'error') return <EditorErrorState path={docKey} buf={buf} />;
 
   const label = isUntitled ? editorTab?.title || t('editor.header.untitled') : filePath;
-  const content = buf.content ?? '';
+  const content = buf.kind === 'text' ? buf.content : '';
+  const HeaderIcon = buf.kind === 'image' ? FileImage : FileCode2;
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
       {/* Header on surface-2 — the active tab's tone — so the editor's chrome
           reads as one surface flowing out of its tab, matching the browser. */}
       <header className="h-7 shrink-0 flex items-center gap-2 px-3 border-b border-subtle text-caption bg-surface-2">
-        <FileCode2 size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
+        <HeaderIcon size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
         <span
           className="truncate text-fg-secondary"
           title={isUntitled ? t('editor.header.unsavedTitle') : filePath}
@@ -135,7 +136,9 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
         {isMd && (
           <EditorMarkdownModeToggle mode={mode} onChange={setMdMode} />
         )}
-        {buf.saving ? (
+        {buf.kind === 'image' ? (
+          <span className="text-fg-tertiary">{t('editor.image.preview')}</span>
+        ) : buf.saving ? (
           <span className="text-accent">{t('editor.state.saving')}</span>
         ) : isDirty(buf) ? (
           <span className="flex items-center gap-1 text-fg-secondary">
@@ -147,51 +150,53 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
         )}
       </header>
 
-      {/* Body: Monaco / Split / Preview depending on mode */}
-      <div className="flex-1 min-h-0 min-w-0 flex">
-        {/* Monaco pane — hidden in preview-only mode */}
-        {(mode === 'edit' || mode === 'split') && (
-          <div
-            ref={editorPaneRef}
-            className={cn(
-              'flex min-h-0 min-w-0',
-              mode === 'split' ? 'w-1/2 border-r border-subtle' : 'flex-1',
-            )}
-          >
-            <Suspense
-              fallback={
-                <div className="flex-1 min-w-0 flex items-center justify-center">
-                  <Spinner size={18} />
-                </div>
-              }
+      {buf.kind === 'image' ? (
+        <ImagePreview path={docKey} dataUrl={buf.dataUrl} />
+      ) : (
+        <div className="flex-1 min-h-0 min-w-0 flex">
+          {(mode === 'edit' || mode === 'split') && (
+            <div
+              ref={editorPaneRef}
+              className={cn(
+                'flex min-h-0 min-w-0',
+                mode === 'split' ? 'w-1/2 border-r border-subtle' : 'flex-1',
+              )}
             >
-              <MonacoView
-                path={docKey}
-                wordWrap={wordWrap}
-                onStatus={setStatus}
-                scrollRatio={mode === 'split' ? editorScrollRatio : undefined}
-                scrollApplyingRef={editorScrollApplyingRef}
-              />
-            </Suspense>
-          </div>
-        )}
+              <Suspense
+                fallback={
+                  <div className="flex-1 min-w-0 flex items-center justify-center">
+                    <Spinner size={18} />
+                  </div>
+                }
+              >
+                <MonacoView
+                  path={docKey}
+                  wordWrap={wordWrap}
+                  onStatus={setStatus}
+                  scrollRatio={mode === 'split' ? editorScrollRatio : undefined}
+                  scrollApplyingRef={editorScrollApplyingRef}
+                />
+              </Suspense>
+            </div>
+          )}
 
-        {/* Preview pane — shown in preview and split modes */}
-        {isMd && (mode === 'preview' || mode === 'split') && (
-          <MarkdownPreview
-            content={content}
-            scrollRatio={mode === 'split' ? previewScrollRatio : undefined}
-            onScrollRatio={mode === 'split' ? setEditorScrollRatio : undefined}
-            className={cn(
-              'min-h-0 bg-surface-page',
-              mode === 'split' ? 'w-1/2' : 'flex-1',
-            )}
-          />
-        )}
-      </div>
+          {isMd && (mode === 'preview' || mode === 'split') && (
+            <MarkdownPreview
+              content={content}
+              scrollRatio={mode === 'split' ? previewScrollRatio : undefined}
+              onScrollRatio={mode === 'split' ? setEditorScrollRatio : undefined}
+              className={cn(
+                'min-h-0 bg-surface-page',
+                mode === 'split' ? 'w-1/2' : 'flex-1',
+              )}
+            />
+          )}
+        </div>
+      )}
 
-      {/* Status bar — only while a Monaco pane is mounted (edit/split). */}
-      {mode !== 'preview' ? (
+      {buf.kind === 'image' ? (
+        <ImageFooter mediaType={buf.mediaType} size={buf.size} />
+      ) : mode !== 'preview' ? (
         <EditorFooter
           line={status.line}
           column={status.column}
@@ -201,5 +206,39 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
         />
       ) : null}
     </div>
+  );
+}
+
+function ImagePreview({ path, dataUrl }: { path: string; dataUrl: string }) {
+  return (
+    <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center overflow-auto bg-surface-page p-6">
+      <img
+        src={dataUrl}
+        alt={path}
+        className="max-w-full max-h-full object-contain"
+      />
+    </div>
+  );
+}
+
+function ImageFooter({
+  mediaType,
+  size,
+}: {
+  mediaType: string;
+  size: number;
+}) {
+  const sizeLabel =
+    size < 1024
+      ? `${size} B`
+      : size < 1024 * 1024
+        ? `${(size / 1024).toFixed(1)} KB`
+        : `${(size / (1024 * 1024)).toFixed(1)} MB`;
+
+  return (
+    <footer className="h-6 shrink-0 flex items-center gap-3 px-3 border-t border-subtle bg-surface-2 text-caption text-fg-tertiary tabular-nums select-none">
+      <span>{mediaType}</span>
+      <span>{sizeLabel}</span>
+    </footer>
   );
 }

@@ -25,8 +25,13 @@ function buildPayload(): ContextSyncPayload {
     .map((t) => {
       const key = t.filePath ?? untitledDocKey(t.id);
       const buf = files[key];
-      const content = buf?.content ?? '';
-      const dirty = !!buf && buf.status === 'ready' && buf.content !== buf.saved;
+      const content =
+        buf?.status === 'ready' && buf.kind === 'text' ? buf.content : '';
+      const dirty =
+        !!buf &&
+        buf.status === 'ready' &&
+        buf.kind === 'text' &&
+        buf.content !== buf.saved;
       const truncated = content.length > MAX_EDITOR_CONTENT;
       return {
         path: key,

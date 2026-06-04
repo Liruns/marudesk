@@ -24,9 +24,51 @@ export type CaptureInput = {
   attributes?: Record<string, string>;
 };
 
-/** Result of `workspace:read-file`: the text, or why it can't be edited. */
+export type WorkspaceImageMediaType =
+  | 'image/avif'
+  | 'image/bmp'
+  | 'image/gif'
+  | 'image/jpeg'
+  | 'image/png'
+  | 'image/webp'
+  | 'image/x-icon';
+
+export function imageMediaTypeForPath(
+  relPath: string,
+): WorkspaceImageMediaType | null {
+  const dot = relPath.lastIndexOf('.');
+  const ext = dot >= 0 ? relPath.slice(dot + 1).toLowerCase() : '';
+  switch (ext) {
+    case 'avif':
+      return 'image/avif';
+    case 'bmp':
+      return 'image/bmp';
+    case 'gif':
+      return 'image/gif';
+    case 'ico':
+      return 'image/x-icon';
+    case 'jpeg':
+    case 'jpg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'webp':
+      return 'image/webp';
+    default:
+      return null;
+  }
+}
+
+/** Result of `workspace:read-file`: previewable content, or why it can't open. */
 export type ReadFileResult =
-  | { ok: true; content: string }
+  | { ok: true; kind: 'text'; content: string }
+  | {
+      ok: true;
+      kind: 'image';
+      mediaType: WorkspaceImageMediaType;
+      dataUrl: string;
+      size: number;
+    }
   | { ok: false; reason: 'too-large' | 'binary' | 'not-a-file'; size?: number };
 
 /**
