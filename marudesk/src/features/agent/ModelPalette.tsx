@@ -43,6 +43,19 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
     return () => cancelAnimationFrame(id);
   }, []);
 
+  // Hide the embedded web view while the palette is open. The picker is a
+  // `fixed inset-0` overlay, but an active web tab's WebContentsView is a native
+  // layer composited OVER the React DOM — so over a browser tab the palette would
+  // render *behind* the page and look like nothing happened (the "I clicked the
+  // model list but it never shows" bug). Restored on close. No-op when the active
+  // tab owns no view (feature tabs / no web tab). Mirrors ContextMenu / overlays.
+  useEffect(() => {
+    void window.marudesk.invoke('browser:set-visible', false);
+    return () => {
+      void window.marudesk.invoke('browser:set-visible', true);
+    };
+  }, []);
+
   const { sections, flat } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matches = (m: ModelEntry) =>

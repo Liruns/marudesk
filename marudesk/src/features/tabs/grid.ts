@@ -11,6 +11,7 @@ import {
   type SplitDir,
 } from './layout';
 import { useTabsStore } from './store';
+import type { TabState } from '../../../shared/browser';
 
 /**
  * The tab grid (Phase F → **persistent split groups**). A "split" used to be one
@@ -378,8 +379,19 @@ export const useGridStore = create<GridState & GridActions>((set, get) => ({
  * Mirrors the editor/terminal prune subscriptions — the grid is just another
  * consumer of the live tab set. A closed tab is in at most one group, so one
  * closePane per change suffices.
+ *
+ * Gate on the `tabs` array identity, not every store change. `closePane`'s
+ * collapse path calls `activateTab`, which synchronously `set`s the tab store
+ * (activeTabIdsByWorkspace) BEFORE its await — that re-fires this subscription
+ * while `groups` still holds the just-orphaned pane, so without this guard we'd
+ * re-enter closePane → activateTab → … into unbounded recursion (stack overflow
+ * → blank/frozen UI) when closing a tab in a 2-pane split. Only an actual tab
+ * add/remove/reorder swaps the `tabs` reference, so the orphan sweep runs once.
  */
+let lastTabsRef: TabState[] | null = null;
 useTabsStore.subscribe((state) => {
+  if (state.tabs === lastTabsRef) return;
+  lastTabsRef = state.tabs;
   const { groups } = useGridStore.getState();
   if (groups.length === 0) return;
   const live = new Set(state.tabs.map((t) => t.id));
