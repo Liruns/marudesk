@@ -21,7 +21,16 @@ const XaiVideoCreateSchema = z.object({
 });
 
 const XaiVideoStatusSchema = z.object({
-  status: z.enum(['queued', 'generating', 'processing', 'in_progress', 'done', 'failed', 'expired']),
+  status: z.enum([
+    'pending',
+    'queued',
+    'generating',
+    'processing',
+    'in_progress',
+    'done',
+    'failed',
+    'expired',
+  ]),
   video: z.object({ url: z.string().min(1) }).optional(),
   error: z.union([z.string(), z.object({ message: z.string().optional() })]).optional(),
   message: z.string().optional(),
@@ -35,6 +44,7 @@ function xaiFailureMessage(parsed: z.infer<typeof XaiVideoStatusSchema>): string
 
 function isPending(status: z.infer<typeof XaiVideoStatusSchema>['status']): boolean {
   return (
+    status === 'pending' ||
     status === 'queued' ||
     status === 'generating' ||
     status === 'processing' ||
