@@ -869,9 +869,17 @@ type MediaLoad =
 function GeneratedMedia({ artifact }: { artifact: ToolMediaArtifact }) {
   const { t } = useI18n();
   const [load, setLoad] = useState<MediaLoad>({ status: 'loading' });
+  // Reset to loading when the artifact changes WITHOUT a remount. Done during
+  // render (React's "adjust state on prop change" pattern) rather than in the
+  // effect below — a synchronous setState in an effect body triggers a wasted
+  // cascading render. The effect owns only the async fetch.
+  const [loadedPath, setLoadedPath] = useState(artifact.path);
+  if (loadedPath !== artifact.path) {
+    setLoadedPath(artifact.path);
+    setLoad({ status: 'loading' });
+  }
   useEffect(() => {
     let alive = true;
-    setLoad({ status: 'loading' });
     void window.marudesk
       .invoke('workspace:read-media', artifact.path)
       .then((res) => {
