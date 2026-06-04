@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
@@ -17,6 +17,7 @@ import { registerOAuthHandlers } from './oauth/handlers';
 import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
 import { registerStorageHandlers } from './storage-handlers';
+import { registerAppInfoHandlers } from './app-info';
 import { closeDb } from './db';
 import {
   initExternalMcp,
@@ -28,6 +29,7 @@ import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
+import { registerWindowControlHandlers } from './window-controls';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
@@ -194,33 +196,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return win;
 }
 
-function registerWindowControlHandlers(): void {
-  ipcMain.handle('window:minimize', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    win.minimize();
-    return true;
-  });
-  ipcMain.handle('window:maximize-toggle', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-    return win.isMaximized();
-  });
-  ipcMain.handle('window:close', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    win.close();
-    return true;
-  });
-  ipcMain.handle('window:is-maximized', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    return win.isMaximized();
-  });
-}
-
 void app.whenReady().then(() => {
   applyHostContentSecurityPolicy();
   // Wire the current-workspace accessor once; defineHandler's requireWorkspace()
@@ -238,8 +213,9 @@ void app.whenReady().then(() => {
   registerCustomProviderHandlers();
   registerAgentHandlers();
   registerStorageHandlers();
+  registerAppInfoHandlers();
   registerMcpHandlers();
-  registerWindowControlHandlers();
+  registerWindowControlHandlers(getMainWindow);
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the
   // renderer so Settings reflects it without polling. Sanitized — never tokens.

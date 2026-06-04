@@ -32,3 +32,33 @@ test('settings: opens as a tab; theme + zoom apply live', async () => {
     await app.close();
   }
 });
+
+test('settings: about exposes GitHub and update controls', async () => {
+  const { app, page } = await launchApp();
+  try {
+    // Given: the Settings tab is open.
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+
+    // When: the user opens About.
+    await page.getByRole('button', { name: 'About' }).click();
+
+    // Then: source and update affordances are available.
+    await expect(page.getByRole('heading', { name: 'About' })).toBeVisible();
+    await expect(page.getByText('GitHub', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open GitHub' })).toBeVisible();
+    await expect(page.getByText('Updates', { exact: true })).toBeVisible();
+
+    // When: the user checks for updates.
+    await page.getByRole('button', { name: 'Check' }).click();
+
+    // Then: the check resolves into one of the user-facing release statuses.
+    await expect(
+      page.getByRole('main').getByText(
+        /available on GitHub Releases|latest GitHub release|Could not reach GitHub Releases|No GitHub release has been published|update response this app could not read/,
+      ),
+    ).toBeVisible({ timeout: 12_000 });
+  } finally {
+    await app.close();
+  }
+});

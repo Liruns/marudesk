@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { Search as SearchIcon } from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
 import { AgentCategory } from './AgentSettingsCategory';
-import { DataCategory, AboutCategory } from './DataSettingsCategory';
+import { AboutCategory } from './AboutSettingsCategory';
+import { DataCategory } from './DataSettingsCategory';
 import {
   AppearanceCategory,
   BrowserCategory,
