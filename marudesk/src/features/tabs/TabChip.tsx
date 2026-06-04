@@ -2,7 +2,7 @@ import { type MouseEvent } from 'react';
 import { X } from 'lucide-react';
 import type { TabState } from '../../../shared/browser';
 import { cn } from '../../lib/cn';
-import { isDirty, useEditorStore } from '../editor/store';
+import { editorDocKeyForTab, isDirty, useEditorStore } from '../editor/store';
 import { TabIndicator } from './TabIndicator';
 
 const TAB_DND_MIME = 'application/x-marudesk-tab';
@@ -54,9 +54,7 @@ export function TabChip({
 }: TabChipProps) {
   const label = tab.title.trim() || prettyUrl(tab.url) || labels.newTabFallback;
   const dirty = useEditorStore((s) =>
-    tab.kind === 'editor' && tab.filePath
-      ? isDirty(s.files[tab.filePath])
-      : false,
+    tab.kind === 'editor' ? isDirty(s.files[editorDocKeyForTab(tab) ?? '']) : false,
   );
   const onCloseClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();

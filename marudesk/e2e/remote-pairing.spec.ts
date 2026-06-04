@@ -31,7 +31,7 @@ test('remote: toggling the local server reveals/hides the Wi-Fi warning + device
     // Port / network addresses / unattended now live behind an Advanced disclosure
     // so they don't front the panel. Expand it to reach them.
     await expect(page.getByText('Skip approvals (unattended)')).toHaveCount(0);
-    await page.getByRole('button', { name: /Advanced — port/i }).click();
+    await page.getByRole('button', { name: /Advanced .*port/i }).click();
 
     // The unencrypted-network warning + the unattended toggle are revealed.
     await expect(

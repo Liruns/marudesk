@@ -1,5 +1,4 @@
 import type { MouseEvent } from 'react';
-import { TabStrip } from '../features/tabs/TabStrip';
 import { useI18n } from '../i18n/useI18n';
 import { WindowControls } from './WindowControls';
 import logoUrl from '../assets/logo-mark.png';
@@ -59,7 +58,7 @@ export function TitleBar() {
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}
-      <TabStrip />
+      <div className="drag-region flex-1 min-w-0" aria-hidden />
       <WindowControls />
     </div>
   );

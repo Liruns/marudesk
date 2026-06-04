@@ -25,8 +25,14 @@ import { Spinner } from '../../components/ui';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
+import type {
+  WorkspaceFileRef,
+  WorkspaceRecord,
+  WorkspaceRootId,
+} from '../../../shared/workspace';
 import { useWorkspaceStore } from './store';
 import { useEditorStore } from '../editor/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { buildFileTree, flattenTree } from './tree';
 import { FileTree, type MenuTarget } from './FileTree';
 import {
@@ -104,6 +110,10 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   const cancelPending = useWorkspaceStore((s) => s.cancelPending);
   const setClipboard = useWorkspaceStore((s) => s.setClipboard);
   const openFile = useEditorStore((s) => s.openFile);
+  const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
+  const setActiveRoot = useWorkspaceDeckStore((s) => s.setActiveRoot);
+  const addRoot = useWorkspaceDeckStore((s) => s.addRoot);
 
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [width, setWidth] = useState(readExplorerWidth);
@@ -172,6 +182,19 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     () => flattenTree(tree, expandedDirs),
     [tree, expandedDirs],
   );
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
+    [activeWorkspaceId, workspaces],
+  );
+  const activeRootId = activeWorkspace?.activeRootId ?? activeWorkspace?.roots[0]?.id ?? null;
+  const workspaceFile = (filePath: string): WorkspaceFileRef | string => {
+    if (!activeWorkspace || !activeRootId) return filePath;
+    return {
+      workspaceId: activeWorkspace.id,
+      rootId: activeRootId,
+      path: filePath,
+    };
+  };
 
   const openRowMenu = (e: ReactMouseEvent, target: MenuTarget) => {
     e.preventDefault();
@@ -201,7 +224,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     const pasteDir = kind === 'dir' ? path : parentOf(path);
     const items: MenuItem[] = [];
     if (kind === 'file') {
-      items.push({ label: t('workspace.action.open'), icon: <FileIcon size={15} />, onSelect: () => void openFile(path) });
+      items.push({ label: t('workspace.action.open'), icon: <FileIcon size={15} />, onSelect: () => void openFile(workspaceFile(path)) });
     } else {
       items.push(
         { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate(path, 'file') },
@@ -297,6 +320,14 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                 })}
               </span>
             </div>
+            {activeWorkspace ? (
+              <WorkspaceRootsBar
+                record={activeWorkspace}
+                activeRootId={activeRootId}
+                onSelectRoot={(rootId) => void setActiveRoot(activeWorkspace.id, rootId)}
+                onAddRoot={() => void addRoot(activeWorkspace.id)}
+              />
+            ) : null}
             <div
               className="flex-1 min-h-0 overflow-y-auto"
               onContextMenu={openEmptyMenu}
@@ -314,7 +345,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                   clipboard={clipboard}
                   onToggleDir={toggleDir}
                   onSelectFile={selectFile}
-                  onOpenFile={(p) => void openFile(p)}
+                  onOpenFile={(p) => void openFile(workspaceFile(p))}
                   onContextMenu={openRowMenu}
                   onCommitRename={(p, n) => commitRename(p, n).then((r) => r !== null)}
                   onCommitCreate={(dir, n, k) =>
@@ -403,6 +434,58 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
         />
       ) : null}
     </aside>
+  );
+}
+
+function WorkspaceRootsBar({
+  record,
+  activeRootId,
+  onSelectRoot,
+  onAddRoot,
+}: {
+  record: WorkspaceRecord;
+  activeRootId: WorkspaceRootId | null;
+  onSelectRoot: (rootId: WorkspaceRootId) => void;
+  onAddRoot: () => void;
+}) {
+  return (
+    <div className="shrink-0 px-2 py-1.5 border-b border-subtle flex items-center gap-1 overflow-x-auto">
+      {record.roots.map((root) => {
+        const active = root.id === activeRootId;
+        return (
+          <button
+            key={root.id}
+            type="button"
+            aria-label={`Use root ${root.name}`}
+            title={root.root}
+            onClick={() => onSelectRoot(root.id)}
+            className={cn(
+              'h-6 min-w-0 inline-flex items-center gap-1.5 px-2 rounded text-caption',
+              'border transition-colors duration-fast',
+              active
+                ? 'border-accent bg-accent-subtle text-accent'
+                : 'border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default',
+            )}
+          >
+            <span className="truncate max-w-[88px]">{root.name}</span>
+            <span className="tabular-nums text-fg-tertiary">{root.files.length}</span>
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        aria-label="Add folder to workspace"
+        title="Add folder to workspace"
+        onClick={onAddRoot}
+        className={cn(
+          'size-6 shrink-0 rounded border border-subtle bg-surface-2',
+          'flex items-center justify-center text-fg-tertiary',
+          'hover:text-fg-primary hover:border-default transition-colors duration-fast',
+        )}
+      >
+        <FolderPlus size={14} />
+      </button>
+    </div>
   );
 }
 

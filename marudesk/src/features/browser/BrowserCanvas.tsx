@@ -4,6 +4,10 @@ import { useWebPageStore } from './store';
 import { useDownloadsStore } from './downloads';
 import { DownloadShelf } from './DownloadShelf';
 import { useTabsStore } from '../tabs/store';
+import {
+  clearBrowserPaneBoundsSource,
+  setBrowserPaneBoundsSource,
+} from '../tabs/browserPaneBounds';
 import { useSettingsStore } from '../settings/store';
 import { useDevtoolsStore } from '../devtools/store';
 import { DevtoolsDock } from '../devtools/DevtoolsDock';
@@ -25,7 +29,7 @@ import type { HistoryEntry } from '../../../shared/history';
  * back/forward/reload actions belong to the active tab, so they come from the
  * tab registry store.
  */
-export function BrowserCanvas() {
+export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
   const { t } = useBrowserStrings();
   const containerRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -37,6 +41,10 @@ export function BrowserCanvas() {
   const inspectMode = useWebPageStore((s) => s.inspectMode);
   const addressBarFocusNonce = useWebPageStore((s) => s.addressBarFocusNonce);
   const nav = useTabsStore((s) => s.nav);
+  const localTab = useTabsStore((s) =>
+    tabId ? (s.tabs.find((tab) => tab.id === tabId) ?? null) : null,
+  );
+  const activateTab = useTabsStore((s) => s.activateTab);
   const setPendingUrl = useWebPageStore((s) => s.setPendingUrl);
   const commitNavigate = useWebPageStore((s) => s.commitNavigate);
   const toggleInspect = useWebPageStore((s) => s.toggleInspect);
@@ -47,9 +55,15 @@ export function BrowserCanvas() {
   const devtoolsOpen = useDevtoolsStore((s) => s.open);
   const devtoolsSide = useDevtoolsStore((s) => s.side);
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  const canvasActive = !tabId || activeTabId === tabId;
+  const canvasNav = localTab ?? nav;
+  const displayedPendingUrl = canvasActive ? pendingUrl : canvasNav.url;
+  const displayedCurrentUrl = canvasActive ? currentUrl : canvasNav.url;
+  const boundsSourceId = tabId ? `single:${tabId}` : null;
   const errorCountByTab = useDevtoolsStore((s) => s.errorCountByTab);
   // Always-on console-error count for the active tab → DevTools toggle badge.
-  const consoleErrorCount = activeTabId ? errorCountByTab[activeTabId] ?? 0 : 0;
+  const consoleErrorCount =
+    (tabId ? errorCountByTab[tabId] : activeTabId ? errorCountByTab[activeTabId] : 0) ?? 0;
   const findOpen = useWebPageStore((s) => s.findOpen);
   const downloadCount = useDownloadsStore((s) => s.downloads.length);
   const downloadsActive = useDownloadsStore((s) =>
@@ -59,18 +73,35 @@ export function BrowserCanvas() {
   const openShelf = useDownloadsStore((s) => s.openShelf);
   const closeShelf = useDownloadsStore((s) => s.closeShelf);
 
+  const ensureActiveTab = async (): Promise<void> => {
+    if (!tabId || useTabsStore.getState().activeTabId === tabId) return;
+    await activateTab(tabId);
+  };
+
+  const runForTab = (action: () => void | Promise<unknown>): void => {
+    void (async () => {
+      await ensureActiveTab();
+      await action();
+    })();
+  };
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const sendBounds = () => {
       const rect = el.getBoundingClientRect();
-      void window.marudesk.invoke('browser:set-bounds', {
+      const bounds = {
         x: rect.left,
         y: rect.top,
         width: rect.width,
         height: rect.height,
-      });
+      };
+      if (boundsSourceId && tabId) {
+        setBrowserPaneBoundsSource(boundsSourceId, [{ tabId, rect: bounds }]);
+      } else {
+        void window.marudesk.invoke('browser:set-bounds', bounds);
+      }
     };
 
     sendBounds();
@@ -90,29 +121,32 @@ export function BrowserCanvas() {
       window.removeEventListener('resize', sendBounds);
       window.removeEventListener('scroll', sendBounds, true);
       unsubSettings();
+      if (boundsSourceId) clearBrowserPaneBoundsSource(boundsSourceId);
       // Don't zero the bounds on unmount. The host hides the inactive web view
       // on tab switch, so keeping the last bounds lets the view reappear at the
       // right rect the instant we return to a web tab — no 0-size flash.
     };
-  }, []);
+  }, [boundsSourceId, tabId]);
 
   // Ctrl/Cmd+L (from either the React chrome or the focused web page, the latter
   // routed through main → browser:focus-address-bar): focus + select the bar.
   // Skip the initial 0 so a fresh canvas doesn't grab focus on mount.
   useEffect(() => {
+    if (!canvasActive) return;
     if (addressBarFocusNonce === 0) return;
     const el = addressInputRef.current;
     if (el) {
       el.focus();
       el.select();
     }
-  }, [addressBarFocusNonce]);
+  }, [addressBarFocusNonce, canvasActive]);
 
   // A navigation drops Chromium's find session; re-run the query so an open find
   // bar's match count refreshes against the new page instead of going stale.
   useEffect(() => {
+    if (!canvasActive) return;
     useWebPageStore.getState().reissueFind();
-  }, [nav.url]);
+  }, [canvasActive, canvasNav.url]);
 
   // Apply the inline-autocomplete selection after the completed value renders:
   // select from the typed prefix to the end, so the next keystroke replaces the
@@ -126,6 +160,7 @@ export function BrowserCanvas() {
   }, [pendingUrl]);
 
   const onAddressChange = (e: ChangeEvent<HTMLInputElement>) => {
+    void ensureActiveTab();
     const value = e.target.value;
     const inputType = (e.nativeEvent as InputEvent).inputType ?? '';
     setPendingUrl(value);
@@ -155,22 +190,27 @@ export function BrowserCanvas() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    void commitNavigate();
+    runForTab(commitNavigate);
   };
 
-  const hasUrl = currentUrl.length > 0 || nav.url.length > 0;
+  const hasUrl = displayedCurrentUrl.length > 0 || canvasNav.url.length > 0;
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col bg-surface-page">
+    <div
+      className="flex-1 min-w-0 flex flex-col bg-surface-page"
+      onMouseDown={() => {
+        void ensureActiveTab();
+      }}
+    >
       {/* Toolbar. Sits on surface-2 — the same tone as the active tab pill — so a
           web tab's chrome reads as one continuous "active surface" flowing out of
           its tab into the toolbar (Chrome/GM3), with the page stage a step darker
           below. */}
       <BrowserToolbar
-        pendingUrl={pendingUrl}
-        currentUrl={currentUrl}
+        pendingUrl={displayedPendingUrl}
+        currentUrl={displayedCurrentUrl}
         inspectMode={inspectMode}
-        nav={nav}
+        nav={canvasNav}
         addressInputRef={addressInputRef}
         downloadCount={downloadCount}
         downloadsActive={downloadsActive}
@@ -179,12 +219,14 @@ export function BrowserCanvas() {
         devtoolsOpen={devtoolsOpen}
         onAddressChange={onAddressChange}
         onSubmit={onSubmit}
-        onGoBack={() => void goBack()}
-        onGoForward={() => void goForward()}
-        onReloadOrStop={() => void reloadOrStop()}
-        onZoomReset={() => void zoom('reset')}
+        onGoBack={() => runForTab(goBack)}
+        onGoForward={() => runForTab(goForward)}
+        onReloadOrStop={() => runForTab(reloadOrStop)}
+        onZoomReset={() => runForTab(() => zoom('reset'))}
         onToggleAudio={() =>
-          void window.marudesk.invoke('browser:set-audio-muted', !nav.audioMuted)
+          runForTab(() =>
+            window.marudesk.invoke('browser:set-audio-muted', !canvasNav.audioMuted),
+          )
         }
         onToggleShelf={() => (shelfOpen ? closeShelf() : openShelf())}
         onToggleInspect={() => void toggleInspect()}
@@ -218,8 +260,8 @@ export function BrowserCanvas() {
           <BrowserStageOverlays
             hasUrl={hasUrl}
             inspectMode={inspectMode}
-            crashed={nav.crashed}
-            onReload={() => void reloadOrStop()}
+            crashed={canvasNav.crashed}
+            onReload={() => runForTab(reloadOrStop)}
           />
         </div>
         {devtoolsOpen ? <DevtoolsDock /> : null}

@@ -159,7 +159,7 @@ test('agent: drawer history overlay opens from the header (§5-C)', async () => 
     await page.getByRole('button', { name: 'Show context panel' }).click();
     await expect(page.getByRole('tab', { name: 'Agent' })).toBeVisible();
     // The History button in the drawer header reveals the sessions overlay.
-    await page.getByRole('button', { name: 'Session history' }).click();
+    await page.getByRole('button', { name: 'History' }).click();
     await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible();
   } finally {
     await app.close();

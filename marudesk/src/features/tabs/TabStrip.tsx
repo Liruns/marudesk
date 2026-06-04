@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import type { TabState } from '../../../shared/browser';
+import type { WorkspaceId } from '../../../shared/workspace';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { useAgentStore } from '../agent/store';
@@ -15,10 +16,14 @@ import { useTabsStore } from './store';
 
 type MenuState = { readonly tabId: string; readonly x: number; readonly y: number };
 
-export function TabStrip() {
+export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const { t } = useI18n();
   const tabs = useTabsStore((s) => s.tabs);
+  const scopedTabs = workspaceId
+    ? tabs.filter((tab) => tab.workspaceId === workspaceId)
+    : tabs;
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  const activeTabIdsByWorkspace = useTabsStore((s) => s.activeTabIdsByWorkspace);
   const activateTab = useTabsStore((s) => s.activateTab);
   const closeTab = useTabsStore((s) => s.closeTab);
   const newTab = useTabsStore((s) => s.newTab);
@@ -34,6 +39,12 @@ export function TabStrip() {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [edge, setEdge] = useState({ l: false, r: false });
+  const preferredActiveTabId = workspaceId
+    ? (activeTabIdsByWorkspace[workspaceId] ?? activeTabId)
+    : activeTabId;
+  const scopedActiveTabId = scopedTabs.some((tab) => tab.id === preferredActiveTabId)
+    ? preferredActiveTabId
+    : (scopedTabs[0]?.id ?? null);
 
   const chipLabels: TabChipLabels = {
     agentNeedsInput: t('tabStrip.agentNeedsInput'),
@@ -70,7 +81,11 @@ export function TabStrip() {
       resetDrag();
       return;
     }
-    const ids = useTabsStore.getState().tabs.map((t) => t.id);
+    const ids = useTabsStore
+      .getState()
+      .tabs
+      .filter((tab) => !workspaceId || tab.workspaceId === workspaceId)
+      .map((t) => t.id);
     const from = ids.indexOf(draggingId);
     const to = ids.indexOf(targetId);
     if (from < 0 || to < 0) {
@@ -86,7 +101,7 @@ export function TabStrip() {
   useEffect(() => {
     const el = scrollRef.current?.querySelector<HTMLElement>('[data-tab-active="true"]');
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [activeTabId, tabs.length]);
+  }, [scopedActiveTabId, scopedTabs.length]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -103,7 +118,7 @@ export function TabStrip() {
       el.removeEventListener('scroll', update);
       ro.disconnect();
     };
-  }, [tabs.length, groups]);
+  }, [scopedTabs.length, groups]);
 
   useEffect(() => {
     if (!menu) return;
@@ -115,7 +130,7 @@ export function TabStrip() {
   }, [menu]);
 
   const closeMany = (ids: readonly string[]) => {
-    const byId = new Map(tabs.map((t) => [t.id, t] as const));
+    const byId = new Map(scopedTabs.map((t) => [t.id, t] as const));
     for (const id of ids) {
       const tab = byId.get(id);
       if (tab && confirmCloseTab(tab)) void closeTab(id);
@@ -133,7 +148,7 @@ export function TabStrip() {
     <TabChip
       key={tab.id}
       tab={tab}
-      active={tab.id === activeTabId}
+      active={tab.id === scopedActiveTabId}
       attention={tab.kind === 'agent' && agentWaiting}
       grouped={grouped}
       pinned={!grouped && tab.pinned}
@@ -150,7 +165,7 @@ export function TabStrip() {
       onClose={() => {
         if (confirmCloseTab(tab)) void closeTab(tab.id);
       }}
-      canClose={tabs.length > 1}
+      canClose={scopedTabs.length > 1}
       onDragStart={() => {
         setDraggingId(tab.id);
         setDraggingTab(tab.id);
@@ -186,7 +201,7 @@ export function TabStrip() {
     run = [];
     runGroupId = null;
   };
-  for (const tab of tabs) {
+  for (const tab of scopedTabs) {
     const gid = groupIdOf(tab.id);
     if (gid && gid === runGroupId) {
       run.push(tab);
@@ -198,7 +213,7 @@ export function TabStrip() {
   }
   flushRun();
 
-  const menuTab = menu ? tabs.find((t) => t.id === menu.tabId) : undefined;
+  const menuTab = menu ? scopedTabs.find((t) => t.id === menu.tabId) : undefined;
   const maskImage = tabStripMask(edge.l, edge.r);
 
   return (
@@ -214,7 +229,7 @@ export function TabStrip() {
         {stripNodes}
         <button
           type="button"
-          onClick={() => void newTab()}
+          onClick={() => void newTab('home', undefined, workspaceId)}
           className={cn(
             'size-7 rounded-md flex items-center justify-center shrink-0 ml-0.5',
             'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
@@ -234,11 +249,11 @@ export function TabStrip() {
           onClose={() => setMenu(null)}
           items={buildTabMenuItems({
             tab: menuTab,
-            tabs,
+            tabs: scopedTabs,
             inGroup: !!groupIdOf(menu.tabId),
             labels: menuLabels,
             closeMany,
-            duplicate: () => void newTab('web', menuTab.url),
+            duplicate: () => void newTab('web', menuTab.url, workspaceId),
             exitSplit: () => dissolveGroup(menu.tabId),
             togglePin: () => void setPinned(menu.tabId, !menuTab.pinned),
           })}
