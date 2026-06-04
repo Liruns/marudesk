@@ -22,36 +22,25 @@ export function QuestionPrompt({
   const allAnswered = pending.questions.every((q) => (answers[q.id] ?? '').trim().length > 0);
 
   return (
-    <div
-      className="card"
-      style={{ margin: '0 12px 10px', padding: 14, borderColor: 'var(--accent)', background: 'var(--accent-soft)' }}
-    >
-      <div className="label-row" style={{ marginBottom: 10 }}>
-        <CircleHelp size={18} style={{ color: 'var(--accent)' }} />
-        <strong style={{ fontSize: 15 }}>The agent has a question</strong>
+    <div className="question-panel">
+      <div className="question-panel__header">
+        <CircleHelp size={18} />
+        <strong>The agent has a question</strong>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="question-panel__list">
         {pending.questions.map((q) => (
           <div key={q.id}>
-            <div style={{ fontSize: 14.5, marginBottom: 8, lineHeight: 1.45 }}>{q.question}</div>
+            <div className="question-panel__question">{q.question}</div>
             {q.options && q.options.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div className="question-panel__options">
                 {q.options.map((opt) => {
                   const active = answers[q.id] === opt;
                   return (
                     <button
                       key={opt}
                       onClick={() => setAnswer(q.id, opt)}
-                      className="btn"
-                      style={{
-                        minHeight: 40,
-                        padding: '0 14px',
-                        fontSize: 14,
-                        background: active ? 'var(--accent)' : 'var(--bg-elev-2)',
-                        color: active ? 'var(--on-accent)' : 'var(--fg)',
-                        border: `1px solid ${active ? 'var(--accent)' : 'var(--border-strong)'}`,
-                      }}
+                      className={active ? 'question-panel__option is-active' : 'question-panel__option'}
                     >
                       {opt}
                     </button>
@@ -71,7 +60,7 @@ export function QuestionPrompt({
 
       <button
         className="btn btn-primary btn-block"
-        style={{ marginTop: 14 }}
+        style={{ marginTop: 12 }}
         disabled={busy || !allAnswered}
         onClick={() => onSubmit(answers)}
       >

@@ -109,13 +109,19 @@ both logged into the **same account**, then flip `USE_RELAY` in
 ```bash
 npm run typecheck   # tsc -b (strict) → 0 errors
 npm run build       # vite build → dist/ (the web/PWA + Capacitor webDir)
-npm run smoke       # headless StubTransport data-path test → 10/10 PASS
+npm run smoke         # runs both headless smoke suites
+npm run smoke:stub    # StubTransport data-path test
+npm run smoke:storage # native-storage fallback boot test
 ```
 
-`npm run smoke` drives the same command sequence the screens issue
-(connect→send→approve→respond→reset) against `StubTransport` and asserts the
-`AgentChatState` lifecycle the Chat UI renders — proving the UI's data path end
-to end without a browser.
+`npm run smoke:stub` drives the same command sequence the screens issue
+(connect -> send -> approve -> respond -> reset) against `StubTransport` and
+asserts the `AgentChatState` lifecycle the Chat UI renders, proving the UI's
+data path end to end without a browser.
+
+`npm run smoke:storage` simulates a native shell where Capacitor Preferences is
+unavailable and proves storage reads/writes fall back instead of leaving app
+hydration stuck behind the boot spinner.
 
 ## Capacitor / Android APK
 

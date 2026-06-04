@@ -31,47 +31,16 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
   const hasBody = Boolean(call.resultText || call.error || call.input !== undefined);
 
   return (
-    <div
-      className="card"
-      style={{ background: 'var(--bg-elev-2)', overflow: 'hidden', margin: '8px 0' }}
-    >
+    <div className="tool-card">
       <button
+        className="tool-card__header"
         onClick={() => hasBody && setOpen((v) => !v)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          width: '100%',
-          padding: '12px 14px',
-          minHeight: 'var(--tap)',
-          textAlign: 'left',
-        }}
       >
-        <Wrench size={16} style={{ color: 'var(--fg-muted)', flexShrink: 0 }} />
-        <span
-          style={{
-            flex: 1,
-            fontSize: 14,
-            fontWeight: 600,
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
+        <Wrench size={16} className="tool-card__icon" />
+        <span className="tool-card__name">
           {call.summary || call.name}
         </span>
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-            fontSize: 12,
-            fontWeight: 600,
-            color: meta.color,
-            flexShrink: 0,
-          }}
-        >
+        <span className="tool-card__state" style={{ color: meta.color }}>
           <StateIcon state={call.state} />
           {meta.label}
         </span>
@@ -84,7 +53,7 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
       </button>
 
       {open && hasBody && (
-        <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="tool-card__body">
           {call.input !== undefined && (
             <Block label="Input" body={formatInput(call.input)} />
           )}
@@ -98,26 +67,10 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
 
 function Block({ label, body, danger = false }: { label: string; body: string; danger?: boolean }) {
   return (
-    <div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-faint)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-        {label}
-      </div>
+    <div className="tool-block">
+      <div className="tool-block__label">{label}</div>
       <pre
-        style={{
-          margin: 0,
-          padding: 10,
-          background: 'var(--bg)',
-          borderRadius: 'var(--radius-sm)',
-          border: '1px solid var(--border)',
-          fontSize: 12.5,
-          lineHeight: 1.45,
-          color: danger ? 'var(--danger)' : 'var(--fg)',
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          maxHeight: 240,
-          overflowY: 'auto',
-        }}
+        className={danger ? 'tool-block__code tool-block__code--danger' : 'tool-block__code'}
       >
         {body}
       </pre>

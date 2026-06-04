@@ -26,15 +26,16 @@ export function Screen({
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            padding: 'calc(var(--safe-top) + 10px) 14px 10px',
-            borderBottom: '1px solid var(--border)',
-            background: 'var(--bg-elev)',
-            minHeight: 'calc(var(--safe-top) + 54px)',
+            padding: 'calc(var(--safe-top) + 8px) 10px 8px',
+            borderBottom: '1px solid var(--border-subtle)',
+            background: 'var(--surface-glass)',
+            boxShadow: 'var(--highlight)',
+            minHeight: 'calc(var(--safe-top) + 50px)',
             flexShrink: 0,
           }}
         >
           <div style={{ minWidth: 40, display: 'flex' }}>{left}</div>
-          <div style={{ flex: 1, fontWeight: 700, fontSize: 17, textAlign: 'center' }}>{title}</div>
+          <div style={{ flex: 1, fontWeight: 500, fontSize: 14, textAlign: 'center' }}>{title}</div>
           <div style={{ minWidth: 40, display: 'flex', justifyContent: 'flex-end' }}>{right}</div>
         </header>
       )}
