@@ -12,7 +12,7 @@ import {
   type PatchPreview,
 } from '../shared/patch';
 import type { WorkspaceSummary } from '../shared/workspace';
-import { isInsideRoot, resolveWorkspacePath } from './fs-safe';
+import { assertRealParentInsideRoot, isInsideRoot, resolveWorkspacePath } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 
 const MAX_PATCH_FILE_SIZE = 4 * 1024 * 1024;
@@ -257,6 +257,11 @@ export async function applyPatch(
     for (const plan of plans) {
       if (plan.kind === 'create') {
         await fs.mkdir(path.dirname(plan.abs), { recursive: true });
+        // The 'wx' open below blocks a symlink planted AT the tmp path, but not a
+        // symlinked ANCESTOR dir that redirects the write outside the workspace.
+        // Confirm the (now-created) parent's realpath stays inside root — same
+        // guard the workspace mutate handlers use for create destinations.
+        await assertRealParentInsideRoot(root, plan.abs);
       }
       const fh = await fs.open(plan.tmp, 'wx');
       try {
