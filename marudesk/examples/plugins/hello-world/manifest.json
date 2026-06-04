@@ -1,0 +1,9 @@
+{
+  "id": "hello-world",
+  "name": "Hello World",
+  "version": "1.0.0",
+  "description": "Example MaruDesk plugin — a greeting tool, a workspace-file reader, and a slash command.",
+  "main": "index.js",
+  "engine": { "marudesk": "^1.0.0" },
+  "permissions": ["tools", "commands", "fs:read"]
+}

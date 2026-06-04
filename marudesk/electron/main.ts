@@ -24,6 +24,7 @@ import {
   registerMcpHandlers,
   shutdownExternalMcp,
 } from './agent/mcp-handlers';
+import { initPlugins, shutdownPlugins } from './plugins';
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
@@ -272,6 +273,11 @@ void app.whenReady().then(() => {
   // per-server spawn/init failure is handled inside the manager and never crashes
   // the app — see docs/remote-mobile-bridge-design §M3.
   void initExternalMcp();
+  // Scan the user/project plugin folders and activate any the user has approved
+  // (docs/plugin-runtime-design.md). Off by default — nothing is spawned until a
+  // plugin is enabled + its permissions granted in Settings, and a bad manifest /
+  // failed load is recorded and skipped, never crashing the app.
+  void initPlugins(() => getCurrentWorkspace()?.root ?? null);
   void createMainWindow();
 
   app.on('activate', () => {
@@ -298,6 +304,8 @@ app.on('before-quit', () => {
   // Close every external MCP stdio connection so no spawned child process lingers
   // past app exit.
   void shutdownExternalMcp();
+  // Tear down every plugin worker so no utilityProcess lingers past app exit.
+  shutdownPlugins();
   // Close the SQLite handle (flushes the WAL) if it was opened.
   closeDb();
 });

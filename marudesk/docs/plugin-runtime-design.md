@@ -315,13 +315,16 @@ R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러�
 
 ## 7. 단계 계획 (Phased roadmap)
 
-- **P0 — 본 설계 문서 (현재).** 격리 모델·권한·기여 포인트·머지 지점 확정.
-- **P1 — 런타임 골격(헤드리스) + 샌드박스(load-bearing).** `shared/plugin.ts` + `electron/plugins/*`
-  + worker + 합성 McpServer 등록. **R2: 런타임 샌드박스([§3.2](#32-런타임-샌드박스-load-bearing-p1))를
-  P1에 포함** — Permission Model `execArgv` + `Module._load` 네트워크 셰임. P1 능력은 **도구 +
-  `fs:read`(read-only)** 까지(쓰기는 별도). 예제 플러그인 `hello-world`(도구 1개) + 하니스
-  (`harness:plugins`)로 spawn→activate→callTool→teardown E2E 검증. 하니스는 child_process 백엔드로
-  돌고, 샌드박스 셰임의 거부 경로(`require('child_process')` throw 등)도 단언한다.
+- **P0 — 본 설계 문서.** ✅ 완료. 격리 모델·권한·기여 포인트·머지 지점 확정.
+- **P1 — 런타임 골격(헤드리스) + 샌드박스(load-bearing). ✅ 착수·검증 완료.** `shared/plugin.ts`
+  + `electron/plugins/*`(rpc/transport/worker/host/permissions/config/manager/spawn-electron/index)
+  + 합성 McpServer 등록 + main 부팅 배선. **R2: 런타임 샌드박스([§3.2](#32-런타임-샌드박스-load-bearing-p1))
+  포함** — Permission Model `execArgv`(프로덕션 utilityProcess) + `Module._load` 네트워크/프로세스
+  셰임(상시). P1 능력은 **도구 + `fs:read`(read-only)** 까지(쓰기는 별도). 예제 플러그인
+  `examples/plugins/hello-world` + `harness:plugins`로 spawn→activate→callTool→teardown을 child_process
+  백엔드로 E2E 검증(11 checks): 기여 보고, 네임스페이스/gated 도구 exec, 가드된 read + 이탈/무-워크스페이스
+  거부, `require('child_process')` 샌드박스 거부. `npm run typecheck`/`lint`/`build`(plugin-worker.mjs 산출)
+  통과. **남은 것:** 설정/승인 UI가 P2라 프로덕션에선 아직 inert(승인된 플러그인이 없으면 아무것도 활성 안 됨).
 - **P2 — 슬래시 커맨드 기여 + 설정 패널.** 신규 렌더러 배선(R2: 전송-안전 변형 + `$ARGUMENTS` 치환
   + IPC 스냅샷 + 머지) + `PluginsSettings.tsx` + 권한 승인/재승인 UX. 렌더러에서 끝까지 동작 확인.
 - **P3 — `fs:write` + net 강화 + 문서.** `AppliedChange` 채널로 플러그인 쓰기를 chat diff/revert에

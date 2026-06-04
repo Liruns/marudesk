@@ -147,6 +147,7 @@ npm run harness:e2e           # server end-to-end
 npm run harness:pair          # secure device pairing
 npm run harness:relay-bridge  # cloud relay bridge
 npm run harness:mcp           # MCP tools
+npm run harness:plugins       # isolated plugin runtime (worker sandbox + tool RPC)
 ```
 
 UI work follows `marudesk/DESIGN.md`: dark-first, restrained, token-based colors only (no hard-coded colors), Lucide icons, and calm, precise copy.
