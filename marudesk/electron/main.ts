@@ -68,6 +68,10 @@ function applyHostContentSecurityPolicy(): void {
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "img-src 'self' data: blob:",
+    // Generated videos (generate_video) are inlined into the chat as data: URLs
+    // (see GeneratedMedia); without an explicit media-src they fall back to
+    // default-src 'self' and the <video> source is blocked.
+    "media-src 'self' data: blob:",
     "connect-src 'self' https://api.anthropic.com" +
       (isDev ? ' ws://localhost:5173 http://localhost:5173' : ''),
     "object-src 'none'",

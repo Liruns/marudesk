@@ -122,6 +122,7 @@ async function generateVideoTool(
           `Remote job: ${video.remoteId}`,
           `Saved: ${saved}`,
         ].join('\n'),
+        media: [{ kind: 'video' as const, path: saved, mediaType: video.mediaType }],
       };
     } catch (err) {
       const modelError = err instanceof Error ? err : new Error(String(err));

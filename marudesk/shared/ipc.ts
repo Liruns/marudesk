@@ -57,6 +57,7 @@ import type {
   MutateResult,
   RankedFile,
   ReadFileResult,
+  ReadMediaResult,
   SaveAsResult,
   WorkspaceFileRef,
   WorkspaceId,
@@ -134,6 +135,7 @@ export const CHANNELS = {
     'workspace:list',
     'workspace:rank',
     'workspace:read-file',
+    'workspace:read-media',
     'workspace:write-file',
     'workspace:save-as',
     'workspace:create',
@@ -427,6 +429,7 @@ export interface IpcMap {
   'workspace:list': { args: [root?: string]; result: WorkspaceSummary | null };
   'workspace:rank': { args: [capture: CaptureInput]; result: RankedFile[] };
   'workspace:read-file': { args: [rel: string]; result: ReadFileResult };
+  'workspace:read-media': { args: [rel: string]; result: ReadMediaResult };
   'workspace:write-file': {
     args: [payload: { path: string; content: string }];
     result: WriteFileResult;

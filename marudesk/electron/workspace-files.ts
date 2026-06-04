@@ -15,7 +15,7 @@ import {
 } from './fs-safe';
 import { MAX_FILE_SIZE } from './workspace-config';
 
-export { readFileForEditor } from './workspace-read';
+export { readFileForEditor, readMediaForPreview } from './workspace-read';
 
 export async function readFileSafe(
   root: string,

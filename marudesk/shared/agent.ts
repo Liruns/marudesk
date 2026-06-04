@@ -30,6 +30,21 @@ export type ToolCallState =
   | 'denied'
   | 'aborted';
 
+/**
+ * A media file a tool produced (generate_image / generate_video), referenced by
+ * its workspace-relative path so the chat can render it inline. Only the path +
+ * type travel in the chat state (kept small + session-history friendly); the
+ * renderer lazily loads the bytes via the `workspace:read-media` channel.
+ */
+export type ToolMediaKind = 'image' | 'video';
+export type ToolMediaArtifact = {
+  kind: ToolMediaKind;
+  /** Workspace-relative path of the saved file (e.g. `generated/images/x.png`). */
+  path: string;
+  /** MIME type of the file, e.g. `image/png` or `video/mp4`. */
+  mediaType: string;
+};
+
 /** One model-requested tool call plus its execution state (UI tool card). */
 export type ToolCall = {
   /** Provider tool_use id (correlates the result back). */
@@ -43,6 +58,12 @@ export type ToolCall = {
   /** Already scrubbed + clipped result text shown in the expanded card. */
   resultText?: string;
   error?: string;
+  /**
+   * Media artifacts produced by this call (generate_image / generate_video),
+   * rendered inline in the transcript regardless of verbosity. See
+   * {@link ToolMediaArtifact}.
+   */
+  media?: ToolMediaArtifact[];
 };
 
 export type AgentTextPart = { type: 'text'; text: string };

@@ -6,6 +6,7 @@ export {
 } from './workspace-registry';
 export {
   readFileForEditor,
+  readMediaForPreview,
   readFileSafe,
   saveAsForEditor,
   writeFileForEditor,

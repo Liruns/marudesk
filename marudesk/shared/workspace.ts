@@ -100,6 +100,48 @@ export function imageMediaTypeForPath(
   }
 }
 
+/** Video container types previewable inline in the chat (`<video>` source). */
+export type WorkspaceVideoMediaType =
+  | 'video/mp4'
+  | 'video/webm'
+  | 'video/quicktime'
+  | 'video/x-matroska';
+
+export function videoMediaTypeForPath(
+  relPath: string,
+): WorkspaceVideoMediaType | null {
+  const dot = relPath.lastIndexOf('.');
+  const ext = dot >= 0 ? relPath.slice(dot + 1).toLowerCase() : '';
+  switch (ext) {
+    case 'mp4':
+    case 'm4v':
+      return 'video/mp4';
+    case 'webm':
+      return 'video/webm';
+    case 'mov':
+      return 'video/quicktime';
+    case 'mkv':
+      return 'video/x-matroska';
+    default:
+      return null;
+  }
+}
+
+export type WorkspaceMediaMediaType =
+  | WorkspaceImageMediaType
+  | WorkspaceVideoMediaType;
+
+/** Classify a path as previewable image/video media, or null when neither. */
+export function mediaMediaTypeForPath(
+  relPath: string,
+): { kind: 'image'; mediaType: WorkspaceImageMediaType } | { kind: 'video'; mediaType: WorkspaceVideoMediaType } | null {
+  const image = imageMediaTypeForPath(relPath);
+  if (image) return { kind: 'image', mediaType: image };
+  const video = videoMediaTypeForPath(relPath);
+  if (video) return { kind: 'video', mediaType: video };
+  return null;
+}
+
 /** Result of `workspace:read-file`: previewable content, or why it can't open. */
 export type ReadFileResult =
   | { ok: true; kind: 'text'; content: string }
@@ -113,10 +155,32 @@ export type ReadFileResult =
   | { ok: false; reason: 'too-large' | 'binary' | 'not-a-file'; size?: number };
 
 /**
+ * Result of `workspace:read-media`: a previewable image/video as a data URL
+ * (chat renders generated artifacts inline). Kept separate from
+ * {@link ReadFileResult} so the editor's text/2MB semantics stay untouched.
+ */
+export type ReadMediaResult =
+  | {
+      ok: true;
+      kind: 'image' | 'video';
+      mediaType: WorkspaceMediaMediaType;
+      dataUrl: string;
+      size: number;
+    }
+  | { ok: false; reason: 'too-large' | 'unsupported' | 'not-a-file'; size?: number };
+
+/**
  * Max size of a file the Monaco editor will open (bytes). Shared so the
  * main-process guard and the renderer's "too large" message agree on the number.
  */
 export const MAX_EDITOR_FILE_SIZE = 2 * 1024 * 1024;
+
+/**
+ * Max size of a generated media file the chat will inline as a data URL.
+ * Generated videos are larger than text/source files, so this cap is generous
+ * (64MB) but still bounds the renderer's in-memory data URL.
+ */
+export const MAX_MEDIA_PREVIEW_SIZE = 64 * 1024 * 1024;
 
 /** Result of `workspace:write-file` (throws on failure, so always ok here). */
 export type WriteFileResult = { ok: true };
