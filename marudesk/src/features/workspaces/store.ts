@@ -36,6 +36,16 @@ type WorkspaceDeckActions = {
     name: string,
     roots: readonly WorkspaceRootInput[],
   ) => Promise<WorkspaceRecord | null>;
+  readonly renameWorkspace: (workspaceId: WorkspaceId, name: string) => Promise<void>;
+  readonly deleteWorkspace: (workspaceId: WorkspaceId) => Promise<void>;
+  readonly removeRoot: (
+    workspaceId: WorkspaceId,
+    rootId: WorkspaceRootId,
+  ) => Promise<void>;
+  readonly reindexWorkspace: (
+    workspaceId: WorkspaceId,
+    rootId?: WorkspaceRootId,
+  ) => Promise<void>;
   readonly focusPane: (paneId: WorkspacePaneId) => void;
   readonly setActiveWorkspace: (
     workspaceId: WorkspaceId,
@@ -127,6 +137,10 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
           name,
           roots: [...roots],
         });
+        if (!record) {
+          set({ loading: false });
+          return null;
+        }
         const snapshot = await window.marudesk.invoke('workspaces:list');
         set((state) => {
           const next = applySnapshot(state, snapshot);
@@ -190,6 +204,71 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         rootId,
       });
       set((state) => applySnapshot(state, snapshot));
+    },
+
+    renameWorkspace: async (workspaceId, name) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      try {
+        await window.marudesk.invoke('workspaces:rename', { workspaceId, name: trimmed });
+        const snapshot = await window.marudesk.invoke('workspaces:list');
+        set((state) => applySnapshot(state, snapshot));
+      } catch (err) {
+        set({ error: toMessage(err) });
+      }
+    },
+
+    removeRoot: async (workspaceId, rootId) => {
+      try {
+        await window.marudesk.invoke('workspaces:remove-root', { workspaceId, rootId });
+        const snapshot = await window.marudesk.invoke('workspaces:list');
+        set((state) => applySnapshot(state, snapshot));
+      } catch (err) {
+        set({ error: toMessage(err) });
+      }
+    },
+
+    reindexWorkspace: async (workspaceId, rootId) => {
+      try {
+        await window.marudesk.invoke(
+          'workspaces:reindex',
+          rootId ? { workspaceId, rootId } : { workspaceId },
+        );
+        const snapshot = await window.marudesk.invoke('workspaces:list');
+        set((state) => applySnapshot(state, snapshot));
+      } catch (err) {
+        set({ error: toMessage(err) });
+      }
+    },
+
+    deleteWorkspace: async (workspaceId) => {
+      try {
+        const snapshot = await window.marudesk.invoke('workspaces:delete', { workspaceId });
+        set((state) => {
+          const next = applySnapshot(state, snapshot);
+          if (!next.layout) return next;
+          // Panes still pointing at the deleted workspace are re-homed onto the
+          // new active workspace so they don't fall back to the System pane.
+          const fallback = next.activeWorkspaceId ?? next.workspaces[0]?.id ?? null;
+          let layout = next.layout;
+          if (fallback) {
+            for (const leaf of workspaceLeaves(layout)) {
+              if (leaf.workspaceId === workspaceId) {
+                layout = setWorkspaceLeaf(layout, leaf.id, fallback);
+              }
+            }
+          }
+          const leaves = workspaceLeaves(layout);
+          const focusedValid = leaves.some((leaf) => leaf.id === next.focusedPaneId);
+          return {
+            ...next,
+            layout,
+            focusedPaneId: focusedValid ? next.focusedPaneId : (leaves[0]?.id ?? null),
+          };
+        });
+      } catch (err) {
+        set({ error: toMessage(err) });
+      }
     },
 
     splitFocusedPane: (workspaceId, dir, side = 'after') => {

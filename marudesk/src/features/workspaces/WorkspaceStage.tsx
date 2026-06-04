@@ -3,7 +3,11 @@ import {
   FolderPlus,
   FolderTree,
   PanelLeft,
+  Pencil,
+  Plus,
+  RefreshCw,
   Search,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -11,11 +15,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId, type WorkspaceRecord } from '../../../shared/workspace';
 import { cn } from '../../lib/cn';
+import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useEditorStore } from '../editor/store';
 import { Stage } from '../tabs/Stage';
 import { TabStrip } from '../tabs/TabStrip';
@@ -25,7 +31,12 @@ import {
   type WorkspaceLayoutNode,
   type WorkspaceSplitDir,
 } from './layout';
+import { NameDialog } from './NameDialog';
 import { useWorkspaceDeckStore } from './store';
+
+type DeckDialog =
+  | { mode: 'create' }
+  | { mode: 'rename'; workspace: WorkspaceRecord };
 
 export function WorkspaceStage() {
   const layout = useWorkspaceDeckStore((s) => s.layout);
@@ -66,9 +77,45 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
   const setPaneWorkspace = useWorkspaceDeckStore((s) => s.setPaneWorkspace);
   const setActiveWorkspace = useWorkspaceDeckStore((s) => s.setActiveWorkspace);
+  const createWorkspace = useWorkspaceDeckStore((s) => s.createWorkspace);
+  const renameWorkspace = useWorkspaceDeckStore((s) => s.renameWorkspace);
+  const reindexWorkspace = useWorkspaceDeckStore((s) => s.reindexWorkspace);
+  const deleteWorkspace = useWorkspaceDeckStore((s) => s.deleteWorkspace);
   const targetPaneId = focusedPaneId ?? (layout ? workspaceLeaves(layout)[0]?.id : null);
 
-  if (workspaces.length === 0) return null;
+  const [menu, setMenu] = useState<{ workspace: WorkspaceRecord; x: number; y: number } | null>(
+    null,
+  );
+  const [dialog, setDialog] = useState<DeckDialog | null>(null);
+
+  const openMenu = (event: ReactMouseEvent, workspace: WorkspaceRecord) => {
+    event.preventDefault();
+    setMenu({ workspace, x: event.clientX, y: event.clientY });
+  };
+
+  const menuItems = (workspace: WorkspaceRecord): MenuItem[] => [
+    {
+      label: 'Rename workspace',
+      icon: <Pencil size={14} />,
+      onSelect: () => setDialog({ mode: 'rename', workspace }),
+    },
+    {
+      label: 'Reindex workspace',
+      icon: <RefreshCw size={14} />,
+      onSelect: () => void reindexWorkspace(workspace.id),
+    },
+    { type: 'separator' },
+    {
+      label: 'Delete workspace',
+      icon: <Trash2 size={14} />,
+      danger: true,
+      onSelect: () => {
+        if (window.confirm(`Delete workspace "${workspace.name}"? This cannot be undone.`)) {
+          void deleteWorkspace(workspace.id);
+        }
+      },
+    },
+  ];
 
   return (
     <nav
@@ -87,6 +134,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
               if (targetPaneId) setPaneWorkspace(targetPaneId, workspace.id);
               void setActiveWorkspace(workspace.id, targetPaneId ?? undefined);
             }}
+            onContextMenu={(event) => openMenu(event, workspace)}
             className={cn(
               'size-8 rounded-md border flex items-center justify-center text-caption font-semibold',
               'transition-colors duration-fast',
@@ -99,6 +147,46 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
           </button>
         );
       })}
+      <button
+        type="button"
+        aria-label="New workspace"
+        title="New workspace"
+        onClick={() => setDialog({ mode: 'create' })}
+        className={cn(
+          'size-8 rounded-md border border-dashed border-subtle flex items-center justify-center',
+          'text-fg-tertiary hover:text-fg-primary hover:border-default transition-colors duration-fast',
+        )}
+      >
+        <Plus size={16} />
+      </button>
+
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems(menu.workspace)}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
+      {dialog?.mode === 'create' ? (
+        <NameDialog
+          title="New workspace"
+          confirmLabel="Choose folder…"
+          placeholder="Workspace name (optional)"
+          allowEmpty
+          onSubmit={(name) => void createWorkspace(name, [])}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog?.mode === 'rename' ? (
+        <NameDialog
+          title="Rename workspace"
+          confirmLabel="Rename"
+          initialValue={dialog.workspace.name}
+          onSubmit={(name) => void renameWorkspace(dialog.workspace.id, name)}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
     </nav>
   );
 }
@@ -152,6 +240,7 @@ function WorkspacePane({
   const focusPane = useWorkspaceDeckStore((s) => s.focusPane);
   const setActiveWorkspace = useWorkspaceDeckStore((s) => s.setActiveWorkspace);
   const addRoot = useWorkspaceDeckStore((s) => s.addRoot);
+  const reindexWorkspace = useWorkspaceDeckStore((s) => s.reindexWorkspace);
   const splitFocusedPane = useWorkspaceDeckStore((s) => s.splitFocusedPane);
   const closePane = useWorkspaceDeckStore((s) => s.closePane);
   const [peekOpen, setPeekOpen] = useState(false);
@@ -195,6 +284,14 @@ function WorkspacePane({
           {record ? (
             <PaneButton label="Add folder to workspace" onClick={() => void addRoot(record.id)}>
               <FolderPlus size={15} />
+            </PaneButton>
+          ) : null}
+          {record ? (
+            <PaneButton
+              label="Reindex workspace"
+              onClick={() => void reindexWorkspace(record.id)}
+            >
+              <RefreshCw size={15} />
             </PaneButton>
           ) : null}
           <PaneButton label="Peek Explorer" onClick={() => setPeekOpen((open) => !open)}>
@@ -284,6 +381,8 @@ function PeekExplorer({
 }) {
   const [query, setQuery] = useState('');
   const openFile = useEditorStore((s) => s.openFile);
+  const removeRoot = useWorkspaceDeckStore((s) => s.removeRoot);
+  const canRemoveRoot = record.roots.length > 1;
   const lower = query.trim().toLowerCase();
   const roots = useMemo(
     () =>
@@ -319,10 +418,29 @@ function PeekExplorer({
       <div className="min-h-0 overflow-y-auto py-2">
         {roots.map(({ root, files }) => (
           <div key={root.id} className="pb-2">
-            <div className="px-3 h-6 flex items-center gap-2 text-caption font-medium text-fg-tertiary uppercase">
+            <div className="group px-3 h-6 flex items-center gap-2 text-caption font-medium text-fg-tertiary uppercase">
               <FolderTree size={13} />
               <span className="truncate">{root.name}</span>
               <span className="ml-auto tabular-nums">{files.length}</span>
+              {canRemoveRoot ? (
+                <button
+                  type="button"
+                  aria-label={`Remove root ${root.name}`}
+                  title="Remove folder from workspace"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Remove folder "${root.name}" from "${record.name}"?`,
+                      )
+                    ) {
+                      void removeRoot(record.id, root.id);
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 size-4 rounded flex items-center justify-center text-fg-tertiary hover:text-error transition-opacity duration-fast"
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
             </div>
             {files.map((file) => (
               <button
