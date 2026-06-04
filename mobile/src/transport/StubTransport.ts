@@ -244,7 +244,7 @@ export class StubTransport implements Transport {
       this.patch({
         status: 'completed',
         turnId: null,
-        usage: { inputTokens: 1280, outputTokens: 342 },
+        usage: { inputTokens: 1280, outputTokens: 342, contextTokens: 1280 },
       });
     }, 900);
   }

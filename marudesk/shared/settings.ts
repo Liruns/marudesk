@@ -112,6 +112,15 @@ export type AppSettings = {
      */
     fallback: { enabled: boolean; order: ModelRef[] };
     /**
+     * Automatic compaction (claude-code / cursor parity). When the running
+     * context grows past `threshold` of the active model's window, the agent
+     * compacts the conversation once a turn settles — summarizing the earlier
+     * turns while keeping a verbatim tail and the full visible scrollback. Off
+     * leaves compaction manual (`/compact`). `threshold` is a 0–1 fraction of the
+     * context window (clamped to a sane band on load).
+     */
+    autoCompact: { enabled: boolean; threshold: number };
+    /**
      * Post-edit verification command (claude-code / codex PostToolUse hook). When
      * set, the agent runs it in the workspace at the end of any turn that edited
      * files and folds the PASS/FAIL result back into the conversation, so a broken
@@ -236,6 +245,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     instructions: '',
     reasoningEffort: 'medium',
     fallback: { enabled: false, order: [] },
+    autoCompact: { enabled: true, threshold: 0.8 },
     verifyCommand: '',
   },
   pcControl: {
@@ -285,6 +295,12 @@ function clampNumber(
 ): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/** Clamp a 0–1 fraction (no rounding, unlike {@link clampNumber}). */
+function clampFraction(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
 }
 
 function asString(value: unknown, fallback: string): string {
@@ -443,6 +459,15 @@ export function sanitizeSettings(
       fallback: {
         enabled: asBool(asRecord(ag.fallback).enabled, base.agent.fallback.enabled),
         order: asModelRefArray(asRecord(ag.fallback).order, base.agent.fallback.order),
+      },
+      autoCompact: {
+        enabled: asBool(asRecord(ag.autoCompact).enabled, base.agent.autoCompact.enabled),
+        threshold: clampFraction(
+          asRecord(ag.autoCompact).threshold,
+          base.agent.autoCompact.threshold,
+          0.5,
+          0.95,
+        ),
       },
       verifyCommand: asString(ag.verifyCommand, base.agent.verifyCommand),
     },

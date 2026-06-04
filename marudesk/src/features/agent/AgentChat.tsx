@@ -15,6 +15,7 @@ import {
   Search,
   Settings as SettingsIcon,
   Eraser,
+  Layers,
   FileText,
   FolderTree,
   FilePen,
@@ -335,7 +336,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     });
   };
 
-  const runSlashAction = (action: SlashActionId) => {
+  const runSlashAction = (action: SlashActionId, arg?: string) => {
     switch (action) {
       case 'new':
         void resetChat();
@@ -365,7 +366,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           title: t('agent.chat.toast.compacting.title'),
           description: t('agent.chat.toast.compacting.description'),
         });
-        void compact().then((res) => {
+        void compact(arg).then((res) => {
           if (res.ok) {
             toast({
               title: t('agent.chat.toast.compacted.title'),
@@ -443,7 +444,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     const resolved = resolveSlash(text);
     if (resolved) {
       if (resolved.command.kind === 'action') {
-        runSlashAction(resolved.command.action);
+        runSlashAction(resolved.command.action, resolved.arg);
         setDraft('');
         return;
       }
@@ -1080,6 +1081,7 @@ const SLASH_ARG_HINT_KEYS: Record<string, TranslationKey> = {
   test: 'agent.chat.slash.arg.optionalPath',
   explain: 'agent.chat.slash.arg.fileOrSymbol',
   commit: 'agent.chat.slash.arg.optionalIntent',
+  compact: 'agent.chat.slash.arg.compactFocus',
 };
 
 function slashDescription(name: string, t: (key: TranslationKey) => string): string {
@@ -1129,7 +1131,7 @@ function SlashMenu({
           )}
         >
           <span className="font-mono text-body-sm text-fg-primary shrink-0">/{cmd.name}</span>
-          {cmd.kind === 'prompt' && cmd.argHint ? (
+          {cmd.argHint ? (
             <span className="font-mono text-caption text-fg-tertiary shrink-0">
               {slashArgHint(cmd.name, t)}
             </span>
@@ -1295,9 +1297,11 @@ function UsageMeter() {
   const usage = useAgentStore((s) => s.chat.usage);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
   const models = useProvidersStore((s) => s.models);
-  if (usage.inputTokens === 0 && usage.outputTokens === 0) return null;
+  if (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.contextTokens === 0) return null;
   const ctx = findModel(models, selectedModelKey)?.contextWindow;
-  const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
+  // The gauge tracks live context-window occupancy (contextTokens), not the
+  // cumulative input total — so it falls after a compaction instead of climbing.
+  const pct = ctx ? Math.min(100, Math.round((usage.contextTokens / ctx) * 100)) : null;
   return (
     <span
       className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums shrink-0"
@@ -1315,7 +1319,7 @@ function UsageMeter() {
           <span>{pct}%</span>
         </>
       ) : (
-        <span>{formatContext(usage.inputTokens)} tok</span>
+        <span>{formatContext(usage.contextTokens || usage.inputTokens)} tok</span>
       )}
     </span>
   );
@@ -1407,6 +1411,44 @@ function ProviderModelBar({ full }: { full?: boolean }) {
 
 /* ── messages ───────────────────────────────────────────────────────────── */
 
+/**
+ * The `/compact` boundary marker in the transcript. Everything above it stays
+ * visible; this divider tells the user the model's working memory of those turns
+ * was condensed into a summary (claude-code / cursor parity — compaction trims
+ * the context window, not the user's scrollback). Click to expand the summary
+ * the model now carries forward.
+ */
+function CompactionDivider({ summary, freedTokens }: { summary: string; freedTokens?: number }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const label = freedTokens
+    ? t('agent.chat.compaction.labelFreed').replace('{tokens}', formatContext(freedTokens))
+    : t('agent.chat.compaction.label');
+  return (
+    <div className="flex flex-col gap-2 py-1">
+      <div className="flex items-center gap-2 text-caption text-fg-tertiary">
+        <span className="h-px flex-1 bg-subtle" />
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 shrink-0 hover:text-fg-secondary transition-colors duration-fast"
+          aria-expanded={open}
+        >
+          <Layers size={11} className="shrink-0" />
+          <span>{label}</span>
+          {open ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
+        </button>
+        <span className="h-px flex-1 bg-subtle" />
+      </div>
+      {open ? (
+        <div className="rounded border border-subtle bg-surface-2/50 px-3 py-2 text-body-sm text-fg-secondary">
+          <Markdown source={summary} className="md-compact" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const MessageView = memo(function MessageView({
   message,
   streaming,
@@ -1417,6 +1459,13 @@ const MessageView = memo(function MessageView({
   verbosity: TranscriptVerbosity;
 }) {
   const { t } = useI18n();
+  // A `/compact` boundary: render as a centered divider instead of a bubble so
+  // the scrollback above it stays readable while signalling that the model's
+  // memory of those turns is now the (expandable) summary.
+  const compaction = message.parts.find((p) => p.type === 'compaction');
+  if (compaction) {
+    return <CompactionDivider summary={compaction.summary} freedTokens={compaction.freedTokens} />;
+  }
   if (message.role === 'user') {
     const images = message.parts.filter((p) => p.type === 'image');
     return (
@@ -1493,6 +1542,9 @@ const MessageView = memo(function MessageView({
             </div>
           );
         }
+        // Compaction dividers are handled by the early return above; nothing
+        // else renders them inline.
+        if (part.type !== 'tool') return null;
         // Tool cards: hidden in Summary, auto-expanded in Verbose. Generated
         // media (images/videos) renders inline regardless of verbosity so a
         // "make me an image" turn always shows the result, not just a file path.
