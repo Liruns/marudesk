@@ -95,7 +95,9 @@ export function registerAgentHandlers(): void {
 
   defineHandler('agent:reset', () => reset());
 
-  defineHandler('agent:compact', () => compactConversation());
+  defineHandler('agent:compact', ([focus]) =>
+    compactConversation(typeof focus === 'string' ? focus : undefined),
+  );
 
   // Session history (v3 §5-C): list past conversations, resume one as the active
   // chat, or delete one. list/delete proxy sessions-store; resume swaps loop state.

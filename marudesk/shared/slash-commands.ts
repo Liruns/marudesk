@@ -25,6 +25,8 @@ export type SlashActionCommand = {
   aliases?: string[];
   /** One-line description for the menu row. */
   description: string;
+  /** Placeholder hint for an optional trailing argument, e.g. "what to keep". */
+  argHint?: string;
   action: SlashActionId;
 };
 
@@ -117,7 +119,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     kind: 'action',
     name: 'compact',
-    description: 'Summarize the conversation to free up context',
+    description: 'Summarize earlier turns to free context (history stays visible)',
+    argHint: 'optional: what to keep',
     action: 'compact',
   },
   {

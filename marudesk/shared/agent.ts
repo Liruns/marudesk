@@ -82,11 +82,28 @@ export type AgentImagePart = { type: 'image'; mediaType: string; data: string };
  * round-trip constraints; the loop keeps reasoning out of `ModelMessage[]`).
  */
 export type AgentReasoningPart = { type: 'reasoning'; text: string };
+/**
+ * A compaction boundary in the visible transcript. `/compact` summarizes the
+ * earlier turns for the MODEL (replacing them in the context window to save
+ * tokens) but keeps the full scrollback visible to the user — this part renders
+ * the divider that marks where that happened and carries the summary the model
+ * now sees, so the user can expand it to verify what was preserved. Display-only:
+ * it is never sent to the model (the summary lives in the transcript instead),
+ * which is what makes compaction non-destructive to the user's history.
+ */
+export type AgentCompactionPart = {
+  type: 'compaction';
+  /** The summary that replaced the earlier turns in the model's context. */
+  summary: string;
+  /** Approx. input tokens dropped from the context, for the divider label. */
+  freedTokens?: number;
+};
 export type AgentPart =
   | AgentTextPart
   | AgentToolPart
   | AgentReasoningPart
-  | AgentImagePart;
+  | AgentImagePart
+  | AgentCompactionPart;
 
 /** A user-attached image forwarded with the first turn (see {@link AgentImagePart}). */
 export type AgentImageInput = { mediaType: string; data: string };

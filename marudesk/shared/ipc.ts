@@ -615,9 +615,11 @@ export interface IpcMap {
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: []; result: boolean };
-  // Compact the conversation: summarize the transcript and replace it (claude-code
-  // / codex `/compact`). Returns ok, or a reason when there's nothing to compact.
-  'agent:compact': { args: []; result: { ok: boolean; reason?: string } };
+  // Compact the conversation: summarize the transcript for the model while
+  // keeping the visible scrollback (claude-code / codex `/compact`). An optional
+  // `focus` (from `/compact <focus>`) asks the summarizer to preserve specific
+  // details. Returns ok, or a reason when there's nothing to compact.
+  'agent:compact': { args: [focus?: string]; result: { ok: boolean; reason?: string } };
   // Session history (v3 §5-C): list past saved conversations, resume one as the
   // active chat, or delete one. The list backs the sessions UI; resume swaps state.
   'agent:list-sessions': { args: []; result: SessionSummary[] };

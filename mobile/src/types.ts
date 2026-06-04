@@ -48,7 +48,17 @@ export type AgentTextPart = { type: 'text'; text: string };
 export type AgentToolPart = { type: 'tool'; call: ToolCall };
 /** The model's streamed reasoning ("extended thinking"); collapsible block. */
 export type AgentReasoningPart = { type: 'reasoning'; text: string };
-export type AgentPart = AgentTextPart | AgentToolPart | AgentReasoningPart;
+/**
+ * A `/compact` boundary: the earlier turns were summarized for the model while
+ * the scrollback stayed visible. Display-only marker; carries the summary the
+ * model now sees. Mirror of marudesk's AgentCompactionPart.
+ */
+export type AgentCompactionPart = { type: 'compaction'; summary: string; freedTokens?: number };
+export type AgentPart =
+  | AgentTextPart
+  | AgentToolPart
+  | AgentReasoningPart
+  | AgentCompactionPart;
 
 export type AgentRole = 'user' | 'assistant';
 

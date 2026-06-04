@@ -853,11 +853,16 @@ function serializeForCompaction(msgs: ModelMessage[]): string {
  * transcript with the conversation's own model, then replace the history with
  * that summary so later turns keep context without the token weight. Uses the
  * same provider-aware auth + system handling as a turn (anthropic-OAuth prefix,
- * codex `store:false`). Standalone-compaction style: the prior history is
- * cleared and represented by the summary, capped with a synthetic assistant ack
- * so the next turn still alternates user→assistant→user (Anthropic requirement).
+ * codex `store:false`). Non-destructive (claude-code / cursor parity): only the
+ * model-facing `transcript` is replaced by the summary (capped with a synthetic
+ * assistant ack so the next turn still alternates user→assistant→user, an
+ * Anthropic requirement). The user's visible scrollback (`state.messages`) is
+ * KEPT — we just append a compaction divider that carries the summary — so the
+ * conversation history never disappears from the UI, only from the context
+ * window. An optional `focus` (from `/compact <focus>`) tells the summarizer
+ * what to preserve in extra detail.
  */
-export async function compactConversation(): Promise<{ ok: boolean; reason?: string }> {
+export async function compactConversation(focus?: string): Promise<{ ok: boolean; reason?: string }> {
   if (busy() || starting) return { ok: false, reason: 'a turn is already in progress' };
   if (!conversationProvider || !conversationModel || !isProviderId(conversationProvider)) {
     return { ok: false, reason: 'nothing to compact yet' };
@@ -875,29 +880,37 @@ export async function compactConversation(): Promise<{ ok: boolean; reason?: str
       resolved.auth.mode === 'oauth' && provider === 'anthropic'
         ? CLAUDE_CODE_SYSTEM_PREFIX
         : undefined;
+    const trimmedFocus = focus?.trim();
+    const instruction = trimmedFocus
+      ? `${COMPACT_INSTRUCTION}\n\nThe user asked you to preserve this in extra detail: ${trimmedFocus}`
+      : COMPACT_INSTRUCTION;
     const convo = serializeForCompaction(transcript);
     const res = await generateText({
       model: m,
       system,
-      prompt: `${COMPACT_INSTRUCTION}\n\n<conversation>\n${convo}\n</conversation>`,
+      prompt: `${instruction}\n\n<conversation>\n${convo}\n</conversation>`,
       maxOutputTokens: codexBackend ? undefined : 2048,
       providerOptions: codexBackend ? { openai: { store: false } } : undefined,
     });
     const summary = res.text.trim();
     if (!summary) return { ok: false, reason: 'the model returned an empty summary' };
 
+    // Tokens currently in the context window — reported on the divider so the
+    // user can see how much the compaction freed up.
+    const freed = state.usage.inputTokens;
     transcript = [
       { role: 'user', content: `${SUMMARY_PREFIX}\n${summary}` },
       { role: 'assistant', content: 'Understood — I have the summary above and will continue from here.' },
     ];
-    state.messages = [
-      {
-        id: uid('m'),
-        role: 'assistant',
-        parts: [{ type: 'text', text: `Compacted the earlier conversation.\n\n${summary}` }],
-        timestamp: Date.now(),
-      },
-    ];
+    // Keep the visible scrollback intact; just mark where the model's memory was
+    // condensed. The divider holds the summary so the user can expand it to see
+    // exactly what the model will carry forward.
+    state.messages.push({
+      id: uid('m'),
+      role: 'assistant',
+      parts: [{ type: 'compaction', summary, freedTokens: freed > 0 ? freed : undefined }],
+      timestamp: Date.now(),
+    });
     state.usage = { inputTokens: 0, outputTokens: 0 };
     state.error = null;
     state.endNote = null;
