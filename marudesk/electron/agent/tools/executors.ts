@@ -7,6 +7,7 @@ import { readFileSafe, readFileWindow } from '../../workspace';
 import { resolveWorkspacePath } from '../../fs-safe';
 import { applyPatch } from '../../patch';
 import { isStaleForEdit, recordRead, updateAfterWrite } from '../read-tracker';
+import { pageLines } from '../text-window';
 import { getTab, getErrors, getNetwork, type TabRecord } from '../../browser/state';
 import { sendCdp, enableNetworkCapture } from '../../browser/cdp';
 import type { Executor, ToolContext, ToolResult } from './types';
@@ -21,10 +22,6 @@ import type { Executor, ToolContext, ToolResult } from './types';
  */
 
 const MAX_TOOL_TEXT = 12_000;
-// read_file pages by line: default lines per call, hard byte budget per call,
-// and a per-line clip so one pathological line can't blow the budget.
-const MAX_READ_LINES = 1_500;
-const MAX_READ_LINE_LEN = 2_000;
 const MAX_GREP_RESULTS = 60;
 const MAX_GREP_FILES = 600;
 const GREP_CONCURRENCY = 8;
@@ -56,50 +53,6 @@ const SECRET_FILE =
 
 function clip(s: string, max = MAX_TOOL_TEXT): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[clipped ${s.length - max} chars]`;
-}
-
-/**
- * Prefix each line with a right-aligned 1-based number + tab (cat -n style), so
- * the model can anchor edits and reason about locations. The numbers are display
- * only — `oldString` for an edit must still be the verbatim file text WITHOUT
- * these prefixes (the read_file/edit_file descriptions say so).
- */
-/** Coerce a tool input into a positive integer, falling back when absent/invalid. */
-function toPosInt(v: unknown, fallback: number): number {
-  return typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
-}
-
-/** Clip a single line so one pathological (e.g. minified) line can't dominate. */
-function clipLine(line: string): string {
-  return line.length <= MAX_READ_LINE_LEN
-    ? line
-    : `${line.slice(0, MAX_READ_LINE_LEN)}… [line truncated, ${line.length} chars]`;
-}
-
-/**
- * Render lines `start..last` (1-based, inclusive) from `lines` with right-aligned
- * `N\t` prefixes (display only — NOT part of the file), stopping early if the
- * byte budget would be exceeded. Returns the text plus the last line actually
- * shown so the caller can offer a continuation offset.
- */
-function renderWindow(
-  lines: string[],
-  start: number,
-  end: number,
-  budget = MAX_TOOL_TEXT,
-): { text: string; lastShown: number } {
-  const width = String(end).length;
-  const parts: string[] = [];
-  let used = 0;
-  let lastShown = start - 1;
-  for (let i = start; i <= end; i++) {
-    const rendered = `${String(i).padStart(width, ' ')}\t${clipLine(lines[i - 1])}`;
-    if (i > start && used + rendered.length + 1 > budget) break;
-    parts.push(rendered);
-    used += rendered.length + 1;
-    lastShown = i;
-  }
-  return { text: parts.join('\n'), lastShown };
 }
 
 function requireTab(ctx: ToolContext): TabRecord {
@@ -185,27 +138,10 @@ async function readFile(
     // A path that won't resolve can't be edited either — skip tracking.
   }
 
-  if (content.length === 0 && !truncated) {
-    return { summary: `read ${p} (empty)`, text: '(empty file)' };
-  }
-
-  const lines = content.split('\n');
-  const total = lines.length;
-  const start = Math.min(toPosInt(input.offset, 1), total);
-  const limit = Math.min(toPosInt(input.limit, MAX_READ_LINES), MAX_READ_LINES);
-  const end = Math.min(start + limit - 1, total);
-  const { text, lastShown } = renderWindow(lines, start, end);
-
-  let footer = '';
-  if (lastShown < total) {
-    footer = `\n…(showing lines ${start}-${lastShown} of ${truncated ? `${total}+` : total} — read with offset=${lastShown + 1} for more)`;
-  } else if (truncated) {
-    footer = `\n…(file exceeds the agent read limit; lines past ${total} are not shown)`;
-  }
-  const ranged = start > 1 || lastShown < total;
+  const view = pageLines(content, { offset: input.offset, limit: input.limit, truncated });
   return {
-    summary: `read ${p}${ranged ? ` (lines ${start}-${lastShown})` : ''}`,
-    text: text + footer,
+    summary: `read ${p}${view.ranged ? ` (lines ${view.firstLine}-${view.lastLine})` : ''}`,
+    text: view.text,
   };
 }
 
@@ -364,13 +300,10 @@ async function applyEdits(
       // fresh text in the same turn (the retry then passes this guard). The echo
       // is windowed (a large file can't be dumped) but the anchor is the full read.
       recordRead(abs, current);
-      const lines = current.split('\n');
-      const end = Math.min(lines.length, MAX_READ_LINES);
-      const { text, lastShown } = renderWindow(lines, 1, end);
-      const more = lastShown < lines.length ? `\n…(showing lines 1-${lastShown} of ${lines.length} — read_file with offset for the rest)` : '';
+      const view = pageLines(current);
       return {
         summary: `${label} blocked (stale)`,
-        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${text}${more}`,
+        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${view.text}`,
         isError: true,
       };
     }
