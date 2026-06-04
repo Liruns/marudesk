@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { Check, Monitor, Moon, Sun } from 'lucide-react';
+import { Monitor, Moon, Sun } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { ACCENTS, useThemeStore } from './store';
+import { AccentSwatches } from './AccentSwatches';
 import { useSettingsStore } from '../settings/store';
 import { LOCALE_OPTIONS } from '../../i18n/messages';
 import { useI18n } from '../../i18n/useI18n';
@@ -22,8 +22,6 @@ const MODES: { value: ThemeMode; labelKey: TranslationKey; icon: typeof Monitor 
  * captures the dismiss click; the panel anchors bottom-left, clear of the rail.
  */
 export function AppearancePopover({ onClose }: { onClose: () => void }) {
-  const accent = useThemeStore((s) => s.accent);
-  const setAccent = useThemeStore((s) => s.setAccent);
   const mode = useSettingsStore((s) => s.settings.appearance.theme);
   const update = useSettingsStore((s) => s.update);
   const { locale, setLocale, t } = useI18n();
@@ -49,30 +47,7 @@ export function AppearancePopover({ onClose }: { onClose: () => void }) {
           <span className="text-caption uppercase tracking-wider text-fg-tertiary">
             {t('appearance.accent.label')}
           </span>
-          <div className="grid grid-cols-6 gap-1.5">
-            {ACCENTS.map((a) => {
-              const active = a.name === accent;
-              return (
-                <button
-                  key={a.name}
-                  type="button"
-                  onClick={() => setAccent(a.name)}
-                  aria-label={a.label}
-                  aria-pressed={active}
-                  title={a.label}
-                  className={cn(
-                    'flex aspect-square items-center justify-center rounded-md transition-transform duration-fast hover:scale-110',
-                    active
-                      ? 'ring-2 ring-fg-primary/80 ring-offset-2 ring-offset-surface-2'
-                      : '',
-                  )}
-                  style={{ backgroundColor: a.swatch }}
-                >
-                  {active ? <Check size={13} className="text-white" /> : null}
-                </button>
-              );
-            })}
-          </div>
+          <AccentSwatches variant="grid" />
           <p className="text-caption text-fg-tertiary leading-relaxed">
             {t('appearance.accent.description')}
           </p>

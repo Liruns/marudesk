@@ -6,7 +6,6 @@ export const LOCALE_OPTIONS = [
 export type Locale = (typeof LOCALE_OPTIONS)[number]['value'];
 
 const EN_MESSAGES = {
-  'activity.apiProviders': 'API Providers…',
   'activity.appearance': 'Appearance…',
   'activity.barLabel': 'Activity bar',
   'activity.hideContext': 'Hide context panel',
@@ -1074,7 +1073,6 @@ type LocaleFormatters = {
 };
 
 const KO_MESSAGES: Messages = {
-  'activity.apiProviders': 'API 제공자…',
   'activity.appearance': '모양새…',
   'activity.barLabel': '활동 표시줄',
   'activity.hideContext': '컨텍스트 패널 숨기기',
