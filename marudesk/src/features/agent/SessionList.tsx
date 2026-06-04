@@ -3,6 +3,8 @@ import { History, Plus, Search, Trash2 } from 'lucide-react';
 import type { ProviderId } from '../../../shared/providers';
 import type { SessionSearchHit } from '../../../shared/context';
 import { cn } from '../../lib/cn';
+import type { I18nContextValue } from '../../i18n/useI18n';
+import { useI18n } from '../../i18n/useI18n';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
 import { useAgentStore } from './store';
 
@@ -17,6 +19,7 @@ import { useAgentStore } from './store';
  * rail leaves it unset.
  */
 export function SessionList({ onPick, className }: { onPick?: () => void; className?: string }) {
+  const { t } = useI18n();
   const sessions = useAgentStore((s) => s.sessions);
   const activeId = useAgentStore((s) => s.chat.activeSessionId);
   const loadSessions = useAgentStore((s) => s.loadSessions);
@@ -85,7 +88,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
           )}
         >
           <Plus size={13} className="shrink-0 text-fg-tertiary" />
-          <span>New chat</span>
+          <span>{t('agent.sessions.newChat')}</span>
         </button>
         {sessions.length > 0 ? (
           <div className="mt-2 flex items-center gap-1.5 h-7 rounded-md bg-surface-page border border-subtle px-2 focus-within:border-accent">
@@ -93,9 +96,9 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Search chats & messages"
+              placeholder={t('agent.sessions.search.placeholder')}
               spellCheck={false}
-              aria-label="Search chats and messages"
+              aria-label={t('agent.sessions.search.aria')}
               className="flex-1 min-w-0 bg-transparent text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
             />
           </div>
@@ -106,11 +109,13 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
         {sessions.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-caption text-fg-tertiary">
             <History size={18} className="opacity-30" />
-            <span className="leading-snug">No saved chats yet</span>
+            <span className="leading-snug">{t('agent.sessions.empty')}</span>
           </div>
         ) : searching && visible.length === 0 ? (
           <div className="px-4 py-8 text-center text-caption text-fg-tertiary">
-            No chats match “{filter.trim()}”
+            {t('agent.sessions.noMatchBefore')}
+            {filter.trim()}
+            {t('agent.sessions.noMatchAfter')}
           </div>
         ) : (
           <ul className="py-1">
@@ -143,12 +148,15 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                           isActive ? 'text-fg-primary font-medium' : 'text-fg-secondary',
                         )}
                       >
-                        {s.title || 'Untitled chat'}
+                        {s.title || t('agent.sessions.untitled')}
                       </span>
                       <span className="truncate text-[0.6875rem] leading-none text-fg-tertiary/70 tabular-nums">
-                        {relativeTime(s.updatedAt)}
+                        {relativeTime(s.updatedAt, t)}
                         <span className="mx-1 opacity-50">·</span>
-                        {s.messageCount} msg
+                        {s.messageCount}
+                        {s.messageCount === 1
+                          ? t('agent.sessions.messageSingular')
+                          : t('agent.sessions.messagePlural')}
                       </span>
                       {s.snippet ? (
                         <span className="line-clamp-2 text-[0.6875rem] leading-snug text-fg-tertiary">
@@ -163,7 +171,9 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                       e.stopPropagation();
                       void deleteSession(s.id);
                     }}
-                    aria-label={`Delete chat: ${s.title || 'Untitled chat'}`}
+                    aria-label={`${t('agent.sessions.deleteBefore')}${s.title || t(
+                      'agent.sessions.untitled',
+                    )}${t('agent.sessions.deleteAfter')}`}
                     className="shrink-0 p-1 rounded text-fg-tertiary/40 opacity-0 transition-all duration-fast hover:text-error hover:bg-error-subtle/30 group-hover:opacity-100"
                   >
                     <Trash2 size={12} />
@@ -200,14 +210,14 @@ function Snippet({ text }: { text: string }) {
 }
 
 /** Compact relative timestamp for a session row ("3m ago", "2d ago", or a date). */
-function relativeTime(ts: number): string {
+function relativeTime(ts: number, t: I18nContextValue['t']): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60_000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return t('agent.sessions.justNow');
+  if (m < 60) return `${m}${t('agent.sessions.minutesAgo')}`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return `${h}${t('agent.sessions.hoursAgo')}`;
   const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
+  if (d < 7) return `${d}${t('agent.sessions.daysAgo')}`;
   return new Date(ts).toLocaleDateString();
 }

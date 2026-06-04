@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { History, PanelLeftClose } from 'lucide-react';
+import { useI18n } from '../../i18n/useI18n';
 import { SessionList } from './SessionList';
 
 /**
@@ -9,6 +10,7 @@ import { SessionList } from './SessionList';
  * beside the centered chat column — the drawer companion uses an overlay instead.
  */
 export function SessionRail() {
+  const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
 
   if (collapsed) {
@@ -17,8 +19,8 @@ export function SessionRail() {
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          aria-label="Show session history"
-          title="Session history"
+          aria-label={t('agent.sessions.showHistory')}
+          title={t('agent.sessions.history')}
           className="rounded p-1 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
         >
           <History size={14} />
@@ -32,12 +34,12 @@ export function SessionRail() {
       <header className="flex h-9 shrink-0 items-center justify-between border-b border-subtle pl-3 pr-1.5">
         <span className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-widest text-fg-tertiary/70 select-none">
           <History size={11} />
-          History
+          {t('agent.sessions.history')}
         </span>
         <button
           type="button"
           onClick={() => setCollapsed(true)}
-          aria-label="Hide session history"
+          aria-label={t('agent.sessions.hideHistory')}
           className="rounded p-0.5 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
         >
           <PanelLeftClose size={13} />

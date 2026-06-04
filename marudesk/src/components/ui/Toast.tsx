@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 
 type Variant = 'neutral' | 'success' | 'warning' | 'error';
@@ -25,6 +26,7 @@ export function Toast({
   onDismiss,
   className,
 }: ToastProps) {
+  const { t } = useI18n();
   return (
     <div
       role="status"
@@ -48,7 +50,7 @@ export function Toast({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t('agent.chat.dismiss')}
           className="-mr-1 -mt-1 flex size-5 shrink-0 items-center justify-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
         >
           <X size={13} aria-hidden />

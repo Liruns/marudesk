@@ -1,5 +1,6 @@
 import { useEffect, useState, type DragEvent as ReactDragEvent } from 'react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import { useGridStore } from './grid';
 import { pickZone, zoneToSplit, type DropZone } from './dnd';
 
@@ -15,6 +16,7 @@ const TAB_DND_MIME = 'application/x-marudesk-tab';
  * overlay is otherwise fully transparent until a tab is dragged over it.
  */
 export function SeedDropOverlay({ draggedTabId }: { draggedTabId: string }) {
+  const { t } = useI18n();
   const splitWith = useGridStore((s) => s.splitWith);
   const [zone, setZone] = useState<DropZone | null>(null);
 
@@ -61,17 +63,17 @@ export function SeedDropOverlay({ draggedTabId }: { draggedTabId: string }) {
   return (
     <div
       className="absolute inset-0 z-40 bg-surface-page"
-      aria-label="Drop a tab to split the view"
+      aria-label={t('tabs.drop.aria')}
       onDragOver={onDragOver}
       onDragLeave={() => setZone(null)}
       onDrop={onDrop}
     >
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none text-center px-8">
         <span className="text-caption uppercase tracking-wider text-fg-tertiary">
-          Split view
+          {t('tabs.drop.title')}
         </span>
         <p className="text-body-sm text-fg-tertiary max-w-xs">
-          Drop near an edge to tile this tab beside the current one.
+          {t('tabs.drop.body')}
         </p>
       </div>
       {zone ? (

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
@@ -30,28 +31,30 @@ const SIZES = {
 
 export function CopyButton({
   text,
-  label = 'Copy',
+  label,
   size = 'sm',
   write,
   className,
 }: CopyButtonProps) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const spec = SIZES[size];
+  const buttonLabel = label ?? t('common.copy');
   const copy = async (): Promise<void> => {
     try {
       await (write ? write(text) : navigator.clipboard.writeText(text));
       setCopied(true);
       window.setTimeout(() => setCopied(false), spec.ms);
     } catch (err) {
-      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+      toast({ title: t('common.copyFailed'), description: toMessage(err), variant: 'error' });
     }
   };
   return (
     <button
       type="button"
       onClick={() => void copy()}
-      title={label}
-      aria-label={label}
+      title={buttonLabel}
+      aria-label={buttonLabel}
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded text-fg-tertiary',
         'transition-colors duration-fast hover:bg-surface-2 hover:text-fg-primary',

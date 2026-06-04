@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, MousePointerSquareDashed, Search, Sparkles, X } from 'lucide-react';
+import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { DomTree } from '../components/DomTree';
@@ -16,6 +17,7 @@ const FORCE_STATES = [':hover', ':active', ':focus', ':focus-within', ':visited'
  * `Overlay.inspectNodeRequested` (handled in the store).
  */
 export function ElementsPanel() {
+  const { t } = useI18n();
   const picking = useDevtoolsStore((s) => s.picking);
   const selectedId = useDevtoolsStore((s) => s.selectedId);
   const windowMode = useDevtoolsStore((s) => s.windowMode);
@@ -49,8 +51,8 @@ export function ElementsPanel() {
         <button
           type="button"
           aria-pressed={picking}
-          aria-label="Pick an element"
-          title="Select an element in the page"
+          aria-label={t('devtools.elements.pick')}
+          title={t('devtools.elements.pickTitle')}
           onClick={() => {
             const s = useDevtoolsStore.getState();
             if (s.picking) void s.stopPick();
@@ -68,8 +70,8 @@ export function ElementsPanel() {
         {windowMode ? null : (
           <button
             type="button"
-            aria-label="Add to AI context"
-            title="Add the selected element (with outerHTML + computed style) to the composer context"
+            aria-label={t('devtools.elements.addContext')}
+            title={t('devtools.elements.addContextTitle')}
             disabled={selectedId === null}
             onClick={() => void useDevtoolsStore.getState().captureSelected()}
             className={cn(
@@ -108,8 +110,8 @@ export function ElementsPanel() {
               }}
               spellCheck={false}
               autoComplete="off"
-              placeholder="Find (text/selector)"
-              aria-label="Search the DOM"
+              placeholder={t('devtools.elements.findPlaceholder')}
+              aria-label={t('devtools.elements.searchDom')}
               className="h-6 w-36 min-w-0 rounded bg-surface-2 pl-6 pr-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
             />
           </div>
@@ -120,7 +122,7 @@ export function ElementsPanel() {
               </span>
               <button
                 type="button"
-                aria-label="Previous match"
+                aria-label={t('devtools.elements.previousMatch')}
                 onClick={() => void useDevtoolsStore.getState().stepSearch(-1)}
                 className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
               >
@@ -128,7 +130,7 @@ export function ElementsPanel() {
               </button>
               <button
                 type="button"
-                aria-label="Next match"
+                aria-label={t('devtools.elements.nextMatch')}
                 onClick={() => void useDevtoolsStore.getState().stepSearch(1)}
                 className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
               >
@@ -136,7 +138,7 @@ export function ElementsPanel() {
               </button>
               <button
                 type="button"
-                aria-label="Clear search"
+                aria-label={t('search.clear')}
                 onClick={clearSearch}
                 className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
               >

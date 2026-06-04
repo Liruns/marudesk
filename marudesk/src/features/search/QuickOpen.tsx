@@ -12,6 +12,7 @@ import { useWorkspaceStore } from '../workspace/store';
 import { useEditorStore } from '../editor/store';
 import { fuzzyScore } from './fuzzy';
 import { baseName, dirName } from '../git/statusMeta';
+import { useI18n } from '../../i18n/useI18n';
 
 /**
  * Command-palette quick-open (Ctrl+P). A centered, keyboard-first overlay that
@@ -30,6 +31,7 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
+  const { formatQuickOpenNoMatch, t } = useI18n();
 
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
@@ -81,7 +83,12 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Go to file">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('quickOpen.dialogLabel')}
+    >
       <button
         type="button"
         aria-hidden
@@ -100,7 +107,11 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
               setActive(0);
             }}
             onKeyDown={onKeyDown}
-            placeholder={summary ? 'Go to file…' : 'Open a folder to search files'}
+            placeholder={
+              summary
+                ? t('quickOpen.placeholder.ready')
+                : t('quickOpen.placeholder.noWorkspace')
+            }
             spellCheck={false}
             autoComplete="off"
             disabled={!summary}
@@ -111,11 +122,11 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {!summary ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
-              No workspace open.
+              {t('quickOpen.noWorkspace')}
             </div>
           ) : results.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
-              No files match “{query}”.
+              {formatQuickOpenNoMatch(query)}
             </div>
           ) : (
             results.map((r, idx) => {
@@ -145,9 +156,9 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
-          <Hint k="↑↓" label="move" />
-          <Hint k="↵" label="open" />
-          <Hint k="esc" label="close" />
+          <Hint k="↑↓" label={t('palette.hint.move')} />
+          <Hint k="↵" label={t('quickOpen.hint.open')} />
+          <Hint k="esc" label={t('palette.hint.close')} />
         </div>
       </div>
     </div>

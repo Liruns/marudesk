@@ -15,6 +15,7 @@ import { useAgentStore } from '../features/agent/store';
 import { openSettingsTab } from '../features/settings/store';
 import { ContextMenu } from './ContextMenu';
 import { AppearancePopover } from '../features/theme/AppearancePopover';
+import { useI18n } from '../i18n/useI18n';
 
 type Props = {
   explorerOpen: boolean;
@@ -52,28 +53,35 @@ export function ActivityBar({
   const agentWaiting = useAgentStore((s) => s.chat.status === 'waiting_for_user');
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const { t } = useI18n();
 
   return (
     <nav
-      aria-label="Activity bar"
+      aria-label={t('activity.barLabel')}
       className="w-12 shrink-0 flex flex-col items-center py-2 gap-1 bg-surface-1 border-r border-subtle"
     >
       <ActivityButton
-        label={explorerOpen ? 'Hide Explorer' : 'Show Explorer'}
+        label={
+          explorerOpen ? t('activity.hideExplorer') : t('activity.showExplorer')
+        }
         active={explorerOpen}
         onClick={onToggleExplorer}
       >
         <Files size={18} />
       </ActivityButton>
       <ActivityButton
-        label={searchOpen ? 'Hide Search' : 'Search'}
+        label={searchOpen ? t('activity.hideSearch') : t('activity.search')}
         active={searchOpen}
         onClick={onToggleSearch}
       >
         <Search size={18} />
       </ActivityButton>
       <ActivityButton
-        label={sourceControlOpen ? 'Hide Source Control' : 'Source Control'}
+        label={
+          sourceControlOpen
+            ? t('activity.hideSourceControl')
+            : t('activity.sourceControl')
+        }
         active={sourceControlOpen}
         onClick={onToggleSourceControl}
       >
@@ -82,10 +90,10 @@ export function ActivityBar({
       <ActivityButton
         label={
           agentWaiting
-            ? 'Agent needs your input'
+            ? t('activity.needsInput')
             : drawerOpen
-              ? 'Hide context panel'
-              : 'Show context panel'
+              ? t('activity.hideContext')
+              : t('activity.showContext')
         }
         onClick={onToggleDrawer}
         active={drawerOpen}
@@ -96,7 +104,7 @@ export function ActivityBar({
       </ActivityButton>
       <span className="flex-1" aria-hidden />
       <ActivityButton
-        label="Settings"
+        label={t('activity.settings')}
         active={!!menu}
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
@@ -112,19 +120,19 @@ export function ActivityBar({
           onClose={() => setMenu(null)}
           items={[
             {
-              label: 'Appearance…',
+              label: t('activity.appearance'),
               icon: <Palette size={15} />,
               onSelect: () => setAppearanceOpen(true),
             },
             { type: 'separator' },
             {
-              label: 'Settings',
+              label: t('activity.settings'),
               icon: <SlidersHorizontal size={15} />,
               onSelect: () => void openSettingsTab(),
             },
             { type: 'separator' },
             {
-              label: 'API Providers…',
+              label: t('activity.apiProviders'),
               icon: <KeyRound size={15} />,
               onSelect: () => void openSettingsTab('providers'),
             },

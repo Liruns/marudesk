@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import type { GitChange } from '../../../shared/git';
 import { bucketChanges, useGitStore } from './store';
@@ -69,6 +70,7 @@ type DiffTarget = { path: string; staged: boolean };
  * feel identical.
  */
 export function SourceControlPanel({ open, onRequestClose }: Props) {
+  const { t } = useI18n();
   const status = useGitStore((s) => s.status);
   const available = useGitStore((s) => s.available);
   const branches = useGitStore((s) => s.branches);
@@ -157,14 +159,14 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
     if (paths.length === 0) return;
     const ok = window.confirm(
       paths.length === 1
-        ? `Discard changes in "${label}"? This cannot be undone.`
-        : `Discard changes in ${paths.length} files? This cannot be undone.`,
+        ? `${t('git.confirm.discardOneBefore')}"${label}"${t('git.confirm.discardOneAfter')}`
+        : `${t('git.confirm.discardManyBefore')}${paths.length}${t('git.confirm.discardManyAfter')}`,
     );
     if (ok) void discard(paths);
   };
 
   const onCreateBranch = () => {
-    const name = window.prompt('New branch name')?.trim();
+    const name = window.prompt(t('git.branch.newPrompt'))?.trim();
     if (name) void createBranch(name);
   };
 
@@ -179,7 +181,7 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
     }));
     items.push(
       { type: 'separator' },
-      { label: 'Create branch…', icon: <Plus size={14} />, onSelect: onCreateBranch },
+      { label: t('git.branch.create'), icon: <Plus size={14} />, onSelect: onCreateBranch },
     );
     return items;
   };
@@ -189,7 +191,7 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   return (
     <aside
       role="complementary"
-      aria-label="Source Control"
+      aria-label={t('git.panel.label')}
       aria-hidden={!open}
       className={cn(
         'relative shrink-0 bg-surface-1 border-r border-subtle overflow-hidden',
@@ -208,20 +210,20 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
       >
         <header className="h-9 shrink-0 flex items-center justify-between pl-3 pr-1.5 border-b border-subtle">
           <h2 className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
-            Source Control
+            {t('git.panel.title')}
           </h2>
           <div className="flex items-center gap-0.5">
             {status?.isRepo && hasUnstaged ? (
-              <IconButton label="Stage all changes" onClick={() => void stageAll()} disabled={busy}>
+              <IconButton label={t('git.action.stageAllChanges')} onClick={() => void stageAll()} disabled={busy}>
                 <Plus size={15} />
               </IconButton>
             ) : null}
             {available?.installed === false ? null : (
-              <IconButton label="Fetch" onClick={() => void fetch()} disabled={busy}>
+              <IconButton label={t('git.action.fetch')} onClick={() => void fetch()} disabled={busy}>
                 <RefreshCw size={14} />
               </IconButton>
             )}
-            <IconButton label="Refresh" onClick={() => void refresh()} disabled={loading}>
+            <IconButton label={t('git.action.refresh')} onClick={() => void refresh()} disabled={loading}>
               <RotateCcw size={14} />
             </IconButton>
           </div>
@@ -231,10 +233,10 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
           <GitMissing />
         ) : status === null ? (
           <div className="flex flex-1 items-center justify-center gap-2 text-fg-tertiary">
-            <Spinner size={16} /> Loading…
+            <Spinner size={16} /> {t('git.loading')}
           </div>
         ) : !status.isRepo ? (
-          <NotARepo onInit={() => void init()} busy={busy} />
+          <NotARepo onInit={() => void init()} busy={busy} t={t} />
         ) : (
           <div className="flex-1 min-h-0 flex flex-col">
             {/* branch + ahead/behind + sync/pull/push */}
@@ -247,27 +249,27 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                 }}
                 title={
                   status.upstream
-                    ? `Tracking ${status.upstream} — click to switch branch`
-                    : 'Switch branch'
+                    ? `${t('git.branch.tracking')} ${status.upstream} - ${t('git.branch.switch')}`
+                    : t('git.branch.switch')
                 }
                 className="flex min-w-0 items-center gap-1.5 rounded px-1 -mx-1 h-6 text-fg-secondary hover:bg-surface-2 transition-colors"
               >
                 <GitBranch size={13} className="shrink-0 text-fg-tertiary" />
                 <span className="truncate text-body-sm">
-                  {status.branch ?? (status.unborn ? 'no commits yet' : 'detached')}
+                  {status.branch ?? (status.unborn ? t('git.branch.unborn') : t('git.branch.detached'))}
                 </span>
               </button>
               {status.ahead > 0 || status.behind > 0 ? (
                 <span className="shrink-0 flex items-center gap-1 text-caption text-fg-tertiary tabular-nums">
-                  {status.behind > 0 ? <span title="behind">↓{status.behind}</span> : null}
-                  {status.ahead > 0 ? <span title="ahead">↑{status.ahead}</span> : null}
+                  {status.behind > 0 ? <span title={t('git.branch.behind')}>↓{status.behind}</span> : null}
+                  {status.ahead > 0 ? <span title={t('git.branch.ahead')}>↑{status.ahead}</span> : null}
                 </span>
               ) : null}
               <span className="flex-1" aria-hidden />
-              <IconButton label="Pull" onClick={() => void pull()} disabled={busy || !status.upstream}>
+              <IconButton label={t('git.action.pull')} onClick={() => void pull()} disabled={busy || !status.upstream}>
                 <ChevronDown size={14} />
               </IconButton>
-              <IconButton label="Push" onClick={() => void push()} disabled={busy || !status.upstream}>
+              <IconButton label={t('git.action.push')} onClick={() => void push()} disabled={busy || !status.upstream}>
                 <Upload size={13} />
               </IconButton>
             </div>
@@ -285,7 +287,9 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                   }
                 }}
                 rows={2}
-                placeholder={hasStaged ? 'Message (Ctrl+Enter to commit)' : 'Stage changes to commit'}
+                placeholder={
+                  hasStaged ? t('git.commit.placeholderReady') : t('git.commit.placeholderEmpty')
+                }
                 spellCheck={false}
                 className={cn(
                   'w-full resize-none rounded border border-subtle bg-surface-2 px-2 py-1.5',
@@ -305,7 +309,7 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                     : 'bg-surface-2 text-fg-tertiary cursor-not-allowed',
                 )}
               >
-                <Check size={14} /> Commit
+                <Check size={14} /> {t('git.action.commit')}
               </button>
             </div>
 
@@ -319,17 +323,17 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
             <div className="flex-1 min-h-0 overflow-y-auto">
               {buckets && buckets.staged.length === 0 && buckets.changes.length === 0 && buckets.untracked.length === 0 ? (
                 <p className="px-3 py-6 text-center text-body-sm text-fg-tertiary">
-                  No changes.
+                  {t('git.empty.noChanges')}
                 </p>
               ) : null}
 
               {buckets && buckets.staged.length > 0 ? (
                 <Section
-                  title="Staged Changes"
+                  title={t('git.section.stagedChanges')}
                   count={buckets.staged.length}
                   action={{
                     icon: <Minus size={13} />,
-                    label: 'Unstage all',
+                    label: t('git.action.unstageAll'),
                     onClick: () => void unstage(buckets.staged.map((f) => f.path)),
                   }}
                 >
@@ -340,7 +344,7 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                       staged
                       onOpen={() => setDiff({ path: f.path, staged: true })}
                       actions={[
-                        { icon: <Minus size={13} />, label: 'Unstage', onClick: () => void unstage([f.path]) },
+                        { icon: <Minus size={13} />, label: t('git.action.unstage'), onClick: () => void unstage([f.path]) },
                       ]}
                     />
                   ))}
@@ -349,11 +353,11 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
 
               {buckets && buckets.changes.length > 0 ? (
                 <Section
-                  title="Changes"
+                  title={t('git.section.changes')}
                   count={buckets.changes.length}
                   action={{
                     icon: <Plus size={13} />,
-                    label: 'Stage all',
+                    label: t('git.action.stageAll'),
                     onClick: () => void stage(buckets.changes.map((f) => f.path)),
                   }}
                 >
@@ -366,11 +370,11 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                       actions={[
                         {
                           icon: <Undo2 size={13} />,
-                          label: 'Discard changes',
+                          label: t('git.action.discardChanges'),
                           danger: true,
                           onClick: () => onDiscard([f.path], f.path),
                         },
-                        { icon: <Plus size={13} />, label: 'Stage', onClick: () => void stage([f.path]) },
+                        { icon: <Plus size={13} />, label: t('git.action.stage'), onClick: () => void stage([f.path]) },
                       ]}
                     />
                   ))}
@@ -379,11 +383,11 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
 
               {buckets && buckets.untracked.length > 0 ? (
                 <Section
-                  title="Untracked"
+                  title={t('git.section.untracked')}
                   count={buckets.untracked.length}
                   action={{
                     icon: <Plus size={13} />,
-                    label: 'Stage all',
+                    label: t('git.action.stageAll'),
                     onClick: () => void stage(buckets.untracked.map((f) => f.path)),
                   }}
                 >
@@ -396,11 +400,11 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                       actions={[
                         {
                           icon: <Trash2 size={13} />,
-                          label: 'Delete file',
+                          label: t('git.action.deleteFile'),
                           danger: true,
                           onClick: () => onDiscard([f.path], f.path),
                         },
-                        { icon: <Plus size={13} />, label: 'Stage', onClick: () => void stage([f.path]) },
+                        { icon: <Plus size={13} />, label: t('git.action.stage'), onClick: () => void stage([f.path]) },
                       ]}
                     />
                   ))}
@@ -417,13 +421,13 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
               >
                 {logOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 <History size={12} />
-                <span>Recent</span>
+                <span>{t('git.section.recent')}</span>
                 {log.length > 0 ? <span className="tabular-nums">{log.length}</span> : null}
               </button>
               {logOpen ? (
                 <div className="max-h-40 overflow-y-auto pb-1">
                   {log.length === 0 ? (
-                    <p className="px-3 py-2 text-caption text-fg-tertiary">No commits yet.</p>
+                    <p className="px-3 py-2 text-caption text-fg-tertiary">{t('git.empty.noCommits')}</p>
                   ) : (
                     log.map((c) => (
                       <div
@@ -448,7 +452,7 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize Source Control"
+          aria-label={t('git.panel.resize')}
           onPointerDown={onResizeStart}
           className={cn(
             'absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize',
@@ -466,7 +470,7 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                 'bg-surface-2 text-error text-caption pointer-events-none select-none',
               )}
             >
-              Release to close
+              {t('git.panel.releaseToClose')}
             </span>
           ) : null}
         </div>
@@ -494,15 +498,23 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
 }
 
 /** Empty-state when the workspace folder isn't a git repository. */
-function NotARepo({ onInit, busy }: { onInit: () => void; busy: boolean }) {
+function NotARepo({
+  onInit,
+  busy,
+  t,
+}: {
+  onInit: () => void;
+  busy: boolean;
+  t: ReturnType<typeof useI18n>['t'];
+}) {
   return (
     <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
       <span className="size-10 rounded-lg bg-surface-2 flex items-center justify-center text-fg-tertiary">
         <GitBranch size={20} />
       </span>
-      <p className="text-body-sm text-fg-secondary">Not a git repository</p>
+      <p className="text-body-sm text-fg-secondary">{t('git.empty.notRepoTitle')}</p>
       <p className="text-caption text-fg-tertiary">
-        Initialize a repository here to track changes with Source Control.
+        {t('git.empty.notRepoBody')}
       </p>
       <button
         type="button"
@@ -515,7 +527,7 @@ function NotARepo({ onInit, busy }: { onInit: () => void; busy: boolean }) {
         )}
       >
         {busy ? <Spinner size={14} /> : <GitBranch size={15} />}
-        Initialize Repository
+        {t('git.action.initRepo')}
       </button>
     </div>
   );
@@ -526,6 +538,7 @@ function NotARepo({ onInit, busy }: { onInit: () => void; busy: boolean }) {
  *  VSCode/Cursor/Zed it uses the system one — so we point the user at the
  *  installer (opened in an in-app browser tab). */
 function GitMissing() {
+  const { t } = useI18n();
   const openDownloads = () =>
     void useTabsStore.getState().newTab('web', 'https://git-scm.com/downloads');
   return (
@@ -533,18 +546,18 @@ function GitMissing() {
       <span className="size-10 rounded-lg bg-surface-2 flex items-center justify-center text-fg-tertiary">
         <GitBranch size={20} />
       </span>
-      <p className="text-body-sm text-fg-secondary">Git isn’t installed</p>
+      <p className="text-body-sm text-fg-secondary">{t('git.empty.missingTitle')}</p>
       <p className="text-caption text-fg-tertiary">
-        Source Control needs the{' '}
-        <code className="font-mono text-fg-secondary">git</code> command on your
-        PATH. Install it, then reopen this panel.
+        {t('git.empty.missingBefore')}{' '}
+        <code className="font-mono text-fg-secondary">git</code>{' '}
+        {t('git.empty.missingAfter')}
       </p>
       <button
         type="button"
         onClick={openDownloads}
         className="mt-1 inline-flex items-center gap-2 h-8 px-3 rounded-md text-body-sm bg-accent text-white hover:opacity-90 transition-opacity duration-fast"
       >
-        <Download size={15} /> Install Git
+        <Download size={15} /> {t('git.action.installGit')}
       </button>
     </div>
   );
@@ -602,6 +615,7 @@ function FileRow({
   onOpen: () => void;
   actions: RowAction[];
 }) {
+  const { t } = useI18n();
   const badge = statusBadge(change, staged);
   const dir = dirName(change.path);
   return (
@@ -639,7 +653,7 @@ function FileRow({
         </span>
         <span
           aria-hidden
-          title={badge.title}
+          title={t(badge.titleKey)}
           className={cn(
             'w-4 text-center text-caption font-semibold tabular-nums',
             badge.className,

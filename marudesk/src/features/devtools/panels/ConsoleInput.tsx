@@ -7,6 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
 import {
   useDevtoolsStore,
@@ -55,6 +56,7 @@ const KIND_DOT: Record<CompletionItem['kind'], string> = {
 };
 
 export function ConsoleInput() {
+  const { t } = useI18n();
   const [input, setInput] = useState('');
   const [completion, setCompletion] = useState<CompletionResult | null>(null);
   const [selected, setSelected] = useState(0);
@@ -280,8 +282,8 @@ export function ConsoleInput() {
           onBlur={close}
           spellCheck={false}
           autoComplete="off"
-          placeholder="Evaluate JavaScript"
-          aria-label="Console input"
+          placeholder={t('devtools.console.evaluate')}
+          aria-label={t('devtools.console.input')}
           aria-autocomplete="list"
           aria-expanded={open}
           className="relative w-full bg-transparent font-mono text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
@@ -291,7 +293,7 @@ export function ConsoleInput() {
           <ul
             ref={listRef}
             role="listbox"
-            aria-label="Completions"
+            aria-label={t('devtools.console.completions')}
             className="absolute bottom-full left-0 mb-1 max-h-60 w-72 max-w-[80vw] overflow-auto rounded-md border border-default bg-surface-2 shadow-xl py-1 z-50"
           >
             {completion.items.map((item, i) => (

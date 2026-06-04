@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { DiffBlock } from '../../components/ui';
 import { Spinner } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toMessage } from '../../lib/toMessage';
 import { parseUnifiedDiff } from './parseDiff';
@@ -20,6 +21,7 @@ export function DiffViewer({
   staged: boolean;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [diff, setDiff] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +61,7 @@ export function DiffViewer({
       className="fixed inset-0 z-50 flex items-start justify-center"
       role="dialog"
       aria-modal="true"
-      aria-label={`Diff for ${path}`}
+      aria-label={`${t('git.diff.dialogLabel')} ${path}`}
     >
       <button
         type="button"
@@ -75,15 +77,15 @@ export function DiffViewer({
           </span>
           {staged ? (
             <span className="shrink-0 rounded-pill bg-success/15 px-1.5 py-px text-[10px] font-medium text-success">
-              staged
+              {t('git.section.staged')}
             </span>
           ) : null}
           <span className="flex-1" aria-hidden />
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close diff"
-            title="Close"
+            aria-label={t('git.diff.close')}
+            title={t('git.diff.close')}
             className={cn(
               'size-7 rounded flex items-center justify-center shrink-0',
               'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast',
@@ -97,11 +99,11 @@ export function DiffViewer({
             <p className="text-body-sm text-error">{error}</p>
           ) : diff === null ? (
             <div className="flex items-center justify-center gap-2 py-10 text-fg-tertiary">
-              <Spinner size={16} /> Loading diff…
+              <Spinner size={16} /> {t('git.diff.loading')}
             </div>
           ) : lines.length === 0 ? (
             <p className="py-10 text-center text-body-sm text-fg-tertiary">
-              No changes to show.
+              {t('git.diff.empty')}
             </p>
           ) : (
             <DiffBlock filePath={path} lines={lines} />

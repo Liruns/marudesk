@@ -6,15 +6,16 @@ import {
   FileText,
   Globe,
   LayoutDashboard,
-  Plus,
   Settings,
   Sparkles,
   SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import { useWebPageStore } from '../browser/store';
 import { useTabsStore } from '../tabs/store';
+import { CaptureRow, ContextSection, EmptyHint, TabRow } from './ContextPopoverRows';
 import type { Capture } from '../../../shared/capture';
 import type { TabState } from '../../../shared/browser';
 
@@ -86,6 +87,7 @@ type Props = {
  * the existing {@link ContextMenu} component.
  */
 export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
 
   const captures = useWebPageStore((s) => s.captures);
@@ -149,7 +151,7 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
     <div
       ref={ref}
       role="dialog"
-      aria-label="Add context"
+      aria-label={t('agent.context.addContext')}
       style={{ left: pos?.left ?? 8, top: pos?.top, visibility: pos ? undefined : 'hidden' }}
       className={cn(
         'fixed z-50 w-72 -translate-y-full mb-1',
@@ -159,11 +161,10 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
       )}
     >
       {/* ── Captures section ──────────────────────────────────────────── */}
-      <Section label="Captures">
+      <ContextSection label={t('agent.context.captures')}>
         {!hasCaptures ? (
           <EmptyHint>
-            No captures yet — toggle Inspect and click any element in the
-            browser to capture it.
+            {t('agent.context.noCaptures')}
           </EmptyHint>
         ) : (
           captures.map((c) => {
@@ -181,25 +182,28 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
             );
           })
         )}
-      </Section>
+      </ContextSection>
 
       <div className="h-px bg-surface-3 shrink-0" />
 
       {/* ── Open tabs section ─────────────────────────────────────────── */}
-      <Section label="Open tabs / files">
+      <ContextSection label={t('agent.context.openTabsFiles')}>
         {!hasTabs ? (
-          <EmptyHint>No open tabs.</EmptyHint>
+          <EmptyHint>{t('agent.context.noOpenTabs')}</EmptyHint>
         ) : (
-          tabs.map((t) => {
-            const Icon = tabIcon(t.kind);
-            const mention = tabMention(t);
-            const display = t.title || (t.kind === 'editor' && t.filePath) || t.url || t.kind;
+          tabs.map((tab) => {
+            const Icon = tabIcon(tab.kind);
+            const mention = tabMention(tab);
+            const display = tab.title || (tab.kind === 'editor' && tab.filePath) || tab.url || kindLabel(tab.kind);
             return (
               <TabRow
-                key={t.id}
+                key={tab.id}
                 icon={<Icon size={12} />}
-                kind={t.kind}
+                kind={kindLabel(tab.kind)}
                 label={String(display)}
+                title={`${t('agent.context.insertMentionBefore')}${kindLabel(tab.kind)}${t(
+                  'agent.context.insertMentionAfter',
+                )}`}
                 onClick={() => {
                   onInsertMention(mention);
                   onClose();
@@ -208,7 +212,7 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
             );
           })
         )}
-      </Section>
+      </ContextSection>
 
       <div className="h-px bg-surface-3 shrink-0" />
 
@@ -216,12 +220,10 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
       <div className="flex flex-col">
         <div className="px-3 pt-2 pb-1 flex items-center gap-1.5 text-caption uppercase tracking-wider text-fg-tertiary">
           <Sparkles size={11} className="text-accent" />
-          <span>Built-in context · MCP</span>
+          <span>{t('agent.context.builtinTitle')}</span>
         </div>
         <p className="px-3 pb-2 text-caption text-fg-tertiary leading-relaxed">
-          The agent pulls these on demand: page text &amp; DOM, network,
-          cookies/storage, open editors (incl. unsaved), terminals, the file
-          tree, previous sessions, and memory.
+          {t('agent.context.builtinBody')}
         </p>
       </div>
     </div>,
@@ -229,116 +231,21 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
   );
 }
 
-/* ── Sub-components ─────────────────────────────────────────────────────── */
-
-function Section({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col">
-      <div className="px-3 pt-2 pb-1 text-caption uppercase tracking-wider text-fg-tertiary">
-        {label}
-      </div>
-      <div className="flex flex-col pb-1 max-h-40 overflow-y-auto">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function EmptyHint({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-3 py-1.5 text-caption text-fg-tertiary leading-relaxed">
-      {children}
-    </p>
-  );
-}
-
-function CaptureRow({
-  icon,
-  kind,
-  label,
-  selected,
-  onToggle,
-}: {
-  icon: React.ReactNode;
-  kind: string;
-  label: string;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cn(
-        'w-full flex items-center gap-2.5 px-3 h-7 text-left',
-        'transition-colors duration-fast',
-        'hover:bg-surface-2 focus:bg-surface-2 outline-none',
-        selected ? 'text-fg-primary' : 'text-fg-secondary',
-      )}
-    >
-      {/* Checkbox indicator */}
-      <span
-        aria-hidden
-        className={cn(
-          'size-3.5 shrink-0 rounded border flex items-center justify-center',
-          selected
-            ? 'bg-accent border-accent text-white'
-            : 'border-default bg-surface-page',
-        )}
-      >
-        {selected ? (
-          <svg viewBox="0 0 10 8" width={8} height={8} fill="none" stroke="currentColor" strokeWidth={1.5}>
-            <path d="M1 4l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : null}
-      </span>
-
-      <span className="shrink-0 text-fg-tertiary">{icon}</span>
-
-      <span className="text-caption text-fg-tertiary shrink-0 w-10 truncate">
-        {kind}
-      </span>
-
-      <span className="flex-1 min-w-0 truncate text-caption">{label}</span>
-    </button>
-  );
-}
-
-function TabRow({
-  icon,
-  kind,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  kind: string;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={`Insert mention for this ${kind} tab`}
-      className={cn(
-        'w-full flex items-center gap-2.5 px-3 h-7 text-left',
-        'transition-colors duration-fast',
-        'text-fg-secondary hover:bg-surface-2 hover:text-fg-primary',
-        'focus:bg-surface-2 focus:text-fg-primary outline-none',
-      )}
-    >
-      <span className="shrink-0 text-fg-tertiary">{icon}</span>
-      <span className="text-caption text-fg-tertiary shrink-0 w-10 truncate">
-        {kind}
-      </span>
-      <span className="flex-1 min-w-0 truncate text-caption">{label}</span>
-      <Plus size={10} className="shrink-0 text-fg-tertiary/60" />
-    </button>
-  );
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case 'web':
+      return 'web';
+    case 'home':
+      return 'home';
+    case 'terminal':
+      return 'terminal';
+    case 'editor':
+      return 'editor';
+    case 'settings':
+      return 'settings';
+    case 'agent':
+      return 'agent';
+    default:
+      return kind;
+  }
 }
