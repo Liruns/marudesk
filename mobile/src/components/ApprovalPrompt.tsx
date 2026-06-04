@@ -20,42 +20,18 @@ export function ApprovalPrompt({
   onDecision: (approved: boolean) => void;
 }) {
   return (
-    <div
-      className="card"
-      style={{
-        margin: '0 12px 10px',
-        padding: 14,
-        borderColor: 'var(--warn)',
-        background: 'rgba(224,166,74,0.08)',
-      }}
-    >
-      <div className="label-row" style={{ marginBottom: 8 }}>
-        <ShieldCheck size={18} style={{ color: 'var(--warn)' }} />
-        <strong style={{ fontSize: 15 }}>Approve tool</strong>
-        <code style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--warn)', fontWeight: 700 }}>
+    <div className="approval-panel">
+      <div className="approval-panel__header">
+        <ShieldCheck size={18} className="approval-panel__icon" />
+        <strong>Approve tool</strong>
+        <code>
           {approval.name}
         </code>
       </div>
-      <pre
-        style={{
-          margin: '0 0 12px',
-          padding: 10,
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-sm)',
-          fontSize: 13,
-          lineHeight: 1.45,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          color: 'var(--fg)',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          maxHeight: 160,
-          overflowY: 'auto',
-        }}
-      >
+      <pre className="approval-panel__detail">
         {approval.detail}
       </pre>
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div className="approval-panel__actions">
         <button className="btn btn-danger" style={{ flex: 1 }} disabled={busy} onClick={() => onDecision(false)}>
           <X size={18} /> Deny
         </button>
