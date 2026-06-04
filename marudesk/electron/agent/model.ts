@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createXai } from '@ai-sdk/xai';
 import {
   APICallError,
   tool,
@@ -182,14 +183,11 @@ export function buildModel(
       })(modelId);
     }
     case 'xai': {
-      // xAI is OpenAI-compatible; an API key and an OAuth access token are both
-      // sent as `Authorization: Bearer <token>` (no special headers / dialect).
+      // xAI's current Grok 4.3 image-understanding docs use the Responses API.
+      // The provider handles xAI's `input_image` payload shape while preserving
+      // the same Bearer token auth for API keys and OAuth access tokens.
       const token = auth.mode === 'oauth' ? auth.accessToken : apiKey;
-      return createOpenAICompatible({
-        name: 'xai',
-        baseURL: XAI_BASE_URL,
-        apiKey: token || undefined,
-      })(modelId);
+      return createXai({ baseURL: XAI_BASE_URL, apiKey: token || undefined }).responses(modelId);
     }
     case 'ollama':
       // Local, keyless — Ollama exposes an OpenAI-compatible API on this port.

@@ -35,7 +35,7 @@ const ANTHROPIC_THINKING_BUDGET: Record<ReasoningEffort, number> = {
  * - openai / openai-codex: `reasoningEffort` ('minimal'|'low'|'medium'|'high').
  * - anthropic: extended thinking with a token budget (see {@link ANTHROPIC_THINKING_BUDGET}).
  * - google / google-caa: `thinkingConfig.thinkingLevel` (+ surface the thoughts).
- * - xai: OpenAI-compatible — the model reads `providerOptions.xai.reasoningEffort`.
+ * - xai: Responses API (store:false plus `providerOptions.xai.reasoningEffort`).
  * - everything else (ollama / custom endpoints): skipped — no known reasoning knob.
  */
 function reasoningProviderOptions(
@@ -51,8 +51,10 @@ function reasoningProviderOptions(
     case 'google':
     case 'google-caa':
       return { google: { thinkingConfig: { thinkingLevel: effort, includeThoughts: true } } };
-    case 'xai':
-      return { xai: { reasoningEffort: effort } };
+    case 'xai': {
+      const xaiEffort = effort === 'minimal' ? 'low' : effort;
+      return { xai: { reasoningEffort: xaiEffort } };
+    }
     default:
       return {};
   }
@@ -71,7 +73,11 @@ export function buildProviderOptions(
   effort: ReasoningEffort,
 ): Record<string, Record<string, JSONValue>> | undefined {
   const opts: Record<string, Record<string, JSONValue>> =
-    provider === 'openai-codex' ? { openai: { store: false, instructions: system } } : {};
+    provider === 'openai-codex'
+      ? { openai: { store: false, instructions: system } }
+      : provider === 'xai'
+        ? { xai: { store: false } }
+        : {};
   if (modelReasoning) {
     for (const [ns, value] of Object.entries(reasoningProviderOptions(provider, effort))) {
       opts[ns] = { ...opts[ns], ...value };

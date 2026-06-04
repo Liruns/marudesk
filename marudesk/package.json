@@ -21,7 +21,8 @@
     "harness:pair": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/pair-harness.ts",
     "harness:relay-bridge": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/relay-bridge-harness.ts",
     "harness:webrtc": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/webrtc-host-harness.ts",
-    "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts"
+    "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts",
+    "harness:xai-vision": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/xai-vision-harness.ts"
   },
   "build": {
     "appId": "com.marudesk.app",
@@ -81,6 +82,7 @@
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.67",
     "@ai-sdk/openai-compatible": "^2.0.48",
+    "@ai-sdk/xai": "^3.0.93",
     "@anthropic-ai/sdk": "^0.99.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/ws": "^8.18.1",
