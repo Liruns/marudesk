@@ -215,6 +215,11 @@ claude-code · codex의 채팅 UX를 벤치마크해 다음을 컴포저에 흡�
   애드덤으로 "단계별 계획 제시" 유도. 토글/Settings/StatusBar에 노출.
 - **이미지 입력**(`AgentImagePart`/`AgentImageInput`): 붙여넣기·드롭 → 비전 모델로
   멀티모달 전달, 트랜스크립트 썸네일. `parse.ts`에서 IPC·릴레이 공통 검증.
+- **생성 미디어 인라인**(`ToolMediaArtifact`): `generate_image`/`generate_video`가
+  워크스페이스에 저장한 파일을 `ToolCall.media`(경로+타입만)로 실어 보내고, 렌더러는
+  `workspace:read-media` 채널로 바이트를 지연 로드해 채팅에 이미지/`<video>`로 인라인
+  표시(verbosity 무관). 영상 data: URL을 위해 `media-src` CSP 추가. 경로만 상태에
+  담아 세션 히스토리는 가볍게 유지.
 - **프롬프트 히스토리**(↑/↓ recall, localStorage, 100개 cap).
 - **메시지 큐잉**: 턴 진행 중 Enter → 대기 후 자동 전송(취소 가능).
 - **`@` 파일 멘션**: 캐럿 위치의 `@token`으로 워크스페이스 파일 picker(B3의 `@` 부분 실현).

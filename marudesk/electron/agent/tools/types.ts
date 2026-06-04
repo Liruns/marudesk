@@ -1,6 +1,7 @@
 import type { WorkspaceSummary } from '../../../shared/workspace';
 import type { AppliedChange } from '../../../shared/patch';
 import type { ProviderId } from '../../../shared/providers';
+import type { ToolMediaArtifact } from '../../../shared/agent';
 
 /**
  * Shared shapes for the agent tool layer (docs/agentic-chat-design.md §4). The
@@ -45,6 +46,12 @@ export type ToolResult = {
   isError?: boolean;
   /** File edits applied by this call, for the chat's diff/revert history (P2). */
   edits?: AppliedChange[];
+  /**
+   * Media files this call produced (generate_image / generate_video), surfaced
+   * inline in the transcript. Workspace-relative paths only — see
+   * {@link ToolMediaArtifact}.
+   */
+  media?: ToolMediaArtifact[];
 };
 
 export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;

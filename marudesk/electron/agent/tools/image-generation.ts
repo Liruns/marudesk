@@ -193,6 +193,8 @@ function extensionFor(mediaType: string): string {
   return 'png';
 }
 
+type SavedImage = { readonly path: string; readonly mediaType: string };
+
 async function saveGeneratedImage(input: {
   readonly root: string;
   readonly outputDir: { readonly rel: string; readonly abs: string };
@@ -200,7 +202,7 @@ async function saveGeneratedImage(input: {
   readonly candidate: ModelEntry;
   readonly index: number;
   readonly denyGlobs: readonly string[] | undefined;
-}): Promise<string> {
+}): Promise<SavedImage> {
   const mediaType = mediaTypeOf(input.image, input.candidate);
   const ext = extensionFor(mediaType);
   const suffix = input.index === 0 ? '' : `-${input.index + 1}`;
@@ -215,7 +217,7 @@ async function saveGeneratedImage(input: {
   } finally {
     await file.close();
   }
-  return resolved.rel;
+  return { path: resolved.rel, mediaType };
 }
 
 async function generateImageTool(
@@ -262,7 +264,7 @@ async function generateImageTool(
           isError: true,
         };
       }
-      const paths = await Promise.all(
+      const saved = await Promise.all(
         images.map((image, index) =>
           saveGeneratedImage({
             root: workspace.root,
@@ -275,12 +277,13 @@ async function generateImageTool(
         ),
       );
       return {
-        summary: `generated ${paths.length} image${paths.length === 1 ? '' : 's'}`,
+        summary: `generated ${saved.length} image${saved.length === 1 ? '' : 's'}`,
         text: [
           `Model: ${candidate.provider}:${candidate.id}`,
           `Saved:`,
-          ...paths.map((p) => `- ${p}`),
+          ...saved.map((s) => `- ${s.path}`),
         ].join('\n'),
+        media: saved.map((s) => ({ kind: 'image' as const, path: s.path, mediaType: s.mediaType })),
       };
     } catch (err) {
       const modelError = err instanceof Error ? err : new Error(String(err));

@@ -18,6 +18,7 @@ import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, obj, str } from './ipc/validate';
 import {
   readFileForEditor,
+  readMediaForPreview,
   saveAsForEditor,
   writeFileForEditor,
 } from './workspace-files';
@@ -426,6 +427,10 @@ export function registerWorkspaceHandlers(deps: {
 
   defineHandler('workspace:read-file', ([rel]) =>
     readFileForEditor(requireWorkspace().root, str(rel, 'path')),
+  );
+
+  defineHandler('workspace:read-media', ([rel]) =>
+    readMediaForPreview(requireWorkspace().root, str(rel, 'path')),
   );
 
   defineHandler('workspace:write-file', ([payload]) => {
