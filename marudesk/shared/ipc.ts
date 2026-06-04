@@ -149,6 +149,7 @@ export const CHANNELS = {
     'workspaces:add-root',
     'workspaces:remove-root',
     'workspaces:rename',
+    'workspaces:delete',
     'workspaces:set-active',
     'workspaces:set-active-root',
     'workspaces:reindex',
@@ -455,8 +456,10 @@ export interface IpcMap {
 
   'workspaces:list': { args: []; result: WorkspaceSnapshot };
   'workspaces:create': {
-    args: [payload: { name: string; roots: WorkspaceRootInput[] }];
-    result: WorkspaceRecord;
+    // `roots` may be omitted/empty: the main process then opens a native folder
+    // picker and a cancel returns null (no workspace created).
+    args: [payload: { name?: string; roots?: WorkspaceRootInput[] }];
+    result: WorkspaceRecord | null;
   };
   'workspaces:add-root': {
     args: [payload: { workspaceId: WorkspaceId; name?: string; path?: string }];
@@ -469,6 +472,10 @@ export interface IpcMap {
   'workspaces:rename': {
     args: [payload: { workspaceId: WorkspaceId; name: string }];
     result: WorkspaceRecord;
+  };
+  'workspaces:delete': {
+    args: [payload: { workspaceId: WorkspaceId }];
+    result: WorkspaceSnapshot;
   };
   'workspaces:set-active': {
     args: [payload: { workspaceId: WorkspaceId; paneId?: WorkspacePaneId }];

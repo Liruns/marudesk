@@ -72,7 +72,9 @@ npm run harness:mcp
 - `electron/workspace-*.ts`, `shared/workspace.ts`, and
   `src/features/workspaces/*` own the multi-workspace deck: named workspaces,
   multiple folder roots per workspace, workspace split panes, workspace-scoped
-  tabs, focused-root Explorer sync, and pane-local Peek Explorer.
+  tabs, focused-root Explorer sync, and pane-local Peek Explorer. The deck rail
+  manages workspace lifecycle from the UI — create, rename, reindex, delete, and
+  per-root removal.
 - `electron/agent/*` owns agent session orchestration, MCP tool plumbing, context
   sources, and model loop behavior. Built-in context tools include workspace
   read/list helpers so an agent can inspect non-focused workspace roots without

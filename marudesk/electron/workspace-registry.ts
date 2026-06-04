@@ -278,8 +278,19 @@ export function registerWorkspaceHandlers(deps: {
 
   defineHandler('workspaces:create', async ([payload]) => {
     const p = obj(payload);
-    const roots = arrayOf(p.roots, toRootInput, 'roots');
-    const record = await createWorkspaceRecord(str(p.name, 'name'), roots);
+    let roots: readonly WorkspaceRootInput[] =
+      p.roots === undefined ? [] : arrayOf(p.roots, toRootInput, 'roots');
+    // No roots supplied (the "+ New workspace" flow): pop a native folder picker
+    // and seed the workspace with the chosen folder. A cancel creates nothing.
+    if (roots.length === 0) {
+      const win = deps.getMainWindow();
+      const picked = win ? await pickWorkspaceRoot(win) : null;
+      if (!picked) return null;
+      roots = [picked];
+    }
+    const requested = typeof p.name === 'string' ? p.name.trim() : '';
+    const name = requested || roots[0].name;
+    const record = await createWorkspaceRecord(name, roots);
     pushWorkspaceState();
     return record;
   });
@@ -342,6 +353,20 @@ export function registerWorkspaceHandlers(deps: {
     if (activeWorkspaceId === next.id) refreshCurrentWorkspace();
     pushWorkspaceState();
     return next;
+  });
+
+  defineHandler('workspaces:delete', ([payload]) => {
+    const p = obj(payload);
+    const workspaceId = str(p.workspaceId, 'workspaceId');
+    requireRecord(workspaceId);
+    workspaceRecords.delete(workspaceId);
+    if (activeWorkspaceId === workspaceId) {
+      activeWorkspaceId = workspaceRecords.keys().next().value ?? null;
+      focusedPaneId = null;
+    }
+    refreshCurrentWorkspace();
+    pushWorkspaceState();
+    return snapshot();
   });
 
   defineHandler('workspaces:set-active', ([payload]) => {
