@@ -22,7 +22,6 @@ type Props = {
  */
 export function SettingsSearchResults({ query, categories, onPick }: Props) {
   const { t } = useI18n();
-  const q = query.trim().toLowerCase();
 
   const categoryById = useMemo(() => {
     const map = new Map<SettingsCategory, SettingsCategoryItem>();
@@ -30,13 +29,35 @@ export function SettingsSearchResults({ query, categories, onPick }: Props) {
     return map;
   }, [categories]);
 
+  // A query matching a category's own label/blurb/keywords surfaces that
+  // category's settings too, so broad terms like "data" or "wrap" still find
+  // their home — the per-setting catalog alone wouldn't carry those synonyms.
+  const categoryText = useMemo(() => {
+    const map = new Map<SettingsCategory, string>();
+    for (const c of categories) {
+      map.set(
+        c.id,
+        `${c.label} ${c.blurb} ${c.keywords}`.toLowerCase(),
+      );
+    }
+    return map;
+  }, [categories]);
+
+  // Every whitespace-separated token must appear somewhere in the entry's
+  // searchable text, so multi-word queries ("font size", "editor wrap") narrow
+  // rather than silently miss.
+  const tokens = useMemo(
+    () => query.trim().toLowerCase().split(/\s+/).filter(Boolean),
+    [query],
+  );
+
   const matches = useMemo(
     () =>
       SETTINGS_CATALOG.filter((entry) => {
-        const label = t(entry.labelKey).toLowerCase();
-        return label.includes(q) || entry.keywords.includes(q);
+        const haystack = `${t(entry.labelKey).toLowerCase()} ${entry.keywords} ${categoryText.get(entry.categoryId) ?? ''}`;
+        return tokens.every((token) => haystack.includes(token));
       }),
-    [q, t],
+    [tokens, categoryText, t],
   );
 
   if (matches.length === 0) {

@@ -1,6 +1,5 @@
 import type {
   AgentApprovalMode,
-  DevtoolsDock,
   ReasoningEffort,
   SearchEngine,
   ThemeMode,
@@ -11,12 +10,6 @@ export const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
   { value: 'system', label: 'System' },
 ] as const satisfies readonly { readonly value: ThemeMode; readonly label: string }[];
-
-export const DOCK_OPTIONS = [
-  { value: 'right', label: 'Right' },
-  { value: 'bottom', label: 'Bottom' },
-  { value: 'chrome', label: 'Chrome' },
-] as const satisfies readonly { readonly value: DevtoolsDock; readonly label: string }[];
 
 export const SEARCH_ENGINE_OPTIONS = [
   { value: 'google', label: 'Google' },

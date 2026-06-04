@@ -47,7 +47,17 @@ test('settings: search jumps to an individual setting in another category', asyn
     // Then: the result surfaces and clicking it lands on the owning category.
     const result = page.getByRole('button', { name: 'Default shell' });
     await expect(result).toBeVisible();
-    await result.click();
+
+    // And: a category-level synonym (not any setting's own label) still finds
+    // that category's settings.
+    await page.getByPlaceholder('Search settings').fill('database');
+    await expect(
+      page.getByRole('button', { name: 'Save AI Chat sessions' }),
+    ).toBeVisible();
+
+    // Clicking a result jumps to the owning category.
+    await page.getByPlaceholder('Search settings').fill('shell');
+    await page.getByRole('button', { name: 'Default shell' }).click();
     await expect(page.getByRole('heading', { name: 'Terminal' })).toBeVisible();
     await expect(page.getByText('Default shell', { exact: true })).toBeVisible();
   } finally {
