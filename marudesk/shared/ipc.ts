@@ -1,3 +1,4 @@
+import type { AppInfo, UpdateCheckResult } from './app-info';
 import type { Capture } from './capture';
 import type {
   AgentAnswers,
@@ -234,6 +235,12 @@ export const CHANNELS = {
     'terminal:ready',
   ],
   clipboard: ['clipboard:write-text', 'clipboard:read-text'],
+  app: [
+    'app:info',
+    'app:open-github',
+    'app:open-releases',
+    'app:check-for-updates',
+  ],
   window: [
     'window:minimize',
     'window:maximize-toggle',
@@ -607,6 +614,11 @@ export interface IpcMap {
   // clipboard (integrated-terminal copy/paste — electron/clipboard.ts)
   'clipboard:write-text': { args: [text: string]; result: void };
   'clipboard:read-text': { args: []; result: string };
+
+  'app:info': { args: []; result: AppInfo };
+  'app:open-github': { args: []; result: void };
+  'app:open-releases': { args: []; result: void };
+  'app:check-for-updates': { args: []; result: UpdateCheckResult };
 
   // window
   'window:minimize': { args: []; result: boolean };
