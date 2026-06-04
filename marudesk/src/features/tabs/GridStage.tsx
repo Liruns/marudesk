@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -16,6 +17,10 @@ import { leaves, type LayoutNode, type PaneId } from './layout';
 import { pickZone, zoneToSplit, type DropZone } from './dnd';
 import { PaneHeader } from './PaneHeader';
 import type { TabState } from '../../../shared/browser';
+import {
+  clearBrowserPaneBoundsSource,
+  setBrowserPaneBoundsSource,
+} from './browserPaneBounds';
 
 // Must match TabStrip's drag MIME so a tab dragged from the strip can be dropped
 // onto a pane to split it.
@@ -41,6 +46,7 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
     ? (leaves(layout).find((l) => l.id === maximizedPaneId) ?? null)
     : null;
   const rootRef = useRef<HTMLDivElement>(null);
+  const boundsSourceId = useMemo(() => `grid:${layout.id}`, [layout.id]);
   // Live element refs for every web pane, keyed by leaf id, so we can measure
   // their rects after layout/resize and report them to main in one batch.
   const webPaneEls = useRef<Map<PaneId, HTMLDivElement>>(new Map());
@@ -80,11 +86,8 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
         }
       }
     }
-    void window.marudesk.invoke('browser:set-pane-bounds', { panes });
-    // maximizedPaneId is read indirectly (only the zoomed leaf mounts a web-pane
-    // el, so the others fall to the zero-rect branch above) — list it so toggling
-    // zoom re-measures and main re-positions/hides the views accordingly.
-  }, [layout, maximizedPaneId]);
+    setBrowserPaneBoundsSource(boundsSourceId, panes);
+  }, [boundsSourceId, layout]);
 
   // HIGH-2: `measureAndSend` already re-creates when `layout` changes (it's in
   // the dep array above), so this effect re-runs on every layout change — not
@@ -104,15 +107,15 @@ export function GridStage({ layout }: { layout: LayoutNode }) {
       window.removeEventListener('resize', measureAndSend);
       window.removeEventListener('scroll', measureAndSend, true);
     };
-  }, [measureAndSend]);
+  }, [measureAndSend, maximizedPaneId]);
 
   // Leaving the grid (layout → null) is handled by Stage unmounting this; tell
   // main to drop grid mode and restore the single active view.
   useEffect(() => {
     return () => {
-      void window.marudesk.invoke('browser:clear-pane-bounds');
+      clearBrowserPaneBoundsSource(boundsSourceId);
     };
-  }, []);
+  }, [boundsSourceId]);
 
   // While a tab is dragged from the strip, hide every tiled web view so the
   // React pane drop targets below them receive the drop. Web panes are native

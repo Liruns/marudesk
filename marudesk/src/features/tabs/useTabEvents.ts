@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useWebPageStore } from '../browser/store';
 import { useDownloadsStore } from '../browser/downloads';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useTabsStore } from './store';
 
 /**
@@ -22,6 +23,9 @@ export function useTabEvents(): void {
     });
     const offTabs = window.marudesk.on('browser:tabs-state', (snap) => {
       useTabsStore.getState().setTabsState(snap);
+    });
+    const offWorkspaces = window.marudesk.on('workspaces:state', (snap) => {
+      useWorkspaceDeckStore.getState().ingestSnapshot(snap);
     });
     // Ctrl/Cmd+L while a web page had focus: main asks us to focus the bar.
     const offFocusBar = window.marudesk.on('browser:focus-address-bar', () => {
@@ -51,6 +55,7 @@ export function useTabEvents(): void {
       offExit();
       offNav();
       offTabs();
+      offWorkspaces();
       offFocusBar();
       offOpenFind();
       offFound();

@@ -1,5 +1,5 @@
 import type { MouseEvent } from 'react';
-import { TabStrip } from '../features/tabs/TabStrip';
+import { useI18n } from '../i18n/useI18n';
 import { WindowControls } from './WindowControls';
 import logoUrl from '../assets/logo-mark.png';
 
@@ -17,6 +17,7 @@ import logoUrl from '../assets/logo-mark.png';
  * the rail alignment is dropped there.
  */
 export function TitleBar() {
+  const { t } = useI18n();
   const isMac =
     typeof navigator !== 'undefined' &&
     navigator.userAgent.includes('Macintosh');
@@ -37,7 +38,7 @@ export function TitleBar() {
     <div
       className="drag-region h-10 shrink-0 flex items-stretch bg-surface-1 border-b border-subtle"
       role="banner"
-      aria-label="Window chrome"
+      aria-label={t('titleBar.windowChrome')}
       onDoubleClick={onDoubleClick}
     >
       {/* Logo slot — the glass M brand mark (trimmed asset, so it reads at full
@@ -57,7 +58,7 @@ export function TitleBar() {
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}
-      <TabStrip />
+      <div className="drag-region flex-1 min-w-0" aria-hidden />
       <WindowControls />
     </div>
   );

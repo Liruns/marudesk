@@ -1,5 +1,6 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { ExternalLink, PanelBottom, PanelRight, X } from 'lucide-react';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { useDevtoolsStore } from './store';
 import { MainTabBar, DevtoolsContent } from './DevtoolsContent';
@@ -24,6 +25,7 @@ import { MainTabBar, DevtoolsContent } from './DevtoolsContent';
 const MIN_PAGE = 160;
 
 export function DevtoolsDock() {
+  const { t } = useI18n();
   const side = useDevtoolsStore((s) => s.side);
   const size = useDevtoolsStore((s) => s.size);
   const dropped = useDevtoolsStore((s) => s.dropped);
@@ -96,7 +98,7 @@ export function DevtoolsDock() {
         'shrink-0 relative flex flex-col min-w-0 min-h-0 bg-surface-1 overflow-hidden outline-none',
         isRight ? 'border-l border-subtle' : 'border-t border-subtle',
       )}
-      aria-label="DevTools"
+      aria-label={t('devtools.label')}
     >
       {/* Splitter on the edge facing the page */}
       <div
@@ -116,25 +118,25 @@ export function DevtoolsDock() {
         <div className="flex-1" />
         {dropped > 0 ? (
           <span
-            title={`${dropped} events dropped (event flood)`}
+            title={`${dropped} ${t('devtools.droppedTitle')}`}
             className="text-caption text-warning px-1.5 tabular-nums"
           >
-            {dropped} dropped
+            {dropped} {t('devtools.dropped')}
           </span>
         ) : null}
         <DockIconButton
-          label="Pop out into a window"
+          label={t('devtools.popOut')}
           onClick={() => useDevtoolsStore.getState().popOut()}
         >
           <ExternalLink size={15} />
         </DockIconButton>
         <DockIconButton
-          label={isRight ? 'Dock to bottom' : 'Dock to right'}
+          label={isRight ? t('devtools.dockBottom') : t('devtools.dockRight')}
           onClick={() => useDevtoolsStore.getState().setSide(isRight ? 'bottom' : 'right')}
         >
           {isRight ? <PanelBottom size={15} /> : <PanelRight size={15} />}
         </DockIconButton>
-        <DockIconButton label="Close DevTools" onClick={() => useDevtoolsStore.getState().close()}>
+        <DockIconButton label={t('devtools.close')} onClick={() => useDevtoolsStore.getState().close()}>
           <X size={15} />
         </DockIconButton>
       </div>

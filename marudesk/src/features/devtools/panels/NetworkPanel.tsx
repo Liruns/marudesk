@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Sparkles, Trash2, X } from 'lucide-react';
+import { useI18n } from '../../../i18n/useI18n';
+import type { TranslationKey } from '../../../i18n/messages';
 import { cn } from '../../../lib/cn';
 import { toast } from '../../../lib/toast';
 import { toMessage } from '../../../lib/toMessage';
@@ -28,16 +30,16 @@ function fileName(url: string): string {
 
 /** Filter-bar resource-type buckets → the CDP resourceType values each admits. */
 type TypeFilter = 'all' | 'fetch' | 'js' | 'css' | 'img' | 'font' | 'doc' | 'media' | 'other';
-const TYPE_FILTERS: { id: TypeFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'fetch', label: 'Fetch/XHR' },
-  { id: 'js', label: 'JS' },
-  { id: 'css', label: 'CSS' },
-  { id: 'img', label: 'Img' },
-  { id: 'font', label: 'Font' },
-  { id: 'doc', label: 'Doc' },
-  { id: 'media', label: 'Media' },
-  { id: 'other', label: 'Other' },
+const TYPE_FILTERS: { id: TypeFilter; labelKey: TranslationKey }[] = [
+  { id: 'all', labelKey: 'devtools.network.filter.all' },
+  { id: 'fetch', labelKey: 'devtools.network.filter.fetch' },
+  { id: 'js', labelKey: 'devtools.network.filter.js' },
+  { id: 'css', labelKey: 'devtools.network.filter.css' },
+  { id: 'img', labelKey: 'devtools.network.filter.img' },
+  { id: 'font', labelKey: 'devtools.network.filter.font' },
+  { id: 'doc', labelKey: 'devtools.network.filter.doc' },
+  { id: 'media', labelKey: 'devtools.network.filter.media' },
+  { id: 'other', labelKey: 'devtools.network.filter.other' },
 ];
 const KNOWN_TYPES = new Set(['fetch', 'js', 'css', 'img', 'font', 'doc', 'media']);
 
@@ -65,11 +67,11 @@ function typeBucket(resourceType: string | undefined): Exclude<TypeFilter, 'all'
   }
 }
 
-const THROTTLE_OPTIONS: { id: ThrottlePreset; label: string }[] = [
-  { id: 'online', label: 'No throttling' },
-  { id: 'fast3g', label: 'Fast 3G' },
-  { id: 'slow3g', label: 'Slow 3G' },
-  { id: 'offline', label: 'Offline' },
+const THROTTLE_OPTIONS: { id: ThrottlePreset; labelKey: TranslationKey }[] = [
+  { id: 'online', labelKey: 'devtools.network.throttle.none' },
+  { id: 'fast3g', labelKey: 'devtools.network.throttle.fast3g' },
+  { id: 'slow3g', labelKey: 'devtools.network.throttle.slow3g' },
+  { id: 'offline', labelKey: 'devtools.network.throttle.offline' },
 ];
 
 /**
@@ -220,8 +222,9 @@ function statusClass(entry: NetworkEntry): string {
 }
 
 function HeaderList({ headers }: { headers?: Record<string, string> }) {
+  const { t } = useI18n();
   if (!headers || Object.keys(headers).length === 0) {
-    return <div className="text-caption text-fg-tertiary px-2">(none)</div>;
+    return <div className="text-caption text-fg-tertiary px-2">{t('devtools.network.none')}</div>;
   }
   return (
     <div className="flex flex-col gap-0.5">
@@ -237,34 +240,35 @@ function HeaderList({ headers }: { headers?: Record<string, string> }) {
 
 /** A compact timing breakdown: the major phases as labelled bars. */
 function TimingBars({ entry }: { entry: NetworkEntry }) {
-  const t = entry.timing;
-  if (!t) {
+  const { t } = useI18n();
+  const timing = entry.timing;
+  if (!timing) {
     // No CDP timing (cache hit / failed early) — fall back to the total wall time.
     if (entry.endTime === undefined) {
-      return <div className="text-caption text-fg-tertiary px-2">No timing data.</div>;
+      return <div className="text-caption text-fg-tertiary px-2">{t('devtools.network.noTimingData')}</div>;
     }
     const total = (entry.endTime - entry.startTime) * 1000;
     return (
       <div className="font-mono text-caption px-2 text-fg-secondary">
-        Total: {total.toFixed(1)} ms
+        {t('devtools.network.total')}: {total.toFixed(1)} ms
       </div>
     );
   }
   // Phase windows as [label, startMs, endMs] relative to requestTime; skip
   // phases that didn't occur (CDP marks them -1) or are zero-width.
   const allPhases: [string, number, number][] = [
-    ['DNS', t.dnsStart, t.dnsEnd],
-    ['Connect', t.connectStart, t.connectEnd],
-    ['SSL', t.sslStart, t.sslEnd],
-    ['Send', t.sendStart, t.sendEnd],
-    ['Wait (TTFB)', t.sendEnd, t.receiveHeadersEnd],
+    ['DNS', timing.dnsStart, timing.dnsEnd],
+    ['Connect', timing.connectStart, timing.connectEnd],
+    ['SSL', timing.sslStart, timing.sslEnd],
+    ['Send', timing.sendStart, timing.sendEnd],
+    ['Wait (TTFB)', timing.sendEnd, timing.receiveHeadersEnd],
   ];
   const phases = allPhases.filter(([, s, e]) => s >= 0 && e >= 0 && e > s);
   // Total end: prefer the response receiveHeadersEnd extended to loadingFinished.
   const endMs =
     entry.endTime !== undefined
-      ? (entry.endTime - t.requestTime) * 1000
-      : t.receiveHeadersEnd;
+      ? (entry.endTime - timing.requestTime) * 1000
+      : timing.receiveHeadersEnd;
   const scale = endMs > 0 ? 100 / endMs : 0;
   return (
     <div className="flex flex-col gap-1 px-2">
@@ -283,26 +287,27 @@ function TimingBars({ entry }: { entry: NetworkEntry }) {
         </div>
       ))}
       <div className="font-mono text-caption text-fg-tertiary pt-0.5">
-        Total: {endMs.toFixed(1)} ms
+        {t('devtools.network.total')}: {endMs.toFixed(1)} ms
       </div>
     </div>
   );
 }
 
 function Initiator({ initiator }: { initiator: NetworkEntry['initiator'] }) {
+  const { t } = useI18n();
   if (!initiator) {
-    return <div className="text-caption text-fg-tertiary px-2">(unknown)</div>;
+    return <div className="text-caption text-fg-tertiary px-2">{t('agent.chat.unknown')}</div>;
   }
   const top = initiator.stack?.callFrames?.[0];
   return (
     <div className="font-mono text-caption px-2 flex flex-col gap-0.5 break-words">
       <div>
-        <span className="text-fg-tertiary">Type: </span>
+        <span className="text-fg-tertiary">{t('devtools.network.type')}: </span>
         <span className="text-fg-secondary">{initiator.type}</span>
       </div>
       {initiator.url ? (
         <div>
-          <span className="text-fg-tertiary">URL: </span>
+          <span className="text-fg-tertiary">{t('devtools.network.url')}: </span>
           <span className="text-fg-secondary">
             {initiator.url}
             {initiator.lineNumber !== undefined ? `:${initiator.lineNumber + 1}` : ''}
@@ -311,7 +316,7 @@ function Initiator({ initiator }: { initiator: NetworkEntry['initiator'] }) {
       ) : null}
       {top ? (
         <div>
-          <span className="text-fg-tertiary">Script: </span>
+          <span className="text-fg-tertiary">{t('devtools.network.script')}: </span>
           <span className="text-fg-secondary">
             {(top.functionName || '(anonymous)') + ` @ ${top.url}:${top.lineNumber + 1}`}
           </span>
@@ -322,6 +327,7 @@ function Initiator({ initiator }: { initiator: NetworkEntry['initiator'] }) {
 }
 
 function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }) {
+  const { t } = useI18n();
   // The agent chat lives in the main window; hide the hand-off in the popout.
   const windowMode = useDevtoolsStore((s) => s.windowMode);
   const [body, setBody] = useState<string | null>(null);
@@ -352,16 +358,16 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
       setBodyState('empty');
       return;
     }
-    setBody(res.base64Encoded ? '(binary response — not shown)' : res.body);
+    setBody(res.base64Encoded ? t('devtools.network.binaryNotShown') : res.body);
     setBodyState('idle');
   };
 
   const copyCurl = async () => {
     try {
       await navigator.clipboard.writeText(buildCurl(entry));
-      toast({ title: 'Copied as cURL', variant: 'success' });
+      toast({ title: t('devtools.network.copiedCurl'), variant: 'success' });
     } catch (err) {
-      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+      toast({ title: t('common.copyFailed'), description: toMessage(err), variant: 'error' });
     }
   };
 
@@ -376,24 +382,24 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
             <button
               type="button"
               onClick={() => void askAgent(buildNetworkFixPrompt(entry))}
-              title="Ask AI to fix this request"
+              title={t('devtools.network.askFixTitle')}
               className="h-5 px-1.5 rounded inline-flex items-center gap-1 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
             >
               <Sparkles size={11} />
-              Fix this
+              {t('devtools.network.fixThis')}
             </button>
           ) : null}
           <button
             type="button"
             onClick={() => void copyCurl()}
-            title="Copy as cURL"
+            title={t('devtools.network.copyCurl')}
             className="h-5 px-1.5 rounded text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
           >
-            Copy as cURL
+            {t('devtools.network.copyCurl')}
           </button>
           <button
             type="button"
-            aria-label="Close detail"
+            aria-label={t('devtools.network.closeDetail')}
             onClick={onClose}
             className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary"
           >
@@ -402,18 +408,18 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-auto py-2 flex flex-col gap-3">
-        <Section title="General">
+        <Section title={t('devtools.network.general')}>
           <div className="font-mono text-caption px-2 flex flex-col gap-0.5 break-words">
             <div>
-              <span className="text-fg-tertiary">Request URL: </span>
+              <span className="text-fg-tertiary">{t('devtools.network.requestUrl')}: </span>
               <span className="text-fg-secondary">{entry.url}</span>
             </div>
             <div>
-              <span className="text-fg-tertiary">Method: </span>
+              <span className="text-fg-tertiary">{t('devtools.network.method')}: </span>
               <span className="text-fg-secondary">{entry.method}</span>
             </div>
             <div>
-              <span className="text-fg-tertiary">Status: </span>
+              <span className="text-fg-tertiary">{t('devtools.network.status')}: </span>
               <span className={statusClass(entry)}>
                 {entry.failed
                   ? `(failed) ${entry.errorText ?? ''}`
@@ -422,28 +428,28 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
             </div>
             {entry.remoteIPAddress ? (
               <div>
-                <span className="text-fg-tertiary">Remote address: </span>
+                <span className="text-fg-tertiary">{t('devtools.network.remoteAddress')}: </span>
                 <span className="text-fg-secondary">{entry.remoteIPAddress}</span>
               </div>
             ) : null}
           </div>
         </Section>
-        <Section title="Response headers">
+        <Section title={t('devtools.network.responseHeaders')}>
           <HeaderList headers={entry.responseHeaders} />
         </Section>
-        <Section title="Request headers">
+        <Section title={t('devtools.network.requestHeaders')}>
           <HeaderList headers={entry.requestHeaders} />
         </Section>
-        <Section title="Timing">
+        <Section title={t('devtools.network.timing')}>
           <TimingBars entry={entry} />
         </Section>
-        <Section title="Initiator">
+        <Section title={t('devtools.network.initiator')}>
           <Initiator initiator={entry.initiator} />
         </Section>
-        <Section title="Response">
+        <Section title={t('devtools.network.response')}>
           {bodyState === 'empty' ? (
             <div className="text-caption text-fg-tertiary px-2">
-              No body available (evicted from cache).
+              {t('devtools.network.noBody')}
             </div>
           ) : shownBody !== null ? (
             <div className="flex flex-col gap-1 min-h-0">
@@ -453,13 +459,13 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
                   onChange={(e) => setBodyQuery(e.target.value)}
                   spellCheck={false}
                   autoComplete="off"
-                  placeholder="Search response"
-                  aria-label="Search response body"
+                  placeholder={t('devtools.network.searchResponse')}
+                  aria-label={t('devtools.network.searchResponseBody')}
                   className="h-6 flex-1 min-w-0 rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
                 />
                 {bodyQuery ? (
                   <span className="text-caption tabular-nums text-fg-tertiary shrink-0">
-                    {bodyMatches} match{bodyMatches === 1 ? '' : 'es'}
+                    {bodyMatches} {bodyMatches === 1 ? t('devtools.network.match') : t('devtools.network.matches')}
                   </span>
                 ) : null}
               </div>
@@ -474,7 +480,7 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
               disabled={bodyState === 'loading'}
               className="mx-2 h-6 px-2 rounded bg-surface-2 text-caption text-fg-secondary hover:text-fg-primary disabled:opacity-50"
             >
-              {bodyState === 'loading' ? 'Loading…' : 'Load response body'}
+              {bodyState === 'loading' ? t('devtools.network.loading') : t('devtools.network.loadResponseBody')}
             </button>
           )}
         </Section>
@@ -495,6 +501,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export function NetworkPanel() {
+  const { t } = useI18n();
   const requests = useDevtoolsStore((s) => s.network);
   const cacheDisabled = useDevtoolsStore((s) => s.cacheDisabled);
   const throttle = useDevtoolsStore((s) => s.throttle);
@@ -544,8 +551,8 @@ export function NetworkPanel() {
       <div className="shrink-0 flex items-center px-1.5 py-1 border-b border-subtle gap-2 flex-wrap">
         <button
           type="button"
-          aria-label="Clear network log"
-          title="Clear network log"
+          aria-label={t('devtools.network.clearLog')}
+          title={t('devtools.network.clearLog')}
           onClick={() => {
             useDevtoolsStore.getState().clearNetwork();
             setSelectedId(null);
@@ -559,8 +566,8 @@ export function NetworkPanel() {
           onChange={(e) => setQuery(e.target.value)}
           spellCheck={false}
           autoComplete="off"
-          placeholder="Filter URL"
-          aria-label="Filter requests by URL"
+          placeholder={t('devtools.network.filterUrl')}
+          aria-label={t('devtools.network.filterUrlAria')}
           className="h-6 w-28 min-w-0 rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
         <div className="flex items-center gap-0.5 flex-wrap">
@@ -577,7 +584,7 @@ export function NetworkPanel() {
                   : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
               )}
             >
-              {f.label}
+              {t(f.labelKey)}
             </button>
           ))}
         </div>
@@ -591,7 +598,7 @@ export function NetworkPanel() {
               }
               className="accent-accent"
             />
-            Preserve log
+            {t('devtools.network.preserveLog')}
           </label>
           <label className="flex items-center gap-1 text-caption text-fg-tertiary cursor-pointer select-none whitespace-nowrap">
             <input
@@ -600,19 +607,19 @@ export function NetworkPanel() {
               onChange={(e) => useDevtoolsStore.getState().setCacheDisabled(e.target.checked)}
               className="accent-accent"
             />
-            Disable cache
+            {t('devtools.network.disableCache')}
           </label>
           <select
             value={throttle}
             onChange={(e) =>
               useDevtoolsStore.getState().setThrottle(e.target.value as ThrottlePreset)
             }
-            aria-label="Network throttling"
+            aria-label={t('devtools.network.throttling')}
             className="h-6 rounded bg-surface-2 px-1 text-caption text-fg-secondary focus:outline-none focus:ring-1 focus:ring-accent/50"
           >
             {THROTTLE_OPTIONS.map((o) => (
               <option key={o.id} value={o.id}>
-                {o.label}
+                {t(o.labelKey)}
               </option>
             ))}
           </select>
@@ -622,23 +629,23 @@ export function NetworkPanel() {
       <div className="flex-[3] min-h-0 overflow-auto">
         {requests.length === 0 ? (
           <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-            Recording network activity…
+            {t('devtools.network.recording')}
           </div>
         ) : visible.length === 0 ? (
           <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-            No matching requests
+            {t('devtools.network.noMatchingRequests')}
           </div>
         ) : (
           <table className="w-full text-caption">
             <thead className="sticky top-0 bg-surface-1 text-fg-tertiary z-10">
               <tr className="text-left">
-                <th className="font-normal font-mono px-2 py-1">Name</th>
-                <th className="font-normal px-1 py-1 w-14">Method</th>
-                <th className="font-normal px-1 py-1 w-12">Status</th>
-                <th className="font-normal px-1 py-1 w-16">Type</th>
-                <th className="font-normal px-1 py-1 w-16 text-right">Size</th>
-                <th className="font-normal px-2 py-1 w-16 text-right">Time</th>
-                <th className="font-normal px-2 py-1 w-[28%]">Waterfall</th>
+                <th className="font-normal font-mono px-2 py-1">{t('devtools.application.name')}</th>
+                <th className="font-normal px-1 py-1 w-14">{t('devtools.network.method')}</th>
+                <th className="font-normal px-1 py-1 w-12">{t('devtools.network.status')}</th>
+                <th className="font-normal px-1 py-1 w-16">{t('devtools.network.type')}</th>
+                <th className="font-normal px-1 py-1 w-16 text-right">{t('devtools.network.size')}</th>
+                <th className="font-normal px-2 py-1 w-16 text-right">{t('devtools.network.time')}</th>
+                <th className="font-normal px-2 py-1 w-[28%]">{t('devtools.network.waterfall')}</th>
               </tr>
             </thead>
             <tbody>
@@ -729,17 +736,18 @@ function SummaryBar({
 }: {
   summary: ReturnType<typeof summarize>;
 }) {
+  const { t } = useI18n();
   return (
     <div className="shrink-0 h-6 flex items-center gap-3 px-2 border-t border-subtle text-caption text-fg-tertiary tabular-nums whitespace-nowrap overflow-hidden">
       <span>
-        <span className="text-fg-secondary">{summary.count}</span> requests
+        <span className="text-fg-secondary">{summary.count}</span> {t('devtools.network.requests')}
       </span>
       <span>
-        <span className="text-fg-secondary">{fmtBytes(summary.transferred)}</span> transferred
+        <span className="text-fg-secondary">{fmtBytes(summary.transferred)}</span> {t('devtools.network.transferred')}
       </span>
       {summary.finish !== null ? (
         <span>
-          Finish <span className="text-fg-secondary">{fmtMs(summary.finish)}</span>
+          {t('devtools.network.finish')} <span className="text-fg-secondary">{fmtMs(summary.finish)}</span>
         </span>
       ) : null}
       {summary.dcl !== null ? (
@@ -749,7 +757,7 @@ function SummaryBar({
       ) : null}
       {summary.loaded !== null ? (
         <span>
-          Load <span className="text-fg-secondary">{fmtMs(summary.loaded)}</span>
+          {t('devtools.network.load')} <span className="text-fg-secondary">{fmtMs(summary.loaded)}</span>
         </span>
       ) : null}
     </div>

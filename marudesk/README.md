@@ -26,6 +26,8 @@ client and relay should treat the PC host as the owner of that state.
 - Tailwind tokens backed by `src/styles/tokens.css`
 - Playwright for Electron/runtime end-to-end coverage
 - Provider integrations through the AI SDK and provider-specific adapters
+- Local persistence: app settings/secrets/config as JSON, AI Chat sessions in a
+  SQLite store (`better-sqlite3`, with full-text search) that falls back to JSON
 
 ## Run locally
 
@@ -36,6 +38,14 @@ npm run dev
 
 `npm run dev` starts the Vite renderer and Electron shell for local desktop
 development.
+
+`better-sqlite3` is a native module (like `node-pty`). If the SQLite session
+store reports it fell back to JSON (Settings → Data & Storage), rebuild the
+native binaries against Electron's ABI:
+
+```bash
+npm run rebuild:native
+```
 
 ## Verification
 
@@ -53,18 +63,39 @@ npm run harness:e2e
 npm run harness:pair
 npm run harness:relay-bridge
 npm run harness:mcp
+npm run harness:search
 ```
 
 ## Architecture notes
 
 - `electron/browser/*` owns browser tabs, navigation, downloads, DevTools wiring,
   and CDP-facing runtime capture.
+- `electron/workspace-*.ts`, `shared/workspace.ts`, and
+  `src/features/workspaces/*` own the multi-workspace deck: named workspaces,
+  multiple folder roots per workspace, workspace split panes, workspace-scoped
+  tabs, focused-root Explorer sync, and pane-local Peek Explorer. The deck rail
+  manages workspace lifecycle from the UI — create, rename, reindex, delete, and
+  per-root removal.
 - `electron/agent/*` owns agent session orchestration, MCP tool plumbing, context
-  sources, and model loop behavior.
+  sources, and model loop behavior. Built-in context tools include workspace
+  read/list helpers so an agent can inspect non-focused workspace roots without
+  changing the user's active Explorer root.
+- `electron/search.ts` owns workspace content search (`search:content`),
+  preferring ripgrep and falling back to a Node walk; its pure helpers — glob
+  filtering, the per-line matcher, byte→char offset conversion, and preview/range
+  building — live in `electron/search-core.ts` and are covered by
+  `npm run harness:search`. The renderer slice is `src/features/search/*`.
 - `shared/*` contains transport-safe contracts used across Electron, renderer,
   tests, and companion surfaces.
 - `src/features/*` contains renderer feature slices for browser, DevTools,
   editor, workspace, patch review, settings, git, terminal, and agent chat.
+- Local data is hybrid: settings (`electron/settings.ts`), secrets, MCP config,
+  and history stay JSON; AI Chat sessions live in `electron/db.ts` (SQLite) via
+  `electron/agent/sessions-store.ts`, which migrates legacy `sessions/*.json` on
+  first run and degrades to the JSON layout when the native module is
+  unavailable. Settings → **Data & Storage** manages what persists (chat
+  sessions, tab restore), shows usage, and can clear sessions or reveal the data
+  folder.
 
 Keep runtime evidence flows typed and narrow. If a value crosses from browser
 runtime to agent prompt or patch application, make the boundary explicit in

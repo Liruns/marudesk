@@ -1,3 +1,4 @@
+import type { AppInfo, UpdateCheckResult } from './app-info';
 import type { Capture } from './capture';
 import type {
   AgentAnswers,
@@ -6,7 +7,12 @@ import type {
   AgentSendResult,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
-import type { ContextSyncPayload, SessionSummary } from './context';
+import type {
+  ContextSyncPayload,
+  SessionSearchHit,
+  SessionSummary,
+  StorageStats,
+} from './context';
 import type {
   GitAvailability,
   GitBranches,
@@ -51,8 +57,17 @@ import type {
   MutateResult,
   RankedFile,
   ReadFileResult,
+  ReadMediaResult,
   SaveAsResult,
+  WorkspaceFileRef,
+  WorkspaceId,
+  WorkspacePaneId,
+  WorkspaceRecord,
+  WorkspaceRootId,
+  WorkspaceRootInput,
   WorkspaceSummary,
+  WorkspaceSnapshot,
+  WorkspaceSaveAsResult,
   WriteFileResult,
 } from './workspace';
 
@@ -120,6 +135,7 @@ export const CHANNELS = {
     'workspace:list',
     'workspace:rank',
     'workspace:read-file',
+    'workspace:read-media',
     'workspace:write-file',
     'workspace:save-as',
     'workspace:create',
@@ -128,6 +144,21 @@ export const CHANNELS = {
     'workspace:move',
     'workspace:copy',
     'workspace:reveal',
+  ],
+  workspaces: [
+    'workspaces:list',
+    'workspaces:create',
+    'workspaces:add-root',
+    'workspaces:remove-root',
+    'workspaces:rename',
+    'workspaces:delete',
+    'workspaces:set-active',
+    'workspaces:set-active-root',
+    'workspaces:reindex',
+    'workspaces:read-file',
+    'workspaces:write-file',
+    'workspaces:save-as',
+    'workspaces:rank',
   ],
   history: ['history:query', 'history:recent'],
   // Workspace Source Control (electron/git.ts). All run against the open
@@ -183,10 +214,15 @@ export const CHANNELS = {
     'agent:revert-edit',
     'agent:snapshot',
     'agent:reset',
+    'agent:compact',
     'agent:list-sessions',
+    'agent:search-sessions',
     'agent:resume-session',
     'agent:delete-session',
   ],
+  // Local data store management — Settings → Data & Storage reads stats, clears
+  // saved sessions, and reveals the data folder (docs/data-storage-design).
+  storage: ['storage:stats', 'storage:clear-sessions', 'storage:reveal'],
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],
@@ -224,6 +260,12 @@ export const CHANNELS = {
     'terminal:ready',
   ],
   clipboard: ['clipboard:write-text', 'clipboard:read-text'],
+  app: [
+    'app:info',
+    'app:open-github',
+    'app:open-releases',
+    'app:check-for-updates',
+  ],
   window: [
     'window:minimize',
     'window:maximize-toggle',
@@ -301,7 +343,15 @@ export interface IpcMap {
   };
   'browser:downloads-clear': { args: []; result: void };
   'browser:tabs-new': {
-    args: [payload: { kind?: TabKind; url?: string; path?: string }];
+    args: [
+      payload: {
+        kind?: TabKind;
+        url?: string;
+        path?: string;
+        workspaceId?: WorkspaceId;
+        file?: WorkspaceFileRef;
+      },
+    ];
     result: string;
   };
   // Convert an existing tab into another kind in place (keeps its strip slot).
@@ -309,7 +359,16 @@ export interface IpcMap {
   // tab rather than opening a second tab. Returns the new tab id, or null if the
   // target tab no longer exists.
   'browser:tabs-replace': {
-    args: [payload: { id: string; kind?: TabKind; url?: string; path?: string }];
+    args: [
+      payload: {
+        id: string;
+        kind?: TabKind;
+        url?: string;
+        path?: string;
+        workspaceId?: WorkspaceId;
+        file?: WorkspaceFileRef;
+      },
+    ];
     result: string | null;
   };
   'browser:tabs-close': { args: [id: string]; result: boolean };
@@ -370,6 +429,7 @@ export interface IpcMap {
   'workspace:list': { args: [root?: string]; result: WorkspaceSummary | null };
   'workspace:rank': { args: [capture: CaptureInput]; result: RankedFile[] };
   'workspace:read-file': { args: [rel: string]; result: ReadFileResult };
+  'workspace:read-media': { args: [rel: string]; result: ReadMediaResult };
   'workspace:write-file': {
     args: [payload: { path: string; content: string }];
     result: WriteFileResult;
@@ -396,6 +456,55 @@ export interface IpcMap {
     result: MutateResult;
   };
   'workspace:reveal': { args: [payload: { path: string }]; result: { ok: true } };
+
+  'workspaces:list': { args: []; result: WorkspaceSnapshot };
+  'workspaces:create': {
+    // `roots` may be omitted/empty: the main process then opens a native folder
+    // picker and a cancel returns null (no workspace created).
+    args: [payload: { name?: string; roots?: WorkspaceRootInput[] }];
+    result: WorkspaceRecord | null;
+  };
+  'workspaces:add-root': {
+    args: [payload: { workspaceId: WorkspaceId; name?: string; path?: string }];
+    result: WorkspaceRecord;
+  };
+  'workspaces:remove-root': {
+    args: [payload: { workspaceId: WorkspaceId; rootId: WorkspaceRootId }];
+    result: WorkspaceRecord;
+  };
+  'workspaces:rename': {
+    args: [payload: { workspaceId: WorkspaceId; name: string }];
+    result: WorkspaceRecord;
+  };
+  'workspaces:delete': {
+    args: [payload: { workspaceId: WorkspaceId }];
+    result: WorkspaceSnapshot;
+  };
+  'workspaces:set-active': {
+    args: [payload: { workspaceId: WorkspaceId; paneId?: WorkspacePaneId }];
+    result: WorkspaceSnapshot;
+  };
+  'workspaces:set-active-root': {
+    args: [payload: { workspaceId: WorkspaceId; rootId: WorkspaceRootId }];
+    result: WorkspaceSnapshot;
+  };
+  'workspaces:reindex': {
+    args: [payload: { workspaceId: WorkspaceId; rootId?: WorkspaceRootId }];
+    result: WorkspaceRecord;
+  };
+  'workspaces:read-file': { args: [file: WorkspaceFileRef]; result: ReadFileResult };
+  'workspaces:write-file': {
+    args: [payload: { file: WorkspaceFileRef; content: string }];
+    result: WriteFileResult;
+  };
+  'workspaces:save-as': {
+    args: [payload: { workspaceId: WorkspaceId; rootId: WorkspaceRootId; content: string }];
+    result: WorkspaceSaveAsResult;
+  };
+  'workspaces:rank': {
+    args: [payload: { workspaceId: WorkspaceId; rootId?: WorkspaceRootId; capture: CaptureInput }];
+    result: RankedFile[];
+  };
 
   // git (Source Control — electron/git.ts). Paths are workspace-relative POSIX.
   // `status` never throws for a non-repo (returns { isRepo: false }); `discard`
@@ -496,7 +605,7 @@ export interface IpcMap {
   };
   // Resume a turn parked on a gated tool (eval_js / navigation) approval.
   'agent:approve-tool': {
-    args: [payload: { turnId: string; callId: string; approved: boolean }];
+    args: [payload: { turnId: string; callId: string; approved: boolean; always?: boolean }];
     result: boolean;
   };
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
@@ -506,11 +615,27 @@ export interface IpcMap {
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: []; result: boolean };
+  // Compact the conversation: summarize the transcript for the model while
+  // keeping the visible scrollback (claude-code / codex `/compact`). An optional
+  // `focus` (from `/compact <focus>`) asks the summarizer to preserve specific
+  // details. Returns ok, or a reason when there's nothing to compact.
+  'agent:compact': { args: [focus?: string]; result: { ok: boolean; reason?: string } };
   // Session history (v3 §5-C): list past saved conversations, resume one as the
   // active chat, or delete one. The list backs the sessions UI; resume swaps state.
   'agent:list-sessions': { args: []; result: SessionSummary[] };
+  'agent:search-sessions': {
+    args: [payload: { query: string }];
+    result: SessionSearchHit[];
+  };
   'agent:resume-session': { args: [payload: { id: string }]; result: boolean };
   'agent:delete-session': { args: [payload: { id: string }]; result: boolean };
+
+  // storage (Data & Storage settings panel): read store stats (backend +
+  // session count + bytes), clear all saved sessions, and reveal the userData
+  // folder in the OS file manager. Clearing returns the number removed.
+  'storage:stats': { args: []; result: StorageStats };
+  'storage:clear-sessions': { args: []; result: number };
+  'storage:reveal': { args: []; result: void };
 
   // context (built-in MCP mirror): the renderer pushes the surfaces main can't
   // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget
@@ -584,6 +709,11 @@ export interface IpcMap {
   'clipboard:write-text': { args: [text: string]; result: void };
   'clipboard:read-text': { args: []; result: string };
 
+  'app:info': { args: []; result: AppInfo };
+  'app:open-github': { args: []; result: void };
+  'app:open-releases': { args: []; result: void };
+  'app:check-for-updates': { args: []; result: UpdateCheckResult };
+
   // window
   'window:minimize': { args: []; result: boolean };
   'window:maximize-toggle': { args: []; result: boolean };
@@ -642,6 +772,9 @@ export interface EventPayloadMap {
   // tick) whenever a turn advances. The renderer replaces its projection
   // wholesale — see docs/agentic-chat-design.md §8.
   'agent:event': AgentChatState;
+  // Workspace deck state, pushed when a legacy or multi-workspace IPC mutation
+  // changes the active workspace/root set.
+  'workspaces:state': WorkspaceSnapshot;
   // Cloud relay (Bridge Model B §B2): the sanitized status, pushed when the host
   // connects/disconnects or the session changes (so the Settings UI reflects the
   // connected-as-host indicator live). Never carries tokens.
@@ -692,6 +825,7 @@ export const EVENT_CHANNELS = [
   'devtools:inspect-at',
   'devtools:error-count',
   'agent:event',
+  'workspaces:state',
   'relay:status-changed',
   'server:status-changed',
   'server:pairing-request',

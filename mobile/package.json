@@ -1,7 +1,7 @@
 {
   "name": "marudesk-mobile",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "description": "marudesk Model-B bridge — mobile (Capacitor) thin client for the PC's AI Chat. Sends agent commands and renders the PC's agent state over a relay; never runs the model/tools itself.",
   "scripts": {
@@ -9,7 +9,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "smoke": "node --experimental-strip-types --import ./scripts/ts-register.mjs scripts/stub-smoke.ts",
+    "smoke": "npm run smoke:stub && npm run smoke:storage",
+    "smoke:stub": "node --experimental-strip-types --import ./scripts/ts-register.mjs scripts/stub-smoke.ts",
+    "smoke:storage": "node --experimental-strip-types --import ./scripts/ts-register.mjs scripts/storage-smoke.ts",
     "cap:sync": "cap sync android",
     "cap:add:android": "cap add android",
     "android:build": "npm run build && cap sync android"

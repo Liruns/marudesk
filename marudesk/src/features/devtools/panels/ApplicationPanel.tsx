@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { RefreshCw, Trash2 } from 'lucide-react';
+import { useI18n } from '../../../i18n/useI18n';
+import type { TranslationKey } from '../../../i18n/messages';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import type { CdpCookie } from '../types';
@@ -12,10 +14,10 @@ import type { CdpCookie } from '../types';
  */
 
 type Section = 'local' | 'session' | 'cookies';
-const SECTIONS: { id: Section; label: string }[] = [
-  { id: 'local', label: 'Local Storage' },
-  { id: 'session', label: 'Session Storage' },
-  { id: 'cookies', label: 'Cookies' },
+const SECTIONS: { id: Section; labelKey: TranslationKey }[] = [
+  { id: 'local', labelKey: 'devtools.application.localStorage' },
+  { id: 'session', labelKey: 'devtools.application.sessionStorage' },
+  { id: 'cookies', labelKey: 'devtools.application.cookies' },
 ];
 
 function StorageTable({
@@ -25,15 +27,16 @@ function StorageTable({
   items: [string, string][];
   onDelete: (key: string) => void;
 }) {
+  const { t } = useI18n();
   if (items.length === 0) {
-    return <div className="text-caption text-fg-tertiary px-3 py-2">No entries</div>;
+    return <div className="text-caption text-fg-tertiary px-3 py-2">{t('devtools.application.noEntries')}</div>;
   }
   return (
     <table className="w-full text-caption">
       <thead className="sticky top-0 bg-surface-1 text-fg-tertiary">
         <tr className="text-left">
-          <th className="font-normal px-3 py-1 w-1/3">Key</th>
-          <th className="font-normal px-2 py-1">Value</th>
+          <th className="font-normal px-3 py-1 w-1/3">{t('devtools.application.key')}</th>
+          <th className="font-normal px-2 py-1">{t('devtools.application.value')}</th>
           <th className="px-1 py-1 w-7" />
         </tr>
       </thead>
@@ -45,8 +48,8 @@ function StorageTable({
             <td className="px-1 py-0.5">
               <button
                 type="button"
-                aria-label={`Delete ${k}`}
-                title="Delete"
+                aria-label={`${t('devtools.application.deleteBefore')}${k}`}
+                title={t('devtools.application.delete')}
                 onClick={() => onDelete(k)}
                 className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-error hover:bg-surface-2"
               >
@@ -60,8 +63,8 @@ function StorageTable({
   );
 }
 
-function cookieExpiry(c: CdpCookie): string {
-  if (c.session || !c.expires || c.expires < 0) return 'Session';
+function cookieExpiry(c: CdpCookie, sessionLabel: string): string {
+  if (c.session || !c.expires || c.expires < 0) return sessionLabel;
   try {
     return new Date(c.expires * 1000).toISOString().replace('T', ' ').slice(0, 19);
   } catch {
@@ -70,19 +73,20 @@ function cookieExpiry(c: CdpCookie): string {
 }
 
 function CookieTable({ cookies }: { cookies: CdpCookie[] }) {
+  const { t } = useI18n();
   if (cookies.length === 0) {
-    return <div className="text-caption text-fg-tertiary px-3 py-2">No cookies</div>;
+    return <div className="text-caption text-fg-tertiary px-3 py-2">{t('devtools.application.noCookies')}</div>;
   }
   return (
     <table className="w-full text-caption">
       <thead className="sticky top-0 bg-surface-1 text-fg-tertiary">
         <tr className="text-left">
-          <th className="font-normal px-3 py-1">Name</th>
-          <th className="font-normal px-2 py-1">Value</th>
-          <th className="font-normal px-2 py-1">Domain</th>
-          <th className="font-normal px-2 py-1">Path</th>
-          <th className="font-normal px-2 py-1">Expires</th>
-          <th className="font-normal px-2 py-1">Flags</th>
+          <th className="font-normal px-3 py-1">{t('devtools.application.name')}</th>
+          <th className="font-normal px-2 py-1">{t('devtools.application.value')}</th>
+          <th className="font-normal px-2 py-1">{t('devtools.application.domain')}</th>
+          <th className="font-normal px-2 py-1">{t('devtools.application.path')}</th>
+          <th className="font-normal px-2 py-1">{t('devtools.application.expires')}</th>
+          <th className="font-normal px-2 py-1">{t('devtools.application.flags')}</th>
         </tr>
       </thead>
       <tbody>
@@ -95,7 +99,7 @@ function CookieTable({ cookies }: { cookies: CdpCookie[] }) {
             <td className="px-2 py-0.5 text-fg-tertiary break-all">{c.domain}</td>
             <td className="px-2 py-0.5 text-fg-tertiary break-all">{c.path}</td>
             <td className="px-2 py-0.5 text-fg-tertiary tabular-nums whitespace-nowrap">
-              {cookieExpiry(c)}
+              {cookieExpiry(c, t('devtools.application.session'))}
             </td>
             <td className="px-2 py-0.5 text-fg-tertiary whitespace-nowrap">
               {[c.httpOnly ? 'HttpOnly' : '', c.secure ? 'Secure' : '', c.sameSite ?? '']
@@ -110,6 +114,7 @@ function CookieTable({ cookies }: { cookies: CdpCookie[] }) {
 }
 
 export function ApplicationPanel() {
+  const { t } = useI18n();
   const origin = useDevtoolsStore((s) => s.appOrigin);
   const local = useDevtoolsStore((s) => s.localStorageItems);
   const session = useDevtoolsStore((s) => s.sessionStorageItems);
@@ -133,14 +138,14 @@ export function ApplicationPanel() {
                 : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
             )}
           >
-            {s.label}
+            {t(s.labelKey)}
           </button>
         ))}
         <div className="flex-1" />
         <button
           type="button"
-          aria-label="Refresh"
-          title="Refresh"
+          aria-label={t('git.action.refresh')}
+          title={t('git.action.refresh')}
           onClick={() => void useDevtoolsStore.getState().refreshApplication()}
           className="size-6 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
         >
@@ -154,21 +159,21 @@ export function ApplicationPanel() {
             }
             className="h-6 px-2 rounded text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
           >
-            Clear
+            {t('devtools.application.clear')}
           </button>
         ) : null}
         <button
           type="button"
           onClick={() => void useDevtoolsStore.getState().clearSiteData()}
-          title="Clear cookies + all storage for this origin"
+          title={t('devtools.application.clearSiteDataTitle')}
           className="h-6 px-2 rounded text-caption text-error/80 hover:text-error hover:bg-error/10"
         >
-          Clear site data
+          {t('devtools.application.clearSiteData')}
         </button>
       </div>
 
       <div className="shrink-0 px-3 py-0.5 text-caption text-fg-tertiary font-mono truncate border-b border-subtle/40">
-        {origin ?? '(no resolvable origin)'}
+        {origin ?? t('devtools.application.noOrigin')}
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Search, Check, Brain, Eye, Star, FlaskConical } from 'lucide-react';
-import { cn } from '../../lib/cn';
+import { Search } from 'lucide-react';
 import {
   PROVIDERS,
   customProviderId,
@@ -8,7 +7,9 @@ import {
   type ProviderId,
 } from '../../../shared/providers';
 import { useProvidersStore } from '../providers/store';
-import { ProviderGlyph } from '../providers/ProviderGlyph';
+import { useI18n } from '../../i18n/useI18n';
+import { Hint } from './ModelPaletteParts';
+import { ModelRow, SectionHeader } from './ModelPaletteRow';
 
 /**
  * Command-palette model picker (docs/agentic-chat-v4-design.md §A1). A centered,
@@ -19,6 +20,7 @@ import { ProviderGlyph } from '../providers/ProviderGlyph';
  * is now just the trigger.
  */
 export function ModelPalette({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const models = useProvidersStore((s) => s.models);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
@@ -39,6 +41,19 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
+  }, []);
+
+  // Hide the embedded web view while the palette is open. The picker is a
+  // `fixed inset-0` overlay, but an active web tab's WebContentsView is a native
+  // layer composited OVER the React DOM — so over a browser tab the palette would
+  // render *behind* the page and look like nothing happened (the "I clicked the
+  // model list but it never shows" bug). Restored on close. No-op when the active
+  // tab owns no view (feature tabs / no web tab). Mirrors ContextMenu / overlays.
+  useEffect(() => {
+    void window.marudesk.invoke('browser:set-visible', false);
+    return () => {
+      void window.marudesk.invoke('browser:set-visible', true);
+    };
   }, []);
 
   const { sections, flat } = useMemo(() => {
@@ -65,13 +80,13 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
       const favItems = favoriteModelKeys
         .map(byKey)
         .filter((m): m is ModelEntry => !!m && m.tools !== false && isUsable(m));
-      if (favItems.length) quick.push({ id: 'favorites', label: 'Favorites', items: favItems });
+      if (favItems.length) quick.push({ id: 'favorites', label: t('agent.modelPalette.favorites'), items: favItems });
       const favSet = new Set(favoriteModelKeys);
       const recentItems = recentModelKeys
         .filter((k) => !favSet.has(k))
         .map(byKey)
         .filter((m): m is ModelEntry => !!m && m.tools !== false && isUsable(m));
-      if (recentItems.length) quick.push({ id: 'recent', label: 'Recent', items: recentItems });
+      if (recentItems.length) quick.push({ id: 'recent', label: t('agent.modelPalette.recent'), items: recentItems });
     }
 
     const builtin: Section[] = PROVIDERS.filter((p) => !p.experimental).map((p) => ({
@@ -103,7 +118,7 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
         (s.id === 'favorites' || s.id === 'recent' || s.id.startsWith('custom:') || s.hasKey),
     );
     return { sections: all, flat: all.flatMap((s) => s.items) };
-  }, [models, query, providerStatus, customProviders, recentModelKeys, favoriteModelKeys]);
+  }, [models, query, providerStatus, customProviders, recentModelKeys, favoriteModelKeys, t]);
 
   // Clamp the highlight to the (possibly shrunk) list on read — no state-syncing
   // effect needed; the arrow keys already clamp when moving and a query change
@@ -168,7 +183,7 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
               setActive(0);
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search models…"
+            placeholder={t('agent.modelPalette.searchPlaceholder')}
             spellCheck={false}
             autoComplete="off"
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
@@ -180,89 +195,43 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
           {sections.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
               {query.trim()
-                ? `No connected models match “${query}”.`
-                : 'No connected providers yet — add a key or sign in under Settings → AI Providers.'}
+                ? `${t('agent.modelPalette.noMatchBefore')}${query}${t('agent.modelPalette.noMatchAfter')}`
+                : t('agent.modelPalette.noProviders')}
             </div>
           ) : (
             sections.map((s) => (
               <div key={s.id}>
-                <div className="flex items-center gap-1.5 px-3 pb-1 pt-2.5 text-caption uppercase tracking-wider text-fg-tertiary">
-                  <span>{s.label}</span>
-                  {s.experimental ? (
-                    <span className="inline-flex items-center gap-0.5 rounded-pill bg-warning-subtle px-1.5 py-px text-[10px] font-medium normal-case tracking-normal text-warning">
-                      <FlaskConical size={9} /> experimental
-                    </span>
-                  ) : null}
-                  {!s.experimental && s.id !== 'favorites' && s.id !== 'recent' ? (
-                    <span
-                      aria-hidden
-                      title={s.hasKey ? 'Connected' : 'No key / not connected'}
-                      className={cn('size-1.5 rounded-pill', s.hasKey ? 'bg-success' : 'bg-fg-tertiary/40')}
-                    />
-                  ) : null}
-                </div>
+                <SectionHeader
+                  label={s.label}
+                  experimental={!!s.experimental}
+                  hasKey={!!s.hasKey}
+                  showStatus={!s.experimental && s.id !== 'favorites' && s.id !== 'recent'}
+                  experimentalLabel={t('agent.modelPalette.experimental')}
+                  connectedTitle={t('agent.modelPalette.connected')}
+                  notConnectedTitle={t('agent.modelPalette.notConnected')}
+                />
                 {s.items.map((m) => {
                   globalIndex += 1;
                   const idx = globalIndex;
-                  const isActive = idx === activeIndex;
-                  const isSelected = m.key === selectedModelKey;
                   const isFavorite = favoriteModelKeys.includes(m.key);
                   return (
-                    <button
+                    <ModelRow
                       key={`${s.id}:${m.key}`}
-                      ref={isActive ? activeRef : undefined}
-                      type="button"
-                      onClick={() => choose(m.key)}
-                      onMouseEnter={() => setActive(idx)}
-                      className={cn(
-                        'group flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',
-                        isActive ? 'bg-surface-2 text-fg-primary' : 'text-fg-secondary',
-                      )}
-                    >
-                      <ProviderGlyph provider={m.provider} label={m.label} size={18} />
-                      {query.trim() === '' && idx < 9 ? (
-                        <kbd className="shrink-0 rounded bg-surface-3 px-1 text-[10px] font-medium leading-[1.5] tabular-nums text-fg-tertiary">
-                          {idx + 1}
-                        </kbd>
-                      ) : null}
-                      <span className="flex-1 truncate">{m.label}</span>
-                      {/* capability badges reuse the AI-timeline hues: vision=blue (read),
-                          reasoning=peach (the same hue as the Thinking block). */}
-                      {m.vision ? <Eye size={12} className="shrink-0 text-ai-read" aria-label="vision" /> : null}
-                      {m.reasoning ? (
-                        <Brain size={12} className="shrink-0 text-ai-thinking" aria-label="reasoning" />
-                      ) : null}
-                      {m.contextWindow ? (
-                        <span className="shrink-0 rounded bg-surface-3/70 px-1 text-[10px] tabular-nums text-fg-tertiary">
-                          {formatContext(m.contextWindow)}
-                        </span>
-                      ) : null}
-                      {/* favorite: a real star icon (gold when set), hover-revealed otherwise */}
-                      <span
-                        role="button"
-                        tabIndex={-1}
-                        aria-label={isFavorite ? 'Unfavorite' : 'Favorite'}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFavorite(m.key);
-                        }}
-                        className={cn(
-                          'shrink-0 transition-opacity',
-                          isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                        )}
-                      >
-                        <Star
-                          size={13}
-                          className={cn(isFavorite ? 'text-warning' : 'text-fg-tertiary/60 hover:text-fg-tertiary')}
-                          fill={isFavorite ? 'currentColor' : 'none'}
-                        />
-                      </span>
-                      {isSelected ? (
-                        <Check size={13} className="shrink-0 text-accent" />
-                      ) : (
-                        <span aria-hidden className="w-[13px] shrink-0" />
-                      )}
-                    </button>
+                      model={m}
+                      index={idx}
+                      rowRef={idx === activeIndex ? activeRef : undefined}
+                      active={idx === activeIndex}
+                      selected={m.key === selectedModelKey}
+                      favorite={isFavorite}
+                      showQuickKey={query.trim() === '' && idx < 9}
+                      visionLabel={t('agent.modelPalette.vision')}
+                      reasoningLabel={t('agent.modelPalette.reasoning')}
+                      favoriteLabel={t('agent.modelPalette.favorite')}
+                      unfavoriteLabel={t('agent.modelPalette.unfavorite')}
+                      onChoose={() => choose(m.key)}
+                      onHover={() => setActive(idx)}
+                      onToggleFavorite={() => toggleFavorite(m.key)}
+                    />
                   );
                 })}
               </div>
@@ -272,10 +241,10 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
 
         {/* footer hint bar */}
         <div className="flex shrink-0 items-center gap-2.5 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
-          <Hint k="↑↓" label="move" />
-          <Hint k="↵" label="select" />
-          <Hint k="1–9" label="quick" />
-          <Hint k="esc" label="close" />
+          <Hint k="↑↓" label={t('palette.hint.move')} />
+          <Hint k="↵" label={t('agent.modelPalette.select')} />
+          <Hint k="1–9" label={t('agent.modelPalette.quick')} />
+          <Hint k="esc" label={t('palette.hint.close')} />
         </div>
       </div>
     </div>
@@ -289,25 +258,3 @@ type Section = {
   experimental?: boolean;
   items: ModelEntry[];
 };
-
-/** One footer key hint: a kbd chip + its action label. */
-function Hint({ k, label }: { k: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1">
-      <kbd className="rounded bg-surface-3 px-1 text-[10px] font-medium leading-[1.5] text-fg-secondary">
-        {k}
-      </kbd>
-      <span>{label}</span>
-    </span>
-  );
-}
-
-/** Compact context-window label (e.g. 200000 → "200K", 1048576 → "1M"). */
-function formatContext(n: number): string {
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000;
-    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
-  }
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return String(n);
-}

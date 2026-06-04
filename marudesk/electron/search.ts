@@ -5,20 +5,29 @@ import path from 'node:path';
 import type {
   SearchFileResult,
   SearchMatch,
+  SearchMatchRange,
   SearchOptions,
   SearchResult,
 } from '../shared/search';
 import { isInsideRoot } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { bool, obj, str } from './ipc/validate';
-import { IGNORE_DIRS } from './workspace';
+import { IGNORE_DIRS } from './workspace-config';
+import {
+  buildPreview,
+  byteToCharIndex,
+  compilePathFilter,
+  makeLineMatcher,
+  parseGlobs,
+} from './search-core';
 
 /**
  * Workspace content search. Prefers ripgrep (fast, respects .gitignore) and
  * falls back to a Node walk that reuses the workspace's IGNORE_DIRS and skips
  * binaries (NUL heuristic) + large files. Both run against the open workspace
  * root only; the query is passed as an argv element (never a shell), so even a
- * regex query can't inject a command.
+ * regex query can't inject a command. Optional include/exclude globs scope the
+ * search (ripgrep applies them via --glob; the Node walk via compilePathFilter).
  */
 
 const execFileAsync = promisify(execFile);
@@ -55,7 +64,7 @@ type RgMatchEvent = {
     path: { text?: string };
     lines: { text?: string };
     line_number: number;
-    submatches: { start: number }[];
+    submatches: { start: number; end: number }[];
   };
 };
 
@@ -82,6 +91,10 @@ async function searchRipgrep(
   if (opts.wholeWord) args.push('--word-regexp');
   if (!opts.regex) args.push('--fixed-strings');
   for (const dir of IGNORE_DIRS) args.push('--glob', `!**/${dir}/**`);
+  // User include/exclude globs. A non-negated glob makes ripgrep restrict the
+  // search to matching files; the IGNORE_DIRS excludes above still apply.
+  for (const g of parseGlobs(opts.includes)) args.push('--glob', g);
+  for (const g of parseGlobs(opts.excludes)) args.push('--glob', `!${g}`);
   // `--` terminates flags so a query starting with '-' isn't read as one.
   args.push('--', query, '.');
 
@@ -117,14 +130,17 @@ async function searchRipgrep(
     const rel = (d.path.text ?? '').replace(/\\/g, '/');
     if (!rel) continue;
     const lineText = (d.lines.text ?? '').replace(/\r?\n$/, '');
-    const col = (d.submatches[0]?.start ?? 0) + 1; // bytes→1-based; good enough
+    // ripgrep reports byte offsets; convert to char indices so they line up
+    // with the JS string we slice for the preview.
+    const rawRanges: SearchMatchRange[] = d.submatches.map((s) => ({
+      start: byteToCharIndex(lineText, s.start),
+      end: byteToCharIndex(lineText, s.end),
+    }));
+    const { preview, ranges } = buildPreview(lineText, rawRanges, MAX_PREVIEW);
+    const col = (rawRanges[0]?.start ?? 0) + 1;
     const arr = byFile.get(rel) ?? [];
     if (arr.length < MAX_PER_FILE) {
-      arr.push({
-        line: d.line_number,
-        col,
-        preview: lineText.slice(0, MAX_PREVIEW),
-      });
+      arr.push({ line: d.line_number, col, preview, ranges });
       byFile.set(rel, arr);
     }
     total++;
@@ -136,46 +152,16 @@ async function searchRipgrep(
   return { files: toSortedFiles(byFile), truncated, engine: 'ripgrep' };
 }
 
-/** Build a case-insensitive-aware matcher for the Node fallback. */
-function makeMatcher(
-  query: string,
-  opts: SearchOptions,
-): (line: string) => number {
-  if (opts.regex || opts.wholeWord) {
-    const body = opts.regex ? query : escapeRegExp(query);
-    const pattern = opts.wholeWord ? `\\b(?:${body})\\b` : body;
-    const flags = opts.caseSensitive ? 'g' : 'gi';
-    const re = new RegExp(pattern, flags);
-    return (line: string): number => {
-      re.lastIndex = 0;
-      const m = re.exec(line);
-      return m ? m.index + 1 : 0;
-    };
-  }
-  // Plain substring — cheaper than a regex per line.
-  if (opts.caseSensitive) {
-    return (line: string): number => {
-      const i = line.indexOf(query);
-      return i < 0 ? 0 : i + 1;
-    };
-  }
-  const lower = query.toLowerCase();
-  return (line: string): number => {
-    const i = line.toLowerCase().indexOf(lower);
-    return i < 0 ? 0 : i + 1;
-  };
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 async function searchNode(
   root: string,
   query: string,
   opts: SearchOptions,
 ): Promise<SearchResult> {
-  const match = makeMatcher(query, opts);
+  const matchLine = makeLineMatcher(query, opts);
+  const accept = compilePathFilter(
+    parseGlobs(opts.includes),
+    parseGlobs(opts.excludes),
+  );
   const byFile = new Map<string, SearchMatch[]>();
   let total = 0;
   let truncated = false;
@@ -195,6 +181,8 @@ async function searchNode(
         await walk(path.join(dir, name));
       } else if (entry.isFile()) {
         const full = path.join(dir, name);
+        const rel = path.relative(root, full).replace(/\\/g, '/');
+        if (!accept(rel)) continue;
         const st = await fs.stat(full).catch(() => null);
         if (!st || st.size > MAX_FILE_SIZE) continue;
         const buf = await fs.readFile(full).catch(() => null);
@@ -202,15 +190,16 @@ async function searchNode(
         // Binary heuristic: a NUL byte in the first 8KB → skip (matches the
         // editor's read guard).
         if (buf.subarray(0, 8192).includes(0)) continue;
-        const rel = path.relative(root, full).replace(/\\/g, '/');
         const lines = buf.toString('utf8').split('\n');
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].replace(/\r$/, '');
-          const col = match(line);
-          if (col === 0) continue;
+          const rawRanges = matchLine(line);
+          if (rawRanges.length === 0) continue;
+          const { preview, ranges } = buildPreview(line, rawRanges, MAX_PREVIEW);
+          const col = rawRanges[0].start + 1;
           const arr = byFile.get(rel) ?? [];
           if (arr.length < MAX_PER_FILE) {
-            arr.push({ line: i + 1, col, preview: line.slice(0, MAX_PREVIEW) });
+            arr.push({ line: i + 1, col, preview, ranges });
             byFile.set(rel, arr);
           }
           total++;
@@ -263,6 +252,8 @@ function parseOptions(value: unknown): SearchOptions {
       o.caseSensitive === undefined ? false : bool(o.caseSensitive, 'caseSensitive'),
     wholeWord: o.wholeWord === undefined ? false : bool(o.wholeWord, 'wholeWord'),
     regex: o.regex === undefined ? false : bool(o.regex, 'regex'),
+    includes: o.includes === undefined ? '' : str(o.includes, 'includes'),
+    excludes: o.excludes === undefined ? '' : str(o.excludes, 'excludes'),
   };
 }
 

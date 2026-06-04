@@ -3,8 +3,9 @@ import type { ProviderDriver } from './types';
 import { ProviderAuthError, isAuthStatus, prettifyId } from './tool';
 
 /**
- * xAI Grok live model catalog. The OpenAI-compatible list endpoint takes a Bearer
- * credential — an API key or an OAuth access token both work
+ * xAI Grok live model catalog. The `/v1/models` endpoint takes a Bearer
+ * credential — an API key or an OAuth access token both work. Agent turns use
+ * the xAI Responses API provider in electron/agent/model.ts.
  * (docs/oauth-providers-design.md). Only reached when an API key is stored;
  * OAuth-only connections fall back to the static catalog (models.ts), like Anthropic.
  */

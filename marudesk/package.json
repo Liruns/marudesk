@@ -1,7 +1,7 @@
 {
   "name": "marudesk",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.2",
   "type": "module",
   "main": "dist-electron/main.mjs",
   "scripts": {
@@ -11,6 +11,7 @@
     "package:mac": "npm run build && electron-builder --mac dmg",
     "package:win": "npm run build && electron-builder --win nsis",
     "lint": "eslint .",
+    "rebuild:native": "electron-builder install-app-deps",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "e2e": "playwright test",
@@ -20,14 +21,21 @@
     "harness:pair": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/pair-harness.ts",
     "harness:relay-bridge": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/relay-bridge-harness.ts",
     "harness:webrtc": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/webrtc-host-harness.ts",
-    "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts"
+    "harness:search": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/search-core.harness.ts",
+    "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts",
+    "harness:xai-vision": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/xai-vision-harness.ts",
+    "harness:image-gen": "node --experimental-strip-types electron/agent/image-generation-harness.ts",
+    "harness:media-gen": "node --experimental-strip-types electron/agent/image-generation-harness.ts"
   },
   "build": {
     "appId": "com.marudesk.app",
     "productName": "marudesk",
     "asar": true,
     "asarUnpack": [
-      "**/node_modules/node-pty/**"
+      "**/node_modules/node-pty/**",
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/bindings/**",
+      "**/node_modules/file-uri-to-path/**"
     ],
     "npmRebuild": false,
     "directories": {
@@ -67,7 +75,9 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "createDesktopShortcut": false
     }
   },
   "dependencies": {
@@ -75,6 +85,7 @@
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.67",
     "@ai-sdk/openai-compatible": "^2.0.48",
+    "@ai-sdk/xai": "^3.0.93",
     "@anthropic-ai/sdk": "^0.99.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/ws": "^8.18.1",
@@ -83,6 +94,7 @@
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
     "ai": "^6.0.193",
+    "better-sqlite3": "^11.10.0",
     "dompurify": "^3.4.7",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.16.0",
@@ -101,6 +113,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^24.12.3",
     "@types/qrcode": "^1.5.6",

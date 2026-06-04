@@ -23,9 +23,16 @@ import {
 } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
+import type {
+  WorkspaceFileRef,
+  WorkspaceRecord,
+  WorkspaceRootId,
+} from '../../../shared/workspace';
 import { useWorkspaceStore } from './store';
 import { useEditorStore } from '../editor/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { buildFileTree, flattenTree } from './tree';
 import { FileTree, type MenuTarget } from './FileTree';
 import {
@@ -86,6 +93,7 @@ function readExplorerWidth(): number {
  * go through validated workspace:* channels (see fsActions / electron/fs-safe).
  */
 export function ExplorerPanel({ open, onRequestClose }: Props) {
+  const { formatFileCount, formatWorkspaceTruncated, t } = useI18n();
   const summary = useWorkspaceStore((s) => s.summary);
   const opening = useWorkspaceStore((s) => s.opening);
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
@@ -102,6 +110,10 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   const cancelPending = useWorkspaceStore((s) => s.cancelPending);
   const setClipboard = useWorkspaceStore((s) => s.setClipboard);
   const openFile = useEditorStore((s) => s.openFile);
+  const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
+  const setActiveRoot = useWorkspaceDeckStore((s) => s.setActiveRoot);
+  const addRoot = useWorkspaceDeckStore((s) => s.addRoot);
 
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [width, setWidth] = useState(readExplorerWidth);
@@ -170,6 +182,19 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     () => flattenTree(tree, expandedDirs),
     [tree, expandedDirs],
   );
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
+    [activeWorkspaceId, workspaces],
+  );
+  const activeRootId = activeWorkspace?.activeRootId ?? activeWorkspace?.roots[0]?.id ?? null;
+  const workspaceFile = (filePath: string): WorkspaceFileRef | string => {
+    if (!activeWorkspace || !activeRootId) return filePath;
+    return {
+      workspaceId: activeWorkspace.id,
+      rootId: activeRootId,
+      path: filePath,
+    };
+  };
 
   const openRowMenu = (e: ReactMouseEvent, target: MenuTarget) => {
     e.preventDefault();
@@ -186,38 +211,38 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     const canPaste = clipboard !== null;
     if (target.kind === 'empty') {
       return [
-        { label: 'New File', icon: <FilePlus size={15} />, onSelect: () => beginCreate('', 'file') },
-        { label: 'New Folder', icon: <FolderPlus size={15} />, onSelect: () => beginCreate('', 'dir') },
+        { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate('', 'file') },
+        { label: t('workspace.action.newFolder'), icon: <FolderPlus size={15} />, onSelect: () => beginCreate('', 'dir') },
         { type: 'separator' },
-        { label: 'Paste', icon: <ClipboardPaste size={15} />, disabled: !canPaste, onSelect: () => void pasteInto('') },
+        { label: t('workspace.action.paste'), icon: <ClipboardPaste size={15} />, disabled: !canPaste, onSelect: () => void pasteInto('') },
         { type: 'separator' },
-        { label: 'Collapse Folders', icon: <ChevronsDownUp size={15} />, onSelect: collapseAll },
-        { label: 'Refresh', icon: <RefreshCw size={15} />, onSelect: () => void reindex() },
+        { label: t('workspace.action.collapseFolders'), icon: <ChevronsDownUp size={15} />, onSelect: collapseAll },
+        { label: t('workspace.action.refresh'), icon: <RefreshCw size={15} />, onSelect: () => void reindex() },
       ];
     }
     const { kind, path } = target;
     const pasteDir = kind === 'dir' ? path : parentOf(path);
     const items: MenuItem[] = [];
     if (kind === 'file') {
-      items.push({ label: 'Open', icon: <FileIcon size={15} />, onSelect: () => void openFile(path) });
+      items.push({ label: t('workspace.action.open'), icon: <FileIcon size={15} />, onSelect: () => void openFile(workspaceFile(path)) });
     } else {
       items.push(
-        { label: 'New File', icon: <FilePlus size={15} />, onSelect: () => beginCreate(path, 'file') },
-        { label: 'New Folder', icon: <FolderPlus size={15} />, onSelect: () => beginCreate(path, 'dir') },
+        { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate(path, 'file') },
+        { label: t('workspace.action.newFolder'), icon: <FolderPlus size={15} />, onSelect: () => beginCreate(path, 'dir') },
       );
     }
     items.push(
       { type: 'separator' },
-      { label: 'Cut', icon: <Scissors size={15} />, onSelect: () => setClipboard(path, 'cut') },
-      { label: 'Copy', icon: <Copy size={15} />, onSelect: () => setClipboard(path, 'copy') },
-      { label: 'Paste', icon: <ClipboardPaste size={15} />, disabled: !canPaste, onSelect: () => void pasteInto(pasteDir) },
+      { label: t('workspace.action.cut'), icon: <Scissors size={15} />, onSelect: () => setClipboard(path, 'cut') },
+      { label: t('workspace.action.copy'), icon: <Copy size={15} />, onSelect: () => setClipboard(path, 'copy') },
+      { label: t('workspace.action.paste'), icon: <ClipboardPaste size={15} />, disabled: !canPaste, onSelect: () => void pasteInto(pasteDir) },
       { type: 'separator' },
-      { label: 'Copy Path', icon: <Link size={15} />, onSelect: () => void copyAbsolutePath(path) },
-      { label: 'Copy Relative Path', onSelect: () => void copyRelativePath(path) },
-      { label: 'Reveal in File Explorer', icon: <ExternalLink size={15} />, onSelect: () => void revealPath(path) },
+      { label: t('workspace.action.copyPath'), icon: <Link size={15} />, onSelect: () => void copyAbsolutePath(path) },
+      { label: t('workspace.action.copyRelativePath'), onSelect: () => void copyRelativePath(path) },
+      { label: t('workspace.action.revealInFileExplorer'), icon: <ExternalLink size={15} />, onSelect: () => void revealPath(path) },
       { type: 'separator' },
-      { label: 'Rename', icon: <Pencil size={15} />, onSelect: () => beginRename(path) },
-      { label: 'Delete', icon: <Trash2 size={15} />, danger: true, onSelect: () => void deletePath(path) },
+      { label: t('workspace.action.rename'), icon: <Pencil size={15} />, onSelect: () => beginRename(path) },
+      { label: t('workspace.action.delete'), icon: <Trash2 size={15} />, danger: true, onSelect: () => void deletePath(path) },
     );
     return items;
   };
@@ -229,7 +254,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   return (
     <aside
       role="complementary"
-      aria-label="Explorer"
+      aria-label={t('workspace.panelLabel')}
       aria-hidden={!open}
       className={cn(
         'relative shrink-0 bg-surface-1 border-r border-subtle overflow-hidden',
@@ -249,22 +274,22 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
       >
         <header className="h-9 shrink-0 flex items-center justify-between pl-3 pr-1.5 border-b border-subtle">
           <h2 className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
-            Explorer
+            {t('workspace.title')}
           </h2>
           <div className="flex items-center gap-0.5">
             {summary ? (
               <>
-                <IconButton label="New file" onClick={() => beginCreate('', 'file')}>
+                <IconButton label={t('workspace.action.newFile')} onClick={() => beginCreate('', 'file')}>
                   <FilePlus size={15} />
                 </IconButton>
-                <IconButton label="New folder" onClick={() => beginCreate('', 'dir')}>
+                <IconButton label={t('workspace.action.newFolder')} onClick={() => beginCreate('', 'dir')}>
                   <FolderPlus size={15} />
                 </IconButton>
-                <IconButton label="Reindex" onClick={() => void reindex()} disabled={opening}>
+                <IconButton label={t('workspace.action.reindex')} onClick={() => void reindex()} disabled={opening}>
                   <RefreshCw size={14} />
                 </IconButton>
                 <IconButton
-                  label="Collapse folders"
+                  label={t('workspace.action.collapseFolders')}
                   onClick={collapseAll}
                   disabled={expandedDirs.size === 0}
                 >
@@ -273,7 +298,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
               </>
             ) : null}
             <IconButton
-              label={summary ? 'Change folder' : 'Open folder'}
+              label={summary ? t('workspace.action.changeFolder') : t('workspace.action.openFolder')}
               onClick={() => void openWorkspace()}
               disabled={opening}
             >
@@ -289,17 +314,27 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                 {summary.name}
               </span>
               <span className="tabular-nums shrink-0">
-                {summary.files.length}
-                {summary.truncated ? '+' : ''}
+                {formatFileCount({
+                  count: summary.files.length,
+                  truncated: summary.truncated,
+                })}
               </span>
             </div>
+            {activeWorkspace ? (
+              <WorkspaceRootsBar
+                record={activeWorkspace}
+                activeRootId={activeRootId}
+                onSelectRoot={(rootId) => void setActiveRoot(activeWorkspace.id, rootId)}
+                onAddRoot={() => void addRoot(activeWorkspace.id)}
+              />
+            ) : null}
             <div
               className="flex-1 min-h-0 overflow-y-auto"
               onContextMenu={openEmptyMenu}
             >
               {rows.length === 0 && !pendingEdit ? (
                 <p className="px-3 py-4 text-body-sm text-fg-tertiary">
-                  No files in this folder.
+                  {t('workspace.emptyFolder')}
                 </p>
               ) : (
                 <FileTree
@@ -310,7 +345,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                   clipboard={clipboard}
                   onToggleDir={toggleDir}
                   onSelectFile={selectFile}
-                  onOpenFile={(p) => void openFile(p)}
+                  onOpenFile={(p) => void openFile(workspaceFile(p))}
                   onContextMenu={openRowMenu}
                   onCommitRename={(p, n) => commitRename(p, n).then((r) => r !== null)}
                   onCommitCreate={(dir, n, k) =>
@@ -321,7 +356,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
               )}
               {summary.truncated ? (
                 <p className="px-3 py-2 text-caption text-fg-tertiary border-t border-subtle">
-                  Showing the first {summary.files.length} files.
+                  {formatWorkspaceTruncated(summary.files.length)}
                 </p>
               ) : null}
             </div>
@@ -331,9 +366,9 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
             <span className="size-10 rounded-lg bg-surface-2 flex items-center justify-center text-fg-tertiary">
               <FolderSearch size={20} />
             </span>
-            <p className="text-body-sm text-fg-secondary">No folder open</p>
+            <p className="text-body-sm text-fg-secondary">{t('workspace.emptyState.title')}</p>
             <p className="text-caption text-fg-tertiary">
-              Open a folder to browse its files as a tree.
+              {t('workspace.emptyState.body')}
             </p>
             <button
               type="button"
@@ -346,7 +381,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
               )}
             >
               {opening ? <Spinner size={14} /> : <FolderOpen size={15} />}
-              Open Folder
+              {t('workspace.action.openFolder')}
             </button>
           </div>
         )}
@@ -356,7 +391,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize Explorer"
+          aria-label={t('workspace.resize')}
           onPointerDown={onResizeStart}
           className={cn(
             'absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize',
@@ -384,7 +419,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                 'bg-surface-2 text-error text-caption pointer-events-none select-none',
               )}
             >
-              Release to close
+              {t('workspace.releaseToClose')}
             </span>
           ) : null}
         </div>
@@ -399,6 +434,58 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
         />
       ) : null}
     </aside>
+  );
+}
+
+function WorkspaceRootsBar({
+  record,
+  activeRootId,
+  onSelectRoot,
+  onAddRoot,
+}: {
+  record: WorkspaceRecord;
+  activeRootId: WorkspaceRootId | null;
+  onSelectRoot: (rootId: WorkspaceRootId) => void;
+  onAddRoot: () => void;
+}) {
+  return (
+    <div className="shrink-0 px-2 py-1.5 border-b border-subtle flex items-center gap-1 overflow-x-auto">
+      {record.roots.map((root) => {
+        const active = root.id === activeRootId;
+        return (
+          <button
+            key={root.id}
+            type="button"
+            aria-label={`Use root ${root.name}`}
+            title={root.root}
+            onClick={() => onSelectRoot(root.id)}
+            className={cn(
+              'h-6 min-w-0 inline-flex items-center gap-1.5 px-2 rounded text-caption',
+              'border transition-colors duration-fast',
+              active
+                ? 'border-accent bg-accent-subtle text-accent'
+                : 'border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default',
+            )}
+          >
+            <span className="truncate max-w-[88px]">{root.name}</span>
+            <span className="tabular-nums text-fg-tertiary">{root.files.length}</span>
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        aria-label="Add folder to workspace"
+        title="Add folder to workspace"
+        onClick={onAddRoot}
+        className={cn(
+          'size-6 shrink-0 rounded border border-subtle bg-surface-2',
+          'flex items-center justify-center text-fg-tertiary',
+          'hover:text-fg-primary hover:border-default transition-colors duration-fast',
+        )}
+      >
+        <FolderPlus size={14} />
+      </button>
+    </div>
   );
 }
 

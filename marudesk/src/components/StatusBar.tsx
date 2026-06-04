@@ -7,6 +7,8 @@ import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { providerLabel } from '../../shared/providers';
 import type { AgentApprovalMode } from '../../shared/settings';
 import { cn } from '../lib/cn';
+import { useI18n } from '../i18n/useI18n';
+import type { TranslationKey } from '../i18n/messages';
 
 /**
  * VSCode-style status strip pinned to the bottom of the window. Surfaces the
@@ -16,13 +18,15 @@ import { cn } from '../lib/cn';
  * Kept thin (24px) so it costs almost nothing vertically — the browser stage
  * is the canvas, this is just chrome.
  */
-const APPROVAL_LABEL: Record<AgentApprovalMode, string> = {
-  'read-only': 'Read-only',
-  ask: 'Ask',
-  auto: 'Auto',
+const APPROVAL_LABEL_KEY: Record<AgentApprovalMode, TranslationKey> = {
+  plan: 'status.approval.plan',
+  'read-only': 'status.approval.readOnly',
+  ask: 'status.approval.ask',
+  auto: 'status.approval.auto',
 };
-/** Dot hue per mode: neutral (safe), accent (default), warning (hands-free). */
+/** Dot hue per mode: neutral (safe/plan), accent (default), warning (hands-free). */
 const APPROVAL_DOT: Record<AgentApprovalMode, string> = {
+  plan: 'bg-fg-tertiary/40',
   'read-only': 'bg-fg-tertiary/40',
   ask: 'bg-accent',
   auto: 'bg-warning',
@@ -38,6 +42,7 @@ export function StatusBar() {
   const providerStatus = useProvidersStore((s) => s.providerStatus);
   const customProviders = useProvidersStore((s) => s.customProviders);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
+  const { formatCaptureCount, formatFileCount, t } = useI18n();
 
   const hasKey = providerStatus.find((p) => p.id === selectedProvider)?.hasKey;
   // Branch + ahead/behind, read passively from the git store (populated when
@@ -46,6 +51,13 @@ export function StatusBar() {
     gitStatus && gitStatus.isRepo ? (gitStatus.branch ?? 'detached') : null;
   const ahead = gitStatus && gitStatus.isRepo ? gitStatus.ahead : 0;
   const behind = gitStatus && gitStatus.isRepo ? gitStatus.behind : 0;
+  const fileCount = summary
+    ? formatFileCount({
+        count: summary.files.length,
+        truncated: summary.truncated,
+      })
+    : '';
+  const captureCount = formatCaptureCount(captures.length);
 
   return (
     <footer
@@ -65,10 +77,7 @@ export function StatusBar() {
             >
               {summary.name}
             </span>
-            <span>
-              {summary.files.length}
-              {summary.truncated ? '+' : ''} files
-            </span>
+            <span>{fileCount}</span>
           </>
         ) : (
           <>
@@ -76,47 +85,63 @@ export function StatusBar() {
               aria-hidden
               className="size-1.5 rounded-pill bg-fg-tertiary/40 shrink-0"
             />
-            <span>No workspace</span>
+            <span>{t('status.noWorkspace')}</span>
           </>
         )}
       </span>
       {branch ? (
-        <span className="flex items-center gap-1 min-w-0" title={`Branch: ${branch}`}>
+        <span
+          className="flex items-center gap-1 min-w-0"
+          title={`${t('status.branchTitle')}: ${branch}`}
+        >
           <GitBranch size={11} className="shrink-0" />
           <span className="truncate max-w-[160px] text-fg-secondary">{branch}</span>
-          {behind > 0 ? <span aria-label="behind">↓{behind}</span> : null}
-          {ahead > 0 ? <span aria-label="ahead">↑{ahead}</span> : null}
+          {behind > 0 ? <span aria-label={t('status.behind')}>↓{behind}</span> : null}
+          {ahead > 0 ? <span aria-label={t('status.ahead')}>↑{ahead}</span> : null}
         </span>
       ) : null}
       <span className="flex-1" aria-hidden />
-      {inspectMode ? <span className="text-accent">Inspect on</span> : null}
+      {inspectMode ? <span className="text-accent">{t('status.inspectOn')}</span> : null}
       {captures.length > 0 ? (
-        <span>
-          {captures.length} capture{captures.length === 1 ? '' : 's'}
-        </span>
+        <span>{captureCount}</span>
       ) : null}
       <button
         type="button"
         onClick={() => void openSettingsTab('agent')}
-        title="Agent approval mode — click to change"
+        title={t('status.approvalTitle')}
         className="flex items-center gap-1.5 hover:text-fg-secondary transition-colors duration-fast"
       >
-        <span aria-hidden className={cn('size-1.5 rounded-pill shrink-0', APPROVAL_DOT[approvalMode])} />
-        <span>{APPROVAL_LABEL[approvalMode]}</span>
+        <span
+          aria-hidden
+          className={cn(
+            'size-1.5 rounded-pill shrink-0',
+            APPROVAL_DOT[approvalMode],
+          )}
+        />
+        <span>{t(APPROVAL_LABEL_KEY[approvalMode])}</span>
       </button>
-      <span className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => void openSettingsTab('providers')}
+        title={
+          hasKey
+            ? t('status.modelProviderTitle')
+            : t('status.noApiKeyTitle')
+        }
+        className="flex items-center gap-1.5 hover:text-fg-secondary transition-colors duration-fast"
+      >
         <span
           aria-hidden
           className={
             hasKey
               ? 'size-1.5 rounded-pill bg-accent shrink-0'
-              : 'size-1.5 rounded-pill bg-fg-tertiary/40 shrink-0'
+              : 'size-1.5 rounded-pill bg-warning shrink-0'
           }
         />
         <span className="truncate max-w-[280px]">
           {providerLabel(selectedProvider, customProviders)} · {selectedModel}
         </span>
-      </span>
+      </button>
     </footer>
   );
 }

@@ -5,7 +5,7 @@ import {
   monaco,
   monacoThemeFor,
 } from './monaco-setup';
-import { useEditorStore } from './store';
+import { useEditorStore, type RevealRequest } from './store';
 import type { EditorStatus } from './EditorView';
 import { resolveTheme, subscribeAppearance } from '../settings/store';
 import { fontStack } from '../../../shared/fonts';
@@ -42,6 +42,9 @@ export function MonacoView({
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const pathRef = useRef(path);
   const onStatusRef = useRef(onStatus);
+  // The last reveal nonce we acted on, so a model re-bind (tab switch) doesn't
+  // re-jump to a stale match position.
+  const revealNonceRef = useRef(0);
   // Keep the latest path + status callback in refs for the create-once effect's
   // listeners. Writing a ref during render is disallowed, so sync post-render.
   useEffect(() => {
@@ -104,7 +107,9 @@ export function MonacoView({
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    const initial = useEditorStore.getState().files[path]?.content ?? '';
+    const buf = useEditorStore.getState().files[path];
+    const initial =
+      buf?.status === 'ready' && buf.kind === 'text' ? buf.content : '';
     const model = getModel(path, initial);
     editor.setModel(model);
     const vs = viewStates.get(path);
@@ -125,6 +130,27 @@ export function MonacoView({
       if (ed) viewStates.set(path, ed.saveViewState());
       sub.dispose();
     };
+  }, [path]);
+
+  // Reveal a pending search-match position (from openFileAt). Applied both when
+  // a new request arrives for the open file and after the model binds for a file
+  // that was just opened; the nonce guard reveals once per request so a later
+  // tab switch (which re-binds the model) doesn't re-jump.
+  useEffect(() => {
+    const applyReveal = (req: RevealRequest | null): void => {
+      if (!req || req.key !== pathRef.current) return;
+      if (req.nonce === revealNonceRef.current) return;
+      const ed = editorRef.current;
+      if (!ed) return;
+      revealNonceRef.current = req.nonce;
+      const lineCount = ed.getModel()?.getLineCount() ?? 1;
+      const line = Math.min(Math.max(1, req.line), lineCount);
+      ed.revealLineInCenter(line);
+      ed.setPosition({ lineNumber: line, column: Math.max(1, req.col) });
+      ed.focus();
+    };
+    applyReveal(useEditorStore.getState().revealRequest);
+    return useEditorStore.subscribe((s) => applyReveal(s.revealRequest));
   }, [path]);
 
   // Word wrap is a live toggle from the status bar.

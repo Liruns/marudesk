@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Minus, Square, Copy, X } from 'lucide-react';
+import { useI18n } from '../i18n/useI18n';
 import { cn } from '../lib/cn';
 
 /**
@@ -12,6 +13,7 @@ import { cn } from '../lib/cn';
  * doubling up.
  */
 export function WindowControls() {
+  const { t } = useI18n();
   const [isMaximized, setIsMaximized] = useState(false);
   // userAgent is stable for the window's lifetime — derive it during render
   // rather than syncing it into state from an effect.
@@ -34,16 +36,20 @@ export function WindowControls() {
     <div
       className="flex items-stretch h-full no-drag"
       role="group"
-      aria-label="Window controls"
+      aria-label={t('windowControls.group')}
     >
       <ControlButton
-        label="Minimize"
+        label={t('windowControls.minimize')}
         onClick={() => void window.marudesk.invoke('window:minimize')}
       >
         <Minus size={14} strokeWidth={1.5} />
       </ControlButton>
       <ControlButton
-        label={isMaximized ? 'Restore' : 'Maximize'}
+        label={
+          isMaximized
+            ? t('windowControls.restore')
+            : t('windowControls.maximize')
+        }
         onClick={() => void window.marudesk.invoke('window:maximize-toggle')}
       >
         {isMaximized ? (
@@ -53,7 +59,7 @@ export function WindowControls() {
         )}
       </ControlButton>
       <ControlButton
-        label="Close"
+        label={t('windowControls.close')}
         danger
         onClick={() => void window.marudesk.invoke('window:close')}
       >
@@ -72,7 +78,7 @@ function ControlButton({
   label: string;
   danger?: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -84,7 +90,7 @@ function ControlButton({
         'w-11 h-full flex items-center justify-center shrink-0',
         'text-fg-secondary transition-colors duration-fast',
         danger
-          ? 'hover:bg-[#E81123] hover:text-white'
+          ? 'hover:bg-error hover:text-white'
           : 'hover:bg-surface-2 hover:text-fg-primary',
       )}
     >

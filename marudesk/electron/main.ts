@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
@@ -16,6 +16,9 @@ import { registerSecretsHandlers } from './secrets';
 import { registerOAuthHandlers } from './oauth/handlers';
 import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
+import { registerStorageHandlers } from './storage-handlers';
+import { registerAppInfoHandlers } from './app-info';
+import { closeDb } from './db';
 import {
   initExternalMcp,
   registerMcpHandlers,
@@ -26,6 +29,7 @@ import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
+import { registerWindowControlHandlers } from './window-controls';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
@@ -64,6 +68,10 @@ function applyHostContentSecurityPolicy(): void {
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "img-src 'self' data: blob:",
+    // Generated videos (generate_video) are inlined into the chat as data: URLs
+    // (see GeneratedMedia); without an explicit media-src they fall back to
+    // default-src 'self' and the <video> source is blocked.
+    "media-src 'self' data: blob:",
     "connect-src 'self' https://api.anthropic.com" +
       (isDev ? ' ws://localhost:5173 http://localhost:5173' : ''),
     "object-src 'none'",
@@ -192,33 +200,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return win;
 }
 
-function registerWindowControlHandlers(): void {
-  ipcMain.handle('window:minimize', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    win.minimize();
-    return true;
-  });
-  ipcMain.handle('window:maximize-toggle', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-    return win.isMaximized();
-  });
-  ipcMain.handle('window:close', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    win.close();
-    return true;
-  });
-  ipcMain.handle('window:is-maximized', () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return false;
-    return win.isMaximized();
-  });
-}
-
 void app.whenReady().then(() => {
   applyHostContentSecurityPolicy();
   // Wire the current-workspace accessor once; defineHandler's requireWorkspace()
@@ -235,8 +216,10 @@ void app.whenReady().then(() => {
   registerModelsHandlers();
   registerCustomProviderHandlers();
   registerAgentHandlers();
+  registerStorageHandlers();
+  registerAppInfoHandlers();
   registerMcpHandlers();
-  registerWindowControlHandlers();
+  registerWindowControlHandlers(getMainWindow);
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the
   // renderer so Settings reflects it without polling. Sanitized — never tokens.
@@ -315,6 +298,8 @@ app.on('before-quit', () => {
   // Close every external MCP stdio connection so no spawned child process lingers
   // past app exit.
   void shutdownExternalMcp();
+  // Close the SQLite handle (flushes the WAL) if it was opened.
+  closeDb();
 });
 
 app.on('web-contents-created', (_event, contents) => {

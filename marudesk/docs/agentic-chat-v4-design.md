@@ -201,3 +201,54 @@
 - 멀티‑유저 OAuth, `marudesk://` 커스텀 프로토콜 — 기존 oauth 문서 non‑goals 유지.
 - 컴포저 통합 스위처(모델+추론강도+승인모드)는 A1(팔레트) 안착 후 선택적으로 추가(연구상 강력하나 A 우선순위는 팔레트).
 - codex/CAA model id의 **실계정 검증**은 코드가 아니라 dogfood로만 닫힌다(§A3).
+
+---
+
+## 8. 구현 현황 — claude-code / codex 흡수 라운드 (2026-06)
+
+claude-code · codex의 채팅 UX를 벤치마크해 다음을 컴포저에 흡수(landed):
+
+- **슬래시 커맨드**(`shared/slash-commands.ts` + 컴포저 `/` 메뉴): 로컬 액션
+  (`/new` `/diff` `/context` `/help` `/model`)과 프롬프트 매크로(`/init` `/review`
+  `/test` `/explain` `/commit`). 키보드 내비(↑/↓/Tab/Enter/Esc).
+- **Plan 모드**(`AgentApprovalMode='plan'`): read-only처럼 편집/eval 차단 + 시스템
+  애드덤으로 "단계별 계획 제시" 유도. 토글/Settings/StatusBar에 노출.
+- **이미지 입력**(`AgentImagePart`/`AgentImageInput`): 붙여넣기·드롭 → 비전 모델로
+  멀티모달 전달, 트랜스크립트 썸네일. `parse.ts`에서 IPC·릴레이 공통 검증.
+- **생성 미디어 인라인**(`ToolMediaArtifact`): `generate_image`/`generate_video`가
+  워크스페이스에 저장한 파일을 `ToolCall.media`(경로+타입만)로 실어 보내고, 렌더러는
+  `workspace:read-media` 채널로 바이트를 지연 로드해 채팅에 이미지/`<video>`로 인라인
+  표시(verbosity 무관). 영상 data: URL을 위해 `media-src` CSP 추가. 경로만 상태에
+  담아 세션 히스토리는 가볍게 유지.
+- **프롬프트 히스토리**(↑/↓ recall, localStorage, 100개 cap).
+- **메시지 큐잉**: 턴 진행 중 Enter → 대기 후 자동 전송(취소 가능).
+- **`@` 파일 멘션**: 캐럿 위치의 `@token`으로 워크스페이스 파일 picker(B3의 `@` 부분 실현).
+
+미해결(실환경 검증 필요): 모바일 릴레이 라이브 와이어링(relay+phone E2E),
+세션 teleport/핸드오프.
+
+### 8.1 2차 라운드 (codex 코드 분석 후 흡수)
+
+codex Rust 소스(`compact.rs`, `slash_command.rs`, 승인 UX)를 코드 레벨로 분석해 흡수:
+
+- **`/compact`**(`loop.compactConversation`): codex 레시피 — 트랜스크립트를 대화 자체
+  모델로 요약. 프로바이더 분기(anthropic-OAuth 프리픽스, codex `store:false`)는 기존 turn
+  스캐폴딩 재사용. Anthropic 역할 교대를 위해 요약 뒤 합성 assistant ack를 둠.
+  - **비파괴(claude-code/cursor 패리티)**: 화면 스크롤백(`state.messages`)은 보존하고
+    모델 컨텍스트(`transcript`)만 치환. 압축 지점에 `AgentCompactionPart` 구분선(요약
+    펼침 가능)을 추가. `/compact <focus>`로 특정 내용을 더 자세히 보존하도록 지시 가능.
+  - **Tail preservation**: 오래된 head만 요약하고 최근 턴(문자 가중치 ~30%, 턴 경계로
+    스냅)은 원문 유지 → 작업 중 맥락은 손실 0. `splitForTailPreservation`.
+  - **자동 압축**(`agent.autoCompact`): 턴이 정상 완료될 때 컨텍스트가 모델 창의 임계치
+    (기본 80%)를 넘으면 백그라운드로 압축. `usage.contextTokens`(최근 호출 입력 토큰 =
+    실제 컨텍스트 점유)로 판단하며, 같은 값이 사용량 게이지도 구동.
+- **"Allow always"** 승인(`sessionAllowedTools`): 게이트 툴을 이 대화 동안 항상 허용.
+  reset/resume에서 클리어. 원격 always는 L-1 가드로 여전히 무효.
+- **`/copy`**(대화 markdown 복사) + **`/status`**(`/context` 별칭 — provider·model·승인
+  모드·토큰 표시).
+- **Post-edit verify 훅**(`agent.verifyCommand`): 편집한 턴 종료 시 워크스페이스에서
+  검증 명령 실행 → PASS/FAIL을 assistant 메시지에 환류. 증거 루프(편집→검증) 강화.
+
+보류(컷라인 밖): 통합 커맨드 팔레트(Shell 전반 리팩터·클릭 검증 불가), execpolicy/OS
+샌드박스(셸 실행 surface 생길 때), marudesk=MCP 서버, 서브에이전트, Fork/Side, 파일기반
+커맨드(`.marudesk/commands`). 트리거가 생길 때 착수.

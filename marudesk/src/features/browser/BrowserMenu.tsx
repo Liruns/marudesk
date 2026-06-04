@@ -25,6 +25,7 @@ import { useDownloadsStore } from './downloads';
 import { useTabsStore } from '../tabs/store';
 import { useDevtoolsStore } from '../devtools/store';
 import { openSettingsTab } from '../settings/store';
+import { useBrowserStrings } from './browserStrings';
 
 /**
  * Browser overflow (⋮) menu — Chrome/Arc-style page-action menu for the embedded
@@ -40,6 +41,7 @@ import { openSettingsTab } from '../settings/store';
  * they'd need new IPC/security work this pass avoids.
  */
 export function BrowserMenu() {
+  const { t } = useBrowserStrings();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [recent, setRecent] = useState<HistoryEntry[]>([]);
   const currentUrl = useWebPageStore((s) => s.currentUrl);
@@ -54,9 +56,9 @@ export function BrowserMenu() {
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
-      toast({ title: 'URL copied', description: url, variant: 'success' });
+      toast({ title: t('browser.menu.toast.urlCopied'), description: url, variant: 'success' });
     } catch (err) {
-      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+      toast({ title: t('browser.menu.toast.copyFailed'), description: toMessage(err), variant: 'error' });
     }
   };
 
@@ -65,49 +67,49 @@ export function BrowserMenu() {
       const ok = await window.marudesk.invoke('browser:capture-page');
       toast(
         ok
-          ? { title: 'Screenshot copied to clipboard', variant: 'success' }
-          : { title: 'Nothing to capture', variant: 'error' },
+          ? { title: t('browser.menu.toast.screenshotCopied'), variant: 'success' }
+          : { title: t('browser.menu.toast.nothingToCapture'), variant: 'error' },
       );
     } catch (err) {
-      toast({ title: 'Screenshot failed', description: toMessage(err), variant: 'error' });
+      toast({ title: t('browser.menu.toast.screenshotFailed'), description: toMessage(err), variant: 'error' });
     }
   };
 
   const items: MenuItem[] = [
     {
-      label: 'Find in page',
+      label: t('browser.menu.find'),
       icon: <Search size={15} />,
       shortcut: 'Ctrl+F',
       onSelect: () => useWebPageStore.getState().openFind(),
     },
     {
-      label: 'Zoom in',
+      label: t('browser.menu.zoomIn'),
       icon: <ZoomIn size={15} />,
       shortcut: 'Ctrl++',
       onSelect: () => void useTabsStore.getState().zoom('in'),
     },
     {
-      label: 'Zoom out',
+      label: t('browser.menu.zoomOut'),
       icon: <ZoomOut size={15} />,
       shortcut: 'Ctrl+-',
       onSelect: () => void useTabsStore.getState().zoom('out'),
     },
     {
-      label: `Reset zoom (${zoomPct}%)`,
+      label: `${t('browser.menu.resetZoom')} (${zoomPct}%)`,
       shortcut: 'Ctrl+0',
       disabled: zoomPct === 100,
       onSelect: () => void useTabsStore.getState().zoom('reset'),
     },
     { type: 'separator' },
     {
-      label: 'Reload',
+      label: t('browser.menu.reload'),
       icon: <RotateCw size={15} />,
       shortcut: 'Ctrl+R',
       disabled: !hasUrl,
       onSelect: () => void useTabsStore.getState().reload(),
     },
     {
-      label: 'Hard reload (clear cache)',
+      label: t('browser.menu.hardReload'),
       shortcut: 'Ctrl+Shift+R',
       disabled: !hasUrl,
       onSelect: () => void useTabsStore.getState().reload(true),
@@ -115,7 +117,7 @@ export function BrowserMenu() {
     ...(nav.isLoading
       ? [
           {
-            label: 'Stop',
+            label: t('browser.menu.stop'),
             icon: <X size={15} />,
             shortcut: 'Esc',
             onSelect: () => void useTabsStore.getState().reloadOrStop(),
@@ -124,20 +126,20 @@ export function BrowserMenu() {
       : []),
     { type: 'separator' },
     {
-      label: 'Downloads',
+      label: t('browser.menu.downloads'),
       icon: <Download size={15} />,
       shortcut: 'Ctrl+J',
       disabled: downloadCount === 0,
       onSelect: () => useDownloadsStore.getState().openShelf(),
     },
     {
-      label: 'Copy current URL',
+      label: t('browser.menu.copyUrl'),
       icon: <Copy size={15} />,
       disabled: !url,
       onSelect: () => void copyUrl(),
     },
     {
-      label: 'Copy screenshot',
+      label: t('browser.menu.copyScreenshot'),
       icon: <Camera size={15} />,
       disabled: !hasUrl,
       onSelect: () => void screenshot(),
@@ -145,7 +147,7 @@ export function BrowserMenu() {
     ...(nav.audible || nav.audioMuted
       ? [
           {
-            label: nav.audioMuted ? 'Unmute tab' : 'Mute tab',
+            label: t(nav.audioMuted ? 'browser.audio.unmute' : 'browser.audio.mute'),
             icon: nav.audioMuted ? <Volume2 size={15} /> : <VolumeX size={15} />,
             onSelect: () =>
               void window.marudesk.invoke('browser:set-audio-muted', !nav.audioMuted),
@@ -153,13 +155,13 @@ export function BrowserMenu() {
         ]
       : []),
     {
-      label: 'Duplicate tab',
+      label: t('browser.menu.duplicateTab'),
       icon: <CopyPlus size={15} />,
       disabled: !url,
       onSelect: () => void useTabsStore.getState().newTab('web', url),
     },
     {
-      label: 'Open DevTools',
+      label: t('browser.menu.openDevtools'),
       icon: <Wrench size={15} />,
       shortcut: 'F12',
       onSelect: () => useDevtoolsStore.getState().toggle(),
@@ -177,7 +179,7 @@ export function BrowserMenu() {
       : []),
     { type: 'separator' },
     {
-      label: 'Browser settings…',
+      label: t('browser.menu.settings'),
       icon: <Settings size={15} />,
       onSelect: () => void openSettingsTab('browser'),
     },
@@ -187,8 +189,8 @@ export function BrowserMenu() {
     <>
       <button
         type="button"
-        aria-label="Browser menu"
-        title="Browser menu"
+        aria-label={t('browser.menu.button')}
+        title={t('browser.menu.button')}
         aria-haspopup="menu"
         aria-expanded={!!menu}
         onClick={(e) => {

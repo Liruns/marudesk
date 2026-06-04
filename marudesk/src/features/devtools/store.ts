@@ -3,9 +3,24 @@ import { useTabsStore } from '../tabs/store';
 import { useGridStore, groupForTab } from '../tabs/grid';
 import { useSettingsStore } from '../settings/store';
 import { useWebPageStore } from '../browser/store';
+import { getMessage, parseLocale, type Locale, type TranslationKey } from '../../i18n/messages';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { cdpSend, cdpTry } from './cdp';
+import {
+  COMMAND_LINE_API,
+  dedupe,
+  globalObjectProperties,
+  MAX_COMPLETIONS,
+  memberCompletions,
+  parseCompletionContext,
+  rankCompletions,
+} from './console/completion';
+import type { CompletionItem, CompletionResult } from './console/completion';
+
+// Re-exported from ./console/completion so consumers (ConsoleInput) keep a
+// single import surface.
+export type { CompletionKind, CompletionItem, CompletionResult } from './console/completion';
 import { buildCapture, consoleEntryToErrorCapture } from './capture';
 import { computeBlockEdit, rebuildStyleText, resolveStyleSheetSource } from './css-source';
 import {
@@ -24,6 +39,18 @@ import {
   type StyleSheetHeader,
 } from './types';
 import type { PatchOp, PatchPreview } from '../../../shared/patch';
+
+function currentLocale(): Locale {
+  try {
+    return parseLocale(localStorage.getItem('marudesk.locale')) ?? 'en';
+  } catch {
+    return 'en';
+  }
+}
+
+function msg(key: TranslationKey): string {
+  return getMessage(currentLocale(), key);
+}
 
 /**
  * The custom DevTools session store. One dock, bound to the active web tab; it
@@ -278,266 +305,7 @@ function firstInLocation(tools: DevtoolsTool[], loc: ToolLocation): DevtoolsPane
   return inLoc[0]?.id ?? null;
 }
 
-/* ── Console autocomplete helpers ─────────────────────────────────────────── */
-
-/** Chrome's Command Line API helpers, offered as static global candidates. */
-const COMMAND_LINE_API: readonly string[] = [
-  '$_',
-  '$0',
-  '$1',
-  '$2',
-  '$3',
-  '$4',
-  '$',
-  '$$',
-  '$x',
-  'inspect',
-  'copy',
-  'getEventListeners',
-  'monitorEvents',
-  'unmonitorEvents',
-  'monitor',
-  'unmonitor',
-  'debug',
-  'undebug',
-  'keys',
-  'values',
-  'clear',
-  'dir',
-  'dirxml',
-  'table',
-  'queryObjects',
-  'profile',
-  'profileEnd',
-];
-
-const COMPLETION_GROUP = 'completion';
-/** Cap the candidate list so a huge global scope can't blow up the dropdown. */
-const MAX_COMPLETIONS = 50;
-
-type CompletionContext =
-  | { kind: 'member'; receiver: string; prefix: string }
-  | { kind: 'global'; prefix: string };
-
-/** A JS identifier-start / -part test (ASCII subset — enough for completion). */
-function isIdentChar(c: string): boolean {
-  return /[A-Za-z0-9_$]/.test(c);
-}
-
-/**
- * Classify what's being typed at `caret`. Only the text BEFORE the caret matters.
- * Walks back over an identifier fragment to its start; if the char before the
- * fragment is `.` (or a `[` with a bare identifier after it), the token before
- * that operator is the receiver to evaluate, and we're completing a member.
- * Otherwise it's a bare-identifier (global) completion. Returns null when there's
- * nothing completable (e.g. caret right after whitespace with no fragment and no
- * preceding `.`), so the caller can clear the popup.
- */
-function parseCompletionContext(
-  input: string,
-  caret: number,
-  force: boolean,
-): CompletionContext | null {
-  const upto = input.slice(0, Math.max(0, caret));
-  // The fragment = trailing run of identifier chars (may be empty, e.g. `foo.`).
-  let i = upto.length;
-  while (i > 0 && isIdentChar(upto[i - 1])) i--;
-  const prefix = upto.slice(i);
-  const before = upto.slice(0, i);
-
-  // Member access: `<receiver>.` or `<receiver>[`  (optionally with the fragment
-  // already typed). We support the common dot and bare-bracket forms; a bracket
-  // with an opening quote (`obj['fo`) is treated as a member too (string key).
-  const opMatch = before.match(/(.*?)\s*(\.|\[\s*['"]?)\s*$/s);
-  if (opMatch) {
-    const receiver = extractReceiver(opMatch[1]);
-    if (receiver) return { kind: 'member', receiver, prefix };
-  }
-
-  // Global completion: as-you-type only when there's a fragment to complete; a
-  // manual trigger (Ctrl+Space) lists everything even on an empty token.
-  if (prefix.length === 0 && !force) return null;
-  return { kind: 'global', prefix };
-}
-
-/**
- * From the text left of a `.`/`[`, pull the receiver expression to evaluate.
- * Handles trailing call/index chains (`a.b().c[0].` → `a.b().c[0]`) by scanning
- * back while brackets are balanced and the run looks like a property/call chain.
- * Bails (returns null) on anything that doesn't end in an identifier, `)`, or `]`
- * — evaluating those would be pointless or unsafe.
- */
-function extractReceiver(left: string): string | null {
-  const s = left.replace(/\s+$/, '');
-  if (!s) return null;
-  const last = s[s.length - 1];
-  if (!isIdentChar(last) && last !== ')' && last !== ']') return null;
-  let i = s.length;
-  let depth = 0;
-  while (i > 0) {
-    const c = s[i - 1];
-    if (c === ')' || c === ']') depth++;
-    else if (c === '(' || c === '[') {
-      if (depth === 0) break;
-      depth--;
-    } else if (depth === 0 && !isIdentChar(c) && c !== '.') {
-      break;
-    }
-    i--;
-  }
-  const receiver = s.slice(i).trim();
-  return receiver.length > 0 ? receiver : null;
-}
-
-/**
- * Evaluate the receiver and collect property names down its prototype chain
- * (so inherited members like array/DOM methods appear). Side-effect-free + scoped
- * to a disposable objectGroup, released at the end. Returns [] on any failure.
- */
-async function memberCompletions(tabId: string, receiver: string): Promise<string[]> {
-  try {
-    const ev = await cdpSend<{ result: RemoteObject; exceptionDetails?: unknown }>(
-      tabId,
-      'Runtime.evaluate',
-      {
-        expression: receiver,
-        objectGroup: COMPLETION_GROUP,
-        includeCommandLineAPI: true,
-        throwOnSideEffect: true,
-        returnByValue: false,
-      },
-    );
-    if (ev.exceptionDetails || !ev.result) return [];
-    const obj = ev.result;
-    const names = new Set<string>();
-
-    if (obj.objectId) {
-      // Walk own + inherited enumerable/non-enumerable names. accessorPropertiesOnly
-      // off → data props; generatePreview off → cheaper.
-      const res = await cdpTry<{
-        result: { name: string; symbol?: unknown }[];
-        internalProperties?: unknown;
-      }>(tabId, 'Runtime.getProperties', {
-        objectId: obj.objectId,
-        ownProperties: false,
-        generatePreview: false,
-      });
-      for (const p of res?.result ?? []) {
-        if (typeof p.name === 'string' && !p.symbol) names.add(p.name);
-      }
-    } else if (obj.type === 'string') {
-      // Primitive string: offer String.prototype members via a boxed lookup.
-      const res = await cdpTry<{ result: RemoteObject }>(tabId, 'Runtime.evaluate', {
-        expression: 'String.prototype',
-        objectGroup: COMPLETION_GROUP,
-        returnByValue: false,
-      });
-      const pid = res?.result.objectId;
-      if (pid) {
-        const props = await cdpTry<{ result: { name: string }[] }>(
-          tabId,
-          'Runtime.getProperties',
-          { objectId: pid, ownProperties: false, generatePreview: false },
-        );
-        for (const p of props?.result ?? []) names.add(p.name);
-      }
-    }
-    return [...names];
-  } catch {
-    return [];
-  } finally {
-    void cdpTry(tabId, 'Runtime.releaseObjectGroup', { objectGroup: COMPLETION_GROUP });
-  }
-}
-
-/** Own + inherited enumerable property names of the global object. */
-async function globalObjectProperties(tabId: string): Promise<string[]> {
-  const ev = await cdpTry<{ result: RemoteObject }>(tabId, 'Runtime.evaluate', {
-    expression: 'globalThis',
-    objectGroup: COMPLETION_GROUP,
-    returnByValue: false,
-  });
-  const objectId = ev?.result.objectId;
-  if (!objectId) return [];
-  const res = await cdpTry<{ result: { name: string; symbol?: unknown }[] }>(
-    tabId,
-    'Runtime.getProperties',
-    { objectId, ownProperties: false, generatePreview: false },
-  );
-  void cdpTry(tabId, 'Runtime.releaseObjectGroup', { objectGroup: COMPLETION_GROUP });
-  const names: string[] = [];
-  for (const p of res?.result ?? []) {
-    if (typeof p.name === 'string' && !p.symbol) names.push(p.name);
-  }
-  return names;
-}
-
-/** Drop duplicate texts, keeping the first (highest-priority) kind seen. */
-function dedupe(items: CompletionItem[]): CompletionItem[] {
-  const seen = new Set<string>();
-  const out: CompletionItem[] = [];
-  for (const it of items) {
-    if (seen.has(it.text)) continue;
-    seen.add(it.text);
-    out.push(it);
-  }
-  return out;
-}
-
-/**
- * Filter candidates by `prefix` and rank them: case-sensitive prefix matches
- * first, then case-insensitive prefix, then case-insensitive substring; ties
- * broken by shorter text then lexicographically. An empty prefix returns the
- * list as-is (capped) so an explicit trigger after `obj.` lists everything.
- */
-function rankCompletions(prefix: string, items: CompletionItem[]): CompletionResult {
-  if (!prefix) return { prefix, items: items.slice(0, MAX_COMPLETIONS) };
-  const p = prefix;
-  const lower = p.toLowerCase();
-  const scored: { it: CompletionItem; score: number }[] = [];
-  for (const it of items) {
-    const t = it.text;
-    let score: number;
-    if (t.startsWith(p)) score = 0;
-    else if (t.toLowerCase().startsWith(lower)) score = 1;
-    else if (t.toLowerCase().includes(lower)) score = 2;
-    else continue;
-    scored.push({ it, score });
-  }
-  scored.sort((a, b) => {
-    if (a.score !== b.score) return a.score - b.score;
-    if (a.it.text.length !== b.it.text.length) return a.it.text.length - b.it.text.length;
-    return a.it.text < b.it.text ? -1 : a.it.text > b.it.text ? 1 : 0;
-  });
-  return { prefix, items: scored.slice(0, MAX_COMPLETIONS).map((s) => s.it) };
-}
-
-/* ── Console autocomplete ─────────────────────────────────────────────────
- * The kind drives the candidate row's tint/icon; it does not affect ranking. */
-export type CompletionKind =
-  | 'property' // member of the evaluated receiver
-  | 'global' // window / globalThis property or lexical scope name
-  | 'command-api' // Command Line API helper ($0, $$, inspect, …)
-  | 'history'; // a prior REPL command (prefixed `>` in the UI)
-
-/**
- * `replace` says what accepting the item rewrites:
- * - `token`: the typed token slice `[caret - prefix.length, caret)` (identifiers,
- *   members, Command Line API helpers).
- * - `all`: the ENTIRE input (history entries — a recalled full command line).
- */
-export type CompletionItem = {
-  text: string;
-  kind: CompletionKind;
-  replace: 'token' | 'all';
-};
-
-/**
- * One completion pass. `prefix` is the partial token the token-kind candidates
- * complete (the substring from the token start to the caret); its input range is
- * `[caret - prefix.length, caret)`. `items` are already filtered + ranked.
- */
-export type CompletionResult = { prefix: string; items: CompletionItem[] };
+/* ── Console autocomplete: helpers + types extracted to ./console/completion.ts ── */
 
 // CDP overlay box-model colours (content / padding / border / margin).
 const rgba = (r: number, g: number, b: number, a: number) => ({ r, g, b, a });
@@ -931,8 +699,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     toggle: () => {
       if (groupForTab(useGridStore.getState().groups, useTabsStore.getState().activeTabId) !== null) {
         toast({
-          title: 'Exit the grid to use DevTools',
-          description: 'DevTools attaches to a single page at a time.',
+          title: msg('devtools.toast.exitGrid'),
+          description: msg('devtools.toast.exitGridDescription'),
           variant: 'warning',
         });
         return;
@@ -1418,7 +1186,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         return;
       }
       if (groupForTab(useGridStore.getState().groups, useTabsStore.getState().activeTabId) !== null) {
-        toast({ title: 'Exit the grid to use DevTools', variant: 'warning' });
+        toast({ title: msg('devtools.toast.exitGrid'), variant: 'warning' });
         return;
       }
 
@@ -1515,7 +1283,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const { tabId, selectedId, nodes, styles } = get();
       const node = selectedId !== null ? nodes.get(selectedId) : undefined;
       if (!tabId || selectedId === null || !node || node.nodeType !== NODE_TYPE.ELEMENT) {
-        toast({ title: 'Select an element first', variant: 'warning' });
+        toast({ title: msg('devtools.toast.selectElementFirst'), variant: 'warning' });
         return;
       }
       // Reuse the computed style the Elements panel already loaded for the
@@ -1533,7 +1301,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       if (get().tabId !== tabId) return; // navigated / rebound while assembling
       useWebPageStore.getState().addCapture(capture);
       toast({
-        title: 'Added to context',
+        title: msg('devtools.toast.addedToContext'),
         description: capture.selector || capture.tagName,
         variant: 'success',
       });
@@ -1623,7 +1391,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const styleSheetId = style.styleSheetId;
       const blockRange = style.range;
       if (!styleSheetId || !blockRange) {
-        toast({ title: 'This rule is read-only', variant: 'warning' });
+        toast({ title: msg('devtools.toast.ruleReadOnly'), variant: 'warning' });
         return;
       }
       const prop = style.cssProperties[propIndex];
@@ -1650,7 +1418,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
           edits: [{ styleSheetId, range: blockRange, text: newBlockText }],
         });
       } catch (err) {
-        toast({ title: 'Edit rejected', description: toMessage(err), variant: 'error' });
+        toast({ title: msg('devtools.toast.editRejected'), description: toMessage(err), variant: 'error' });
         return;
       }
       // The edit landed on the captured tab, but a rebind/nav during the
@@ -1674,7 +1442,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         await cdpSend(tabId, 'DOM.setAttributeValue', { nodeId, name, value });
       } catch (err) {
         toast({
-          title: 'Attribute edit rejected',
+          title: msg('devtools.toast.attributeRejected'),
           description: toMessage(err),
           variant: 'error',
         });
@@ -1728,16 +1496,16 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       try {
         const res = await window.marudesk.invoke('patch:apply', [pending.op]);
         if (res.ok) {
-          toast({ title: 'Saved to source', description: pending.path, variant: 'success' });
+          toast({ title: msg('devtools.toast.savedToSource'), description: pending.path, variant: 'success' });
         } else {
           toast({
-            title: 'Save failed',
+            title: msg('devtools.toast.saveFailed'),
             description: res.errors[0]?.reason ?? 'unknown error',
             variant: 'error',
           });
         }
       } catch (err) {
-        toast({ title: 'Save failed', description: toMessage(err), variant: 'error' });
+        toast({ title: msg('devtools.toast.saveFailed'), description: toMessage(err), variant: 'error' });
       }
       set({ pendingPatch: null });
     },
@@ -1895,7 +1663,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const capture = consoleEntryToErrorCapture(entry, url);
       useWebPageStore.getState().addCapture(capture);
       toast({
-        title: 'Added to context',
+        title: msg('devtools.toast.addedToContext'),
         description: capture.message.slice(0, 80),
         variant: 'success',
       });
@@ -2035,7 +1803,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       const tabId = get().tabId;
       const origin = get().appOrigin;
       if (!tabId || !origin) {
-        toast({ title: 'No resolvable origin for this page', variant: 'warning' });
+        toast({ title: msg('devtools.toast.noOrigin'), variant: 'warning' });
         return;
       }
       // Deliberate, origin-scoped wipe (not the whole-browser Storage.clearCookies,
@@ -2045,7 +1813,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
         storageTypes: 'all',
       });
       if (get().tabId !== tabId) return;
-      toast({ title: 'Site data cleared', description: origin, variant: 'success' });
+      toast({ title: msg('devtools.toast.siteDataCleared'), description: origin, variant: 'success' });
       await get().refreshApplication();
     },
 

@@ -20,6 +20,12 @@ export const app = {
   getVersion: () => '0.0.0-harness',
 };
 
+export const safeStorage = {
+  isEncryptionAvailable: () => true,
+  encryptString: (text) => Buffer.from(text, 'utf8'),
+  decryptString: (buffer) => Buffer.from(buffer).toString('utf8'),
+};
+
 export const shell = {
   openPath: async () => '',
   openExternal: async () => {},
@@ -34,4 +40,4 @@ export const ipcMain = { handle: noop, on: noop };
 
 export const clipboard = { writeText: noop, readText: () => '' };
 
-export default { app, shell, dialog, ipcMain, clipboard };
+export default { app, safeStorage, shell, dialog, ipcMain, clipboard };

@@ -2,6 +2,7 @@ import { FolderOpen, Pause, Play, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useDownloadsStore } from './downloads';
 import type { DownloadEntry } from '../../../shared/downloads';
+import { useBrowserStrings } from './browserStrings';
 
 /**
  * Bottom download shelf (old-Chrome style). Rendered as a `shrink-0` flex
@@ -10,6 +11,7 @@ import type { DownloadEntry } from '../../../shared/downloads';
  * download as a compact chip with progress + per-state actions.
  */
 export function DownloadShelf() {
+  const { t } = useBrowserStrings();
   const downloads = useDownloadsStore((s) => s.downloads);
   const closeShelf = useDownloadsStore((s) => s.closeShelf);
   const clearFinished = useDownloadsStore((s) => s.clearFinished);
@@ -30,14 +32,14 @@ export function DownloadShelf() {
           onClick={clearFinished}
           className="shrink-0 text-caption text-fg-secondary hover:text-fg-primary px-2 py-1 rounded hover:bg-surface-2 transition-colors duration-fast"
         >
-          Clear finished
+          {t('browser.downloads.clearFinished')}
         </button>
       ) : null}
       <button
         type="button"
         onClick={closeShelf}
-        aria-label="Hide downloads"
-        title="Hide downloads"
+        aria-label={t('browser.downloads.hide')}
+        title={t('browser.downloads.hide')}
         className="shrink-0 size-6 rounded flex items-center justify-center text-fg-tertiary hover:bg-surface-2 hover:text-fg-primary transition-colors duration-fast"
       >
         <X size={14} />
@@ -47,24 +49,13 @@ export function DownloadShelf() {
 }
 
 function DownloadChip({ entry }: { entry: DownloadEntry }) {
+  const { t, formatDownloadStatus } = useBrowserStrings();
   const act = useDownloadsStore((s) => s.act);
   const { state, receivedBytes, totalBytes } = entry;
   const active = state === 'progressing' || state === 'paused';
   const pct =
     totalBytes > 0 ? Math.min(100, (receivedBytes / totalBytes) * 100) : null;
-
-  const statusText =
-    state === 'completed'
-      ? formatBytes(receivedBytes)
-      : state === 'cancelled'
-        ? 'Cancelled'
-        : state === 'interrupted'
-          ? 'Failed'
-          : state === 'paused'
-            ? `Paused · ${formatBytes(receivedBytes)}`
-            : totalBytes > 0
-              ? `${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)}`
-              : formatBytes(receivedBytes);
+  const statusText = formatDownloadStatus(entry);
 
   return (
     <div className="shrink-0 w-60 rounded-md border border-subtle bg-surface-page px-2.5 py-1.5 flex flex-col gap-1">
@@ -75,7 +66,7 @@ function DownloadChip({ entry }: { entry: DownloadEntry }) {
             if (state === 'completed') act(entry.id, 'open');
           }}
           disabled={state !== 'completed'}
-          title={state === 'completed' ? `Open ${entry.filename}` : entry.filename}
+          title={entry.filename}
           className={cn(
             'flex-1 min-w-0 text-left truncate text-body-sm text-fg-primary',
             state === 'completed'
@@ -88,12 +79,12 @@ function DownloadChip({ entry }: { entry: DownloadEntry }) {
         {active ? (
           <>
             <ChipBtn
-              label={state === 'paused' ? 'Resume' : 'Pause'}
+              label={t(state === 'paused' ? 'browser.downloads.resume' : 'browser.downloads.pause')}
               onClick={() => act(entry.id, state === 'paused' ? 'resume' : 'pause')}
             >
               {state === 'paused' ? <Play size={13} /> : <Pause size={13} />}
             </ChipBtn>
-            <ChipBtn label="Cancel" onClick={() => act(entry.id, 'cancel')}>
+            <ChipBtn label={t('browser.downloads.cancel')} onClick={() => act(entry.id, 'cancel')}>
               <X size={13} />
             </ChipBtn>
           </>
@@ -101,13 +92,13 @@ function DownloadChip({ entry }: { entry: DownloadEntry }) {
           <>
             {state === 'completed' ? (
               <ChipBtn
-                label="Show in folder"
+                label={t('browser.downloads.showInFolder')}
                 onClick={() => act(entry.id, 'show')}
               >
                 <FolderOpen size={13} />
               </ChipBtn>
             ) : null}
-            <ChipBtn label="Remove" onClick={() => act(entry.id, 'remove')}>
+            <ChipBtn label={t('browser.downloads.remove')} onClick={() => act(entry.id, 'remove')}>
               <X size={13} />
             </ChipBtn>
           </>
@@ -155,16 +146,4 @@ function ChipBtn({
       {children}
     </button>
   );
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = n / 1024;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i++;
-  }
-  return `${value.toFixed(1)} ${units[i]}`;
 }

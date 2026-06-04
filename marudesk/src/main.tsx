@@ -5,9 +5,22 @@ import './index.css'
 // The app is dark-first; this dark palette is loaded once globally.
 import 'highlight.js/styles/github-dark.css'
 import App from './App.tsx'
+import { I18nProvider } from './i18n/I18nProvider'
 
-createRoot(document.getElementById('root')!).render(
+class RootElementMissingError extends Error {
+  constructor() {
+    super('marudesk root element is missing.')
+    this.name = 'RootElementMissingError'
+  }
+}
+
+const rootElement = document.getElementById('root')
+if (rootElement === null) throw new RootElementMissingError()
+
+createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <I18nProvider>
+      <App />
+    </I18nProvider>
   </StrictMode>,
 )

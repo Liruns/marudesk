@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createXai } from '@ai-sdk/xai';
 import {
   APICallError,
   tool,
@@ -43,6 +44,17 @@ export type { ModelMessage };
 
 const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 const XAI_BASE_URL = 'https://api.x.ai/v1';
+// Z.ai's general OpenAI-compatible API. A GLM Coding Plan key instead needs
+// api.z.ai/api/coding/paas/v4 — that's wired as a custom endpoint, not here.
+const ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+// OpenCode's curated gateway (OpenCode Zen), OpenAI-compatible.
+const OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1';
+// OpenAI-compatible API-key gateways/vendors (docs/provider-expansion-plan.md).
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+const CEREBRAS_BASE_URL = 'https://api.cerebras.ai/v1';
+const MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 
 /**
  * Known-dead / hallucinated model slugs mapped to guidance. A second line of
@@ -177,18 +189,62 @@ export function buildModel(
       })(modelId);
     }
     case 'xai': {
-      // xAI is OpenAI-compatible; an API key and an OAuth access token are both
-      // sent as `Authorization: Bearer <token>` (no special headers / dialect).
+      // xAI's current Grok 4.3 image-understanding docs use the Responses API.
+      // The provider handles xAI's `input_image` payload shape while preserving
+      // the same Bearer token auth for API keys and OAuth access tokens.
       const token = auth.mode === 'oauth' ? auth.accessToken : apiKey;
-      return createOpenAICompatible({
-        name: 'xai',
-        baseURL: XAI_BASE_URL,
-        apiKey: token || undefined,
-      })(modelId);
+      return createXai({ baseURL: XAI_BASE_URL, apiKey: token || undefined }).responses(modelId);
     }
     case 'ollama':
       // Local, keyless — Ollama exposes an OpenAI-compatible API on this port.
       return createOpenAICompatible({ name: 'ollama', baseURL: OLLAMA_BASE_URL })(modelId);
+    case 'zai':
+      // Z.ai (GLM) — OpenAI-compatible, Bearer API key.
+      return createOpenAICompatible({
+        name: 'zai',
+        baseURL: ZAI_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'opencode':
+      // OpenCode Zen gateway — OpenAI-compatible, Bearer API key.
+      return createOpenAICompatible({
+        name: 'opencode',
+        baseURL: OPENCODE_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'openrouter':
+      // OpenRouter gateway — OpenAI-compatible. The optional ranking headers
+      // identify the app on openrouter.ai (harmless when omitted).
+      return createOpenAICompatible({
+        name: 'openrouter',
+        baseURL: OPENROUTER_BASE_URL,
+        apiKey: apiKey || undefined,
+        headers: { 'HTTP-Referer': 'https://marudesk.app', 'X-Title': 'marudesk' },
+      })(modelId);
+    case 'groq':
+      return createOpenAICompatible({
+        name: 'groq',
+        baseURL: GROQ_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'cerebras':
+      return createOpenAICompatible({
+        name: 'cerebras',
+        baseURL: CEREBRAS_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'mistral':
+      return createOpenAICompatible({
+        name: 'mistral',
+        baseURL: MISTRAL_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'deepseek':
+      return createOpenAICompatible({
+        name: 'deepseek',
+        baseURL: DEEPSEEK_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
     default: {
       // custom:<id> — a user-configured OpenAI-compatible endpoint.
       if (!baseUrl) throw new Error(`custom provider ${provider} has no base URL`);

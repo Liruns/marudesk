@@ -7,6 +7,7 @@ import {
   type TabState,
   type TabsSnapshot,
 } from '../../../shared/browser';
+import type { WorkspaceId } from '../../../shared/workspace';
 
 /**
  * The tab registry + navigation store (concern A of the old fused browser
@@ -25,19 +26,25 @@ type TabsState = {
   nav: NavState;
   tabs: TabState[];
   activeTabId: string | null;
+  activeTabIdsByWorkspace: Record<WorkspaceId, string>;
 };
 
 type TabsActions = {
   setNavState: (state: NavState) => void;
   setTabsState: (snapshot: TabsSnapshot) => void;
-  newTab: (kind?: TabKind, url?: string) => Promise<void>;
+  newTab: (kind?: TabKind, url?: string, workspaceId?: WorkspaceId) => Promise<void>;
   /**
    * Convert an existing tab into another kind in place (keeps its strip slot).
    * The New Tab page uses this so a launcher click / URL entry replaces the home
    * tab instead of opening a second tab beside it. Resolves with the new tab id
    * (or null if the target vanished) so a caller can repoint a grid pane.
    */
-  replaceTab: (id: string, kind?: TabKind, url?: string) => Promise<string | null>;
+  replaceTab: (
+    id: string,
+    kind?: TabKind,
+    url?: string,
+    workspaceId?: WorkspaceId,
+  ) => Promise<string | null>;
   closeTab: (id: string) => Promise<void>;
   /** Reopen the most recently closed tab (Ctrl/Cmd+Shift+T). No-op if none. */
   reopenClosedTab: () => Promise<void>;
@@ -53,10 +60,34 @@ type TabsActions = {
   zoom: (direction: 'in' | 'out' | 'reset') => Promise<void>;
 };
 
+function activeTabsByWorkspace(
+  tabs: readonly TabState[],
+  activeTabId: string | null,
+  previous: Record<WorkspaceId, string>,
+): Record<WorkspaceId, string> {
+  const byId = new Map(tabs.map((tab) => [tab.id, tab] as const));
+  const next: Record<WorkspaceId, string> = {};
+
+  for (const [workspaceId, tabId] of Object.entries(previous)) {
+    const tab = byId.get(tabId);
+    if (tab?.workspaceId === workspaceId) next[workspaceId] = tabId;
+  }
+
+  const activeTab = activeTabId ? byId.get(activeTabId) : undefined;
+  if (activeTab) next[activeTab.workspaceId] = activeTab.id;
+
+  for (const tab of tabs) {
+    if (!next[tab.workspaceId]) next[tab.workspaceId] = tab.id;
+  }
+
+  return next;
+}
+
 export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
   nav: ZERO_NAV,
   tabs: [],
   activeTabId: null,
+  activeTabIdsByWorkspace: {},
 
   // Just record the active tab's nav snapshot. The address bar (currentUrl /
   // pendingUrl) used to be reconciled here too; that now lives in the web-page
@@ -65,18 +96,33 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
   setNavState: (nav) => set({ nav }),
 
   setTabsState: (snap) =>
-    set({ tabs: snap.tabs, activeTabId: snap.activeTabId }),
+    set((state) => ({
+      tabs: snap.tabs,
+      activeTabId: snap.activeTabId,
+      activeTabIdsByWorkspace: activeTabsByWorkspace(
+        snap.tabs,
+        snap.activeTabId,
+        state.activeTabIdsByWorkspace,
+      ),
+    })),
 
-  newTab: async (kind = 'home', url) => {
-    await window.marudesk.invoke('browser:tabs-new', { kind, url });
+  newTab: async (kind = 'home', url, workspaceId) => {
+    const payload = {
+      kind,
+      ...(url === undefined ? {} : { url }),
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+    };
+    await window.marudesk.invoke('browser:tabs-new', payload);
   },
 
-  replaceTab: async (id, kind = 'home', url) => {
-    return await window.marudesk.invoke('browser:tabs-replace', {
+  replaceTab: async (id, kind = 'home', url, workspaceId) => {
+    const payload = {
       id,
       kind,
-      url,
-    });
+      ...(url === undefined ? {} : { url }),
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+    };
+    return await window.marudesk.invoke('browser:tabs-replace', payload);
   },
 
   closeTab: async (id) => {
@@ -88,6 +134,15 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
   },
 
   activateTab: async (id) => {
+    const tab = get().tabs.find((entry) => entry.id === id);
+    if (tab) {
+      set((state) => ({
+        activeTabIdsByWorkspace: {
+          ...state.activeTabIdsByWorkspace,
+          [tab.workspaceId]: id,
+        },
+      }));
+    }
     await window.marudesk.invoke('browser:tabs-activate', id);
   },
 
@@ -95,7 +150,15 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
     const snap = await window.marudesk.invoke(
       'browser:tabs-snapshot',
     );
-    set({ tabs: snap.tabs, activeTabId: snap.activeTabId });
+    set((state) => ({
+      tabs: snap.tabs,
+      activeTabId: snap.activeTabId,
+      activeTabIdsByWorkspace: activeTabsByWorkspace(
+        snap.tabs,
+        snap.activeTabId,
+        state.activeTabIdsByWorkspace,
+      ),
+    }));
   },
 
   reorderTabs: (orderedIds) => {

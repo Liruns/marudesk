@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { ActivityBar } from '../components/ActivityBar';
 import { StatusBar } from '../components/StatusBar';
 import { TitleBar } from '../components/TitleBar';
-import { Stage } from '../features/tabs/Stage';
 import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
+import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
 import { useWebPageStore } from '../features/browser/store';
 import { useTabEvents } from '../features/tabs/useTabEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
@@ -19,7 +19,7 @@ import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
 import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
-import { useSettingsStore } from '../features/settings/store';
+import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
 import type { EventPayload } from '../../shared/ipc';
 
@@ -135,6 +135,12 @@ export function Shell() {
         e.preventDefault();
         setLeftPanel('search');
         useSearchStore.getState().requestFocus();
+        return;
+      }
+      // Open (or focus) the Settings tab — Ctrl/Cmd+, (VSCode/Chrome parity).
+      if (mod && !e.shiftKey && e.key === ',') {
+        e.preventDefault();
+        void openSettingsTab();
         return;
       }
       // Tab switcher palette (Ctrl/Cmd+Shift+A) and reopen-closed-tab
@@ -307,7 +313,7 @@ export function Shell() {
           onRequestClose={() => setLeftPanel(null)}
         />
         <main className="flex-1 min-w-0 flex">
-          <Stage />
+          <WorkspaceStage />
         </main>
         <ContextDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
       </div>

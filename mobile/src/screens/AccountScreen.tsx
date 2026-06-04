@@ -33,7 +33,7 @@ export function AccountScreen() {
             style={{
               width: 52,
               height: 52,
-              borderRadius: '50%',
+              borderRadius: 'var(--radius-lg)',
               background: 'var(--accent-soft)',
               color: 'var(--accent)',
               display: 'grid',
@@ -44,10 +44,10 @@ export function AccountScreen() {
             {isDirect ? <Smartphone size={22} /> : <MethodIcon method={account?.method} />}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {isDirect ? 'Paired PC' : account?.displayName || account?.email || 'Signed in'}
             </div>
-            <div className="muted" style={{ fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div className="muted" style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {isDirect ? direct?.baseUrl : account?.email}
             </div>
             <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
@@ -101,7 +101,7 @@ function Row({ icon, label, children }: { icon: React.ReactNode; label: string; 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', minHeight: 'var(--tap)' }}>
       <span style={{ color: 'var(--fg-muted)', display: 'flex' }}>{icon}</span>
-      <span style={{ fontWeight: 600, fontSize: 14.5 }}>{label}</span>
+      <span style={{ fontWeight: 500, fontSize: 14 }}>{label}</span>
       <span style={{ marginLeft: 'auto' }}>{children}</span>
     </div>
   );

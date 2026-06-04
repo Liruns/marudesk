@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import { useWebPageStore } from '../browser/store';
 import { useTabsStore } from './store';
 import type { TabKind, TabState } from '../../../shared/browser';
@@ -39,14 +40,6 @@ const KIND_ICON: Record<TabKind, ComponentType<{ size?: number }>> = {
   agent: Sparkles,
 };
 
-const KIND_LABEL: Record<Exclude<TabKind, 'web'>, string> = {
-  terminal: 'Terminal',
-  editor: 'Editor',
-  home: 'New Tab',
-  settings: 'Settings',
-  agent: 'AI Chat',
-};
-
 export function PaneHeader({
   tab,
   focused,
@@ -60,6 +53,8 @@ export function PaneHeader({
   onToggleMaximize: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
+  const maximizeLabel = t(maximized ? 'tabs.pane.restore' : 'tabs.pane.maximize');
   return (
     <div
       className={cn(
@@ -91,8 +86,8 @@ export function PaneHeader({
           e.stopPropagation();
           onToggleMaximize();
         }}
-        aria-label={maximized ? 'Restore pane' : 'Maximize pane'}
-        title={maximized ? 'Restore pane' : 'Maximize pane'}
+        aria-label={maximizeLabel}
+        title={maximizeLabel}
         aria-pressed={maximized}
         className={cn(
           'size-5 shrink-0 rounded flex items-center justify-center transition-colors duration-fast',
@@ -109,8 +104,8 @@ export function PaneHeader({
           e.stopPropagation();
           onClose();
         }}
-        aria-label="Close pane"
-        title="Close pane"
+        aria-label={t('tabs.pane.close')}
+        title={t('tabs.pane.close')}
         className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
       >
         <X size={13} />
@@ -121,6 +116,7 @@ export function PaneHeader({
 
 /** Live omnibox for the focused web pane (drives the active tab via the store). */
 function WebOmnibox() {
+  const { t } = useI18n();
   const pendingUrl = useWebPageStore((s) => s.pendingUrl);
   const nav = useTabsStore((s) => s.nav);
   const setPendingUrl = useWebPageStore((s) => s.setPendingUrl);
@@ -136,18 +132,18 @@ function WebOmnibox() {
 
   return (
     <>
-      <MiniBtn label="Back" disabled={!nav.canGoBack} onClick={() => void goBack()}>
+      <MiniBtn label={t('browser.nav.back')} disabled={!nav.canGoBack} onClick={() => void goBack()}>
         <ArrowLeft size={13} />
       </MiniBtn>
       <MiniBtn
-        label="Forward"
+        label={t('browser.nav.forward')}
         disabled={!nav.canGoForward}
         onClick={() => void goForward()}
       >
         <ArrowRight size={13} />
       </MiniBtn>
       <MiniBtn
-        label={nav.isLoading ? 'Stop' : 'Reload'}
+        label={t(nav.isLoading ? 'browser.nav.stop' : 'browser.nav.reload')}
         onClick={() => void reloadOrStop()}
       >
         {nav.isLoading ? <X size={13} /> : <RotateCw size={13} />}
@@ -160,12 +156,12 @@ function WebOmnibox() {
             inputMode="url"
             autoComplete="off"
             spellCheck={false}
-            placeholder="Search or URL"
+            placeholder={t('tabs.pane.addressPlaceholder')}
             value={pendingUrl}
             onChange={(e) => setPendingUrl(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             className="flex-1 min-w-0 bg-transparent text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
-            aria-label="Address bar"
+            aria-label={t('browser.address.aria')}
           />
         </div>
       </form>
@@ -175,6 +171,7 @@ function WebOmnibox() {
 
 /** Read-only URL for a blurred web pane — favicon (when known) aids recognition. */
 function WebUrlStatic({ tab }: { tab: TabState }) {
+  const { t } = useI18n();
   return (
     <div className="flex-1 min-w-0 flex items-center gap-1.5 pl-1">
       {tab.favicon ? (
@@ -189,16 +186,16 @@ function WebUrlStatic({ tab }: { tab: TabState }) {
         <Scheme url={tab.url} isSecure={tab.isSecure} />
       )}
       <span className="text-caption text-fg-secondary truncate">
-        {tab.title || tab.url || 'New tab'}
+        {tab.title || tab.url || t('tabs.kind.web')}
       </span>
     </div>
   );
 }
 
 function FeatureLabel({ tab, focused }: { tab: TabState; focused: boolean }) {
+  const { t } = useI18n();
   const Icon = KIND_ICON[tab.kind];
-  const label =
-    tab.title || KIND_LABEL[tab.kind as Exclude<TabKind, 'web'>] || 'Tab';
+  const label = tab.title || t(`tabs.kind.${tab.kind}` as const);
   return (
     <div className="flex-1 min-w-0 flex items-center gap-1.5">
       {/* Focused pane tints its glyph accent — same "active surface" cue the
@@ -242,9 +239,10 @@ function MiniBtn({
 }
 
 function Scheme({ url, isSecure }: { url: string; isSecure: boolean }) {
+  const { t } = useI18n();
   if (isSecure) {
     return (
-      <span className="text-fg-secondary shrink-0" title="Secure (HTTPS)">
+      <span className="text-fg-secondary shrink-0" title={t('browser.security.secure.title')}>
         <Lock size={11} />
       </span>
     );

@@ -4,10 +4,12 @@ import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { updateContextCache } from './context-cache';
 import { parseAbort, parseApprove, parseRespond, parseSendInput } from './parse';
+import { searchSessions } from './sessions-store';
 import {
   abortTurn,
   acceptEdit,
   approveTool,
+  compactConversation,
   deleteSavedSession,
   listSavedSessions,
   reset,
@@ -77,8 +79,8 @@ export function registerAgentHandlers(): void {
   // Remote (bridge) self-approval of gated tools is what L-1 refuses, and that is
   // enforced in electron/server/dispatch.ts — keep this path off the dispatcher.
   defineHandler('agent:approve-tool', ([payload]) => {
-    const { turnId, callId, approved } = parseApprove(payload);
-    return approveTool(turnId, callId, approved);
+    const { turnId, callId, approved, always } = parseApprove(payload);
+    return approveTool(turnId, callId, approved, always);
   });
 
   defineHandler('agent:accept-edit', ([payload]) =>
@@ -93,9 +95,20 @@ export function registerAgentHandlers(): void {
 
   defineHandler('agent:reset', () => reset());
 
+  defineHandler('agent:compact', ([focus]) =>
+    compactConversation(typeof focus === 'string' ? focus : undefined),
+  );
+
   // Session history (v3 §5-C): list past conversations, resume one as the active
   // chat, or delete one. list/delete proxy sessions-store; resume swaps loop state.
   defineHandler('agent:list-sessions', () => listSavedSessions());
+
+  // Full-text search over saved sessions (title + transcript). An empty query
+  // returns the recent list — the search field's resting state.
+  defineHandler('agent:search-sessions', ([payload]) => {
+    const query = obj(payload).query;
+    return searchSessions(typeof query === 'string' ? query : '');
+  });
 
   defineHandler('agent:resume-session', ([payload]) =>
     resumeSession(nonEmptyStr(obj(payload).id, 'id')),

@@ -60,10 +60,26 @@ export type SessionSummary = {
   messageCount: number;
 };
 
+/** A search hit over saved sessions — a summary plus an optional match excerpt. */
+export type SessionSearchHit = SessionSummary & {
+  /** A short excerpt around the match (FTS snippet), when the backend provides one. */
+  snippet?: string;
+};
+
+/** Storage stats for the Data & Storage settings panel. */
+export type StorageStats = {
+  /** Which backend the session store is using right now. */
+  backend: 'sqlite' | 'json';
+  /** Number of saved AI Chat sessions. */
+  sessionCount: number;
+  /** Approximate on-disk bytes used by the session store. */
+  sessionBytes: number;
+};
+
 /** A full saved session — summary + the (display-shaped) transcript. */
 export type SessionRecord = SessionSummary & {
   messages: AgentMessage[];
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: { inputTokens: number; outputTokens: number; contextTokens?: number };
   /**
    * The provider-neutral running transcript, so a resumed session can keep
    * talking with full context (display `messages` alone can't reconstruct

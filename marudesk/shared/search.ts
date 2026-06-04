@@ -5,7 +5,7 @@
  * sanitized shapes that cross IPC.
  */
 
-/** Search options from the Search panel toggles. */
+/** Search options from the Search panel toggles + glob filters. */
 export type SearchOptions = {
   /** Case-sensitive match (default false → case-insensitive). */
   caseSensitive: boolean;
@@ -13,16 +13,37 @@ export type SearchOptions = {
   wholeWord: boolean;
   /** Treat the query as a regular expression (else a literal substring). */
   regex: boolean;
+  /**
+   * Comma/newline separated globs to restrict the search to (VSCode "files to
+   * include"). Empty searches the whole workspace. A pattern without a slash
+   * matches a file's basename at any depth (e.g. `*.ts`); one with a slash is
+   * anchored to the workspace root (e.g. `src/**`).
+   */
+  includes: string;
+  /** Comma/newline separated globs to exclude (VSCode "files to exclude"). */
+  excludes: string;
+};
+
+/** A match span within a preview line, as 0-based char offsets [start, end). */
+export type SearchMatchRange = {
+  start: number;
+  end: number;
 };
 
 /** One match within a file. */
 export type SearchMatch = {
   /** 1-based line number. */
   line: number;
-  /** 1-based column of the match start. */
+  /** 1-based column of the (first) match start. */
   col: number;
-  /** The full (trimmed-to-limit) line text for preview. */
+  /** The left-trimmed, length-capped line text for preview. */
   preview: string;
+  /**
+   * Match spans within `preview` (0-based char offsets), so the panel can
+   * highlight them. Ranges are already adjusted for the preview's trimming and
+   * length cap; spans pushed past the cap are dropped.
+   */
+  ranges: SearchMatchRange[];
 };
 
 /** Matches grouped under one file (workspace-relative POSIX path). */

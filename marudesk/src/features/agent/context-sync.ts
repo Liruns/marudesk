@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { ContextSyncPayload, EditorMirror, ExplorerMirror } from '../../../shared/context';
 import { useTabsStore } from '../tabs/store';
-import { untitledDocKey, useEditorStore } from '../editor/store';
+import { editorDocKeyForTab, untitledDocKey, useEditorStore } from '../editor/store';
 import { useWorkspaceStore } from '../workspace/store';
 
 /**
@@ -23,10 +23,15 @@ function buildPayload(): ContextSyncPayload {
   const editors: EditorMirror[] = tabs
     .filter((t) => t.kind === 'editor')
     .map((t) => {
-      const key = t.filePath ?? untitledDocKey(t.id);
+      const key = editorDocKeyForTab(t) ?? untitledDocKey(t.id);
       const buf = files[key];
-      const content = buf?.content ?? '';
-      const dirty = !!buf && buf.status === 'ready' && buf.content !== buf.saved;
+      const content =
+        buf?.status === 'ready' && buf.kind === 'text' ? buf.content : '';
+      const dirty =
+        !!buf &&
+        buf.status === 'ready' &&
+        buf.kind === 'text' &&
+        buf.content !== buf.saved;
       const truncated = content.length > MAX_EDITOR_CONTENT;
       return {
         path: key,

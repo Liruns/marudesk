@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { NODE_TYPE, type CdpNode, type NodeId } from '../types';
@@ -40,6 +41,7 @@ function AttrValue({
   name: string;
   value: string;
 }) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLInputElement>(null);
@@ -72,7 +74,7 @@ function AttrValue({
           }
         }}
         spellCheck={false}
-        aria-label={`Edit ${name}`}
+        aria-label={`${t('devtools.styles.editBefore')}${name}`}
         className="bg-surface-page border border-accent rounded-sm px-0.5 font-mono text-caption text-success focus:outline-none w-24 align-baseline"
       />
     );
@@ -80,7 +82,7 @@ function AttrValue({
   return (
     <span
       className="text-success cursor-text"
-      title="Double-click to edit"
+      title={t('devtools.dom.doubleClickEdit')}
       onDoubleClick={(e) => {
         e.stopPropagation();
         setDraft(value);
@@ -138,6 +140,7 @@ function NodeLabel({ node }: { node: CdpNode }) {
 }
 
 export function DomTree() {
+  const { t } = useI18n();
   const nodes = useDevtoolsStore((s) => s.nodes);
   const childIds = useDevtoolsStore((s) => s.childIds);
   const expanded = useDevtoolsStore((s) => s.expanded);
@@ -164,7 +167,7 @@ export function DomTree() {
   if (documentId === null) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        No document
+        {t('devtools.dom.noDocument')}
       </div>
     );
   }
@@ -198,7 +201,7 @@ export function DomTree() {
                   e.stopPropagation();
                   useDevtoolsStore.getState().toggleExpand(row.id);
                 }}
-                aria-label={expanded.has(row.id) ? 'Collapse' : 'Expand'}
+                aria-label={expanded.has(row.id) ? t('search.collapse') : t('search.expand')}
                 className="size-4 shrink-0 flex items-center justify-center text-fg-tertiary hover:text-fg-primary"
               >
                 <ChevronRight

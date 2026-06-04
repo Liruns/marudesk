@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useTabsStore } from '../tabs/store';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import { useI18n } from '../../i18n/useI18n';
 import {
   acquireTerminalSession,
   fitTerminalSession,
@@ -51,6 +52,7 @@ const MOD = IS_MAC ? '⌘' : 'Ctrl';
  * (Ctrl/Cmd+F). The PTY is disposed only when the tab closes.
  */
 export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
+  const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement | null>(null);
   // In the single view the active tab IS the terminal being shown; in a grid
   // pane the tab is pinned, so a passed `tabId` wins (each pane owns its
@@ -111,7 +113,7 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
   const items: MenuItem[] = tabId
     ? [
         {
-          label: 'Copy',
+          label: t('terminal.menu.copy'),
           icon: <Copy size={14} />,
           shortcut: IS_MAC ? '⌘C' : 'Ctrl+Shift+C',
           disabled: !menu?.selection,
@@ -121,7 +123,7 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
           },
         },
         {
-          label: 'Paste',
+          label: t('terminal.menu.paste'),
           icon: <ClipboardPaste size={14} />,
           shortcut: IS_MAC ? '⌘V' : 'Ctrl+V',
           onSelect: () => {
@@ -131,20 +133,20 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
         },
         { type: 'separator' },
         {
-          label: 'Select All',
+          label: t('terminal.menu.selectAll'),
           icon: <TextSelect size={14} />,
           shortcut: IS_MAC ? '⌘A' : 'Ctrl+Shift+A',
           onSelect: () => terminalSelectAll(tabId),
         },
         {
-          label: 'Find…',
+          label: t('terminal.menu.find'),
           icon: <Search size={14} />,
           shortcut: `${MOD}F`,
           onSelect: () => setSearchOpen(true),
         },
         { type: 'separator' },
         {
-          label: 'Clear',
+          label: t('terminal.menu.clear'),
           icon: <Eraser size={14} />,
           shortcut: IS_MAC ? '⌘K' : 'Ctrl+Shift+K',
           onSelect: () => {
@@ -160,12 +162,14 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
       {info ? (
         <header className="h-6 shrink-0 flex items-center gap-2 px-3 border-b border-subtle bg-surface-2 text-caption text-fg-tertiary select-none">
           <SquareTerminal size={12} className="shrink-0" aria-hidden />
-          <span className="text-fg-secondary">{basename(info.shell)}</span>
+          <span className="text-fg-secondary" title={t('terminal.header.shell')}>
+            {basename(info.shell)}
+          </span>
           <span className="text-fg-tertiary/60" aria-hidden>
             ·
           </span>
           <Folder size={12} className="shrink-0" aria-hidden />
-          <span className="truncate" title={info.cwd}>
+          <span className="truncate" title={`${t('terminal.header.cwd')}: ${info.cwd}`}>
             {info.cwd}
           </span>
         </header>
@@ -179,6 +183,15 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
         {searchOpen && tabId ? (
           <TerminalSearchBar
             tabId={tabId}
+            labels={{
+              placeholder: t('terminal.search.placeholder'),
+              previous: t('terminal.search.previous'),
+              previousTitle: t('terminal.search.previousTitle'),
+              next: t('terminal.search.next'),
+              nextTitle: t('terminal.search.nextTitle'),
+              close: t('terminal.search.close'),
+              closeTitle: t('terminal.search.closeTitle'),
+            }}
             onClose={() => {
               setSearchOpen(false);
               terminalClearSearch(tabId);
@@ -197,9 +210,19 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
 /** A compact find bar overlaid top-right; drives the xterm SearchAddon. */
 function TerminalSearchBar({
   tabId,
+  labels,
   onClose,
 }: {
   tabId: string;
+  labels: {
+    placeholder: string;
+    previous: string;
+    previousTitle: string;
+    next: string;
+    nextTitle: string;
+    close: string;
+    closeTitle: string;
+  };
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
@@ -243,7 +266,7 @@ function TerminalSearchBar({
             onClose();
           }
         }}
-        placeholder="Find"
+        placeholder={labels.placeholder}
         spellCheck={false}
         className="w-40 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary outline-none"
       />
@@ -259,8 +282,8 @@ function TerminalSearchBar({
         className={btn}
         disabled={!query}
         onClick={prev}
-        title="Previous (Shift+Enter)"
-        aria-label="Find previous"
+        title={labels.previousTitle}
+        aria-label={labels.previous}
       >
         <ChevronUp size={14} />
       </button>
@@ -269,8 +292,8 @@ function TerminalSearchBar({
         className={btn}
         disabled={!query}
         onClick={next}
-        title="Next (Enter)"
-        aria-label="Find next"
+        title={labels.nextTitle}
+        aria-label={labels.next}
       >
         <ChevronDown size={14} />
       </button>
@@ -278,8 +301,8 @@ function TerminalSearchBar({
         type="button"
         className={btn}
         onClick={onClose}
-        title="Close (Esc)"
-        aria-label="Close find"
+        title={labels.closeTitle}
+        aria-label={labels.close}
       >
         <X size={14} />
       </button>

@@ -75,6 +75,10 @@ async function loadCustom(): Promise<CustomProvider[]> {
   return parsed.map(coerce).filter((c): c is CustomProvider => c !== null);
 }
 
+export function listCustomProviders(): Promise<CustomProvider[]> {
+  return loadCustom();
+}
+
 async function saveCustom(list: CustomProvider[]): Promise<void> {
   const file = filePath();
   await fs.mkdir(path.dirname(file), { recursive: true });

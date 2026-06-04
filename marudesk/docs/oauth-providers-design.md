@@ -127,11 +127,11 @@ auth:oauth-disconnect (provider) → bool          # 토큰 폐기
 ### 9.1 provider별 난이도 (재확인)
 | provider | OAuth 흐름 | API 호출 | 판정 |
 |---|---|---|---|
-| **xAI Grok** | loopback PKCE (`auth.x.ai`) | **표준 OpenAI-호환** `api.x.ai/v1` + 평범한 Bearer | ✅ **추가** (깨끗) |
+| **xAI Grok** | loopback PKCE (`auth.x.ai`) | xAI `api.x.ai/v1` **Responses API** + 평범한 Bearer | ✅ **추가** (깨끗) |
 | OpenAI (ChatGPT) | device/loopback | `chatgpt.com/backend-api/codex` **Responses 다이얼렉트** + JWT 파생 `ChatGPT-Account-ID` | ⛔ 보류 |
 | Google (Gemini) | loopback PKCE | `cloudcode-pa.googleapis.com/v1internal` **Code-Assist 봉투** + project 부트스트랩 | ⛔ 보류 |
 
-OpenAI/Google의 OAuth 토큰은 **구독 전용 백엔드(codex / code-assist)에만** 유효하다(표준 `api.openai.com` / `generativelanguage.googleapis.com` 아님). 둘 다 비표준·비문서·AI SDK에 안 맞고, 실계정 없이는 검증 불가 → **이번 범위 밖**(§7 유지). xAI는 표준 API라 `createOpenAICompatible` + Bearer로 그대로 동작.
+OpenAI/Google의 OAuth 토큰은 **구독 전용 백엔드(codex / code-assist)에만** 유효하다(표준 `api.openai.com` / `generativelanguage.googleapis.com` 아님). 둘 다 비표준·비문서·AI SDK에 안 맞고, 실계정 없이는 검증 불가 → **이번 범위 밖**(§7 유지). xAI는 표준 API라 Bearer 인증은 그대로 쓰되, 에이전트 호출은 이미지 입력을 위해 `@ai-sdk/xai` Responses API provider를 탄다.
 
 ### 9.2 일반화 (config + 두 콜백 전략)
 - **callback 전략 2종**: `manual-paste`(Anthropic) | `loopback`(xAI). `OAuthFlow` 타입(shared)으로 표현, 렌더러가 분기.
@@ -148,7 +148,7 @@ electron/oauth/loopback.ts   ★ 임시 127.0.0.1 콜백 서버
 electron/oauth/handlers.ts     start/complete/cancel/disconnect (flow 분기)
 shared/providers.ts            BuiltinProviderId += 'xai'; PROVIDERS/MODELS += grok-4/3/3-mini/code-fast-1; OAuthFlow
 electron/providers/xai.ts    ★ 드라이버(listModels, Bearer) + DRIVERS 등록
-electron/agent/model.ts        buildModel `xai` case → createOpenAICompatible(api.x.ai/v1, Bearer)
+electron/agent/model.ts        buildModel `xai` case → createXai(api.x.ai/v1, Bearer).responses(...)
 src/.../providers/store.ts     startOAuth→{flow,url}, completeOAuth(pasted?), cancelOAuth
 src/.../settings/ProvidersSettings.tsx  OAuthConnect = flow 분기(manual paste / loopback 스피너+Cancel) + provider-generic 카피
 e2e/oauth.spec.ts              xai 계약(start 미호출 — 포트/브라우저 side-effect 회피)
@@ -184,3 +184,16 @@ API-key `openai`/`google`와 **다른 백엔드/모델/요청 형식**이라 **�
 - tsc 클린 · **e2e 49/49**(openai-codex/google-caa 계약 — loopback start 미호출).
 - **Code-Assist 변환 로직을 mock 백엔드로 헤드리스 4/4 검증**(`node --experimental-strip-types`: 봉투 wrap+unwrap / SSE unwrap / onboard 부트스트랩 / JWT account-id). loopback 서버 7/7도 유지.
 - ⚠️ **실 ChatGPT/Google 계정 dogfood 필수** — 라이브 라운드트립(특히 codex Responses 바디 세부·CAA SSE 프레이밍)은 미검증. codex 모델 id·`OpenAI-Beta`·CAA 헤더/LRO는 회전/변동 가능.
+
+---
+
+## 11. 다중 provider 흡수 확장 — 계획 (2026-06-04)
+
+§9.2의 config seam을 더 활용해 참고 레포(hermes-agent / opencode)가 지원하는 provider를 흡수하는
+로드맵은 별도 계획문서로 분리했다 → **[provider-expansion-plan.md](./provider-expansion-plan.md)**.
+
+- **P0 구독 OAuth 신규**: GitHub Copilot(신규 `device-code` flow + Copilot 토큰 교환),
+  OpenRouter(OAuth PKCE → API 키 교환, loopback 재사용).
+- **P1/P2 API-키 built-in 카탈로그**: Groq / Cerebras / Mistral / DeepSeek / Moonshot(Kimi) /
+  MiniMax / NVIDIA NIM / Novita / Vercel AI Gateway.
+- **비목표**: Azure/Bedrock/Vertex/SAP(클라우드 IAM), Nous Portal/Telegram/Discord 등(메신저 채널).

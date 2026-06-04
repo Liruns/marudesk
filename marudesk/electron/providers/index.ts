@@ -5,6 +5,9 @@ import { openaiDriver } from './openai';
 import { googleDriver } from './google';
 import { ollamaDriver } from './ollama';
 import { xaiDriver } from './xai';
+import { zaiDriver } from './zai';
+import { opencodeDriver } from './opencode';
+import { openAiCompatibleDriver } from './openai-compatible';
 
 /**
  * OAuth-only subscription providers (openai-codex / google-caa) have no API-key
@@ -28,6 +31,30 @@ export const DRIVERS: Record<ProviderId, ProviderDriver> = {
   xai: xaiDriver,
   'openai-codex': oauthOnlyDriver,
   'google-caa': oauthOnlyDriver,
+  zai: zaiDriver,
+  opencode: opencodeDriver,
+  // OpenAI-compatible API-key gateways (docs/provider-expansion-plan.md) — one
+  // factory, one base URL each.
+  openrouter: openAiCompatibleDriver({
+    name: 'OpenRouter',
+    modelsUrl: 'https://openrouter.ai/api/v1/models',
+  }),
+  groq: openAiCompatibleDriver({
+    name: 'Groq',
+    modelsUrl: 'https://api.groq.com/openai/v1/models',
+  }),
+  cerebras: openAiCompatibleDriver({
+    name: 'Cerebras',
+    modelsUrl: 'https://api.cerebras.ai/v1/models',
+  }),
+  mistral: openAiCompatibleDriver({
+    name: 'Mistral',
+    modelsUrl: 'https://api.mistral.ai/v1/models',
+  }),
+  deepseek: openAiCompatibleDriver({
+    name: 'DeepSeek',
+    modelsUrl: 'https://api.deepseek.com/v1/models',
+  }),
 };
 
 export type { ProviderDriver } from './types';

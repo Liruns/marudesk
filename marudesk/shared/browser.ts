@@ -1,3 +1,5 @@
+import type { WorkspaceFileRef, WorkspaceId } from './workspace';
+
 /**
  * Snapshot of the embedded browser's navigation state. Pushed from main on
  * any change so the renderer can keep its toolbar in sync with the
@@ -65,6 +67,8 @@ export type TabKind = 'web' | FeatureKind;
 export type TabState = NavState & {
   id: string;
   kind: TabKind;
+  workspaceId: WorkspaceId;
+  editorFile?: WorkspaceFileRef;
   /**
    * For `editor` tabs: the workspace-relative path of the open file (POSIX
    * separators), or undefined for a blank editor. Display/binding only — every

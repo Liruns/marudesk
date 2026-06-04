@@ -1,21 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Save, X } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
+import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { BoxModel } from './BoxModel';
+import { SourcePatchBanner } from './SourcePatchBanner';
 import type { CssProperty, CssStyle } from '../types';
-
-/**
- * The styles inspector for the selected node: inline `element.style`, then the
- * matched CSS rules (most-specific first — CDP returns least→most), then a
- * collapsible computed-properties list.
- *
- * Editable rules (author `origin: 'regular'` sheets + the inline style) let you
- * click a value to edit it; the change applies live via `CSS.setStyleTexts` and,
- * when it maps to a workspace file, surfaces a "Save to source" banner that
- * writes the edit back through the patch system (§9-B). User-agent rules are
- * read-only.
- */
 
 function ValueCell({
   prop,
@@ -26,6 +16,7 @@ function ValueCell({
   editable: boolean;
   onCommit: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(prop.value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,7 +47,7 @@ function ValueCell({
           }
         }}
         spellCheck={false}
-        aria-label={`Edit ${prop.name}`}
+        aria-label={`${t('devtools.styles.editBefore')}${prop.name}`}
         className="bg-surface-page border border-accent rounded-sm px-1 -my-px font-mono text-caption text-fg-primary focus:outline-none min-w-0 w-32"
       />
     );
@@ -150,40 +141,8 @@ function RuleBlock({
   );
 }
 
-function SourcePatchBanner() {
-  const pending = useDevtoolsStore((s) => s.pendingPatch);
-  const apply = useDevtoolsStore((s) => s.applySourcePatch);
-  const dismiss = useDevtoolsStore((s) => s.dismissSourcePatch);
-  if (!pending) return null;
-  return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-accent-subtle/60 border-b border-accent/40 backdrop-blur-sm">
-      <span className="text-caption text-fg-secondary min-w-0 truncate">
-        Maps to{' '}
-        <span className="font-mono text-fg-primary" title={pending.path}>
-          {pending.path}:{pending.startLine}
-        </span>
-      </span>
-      <button
-        type="button"
-        onClick={() => void apply()}
-        className="ml-auto shrink-0 flex items-center gap-1 h-6 px-2 rounded bg-accent text-white text-caption hover:bg-accent-hover"
-      >
-        <Save size={12} />
-        Save to source
-      </button>
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Dismiss"
-        className="shrink-0 text-fg-tertiary hover:text-fg-primary"
-      >
-        <X size={14} />
-      </button>
-    </div>
-  );
-}
-
 export function StylesPane() {
+  const { t } = useI18n();
   const styles = useDevtoolsStore((s) => s.styles);
   const loading = useDevtoolsStore((s) => s.stylesLoading);
   const selectedId = useDevtoolsStore((s) => s.selectedId);
@@ -201,21 +160,21 @@ export function StylesPane() {
   if (selectedId === null) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Select an element to inspect its styles
+        {t('devtools.styles.selectElement')}
       </div>
     );
   }
   if (loading && !styles) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Loading styles…
+        {t('devtools.styles.loading')}
       </div>
     );
   }
   if (!styles) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        No styles
+        {t('devtools.styles.noStyles')}
       </div>
     );
   }
@@ -249,7 +208,7 @@ export function StylesPane() {
       {boxModel ? (
         <div className="border-b border-subtle/60">
           <div className="text-caption uppercase tracking-wide text-fg-tertiary px-3 pt-2">
-            Box model
+            {t('devtools.styles.boxModel')}
           </div>
           <BoxModel model={boxModel} />
         </div>
@@ -265,7 +224,7 @@ export function StylesPane() {
             size={12}
             className={cn('transition-transform', computedOpen && 'rotate-90')}
           />
-          Computed ({styles.computed.length})
+          {t('devtools.styles.computed')} ({styles.computed.length})
         </button>
         {computedOpen ? (
           <div className="pl-2">
@@ -274,12 +233,14 @@ export function StylesPane() {
               onChange={(e) => setComputedFilter(e.target.value)}
               spellCheck={false}
               autoComplete="off"
-              placeholder="Filter"
-              aria-label="Filter computed styles"
+              placeholder={t('devtools.styles.filter')}
+              aria-label={t('devtools.styles.filterComputed')}
               className="mb-1 h-6 w-full rounded bg-surface-2 px-2 font-mono text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
             />
             {computedRows.length === 0 ? (
-              <div className="text-caption text-fg-tertiary px-1">No matching properties</div>
+              <div className="text-caption text-fg-tertiary px-1">
+                {t('devtools.styles.noMatchingProperties')}
+              </div>
             ) : (
               computedRows.map((c) => (
                 <div key={c.name} className="font-mono text-caption leading-snug">

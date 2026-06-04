@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { CheckSquare, History, Maximize2, Square, Trash2 } from 'lucide-react';
 import { Badge } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from '../browser/store';
 import { useComposerStore } from '../composer/store';
@@ -14,15 +15,37 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
+// The context panel is user-resizable (VSCode/Cursor pattern), mirroring the
+// Explorer sidebar. Persisted locally so it survives reloads; clamped so it
+// can't be dragged uselessly thin or eat the whole window. The default is
+// roomy enough that the AI chat composer + model bar don't feel cramped at
+// first open.
+const DRAWER_MIN = 320;
+const DRAWER_MAX = 720;
+const DRAWER_DEFAULT = 420;
+const DRAWER_WIDTH_KEY = 'marudesk.contextDrawerWidth';
+
+function readDrawerWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(DRAWER_WIDTH_KEY));
+    if (Number.isFinite(v) && v >= DRAWER_MIN && v <= DRAWER_MAX) return v;
+  } catch {
+    // localStorage unavailable — fall through to the default.
+  }
+  return DRAWER_DEFAULT;
+}
+
 /**
  * Right-hand context panel. Inline (flex sibling) rather than floating so the
  * IDE shell can lay it out alongside the browser stage — VSCode/Cursor pattern,
- * not Chrome's slide-over. Width animates between 0 and 380px when toggled.
+ * not Chrome's slide-over. Width animates between 0 and its set width when
+ * toggled, and the left edge is draggable to resize (persisted).
  *
  * Content stays mounted while collapsed (just clipped) so the captures and
  * composer state don't reset on every toggle.
  */
 export function ContextDrawer({ open, onOpenChange }: Props) {
+  const { t } = useI18n();
   const captures = useWebPageStore((s) => s.captures);
   const selectedIds = useWebPageStore((s) => s.selectedCaptureIds);
   const clearCaptures = useWebPageStore((s) => s.clearCaptures);
@@ -30,6 +53,37 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
   const tab = useComposerStore((s) => s.tab);
   const setTab = useComposerStore((s) => s.setTab);
   const [showHistory, setShowHistory] = useState(false);
+  const [width, setWidth] = useState(readDrawerWidth);
+  const [resizing, setResizing] = useState(false);
+
+  // Drag the LEFT edge to resize (the panel is anchored to the window's right,
+  // so dragging left widens it). Pointer capture keeps move events flowing even
+  // when the cursor outruns the seam; the stage to the left reflows
+  // automatically (its ResizeObserver re-reports web-view bounds to main).
+  const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const asideRight = handle.parentElement?.getBoundingClientRect().right ?? 0;
+    handle.setPointerCapture(e.pointerId);
+    setResizing(true);
+    let last = width;
+    const onMove = (ev: PointerEvent) => {
+      last = Math.min(DRAWER_MAX, Math.max(DRAWER_MIN, asideRight - ev.clientX));
+      setWidth(last);
+    };
+    const onDone = () => {
+      setResizing(false);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('lostpointercapture', onDone);
+      try {
+        localStorage.setItem(DRAWER_WIDTH_KEY, String(Math.round(last)));
+      } catch {
+        // best-effort persistence
+      }
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('lostpointercapture', onDone);
+  };
 
   const selectedCount = (() => {
     let n = 0;
@@ -41,26 +95,41 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
   return (
     <aside
       role="complementary"
-      aria-label="Context cart"
+      aria-label={t('context.drawer.label')}
       aria-hidden={!open}
       className={cn(
-        'shrink-0 bg-surface-1 border-l border-subtle overflow-hidden',
-        'transition-[width] duration-standard',
+        'relative shrink-0 bg-surface-1 border-l border-subtle overflow-hidden',
+        // No width transition mid-drag — it would lag a frame behind the pointer.
+        resizing ? '' : 'transition-[width] duration-standard',
       )}
-      style={{ width: open ? 380 : 0 }}
+      style={{ width: open ? width : 0 }}
     >
-      <div className="relative w-[380px] h-full flex flex-col">
+      {open ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('context.drawer.resize')}
+          onPointerDown={onResizeStart}
+          className={cn(
+            'absolute inset-y-0 left-0 z-30 w-1 cursor-col-resize',
+            'transition-colors duration-fast',
+            resizing ? 'bg-accent' : 'bg-transparent hover:bg-accent/60',
+          )}
+        >
+          {/* Wider invisible hit area, kept inside the panel (overflow-hidden). */}
+          <span aria-hidden className="absolute inset-y-0 left-0 -right-1" />
+        </div>
+      ) : null}
+      <div className="relative h-full flex flex-col" style={{ width }}>
         <header className="h-10 shrink-0 flex items-center justify-between px-3 border-b border-subtle">
-          <h2 className="text-body-sm font-medium text-fg-primary">
-            Context
-          </h2>
+          <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.title')}</h2>
           <div className="flex items-center gap-2">
             {tab === 'agent' ? (
               <button
                 type="button"
                 onClick={() => setShowHistory((v) => !v)}
-                aria-label="Session history"
-                title="Session history"
+                aria-label={t('context.drawer.history')}
+                title={t('context.drawer.history')}
                 className={cn(
                   'transition-colors duration-fast',
                   showHistory ? 'text-fg-primary' : 'text-fg-tertiary hover:text-fg-primary',
@@ -73,8 +142,8 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
               <button
                 type="button"
                 onClick={() => void openAgentTab()}
-                aria-label="Open AI Chat in a tab"
-                title="Open AI Chat in a tab"
+                aria-label={t('context.drawer.openChatTab')}
+                title={t('context.drawer.openChatTab')}
                 className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
               >
                 <Maximize2 size={13} />
@@ -83,7 +152,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              aria-label="Close context panel"
+              aria-label={t('context.drawer.close')}
               className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body leading-none"
             >
               ×
@@ -93,18 +162,14 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
 
         <nav
           role="tablist"
-          aria-label="Context tabs"
+          aria-label={t('context.tabs.label')}
           className="shrink-0 flex border-b border-subtle"
         >
-          <TabButton
-            active={tab === 'agent'}
-            onClick={() => setTab('agent')}
-            label="Agent"
-          />
+          <TabButton active={tab === 'agent'} onClick={() => setTab('agent')} label={t('context.tabs.agent')} />
           <TabButton
             active={tab === 'captures'}
             onClick={() => setTab('captures')}
-            label="Captures"
+            label={t('context.tabs.captures')}
             count={captures.length}
           />
         </nav>
@@ -120,10 +185,10 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                     <Badge variant="neutral">
                       {selectedCount}/{captures.length}
                     </Badge>
-                    <span>selected</span>
+                    <span>{t('context.drawer.selected')}</span>
                   </>
                 ) : (
-                  <span>No captures yet</span>
+                  <span>{t('context.drawer.noCaptures')}</span>
                 )}
               </div>
               <div className="flex items-center gap-1">
@@ -132,9 +197,9 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                     <button
                       type="button"
                       onClick={() => setAllSelected(!allSelected)}
-                      aria-label={
-                        allSelected ? 'Deselect all' : 'Select all'
-                      }
+                      aria-label={t(
+                        allSelected ? 'context.drawer.deselectAll' : 'context.drawer.selectAll',
+                      )}
                       className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
                     >
                       {allSelected ? (
@@ -146,7 +211,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                     <button
                       type="button"
                       onClick={clearCaptures}
-                      aria-label="Clear all captures"
+                      aria-label={t('context.drawer.clearAll')}
                       className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
                     >
                       <Trash2 size={14} />
@@ -158,9 +223,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             <div className="flex-1 min-h-0 overflow-y-auto p-3">
               {captures.length === 0 ? (
                 <div className="text-body-sm text-fg-tertiary p-3">
-                  Toggle Inspect, then click any element in the browser to
-                  capture it. Captures stack here; checkboxes pick which ones
-                  feed the Composer.
+                  {t('context.drawer.empty')}
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
@@ -175,11 +238,11 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
         {showHistory && tab === 'agent' ? (
           <div className="absolute inset-0 z-20 flex flex-col bg-surface-1">
             <header className="h-10 shrink-0 flex items-center justify-between px-3 border-b border-subtle">
-              <h2 className="text-body-sm font-medium text-fg-primary">History</h2>
+              <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.history')}</h2>
               <button
                 type="button"
                 onClick={() => setShowHistory(false)}
-                aria-label="Close history"
+                aria-label={t('context.drawer.closeHistory')}
                 className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body leading-none"
               >
                 ×

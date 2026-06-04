@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  isHttpMcpConfig,
   mcpDisplayTarget,
   mcpTransportOf,
   sanitizeMcpConfig,
@@ -9,6 +10,7 @@ import {
 } from '../../shared/mcp';
 import { callMcpTool, listMcpTools } from './mcp';
 import type { ToolContext } from './tools';
+import { updateContextCache } from './context-cache';
 import {
   buildExternalServer,
   connectServer,
@@ -269,7 +271,30 @@ async function main(): Promise<void> {
     const listed = listMcpTools().map((t) => t.name);
     check('(a) listMcpTools exposes the namespaced tool to the model', listed.includes('inj__echo'));
     check('built-in marudesk tools are still present (server untouched)', listed.includes('read_file'));
+    check('built-in workspace MCP list tool is present', listed.includes('list_workspaces'));
+    check('built-in workspace MCP file lister is present', listed.includes('list_workspace_files'));
+    check('built-in workspace MCP file reader is present', listed.includes('read_workspace_file'));
     check('built-in ask_user is still listed', listed.includes('ask_user'));
+
+    updateContextCache({
+      editors: [
+        {
+          path: 'workspace-alpha:root-be:src/App.tsx',
+          dirty: true,
+          content: 'export const source = "unsaved be";',
+        },
+      ],
+      explorer: { root: null, expandedDirs: [], selectedPath: null },
+    });
+    const editorOut = await callMcpTool(
+      'read_editor',
+      { workspaceId: 'workspace-alpha', rootId: 'root-be', path: 'src/App.tsx' },
+      {} as ToolContext,
+    );
+    check(
+      'built-in read_editor accepts workspace/root selectors for mirrored buffers',
+      editorOut.text.includes('unsaved be'),
+    );
 
     // (d) disabling removes its tools and closes the client.
     const disabled = await syncExternalMcpServers([{ ...cfg, enabled: false }], connect);
@@ -284,6 +309,29 @@ async function main(): Promise<void> {
     // Removing it entirely drops its status row too.
     const removed = await syncExternalMcpServers([], connect);
     check('(d) removed server drops out of the status list', !removed.some((x) => x.id === 'inj'));
+  }
+
+  /* ── remote (Streamable-HTTP) transport: a `url` config connects over http ── */
+  {
+    const { client } = makeMockClient();
+    const url = 'https://mcp.example.com/mcp';
+    const cfg: McpServerConfig = { id: 'remote', transport: 'http', url, enabled: true };
+    let capturedUrl = '';
+    const connect = async (c: McpServerConfig) => {
+      capturedUrl = isHttpMcpConfig(c) ? c.url : '';
+      return { client };
+    };
+    const statuses = await syncExternalMcpServers([cfg], connect);
+    const s = statuses.find((x) => x.id === 'remote');
+    check('(http) remote server connects', s?.state === 'connected');
+    check('(http) status transport is "http"', s?.transport === 'http');
+    check('(http) status target is the url', s?.target === url);
+    check('(http) connect received the url config', capturedUrl === url);
+    check(
+      '(http) remote tool is namespaced + listed',
+      listMcpTools().map((t) => t.name).includes('remote__echo'),
+    );
+    await syncExternalMcpServers([], connect); // cleanup
   }
 
   /* ── graceful failure: a server that fails to spawn (injected throw) ─────── */

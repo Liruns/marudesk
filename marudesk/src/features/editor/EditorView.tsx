@@ -1,11 +1,18 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Ban, Columns2, Eye, FileCode2, FileWarning, Pencil, WrapText } from 'lucide-react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { FileCode2, FileImage } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
-import { MAX_EDITOR_FILE_SIZE } from '../../../shared/workspace';
+import { useI18n } from '../../i18n/useI18n';
 import { useTabsStore } from '../tabs/store';
-import { isDirty, untitledDocKey, useEditorStore, type FileBuf } from './store';
+import { editorDocKeyForTab, isDirty, useEditorStore } from './store';
 import { MarkdownPreview } from './MarkdownPreview';
+import {
+  EditorEmptyState,
+  EditorErrorState,
+  EditorFooter,
+  EditorMarkdownModeToggle,
+  type MarkdownMode,
+} from './editorI18n';
 
 /** What MonacoView reports up for the status bar. */
 export type EditorStatus = { line: number; column: number; language: string };
@@ -15,55 +22,10 @@ const MonacoView = lazy(() =>
   import('./MonacoView').then((m) => ({ default: m.MonacoView })),
 );
 
-type MarkdownMode = 'edit' | 'preview' | 'split';
-
 function isMarkdown(path: string | undefined): boolean {
   if (!path) return false;
   const lower = path.toLowerCase();
   return lower.endsWith('.md') || lower.endsWith('.markdown');
-}
-
-/** Small segmented control for Edit / Split / Preview toggle. */
-function MarkdownModeToggle({
-  mode,
-  onChange,
-}: {
-  mode: MarkdownMode;
-  onChange: (m: MarkdownMode) => void;
-}) {
-  const items: { value: MarkdownMode; Icon: typeof Pencil; label: string }[] = [
-    { value: 'edit', Icon: Pencil, label: 'Edit' },
-    { value: 'split', Icon: Columns2, label: 'Split' },
-    { value: 'preview', Icon: Eye, label: 'Preview' },
-  ];
-
-  return (
-    <div
-      className="flex items-center gap-0.5"
-      role="group"
-      aria-label="Markdown view mode"
-    >
-      {items.map(({ value, Icon, label }) => (
-        <button
-          key={value}
-          type="button"
-          title={label}
-          aria-label={label}
-          aria-pressed={mode === value}
-          onClick={() => onChange(value)}
-          className={cn(
-            'flex items-center justify-center size-5 rounded-sm transition-colors duration-fast',
-            'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
-            mode === value
-              ? 'bg-surface-3 text-fg-primary'
-              : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3/50',
-          )}
-        >
-          <Icon size={12} />
-        </button>
-      ))}
-    </div>
-  );
 }
 
 /**
@@ -73,6 +35,7 @@ function MarkdownModeToggle({
  * or binary files are refused with a reason rather than mangled.
  */
 export function EditorView({ tabId }: { tabId?: string } = {}) {
+  const { t } = useI18n();
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
   // In the grid a pane pins a specific tab; the single view follows the active
@@ -80,12 +43,10 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   const resolvedId = tabId ?? activeTabId;
   const tab = tabs.find((t) => t.id === resolvedId);
   const editorTab = tab && tab.kind === 'editor' ? tab : undefined;
-  const filePath = editorTab?.filePath;
+  const fileRef = editorTab?.editorFile;
+  const filePath = fileRef?.path ?? editorTab?.filePath;
   const isUntitled = !!editorTab && !filePath;
-  // Real files key by path; untitled scratch buffers key by tab id.
-  const docKey = editorTab
-    ? filePath ?? untitledDocKey(editorTab.id)
-    : undefined;
+  const docKey = editorTab ? editorDocKeyForTab(editorTab) ?? undefined : undefined;
 
   const ensureLoaded = useEditorStore((s) => s.ensureLoaded);
   const buf = useEditorStore((s) => (docKey ? s.files[docKey] : undefined));
@@ -138,17 +99,12 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   }, [mode, docKey, buf?.status]);
 
   useEffect(() => {
-    if (docKey) void ensureLoaded(docKey);
-  }, [docKey, ensureLoaded]);
+    if (!docKey) return;
+    void ensureLoaded(fileRef ?? docKey);
+  }, [docKey, ensureLoaded, fileRef]);
 
   if (!docKey) {
-    return (
-      <Centered
-        icon={<FileCode2 size={22} />}
-        title="No file open"
-        hint="Pick a file in the Explorer, or press Ctrl+N for a new file."
-      />
-    );
+    return <EditorEmptyState />;
   }
   if (!buf || buf.status === 'loading') {
     return (
@@ -157,163 +113,133 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
       </div>
     );
   }
-  if (buf.status === 'error') return <ErrorState path={docKey} buf={buf} />;
+  if (buf.status === 'error') return <EditorErrorState path={docKey} buf={buf} />;
 
-  const label = isUntitled ? editorTab?.title || 'Untitled' : filePath;
-  const content = buf.content ?? '';
+  const label = isUntitled
+    ? editorTab?.title || t('editor.header.untitled')
+    : editorTab?.title || filePath;
+  const content = buf.kind === 'text' ? buf.content : '';
+  const HeaderIcon = buf.kind === 'image' ? FileImage : FileCode2;
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
       {/* Header on surface-2 — the active tab's tone — so the editor's chrome
           reads as one surface flowing out of its tab, matching the browser. */}
       <header className="h-7 shrink-0 flex items-center gap-2 px-3 border-b border-subtle text-caption bg-surface-2">
-        <FileCode2 size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
+        <HeaderIcon size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
         <span
           className="truncate text-fg-secondary"
-          title={isUntitled ? 'Unsaved file — Ctrl+S to save' : filePath}
+          title={isUntitled ? t('editor.header.unsavedTitle') : filePath}
         >
           {label}
         </span>
         <span className="flex-1" aria-hidden />
         {isMd && (
-          <MarkdownModeToggle mode={mode} onChange={setMdMode} />
+          <EditorMarkdownModeToggle mode={mode} onChange={setMdMode} />
         )}
-        {buf.saving ? (
-          <span className="text-accent">Saving…</span>
+        {buf.kind === 'image' ? (
+          <span className="text-fg-tertiary">{t('editor.image.preview')}</span>
+        ) : buf.saving ? (
+          <span className="text-accent">{t('editor.state.saving')}</span>
         ) : isDirty(buf) ? (
           <span className="flex items-center gap-1 text-fg-secondary">
             <span className="size-1.5 rounded-pill bg-accent" aria-hidden />
-            Unsaved
+            {t('editor.state.unsaved')}
           </span>
         ) : (
-          <span className="text-fg-tertiary">Saved</span>
+          <span className="text-fg-tertiary">{t('editor.state.saved')}</span>
         )}
       </header>
 
-      {/* Body: Monaco / Split / Preview depending on mode */}
-      <div className="flex-1 min-h-0 min-w-0 flex">
-        {/* Monaco pane — hidden in preview-only mode */}
-        {(mode === 'edit' || mode === 'split') && (
-          <div
-            ref={editorPaneRef}
-            className={cn(
-              'flex min-h-0 min-w-0',
-              mode === 'split' ? 'w-1/2 border-r border-subtle' : 'flex-1',
-            )}
-          >
-            <Suspense
-              fallback={
-                <div className="flex-1 min-w-0 flex items-center justify-center">
-                  <Spinner size={18} />
-                </div>
-              }
+      {buf.kind === 'image' ? (
+        <ImagePreview path={filePath ?? docKey} dataUrl={buf.dataUrl} />
+      ) : (
+        <div className="flex-1 min-h-0 min-w-0 flex">
+          {(mode === 'edit' || mode === 'split') && (
+            <div
+              ref={editorPaneRef}
+              className={cn(
+                'flex min-h-0 min-w-0',
+                mode === 'split' ? 'w-1/2 border-r border-subtle' : 'flex-1',
+              )}
             >
-              <MonacoView
-                path={docKey}
-                wordWrap={wordWrap}
-                onStatus={setStatus}
-                scrollRatio={mode === 'split' ? editorScrollRatio : undefined}
-                scrollApplyingRef={editorScrollApplyingRef}
-              />
-            </Suspense>
-          </div>
-        )}
+              <Suspense
+                fallback={
+                  <div className="flex-1 min-w-0 flex items-center justify-center">
+                    <Spinner size={18} />
+                  </div>
+                }
+              >
+                <MonacoView
+                  path={docKey}
+                  wordWrap={wordWrap}
+                  onStatus={setStatus}
+                  scrollRatio={mode === 'split' ? editorScrollRatio : undefined}
+                  scrollApplyingRef={editorScrollApplyingRef}
+                />
+              </Suspense>
+            </div>
+          )}
 
-        {/* Preview pane — shown in preview and split modes */}
-        {isMd && (mode === 'preview' || mode === 'split') && (
-          <MarkdownPreview
-            content={content}
-            scrollRatio={mode === 'split' ? previewScrollRatio : undefined}
-            onScrollRatio={mode === 'split' ? setEditorScrollRatio : undefined}
-            className={cn(
-              'min-h-0 bg-surface-page',
-              mode === 'split' ? 'w-1/2' : 'flex-1',
-            )}
-          />
-        )}
-      </div>
+          {isMd && (mode === 'preview' || mode === 'split') && (
+            <MarkdownPreview
+              content={content}
+              scrollRatio={mode === 'split' ? previewScrollRatio : undefined}
+              onScrollRatio={mode === 'split' ? setEditorScrollRatio : undefined}
+              className={cn(
+                'min-h-0 bg-surface-page',
+                mode === 'split' ? 'w-1/2' : 'flex-1',
+              )}
+            />
+          )}
+        </div>
+      )}
 
-      {/* Status bar — only while a Monaco pane is mounted (edit/split). */}
-      {mode !== 'preview' ? (
-        <footer className="h-6 shrink-0 flex items-center gap-3 px-3 border-t border-subtle bg-surface-2 text-caption text-fg-tertiary tabular-nums select-none">
-          <span>
-            Ln {status.line}, Col {status.column}
-          </span>
-          <span className="uppercase tracking-wide">{status.language}</span>
-          <span>Spaces: 2</span>
-          <span className="flex-1" aria-hidden />
-          <button
-            type="button"
-            aria-pressed={wordWrap}
-            title={wordWrap ? 'Word wrap on' : 'Word wrap off'}
-            onClick={() => setWordWrap((w) => !w)}
-            className={cn(
-              'inline-flex items-center gap-1 h-5 px-1.5 rounded-sm transition-colors duration-fast',
-              wordWrap
-                ? 'text-fg-primary bg-surface-3'
-                : 'hover:text-fg-secondary hover:bg-surface-3/50',
-            )}
-          >
-            <WrapText size={12} />
-            Wrap
-          </button>
-        </footer>
+      {buf.kind === 'image' ? (
+        <ImageFooter mediaType={buf.mediaType} size={buf.size} />
+      ) : mode !== 'preview' ? (
+        <EditorFooter
+          line={status.line}
+          column={status.column}
+          language={status.language}
+          wordWrap={wordWrap}
+          onToggleWordWrap={() => setWordWrap((w) => !w)}
+        />
       ) : null}
     </div>
   );
 }
 
-function ErrorState({ path, buf }: { path: string; buf: FileBuf }) {
-  const { title, hint, icon } = describeError(path, buf);
-  return <Centered icon={icon} title={title} hint={hint} />;
-}
-
-function describeError(
-  path: string,
-  buf: FileBuf,
-): { title: string; hint: string; icon: ReactNode } {
-  if (buf.reason === 'too-large') {
-    const mb = buf.size ? (buf.size / 1048576).toFixed(1) : '?';
-    const limitMb = (MAX_EDITOR_FILE_SIZE / 1048576).toFixed(0);
-    return {
-      title: 'File too large',
-      hint: `${path} is ${mb} MB — over the ${limitMb} MB editor limit.`,
-      icon: <FileWarning size={22} />,
-    };
-  }
-  if (buf.reason === 'binary') {
-    return {
-      title: 'Binary file',
-      hint: `${path} isn't text and can't be edited here.`,
-      icon: <Ban size={22} />,
-    };
-  }
-  if (buf.reason === 'not-a-file') {
-    return { title: 'Not a file', hint: path, icon: <Ban size={22} /> };
-  }
-  return {
-    title: "Couldn't open file",
-    hint: buf.error ?? path,
-    icon: <FileWarning size={22} />,
-  };
-}
-
-function Centered({
-  icon,
-  title,
-  hint,
-}: {
-  icon: ReactNode;
-  title: string;
-  hint: string;
-}) {
+function ImagePreview({ path, dataUrl }: { path: string; dataUrl: string }) {
   return (
-    <div className="flex-1 min-w-0 flex flex-col items-center justify-center gap-3 bg-surface-page text-center px-8">
-      <span className="size-12 rounded-lg bg-surface-2 flex items-center justify-center text-fg-tertiary">
-        {icon}
-      </span>
-      <h2 className="text-title text-fg-secondary">{title}</h2>
-      <p className="text-body-sm text-fg-tertiary max-w-sm break-all">{hint}</p>
+    <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center overflow-auto bg-surface-page p-6">
+      <img
+        src={dataUrl}
+        alt={path}
+        className="max-w-full max-h-full object-contain"
+      />
     </div>
+  );
+}
+
+function ImageFooter({
+  mediaType,
+  size,
+}: {
+  mediaType: string;
+  size: number;
+}) {
+  const sizeLabel =
+    size < 1024
+      ? `${size} B`
+      : size < 1024 * 1024
+        ? `${(size / 1024).toFixed(1)} KB`
+        : `${(size / (1024 * 1024)).toFixed(1)} MB`;
+
+  return (
+    <footer className="h-6 shrink-0 flex items-center gap-3 px-3 border-t border-subtle bg-surface-2 text-caption text-fg-tertiary tabular-nums select-none">
+      <span>{mediaType}</span>
+      <span>{sizeLabel}</span>
+    </footer>
   );
 }

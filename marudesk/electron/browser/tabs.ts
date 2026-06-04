@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { applyReorder, type TabKind } from '../../shared/browser';
+import type { WorkspaceFileRef, WorkspaceId } from '../../shared/workspace';
 import {
   clearConsole,
   clearErrors,
@@ -25,6 +26,7 @@ import {
 } from './state';
 import { applyWebLayout, hideTab, showTab } from './layout';
 import { loadPinnedSpecs, savePinnedTabs } from './pinned-session';
+import { loadTabSession, saveTabSession } from './tab-session';
 import { closeChromeDevtools } from './devtools';
 import {
   detachCdp,
@@ -42,6 +44,7 @@ import { recordTitle, recordVisit } from '../history';
 import { openExternalUrl } from '../safe-open';
 import { resolveAddressBarInput, searchBaseFor } from './url';
 import { getSettingsSync } from '../settings';
+import { getActiveWorkspaceId } from '../workspace';
 
 /**
  * Tab lifecycle: create / activate / close / reorder, plus the mount and dispose
@@ -57,15 +60,27 @@ const NEW_TAB_URL = 'about:blank';
 // Recently-closed restorable tabs (Ctrl/Cmd+Shift+T), newest last. Only kinds
 // with meaningful state to bring back are recorded — a web page's URL and a
 // saved editor file's path; transient/singleton kinds (home/terminal/…) aren't.
-type ClosedTab = { kind: TabKind; url?: string };
+type ClosedTab =
+  | { readonly kind: 'web'; readonly workspaceId: WorkspaceId; readonly url: string }
+  | {
+      readonly kind: 'editor';
+      readonly workspaceId: WorkspaceId;
+      readonly filePath?: string;
+      readonly editorFile?: WorkspaceFileRef;
+    };
 const MAX_CLOSED_TABS = 10;
 const closedTabs: ClosedTab[] = [];
 
-export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
+export function createTab(
+  kind: TabKind,
+  initialUrl?: string,
+  opts?: { workspaceId?: WorkspaceId; editorFile?: WorkspaceFileRef },
+): TabRecord {
   const host = getHost();
   if (!host) throw new Error('createTab: host window not mounted');
 
   const id = randomUUID();
+  const workspaceId = opts?.workspaceId ?? getActiveWorkspaceId();
 
   // Feature tabs carry no WebContentsView; the React stage paints them. We
   // still track them so open/close/activate and the tab strip work uniformly.
@@ -74,11 +89,13 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
     const rec: TabRecord = {
       id,
       kind,
+      workspaceId,
       view: null,
       inspectOn: false,
-      filePath,
+      filePath: opts?.editorFile?.path ?? filePath,
+      editorFile: opts?.editorFile,
       untitledName:
-        kind === 'editor' && !filePath
+        kind === 'editor' && !filePath && !opts?.editorFile
           ? `Untitled-${nextUntitledSeq()}`
           : undefined,
     };
@@ -102,7 +119,7 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
 
   view.setBackgroundColor('#0F1011');
 
-  const rec: TabRecord = { id, kind: 'web', view, inspectOn: false };
+  const rec: TabRecord = { id, kind: 'web', workspaceId, view, inspectOn: false };
 
   view.webContents.setWindowOpenHandler(({ url }) => {
     // Open links that request a new window inside a new tab.
@@ -396,8 +413,9 @@ export function createTab(kind: TabKind, initialUrl?: string): TabRecord {
 export function createAndActivateTab(
   kind: TabKind,
   initialUrl?: string,
+  opts?: { workspaceId?: WorkspaceId; editorFile?: WorkspaceFileRef },
 ): TabRecord {
-  const rec = createTab(kind, initialUrl);
+  const rec = createTab(kind, initialUrl, opts);
   activateTab(rec.id);
   return rec;
 }
@@ -416,6 +434,7 @@ export function replaceTab(
   oldId: string,
   kind: TabKind,
   initialUrl?: string,
+  opts?: { workspaceId?: WorkspaceId; editorFile?: WorkspaceFileRef },
 ): TabRecord | null {
   const old = getTab(oldId);
   if (!old) return null;
@@ -423,7 +442,10 @@ export function replaceTab(
   const idx = order.indexOf(oldId);
 
   // Build the replacement first (appends to the map; web tabs start hidden).
-  const rec = createTab(kind, initialUrl);
+  const rec = createTab(kind, initialUrl, {
+    workspaceId: opts?.workspaceId ?? old.workspaceId,
+    editorFile: opts?.editorFile,
+  });
 
   // Tear the old tab down (web view + any DevTools); feature tabs have none.
   detachCdp(old);
@@ -489,9 +511,16 @@ export function closeTab(id: string): boolean {
   // live webContents). Only web pages and saved editor files are worth reopening.
   if (rec.kind === 'web') {
     const url = rec.view?.webContents.getURL();
-    if (url && url !== NEW_TAB_URL) pushClosedTab({ kind: 'web', url });
-  } else if (rec.kind === 'editor' && rec.filePath) {
-    pushClosedTab({ kind: 'editor', url: rec.filePath });
+    if (url && url !== NEW_TAB_URL) {
+      pushClosedTab({ kind: 'web', workspaceId: rec.workspaceId, url });
+    }
+  } else if (rec.kind === 'editor' && (rec.editorFile || rec.filePath)) {
+    pushClosedTab({
+      kind: 'editor',
+      workspaceId: rec.workspaceId,
+      filePath: rec.filePath,
+      editorFile: rec.editorFile,
+    });
   }
   // Detach our CDP debugger and tear down any built-in DevTools before the page
   // view goes away (detach before webContents.close).
@@ -509,19 +538,14 @@ export function closeTab(id: string): boolean {
   deleteTab(id);
   if (getActiveTabId() === id) {
     setActiveTabId(null);
-    // Activate adjacent tab if available.
-    const next = tabValues()[0];
-    if (next) {
-      activateTab(next.id);
-    } else {
-      // No tabs left — open a fresh New Tab (home) so the stage isn't dead.
-      createAndActivateTab('home');
-    }
+    activateFallbackAfterClosing(rec);
   } else {
     pushState();
   }
   // Closing a pinned tab changes the restorable set.
   if (wasPinned) savePinnedTabs();
+  // Any close changes the restorable session set.
+  saveTabSession();
   return true;
 }
 
@@ -530,11 +554,29 @@ function pushClosedTab(spec: ClosedTab): void {
   if (closedTabs.length > MAX_CLOSED_TABS) closedTabs.shift();
 }
 
+function activateFallbackAfterClosing(closed: TabRecord): void {
+  const sameWorkspace = tabValues().find(
+    (tab) => tab.workspaceId === closed.workspaceId,
+  );
+  if (sameWorkspace) {
+    activateTab(sameWorkspace.id);
+    return;
+  }
+  createAndActivateTab('home', undefined, { workspaceId: closed.workspaceId });
+}
+
 /** Reopen the most recently closed tab (web page / saved editor file). */
 export function reopenClosedTab(): boolean {
   const spec = closedTabs.pop();
   if (!spec) return false;
-  createAndActivateTab(spec.kind, spec.url);
+  if (spec.kind === 'web') {
+    createAndActivateTab('web', spec.url, { workspaceId: spec.workspaceId });
+    return true;
+  }
+  createAndActivateTab('editor', spec.editorFile?.path ?? spec.filePath, {
+    workspaceId: spec.workspaceId,
+    editorFile: spec.editorFile,
+  });
   return true;
 }
 
@@ -585,6 +627,31 @@ function restorePinnedTabs(): void {
   }
 }
 
+/**
+ * Restore the previous session's full tab set (web pages + saved editor files) in
+ * order, honoring each tab's pinned flag, then activate the tab that was active.
+ * Returns whether anything was restored — when false, the caller falls back to
+ * the default home tab. Gated by Settings → Data & Storage → "Restore tabs".
+ */
+function restoreTabSession(): boolean {
+  const session = loadTabSession();
+  if (session.tabs.length === 0) return false;
+  const ids: string[] = [];
+  for (const spec of session.tabs) {
+    const rec =
+      spec.kind === 'web'
+        ? createTab('web', spec.url || undefined)
+        : createTab('editor', spec.filePath);
+    rec.pinned = spec.pinned;
+    ids.push(rec.id);
+  }
+  // Keep the pinned-first invariant the strip enforces everywhere else.
+  reorderTabRecords(pinnedFirst(tabKeys()));
+  const activeId = session.activeIndex >= 0 ? ids[session.activeIndex] : ids[0];
+  if (activeId) activateTab(activeId);
+  return true;
+}
+
 export function mountBrowserView(win: BrowserWindow): void {
   setHost(win);
   // Configure inspect-partition once (permission denial).
@@ -596,10 +663,14 @@ export function mountBrowserView(win: BrowserWindow): void {
   // them to the Downloads folder and feeding the renderer's download shelf.
   registerDownloadHandler(inspectSession);
 
-  // Restore last session's pinned tabs at the front, then open on the dashboard
-  // (a feature tab). The embedded browser only appears once a web tab exists.
-  restorePinnedTabs();
-  createAndActivateTab('home');
+  // Restore the previous session. When "Restore tabs" is on we bring back the
+  // full open set (and the active tab); otherwise just the pinned tabs, at the
+  // front. Either way the dashboard (home) opens when nothing was restored — the
+  // embedded browser only appears once a web tab exists.
+  const restored = getSettingsSync().storage.persistTabs
+    ? restoreTabSession()
+    : (restorePinnedTabs(), false);
+  if (!restored) createAndActivateTab('home');
 }
 
 /**
@@ -608,9 +679,11 @@ export function mountBrowserView(win: BrowserWindow): void {
  * closing any built-in DevTools first).
  */
 export function disposeBrowserView(): void {
-  // Snapshot the latest pinned URLs/paths before tearing the views down, so a
-  // pinned site that was navigated mid-session restores where it was left.
+  // Snapshot the latest pinned URLs/paths and the full tab session before tearing
+  // the views down, so a site that was navigated mid-session restores where it
+  // was left (the "Continue where you left off" moment).
   savePinnedTabs();
+  saveTabSession();
   for (const rec of tabValues()) {
     detachCdp(rec);
     closeChromeDevtools(rec);

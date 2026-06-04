@@ -33,8 +33,10 @@ export type SearchEngine = 'google' | 'duckduckgo' | 'bing';
  * - `ask`: edits run (they're reviewable/revertable), but sensitive tools
  *   (eval_js, cookies, storage, terminal output) ask for per-call approval.
  * - `auto`: everything runs without approval prompts.
+ * - `plan`: research-only (like read-only) but the agent is instructed to end
+ *   with a concrete step-by-step plan instead of editing (claude-code plan mode).
  */
-export type AgentApprovalMode = 'read-only' | 'ask' | 'auto';
+export type AgentApprovalMode = 'read-only' | 'ask' | 'auto' | 'plan';
 
 /**
  * How hard a reasoning ("extended thinking") model should think before answering
@@ -109,6 +111,23 @@ export type AppSettings = {
      * default; `order` is the user's ranked list of (provider, model) pairs.
      */
     fallback: { enabled: boolean; order: ModelRef[] };
+    /**
+     * Automatic compaction (claude-code / cursor parity). When the running
+     * context grows past `threshold` of the active model's window, the agent
+     * compacts the conversation once a turn settles — summarizing the earlier
+     * turns while keeping a verbatim tail and the full visible scrollback. Off
+     * leaves compaction manual (`/compact`). `threshold` is a 0–1 fraction of the
+     * context window (clamped to a sane band on load).
+     */
+    autoCompact: { enabled: boolean; threshold: number };
+    /**
+     * Post-edit verification command (claude-code / codex PostToolUse hook). When
+     * set, the agent runs it in the workspace at the end of any turn that edited
+     * files and folds the PASS/FAIL result back into the conversation, so a broken
+     * edit is caught and visible to both the user and the next turn. Empty = off.
+     * Example: `npm run typecheck`.
+     */
+    verifyCommand: string;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -118,6 +137,26 @@ export type AppSettings = {
    */
   pcControl: {
     enabled: boolean;
+  };
+  /**
+   * What the app persists to disk between launches — managed from Settings →
+   * Data & Storage. App settings themselves are always saved (they're the
+   * record of these very toggles); these govern the optional, higher-volume
+   * stores so a user can keep the app stateless if they prefer.
+   */
+  storage: {
+    /**
+     * Save AI Chat sessions (transcripts) to the local store so they appear in
+     * the sessions history and can be resumed. Off = conversations are
+     * in-memory only and vanish on New chat / restart; the loop skips
+     * persistSession. Existing saved sessions are not deleted by toggling off.
+     */
+    persistSessions: boolean;
+    /**
+     * Restore the open tab set (web pages + saved editor files) on launch — not
+     * just pinned tabs. Off = only pinned tabs restore (the prior behavior).
+     */
+    persistTabs: boolean;
   };
   /**
    * Remote bridge server — a local HTTP server (127.0.0.1 ONLY) that lets a future
@@ -166,6 +205,7 @@ export type SettingsPatch = {
   agent?: Partial<AppSettings['agent']>;
   pcControl?: Partial<AppSettings['pcControl']>;
   server?: Partial<AppSettings['server']>;
+  storage?: Partial<AppSettings['storage']>;
 };
 
 /** Default cloud-relay base URL — the B1 relay's localhost dev port. */
@@ -205,6 +245,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     instructions: '',
     reasoningEffort: 'medium',
     fallback: { enabled: false, order: [] },
+    autoCompact: { enabled: true, threshold: 0.8 },
+    verifyCommand: '',
   },
   pcControl: {
     enabled: false,
@@ -215,6 +257,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     relayUrl: DEFAULT_RELAY_URL,
     cloudEnabled: false,
     skipApprovals: false,
+  },
+  storage: {
+    persistSessions: true,
+    persistTabs: true,
   },
 };
 
@@ -231,7 +277,7 @@ export const SERVER_PORT_MAX = 65535;
 const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
 const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing'];
-const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto'];
+const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
 const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 const MAX_DENY_GLOBS = 100;
 
@@ -249,6 +295,12 @@ function clampNumber(
 ): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/** Clamp a 0–1 fraction (no rounding, unlike {@link clampNumber}). */
+function clampFraction(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
 }
 
 function asString(value: unknown, fallback: string): string {
@@ -352,6 +404,7 @@ export function sanitizeSettings(
   const ag = asRecord(root.agent);
   const pc = asRecord(root.pcControl);
   const sv = asRecord(root.server);
+  const st = asRecord(root.storage);
 
   return {
     version: 1,
@@ -407,9 +460,23 @@ export function sanitizeSettings(
         enabled: asBool(asRecord(ag.fallback).enabled, base.agent.fallback.enabled),
         order: asModelRefArray(asRecord(ag.fallback).order, base.agent.fallback.order),
       },
+      autoCompact: {
+        enabled: asBool(asRecord(ag.autoCompact).enabled, base.agent.autoCompact.enabled),
+        threshold: clampFraction(
+          asRecord(ag.autoCompact).threshold,
+          base.agent.autoCompact.threshold,
+          0.5,
+          0.95,
+        ),
+      },
+      verifyCommand: asString(ag.verifyCommand, base.agent.verifyCommand),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),
+    },
+    storage: {
+      persistSessions: asBool(st.persistSessions, base.storage.persistSessions),
+      persistTabs: asBool(st.persistTabs, base.storage.persistTabs),
     },
     server: {
       enabled: asBool(sv.enabled, base.server.enabled),
