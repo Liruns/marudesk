@@ -729,6 +729,8 @@ export async function executeTool(
 /** A short, safe preview of a gated tool's input for the approval card. */
 export function describeToolInput(name: string, input: unknown): string {
   const o = (input ?? {}) as Record<string, unknown>;
+  if (name === 'generate_image') return typeof o.prompt === 'string' ? o.prompt.slice(0, 500) : '(no prompt)';
+  if (name === 'generate_video') return typeof o.prompt === 'string' ? o.prompt.slice(0, 500) : '(no prompt)';
   if (name === 'eval_js') return typeof o.expression === 'string' ? o.expression.slice(0, 500) : '(no expression)';
   // Interaction tools (click/fill/press_key/scroll): show the action target plainly.
   if (name === 'click') return typeof o.selector === 'string' ? `click ${o.selector}`.slice(0, 300) : '(no selector)';

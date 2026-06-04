@@ -1,5 +1,6 @@
 import type { WorkspaceSummary } from '../../../shared/workspace';
 import type { AppliedChange } from '../../../shared/patch';
+import type { ProviderId } from '../../../shared/providers';
 
 /**
  * Shared shapes for the agent tool layer (docs/agentic-chat-design.md §4). The
@@ -26,6 +27,8 @@ export type ToolContext = {
   tabId?: string;
   /** Aborts an in-flight tool (e.g. the wait inside reload_and_verify). */
   signal: AbortSignal;
+  provider?: ProviderId;
+  model?: string;
   /**
    * Path globs the agent may never edit (Settings → Agent, Track B §B4). Checked
    * in applyEdits against each edit's workspace-relative path. Undefined/empty =
@@ -53,6 +56,8 @@ export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Pro
  * full glob-permission / approval-mode system lands.
  */
 export const GATED_TOOLS = new Set([
+  'generate_image',
+  'generate_video',
   'eval_js',
   'click',
   'fill',

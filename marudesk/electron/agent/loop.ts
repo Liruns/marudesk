@@ -18,10 +18,7 @@ import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
 import { getProvider, isBuiltinProviderId, isProviderId, MODELS } from '../../shared/providers';
 import { coalesced } from '../coalesce';
-import { getProviderApiKey } from '../secrets';
-import { CLAUDE_CODE_SYSTEM_PREFIX, supportsOAuth } from '../oauth/config';
-import { getValidAccessToken } from '../oauth/flow';
-import { getCustomProvider } from '../custom-providers';
+import { CLAUDE_CODE_SYSTEM_PREFIX } from '../oauth/config';
 import { getSettingsSync } from '../settings';
 import type { AgentApprovalMode, ModelRef, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
@@ -38,6 +35,7 @@ import { clearReadTracker } from './read-tracker';
 import { keywordModePreamble } from './keyword-modes';
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import type { SessionRecord, SessionSummary } from '../../shared/context';
+import { resolveProviderAuth } from './resolve-auth';
 
 /**
  * The manual step-driven agent loop (docs/agentic-chat-design.md §5). main owns
@@ -367,6 +365,8 @@ async function runLoop(opts: RunOpts): Promise<void> {
     tabId: opts.tabId,
     signal: opts.signal,
     denyGlobs: opts.denyGlobs,
+    provider: opts.provider,
+    model: opts.model,
   };
   const tools = aiTools(listMcpTools());
   // Fold the repo's own instruction file (AGENTS.md / CLAUDE.md) into the system
@@ -428,7 +428,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       if (triedModels.has(key)) continue;
       triedModels.add(key);
       const candidateProvider = ref.provider as AgentSendInput['provider'];
-      const resolved = await resolveTurnAuth(candidateProvider);
+      const resolved = await resolveProviderAuth(candidateProvider);
       if (!resolved.ok) continue; // not connected (no key / dead OAuth) → skip
       const modelReasoning =
         MODELS.find((m) => m.provider === candidateProvider && m.id === ref.model)?.reasoning ?? false;
@@ -786,56 +786,6 @@ async function persistSession(): Promise<void> {
 /* ── public API (handlers.ts) ───────────────────────────────────────────── */
 
 /**
- * Resolve how a request authenticates. Built-in providers prefer an OAuth
- * subscription connection (Claude Pro/Max) when one is stored, refreshing the
- * token first; otherwise the stored API key. Custom endpoints (custom:<id>) carry
- * their baseURL and treat the key as optional (many local OpenAI-compatible
- * servers need none); built-in keyless (Ollama) runs no key. Shared by the turn
- * loop and the Settings "Test connection" probe so both auth identically.
- */
-async function resolveTurnAuth(
-  provider: AgentSendInput['provider'],
-): Promise<
-  { ok: true; auth: ModelAuth; baseUrl?: string } | { ok: false; reason: string }
-> {
-  let apiKey: string | null;
-  try {
-    apiKey = await getProviderApiKey(provider);
-  } catch (err) {
-    return { ok: false, reason: (err as Error).message };
-  }
-  if (isBuiltinProviderId(provider)) {
-    let auth: ModelAuth | null = null;
-    if (supportsOAuth(provider)) {
-      let accessToken: string | null = null;
-      try {
-        accessToken = await getValidAccessToken(provider);
-      } catch (err) {
-        // The OAuth session is dead (getValidAccessToken just cleared it). Fall
-        // back to a stored API key if any; else surface the reconnect message.
-        if (!apiKey) return { ok: false, reason: (err as Error).message };
-      }
-      if (accessToken) auth = { mode: 'oauth', accessToken };
-    }
-    if (!auth) {
-      if (!apiKey && !getProvider(provider).keyless) {
-        return {
-          ok: false,
-          reason: supportsOAuth(provider)
-            ? `no API key or OAuth connection for ${provider}`
-            : `no API key configured for ${provider}`,
-        };
-      }
-      auth = { mode: 'api-key', apiKey: apiKey ?? '' };
-    }
-    return { ok: true, auth };
-  }
-  const custom = await getCustomProvider(provider);
-  if (!custom) return { ok: false, reason: `unknown custom provider ${provider}` };
-  return { ok: true, auth: { mode: 'api-key', apiKey: apiKey ?? '' }, baseUrl: custom.baseUrl };
-}
-
-/**
  * A minimal live request to verify a provider's credentials work — for the
  * Settings "Test connection" button. Especially useful for OAuth providers,
  * which have no /models endpoint to probe (so the model-list path can't tell a
@@ -845,7 +795,7 @@ async function resolveTurnAuth(
 export async function testProviderConnection(
   provider: AgentSendInput['provider'],
 ): Promise<{ ok: boolean; message: string }> {
-  const resolved = await resolveTurnAuth(provider);
+  const resolved = await resolveProviderAuth(provider);
   if (!resolved.ok) return { ok: false, message: resolved.reason };
   const model = isBuiltinProviderId(provider) ? getProvider(provider).defaultModelId : '';
   if (!model) return { ok: false, message: 'No default model to test for this provider.' };
@@ -916,7 +866,7 @@ export async function compactConversation(): Promise<{ ok: boolean; reason?: str
   const model = conversationModel;
   starting = true;
   try {
-    const resolved = await resolveTurnAuth(provider);
+    const resolved = await resolveProviderAuth(provider);
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
     const m = buildModel(provider, model, resolved.auth, resolved.baseUrl);
     const codexBackend = provider === 'openai-codex';
@@ -962,7 +912,7 @@ export async function compactConversation(): Promise<{ ok: boolean; reason?: str
 
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
   // `starting` closes the window between this check and `state.status` going
-  // busy (there's an `await getProviderApiKey` before we set it), so two
+  // busy (there's an auth-resolution await before we set it), so two
   // near-simultaneous sends can't both set up a turn and clobber `controller`.
   if (busy() || starting) return { ok: false, reason: 'a turn is already in progress' };
   starting = true;
@@ -980,7 +930,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     } catch {
       ws = null;
     }
-    const resolved = await resolveTurnAuth(input.provider);
+    const resolved = await resolveProviderAuth(input.provider);
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
     const { auth, baseUrl } = resolved;
 
