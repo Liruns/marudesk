@@ -509,12 +509,30 @@ const EN_MESSAGES = {
   'settings.appearance.uiFont.label': 'UI font',
   'settings.appearance.uiZoom.hint': 'Scales the whole UI.',
   'settings.appearance.uiZoom.label': 'Interface zoom',
+  'settings.appearance.accent.hint':
+    'Recolors active states, buttons, links, and focus rings.',
+  'settings.appearance.language.hint':
+    'Display language for the marudesk interface.',
   'settings.categoriesLabel': 'Settings categories',
   'settings.font.custom': 'Custom...',
   'settings.font.notDetectedAfter':
     '" is not detected on this system - a fallback font is used.',
   'settings.font.notDetectedBefore': '"',
   'settings.font.placeholder': 'Font family name',
+  'settings.font.family.hint': 'Falls back to JetBrains Mono if unavailable.',
+  'settings.font.family.label': 'Font family',
+  'settings.font.size.label': 'Font size',
+  'settings.browser.searchEngine.hint':
+    "Used when the address bar input isn't a URL.",
+  'settings.browser.searchEngine.label': 'Search engine',
+  'settings.devtools.dock.bottom': 'Bottom',
+  'settings.devtools.dock.hint':
+    'Right/Bottom dock our own inspector; Chrome opens the built-in DevTools window (for emulation, throttling, and the debugger).',
+  'settings.devtools.dock.label': 'Open as',
+  'settings.devtools.dock.right': 'Right',
+  'settings.terminal.shell.hint':
+    'Path or command for the integrated terminal. Leave blank for the OS default; an unknown shell falls back automatically.',
+  'settings.terminal.shell.label': 'Default shell',
   'settings.category.about.blurb': 'Version and runtime details.',
   'settings.category.about.label': 'About',
   'settings.category.agent.blurb':
@@ -837,6 +855,9 @@ const EN_MESSAGES = {
   'settings.remoteGuide.title': 'How to connect your phone',
   'settings.search.aria': 'Search settings',
   'settings.search.placeholder': 'Search settings',
+  'settings.search.resultsTitle': 'Search results',
+  'settings.search.resultsBlurb': 'Settings matching your query.',
+  'settings.search.settingsGroup': 'Settings',
   'search.clear': 'Clear search',
   'search.collapse': 'Collapse',
   'search.empty': 'Type to search file contents.',
@@ -1557,12 +1578,28 @@ const KO_MESSAGES: Messages = {
   'settings.appearance.uiFont.label': 'UI 글꼴',
   'settings.appearance.uiZoom.hint': '전체 UI 크기를 조정합니다.',
   'settings.appearance.uiZoom.label': '인터페이스 확대/축소',
+  'settings.appearance.accent.hint':
+    '활성 상태, 버튼, 링크, 포커스 링의 색을 바꿉니다.',
+  'settings.appearance.language.hint': 'marudesk 인터페이스의 표시 언어.',
   'settings.categoriesLabel': '설정 카테고리',
   'settings.font.custom': '사용자 지정...',
   'settings.font.notDetectedAfter':
     '" 글꼴이 이 시스템에서 감지되지 않았습니다 - 대체 글꼴을 사용합니다.',
   'settings.font.notDetectedBefore': '"',
   'settings.font.placeholder': '글꼴 패밀리 이름',
+  'settings.font.family.hint': '사용할 수 없으면 JetBrains Mono로 대체합니다.',
+  'settings.font.family.label': '글꼴 패밀리',
+  'settings.font.size.label': '글꼴 크기',
+  'settings.browser.searchEngine.hint': '주소창 입력이 URL이 아닐 때 사용합니다.',
+  'settings.browser.searchEngine.label': '검색 엔진',
+  'settings.devtools.dock.bottom': '아래쪽',
+  'settings.devtools.dock.hint':
+    '오른쪽/아래쪽은 자체 검사기를 창 안에 도킹하고, Chrome은 내장 DevTools 창(에뮬레이션, 스로틀링, 디버거용)을 엽니다.',
+  'settings.devtools.dock.label': '열기 방식',
+  'settings.devtools.dock.right': '오른쪽',
+  'settings.terminal.shell.hint':
+    '통합 터미널에서 사용할 경로나 명령. 비워 두면 OS 기본값을 사용하고, 알 수 없는 셸은 자동으로 대체됩니다.',
+  'settings.terminal.shell.label': '기본 셸',
   'settings.category.about.blurb': '버전과 런타임 정보.',
   'settings.category.about.label': '정보',
   'settings.category.agent.blurb':
@@ -1883,6 +1920,9 @@ const KO_MESSAGES: Messages = {
   'settings.remoteGuide.title': '휴대폰 연결 방법',
   'settings.search.aria': '설정 검색',
   'settings.search.placeholder': '설정 검색',
+  'settings.search.resultsTitle': '검색 결과',
+  'settings.search.resultsBlurb': '검색어와 일치하는 설정.',
+  'settings.search.settingsGroup': '설정',
   'settings.title': '설정',
   'home.launcher.agent.hint': '실행 중인 앱을 보는 에이전트',
   'home.launcher.agent.label': 'AI 채팅',

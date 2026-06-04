@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -6,7 +7,10 @@ import {
   type ThemeMode,
 } from '../../../shared/settings';
 import { MONO_FONT_PRESETS, UI_FONT_PRESETS } from '../../../shared/fonts';
+import { LOCALE_OPTIONS } from '../../i18n/messages';
 import { useI18n } from '../../i18n/useI18n';
+import { cn } from '../../lib/cn';
+import { ACCENTS, useThemeStore } from '../theme/store';
 import {
   Field,
   FontField,
@@ -15,7 +19,8 @@ import {
   Stepper,
   TextField,
 } from './SettingsControls';
-import { DOCK_OPTIONS, SEARCH_ENGINE_OPTIONS } from './settingsOptions';
+import { SEARCH_ENGINE_OPTIONS } from './settingsOptions';
+import { useDockOptions } from './useLocalizedSettingsOptions';
 import { useSettingsStore } from './store';
 
 function shellPlaceholder(): string {
@@ -26,8 +31,39 @@ function shellPlaceholder(): string {
   return 'Default (bash)';
 }
 
+function AccentSwatches() {
+  const accent = useThemeStore((s) => s.accent);
+  const setAccent = useThemeStore((s) => s.setAccent);
+  return (
+    <div className="flex items-center gap-1.5">
+      {ACCENTS.map((option) => {
+        const active = option.name === accent;
+        return (
+          <button
+            key={option.name}
+            type="button"
+            onClick={() => setAccent(option.name)}
+            aria-label={option.label}
+            aria-pressed={active}
+            title={option.label}
+            className={cn(
+              'flex size-6 items-center justify-center rounded-full transition-transform duration-fast hover:scale-110',
+              active
+                ? 'ring-2 ring-fg-primary/80 ring-offset-2 ring-offset-surface-1'
+                : '',
+            )}
+            style={{ backgroundColor: option.swatch }}
+          >
+            {active ? <Check size={12} className="text-white" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AppearanceCategory() {
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
   const a = useSettingsStore((s) => s.settings.appearance);
   const update = useSettingsStore((s) => s.update);
   const themeOptions = [
@@ -38,6 +74,10 @@ export function AppearanceCategory() {
     readonly value: ThemeMode;
     readonly label: string;
   }[];
+  const languageOptions = LOCALE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.nativeLabel,
+  }));
 
   return (
     <Section>
@@ -49,6 +89,22 @@ export function AppearanceCategory() {
           value={a.theme}
           options={themeOptions}
           onChange={(theme) => void update({ appearance: { theme } })}
+        />
+      </Field>
+      <Field
+        label={t('appearance.accent.label')}
+        hint={t('settings.appearance.accent.hint')}
+      >
+        <AccentSwatches />
+      </Field>
+      <Field
+        label={t('appearance.language.label')}
+        hint={t('settings.appearance.language.hint')}
+      >
+        <Segmented
+          value={locale}
+          options={languageOptions}
+          onChange={(next) => setLocale(next)}
         />
       </Field>
       <Field
@@ -80,11 +136,15 @@ export function AppearanceCategory() {
 }
 
 export function EditorCategory() {
+  const { t } = useI18n();
   const a = useSettingsStore((s) => s.settings.appearance);
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
-      <Field label="Font family" hint="Falls back to JetBrains Mono if unavailable.">
+      <Field
+        label={t('settings.font.family.label')}
+        hint={t('settings.font.family.hint')}
+      >
         <FontField
           value={a.editorFontFamily}
           presets={MONO_FONT_PRESETS}
@@ -93,14 +153,14 @@ export function EditorCategory() {
           }
         />
       </Field>
-      <Field label="Font size">
+      <Field label={t('settings.font.size.label')}>
         <Stepper
           value={a.editorFontSize}
           min={FONT_SIZE_MIN}
           max={FONT_SIZE_MAX}
           step={1}
           suffix="px"
-          name="editor font size"
+          name={t('settings.font.size.label')}
           onChange={(editorFontSize) =>
             void update({ appearance: { editorFontSize } })
           }
@@ -111,12 +171,16 @@ export function EditorCategory() {
 }
 
 export function TerminalCategory() {
+  const { t } = useI18n();
   const settings = useSettingsStore((s) => s.settings);
   const a = settings.appearance;
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
-      <Field label="Font family" hint="Falls back to JetBrains Mono if unavailable.">
+      <Field
+        label={t('settings.font.family.label')}
+        hint={t('settings.font.family.hint')}
+      >
         <FontField
           value={a.terminalFontFamily}
           presets={MONO_FONT_PRESETS}
@@ -125,22 +189,22 @@ export function TerminalCategory() {
           }
         />
       </Field>
-      <Field label="Font size">
+      <Field label={t('settings.font.size.label')}>
         <Stepper
           value={a.terminalFontSize}
           min={FONT_SIZE_MIN}
           max={FONT_SIZE_MAX}
           step={1}
           suffix="px"
-          name="terminal font size"
+          name={t('settings.font.size.label')}
           onChange={(terminalFontSize) =>
             void update({ appearance: { terminalFontSize } })
           }
         />
       </Field>
       <Field
-        label="Default shell"
-        hint="Path or command for the integrated terminal. Leave blank for the OS default; an unknown shell falls back automatically."
+        label={t('settings.terminal.shell.label')}
+        hint={t('settings.terminal.shell.hint')}
       >
         <TextField
           value={settings.terminal.defaultShell}
@@ -153,13 +217,14 @@ export function TerminalCategory() {
 }
 
 export function BrowserCategory() {
+  const { t } = useI18n();
   const browser = useSettingsStore((s) => s.settings.browser);
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
       <Field
-        label="Search engine"
-        hint="Used when the address bar input isn't a URL."
+        label={t('settings.browser.searchEngine.label')}
+        hint={t('settings.browser.searchEngine.hint')}
       >
         <Segmented
           value={browser.searchEngine}
@@ -172,17 +237,19 @@ export function BrowserCategory() {
 }
 
 export function DevtoolsCategory() {
+  const { t } = useI18n();
+  const dockOptions = useDockOptions();
   const devtools = useSettingsStore((s) => s.settings.devtools);
   const update = useSettingsStore((s) => s.update);
   return (
     <Section>
       <Field
-        label="Open as"
-        hint="Right/Bottom dock our own inspector; Chrome opens the built-in DevTools window (for emulation, throttling, and the debugger)."
+        label={t('settings.devtools.dock.label')}
+        hint={t('settings.devtools.dock.hint')}
       >
         <Segmented
           value={devtools.defaultDock}
-          options={DOCK_OPTIONS}
+          options={dockOptions}
           onChange={(defaultDock) => void update({ devtools: { defaultDock } })}
         />
       </Field>

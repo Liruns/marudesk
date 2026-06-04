@@ -1,10 +1,13 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import {
+  Bot,
   Files,
   GitBranch,
   KeyRound,
   MessageSquareText,
   Palette,
+  Plug,
+  Radio,
   Search,
   Settings as SettingsIcon,
   SlidersHorizontal,
@@ -27,6 +30,13 @@ type Props = {
   drawerOpen: boolean;
   onToggleDrawer: () => void;
 };
+
+/** Platform-aware label for the "open Settings" accelerator (Ctrl/Cmd+,). */
+function settingsShortcut(): string {
+  const isMac =
+    typeof navigator !== 'undefined' && navigator.userAgent.includes('Macintosh');
+  return isMac ? '⌘,' : 'Ctrl+,';
+}
 
 /**
  * VSCode/Cursor-style activity bar: a thin vertical rail anchored to the left
@@ -128,13 +138,29 @@ export function ActivityBar({
             {
               label: t('activity.settings'),
               icon: <SlidersHorizontal size={15} />,
+              shortcut: settingsShortcut(),
               onSelect: () => void openSettingsTab(),
             },
             { type: 'separator' },
             {
-              label: t('activity.apiProviders'),
+              label: t('settings.category.agent.label'),
+              icon: <Bot size={15} />,
+              onSelect: () => void openSettingsTab('agent'),
+            },
+            {
+              label: t('settings.category.providers.label'),
               icon: <KeyRound size={15} />,
               onSelect: () => void openSettingsTab('providers'),
+            },
+            {
+              label: t('settings.category.mcp.label'),
+              icon: <Plug size={15} />,
+              onSelect: () => void openSettingsTab('mcp'),
+            },
+            {
+              label: t('settings.category.remote.label'),
+              icon: <Radio size={15} />,
+              onSelect: () => void openSettingsTab('remote'),
             },
           ]}
         />
