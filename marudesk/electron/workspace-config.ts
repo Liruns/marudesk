@@ -10,6 +10,12 @@
 export const MAX_FILES = 5000;
 /** Skip files larger than this when scanning content for tags/ranking. */
 export const MAX_FILE_SIZE = 256 * 1024;
+/**
+ * Largest file the agent reads in full as a line-addressable document (for
+ * paged reads and edit/staleness anchoring). Aligned with the patch apply limit
+ * so anything the agent can edit, it can also read in full.
+ */
+export const MAX_AGENT_FILE_SIZE = 4 * 1024 * 1024;
 /** How many top-ranked files get a content read during summarization. */
 export const CONTENT_CANDIDATES = 50;
 /** How many results the ranked summary keeps. */

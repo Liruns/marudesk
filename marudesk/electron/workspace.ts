@@ -7,6 +7,7 @@ export {
 export {
   readFileForEditor,
   readFileSafe,
+  readFileWindow,
   saveAsForEditor,
   writeFileForEditor,
 } from './workspace-files';

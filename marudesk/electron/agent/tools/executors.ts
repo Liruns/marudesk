@@ -3,7 +3,7 @@ import type { WorkspaceSummary } from '../../../shared/workspace';
 import { scrubText, scrubHeaders } from '../../../shared/scrub';
 import { urlToWorkspacePath } from '../../../shared/runtime-evidence';
 import type { NetworkRecord } from '../../../shared/network-evidence';
-import { readFileSafe } from '../../workspace';
+import { readFileSafe, readFileWindow } from '../../workspace';
 import { resolveWorkspacePath } from '../../fs-safe';
 import { applyPatch } from '../../patch';
 import { isStaleForEdit, recordRead, updateAfterWrite } from '../read-tracker';
@@ -21,7 +21,10 @@ import type { Executor, ToolContext, ToolResult } from './types';
  */
 
 const MAX_TOOL_TEXT = 12_000;
-const MAX_FILE_READ = 16_000;
+// read_file pages by line: default lines per call, hard byte budget per call,
+// and a per-line clip so one pathological line can't blow the budget.
+const MAX_READ_LINES = 1_500;
+const MAX_READ_LINE_LEN = 2_000;
 const MAX_GREP_RESULTS = 60;
 const MAX_GREP_FILES = 600;
 const GREP_CONCURRENCY = 8;
@@ -33,9 +36,15 @@ const RELOAD_WAIT_MAX = 5_000;
 const RELOAD_SETTLE = 800;
 const MAX_BODY_BYTES = 256_000;
 
-const INDEXABLE = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue', '.svelte', '.astro',
-  '.html', '.htm', '.css', '.scss', '.sass', '.less', '.json', '.md',
+// Skip obviously-binary files when grepping. Denylist (not an allowlist) so the
+// search covers any text source — .py, .go, .rs, .yaml, .toml, .sh, … — instead
+// of a fixed set of web/JS extensions.
+const BINARY_EXT = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.bmp', '.tiff',
+  '.pdf', '.zip', '.gz', '.tar', '.tgz', '.rar', '.7z', '.bz2', '.xz',
+  '.mp3', '.mp4', '.mov', '.avi', '.mkv', '.wav', '.flac', '.ogg', '.webm',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.exe', '.dll', '.so', '.dylib', '.bin', '.wasm', '.class', '.o', '.a',
 ]);
 
 // Defense-in-depth: refuse to hand obvious credential files to the model. These
@@ -55,10 +64,42 @@ function clip(s: string, max = MAX_TOOL_TEXT): string {
  * only — `oldString` for an edit must still be the verbatim file text WITHOUT
  * these prefixes (the read_file/edit_file descriptions say so).
  */
-function numberLines(content: string): string {
-  const lines = content.split('\n');
-  const width = String(lines.length).length;
-  return lines.map((l, i) => `${String(i + 1).padStart(width, ' ')}\t${l}`).join('\n');
+/** Coerce a tool input into a positive integer, falling back when absent/invalid. */
+function toPosInt(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
+}
+
+/** Clip a single line so one pathological (e.g. minified) line can't dominate. */
+function clipLine(line: string): string {
+  return line.length <= MAX_READ_LINE_LEN
+    ? line
+    : `${line.slice(0, MAX_READ_LINE_LEN)}… [line truncated, ${line.length} chars]`;
+}
+
+/**
+ * Render lines `start..last` (1-based, inclusive) from `lines` with right-aligned
+ * `N\t` prefixes (display only — NOT part of the file), stopping early if the
+ * byte budget would be exceeded. Returns the text plus the last line actually
+ * shown so the caller can offer a continuation offset.
+ */
+function renderWindow(
+  lines: string[],
+  start: number,
+  end: number,
+  budget = MAX_TOOL_TEXT,
+): { text: string; lastShown: number } {
+  const width = String(end).length;
+  const parts: string[] = [];
+  let used = 0;
+  let lastShown = start - 1;
+  for (let i = start; i <= end; i++) {
+    const rendered = `${String(i).padStart(width, ' ')}\t${clipLine(lines[i - 1])}`;
+    if (i > start && used + rendered.length + 1 > budget) break;
+    parts.push(rendered);
+    used += rendered.length + 1;
+    lastShown = i;
+  }
+  return { text: parts.join('\n'), lastShown };
 }
 
 function requireTab(ctx: ToolContext): TabRecord {
@@ -119,7 +160,10 @@ function noWorkspaceResult(tool: string): ToolResult {
   };
 }
 
-async function readFile(input: { path?: unknown }, ctx: ToolContext): Promise<ToolResult> {
+async function readFile(
+  input: { path?: unknown; offset?: unknown; limit?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
   if (!ctx.ws) return noWorkspaceResult('read_file');
   const p = typeof input.path === 'string' ? input.path : '';
   if (!p) throw new Error('read_file requires "path"');
@@ -130,15 +174,39 @@ async function readFile(input: { path?: unknown }, ctx: ToolContext): Promise<To
       isError: true,
     };
   }
-  const content = await readFileSafe(ctx.ws.root, p, MAX_FILE_READ);
-  // Remember what the agent saw (bounded the same way the staleness check reads),
-  // so a later edit against a since-changed file is caught instead of clobbering.
+  // Read the whole file (up to the agent document limit) so the staleness anchor
+  // covers content beyond the displayed window — then page the DISPLAY by line.
+  const { content, truncated } = await readFileWindow(ctx.ws.root, p);
+  // Anchor the staleness guard to the full content we read, decoupled from the
+  // window shown below: an edit anywhere in the file is then validated correctly.
   try {
     recordRead(resolveWorkspacePath(ctx.ws.root, p).abs, content);
   } catch {
     // A path that won't resolve can't be edited either — skip tracking.
   }
-  return { summary: `read ${p}`, text: clip(numberLines(content)) };
+
+  if (content.length === 0 && !truncated) {
+    return { summary: `read ${p} (empty)`, text: '(empty file)' };
+  }
+
+  const lines = content.split('\n');
+  const total = lines.length;
+  const start = Math.min(toPosInt(input.offset, 1), total);
+  const limit = Math.min(toPosInt(input.limit, MAX_READ_LINES), MAX_READ_LINES);
+  const end = Math.min(start + limit - 1, total);
+  const { text, lastShown } = renderWindow(lines, start, end);
+
+  let footer = '';
+  if (lastShown < total) {
+    footer = `\n…(showing lines ${start}-${lastShown} of ${truncated ? `${total}+` : total} — read with offset=${lastShown + 1} for more)`;
+  } else if (truncated) {
+    footer = `\n…(file exceeds the agent read limit; lines past ${total} are not shown)`;
+  }
+  const ranged = start > 1 || lastShown < total;
+  return {
+    summary: `read ${p}${ranged ? ` (lines ${start}-${lastShown})` : ''}`,
+    text: text + footer,
+  };
 }
 
 async function listFiles(input: { glob?: unknown }, ctx: ToolContext): Promise<ToolResult> {
@@ -157,19 +225,46 @@ async function listFiles(input: { glob?: unknown }, ctx: ToolContext): Promise<T
 }
 
 async function grep(
-  input: { pattern?: unknown; glob?: unknown; maxResults?: unknown },
+  input: {
+    pattern?: unknown;
+    glob?: unknown;
+    maxResults?: unknown;
+    regex?: unknown;
+    caseSensitive?: unknown;
+  },
   ctx: ToolContext,
 ): Promise<ToolResult> {
   if (!ctx.ws) return noWorkspaceResult('grep');
   const ws = ctx.ws; // capture so the narrowing survives into the async closure below
   const pattern = typeof input.pattern === 'string' ? input.pattern : '';
   if (!pattern) throw new Error('grep requires "pattern"');
-  const needle = pattern.toLowerCase();
+  const caseSensitive = input.caseSensitive === true;
   const max = typeof input.maxResults === 'number' ? Math.min(input.maxResults, 200) : MAX_GREP_RESULTS;
   const re = typeof input.glob === 'string' && input.glob.trim() ? globToRegExp(input.glob.trim()) : null;
 
+  // Build the line matcher: a JS regex when regex=true, else a literal substring.
+  let matches: (line: string) => boolean;
+  if (input.regex === true) {
+    let rx: RegExp;
+    try {
+      rx = new RegExp(pattern, caseSensitive ? '' : 'i');
+    } catch (err) {
+      return {
+        summary: `grep (bad regex)`,
+        text: `invalid regular expression: ${(err as Error).message}`,
+        isError: true,
+      };
+    }
+    matches = (line) => rx.test(line);
+  } else if (caseSensitive) {
+    matches = (line) => line.includes(pattern);
+  } else {
+    const needle = pattern.toLowerCase();
+    matches = (line) => line.toLowerCase().includes(needle);
+  }
+
   const candidates = ws.files
-    .filter((f) => INDEXABLE.has(path.extname(f.path).toLowerCase()))
+    .filter((f) => !BINARY_EXT.has(path.extname(f.path).toLowerCase()))
     .filter((f) => (re ? re.test(f.path) : true))
     .slice(0, MAX_GREP_FILES);
 
@@ -179,6 +274,7 @@ async function grep(
   // at most GREP_CONCURRENCY-1 files (acceptable, still bounded).
   const hits: string[] = [];
   let scanned = 0;
+  let capped = false;
   batches: for (let i = 0; i < candidates.length && hits.length < max; i += GREP_CONCURRENCY) {
     const batch = candidates.slice(i, i + GREP_CONCURRENCY);
     const contents = await Promise.all(
@@ -190,16 +286,26 @@ async function grep(
       scanned++;
       const lines = content.split('\n');
       for (let k = 0; k < lines.length; k++) {
-        if (lines[k].toLowerCase().includes(needle)) {
+        if (matches(lines[k])) {
           hits.push(`${batch[j].path}:${k + 1}: ${lines[k].trim().slice(0, 200)}`);
-          if (hits.length >= max) break batches;
+          if (hits.length >= max) {
+            capped = true;
+            break batches;
+          }
         }
       }
     }
   }
+  // Distinguish "found everything" from "hit the result/file caps" so the model
+  // knows to narrow with a glob or raise maxResults instead of trusting a partial.
+  const note = capped
+    ? `\n…(stopped at ${max} hits — narrow with a glob or raise maxResults)`
+    : candidates.length >= MAX_GREP_FILES
+      ? `\n…(scanned the first ${MAX_GREP_FILES} matching files — narrow with a glob for the rest)`
+      : '';
   return {
     summary: `grep "${pattern}" → ${hits.length} hit${hits.length === 1 ? '' : 's'}`,
-    text: hits.length ? clip(hits.join('\n')) : `no matches in ${scanned} files`,
+    text: hits.length ? clip(hits.join('\n')) + note : `no matches in ${scanned} files`,
   };
 }
 
@@ -234,9 +340,9 @@ async function applyEdits(
   }
   // Staleness guard: refuse an edit to a file that changed on disk since the
   // agent read it (oh-my-openagent's hashline insight). Compare against the same
-  // MAX_FILE_READ-bounded view the agent saw so large-file reads line up. Skip
-  // creates (oldString === '') and unresolvable/missing paths — applyPatch emits
-  // the precise error for those.
+  // full-document view read_file anchors, so an edit anywhere in a large file is
+  // validated correctly. Skip creates (oldString === '') and unresolvable/missing
+  // paths — applyPatch emits the precise error for those.
   for (const op of ops) {
     if (op.oldString.length === 0) continue;
     let abs: string;
@@ -247,7 +353,7 @@ async function applyEdits(
     }
     let current: string;
     try {
-      current = await readFileSafe(ctx.ws.root, op.path, MAX_FILE_READ);
+      current = (await readFileWindow(ctx.ws.root, op.path)).content;
     } catch {
       continue;
     }
@@ -255,11 +361,16 @@ async function applyEdits(
       // Self-heal (oh-my-openagent's mismatch UX): instead of just telling the
       // agent to re-read, hand back the CURRENT line-numbered content inline and
       // re-anchor the tracker to it — so the agent can redo the edit against the
-      // fresh text in the same turn (the retry then passes this guard).
+      // fresh text in the same turn (the retry then passes this guard). The echo
+      // is windowed (a large file can't be dumped) but the anchor is the full read.
       recordRead(abs, current);
+      const lines = current.split('\n');
+      const end = Math.min(lines.length, MAX_READ_LINES);
+      const { text, lastShown } = renderWindow(lines, 1, end);
+      const more = lastShown < lines.length ? `\n…(showing lines 1-${lastShown} of ${lines.length} — read_file with offset for the rest)` : '';
       return {
         summary: `${label} blocked (stale)`,
-        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${clip(numberLines(current))}`,
+        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${text}${more}`,
         isError: true,
       };
     }
@@ -275,7 +386,7 @@ async function applyEdits(
   for (const c of res.changes ?? []) {
     try {
       const abs = resolveWorkspacePath(ctx.ws.root, c.path).abs;
-      updateAfterWrite(abs, await readFileSafe(ctx.ws.root, c.path, MAX_FILE_READ));
+      updateAfterWrite(abs, (await readFileWindow(ctx.ws.root, c.path)).content);
     } catch {
       // Best-effort — failing to re-anchor only risks a spurious re-read prompt.
     }

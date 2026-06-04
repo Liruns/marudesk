@@ -8,12 +8,14 @@ import { ASK_USER, type ToolSchema } from './types';
  */
 
 const strProp = (desc: string) => ({ type: 'string', description: desc });
+const intProp = (desc: string) => ({ type: 'integer', description: desc });
+const boolProp = (desc: string) => ({ type: 'boolean', description: desc });
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'read_file',
-    description: 'Read a UTF-8 workspace file (relative path). Output is line-numbered ("N\\t<text>") for reference only — those number+tab prefixes are NOT part of the file. Read before editing: your oldString must match the file text exactly (without the prefixes), and an edit to a file that changed since you read it is refused until you re-read it.',
-    inputSchema: { type: 'object', properties: { path: strProp('Workspace-relative path.') }, required: ['path'], additionalProperties: false },
+    description: 'Read a UTF-8 workspace file (relative path). Output is line-numbered ("N\\t<text>") for reference only — those number+tab prefixes are NOT part of the file. Large files are paged: read the next chunk with offset set to the line after the last one shown (the footer tells you when there is more). Read before editing: your oldString must match the file text exactly (without the prefixes), and an edit to a file that changed since you read it is refused until you re-read it.',
+    inputSchema: { type: 'object', properties: { path: strProp('Workspace-relative path.'), offset: intProp('1-based line number to start reading from (default 1).'), limit: intProp('Maximum lines to return (default 1500).') }, required: ['path'], additionalProperties: false },
   },
   {
     name: 'list_files',
@@ -22,13 +24,15 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'grep',
-    description: 'Case-insensitive literal substring search across indexed files. Returns path:line: text. Narrow with a glob.',
+    description: 'Search file contents across the workspace (skips binary files). Literal substring by default; set regex=true to treat pattern as a JavaScript regular expression. Case-insensitive unless caseSensitive=true. Returns path:line: text. Narrow with a glob.',
     inputSchema: {
       type: 'object',
       properties: {
-        pattern: strProp('Literal substring to find.'),
+        pattern: strProp('Text to find — a literal substring, or a JS regular expression when regex=true.'),
         glob: strProp('Optional path glob to narrow the search.'),
-        maxResults: { type: 'number', description: 'Cap on hits (default 60).' },
+        regex: boolProp('Treat pattern as a JS regular expression (default false).'),
+        caseSensitive: boolProp('Match case-sensitively (default false).'),
+        maxResults: { type: 'number', description: 'Cap on hits (default 60, max 200).' },
       },
       required: ['pattern'],
       additionalProperties: false,

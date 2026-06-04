@@ -13,15 +13,19 @@ import {
   lstatOrNull,
   resolveWorkspacePath,
 } from './fs-safe';
-import { MAX_FILE_SIZE } from './workspace-config';
+import { MAX_AGENT_FILE_SIZE, MAX_FILE_SIZE } from './workspace-config';
 
 export { readFileForEditor } from './workspace-read';
 
-export async function readFileSafe(
+/**
+ * Resolve `relPath` inside `root` and enforce the shared read guards: refuse
+ * symlinks, non-files, and anything whose real path escapes the workspace.
+ * Returns the validated absolute path and on-disk size for the caller to read.
+ */
+async function assertSafeFile(
   root: string,
   relPath: string,
-  maxSize = MAX_FILE_SIZE,
-): Promise<string> {
+): Promise<{ abs: string; size: number }> {
   const { abs } = resolveWorkspacePath(root, relPath);
   const st = await fs.lstat(abs);
   if (st.isSymbolicLink()) {
@@ -36,7 +40,16 @@ export async function readFileSafe(
       `marudesk: refuse to follow symlink to outside workspace: ${relPath}`,
     );
   }
-  if (st.size > maxSize) {
+  return { abs, size: st.size };
+}
+
+export async function readFileSafe(
+  root: string,
+  relPath: string,
+  maxSize = MAX_FILE_SIZE,
+): Promise<string> {
+  const { abs, size } = await assertSafeFile(root, relPath);
+  if (size > maxSize) {
     const fh = await fs.open(abs, 'r');
     try {
       const buf = Buffer.alloc(maxSize);
@@ -47,6 +60,47 @@ export async function readFileSafe(
     }
   }
   return fs.readFile(abs, 'utf8');
+}
+
+export type WindowedRead = {
+  /** The decoded file text (full file, or a clean line-bounded prefix). */
+  content: string;
+  /** True size of the file on disk in bytes. */
+  size: number;
+  /** True when the file exceeded `maxBytes` and `content` is a prefix only. */
+  truncated: boolean;
+};
+
+/**
+ * Read a file for the agent as a line-addressable document. Reads the whole
+ * file when it fits within `maxBytes`; for larger files it reads a prefix and
+ * drops the trailing partial line, so the returned text never ends mid-line or
+ * splits a UTF-8 multibyte character (which byte-window truncation would). The
+ * caller pages over `content` by line offset and uses it as the staleness/edit
+ * anchor, so the view, the hash, and an edit all see the same bytes.
+ */
+export async function readFileWindow(
+  root: string,
+  relPath: string,
+  maxBytes = MAX_AGENT_FILE_SIZE,
+): Promise<WindowedRead> {
+  const { abs, size } = await assertSafeFile(root, relPath);
+  if (size <= maxBytes) {
+    return { content: await fs.readFile(abs, 'utf8'), size, truncated: false };
+  }
+  const fh = await fs.open(abs, 'r');
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
+    let text = buf.subarray(0, bytesRead).toString('utf8');
+    // Drop the trailing partial line (which also carries any split multibyte
+    // char at the byte boundary) so the prefix ends cleanly on a newline.
+    const lastNl = text.lastIndexOf('\n');
+    if (lastNl >= 0) text = text.slice(0, lastNl);
+    return { content: text, size, truncated: true };
+  } finally {
+    await fh.close();
+  }
 }
 
 export async function writeFileForEditor(
