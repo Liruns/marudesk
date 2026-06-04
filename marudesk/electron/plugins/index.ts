@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import path from 'node:path';
-import type { PluginStatus } from '../../shared/plugin';
+import type { PluginCommandSnapshot, PluginStatus } from '../../shared/plugin';
 import { ensurePluginsConfigFile } from './config';
 import { PluginManager } from './manager';
 
@@ -36,6 +36,16 @@ export async function reloadPlugins(): Promise<PluginStatus[]> {
 /** Latest per-plugin statuses (cheap; no scan). */
 export function listPluginStatuses(): PluginStatus[] {
   return manager ? manager.list() : [];
+}
+
+/** Enable/disable one plugin (Settings toggle); re-reconciles and returns statuses. */
+export async function setPluginEnabled(id: string, enabled: boolean): Promise<PluginStatus[]> {
+  return manager ? manager.setEnabled(id, enabled) : [];
+}
+
+/** Slash commands contributed by active plugins (for the composer menu). */
+export function listPluginCommands(): PluginCommandSnapshot[] {
+  return manager ? manager.listCommands() : [];
 }
 
 /** Tear down every plugin worker (before-quit). */

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { WorkspaceSummary } from '../../shared/workspace';
+import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
 import { buildPluginServer, PluginHost } from './host';
 import { spawnViaChildProcess } from './transport';
@@ -86,6 +87,13 @@ async function main(): Promise<void> {
   // fs without a workspace: the same tool with a null-ws context must be refused.
   const noWsRes = await readTool.exec({ path: 'NOTES.md' }, { ws: null, signal: new AbortController().signal });
   check('fs:read refuses when no workspace is open', noWsRes.isError === true);
+
+  // ── slash: the plugin's command becomes a namespaced prompt command ──────────
+  const slash = pluginSlashCommand('hello-world', contributions.commands[0]);
+  check('plugin slash command is namespaced plugin id:name', slash.name === 'hello-world:hello');
+  check('plugin slash expand substitutes $ARGUMENTS', slash.expand('Ada') === 'Please greet Ada warmly and concisely.');
+  const resolved = resolveSlash('/hello-world:hello Ada', [slash]);
+  check('resolveSlash matches the namespaced plugin command + arg', resolved?.command.name === 'hello-world:hello' && resolved?.arg === 'Ada');
 
   host.dispose();
 

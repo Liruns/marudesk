@@ -6,13 +6,15 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_SERVER_PREFIX,
   pluginToolName,
+  type PluginCommandSnapshot,
   type PluginManifest,
   type PluginPermission,
+  type PluginSlashContribution,
   type PluginStatus,
 } from '../../shared/plugin';
 import { registerMcpServer, unregisterMcpServer } from '../agent/mcp';
 import { buildPluginServer, PluginHost } from './host';
-import { readPluginsConfig } from './config';
+import { readPluginsConfig, setPluginConfig } from './config';
 import { spawnViaUtilityProcess } from './spawn-electron';
 import type { SpawnWorker } from './transport';
 
@@ -32,7 +34,7 @@ import type { SpawnWorker } from './transport';
 
 type Discovered = { scope: 'user' | 'project'; dir: string; manifest: PluginManifest };
 
-type LivePlugin = { host: PluginHost; status: PluginStatus };
+type LivePlugin = { host: PluginHost; status: PluginStatus; commands: PluginSlashContribution[] };
 
 export type PluginManagerDeps = {
   /** `<userData>/plugins`. */
@@ -191,7 +193,7 @@ export class PluginManager {
         toolNames: contributions.tools.map((t) => pluginToolName(d.manifest.id, t.name)),
         commandNames: contributions.commands.map((c) => c.name),
       };
-      this.live.set(d.manifest.id, { host, status });
+      this.live.set(d.manifest.id, { host, status, commands: contributions.commands });
       return status;
     } catch (err) {
       this.deactivate(d.manifest.id);
@@ -217,6 +219,44 @@ export class PluginManager {
   /** Latest per-plugin statuses (cheap; no scan). */
   list(): PluginStatus[] {
     return this.statuses;
+  }
+
+  /** Slash commands contributed by currently-active plugins (for the composer). */
+  listCommands(): PluginCommandSnapshot[] {
+    const out: PluginCommandSnapshot[] = [];
+    for (const [id, live] of this.live) {
+      for (const c of live.commands) out.push({ ...c, pluginId: id });
+    }
+    return out;
+  }
+
+  /**
+   * Enable or disable one plugin and re-reconcile. Enabling a plugin records its
+   * declared permissions as granted (the toggle IS the approval — the card shows
+   * what is being granted) and stamps the approved-permissions key so a later
+   * manifest permission change forces re-approval (state → needs-approval).
+   * Disabling keeps the prior grant so re-enabling doesn't re-prompt.
+   */
+  async setEnabled(id: string, enabled: boolean): Promise<PluginStatus[]> {
+    const discovered = await this.discover();
+    const found = discovered.get(id);
+    if (!found) return this.reload();
+    const declared = found.manifest.permissions ?? [];
+    const config = await readPluginsConfig();
+    const prior = config.plugins.find((p) => p.id === id);
+    await setPluginConfig(
+      enabled
+        ? { id, enabled: true, granted: declared, approvedPermissionsKey: permissionsKey(declared) }
+        : {
+            id,
+            enabled: false,
+            granted: prior?.granted ?? [],
+            ...(prior?.approvedPermissionsKey
+              ? { approvedPermissionsKey: prior.approvedPermissionsKey }
+              : {}),
+          },
+    );
+    return this.reload();
   }
 
   /** Tear down everything (before-quit). */

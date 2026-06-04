@@ -12,6 +12,7 @@ import {
   TerminalCategory,
 } from './GeneralSettingsCategories';
 import { McpServersSettings } from './McpServersSettings';
+import { PluginsSettings } from './PluginsSettings';
 import { ProvidersSettings } from './ProvidersSettings';
 import { RemoteCategory } from './RemoteSettingsCategory';
 import { NavItem } from './SettingsControls';
@@ -107,6 +108,7 @@ export function SettingsView() {
               {category === 'providers' ? <ProvidersSettings /> : null}
               {category === 'agent' ? <AgentCategory /> : null}
               {category === 'mcp' ? <McpServersSettings /> : null}
+              {category === 'plugins' ? <PluginsSettings /> : null}
               {category === 'devtools' ? <DevtoolsCategory /> : null}
               {category === 'remote' ? <RemoteCategory /> : null}
               {category === 'data' ? <DataCategory /> : null}

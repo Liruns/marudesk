@@ -25,6 +25,7 @@ import {
   shutdownExternalMcp,
 } from './agent/mcp-handlers';
 import { initPlugins, shutdownPlugins } from './plugins';
+import { registerPluginHandlers } from './plugins/handlers';
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
@@ -220,6 +221,7 @@ void app.whenReady().then(() => {
   registerStorageHandlers();
   registerAppInfoHandlers();
   registerMcpHandlers();
+  registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the

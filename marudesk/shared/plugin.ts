@@ -108,6 +108,9 @@ export type PluginContributions = {
   commands: PluginSlashContribution[];
 };
 
+/** A live plugin slash command, tagged with its plugin, for the renderer menu. */
+export type PluginCommandSnapshot = PluginSlashContribution & { pluginId: string };
+
 /* ── RPC envelope (host ↔ worker, structured-clone-safe) ──────────────────── */
 
 /** Messages the host sends to the worker. */

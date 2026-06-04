@@ -325,8 +325,15 @@ R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러�
   백엔드로 E2E 검증(11 checks): 기여 보고, 네임스페이스/gated 도구 exec, 가드된 read + 이탈/무-워크스페이스
   거부, `require('child_process')` 샌드박스 거부. `npm run typecheck`/`lint`/`build`(plugin-worker.mjs 산출)
   통과. **남은 것:** 설정/승인 UI가 P2라 프로덕션에선 아직 inert(승인된 플러그인이 없으면 아무것도 활성 안 됨).
-- **P2 — 슬래시 커맨드 기여 + 설정 패널.** 신규 렌더러 배선(R2: 전송-안전 변형 + `$ARGUMENTS` 치환
-  + IPC 스냅샷 + 머지) + `PluginsSettings.tsx` + 권한 승인/재승인 UX. 렌더러에서 끝까지 동작 확인.
+- **P2 — 슬래시 커맨드 기여 + 설정 패널. ✅ 완료.** 신규 렌더러 배선(R2 그대로): 전송-안전
+  `PluginCommandSnapshot` + `pluginSlashCommand()`의 `$ARGUMENTS` 치환 + `plugins:commands` 1방향
+  IPC 스냅샷 + AgentChat의 `filterSlash`/`resolveSlash`에 머지(슬래시 토큰이 `:` 허용→`/myplugin:foo`).
+  `PluginsSettings.tsx`(McpServersSettings 형제) + `plugins` 설정 카테고리 + i18n(EN/KO) + IPC 핸들러
+  (`plugins:list`/`reload`/`set-enabled`/`commands`). **승인 모델:** enable 토글이 곧 승인 — 카드가
+  선언된 권한을 칩으로 보여주고, 켜면 그 권한이 grant되며 worker가 spawn된다. 매니페스트 권한이 바뀌면
+  `approvedPermissionsKey` 불일치 → `needs-approval` 상태(토글 off)로 재승인 요구. typecheck/lint/build
+  통과 + 하니스 14 checks(슬래시 치환·네임스페이스 resolve 포함). (한계: 채팅 탭이 열린 채 플러그인을
+  켜면 슬래시 스냅샷은 다음 마운트에 반영.)
 - **P3 — `fs:write` + net 강화 + 문서.** `AppliedChange` 채널로 플러그인 쓰기를 chat diff/revert에
   노출 + `net` host-중개 fetch(SSRF/DNS 리바인딩 가드) + 보안 리뷰(§8) + README/AGENTS 작성법.
 - **v2(분리) — UI 패널 기여.** 샌드박스된 `webContents` + CSP로 플러그인이 탭/패널을 그리는 경로.

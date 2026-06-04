@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import {
+  Blocks,
   Bot,
   Code2,
   Database,
@@ -80,6 +81,13 @@ const CATEGORY_DEFINITIONS = [
     blurbKey: 'settings.category.mcp.blurb',
     icon: Plug,
     keywords: 'mcp server stdio http remote url tools context 서버 도구 컨텍스트',
+  },
+  {
+    id: 'plugins',
+    labelKey: 'settings.category.plugins.label',
+    blurbKey: 'settings.category.plugins.blurb',
+    icon: Blocks,
+    keywords: 'plugin extension customize sandbox tool slash command worker 플러그인 확장 커스터마이징 샌드박스 도구',
   },
   {
     id: 'devtools',
