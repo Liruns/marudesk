@@ -1,9 +1,14 @@
 import { scrubText } from '../../shared/scrub';
+import {
+  workspaceFileKey,
+  type WorkspaceRecord,
+  type WorkspaceRootSummary,
+} from '../../shared/workspace';
 import type { SessionRecord } from '../../shared/context';
 import { getActiveTabId, getConsole, getTab, tabValues, type TabRecord } from '../browser/state';
 import { sendCdp } from '../browser/cdp';
 import { getRecentTerminalOutput, getTerminalList, getTerminalOutput } from '../terminal';
-import { readFileSafe } from '../workspace';
+import { getWorkspaceSnapshot, readFileSafe } from '../workspace';
 import { getEditorMirror, getEditorMirrors, getExplorerMirror } from './context-cache';
 import { deleteSession, listSessions, readSession } from './sessions-store';
 import { deleteMemory, listMemory, readMemory, writeMemory } from './memory-store';
@@ -23,6 +28,8 @@ import type { McpTool, ToolContext, ToolResult } from './tools';
  */
 
 const MAX_TEXT = 12_000;
+const SECRET_FILE =
+  /(^|\/)(\.env(\.[\w-]+)?|\.npmrc|\.netrc|\.pgpass|id_(?:rsa|dsa|ecdsa|ed25519)|.*\.pem|.*\.key|.*\.p12|.*\.pfx|credentials(\.json)?)$/i;
 const clip = (s: string, max = MAX_TEXT): string =>
   s.length <= max ? s : `${s.slice(0, max)}\n…[clipped ${s.length - max} chars]`;
 
@@ -57,6 +64,70 @@ function tabUrl(rec: TabRecord): string {
   }
 }
 
+function workspaceById(workspaces: readonly WorkspaceRecord[], workspaceId: string): WorkspaceRecord | null {
+  return workspaces.find((workspace) => workspace.id === workspaceId) ?? null;
+}
+
+function activeRoot(record: WorkspaceRecord): WorkspaceRootSummary | null {
+  const preferred = record.activeRootId
+    ? record.roots.find((root) => root.id === record.activeRootId)
+    : undefined;
+  return preferred ?? record.roots[0] ?? null;
+}
+
+function rootById(record: WorkspaceRecord, rootId: string): WorkspaceRootSummary | null {
+  return record.roots.find((root) => root.id === rootId) ?? null;
+}
+
+function globToRegExp(glob: string): RegExp {
+  const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  const body = esc.replace(/\*\*|\*/g, (match) => (match === '**' ? '.*' : '[^/]*'));
+  return new RegExp(`^${body}$`, 'i');
+}
+
+function tabWorkspaceScope(
+  rec: TabRecord,
+  workspaces: readonly WorkspaceRecord[],
+): string {
+  const record = workspaceById(workspaces, rec.workspaceId);
+  return record ? ` @ ${record.name}` : '';
+}
+
+function editorTabLabel(
+  rec: TabRecord,
+  workspaces: readonly WorkspaceRecord[],
+): string {
+  if (rec.editorFile) {
+    const record = workspaceById(workspaces, rec.editorFile.workspaceId);
+    const root = record ? rootById(record, rec.editorFile.rootId) : null;
+    return `${record?.name ?? rec.editorFile.workspaceId}/${root?.name ?? rec.editorFile.rootId}/${rec.editorFile.path}`;
+  }
+  return rec.filePath ?? '(untitled buffer)';
+}
+
+function formatTabLine(
+  rec: TabRecord,
+  activeTabId: string | null,
+  workspaces: readonly WorkspaceRecord[],
+): string {
+  const mark = rec.id === activeTabId ? '*' : ' ';
+  const scope = tabWorkspaceScope(rec, workspaces);
+  if (rec.kind === 'web') {
+    let title = '';
+    try {
+      title = rec.view?.webContents.getTitle() ?? '';
+    } catch {
+      /* destroyed */
+    }
+    const url = tabUrl(rec);
+    return `${mark} [web${scope}] ${rec.id} - ${scrubText(title) || '(untitled)'}  ${scrubText(url)}`.trimEnd();
+  }
+  if (rec.kind === 'editor') {
+    return `${mark} [editor${scope}] ${rec.id} - ${editorTabLabel(rec, workspaces)}`;
+  }
+  return `${mark} [${rec.kind}${scope}] ${rec.id}`;
+}
+
 /* ── browser / tabs ─────────────────────────────────────────────────────── */
 
 async function listTabs(): Promise<ToolResult> {
@@ -83,6 +154,97 @@ async function listTabs(): Promise<ToolResult> {
   return {
     summary: `${tabs.length} tab${tabs.length === 1 ? '' : 's'}`,
     text: clip(`${lines.join('\n')}\n\n${hint}`),
+  };
+}
+
+function resolveWorkspaceRoot(input: {
+  workspaceId?: unknown;
+  rootId?: unknown;
+}): { record: WorkspaceRecord; root: WorkspaceRootSummary } {
+  const snapshot = getWorkspaceSnapshot();
+  const workspaceId =
+    typeof input.workspaceId === 'string' && input.workspaceId
+      ? input.workspaceId
+      : snapshot.activeWorkspaceId ?? snapshot.focusedWorkspaceId ?? '';
+  const record = workspaceById(snapshot.workspaces, workspaceId);
+  if (!record) throw new Error('workspaceId is required; use list_workspaces to find one');
+  const rootId =
+    typeof input.rootId === 'string' && input.rootId
+      ? input.rootId
+      : record.activeRootId ?? record.roots[0]?.id ?? '';
+  const root = rootById(record, rootId);
+  if (!root) throw new Error(`root not found in workspace ${record.name}; use list_workspaces`);
+  return { record, root };
+}
+
+async function listWorkspaces(): Promise<ToolResult> {
+  const snapshot = getWorkspaceSnapshot();
+  if (snapshot.workspaces.length === 0) {
+    return { summary: 'no workspaces', text: 'No workspaces are open.' };
+  }
+  const activeTabId = getActiveTabId();
+  const tabs = tabValues();
+  const lines: string[] = [];
+  for (const workspace of snapshot.workspaces) {
+    const mark = workspace.id === snapshot.activeWorkspaceId ? '*' : ' ';
+    const root = activeRoot(workspace);
+    lines.push(`${mark} ${workspace.name}  workspaceId=${workspace.id}`);
+    lines.push(`  activeRootId=${root?.id ?? '(none)'}${root ? ` (${root.name}, ${root.files.length} files)` : ''}`);
+    for (const entry of workspace.roots) {
+      lines.push(`  root ${entry.name}: rootId=${entry.id}, files=${entry.files.length}, path=${scrubText(entry.root)}`);
+    }
+    const scopedTabs = tabs.filter((tab) => tab.workspaceId === workspace.id);
+    if (scopedTabs.length > 0) {
+      lines.push('  tabs:');
+      for (const tab of scopedTabs) {
+        lines.push(`    ${formatTabLine(tab, activeTabId, snapshot.workspaces)}`);
+      }
+    }
+  }
+  return {
+    summary: `${snapshot.workspaces.length} workspace${snapshot.workspaces.length === 1 ? '' : 's'}`,
+    text: clip(`${lines.join('\n')}\n\nUse list_workspace_files/read_workspace_file with workspaceId and rootId to inspect a non-active workspace.`),
+  };
+}
+
+async function listWorkspaceFiles(input: {
+  workspaceId?: unknown;
+  rootId?: unknown;
+  glob?: unknown;
+}): Promise<ToolResult> {
+  const { record, root } = resolveWorkspaceRoot(input);
+  const glob = typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : '';
+  const re = glob ? globToRegExp(glob) : null;
+  const matched = root.files
+    .map((file) => file.path)
+    .filter((filePath) => (re ? re.test(filePath) : true))
+    .slice(0, 300);
+  const more = root.files.length > matched.length ? `\n(${root.files.length} total)` : '';
+  return {
+    summary: `${record.name}/${root.name} - ${matched.length} file${matched.length === 1 ? '' : 's'}`,
+    text: matched.length ? clip(matched.join('\n') + more) : '(no files)',
+  };
+}
+
+async function readWorkspaceFile(input: {
+  workspaceId?: unknown;
+  rootId?: unknown;
+  path?: unknown;
+}): Promise<ToolResult> {
+  const { record, root } = resolveWorkspaceRoot(input);
+  const filePath = typeof input.path === 'string' ? input.path : '';
+  if (!filePath) throw new Error('read_workspace_file requires "path"');
+  if (SECRET_FILE.test(filePath)) {
+    return {
+      summary: `read ${record.name}/${root.name}/${filePath} (blocked)`,
+      text: `Refused: "${filePath}" looks like a credentials file. Ask the user to share only the specific values needed.`,
+      isError: true,
+    };
+  }
+  const content = await readFileSafe(root.root, filePath, 16_000);
+  return {
+    summary: `read ${record.name}/${root.name}/${filePath}`,
+    text: clip(scrubText(content)),
   };
 }
 
@@ -190,9 +352,67 @@ async function readTerminal(input: { terminalId?: unknown }): Promise<ToolResult
 
 /* ── editor buffers / explorer (from the renderer mirror) ───────────────── */
 
-async function readEditor(input: { path?: unknown }, ctx: ToolContext): Promise<ToolResult> {
+type EditorReadTarget = {
+  readonly displayPath: string;
+  readonly mirrorPath: string;
+  readonly diskRoot?: string;
+  readonly diskPath: string;
+};
+
+function editorReadTarget(input: {
+  workspaceId?: unknown;
+  rootId?: unknown;
+  path?: unknown;
+}): EditorReadTarget | null {
   const p = typeof input.path === 'string' ? input.path.trim() : '';
-  if (!p) {
+  if (!p) return null;
+  const usesWorkspaceScope =
+    typeof input.workspaceId === 'string' || typeof input.rootId === 'string';
+  if (!usesWorkspaceScope) {
+    return { displayPath: p, mirrorPath: p, diskPath: p };
+  }
+  const snapshot = getWorkspaceSnapshot();
+  const workspaceId =
+    typeof input.workspaceId === 'string' && input.workspaceId
+      ? input.workspaceId
+      : snapshot.activeWorkspaceId ?? snapshot.focusedWorkspaceId ?? '';
+  const rootId = typeof input.rootId === 'string' && input.rootId ? input.rootId : '';
+  if (!workspaceId) {
+    throw new Error('workspaceId is required; use list_workspaces to find one');
+  }
+  if (!rootId) {
+    const { record, root } = resolveWorkspaceRoot(input);
+    return {
+      displayPath: `${record.name}/${root.name}/${p}`,
+      mirrorPath: workspaceFileKey({
+        workspaceId: record.id,
+        rootId: root.id,
+        path: p,
+      }),
+      diskRoot: root.root,
+      diskPath: p,
+    };
+  }
+  const record = workspaceById(snapshot.workspaces, workspaceId);
+  const root = record ? rootById(record, rootId) : null;
+  return {
+    displayPath: `${record?.name ?? workspaceId}/${root?.name ?? rootId}/${p}`,
+    mirrorPath: workspaceFileKey({
+      workspaceId,
+      rootId,
+      path: p,
+    }),
+    diskRoot: root?.root,
+    diskPath: p,
+  };
+}
+
+async function readEditor(
+  input: { workspaceId?: unknown; rootId?: unknown; path?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const target = editorReadTarget(input);
+  if (!target) {
     const mirrors = getEditorMirrors();
     if (mirrors.length === 0) {
       return { summary: 'read_editor', text: 'No editor buffers are open. Pass a path to read one (or use list_tabs).' };
@@ -200,21 +420,29 @@ async function readEditor(input: { path?: unknown }, ctx: ToolContext): Promise<
     const lines = mirrors.map((e) => `- ${e.path}${e.dirty ? '  (unsaved edits)' : ''}`);
     return { summary: `${mirrors.length} open editor${mirrors.length === 1 ? '' : 's'}`, text: lines.join('\n') };
   }
-  const mir = getEditorMirror(p);
+  const mir = getEditorMirror(target.mirrorPath);
   if (mir) {
     const head = mir.dirty ? `(open in editor — UNSAVED edits${mir.truncated ? ', truncated' : ''})` : '(open in editor — saved)';
-    return { summary: `editor ${p}${mir.dirty ? ' *' : ''}`, text: clip(scrubText(`${head}\n\n${mir.content}`)) };
+    return { summary: `editor ${target.displayPath}${mir.dirty ? ' *' : ''}`, text: clip(scrubText(`${head}\n\n${mir.content}`)) };
   }
   // Not open in the editor — fall back to the on-disk content if there's a workspace.
-  if (ctx.ws) {
+  const diskRoot = target.diskRoot ?? ctx.ws?.root;
+  if (diskRoot) {
+    if (SECRET_FILE.test(target.diskPath)) {
+      return {
+        summary: `editor ${target.displayPath} (blocked)`,
+        text: `Refused: "${target.displayPath}" looks like a credentials file. Ask the user to share only the specific values needed.`,
+        isError: true,
+      };
+    }
     try {
-      const content = await readFileSafe(ctx.ws.root, p, 16_000);
-      return { summary: `editor ${p} (on disk)`, text: clip(scrubText(`(not open in the editor; reading the saved file)\n\n${content}`)) };
+      const content = await readFileSafe(diskRoot, target.diskPath, 16_000);
+      return { summary: `editor ${target.displayPath} (on disk)`, text: clip(scrubText(`(not open in the editor; reading the saved file)\n\n${content}`)) };
     } catch {
       /* fall through to the not-found message */
     }
   }
-  return { summary: `editor ${p}`, text: `"${p}" isn't open in the editor and couldn't be read from disk.`, isError: true };
+  return { summary: `editor ${target.displayPath}`, text: `"${target.displayPath}" isn't open in the editor and couldn't be read from disk.`, isError: true };
 }
 
 async function readExplorer(): Promise<ToolResult> {
@@ -349,6 +577,38 @@ export const CONTEXT_TOOLS: McpTool[] = [
     exec: () => listTabs(),
   },
   {
+    name: 'list_workspaces',
+    group: 'files',
+    description:
+      'List every open workspace, its roots, active root, and tabs grouped by workspace. Use this before reading files or tabs from a non-active workspace.',
+    inputSchema: obj({}),
+    exec: () => listWorkspaces(),
+  },
+  {
+    name: 'list_workspace_files',
+    group: 'files',
+    description:
+      'List indexed files for a specific workspace root. Pass workspaceId and rootId from list_workspaces; omit them to use the active workspace/root.',
+    inputSchema: obj({
+      workspaceId: strProp('Workspace id from list_workspaces; omitted = active workspace.'),
+      rootId: strProp('Root id from list_workspaces; omitted = active root.'),
+      glob: strProp('Optional glob; * and ** supported.'),
+    }),
+    exec: (input) => listWorkspaceFiles(input),
+  },
+  {
+    name: 'read_workspace_file',
+    group: 'files',
+    description:
+      'Read a UTF-8 file from a specific workspace root, including a non-active workspace. Pass workspaceId/rootId from list_workspaces plus the root-relative path.',
+    inputSchema: obj({
+      workspaceId: strProp('Workspace id from list_workspaces; omitted = active workspace.'),
+      rootId: strProp('Root id from list_workspaces; omitted = active root.'),
+      path: strProp('Root-relative POSIX path.'),
+    }, ['path']),
+    exec: (input) => readWorkspaceFile(input),
+  },
+  {
     name: 'read_page',
     group: 'browser',
     requiresWeb: true,
@@ -391,7 +651,11 @@ export const CONTEXT_TOOLS: McpTool[] = [
     group: 'tabs',
     description:
       "Read an open editor buffer, INCLUDING unsaved edits the user hasn't written to disk yet. Pass a workspace-relative path; omit it to list the open buffers. Falls back to the on-disk file when not open.",
-    inputSchema: obj({ path: strProp('Workspace-relative path of an open editor file; omit to list open buffers.') }),
+    inputSchema: obj({
+      workspaceId: strProp('Workspace id from list_workspaces; omitted = active workspace.'),
+      rootId: strProp('Root id from list_workspaces; omitted = active root.'),
+      path: strProp('Workspace-relative path of an open editor file; omit to list open buffers.'),
+    }),
     exec: (input, ctx) => readEditor(input, ctx),
   },
   {

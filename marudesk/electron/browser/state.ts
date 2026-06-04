@@ -6,6 +6,11 @@ import {
   type TabState,
   type TabsSnapshot,
 } from '../../shared/browser';
+import {
+  SYSTEM_WORKSPACE_ID,
+  type WorkspaceFileRef,
+  type WorkspaceId,
+} from '../../shared/workspace';
 import type { ConsoleErrorEvidence, ConsoleMessage } from '../../shared/runtime-evidence';
 import type { NetworkRecord } from '../../shared/network-evidence';
 import { coalesced } from '../coalesce';
@@ -23,6 +28,7 @@ export type Bounds = { x: number; y: number; width: number; height: number };
 export type TabRecord = {
   id: string;
   kind: TabKind;
+  workspaceId: WorkspaceId;
   // Only 'web' tabs own a WebContentsView; feature tabs (home/terminal/editor)
   // render in the React stage, so their view is null.
   view: WebContentsView | null;
@@ -30,6 +36,7 @@ export type TabRecord = {
   // For 'editor' tabs: the workspace-relative file path the tab is bound to.
   // Display/title only here — the read/write handlers re-validate every path.
   filePath?: string;
+  editorFile?: WorkspaceFileRef;
   // For an unsaved 'editor' tab (no filePath): its display name, e.g. Untitled-1.
   untitledName?: string;
   // Custom CDP DevTools (electron/browser/cdp.ts): whether our debugger is
@@ -342,24 +349,34 @@ function navStateFor(rec: TabRecord): NavState {
 function tabStateFor(rec: TabRecord): TabState {
   const pinned = !!rec.pinned;
   if (rec.kind === 'web' && rec.view) {
-    return { id: rec.id, kind: 'web', pinned, ...navStateFor(rec) };
+    return {
+      id: rec.id,
+      kind: 'web',
+      workspaceId: rec.workspaceId,
+      pinned,
+      ...navStateFor(rec),
+    };
   }
   if (rec.kind === 'editor') {
-    const base = rec.filePath
-      ? rec.filePath.split('/').pop() || rec.filePath
+    const displayPath = rec.editorFile?.path ?? rec.filePath;
+    const base = displayPath
+      ? displayPath.split('/').pop() || displayPath
       : rec.untitledName ?? FEATURE_TITLES.editor;
     return {
       id: rec.id,
       kind: 'editor',
+      workspaceId: rec.workspaceId,
       pinned,
       ...ZERO_NAV,
       title: base,
       filePath: rec.filePath,
+      editorFile: rec.editorFile,
     };
   }
   return {
     id: rec.id,
     kind: rec.kind,
+    workspaceId: rec.workspaceId ?? SYSTEM_WORKSPACE_ID,
     pinned,
     ...ZERO_NAV,
     title: rec.kind === 'web' ? '' : FEATURE_TITLES[rec.kind],

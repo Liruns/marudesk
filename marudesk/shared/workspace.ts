@@ -3,12 +3,53 @@ export type FileEntry = {
   size: number;
 };
 
+export type WorkspaceId = string;
+export type WorkspaceRootId = string;
+export type WorkspacePaneId = string;
+
+export const SYSTEM_WORKSPACE_ID: WorkspaceId = 'system';
+
 export type WorkspaceSummary = {
   root: string;
   name: string;
   files: FileEntry[];
   source: 'git' | 'walk';
   truncated: boolean;
+};
+
+export type WorkspaceRootInput = {
+  name: string;
+  path: string;
+};
+
+export type WorkspaceRootSummary = {
+  id: WorkspaceRootId;
+  name: string;
+  root: string;
+  files: FileEntry[];
+  source: 'git' | 'walk';
+  truncated: boolean;
+};
+
+export type WorkspaceRecord = {
+  id: WorkspaceId;
+  name: string;
+  roots: WorkspaceRootSummary[];
+  activeRootId: WorkspaceRootId | null;
+};
+
+export type WorkspaceSnapshot = {
+  revision: number;
+  workspaces: WorkspaceRecord[];
+  activeWorkspaceId: WorkspaceId | null;
+  focusedWorkspaceId: WorkspaceId | null;
+  focusedPaneId: WorkspacePaneId | null;
+};
+
+export type WorkspaceFileRef = {
+  workspaceId: WorkspaceId;
+  rootId: WorkspaceRootId;
+  path: string;
 };
 
 export type RankedFile = {
@@ -89,6 +130,10 @@ export type SaveAsResult =
   | { ok: true; path: string }
   | { ok: false; reason?: string };
 
+export type WorkspaceSaveAsResult =
+  | { ok: true; path: string; file: WorkspaceFileRef }
+  | { ok: false; reason?: string };
+
 /**
  * Result of the mutating workspace ops (create/rename/move/copy). They throw on
  * failure; on success `path` is the new workspace-relative path of the item.
@@ -96,3 +141,19 @@ export type SaveAsResult =
 export type MutateResult = { ok: true; path: string };
 
 export type CreateKind = 'file' | 'dir';
+
+export function workspaceFileKey(file: WorkspaceFileRef): string {
+  return `${file.workspaceId}:${file.rootId}:${file.path}`;
+}
+
+export function workspaceFileLabel(
+  workspace: WorkspaceRecord,
+  file: WorkspaceFileRef,
+  includeWorkspace = false,
+): string {
+  const root = workspace.roots.find((entry) => entry.id === file.rootId);
+  const rootName = root?.name ?? file.rootId;
+  return includeWorkspace
+    ? `${workspace.name} / ${rootName} / ${file.path}`
+    : `${rootName} / ${file.path}`;
+}

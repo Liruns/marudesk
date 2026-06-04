@@ -1,5 +1,6 @@
 import { clipboard, ipcMain, type BrowserWindow } from 'electron';
 import { type TabKind } from '../../shared/browser';
+import type { WorkspaceFileRef, WorkspaceId } from '../../shared/workspace';
 import { defineHandler } from '../ipc/define-handler';
 import { arrayOf, bool, num, obj, str } from '../ipc/validate';
 import {
@@ -69,11 +70,28 @@ function toBounds(v: unknown, field = 'bounds'): Bounds {
  * isTabKind and the url/path are passed through to createTab (which re-resolves
  * the url and re-validates any file path on read/write).
  */
-function parseTabSpec(payload: unknown): { kind: TabKind; url: string | undefined } {
+function parseWorkspaceFile(value: unknown): WorkspaceFileRef | undefined {
+  if (value === undefined) return undefined;
+  const p = obj(value, 'file');
+  return {
+    workspaceId: str(p.workspaceId, 'file.workspaceId'),
+    rootId: str(p.rootId, 'file.rootId'),
+    path: str(p.path, 'file.path'),
+  };
+}
+
+function parseTabSpec(payload: unknown): {
+  kind: TabKind;
+  url: string | undefined;
+  workspaceId: WorkspaceId | undefined;
+  editorFile: WorkspaceFileRef | undefined;
+} {
   let kind: TabKind = 'home';
   let url: string | undefined;
+  let workspaceId: WorkspaceId | undefined;
+  let editorFile: WorkspaceFileRef | undefined;
   if (typeof payload === 'string') {
-    return { kind: 'web', url: payload };
+    return { kind: 'web', url: payload, workspaceId, editorFile };
   }
   if (payload && typeof payload === 'object') {
     const p = payload as { kind?: unknown; url?: unknown; path?: unknown };
@@ -81,8 +99,13 @@ function parseTabSpec(payload: unknown): { kind: TabKind; url: string | undefine
     else if (typeof p.url === 'string') kind = 'web';
     if (typeof p.url === 'string') url = p.url;
     else if (kind === 'editor' && typeof p.path === 'string') url = p.path;
+    if ('workspaceId' in p && typeof p.workspaceId === 'string') {
+      workspaceId = p.workspaceId;
+    }
+    editorFile = parseWorkspaceFile('file' in p ? p.file : undefined);
+    if (kind === 'editor' && editorFile) url = editorFile.path;
   }
-  return { kind, url };
+  return { kind, url, workspaceId, editorFile };
 }
 
 export function registerBrowserHandlers(deps: {
@@ -324,16 +347,16 @@ export function registerBrowserHandlers(deps: {
   });
 
   defineHandler('browser:tabs-new', ([payload]) => {
-    const { kind, url } = parseTabSpec(payload);
-    const rec = createAndActivateTab(kind, url);
+    const { kind, url, workspaceId, editorFile } = parseTabSpec(payload);
+    const rec = createAndActivateTab(kind, url, { workspaceId, editorFile });
     return rec.id;
   });
 
   defineHandler('browser:tabs-replace', ([payload]) => {
     const p = obj(payload);
     const id = str(p.id, 'id');
-    const { kind, url } = parseTabSpec(payload);
-    const rec = replaceTab(id, kind, url);
+    const { kind, url, workspaceId, editorFile } = parseTabSpec(payload);
+    const rec = replaceTab(id, kind, url, { workspaceId, editorFile });
     return rec ? rec.id : null;
   });
 

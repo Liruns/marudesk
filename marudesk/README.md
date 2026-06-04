@@ -69,8 +69,14 @@ npm run harness:mcp
 
 - `electron/browser/*` owns browser tabs, navigation, downloads, DevTools wiring,
   and CDP-facing runtime capture.
+- `electron/workspace-*.ts`, `shared/workspace.ts`, and
+  `src/features/workspaces/*` own the multi-workspace deck: named workspaces,
+  multiple folder roots per workspace, workspace split panes, workspace-scoped
+  tabs, focused-root Explorer sync, and pane-local Peek Explorer.
 - `electron/agent/*` owns agent session orchestration, MCP tool plumbing, context
-  sources, and model loop behavior.
+  sources, and model loop behavior. Built-in context tools include workspace
+  read/list helpers so an agent can inspect non-focused workspace roots without
+  changing the user's active Explorer root.
 - `shared/*` contains transport-safe contracts used across Electron, renderer,
   tests, and companion surfaces.
 - `src/features/*` contains renderer feature slices for browser, DevTools,

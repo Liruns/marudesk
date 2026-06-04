@@ -4,7 +4,7 @@ import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import { useTabsStore } from '../tabs/store';
-import { isDirty, untitledDocKey, useEditorStore } from './store';
+import { editorDocKeyForTab, isDirty, useEditorStore } from './store';
 import { MarkdownPreview } from './MarkdownPreview';
 import {
   EditorEmptyState,
@@ -43,12 +43,10 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   const resolvedId = tabId ?? activeTabId;
   const tab = tabs.find((t) => t.id === resolvedId);
   const editorTab = tab && tab.kind === 'editor' ? tab : undefined;
-  const filePath = editorTab?.filePath;
+  const fileRef = editorTab?.editorFile;
+  const filePath = fileRef?.path ?? editorTab?.filePath;
   const isUntitled = !!editorTab && !filePath;
-  // Real files key by path; untitled scratch buffers key by tab id.
-  const docKey = editorTab
-    ? filePath ?? untitledDocKey(editorTab.id)
-    : undefined;
+  const docKey = editorTab ? editorDocKeyForTab(editorTab) ?? undefined : undefined;
 
   const ensureLoaded = useEditorStore((s) => s.ensureLoaded);
   const buf = useEditorStore((s) => (docKey ? s.files[docKey] : undefined));
@@ -101,8 +99,9 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   }, [mode, docKey, buf?.status]);
 
   useEffect(() => {
-    if (docKey) void ensureLoaded(docKey);
-  }, [docKey, ensureLoaded]);
+    if (!docKey) return;
+    void ensureLoaded(fileRef ?? docKey);
+  }, [docKey, ensureLoaded, fileRef]);
 
   if (!docKey) {
     return <EditorEmptyState />;
@@ -116,7 +115,9 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   }
   if (buf.status === 'error') return <EditorErrorState path={docKey} buf={buf} />;
 
-  const label = isUntitled ? editorTab?.title || t('editor.header.untitled') : filePath;
+  const label = isUntitled
+    ? editorTab?.title || t('editor.header.untitled')
+    : editorTab?.title || filePath;
   const content = buf.kind === 'text' ? buf.content : '';
   const HeaderIcon = buf.kind === 'image' ? FileImage : FileCode2;
 
@@ -151,7 +152,7 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
       </header>
 
       {buf.kind === 'image' ? (
-        <ImagePreview path={docKey} dataUrl={buf.dataUrl} />
+        <ImagePreview path={filePath ?? docKey} dataUrl={buf.dataUrl} />
       ) : (
         <div className="flex-1 min-h-0 min-w-0 flex">
           {(mode === 'edit' || mode === 'split') && (

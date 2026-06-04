@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import type { TabState } from '../../../shared/browser';
+import {
+  workspaceFileKey,
+  type WorkspaceFileRef,
+} from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
 import { subscribeTabsByKind, useTabsStore } from '../tabs/store';
 import {
@@ -16,14 +20,30 @@ function isUntitledKey(key: string): boolean {
 }
 export type { ErrorFileBuf, FileBuf } from './buffer';
 
+type EditorFileInput = string | WorkspaceFileRef;
+
+function isWorkspaceFileRef(value: EditorFileInput): value is WorkspaceFileRef {
+  return typeof value !== 'string';
+}
+
+export function editorDocKeyForTab(tab: TabState): string | null {
+  if (tab.kind !== 'editor') return null;
+  if (tab.editorFile) return workspaceFileKey(tab.editorFile);
+  return tab.filePath ?? untitledDocKey(tab.id);
+}
+
+function docKeyForInput(input: EditorFileInput): string {
+  return isWorkspaceFileRef(input) ? workspaceFileKey(input) : input;
+}
+
 type EditorState = {
-  /** Keyed by workspace-relative POSIX path. */
   files: Record<string, FileBuf>;
+  fileRefs: Record<string, WorkspaceFileRef>;
 };
 
 type EditorActions = {
-  openFile: (path: string) => Promise<void>;
-  ensureLoaded: (path: string) => Promise<void>;
+  openFile: (file: EditorFileInput) => Promise<void>;
+  ensureLoaded: (file: EditorFileInput) => Promise<void>;
   setContent: (path: string, content: string) => void;
   save: (path: string) => Promise<void>;
   saveUntitled: (key: string) => Promise<void>;
@@ -41,26 +61,35 @@ export function registerModelDisposer(fn: (path: string) => void): void {
 export const useEditorStore = create<EditorState & EditorActions>(
   (set, get) => ({
     files: {},
+    fileRefs: {},
 
-    openFile: async (path) => {
+    openFile: async (file) => {
+      const key = docKeyForInput(file);
       const tabsState = useTabsStore.getState();
       const existing = tabsState.tabs.find(
-        (t) => t.kind === 'editor' && t.filePath === path,
+        (t) => t.kind === 'editor' && editorDocKeyForTab(t) === key,
       );
       if (existing) {
         await tabsState.activateTab(existing.id);
       } else {
-        // Main process creates + activates the editor tab and broadcasts the
-        // new tabs snapshot; the path binding rides along in TabState.filePath.
-        await window.marudesk.invoke('browser:tabs-new', {
-          kind: 'editor',
-          path,
-        });
+        if (isWorkspaceFileRef(file)) {
+          await window.marudesk.invoke('browser:tabs-new', {
+            kind: 'editor',
+            file,
+            workspaceId: file.workspaceId,
+          });
+        } else {
+          await window.marudesk.invoke('browser:tabs-new', {
+            kind: 'editor',
+            path: file,
+          });
+        }
       }
-      await get().ensureLoaded(path);
+      await get().ensureLoaded(file);
     },
 
-    ensureLoaded: async (path) => {
+    ensureLoaded: async (file) => {
+      const path = docKeyForInput(file);
       const cur = get().files[path];
       if (cur && (cur.status === 'loading' || cur.status === 'ready')) return;
       if (isUntitledKey(path)) {
@@ -71,12 +100,16 @@ export const useEditorStore = create<EditorState & EditorActions>(
         }));
         return;
       }
+      if (isWorkspaceFileRef(file)) {
+        set((s) => ({
+          fileRefs: { ...s.fileRefs, [path]: file },
+        }));
+      }
       set((s) => ({ files: { ...s.files, [path]: { status: 'loading' } } }));
       try {
-        const res = await window.marudesk.invoke(
-          'workspace:read-file',
-          path,
-        );
+        const res = isWorkspaceFileRef(file)
+          ? await window.marudesk.invoke('workspaces:read-file', file)
+          : await window.marudesk.invoke('workspace:read-file', path);
         set((s) => ({
           files: {
             ...s.files,
@@ -116,10 +149,18 @@ export const useEditorStore = create<EditorState & EditorActions>(
         return { files: { ...s.files, [path]: { ...cur, saving: true } } };
       });
       try {
-        await window.marudesk.invoke('workspace:write-file', {
-          path,
-          content: toWrite,
-        });
+        const file = get().fileRefs[path];
+        if (file) {
+          await window.marudesk.invoke('workspaces:write-file', {
+            file,
+            content: toWrite,
+          });
+        } else {
+          await window.marudesk.invoke('workspace:write-file', {
+            path,
+            content: toWrite,
+          });
+        }
         set((s) => {
           const cur = s.files[path];
           if (!isTextFileBuf(cur)) return {};
@@ -210,11 +251,17 @@ export const useEditorStore = create<EditorState & EditorActions>(
       const dropped: string[] = [];
       set((s) => {
         const next: Record<string, FileBuf> = {};
+        const nextRefs: Record<string, WorkspaceFileRef> = {};
         for (const [p, buf] of Object.entries(s.files)) {
-          if (openPaths.has(p)) next[p] = buf;
-          else dropped.push(p);
+          if (openPaths.has(p)) {
+            next[p] = buf;
+            const ref = s.fileRefs[p];
+            if (ref) nextRefs[p] = ref;
+          } else {
+            dropped.push(p);
+          }
         }
-        return dropped.length ? { files: next } : {};
+        return dropped.length ? { files: next, fileRefs: nextRefs } : {};
       });
       // Dispose Monaco models for closed files synchronously, so a model's
       // lifetime tracks its buffer: a reopened file always rebuilds from fresh
@@ -240,10 +287,15 @@ export function isDirty(buf: FileBuf | undefined): boolean {
  * unsaved edits silently.
  */
 export function confirmCloseTab(tab: TabState | undefined): boolean {
-  if (!tab || tab.kind !== 'editor' || !tab.filePath) return true;
-  const buf = useEditorStore.getState().files[tab.filePath];
+  if (!tab || tab.kind !== 'editor') return true;
+  const key = editorDocKeyForTab(tab);
+  if (!key || isUntitledKey(key)) return true;
+  const buf = useEditorStore.getState().files[key];
   if (!isDirty(buf)) return true;
-  return window.confirm(`Discard unsaved changes to ${tab.filePath}?`);
+  const label = tab.editorFile
+    ? `${tab.editorFile.rootId} / ${tab.editorFile.path}`
+    : tab.filePath ?? key;
+  return window.confirm(`Discard unsaved changes to ${label}?`);
 }
 
 // Drop buffers (and dispose Monaco models) when an editor tab closes. Keyed by
@@ -251,6 +303,6 @@ export function confirmCloseTab(tab: TabState | undefined): boolean {
 // id, new filePath — also re-prunes the stale untitled buffer.
 subscribeTabsByKind(
   'editor',
-  (t) => t.filePath ?? untitledDocKey(t.id),
+  (t) => editorDocKeyForTab(t) ?? untitledDocKey(t.id),
   (liveKeys) => useEditorStore.getState().pruneClosed(liveKeys),
 );

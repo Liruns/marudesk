@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import type { ElementCapture } from '../../../shared/capture';
-import type { RankedFile, WorkspaceSummary } from '../../../shared/workspace';
+import type {
+  RankedFile,
+  WorkspaceRecord,
+  WorkspaceRootSummary,
+  WorkspaceSummary,
+} from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 
 /** A file/folder cut or copied, awaiting paste. */
 export type Clipboard = { path: string; mode: 'cut' | 'copy' };
@@ -45,6 +51,25 @@ function pushRecent(list: RecentWorkspace[], entry: RecentWorkspace): RecentWork
   return next;
 }
 
+function activeRoot(record: WorkspaceRecord): WorkspaceRootSummary | null {
+  const preferred = record.activeRootId
+    ? record.roots.find((root) => root.id === record.activeRootId)
+    : undefined;
+  return preferred ?? record.roots[0] ?? null;
+}
+
+function summaryFromWorkspaceRecord(record: WorkspaceRecord): WorkspaceSummary | null {
+  const root = activeRoot(record);
+  if (!root) return null;
+  return {
+    root: root.root,
+    name: record.roots.length > 1 ? `${record.name} / ${root.name}` : record.name,
+    files: root.files,
+    source: root.source,
+    truncated: root.truncated,
+  };
+}
+
 type WorkspaceState = {
   summary: WorkspaceSummary | null;
   opening: boolean;
@@ -65,6 +90,7 @@ type WorkspaceActions = {
   openWorkspace: () => Promise<void>;
   /** Re-open a workspace by its root path (from the home page's Recent list). */
   openRecent: (root: string) => Promise<void>;
+  syncFromWorkspaceRecord: (record: WorkspaceRecord | null) => void;
   reindex: () => Promise<void>;
   toggleDir: (path: string) => void;
   expandDir: (path: string) => void;
@@ -100,6 +126,7 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
           'workspace:open',
         );
         if (summary) {
+          await useWorkspaceDeckStore.getState().refresh();
           const recents = pushRecent(get().recents, { root: summary.root, name: summary.name });
           set({
             summary,
@@ -124,6 +151,7 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
       try {
         const summary = await window.marudesk.invoke('workspace:list', root);
         if (summary) {
+          await useWorkspaceDeckStore.getState().refresh();
           const recents = pushRecent(get().recents, { root: summary.root, name: summary.name });
           set({
             summary,
@@ -140,6 +168,24 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
       } finally {
         set({ opening: false });
       }
+    },
+
+    syncFromWorkspaceRecord: (record) => {
+      const summary = record ? summaryFromWorkspaceRecord(record) : null;
+      set((s) => {
+        if (!summary) return { summary: null };
+        const sameRoot = s.summary?.root === summary.root;
+        return {
+          summary,
+          expandedDirs: sameRoot ? s.expandedDirs : new Set<string>(),
+          selectedPath: sameRoot ? s.selectedPath : null,
+          clipboard: sameRoot ? s.clipboard : null,
+          pendingEdit: sameRoot ? s.pendingEdit : null,
+          ranking: {},
+          rankingPending: {},
+          rankingError: {},
+        };
+      });
     },
 
     reindex: async () => {

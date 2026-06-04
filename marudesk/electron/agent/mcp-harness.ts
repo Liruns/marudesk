@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { McpServerConfig } from '../../shared/mcp';
 import { callMcpTool, listMcpTools } from './mcp';
 import type { ToolContext } from './tools';
+import { updateContextCache } from './context-cache';
 import {
   buildExternalServer,
   connectServer,
@@ -141,7 +142,30 @@ async function main(): Promise<void> {
     const listed = listMcpTools().map((t) => t.name);
     check('(a) listMcpTools exposes the namespaced tool to the model', listed.includes('inj__echo'));
     check('built-in marudesk tools are still present (server untouched)', listed.includes('read_file'));
+    check('built-in workspace MCP list tool is present', listed.includes('list_workspaces'));
+    check('built-in workspace MCP file lister is present', listed.includes('list_workspace_files'));
+    check('built-in workspace MCP file reader is present', listed.includes('read_workspace_file'));
     check('built-in ask_user is still listed', listed.includes('ask_user'));
+
+    updateContextCache({
+      editors: [
+        {
+          path: 'workspace-alpha:root-be:src/App.tsx',
+          dirty: true,
+          content: 'export const source = "unsaved be";',
+        },
+      ],
+      explorer: { root: null, expandedDirs: [], selectedPath: null },
+    });
+    const editorOut = await callMcpTool(
+      'read_editor',
+      { workspaceId: 'workspace-alpha', rootId: 'root-be', path: 'src/App.tsx' },
+      {} as ToolContext,
+    );
+    check(
+      'built-in read_editor accepts workspace/root selectors for mirrored buffers',
+      editorOut.text.includes('unsaved be'),
+    );
 
     // (d) disabling removes its tools and closes the client.
     const disabled = await syncExternalMcpServers([{ ...cfg, enabled: false }], connect);

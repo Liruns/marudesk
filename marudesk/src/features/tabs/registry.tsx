@@ -31,7 +31,7 @@ export type TabKindDef = {
  * the three switch statements that used to drift.
  */
 export const tabKinds: Record<TabKind, TabKindDef> = {
-  web: { title: 'New tab', icon: Globe, render: () => <BrowserCanvas /> },
+  web: { title: 'New tab', icon: Globe, render: (tabId) => <BrowserCanvas tabId={tabId} /> },
   home: { title: 'New Tab', icon: House, render: (tabId) => <HomeView tabId={tabId} /> },
   terminal: {
     title: 'Terminal',

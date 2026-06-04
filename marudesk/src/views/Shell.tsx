@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { ActivityBar } from '../components/ActivityBar';
 import { StatusBar } from '../components/StatusBar';
 import { TitleBar } from '../components/TitleBar';
-import { Stage } from '../features/tabs/Stage';
 import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
+import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
 import { useWebPageStore } from '../features/browser/store';
 import { useTabEvents } from '../features/tabs/useTabEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
@@ -307,7 +307,7 @@ export function Shell() {
           onRequestClose={() => setLeftPanel(null)}
         />
         <main className="flex-1 min-w-0 flex">
-          <Stage />
+          <WorkspaceStage />
         </main>
         <ContextDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
       </div>
