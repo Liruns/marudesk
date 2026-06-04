@@ -8,7 +8,6 @@ import {
   type CaptureInput,
   type FileEntry,
   type RankedFile,
-  type ReadFileResult,
   type SaveAsResult,
   type WorkspaceSummary,
   type WriteFileResult,
@@ -22,6 +21,7 @@ import {
 } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { obj, str } from './ipc/validate';
+import { readFileForEditor } from './workspace-read';
 import {
   COMMON_TAGS,
   CONTENT_CANDIDATES,
@@ -196,40 +196,6 @@ export async function readFileSafe(
     }
   }
   return fs.readFile(abs, 'utf8');
-}
-
-/**
- * Read a file for the editor. Unlike readFileSafe (which silently truncates for
- * ranking), this never returns partial content — a truncated buffer saved back
- * would destroy the file — so it refuses oversized or binary files outright and
- * reports why.
- */
-export async function readFileForEditor(
-  root: string,
-  rel: string,
-): Promise<ReadFileResult> {
-  const { abs } = resolveWorkspacePath(root, rel);
-  const lst = await fs.lstat(abs);
-  if (lst.isSymbolicLink()) {
-    throw new Error('marudesk: refuses to follow symlink');
-  }
-  if (!lst.isFile()) {
-    return { ok: false, reason: 'not-a-file' };
-  }
-  const real = await fs.realpath(abs);
-  if (!isInsideRoot(root, real)) {
-    throw new Error('marudesk: path resolves outside workspace');
-  }
-  if (lst.size > MAX_EDITOR_FILE_SIZE) {
-    return { ok: false, reason: 'too-large', size: lst.size };
-  }
-  const buf = await fs.readFile(abs);
-  // Binary heuristic: a NUL byte in the first 8 KB. Keeps images/binaries out
-  // of a text editor that would corrupt them on save.
-  if (buf.subarray(0, 8192).includes(0)) {
-    return { ok: false, reason: 'binary' };
-  }
-  return { ok: true, content: buf.toString('utf8') };
 }
 
 /**

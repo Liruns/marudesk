@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { MAX_EDITOR_FILE_SIZE } from '../../../shared/workspace';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
-import type { FileBuf } from './store';
+import type { ErrorFileBuf } from './store';
 
 export type MarkdownMode = 'edit' | 'preview' | 'split';
 
@@ -61,7 +61,13 @@ export function EditorEmptyState() {
   );
 }
 
-export function EditorErrorState({ path, buf }: { path: string; buf: FileBuf }) {
+export function EditorErrorState({
+  path,
+  buf,
+}: {
+  path: string;
+  buf: ErrorFileBuf;
+}) {
   const { locale, t } = useI18n();
   const { title, hint, icon } = describeError(path, buf, locale, t);
   return <Centered icon={icon} title={title} hint={hint} />;
@@ -115,7 +121,7 @@ type Translate = ReturnType<typeof useI18n>['t'];
 
 function describeError(
   path: string,
-  buf: FileBuf,
+  buf: ErrorFileBuf,
   locale: 'en' | 'ko',
   t: Translate,
 ): { title: string; hint: string; icon: ReactNode } {
