@@ -49,10 +49,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: 'init',
     description: 'Generate an AGENTS.md describing this project for agents',
     expand: () =>
-      'Analyze this workspace (structure, key directories, build/test commands, ' +
-      'conventions) and create or update an AGENTS.md at the repo root that an AI ' +
-      'agent could read to work here effectively. Keep it concise and concrete. ' +
-      'Write the file when you have enough signal.',
+      'Create or update an AGENTS.md at the repo root that lets an AI agent be ' +
+      'productive here immediately. First investigate: read the README, package ' +
+      'manifests, and config to learn the structure, the main directories and what ' +
+      'they own, how to install/build/test/lint/run, and any conventions worth ' +
+      'following (naming, formatting, commit/PR norms). If an AGENTS.md already ' +
+      'exists, refine it rather than rewriting from scratch, and fold in any ' +
+      'CLAUDE.md or .cursorrules content. Keep it concise, concrete, and command-' +
+      'accurate — verify the commands exist in the manifest before listing them. ' +
+      'Write the file when you have enough signal, then summarize what you put in it.',
   },
   {
     kind: 'prompt',
@@ -61,10 +66,16 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: 'Review the current changes for bugs and risks',
     argHint: 'optional focus',
     expand: (arg) =>
-      'Review the current uncommitted changes in this workspace for correctness ' +
-      'bugs, edge cases, and risky patterns. Read the diff first, then report ' +
-      'concrete findings grouped by severity. Do not edit files.' +
-      (arg ? ` Focus on: ${arg}.` : ''),
+      'Act as a careful senior reviewer of the uncommitted changes in this ' +
+      'workspace. Start from the actual diff (git diff plus any untracked files), ' +
+      'and read enough surrounding code to judge each change in context. Look for ' +
+      'correctness bugs, broken edge cases, race conditions, error/' +
+      'null handling gaps, security and data-loss risks, and anything that ' +
+      'contradicts the project conventions. Report concrete findings grouped by ' +
+      'severity (Critical / Major / Minor / Nit), each with the file:line and a ' +
+      'specific fix; call out what looks correct too. If nothing is wrong, say so ' +
+      'plainly. This is review only — do not edit files.' +
+      (arg ? ` Pay special attention to: ${arg}.` : ''),
   },
   {
     kind: 'prompt',
@@ -72,8 +83,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: 'Run the project tests and fix any failures',
     argHint: 'optional path',
     expand: (arg) =>
-      `Run the project's test suite${arg ? ` for ${arg}` : ''}, read any failures, ` +
-      'find the root cause, and fix the code so the tests pass. Re-run to confirm.',
+      `Run the project's test suite${arg ? ` for ${arg}` : ''} and get it green. ` +
+      'Discover the right test command from the project config rather than ' +
+      'assuming. When a test fails, read the actual error and trace it to the ' +
+      'root cause before changing anything — fix the underlying bug, not the ' +
+      'assertion, and never weaken or skip a test to make it pass. Re-run after ' +
+      'each fix to confirm, and keep going until the suite passes (or report ' +
+      'precisely what remains and why). Summarize what failed and what you changed.',
   },
   {
     kind: 'prompt',
@@ -82,10 +98,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     argHint: 'file or symbol',
     expand: (arg) =>
       arg
-        ? `Explain ${arg}: what it does, how it fits into the codebase, and any ` +
-          'non-obvious behavior. Read the relevant files first.'
-        : 'Explain how this codebase is structured and how the main pieces fit ' +
-          'together. Read the key files first.',
+        ? `Explain ${arg}. Read the relevant files first, then walk through what it ` +
+          'does, the role it plays in the wider codebase, how data and control flow ' +
+          'through it, and any non-obvious behavior, edge cases, or gotchas. Ground ' +
+          'the explanation in the real code with file:line references; do not edit ' +
+          'anything.'
+        : 'Give me a guided tour of this codebase. Read the key entry points and ' +
+          'config first, then explain the overall architecture, how the main pieces ' +
+          'fit together, the important directories, and where to start for common ' +
+          'tasks. Ground it in real files with references; do not edit anything.',
   },
   {
     kind: 'prompt',
@@ -93,9 +114,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: 'Stage changes and write a descriptive commit message',
     argHint: 'optional intent',
     expand: (arg) =>
-      'Review the current changes, stage them, and create a git commit with a ' +
-      'clear, descriptive message that explains the why.' +
-      (arg ? ` Context: ${arg}.` : ''),
+      'Commit the current work. Review what changed (git status and git diff, ' +
+      'including untracked files) and group it into one logical commit — flag it ' +
+      'if the changes really should be split. Stage the relevant files (do not ' +
+      'commit unrelated artifacts, secrets, or debug leftovers), then write a ' +
+      'commit message that follows this repo\'s existing style: a concise summary ' +
+      'line plus a body explaining the WHY, not just the what. Show me the message ' +
+      'and run the commit; do not push.' +
+      (arg ? ` Intent for this change: ${arg}.` : ''),
   },
   {
     kind: 'action',

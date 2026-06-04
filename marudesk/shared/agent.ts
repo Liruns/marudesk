@@ -167,7 +167,13 @@ export type AgentChatState = {
   edits: AgentEdit[];
   pendingApproval: PendingApproval | null;
   pendingQuestions: PendingQuestions | null;
-  usage: { inputTokens: number; outputTokens: number };
+  /**
+   * Token accounting. `inputTokens`/`outputTokens` are cumulative totals for the
+   * conversation (billing-style, shown in the usage tooltip). `contextTokens` is
+   * the most recent model call's input size — i.e. how full the context window
+   * currently is — which drives the usage gauge and the auto-compaction trigger.
+   */
+  usage: { inputTokens: number; outputTokens: number; contextTokens: number };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
   /**
@@ -193,7 +199,7 @@ export function emptyAgentChatState(): AgentChatState {
     edits: [],
     pendingApproval: null,
     pendingQuestions: null,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
     activeSessionId: null,
     endNote: null,

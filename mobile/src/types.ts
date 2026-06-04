@@ -99,7 +99,7 @@ export type AgentChatState = {
   messages: AgentMessage[];
   pendingApproval: PendingApproval | null;
   pendingQuestions: PendingQuestions | null;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: { inputTokens: number; outputTokens: number; contextTokens: number };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
 };
@@ -111,7 +111,7 @@ export function emptyAgentChatState(): AgentChatState {
     messages: [],
     pendingApproval: null,
     pendingQuestions: null,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
   };
 }

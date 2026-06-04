@@ -38,6 +38,15 @@ export function AgentCategory() {
     { value: 'off', label: t('settings.agent.option.off') },
     { value: 'on', label: t('settings.agent.option.on') },
   ] as const;
+  const autoCompactThresholdOptions = [
+    { value: '0.7', label: '70%' },
+    { value: '0.8', label: '80%' },
+    { value: '0.9', label: '90%' },
+  ] as const;
+  // Snap the stored fraction to the nearest preset so the control always shows a
+  // selected segment (older/custom values still round to a sensible bucket).
+  const autoCompactThresholdValue =
+    agent.autoCompact.threshold <= 0.75 ? '0.7' : agent.autoCompact.threshold >= 0.85 ? '0.9' : '0.8';
 
   return (
     <Section>
@@ -110,6 +119,34 @@ export function AgentCategory() {
             }
           />
         </div>
+      ) : null}
+      <Field
+        label={t('settings.agent.autoCompact.label')}
+        hint={t('settings.agent.autoCompact.hint')}
+      >
+        <Segmented
+          value={agent.autoCompact.enabled ? 'on' : 'off'}
+          options={onOffOptions}
+          onChange={(v) =>
+            void update({ agent: { autoCompact: { ...agent.autoCompact, enabled: v === 'on' } } })
+          }
+        />
+      </Field>
+      {agent.autoCompact.enabled ? (
+        <Field
+          label={t('settings.agent.autoCompactThreshold.label')}
+          hint={t('settings.agent.autoCompactThreshold.hint')}
+        >
+          <Segmented
+            value={autoCompactThresholdValue}
+            options={autoCompactThresholdOptions}
+            onChange={(v) =>
+              void update({
+                agent: { autoCompact: { ...agent.autoCompact, threshold: Number(v) } },
+              })
+            }
+          />
+        </Field>
       ) : null}
       <Field
         label={t('settings.agent.pcControl.label')}

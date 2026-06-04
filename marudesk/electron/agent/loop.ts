@@ -81,7 +81,25 @@ Paths are workspace-relative. To create a file, call edit_file with oldString=""
 const SUMMARY_PREFIX = 'Summary of the earlier conversation (compacted to save context):';
 
 /** The summarization instruction sent to the model for `/compact`. */
-const COMPACT_INSTRUCTION = `Summarize the conversation below so it can replace the full history while preserving everything needed to continue the work. Capture: the user's goals and constraints, key decisions and their rationale, files and code touched, what was tried and what worked or failed, current state, and concrete next steps. Be specific (file paths, function names, error signatures) but concise. Output only the summary prose — no preamble.`;
+const COMPACT_INSTRUCTION = `You are compacting an in-progress engineering conversation: your summary will REPLACE the earlier turns in the working context, so anything you omit is lost. Preserve everything needed to continue without re-asking. Write it under these headings, dropping any that don't apply:
+
+- Goal & constraints: what the user wants and any hard requirements (style, scope, things to avoid).
+- Decisions & rationale: choices made and why, including approaches explicitly rejected.
+- Code & files: exact paths, functions/symbols, and the nature of each change (use backticks).
+- State: what is done and verified vs. in-progress vs. broken; error signatures verbatim.
+- Next steps: the concrete, ordered actions that remain.
+- Open questions: anything unresolved or awaiting the user.
+
+Be specific over comprehensive — concrete identifiers, not vague recaps. Output only the summary; no preamble or sign-off.`;
+
+/**
+ * Fraction of the conversation (by character weight) kept VERBATIM as the tail
+ * when compacting. Only the older head is summarized; recent turns survive intact
+ * so the model keeps full fidelity on what it's actively working on (cursor /
+ * copilot "extract + tail preservation"). The tail is snapped to a turn (user
+ * message) boundary so the rebuilt transcript stays valid.
+ */
+const COMPACTION_TAIL_FRACTION = 0.3;
 
 const PLAN_MODE_SYSTEM = `PLAN MODE IS ACTIVE. Do NOT edit files, run code, or change anything — write tools and eval are blocked this turn. Investigate with read/search tools, then end your reply with a concrete, ordered implementation plan: the files you would touch, the change in each, and how you would verify it. The user will review the plan and switch out of plan mode to execute it.`;
 
@@ -498,6 +516,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
       toolUses = calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input }));
       state.usage.inputTokens += usage.inputTokens ?? 0;
       state.usage.outputTokens += usage.outputTokens ?? 0;
+      // The latest call's input size is the live context-window occupancy (the
+      // whole transcript is re-sent each step), so overwrite rather than sum —
+      // this drives the usage gauge and the auto-compaction threshold.
+      if (usage.inputTokens) state.usage.contextTokens = usage.inputTokens;
     } catch (err) {
       // Drop the optimistic streaming bubble if nothing was streamed into it, so
       // a failed/aborted step doesn't leave an empty assistant message behind.
@@ -746,6 +768,26 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
       .then(() => emit())
       .catch(() => {});
   }
+  // Auto-compaction (claude-code / cursor parity): once a turn completes cleanly,
+  // compact in the background if the context has grown past the configured
+  // threshold. Skipped on interrupts and failures (those carry a note/error) so
+  // we never compact a half-finished turn.
+  if (status === 'completed' && note === undefined && error === undefined && shouldAutoCompact()) {
+    void compactConversation().catch(() => {});
+  }
+}
+
+/** True when auto-compaction is enabled and the live context is over threshold. */
+function shouldAutoCompact(): boolean {
+  const cfg = getSettingsSync().agent.autoCompact;
+  if (!cfg.enabled) return false;
+  const ctx = state.usage.contextTokens;
+  if (ctx <= 0) return false;
+  const window = MODELS.find(
+    (mm) => mm.provider === conversationProvider && mm.id === conversationModel,
+  )?.contextWindow;
+  if (!window) return false;
+  return ctx / window >= cfg.threshold;
 }
 
 /** Clip a tool result before persisting so a session file can't grow unbounded. */
@@ -848,12 +890,53 @@ function serializeForCompaction(msgs: ModelMessage[]): string {
   return lines.join('\n\n');
 }
 
+/** Rough character weight of one message (proxy for token size). */
+function messageChars(m: ModelMessage): number {
+  if (typeof m.content === 'string') return m.content.length;
+  let n = 0;
+  for (const p of m.content as ReadonlyArray<{ text?: string; output?: { value?: string }; input?: unknown }>) {
+    if (typeof p.text === 'string') n += p.text.length;
+    if (typeof p.output?.value === 'string') n += p.output.value.length;
+    if (p.input !== undefined) n += JSON.stringify(p.input).length;
+  }
+  return n;
+}
+
 /**
- * Compact the conversation (claude-code / codex `/compact`): summarize the full
- * transcript with the conversation's own model, then replace the history with
- * that summary so later turns keep context without the token weight. Uses the
- * same provider-aware auth + system handling as a turn (anthropic-OAuth prefix,
- * codex `store:false`). Non-destructive (claude-code / cursor parity): only the
+ * Split a transcript into the older `head` (to be summarized) and a verbatim
+ * `tail` of the most recent turns. The tail is the smallest set of whole turns
+ * whose character weight is at least `tailFraction` of the total, snapped to a
+ * `user`-message boundary so the rebuilt transcript stays valid (alternation +
+ * Anthropic's first-message-is-user rule). Falls back to an empty tail when the
+ * split would leave nothing to summarize.
+ */
+function splitForTailPreservation(
+  msgs: ModelMessage[],
+  tailFraction: number,
+): { head: ModelMessage[]; tail: ModelMessage[] } {
+  const total = msgs.reduce((n, m) => n + messageChars(m), 0);
+  const budget = total * tailFraction;
+  let acc = 0;
+  let splitIdx = -1;
+  for (let i = msgs.length - 1; i > 0; i--) {
+    acc += messageChars(msgs[i]);
+    if (msgs[i].role === 'user' && acc >= budget) {
+      splitIdx = i;
+      break;
+    }
+  }
+  if (splitIdx <= 0) return { head: msgs, tail: [] };
+  return { head: msgs.slice(0, splitIdx), tail: msgs.slice(splitIdx) };
+}
+
+/**
+ * Compact the conversation (claude-code / codex `/compact`): summarize the older
+ * head of the transcript with the conversation's own model and keep the recent
+ * tail verbatim (see {@link splitForTailPreservation}), so later turns keep
+ * context without the token weight while preserving full fidelity on the active
+ * work. Uses the same provider-aware auth + system handling as a turn
+ * (anthropic-OAuth prefix, codex `store:false`). Non-destructive (claude-code /
+ * cursor parity): only the
  * model-facing `transcript` is replaced by the summary (capped with a synthetic
  * assistant ack so the next turn still alternates user→assistant→user, an
  * Anthropic requirement). The user's visible scrollback (`state.messages`) is
@@ -884,7 +967,11 @@ export async function compactConversation(focus?: string): Promise<{ ok: boolean
     const instruction = trimmedFocus
       ? `${COMPACT_INSTRUCTION}\n\nThe user asked you to preserve this in extra detail: ${trimmedFocus}`
       : COMPACT_INSTRUCTION;
-    const convo = serializeForCompaction(transcript);
+    // Keep the recent turns verbatim; only summarize the older head. The tail is
+    // snapped to a turn boundary so the rebuilt transcript stays valid.
+    const { head, tail } = splitForTailPreservation(transcript, COMPACTION_TAIL_FRACTION);
+    if (head.length === 0) return { ok: false, reason: 'conversation is too short to compact' };
+    const convo = serializeForCompaction(head);
     const res = await generateText({
       model: m,
       system,
@@ -895,23 +982,35 @@ export async function compactConversation(focus?: string): Promise<{ ok: boolean
     const summary = res.text.trim();
     if (!summary) return { ok: false, reason: 'the model returned an empty summary' };
 
-    // Tokens currently in the context window — reported on the divider so the
-    // user can see how much the compaction freed up.
-    const freed = state.usage.inputTokens;
+    // Estimate the context tokens dropped: the share of the pre-compaction
+    // context the summarized head accounted for. Drives the divider label and
+    // the post-compaction gauge.
+    const before = state.usage.contextTokens;
+    const totalChars = head.reduce((n, x) => n + messageChars(x), 0) + tail.reduce((n, x) => n + messageChars(x), 0);
+    const headChars = head.reduce((n, x) => n + messageChars(x), 0);
+    const freed = before > 0 && totalChars > 0 ? Math.round(before * (headChars / totalChars)) : undefined;
+
     transcript = [
       { role: 'user', content: `${SUMMARY_PREFIX}\n${summary}` },
       { role: 'assistant', content: 'Understood — I have the summary above and will continue from here.' },
+      ...tail,
     ];
     // Keep the visible scrollback intact; just mark where the model's memory was
     // condensed. The divider holds the summary so the user can expand it to see
-    // exactly what the model will carry forward.
+    // exactly what the model carried forward.
     state.messages.push({
       id: uid('m'),
       role: 'assistant',
-      parts: [{ type: 'compaction', summary, freedTokens: freed > 0 ? freed : undefined }],
+      parts: [{ type: 'compaction', summary, freedTokens: freed && freed > 0 ? freed : undefined }],
       timestamp: Date.now(),
     });
-    state.usage = { inputTokens: 0, outputTokens: 0 };
+    // Reset cumulative billing counters; keep an estimate of the live context so
+    // the gauge reflects the lighter window until the next turn measures it.
+    state.usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      contextTokens: before > 0 && freed ? Math.max(0, before - freed) : 0,
+    };
     state.error = null;
     state.endNote = null;
     emit();
@@ -1157,7 +1256,15 @@ export async function resumeSession(id: string): Promise<boolean> {
   state = emptyAgentChatState();
   state.edits = keptEdits;
   state.messages = record.messages ?? [];
-  state.usage = record.usage ? { ...record.usage } : { inputTokens: 0, outputTokens: 0 };
+  state.usage = record.usage
+    ? {
+        inputTokens: record.usage.inputTokens,
+        outputTokens: record.usage.outputTokens,
+        // Older saved sessions predate contextTokens; fall back to the cumulative
+        // input total so the gauge isn't blank until the next turn re-measures.
+        contextTokens: record.usage.contextTokens ?? record.usage.inputTokens,
+      }
+    : { inputTokens: 0, outputTokens: 0, contextTokens: 0 };
   transcript = record.transcript ? [...record.transcript] : [];
   conversationId = record.id;
   conversationStartedAt = record.createdAt;

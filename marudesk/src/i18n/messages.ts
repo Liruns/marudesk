@@ -571,6 +571,12 @@ const EN_MESSAGES = {
   'settings.agent.approval.label': 'Approval mode',
   'settings.agent.approval.plan': 'Plan',
   'settings.agent.approval.readOnly': 'Read-only',
+  'settings.agent.autoCompact.hint':
+    'When the conversation fills past the threshold of the model context window, automatically summarize the earlier turns to free space. Your visible history stays, and the most recent turns are kept verbatim.',
+  'settings.agent.autoCompact.label': 'Auto-compact',
+  'settings.agent.autoCompactThreshold.hint':
+    'How full the context window may get before auto-compaction kicks in.',
+  'settings.agent.autoCompactThreshold.label': 'Auto-compact at',
   'settings.agent.fallback.addModel': 'Add model',
   'settings.agent.fallback.empty':
     'No fallback models yet - add one or more below. The agent tries them in order when your selected model is rate-limited.',
@@ -1641,6 +1647,11 @@ const KO_MESSAGES: Messages = {
   'settings.agent.approval.label': '승인 모드',
   'settings.agent.approval.plan': '계획',
   'settings.agent.approval.readOnly': '읽기 전용',
+  'settings.agent.autoCompact.hint':
+    '대화가 모델 컨텍스트 창의 임계치를 넘으면 이전 턴을 자동으로 요약해 공간을 확보합니다. 화면의 기록은 그대로 남고, 가장 최근 턴은 원문으로 유지됩니다.',
+  'settings.agent.autoCompact.label': '자동 압축',
+  'settings.agent.autoCompactThreshold.hint': '자동 압축이 시작되는 컨텍스트 창 사용 비율입니다.',
+  'settings.agent.autoCompactThreshold.label': '자동 압축 임계치',
   'settings.agent.fallback.addModel': '모델 추가',
   'settings.agent.fallback.empty':
     '아직 대체 모델이 없습니다. 아래에서 하나 이상 추가하세요. 선택한 모델이 속도 제한에 걸리면 에이전트가 순서대로 시도합니다.',

@@ -1297,9 +1297,11 @@ function UsageMeter() {
   const usage = useAgentStore((s) => s.chat.usage);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
   const models = useProvidersStore((s) => s.models);
-  if (usage.inputTokens === 0 && usage.outputTokens === 0) return null;
+  if (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.contextTokens === 0) return null;
   const ctx = findModel(models, selectedModelKey)?.contextWindow;
-  const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
+  // The gauge tracks live context-window occupancy (contextTokens), not the
+  // cumulative input total — so it falls after a compaction instead of climbing.
+  const pct = ctx ? Math.min(100, Math.round((usage.contextTokens / ctx) * 100)) : null;
   return (
     <span
       className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums shrink-0"
@@ -1317,7 +1319,7 @@ function UsageMeter() {
           <span>{pct}%</span>
         </>
       ) : (
-        <span>{formatContext(usage.inputTokens)} tok</span>
+        <span>{formatContext(usage.contextTokens || usage.inputTokens)} tok</span>
       )}
     </span>
   );
