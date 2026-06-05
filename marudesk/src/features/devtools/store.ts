@@ -6,7 +6,6 @@ import { useWebPageStore } from '../browser/store';
 import { getMessage, parseLocale, type Locale, type TranslationKey } from '../../i18n/messages';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
-import { scrubText } from '../../../shared/scrub';
 import { cdpSend, cdpTry } from './cdp';
 import {
   COMMAND_LINE_API,
@@ -47,14 +46,13 @@ import {
   snapshotPrefs,
 } from './store-prefs';
 import type { ToolLocation, DevtoolsTool } from './store-prefs';
-import { indexNode, setAttr, removeAttr } from './dom-index';
-import { consoleKindFromApi, consoleKindFromLog } from './console-kind';
+import { indexNode } from './dom-index';
 
 // Re-exported so existing consumers (DevtoolsContent) keep importing the tool
 // arrangement types from the store.
 export type { ToolLocation, DevtoolsTool } from './store-prefs';
-
-const MAX_NETWORK_PAYLOAD = 64_000;
+import { entryId, MAX_CONSOLE } from './store-internals';
+import { applyIngestBatch } from './ingest-batch';
 
 function currentLocale(): Locale {
   try {
@@ -66,21 +64,6 @@ function currentLocale(): Locale {
 
 function msg(key: TranslationKey): string {
   return getMessage(currentLocale(), key);
-}
-
-function boundedNetworkPayload(value: string | undefined): {
-  text: string;
-  truncated: boolean;
-} | null {
-  if (value === undefined) return null;
-  const scrubbed = scrubText(value);
-  if (scrubbed.length <= MAX_NETWORK_PAYLOAD) {
-    return { text: scrubbed, truncated: false };
-  }
-  return {
-    text: scrubbed.slice(0, MAX_NETWORK_PAYLOAD),
-    truncated: true,
-  };
 }
 
 /**
@@ -202,8 +185,6 @@ type PendingSourcePatch = {
 
 const DEFAULT_SIZE: Record<DockSide, number> = { right: 480, bottom: 320 };
 const MIN_SIZE = 220;
-const MAX_CONSOLE = 1500;
-const MAX_NETWORK = 1500;
 const MAX_HISTORY = 200;
 
 /* ── tool arrangement + bottom drawer: extracted to ./store-prefs.ts ──────── */
@@ -221,7 +202,7 @@ const HIGHLIGHT_CONFIG = {
   marginColor: rgba(246, 178, 107, 0.55),
 };
 
-type DevtoolsState = {
+export type DevtoolsState = {
   // dock UI
   open: boolean;
   side: DockSide;
@@ -322,7 +303,7 @@ type DevtoolsState = {
   rendering: RenderingState;
 };
 
-type DevtoolsActions = {
+export type DevtoolsActions = {
   toggle: () => void;
   reconnect: () => void;
   close: () => void;
@@ -492,11 +473,7 @@ function freshSlices(): Pick<
 }
 
 /* ── DOM indexing + console-kind helpers extracted to ./dom-index, ./console-kind ── */
-
-let entrySeq = 0;
-function entryId(): string {
-  return `c${++entrySeq}`;
-}
+/* ── entryId + network-payload helpers extracted to ./store-internals ─────── */
 
 export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
   (set, get) => ({
@@ -1694,374 +1671,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
 
     /* ── event ingestion ─────────────────────────────────────────────── */
 
-    ingestBatch: (items, dropped) => {
-      const effects: Array<() => void> = [];
-      set((s) => {
-        let nodes = s.nodes;
-        let childIds = s.childIds;
-        let domDirty = false;
-        let consoleArr = s.console;
-        let consoleDirty = false;
-        let network = s.network;
-        let netIndex: Map<string, number> | null = null;
-        let netDirty = false;
-        let styleSheets = s.styleSheets;
-        let sheetsDirty = false;
-        // Page-lifecycle timing for the Network summary bar (CDP seconds).
-        let navStart = s.navStartTime;
-        let domContent = s.domContentTime;
-        let load = s.loadTime;
-
-        const ensureDom = () => {
-          if (!domDirty) {
-            nodes = new Map(nodes);
-            childIds = new Map(childIds);
-            domDirty = true;
-          }
-        };
-        const ensureSheets = () => {
-          if (!sheetsDirty) {
-            styleSheets = new Map(styleSheets);
-            sheetsDirty = true;
-          }
-        };
-        const ensureNet = () => {
-          if (!netDirty) {
-            network = [...network];
-            netIndex = new Map(network.map((e, i) => [e.requestId, i]));
-            netDirty = true;
-          } else if (!netIndex) {
-            netIndex = new Map(network.map((e, i) => [e.requestId, i]));
-          }
-        };
-        const pushConsole = (e: ConsoleEntry) => {
-          if (!consoleDirty) {
-            consoleArr = [...consoleArr];
-            consoleDirty = true;
-          }
-          consoleArr.push(e);
-        };
-
-        for (const { method, params } of items) {
-          const pAny = params as Record<string, unknown>;
-          switch (method) {
-            /* DOM */
-            case 'DOM.setChildNodes': {
-              ensureDom();
-              const parentId = pAny.parentId as NodeId;
-              const kids = (pAny.nodes as CdpNode[]) ?? [];
-              for (const k of kids) indexNode(k, nodes, childIds);
-              childIds.set(
-                parentId,
-                kids.map((k) => k.nodeId),
-              );
-              break;
-            }
-            case 'DOM.childNodeInserted': {
-              ensureDom();
-              const parentId = pAny.parentNodeId as NodeId;
-              const prev = pAny.previousNodeId as NodeId;
-              const node = pAny.node as CdpNode;
-              indexNode(node, nodes, childIds);
-              const list = [...(childIds.get(parentId) ?? [])];
-              const at = prev === 0 ? 0 : list.indexOf(prev) + 1;
-              list.splice(at, 0, node.nodeId);
-              childIds.set(parentId, list);
-              break;
-            }
-            case 'DOM.childNodeRemoved': {
-              ensureDom();
-              const parentId = pAny.parentNodeId as NodeId;
-              const nodeId = pAny.nodeId as NodeId;
-              const list = (childIds.get(parentId) ?? []).filter((x) => x !== nodeId);
-              childIds.set(parentId, list);
-              nodes.delete(nodeId);
-              break;
-            }
-            case 'DOM.attributeModified': {
-              ensureDom();
-              const nodeId = pAny.nodeId as NodeId;
-              const node = nodes.get(nodeId);
-              if (node) {
-                nodes.set(nodeId, {
-                  ...node,
-                  attributes: setAttr(
-                    node.attributes,
-                    pAny.name as string,
-                    pAny.value as string,
-                  ),
-                });
-              }
-              break;
-            }
-            case 'DOM.attributeRemoved': {
-              ensureDom();
-              const nodeId = pAny.nodeId as NodeId;
-              const node = nodes.get(nodeId);
-              if (node) {
-                nodes.set(nodeId, {
-                  ...node,
-                  attributes: removeAttr(node.attributes, pAny.name as string),
-                });
-              }
-              break;
-            }
-            case 'DOM.childNodeCountUpdated': {
-              ensureDom();
-              const nodeId = pAny.nodeId as NodeId;
-              const node = nodes.get(nodeId);
-              if (node) {
-                nodes.set(nodeId, {
-                  ...node,
-                  childNodeCount: pAny.childNodeCount as number,
-                });
-              }
-              break;
-            }
-            case 'DOM.documentUpdated': {
-              // Major DOM swap (e.g. document.write) without a frame nav.
-              effects.push(() => void get().refreshDocument());
-              break;
-            }
-            case 'Page.frameNavigated': {
-              // Main frame only — subframes/ad-iframes carry a parentId and must
-              // not thrash the session (§11.3). Re-enable domains + clear stale
-              // per-page state for the new document.
-              const frame = pAny.frame as { parentId?: string } | undefined;
-              if (frame && frame.parentId === undefined) {
-                effects.push(() => get()._handleNavigated());
-              }
-              break;
-            }
-            case 'Page.domContentEventFired': {
-              domContent = pAny.timestamp as number;
-              break;
-            }
-            case 'Page.loadEventFired': {
-              load = pAny.timestamp as number;
-              break;
-            }
-
-            /* Overlay (element picker) */
-            case 'Overlay.inspectNodeRequested': {
-              const backendNodeId = pAny.backendNodeId as number;
-              effects.push(() => void get()._finishPick(backendNodeId));
-              break;
-            }
-
-            /* CSS (stylesheet headers for the source-patch hook §9-B) */
-            case 'CSS.styleSheetAdded': {
-              ensureSheets();
-              const h = pAny.header as {
-                styleSheetId: string;
-                sourceURL?: string;
-                origin: string;
-                isInline?: boolean;
-              };
-              styleSheets.set(h.styleSheetId, {
-                styleSheetId: h.styleSheetId,
-                sourceURL: h.sourceURL ?? '',
-                origin: h.origin,
-                isInline: !!h.isInline,
-              });
-              break;
-            }
-            case 'CSS.styleSheetRemoved': {
-              ensureSheets();
-              styleSheets.delete(pAny.styleSheetId as string);
-              break;
-            }
-
-            /* Console */
-            case 'Runtime.consoleAPICalled': {
-              pushConsole({
-                id: entryId(),
-                kind: consoleKindFromApi(pAny.type as string),
-                args: (pAny.args as RemoteObject[]) ?? [],
-                timestamp: (pAny.timestamp as number) || Date.now(),
-                stackTrace: pAny.stackTrace as ConsoleEntry['stackTrace'],
-              });
-              break;
-            }
-            case 'Runtime.exceptionThrown': {
-              const det = pAny.exceptionDetails as {
-                text: string;
-                exception?: RemoteObject;
-                lineNumber?: number;
-                url?: string;
-                stackTrace?: ConsoleEntry['stackTrace'];
-              };
-              pushConsole({
-                id: entryId(),
-                kind: 'exception',
-                args: det.exception ? [det.exception] : [],
-                text: det.exception ? undefined : det.text,
-                timestamp: (pAny.timestamp as number) || Date.now(),
-                stackTrace: det.stackTrace,
-                url: det.url,
-                lineNumber: det.lineNumber,
-              });
-              break;
-            }
-            case 'Log.entryAdded': {
-              const entry = pAny.entry as {
-                level: string;
-                text: string;
-                timestamp?: number;
-                url?: string;
-                lineNumber?: number;
-              };
-              pushConsole({
-                id: entryId(),
-                kind: consoleKindFromLog(entry.level),
-                args: [],
-                text: entry.text,
-                timestamp: entry.timestamp || Date.now(),
-                url: entry.url,
-                lineNumber: entry.lineNumber,
-              });
-              break;
-            }
-
-            /* Network */
-            case 'Network.requestWillBeSent': {
-              ensureNet();
-              const requestId = pAny.requestId as string;
-              const req = pAny.request as {
-                url: string;
-                method: string;
-                headers: Record<string, string>;
-                postData?: string;
-                hasPostData?: boolean;
-              };
-              const requestPostData = boundedNetworkPayload(req.postData);
-              const entry: NetworkEntry = {
-                requestId,
-                url: req.url,
-                method: req.method,
-                resourceType: pAny.type as string | undefined,
-                startTime: pAny.timestamp as number,
-                requestHeaders: req.headers,
-                requestPostData: requestPostData?.text,
-                requestPostDataTruncated: requestPostData?.truncated,
-                initiator: pAny.initiator as NetworkEntry['initiator'],
-              };
-              // First request of the document is the navigation baseline the
-              // waterfall + DOMContentLoaded/Load offsets are measured against.
-              if (navStart === null) navStart = entry.startTime;
-              const idx = netIndex!.get(requestId);
-              if (idx === undefined) {
-                netIndex!.set(requestId, network.length);
-                network.push(entry);
-              } else {
-                network[idx] = { ...network[idx], ...entry };
-              }
-              const tabId = get().tabId;
-              if (tabId && req.hasPostData && !req.postData) {
-                effects.push(() => {
-                  void cdpTry<{ postData: string }>(tabId, 'Network.getRequestPostData', { requestId }).then((res) => {
-                    const loaded = boundedNetworkPayload(res?.postData);
-                    if (!loaded) return;
-                    set((current) => {
-                      if (current.tabId !== tabId) return {};
-                      const updateIndex = current.network.findIndex((item) => item.requestId === requestId);
-                      if (updateIndex < 0) return {};
-                      const next = [...current.network];
-                      const currentEntry = next[updateIndex];
-                      if (!currentEntry) return {};
-                      next[updateIndex] = {
-                        ...currentEntry,
-                        requestPostData: loaded.text,
-                        requestPostDataTruncated: loaded.truncated,
-                      };
-                      return { network: next };
-                    });
-                  });
-                });
-              }
-              break;
-            }
-            case 'Network.responseReceived': {
-              ensureNet();
-              const requestId = pAny.requestId as string;
-              const resp = pAny.response as {
-                status: number;
-                statusText: string;
-                headers: Record<string, string>;
-                mimeType: string;
-                fromDiskCache?: boolean;
-                remoteIPAddress?: string;
-                timing?: NetworkEntry['timing'];
-              };
-              const idx = netIndex!.get(requestId);
-              if (idx !== undefined) {
-                network[idx] = {
-                  ...network[idx],
-                  status: resp.status,
-                  statusText: resp.statusText,
-                  responseHeaders: resp.headers,
-                  mimeType: resp.mimeType,
-                  fromCache: resp.fromDiskCache,
-                  remoteIPAddress: resp.remoteIPAddress,
-                  timing: resp.timing ?? network[idx].timing,
-                  resourceType: (pAny.type as string) ?? network[idx].resourceType,
-                };
-              }
-              break;
-            }
-            case 'Network.loadingFinished': {
-              ensureNet();
-              const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
-              if (idx !== undefined) {
-                network[idx] = {
-                  ...network[idx],
-                  endTime: pAny.timestamp as number,
-                  encodedDataLength: pAny.encodedDataLength as number,
-                };
-              }
-              break;
-            }
-            case 'Network.loadingFailed': {
-              ensureNet();
-              const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
-              if (idx !== undefined) {
-                network[idx] = {
-                  ...network[idx],
-                  endTime: pAny.timestamp as number,
-                  failed: true,
-                  errorText: pAny.errorText as string,
-                };
-              }
-              break;
-            }
-          }
-        }
-
-        if (netDirty && network.length > MAX_NETWORK) {
-          network = network.slice(network.length - MAX_NETWORK);
-        }
-        if (consoleDirty && consoleArr.length > MAX_CONSOLE) {
-          consoleArr = consoleArr.slice(consoleArr.length - MAX_CONSOLE);
-        }
-
-        const next: Partial<DevtoolsState> = {};
-        if (domDirty) {
-          next.nodes = nodes;
-          next.childIds = childIds;
-        }
-        if (consoleDirty) next.console = consoleArr;
-        if (netDirty) next.network = network;
-        if (sheetsDirty) next.styleSheets = styleSheets;
-        if (navStart !== s.navStartTime) next.navStartTime = navStart;
-        if (domContent !== s.domContentTime) next.domContentTime = domContent;
-        if (load !== s.loadTime) next.loadTime = load;
-        if (dropped) next.dropped = s.dropped + dropped;
-        return next;
-      });
-      for (const fn of effects) fn();
-    },
+    ingestBatch: (items, dropped) => applyIngestBatch(set, get, items, dropped),
 
     handleDetached: (tabId, reason) => {
       if (get().tabId !== tabId) return;
