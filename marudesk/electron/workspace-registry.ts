@@ -15,6 +15,7 @@ import {
   type WorkspaceSaveAsResult,
 } from '../shared/workspace';
 import { isSshRootKey, sshRootKey } from '../shared/ssh';
+import { activeRoot } from './workspace-helpers';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, obj, str } from './ipc/validate';
 import { getConnectionInfo } from './ssh/connection-manager';
@@ -53,12 +54,6 @@ function activeRecord(): WorkspaceRecord | null {
   return activeWorkspaceId ? (workspaceRecords.get(activeWorkspaceId) ?? null) : null;
 }
 
-function activeRoot(record: WorkspaceRecord): WorkspaceRootSummary | null {
-  const preferred = record.activeRootId
-    ? record.roots.find((root) => root.id === record.activeRootId)
-    : undefined;
-  return preferred ?? record.roots[0] ?? null;
-}
 
 function rootToLegacySummary(
   record: WorkspaceRecord,

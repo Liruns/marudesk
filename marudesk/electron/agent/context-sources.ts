@@ -8,6 +8,7 @@ import {
   type WorkspaceRootSummary,
 } from '../../shared/workspace';
 import type { SessionRecord } from '../../shared/context';
+import { activeRoot, rootById, workspaceById } from '../workspace-helpers';
 import { getActiveTabId, getConsole, getTab, tabValues, type TabRecord } from '../browser/state';
 import { sendCdp } from '../browser/cdp';
 import { getRecentTerminalOutput, getTerminalList, getTerminalOutput } from '../terminal';
@@ -61,21 +62,6 @@ function tabUrl(rec: TabRecord): string {
   } catch {
     return '';
   }
-}
-
-function workspaceById(workspaces: readonly WorkspaceRecord[], workspaceId: string): WorkspaceRecord | null {
-  return workspaces.find((workspace) => workspace.id === workspaceId) ?? null;
-}
-
-function activeRoot(record: WorkspaceRecord): WorkspaceRootSummary | null {
-  const preferred = record.activeRootId
-    ? record.roots.find((root) => root.id === record.activeRootId)
-    : undefined;
-  return preferred ?? record.roots[0] ?? null;
-}
-
-function rootById(record: WorkspaceRecord, rootId: string): WorkspaceRootSummary | null {
-  return record.roots.find((root) => root.id === rootId) ?? null;
 }
 
 function tabWorkspaceScope(
