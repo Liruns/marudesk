@@ -14,6 +14,7 @@ import {
   type ProviderId,
 } from '../../../shared/providers';
 import { scrubText } from '../../../shared/scrub';
+import { globToRegExp } from '../../../shared/glob';
 import { listCustomProviders } from '../../custom-providers';
 import {
   assertRealInsideRoot,
@@ -73,12 +74,6 @@ function parseCount(value: unknown): number {
 function parseOutputDir(value: unknown): string {
   const raw = typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_OUTPUT_DIR;
   return raw.replace(/\\/g, '/').replace(/\/+$/g, '') || DEFAULT_OUTPUT_DIR;
-}
-
-function globToRegExp(glob: string): RegExp {
-  const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const body = esc.replace(/\*\*|\*/g, (m) => (m === '**' ? '.*' : '[^/]*'));
-  return new RegExp(`^${body}$`, 'i');
 }
 
 function assertNotDenied(rel: string, denyGlobs: readonly string[] | undefined): void {

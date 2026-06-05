@@ -1,4 +1,7 @@
 import { scrubText } from '../../shared/scrub';
+import { globToRegExp } from '../../shared/glob';
+import { SECRET_FILE_PATTERN as SECRET_FILE } from '../../shared/secret-files';
+import { clipText as clip, MAX_TOOL_TEXT as MAX_TEXT } from '../../shared/text-clip';
 import {
   workspaceFileKey,
   type WorkspaceRecord,
@@ -28,11 +31,6 @@ import type { McpTool, ToolContext, ToolResult } from './tools';
  * tool error, exactly like the original executor path.
  */
 
-const MAX_TEXT = 12_000;
-const SECRET_FILE =
-  /(^|\/)(\.env(\.[\w-]+)?|\.npmrc|\.netrc|\.pgpass|id_(?:rsa|dsa|ecdsa|ed25519)|.*\.pem|.*\.key|.*\.p12|.*\.pfx|credentials(\.json)?)$/i;
-const clip = (s: string, max = MAX_TEXT): string =>
-  s.length <= max ? s : `${s.slice(0, max)}\n…[clipped ${s.length - max} chars]`;
 
 /** A short relative "when" label (e.g. "3m ago", "2h ago", "5d ago"). */
 function ago(ts: number): string {
@@ -78,12 +76,6 @@ function activeRoot(record: WorkspaceRecord): WorkspaceRootSummary | null {
 
 function rootById(record: WorkspaceRecord, rootId: string): WorkspaceRootSummary | null {
   return record.roots.find((root) => root.id === rootId) ?? null;
-}
-
-function globToRegExp(glob: string): RegExp {
-  const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const body = esc.replace(/\*\*|\*/g, (match) => (match === '**' ? '.*' : '[^/]*'));
-  return new RegExp(`^${body}$`, 'i');
 }
 
 function tabWorkspaceScope(

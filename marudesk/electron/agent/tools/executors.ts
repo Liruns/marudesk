@@ -1,6 +1,9 @@
 import path from 'node:path';
 import type { WorkspaceSummary } from '../../../shared/workspace';
 import { scrubText, scrubHeaders } from '../../../shared/scrub';
+import { globToRegExp } from '../../../shared/glob';
+import { SECRET_FILE_PATTERN as SECRET_FILE } from '../../../shared/secret-files';
+import { clipText as clip } from '../../../shared/text-clip';
 import { urlToWorkspacePath } from '../../../shared/runtime-evidence';
 import type { NetworkRecord } from '../../../shared/network-evidence';
 import { readFileSafe, readFileWindow } from '../../workspace';
@@ -21,7 +24,6 @@ import { SPAWN_SUBAGENT, type Executor, type ToolContext, type ToolResult } from
  * model is passed through shared/scrub.ts (P0.5).
  */
 
-const MAX_TOOL_TEXT = 12_000;
 const MAX_GREP_RESULTS = 60;
 const MAX_GREP_FILES = 600;
 const GREP_CONCURRENCY = 8;
@@ -47,17 +49,6 @@ const BINARY_EXT = new Set([
   '.exe', '.dll', '.so', '.dylib', '.bin', '.wasm', '.class', '.o', '.a',
 ]);
 
-// Defense-in-depth: refuse to hand obvious credential files to the model. These
-// are inside the workspace (the fs sandbox already blocks escape) but reading a
-// `.env` / private key wholesale would leak secrets that scrub can't fully catch
-// in arbitrary formats. The user can still paste what they truly need.
-const SECRET_FILE =
-  /(^|\/)(\.env(\.[\w-]+)?|\.npmrc|\.netrc|\.pgpass|id_(?:rsa|dsa|ecdsa|ed25519)|.*\.pem|.*\.key|.*\.p12|.*\.pfx|credentials(\.json)?)$/i;
-
-function clip(s: string, max = MAX_TOOL_TEXT): string {
-  return s.length <= max ? s : `${s.slice(0, max)}\n…[clipped ${s.length - max} chars]`;
-}
-
 function requireTab(ctx: ToolContext): TabRecord {
   if (!ctx.tabId) {
     throw new Error('no active web tab — open a web page so runtime tools have a target');
@@ -75,13 +66,6 @@ function tabOrigin(rec: TabRecord): string {
   } catch {
     return '';
   }
-}
-
-/** Convert a `*`/`**` glob to an anchored regex (linear-time). Empty → match-all. */
-function globToRegExp(glob: string): RegExp {
-  const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const body = esc.replace(/\*\*|\*/g, (m) => (m === '**' ? '.*' : '[^/]*'));
-  return new RegExp(`^${body}$`, 'i');
 }
 
 /* ── CDP helpers ────────────────────────────────────────────────────────── */

@@ -7,6 +7,7 @@ import {
   lstatOrNull,
   resolveWorkspacePath,
 } from '../../fs-safe';
+import { globToRegExp } from '../../../shared/glob';
 
 export type WorkspaceDirectory = {
   readonly rel: string;
@@ -16,12 +17,6 @@ export type WorkspaceDirectory = {
 export function parseOutputDir(value: unknown, fallback: string): string {
   const raw = typeof value === 'string' && value.trim() ? value.trim() : fallback;
   return raw.replace(/\\/g, '/').replace(/\/+$/g, '') || fallback;
-}
-
-function globToRegExp(glob: string): RegExp {
-  const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const body = esc.replace(/\*\*|\*/g, (m) => (m === '**' ? '.*' : '[^/]*'));
-  return new RegExp(`^${body}$`, 'i');
 }
 
 function assertNotDenied(rel: string, denyGlobs: readonly string[] | undefined): void {
