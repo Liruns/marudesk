@@ -145,6 +145,7 @@ async function readFile(
   return {
     summary: `read ${p}${view.ranged ? ` (lines ${view.firstLine}-${view.lastLine})` : ''}`,
     text: view.text,
+    touchedPaths: [p],
   };
 }
 
@@ -347,11 +348,13 @@ async function applyEdits(
       // Best-effort — failing to re-anchor only risks a spurious re-read prompt.
     }
   }
-  const files = (res.changes ?? []).map((c) => c.path).join(', ');
+  const changedPaths = (res.changes ?? []).map((c) => c.path);
+  const files = changedPaths.join(', ');
   return {
     summary: `${label}: ${files}`,
     text: `applied ${res.applied.length} edit${res.applied.length === 1 ? '' : 's'} to ${files}`,
     edits: res.changes,
+    touchedPaths: changedPaths,
   };
 }
 
