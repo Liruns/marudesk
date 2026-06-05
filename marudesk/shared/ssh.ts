@@ -13,6 +13,7 @@
  */
 
 export type SshConnectionId = string;
+export type SshConnectionSource = 'manual' | 'ssh-config';
 
 /** How marudesk authenticates to the host. Secrets stay main-side. */
 export type SshAuth =
@@ -40,6 +41,7 @@ export type SshConnectionInfo = {
   port: number;
   username: string;
   authMethod: SshAuthMethod;
+  source: SshConnectionSource;
   /** True when a live SSH/SFTP session is currently open. */
   connected: boolean;
 };

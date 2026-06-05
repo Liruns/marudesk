@@ -9,6 +9,10 @@ import {
   type SshConnectionInfo,
   type SshConnectionInput,
 } from '../../shared/ssh';
+import {
+  discoverLocalSshConfigConnections,
+  type DiscoveredSshConfigConnection,
+} from './config-discovery';
 
 /**
  * In-memory registry of configured SSH hosts and their live sessions.
@@ -79,7 +83,7 @@ async function buildConnectConfig(
         privateKey = await fs.readFile(auth.privateKeyPath);
       } catch (err) {
         throw new Error(
-          `cannot read private key at ${auth.privateKeyPath}: ${(err as Error).message}`,
+          `cannot read private key file: ${err instanceof Error ? err.message : String(err)}`,
           { cause: err },
         );
       }
@@ -263,7 +267,15 @@ export function addConnection(input: SshConnectionInput): SshConnectionInfo {
   const id = `ssh-${randomUUID()}`;
   const label = input.label?.trim() || `${username}@${host}`;
   const conn: ManagedConnection = {
-    info: { id, label, host, port, username, authMethod: authMethodOf(input.auth) },
+    info: {
+      id,
+      label,
+      host,
+      port,
+      username,
+      authMethod: authMethodOf(input.auth),
+      source: 'manual',
+    },
     auth: input.auth,
     client: null,
     sftp: null,
@@ -281,6 +293,7 @@ export function removeConnection(id: SshConnectionId): void {
 }
 
 export function listConnections(): SshConnectionInfo[] {
+  syncDiscoveredConfigConnections();
   return [...connections.values()].map((conn) => ({
     ...conn.info,
     connected: conn.client !== null && conn.sftp !== null,
@@ -288,8 +301,70 @@ export function listConnections(): SshConnectionInfo[] {
 }
 
 export function getConnectionInfo(id: SshConnectionId): SshConnectionInfo {
+  syncDiscoveredConfigConnections();
   const conn = requireConn(id);
   return { ...conn.info, connected: conn.client !== null && conn.sftp !== null };
+}
+
+function syncDiscoveredConfigConnections(): void {
+  const discovered = discoverLocalSshConfigConnections();
+  const discoveredIds = new Set(discovered.map((entry) => entry.info.id));
+  for (const [id, conn] of connections) {
+    if (conn.info.source === 'ssh-config' && !discoveredIds.has(id)) {
+      detach(conn);
+      connections.delete(id);
+    }
+  }
+  for (const entry of discovered) {
+    const existing = connections.get(entry.info.id);
+    if (existing && !configConnectionChanged(existing, entry)) continue;
+    if (existing) detach(existing);
+    connections.set(entry.info.id, {
+      info: storedInfo(entry.info),
+      auth: entry.auth,
+      client: null,
+      sftp: null,
+      pending: null,
+    });
+  }
+}
+
+function storedInfo(info: SshConnectionInfo): Omit<SshConnectionInfo, 'connected'> {
+  return {
+    id: info.id,
+    label: info.label,
+    host: info.host,
+    port: info.port,
+    username: info.username,
+    authMethod: info.authMethod,
+    source: info.source,
+  };
+}
+
+function configConnectionChanged(
+  existing: ManagedConnection,
+  discovered: DiscoveredSshConfigConnection,
+): boolean {
+  const info = discovered.info;
+  return (
+    existing.info.label !== info.label ||
+    existing.info.host !== info.host ||
+    existing.info.port !== info.port ||
+    existing.info.username !== info.username ||
+    existing.info.authMethod !== info.authMethod ||
+    authSignature(existing.auth) !== authSignature(discovered.auth)
+  );
+}
+
+function authSignature(auth: SshAuth): string {
+  switch (auth.method) {
+    case 'agent':
+      return 'agent';
+    case 'key':
+      return `key:${auth.privateKeyPath}:${auth.passphrase ?? ''}`;
+    case 'password':
+      return `password:${auth.password}`;
+  }
 }
 
 /**
