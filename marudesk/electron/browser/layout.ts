@@ -2,6 +2,7 @@ import {
   getActive,
   getLastBounds,
   getPaneBounds,
+  getTab,
   setLastBounds,
   setPaneBounds,
   tabValues,
@@ -102,18 +103,22 @@ export function showTab(rec: TabRecord): void {
       applyWebLayout();
       return;
     }
-    // Activating a tab OUTSIDE the current grid — a standalone tab opened via the
-    // New Tab "+"/Ctrl+T, or a tab living in a *different* split group. The
-    // renderer will catch up shortly (GridStage unmount → clear-pane-bounds for a
-    // standalone tab, or a fresh group's set-pane-bounds), but until that async
-    // IPC lands the stale grid's WebContentsViews would stay composited OVER the
-    // React stage and hide the tab we're switching to — that's the "New Tab opens
-    // but I'm stuck staring at the split, can't see other tabs" bug. Leave grid
-    // mode here so there's no occlusion and no dependence on IPC ordering; the
-    // renderer's follow-up reconciles the authoritative pane state either way.
+    // Activating a tab outside the current pane map can be workspace-local. Keep
+    // sibling workspace browser panes visible, but drop stale panes from this
+    // tab's workspace so feature tabs do not get covered by native web views.
+    const next = new Map<string, Bounds>();
+    for (const [tabId, bounds] of paneBounds) {
+      const tab = getTab(tabId);
+      if (tab && tab.workspaceId !== rec.workspaceId) next.set(tabId, bounds);
+    }
+    if (next.size > 0) {
+      setPaneBounds(next);
+      applyPaneBounds(next);
+      return;
+    }
     setPaneBounds(null);
     for (const r of tabValues()) hideTab(r);
-    // fall through to the single active-tab reveal below
+    // fall through to the single active-tab reveal below when no sibling panes remain
   }
   if (!rec.view) return;
   // Don't reveal a crashed view; the recovery card needs the stage visible.
