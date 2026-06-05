@@ -1,4 +1,4 @@
-import { CHANNELS } from './ipc-channels';
+import { CHANNELS } from './ipc-channels.ts';
 import type { AppInfo, UpdateCheckResult } from './app-info';
 import type { Capture } from './capture';
 import type {
@@ -103,7 +103,7 @@ export type Rect = { x: number; y: number; width: number; height: number };
 
 /* ── Invoke channels, grouped by domain (CHANNELS extracted to ./ipc-channels) ── */
 
-export { CHANNELS } from './ipc-channels';
+export { CHANNELS } from './ipc-channels.ts';
 
 type ChannelGroups = typeof CHANNELS;
 export type InvokeChannel = ChannelGroups[keyof ChannelGroups][number];

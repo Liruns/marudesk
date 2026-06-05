@@ -1,6 +1,6 @@
 import { scrubText } from '../../../shared/scrub';
 import { SPAWN_SUBAGENT, type Executor, type ToolContext, type ToolResult } from './types';
-import { readFile, listFiles, grep, editFile, multiEdit } from './file-tools';
+import { readFile, listFiles, grep, editFile, multiEdit } from './file-tools.ts';
 import {
   getConsoleErrors,
   queryDom,
@@ -10,8 +10,8 @@ import {
   reloadAndVerify,
   browserCookies,
   browserStorage,
-} from './runtime-tools';
-import { click, fill, pressKey, scroll } from './interaction-tools';
+} from './runtime-tools.ts';
+import { click, fill, pressKey, scroll } from './interaction-tools.ts';
 
 /**
  * The agent tool registry (docs/agentic-chat-design.md §4) — the §9 promotion of

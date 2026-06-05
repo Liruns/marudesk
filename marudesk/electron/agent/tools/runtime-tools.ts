@@ -7,7 +7,7 @@ import { readFileSafe } from '../../workspace';
 import { getErrors, getNetwork } from '../../browser/state';
 import { sendCdp, enableNetworkCapture } from '../../browser/cdp';
 import type { ToolContext, ToolResult } from './types';
-import { requireTab, tabOrigin, evaluate } from './shared-helpers';
+import { requireTab, tabOrigin, evaluate } from './shared-helpers.ts';
 
 /**
  * Runtime observation tools backed by the live page (CDP): console errors,

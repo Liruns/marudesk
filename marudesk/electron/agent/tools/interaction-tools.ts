@@ -1,7 +1,7 @@
 import { scrubText } from '../../../shared/scrub';
 import { clipText as clip } from '../../../shared/text-clip';
 import type { ToolContext, ToolResult } from './types';
-import { requireTab, evaluate } from './shared-helpers';
+import { requireTab, evaluate } from './shared-helpers.ts';
 
 /**
  * Interaction tools (click / fill / press_key / scroll) — the "agent drives the

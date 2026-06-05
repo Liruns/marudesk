@@ -38,12 +38,12 @@ import {
   PLAN_MODE_SYSTEM,
   SAFETY_FOOTER,
   approvalModeContext,
-} from './prompts';
+} from './prompts.ts';
 import {
   serializeForCompaction,
   splitForTailPreservation,
   messageChars,
-} from './compaction-utils';
+} from './compaction-utils.ts';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
 import { clearReadTracker } from './read-tracker';
