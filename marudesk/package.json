@@ -22,6 +22,7 @@
     "harness:relay-bridge": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/relay-bridge-harness.ts",
     "harness:webrtc": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/webrtc-host-harness.ts",
     "harness:search": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/search-core.harness.ts",
+    "harness:ssh-config": "node --experimental-strip-types electron/ssh/config-discovery.harness.ts",
     "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts",
     "harness:prompt-injection": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/prompt-injection-harness.ts",
     "harness:agent-attachments": "node --experimental-strip-types electron/agent/attachment-harness.ts",

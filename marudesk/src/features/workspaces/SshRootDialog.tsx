@@ -1,3 +1,4 @@
+import { KeyRound, Plus, Server } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
@@ -44,6 +45,7 @@ export function SshRootDialog({
   const [rootName, setRootName] = useState('');
 
   const [busy, setBusy] = useState(false);
+  const [homeLoading, setHomeLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,7 +71,7 @@ export function SshRootDialog({
       .then((list) => {
         if (!active) return;
         setConnections(list);
-        setShowNew(list.length === 0);
+        setShowNew(false);
         setConnectionId(list[0]?.id ?? null);
       })
       .catch((err) => active && setError(toMessage(err)));
@@ -95,6 +97,14 @@ export function SshRootDialog({
     username.trim().length > 0 &&
     (authMethod !== 'key' || privateKeyPath.trim().length > 0) &&
     (authMethod !== 'password' || password.length > 0);
+
+  const selectConnection = (id: string) => {
+    setConnectionId(id);
+    setShowNew(false);
+    setRemotePath('');
+    setError(null);
+    setStatus(null);
+  };
 
   /** Probe + save a new connection, then select it and prefill its home dir. */
   const connectNew = async () => {
@@ -151,6 +161,32 @@ export function SshRootDialog({
     }
   };
 
+  useEffect(() => {
+    if (!connectionId || showNew) return;
+    let active = true;
+    setHomeLoading(true);
+    setError(null);
+    setStatus(null);
+    void window.marudesk
+      .invoke('ssh:list-dir', {
+        connectionId,
+        path: '.',
+      })
+      .then((res) => {
+        if (!active) return;
+        if (res.ok) setRemotePath(res.path);
+        else setError(res.reason);
+      })
+      .catch((err) => active && setError(toMessage(err)))
+      .finally(() => {
+        if (active) setHomeLoading(false);
+      });
+    return () => {
+      active = false;
+      setHomeLoading(false);
+    };
+  }, [connectionId, showNew]);
+
   const submit = async () => {
     if (!connectionId || !remotePath.trim()) return;
     setBusy(true);
@@ -181,26 +217,69 @@ export function SshRootDialog({
       >
         <h2 className="text-body font-semibold text-fg-primary">Add SSH folder</h2>
 
-        {connections.length > 0 && !showNew ? (
-          <Field label="Connection">
-            <div className="flex gap-2">
-              <select
-                value={connectionId ?? ''}
-                onChange={(event) => setConnectionId(event.currentTarget.value)}
-                className={inputClass}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-caption font-medium text-fg-secondary uppercase">
+              Connections
+            </span>
+            <button
+              type="button"
+              aria-label="Add SSH connection"
+              title="Add SSH connection"
+              onClick={() => setShowNew(true)}
+              className={iconBtn}
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+          {connections.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              {connections.map((conn) => {
+                const selected = conn.id === connectionId && !showNew;
+                return (
+                  <button
+                    key={conn.id}
+                    type="button"
+                    onClick={() => selectConnection(conn.id)}
+                    className={cn(
+                      'w-full min-h-12 rounded-md border px-3 py-2 flex items-center gap-3 text-left',
+                      'transition-colors duration-fast',
+                      selected
+                        ? 'border-accent bg-accent-subtle'
+                        : 'border-subtle bg-surface-2 hover:border-default hover:bg-surface-3',
+                    )}
+                  >
+                    <span className="size-7 shrink-0 rounded-md border border-subtle bg-surface-1 flex items-center justify-center text-fg-tertiary">
+                      <Server size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-body-sm font-medium text-fg-primary">
+                        {conn.label}
+                      </span>
+                      <span className="block truncate text-caption text-fg-tertiary">
+                        {conn.username}@{conn.host}:{conn.port} - {connectionSourceLabel(conn)}
+                      </span>
+                    </span>
+                    <KeyRound size={14} className="shrink-0 text-fg-tertiary" />
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="min-h-12 rounded-md border border-subtle bg-surface-2 px-3 py-2 flex items-center justify-between gap-3">
+              <span className="text-body-sm text-fg-secondary">No SSH connections found</span>
+              <button
+                type="button"
+                aria-label="Add SSH connection"
+                title="Add SSH connection"
+                onClick={() => setShowNew(true)}
+                className={iconBtn}
               >
-                {connections.map((conn) => (
-                  <option key={conn.id} value={conn.id}>
-                    {conn.label} ({conn.username}@{conn.host}:{conn.port})
-                  </option>
-                ))}
-              </select>
-              <button type="button" onClick={() => setShowNew(true)} className={ghostBtn}>
-                New…
+                <Plus size={15} />
               </button>
             </div>
-          </Field>
-        ) : null}
+          )}
+        </div>
 
         {showNew ? (
           <div className="flex flex-col gap-2 rounded-md border border-subtle p-3">
@@ -267,7 +346,7 @@ export function SshRootDialog({
             <button
               type="button"
               onClick={() => void connectNew()}
-              disabled={busy || !newConnectionValid}
+              disabled={busy || homeLoading || !newConnectionValid}
               className={primaryBtn}
             >
               {busy ? 'Connecting…' : 'Connect & save'}
@@ -285,7 +364,12 @@ export function SshRootDialog({
                   className={inputClass}
                   placeholder="/home/ubuntu/project"
                 />
-                <button type="button" onClick={() => void fillHomePath()} disabled={busy} className={ghostBtn}>
+                <button
+                  type="button"
+                  onClick={() => void fillHomePath()}
+                  disabled={busy || homeLoading}
+                  className={ghostBtn}
+                >
                   Home
                 </button>
               </div>
@@ -306,7 +390,7 @@ export function SshRootDialog({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={busy || showNew || !connectionId || !remotePath.trim()}
+            disabled={busy || homeLoading || showNew || !connectionId || !remotePath.trim()}
             className={primaryBtn}
           >
             Add folder
@@ -334,6 +418,15 @@ const ghostBtn = cn(
   'h-8 px-3 rounded-md text-body-sm text-fg-secondary shrink-0',
   'hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast',
 );
+
+const iconBtn = cn(
+  'size-8 rounded-md flex items-center justify-center text-fg-tertiary shrink-0',
+  'hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast',
+);
+
+function connectionSourceLabel(conn: SshConnectionInfo): string {
+  return conn.source === 'ssh-config' ? '~/.ssh/config' : 'Saved';
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
