@@ -3,7 +3,6 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from 'react';
 import {
   ChevronsDownUp,
@@ -28,9 +27,8 @@ import { cn } from '../../lib/cn';
 import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import type {
   WorkspaceFileRef,
-  WorkspaceRecord,
-  WorkspaceRootId,
 } from '../../../shared/workspace';
+import { IconButton, WorkspaceRootsBar } from './ExplorerPanel.parts';
 import { useWorkspaceStore } from './store';
 import { useEditorStore } from '../editor/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -426,139 +424,3 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   );
 }
 
-function WorkspaceRootsBar({
-  record,
-  activeRootId,
-  onSelectRoot,
-  onAddRoot,
-  onRemoveRoot,
-}: {
-  record: WorkspaceRecord;
-  activeRootId: WorkspaceRootId | null;
-  onSelectRoot: (rootId: WorkspaceRootId) => void;
-  onAddRoot: () => void;
-  onRemoveRoot: (rootId: WorkspaceRootId) => void;
-}) {
-  const [menu, setMenu] = useState<{
-    root: WorkspaceRecord['roots'][number];
-    x: number;
-    y: number;
-  } | null>(null);
-
-  const openRootMenu = (
-    event: ReactMouseEvent<HTMLButtonElement>,
-    root: WorkspaceRecord['roots'][number],
-  ) => {
-    event.preventDefault();
-    setMenu({ root, x: event.clientX, y: event.clientY });
-  };
-
-  const menuItems = (root: WorkspaceRecord['roots'][number]): MenuItem[] => [
-    {
-      label: `Use root ${root.name}`,
-      icon: <FolderOpen size={14} />,
-      onSelect: () => onSelectRoot(root.id),
-    },
-    {
-      label: 'Add folder to workspace',
-      icon: <FolderPlus size={14} />,
-      onSelect: onAddRoot,
-    },
-    { type: 'separator' },
-    {
-      label: 'Remove folder from workspace',
-      icon: <Trash2 size={14} />,
-      danger: true,
-      disabled: record.roots.length <= 1,
-      onSelect: () => {
-        if (
-          window.confirm(
-            `Remove "${root.name}" from workspace "${record.name}"? Files stay on disk.`,
-          )
-        ) {
-          onRemoveRoot(root.id);
-        }
-      },
-    },
-  ];
-
-  return (
-    <div className="shrink-0 px-2 py-1.5 border-b border-subtle flex items-center gap-1 overflow-x-auto">
-      {record.roots.map((root) => {
-        const active = root.id === activeRootId;
-        return (
-          <button
-            key={root.id}
-            type="button"
-            aria-label={`Use root ${root.name}`}
-            title={root.root}
-            onClick={() => onSelectRoot(root.id)}
-            onContextMenu={(event) => openRootMenu(event, root)}
-            className={cn(
-              'h-6 min-w-0 inline-flex items-center gap-1.5 px-2 rounded text-caption',
-              'border transition-colors duration-fast',
-              active
-                ? 'border-accent bg-accent-subtle text-accent'
-                : 'border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default',
-            )}
-          >
-            <span className="truncate max-w-[88px]">{root.name}</span>
-            <span className="tabular-nums text-fg-tertiary">{root.files.length}</span>
-          </button>
-        );
-      })}
-      <button
-        type="button"
-        aria-label="Add folder to workspace"
-        title="Add folder to workspace"
-        onClick={onAddRoot}
-        className={cn(
-          'size-6 shrink-0 rounded border border-subtle bg-surface-2',
-          'flex items-center justify-center text-fg-tertiary',
-          'hover:text-fg-primary hover:border-default transition-colors duration-fast',
-        )}
-      >
-        <FolderPlus size={14} />
-      </button>
-      {menu ? (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          items={menuItems(menu.root)}
-          onClose={() => setMenu(null)}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function IconButton({
-  label,
-  onClick,
-  disabled = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className={cn(
-        'size-6 rounded flex items-center justify-center shrink-0',
-        'transition-colors duration-fast',
-        disabled
-          ? 'text-fg-tertiary/40 cursor-not-allowed'
-          : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
