@@ -28,7 +28,8 @@
     "harness:xai-vision": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/xai-vision-harness.ts",
     "harness:image-gen": "node --experimental-strip-types electron/agent/image-generation-harness.ts",
     "harness:media-gen": "node --experimental-strip-types electron/agent/image-generation-harness.ts",
-    "harness:plugins": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/plugins/plugin-harness.ts"
+    "harness:plugins": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/plugins/plugin-harness.ts",
+    "harness:agent-turn-edits": "node --experimental-strip-types electron/agent/turn-edits-harness.ts"
   },
   "build": {
     "appId": "com.marudesk.app",

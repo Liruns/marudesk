@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test';
+import type { AgentChatState } from '../shared/agent';
 import { launchApp } from './helpers/app';
 
 /**
  * Agentic AI Chat (docs/agentic-chat-design.md). These never call a real LLM —
- * they verify the panel mounts, the snapshot IPC round-trips, and the pre-turn
- * validation guards reject cleanly (no key / no workspace). The full tool loop is
- * driven by the model, so it's exercised by hand / unit-covered, not in CI.
+ * they verify the panel mounts, seeded renderer projections, snapshot IPC
+ * round-trips, and the pre-turn validation guards reject cleanly. The full tool
+ * loop is driven by the model, so it is exercised by hand / unit-covered, not in
+ * CI.
  */
 
 test('agent: chat panel mounts as the default Context tab', async () => {
@@ -29,6 +31,102 @@ test('agent: snapshot IPC returns an idle, empty chat state', async () => {
     expect(snap.messages).toEqual([]);
     expect(snap.edits).toEqual([]);
     expect(snap.turnId).toBeNull();
+  } finally {
+    await app.close();
+  }
+});
+
+test('agent: file changes render after the turn that produced them', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await page.getByRole('button', { name: 'Show context panel' }).click();
+    await expect(page.getByLabel('Agent prompt')).toBeVisible();
+    await page.evaluate(() => window.marudesk.invoke('agent:snapshot'));
+
+    const state: AgentChatState = {
+      turnId: null,
+      status: 'completed',
+      messages: [
+        {
+          id: 'u1',
+          turnId: 'turn-1',
+          role: 'user',
+          parts: [{ type: 'text', text: 'First turn request' }],
+          timestamp: 100,
+        },
+        {
+          id: 'a1',
+          turnId: 'turn-1',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'First turn done' }],
+          timestamp: 200,
+        },
+        {
+          id: 'u2',
+          turnId: 'turn-2',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Second turn request' }],
+          timestamp: 300,
+        },
+        {
+          id: 'a2',
+          turnId: 'turn-2',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Second turn done' }],
+          timestamp: 400,
+        },
+      ],
+      edits: [
+        {
+          id: 'edit-1',
+          turnId: 'turn-1',
+          path: 'first_turn_change.txt',
+          kind: 'create',
+          before: null,
+          after: 'first',
+          status: 'applied',
+          timestamp: 180,
+        },
+        {
+          id: 'edit-2',
+          turnId: 'turn-2',
+          path: 'second_turn_change.txt',
+          kind: 'create',
+          before: null,
+          after: 'second',
+          status: 'applied',
+          timestamp: 360,
+        },
+      ],
+      pendingApproval: null,
+      pendingQuestions: null,
+      usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
+      error: null,
+      activeSessionId: null,
+      endNote: null,
+    };
+
+    await app.evaluate(({ BrowserWindow }, payload: AgentChatState) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('missing main window');
+      win.webContents.send('agent:event', payload);
+    }, state);
+
+    await expect(page.getByText('first_turn_change.txt')).toBeVisible();
+    await expect(page.getByText('second_turn_change.txt')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Keep' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Revert' }).first()).toBeVisible();
+
+    const body = await page.locator('body').innerText();
+    const firstAnswer = body.indexOf('First turn done');
+    const firstChange = body.indexOf('first_turn_change.txt');
+    const secondPrompt = body.indexOf('Second turn request');
+    const secondAnswer = body.indexOf('Second turn done');
+    const secondChange = body.indexOf('second_turn_change.txt');
+    expect(firstAnswer).toBeGreaterThanOrEqual(0);
+    expect(firstChange).toBeGreaterThan(firstAnswer);
+    expect(firstChange).toBeLessThan(secondPrompt);
+    expect(secondChange).toBeGreaterThan(secondAnswer);
   } finally {
     await app.close();
   }

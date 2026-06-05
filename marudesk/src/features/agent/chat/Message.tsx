@@ -98,7 +98,7 @@ export const MessageList = memo(function MessageList({
   );
 });
 
-const MessageView = memo(function MessageView({
+export const MessageView = memo(function MessageView({
   message,
   streaming,
   verbosity,
