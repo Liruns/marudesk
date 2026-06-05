@@ -64,6 +64,7 @@ npm run harness:pair
 npm run harness:relay-bridge
 npm run harness:mcp
 npm run harness:search
+npm run harness:prompt-injection
 ```
 
 ## Architecture notes

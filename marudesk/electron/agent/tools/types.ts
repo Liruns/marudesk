@@ -47,6 +47,13 @@ export type ToolResult = {
   /** File edits applied by this call, for the chat's diff/revert history (P2). */
   edits?: AppliedChange[];
   /**
+   * Workspace-relative paths this call opened/touched (read_file, edit_file,
+   * multi_edit). The loop walks these toward the workspace root to lazily inject
+   * not-yet-seen per-directory instruction files (see nested-instructions.ts).
+   * Display-irrelevant — only the loop reads it.
+   */
+  touchedPaths?: string[];
+  /**
    * Media files this call produced (generate_image / generate_video), surfaced
    * inline in the transcript. Workspace-relative paths only — see
    * {@link ToolMediaArtifact}.

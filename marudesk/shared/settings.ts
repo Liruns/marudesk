@@ -128,6 +128,15 @@ export type AppSettings = {
      * Example: `npm run typecheck`.
      */
     verifyCommand: string;
+    /**
+     * Context hook (claude-code UserPromptSubmit parity). When set, the agent runs
+     * this command in the workspace at the START of every turn and folds its output
+     * into that turn's model-facing context (e.g. `git status -sb`, a test summary,
+     * a deploy state probe) — so the model always sees fresh, project-specific
+     * context the user chose, without a tool call. Empty = off. User-configured
+     * (trusted, opt-in); output is scrubbed + clipped and framed as reference data.
+     */
+    contextCommand: string;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -247,6 +256,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     fallback: { enabled: false, order: [] },
     autoCompact: { enabled: true, threshold: 0.8 },
     verifyCommand: '',
+    contextCommand: '',
   },
   pcControl: {
     enabled: false,
@@ -470,6 +480,7 @@ export function sanitizeSettings(
         ),
       },
       verifyCommand: asString(ag.verifyCommand, base.agent.verifyCommand),
+      contextCommand: asString(ag.contextCommand, base.agent.contextCommand),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

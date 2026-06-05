@@ -117,6 +117,11 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
   },
   {
     categoryId: 'agent',
+    labelKey: 'settings.agent.contextCommand.label',
+    keywords: 'context command per turn hook userpromptsubmit git status 컨텍스트 명령',
+  },
+  {
+    categoryId: 'agent',
     labelKey: 'settings.agent.fallback.label',
     keywords: 'fallback model chain rate limit failover 대체 모델 체인',
   },
