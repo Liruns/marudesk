@@ -2,6 +2,7 @@ import { scrubText } from '../../shared/scrub';
 import {
   ASK_USER_DEF,
   BUILTIN_TOOLS,
+  SPAWN_SUBAGENT_DEF,
   type McpTool,
   type McpToolDef,
   type ToolContext,
@@ -81,17 +82,19 @@ function index(): Map<string, McpTool> {
  * (incl. `exec`) ride along harmlessly — the loop still mediates every call.
  */
 export function listMcpTools(): McpToolDef[] {
-  return [...allTools(), ASK_USER_DEF];
+  return [...allTools(), SPAWN_SUBAGENT_DEF, ASK_USER_DEF];
 }
 
 /** A tool's full descriptor (incl. flags), or undefined if unknown. */
 export function getMcpToolDef(name: string): McpToolDef | undefined {
   if (name === ASK_USER_DEF.name) return ASK_USER_DEF;
+  if (name === SPAWN_SUBAGENT_DEF.name) return SPAWN_SUBAGENT_DEF;
   return index().get(name);
 }
 
 /** Whether a tool requires explicit per-call approval (eval_js, cookies, …). */
 export function isGatedTool(name: string): boolean {
+  if (name === SPAWN_SUBAGENT_DEF.name) return true;
   return !!index().get(name)?.gated;
 }
 

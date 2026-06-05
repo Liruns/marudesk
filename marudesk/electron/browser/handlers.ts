@@ -1,5 +1,10 @@
-import { clipboard, ipcMain, type BrowserWindow } from 'electron';
-import { type TabKind } from '../../shared/browser';
+import {
+  Menu,
+  clipboard,
+  ipcMain,
+  type BrowserWindow,
+} from 'electron';
+import { type BrowserNativeMenuItem, type TabKind } from '../../shared/browser';
 import { isSafePanelPath, isValidPluginId } from '../../shared/plugin';
 import type { WorkspaceFileRef, WorkspaceId } from '../../shared/workspace';
 import { defineHandler } from '../ipc/define-handler';
@@ -33,6 +38,7 @@ import {
   getDownloads,
 } from './downloads';
 import { navigateActive } from './navigation';
+import { popupNativeMenu } from './native-menu';
 import type { DownloadAction } from '../../shared/downloads';
 import {
   activateTab,
@@ -118,6 +124,17 @@ function parsePluginPanel(value: unknown): { id: string; entry: string } | undef
   const v = value as { id?: unknown; entry?: unknown };
   if (!isValidPluginId(v.id) || !isSafePanelPath(v.entry)) return undefined;
   return { id: v.id, entry: v.entry };
+}
+
+function parseNativeMenuItem(value: unknown, index: number): BrowserNativeMenuItem {
+  const v = obj(value, `items[${index}]`);
+  if (v.type === 'separator') return { type: 'separator' };
+  return {
+    id: str(v.id, `items[${index}].id`),
+    label: str(v.label, `items[${index}].label`),
+    enabled: v.enabled === undefined ? undefined : bool(v.enabled, `items[${index}].enabled`),
+    shortcut: v.shortcut === undefined ? undefined : str(v.shortcut, `items[${index}].shortcut`),
+  };
 }
 
 export function registerBrowserHandlers(deps: {
@@ -403,6 +420,20 @@ export function registerBrowserHandlers(deps: {
     rec.untitledName = undefined;
     pushState();
     return true;
+  });
+
+  defineHandler('browser:popup-menu', ([payload]) => {
+    const p = obj(payload);
+    const win = deps.getMainWindow();
+    if (!win || win.isDestroyed()) return null;
+    const items = arrayOf(p.items, parseNativeMenuItem, 'items');
+    return popupNativeMenu({
+      window: win,
+      x: num(p.x, 'x'),
+      y: num(p.y, 'y'),
+      items,
+      buildFromTemplate: (template) => Menu.buildFromTemplate(template),
+    });
   });
 
   ipcMain.on('inspect:capture', (event, payload: unknown) => {

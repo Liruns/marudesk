@@ -1,8 +1,9 @@
-import { ASK_USER, GATED_TOOLS, type McpGroup, type McpTool, type McpToolDef } from './types';
+import { ASK_USER, SPAWN_SUBAGENT, GATED_TOOLS, type McpGroup, type McpTool, type McpToolDef } from './types';
 import { TOOL_SCHEMAS } from './schemas';
 import { EXECUTORS } from './executors';
 import { IMAGE_GENERATION_TOOL } from './image-generation';
 import { VIDEO_GENERATION_TOOL } from './video-generation';
+import { WEB_SEARCH_TOOL } from './web-search';
 
 /**
  * The MCP descriptor layer (docs/context-mcp-design §1.1) — pairs each tool's
@@ -56,6 +57,7 @@ const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_f
 export const BUILTIN_TOOLS: McpTool[] = [
   IMAGE_GENERATION_TOOL,
   VIDEO_GENERATION_TOOL,
+  WEB_SEARCH_TOOL,
   ...TOOL_SCHEMAS.flatMap((s) => {
   if (s.name === ASK_USER) return [];
   const exec = EXECUTORS[s.name];
@@ -78,4 +80,11 @@ export const BUILTIN_TOOLS: McpTool[] = [
 export const ASK_USER_DEF: McpToolDef = {
   ...TOOL_SCHEMAS.find((s) => s.name === ASK_USER)!,
   group: 'ask',
+};
+
+/** The spawn_subagent definition is loop-intercepted so it can launch a child model. */
+export const SPAWN_SUBAGENT_DEF: McpToolDef = {
+  ...TOOL_SCHEMAS.find((s) => s.name === SPAWN_SUBAGENT)!,
+  group: 'agent',
+  gated: true,
 };

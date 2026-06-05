@@ -114,6 +114,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
   const setActiveRoot = useWorkspaceDeckStore((s) => s.setActiveRoot);
   const addRoot = useWorkspaceDeckStore((s) => s.addRoot);
+  const removeRoot = useWorkspaceDeckStore((s) => s.removeRoot);
 
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [width, setWidth] = useState(readExplorerWidth);
@@ -326,6 +327,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                 activeRootId={activeRootId}
                 onSelectRoot={(rootId) => void setActiveRoot(activeWorkspace.id, rootId)}
                 onAddRoot={() => void addRoot(activeWorkspace.id)}
+                onRemoveRoot={(rootId) => void removeRoot(activeWorkspace.id, rootId)}
               />
             ) : null}
             <div
@@ -442,12 +444,57 @@ function WorkspaceRootsBar({
   activeRootId,
   onSelectRoot,
   onAddRoot,
+  onRemoveRoot,
 }: {
   record: WorkspaceRecord;
   activeRootId: WorkspaceRootId | null;
   onSelectRoot: (rootId: WorkspaceRootId) => void;
   onAddRoot: () => void;
+  onRemoveRoot: (rootId: WorkspaceRootId) => void;
 }) {
+  const [menu, setMenu] = useState<{
+    root: WorkspaceRecord['roots'][number];
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const openRootMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    root: WorkspaceRecord['roots'][number],
+  ) => {
+    event.preventDefault();
+    setMenu({ root, x: event.clientX, y: event.clientY });
+  };
+
+  const menuItems = (root: WorkspaceRecord['roots'][number]): MenuItem[] => [
+    {
+      label: `Use root ${root.name}`,
+      icon: <FolderOpen size={14} />,
+      onSelect: () => onSelectRoot(root.id),
+    },
+    {
+      label: 'Add folder to workspace',
+      icon: <FolderPlus size={14} />,
+      onSelect: onAddRoot,
+    },
+    { type: 'separator' },
+    {
+      label: 'Remove folder from workspace',
+      icon: <Trash2 size={14} />,
+      danger: true,
+      disabled: record.roots.length <= 1,
+      onSelect: () => {
+        if (
+          window.confirm(
+            `Remove "${root.name}" from workspace "${record.name}"? Files stay on disk.`,
+          )
+        ) {
+          onRemoveRoot(root.id);
+        }
+      },
+    },
+  ];
+
   return (
     <div className="shrink-0 px-2 py-1.5 border-b border-subtle flex items-center gap-1 overflow-x-auto">
       {record.roots.map((root) => {
@@ -459,6 +506,7 @@ function WorkspaceRootsBar({
             aria-label={`Use root ${root.name}`}
             title={root.root}
             onClick={() => onSelectRoot(root.id)}
+            onContextMenu={(event) => openRootMenu(event, root)}
             className={cn(
               'h-6 min-w-0 inline-flex items-center gap-1.5 px-2 rounded text-caption',
               'border transition-colors duration-fast',
@@ -485,6 +533,14 @@ function WorkspaceRootsBar({
       >
         <FolderPlus size={14} />
       </button>
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems(menu.root)}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

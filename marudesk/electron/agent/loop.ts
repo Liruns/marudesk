@@ -30,7 +30,7 @@ import { buildModel, aiTools, humanizeModelError, isFailoverError, type ModelAut
 import { loadGlobalUserInstructions, loadWorkspaceInstructions } from './instructions';
 import { claimNestedInstructions, clearNestedInstructionClaims } from './nested-instructions';
 import { buildEnvironmentContext } from './environment';
-import { ASK_USER, describeToolInput, type ToolContext } from './tools';
+import { ASK_USER, SPAWN_SUBAGENT, describeToolInput, type ToolContext } from './tools';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
 import { clearReadTracker } from './read-tracker';
@@ -38,6 +38,7 @@ import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import type { SessionRecord, SessionSummary } from '../../shared/context';
 import { resolveProviderAuth } from './resolve-auth';
+import { runSubagentTool } from './subagent';
 
 /**
  * The manual step-driven agent loop (docs/agentic-chat-design.md §5). main owns
@@ -785,8 +786,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
       }
 
       call.state = 'running';
+      if (call.name === SPAWN_SUBAGENT) call.summary = describeToolInput(call.name, call.input);
       emit();
-      const out = await callMcpTool(call.name, call.input, ctx);
+      const out =
+        call.name === SPAWN_SUBAGENT
+          ? await runSubagentTool(call.input, ctx)
+          : await callMcpTool(call.name, call.input, ctx);
       call.state = out.isError ? 'error' : 'ok';
       call.summary = out.summary;
       call.resultText = out.text;

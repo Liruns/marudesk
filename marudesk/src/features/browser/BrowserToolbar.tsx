@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { BrowserMenu } from './BrowserMenu';
+import { BrowserHistoryMenu, BrowserMenu } from './BrowserMenu';
 import { useBrowserStrings } from './browserStrings';
 import type { NavState } from '../../../shared/browser';
 
@@ -148,6 +148,8 @@ export function BrowserToolbar({
           {zoomPercent}%
         </button>
       ) : null}
+
+      <BrowserHistoryMenu />
 
       {nav.audible || nav.audioMuted ? (
         <NavIconButton

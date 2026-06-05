@@ -1,4 +1,4 @@
-import { ASK_USER, type ToolSchema } from './types';
+import { ASK_USER, SPAWN_SUBAGENT, type ToolSchema } from './types';
 
 /**
  * JSON-Schema (Anthropic `input_schema`) for every built-in tool, including the
@@ -131,6 +131,22 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     name: 'browser_storage',
     description: "Read the live page's localStorage and/or sessionStorage entries. Read-only; values are secret-scrubbed. Requires user approval.",
     inputSchema: { type: 'object', properties: { kind: strProp("'local', 'session', or omit for both.") }, additionalProperties: false },
+  },
+  {
+    name: SPAWN_SUBAGENT,
+    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The child may inspect workspace/live context with non-mutating tools, cannot edit or run gated actions, and returns a final report to the parent. Use for parallel research, second opinions, and splitting analysis work.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: strProp('Self-contained instructions for the child agent.'),
+        provider: strProp('Optional provider id; defaults to the parent turn provider.'),
+        model: strProp('Optional model id; defaults to the parent turn model.'),
+        label: strProp('Optional short label for the child result card.'),
+        maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
+      },
+      required: ['task'],
+      additionalProperties: false,
+    },
   },
   {
     name: ASK_USER,

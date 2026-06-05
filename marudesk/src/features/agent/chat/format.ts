@@ -21,6 +21,7 @@ import {
   NotebookPen,
   FolderOpen,
   ExternalLink,
+  Bot,
   type LucideIcon,
 } from 'lucide-react';
 import type { Locale, TranslationKey } from '../../../i18n/messages';
@@ -146,6 +147,8 @@ export const TOOL_META: Record<string, ToolMeta> = {
   // Context MCP — reads of the live app (runtime spine) vs. stored state.
   browser_cookies: { labelKey: 'agent.chat.tool.cookies', icon: Cookie, runtime: true },
   browser_storage: { labelKey: 'agent.chat.tool.webStorage', icon: Database, runtime: true },
+  web_search: { labelKey: 'agent.chat.tool.webSearch', icon: Globe, runtime: true },
+  spawn_subagent: { labelKey: 'agent.chat.tool.spawnSubagent', icon: Bot, runtime: true },
   list_tabs: { labelKey: 'agent.chat.tool.listTabs', icon: LayoutGrid, runtime: true },
   read_page: { labelKey: 'agent.chat.tool.readPage', icon: Globe, runtime: true },
   list_terminals: { labelKey: 'agent.chat.tool.listTerminals', icon: SquareTerminal, runtime: true },

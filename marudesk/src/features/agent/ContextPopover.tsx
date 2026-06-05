@@ -5,7 +5,9 @@ import {
   Code,
   FileText,
   Globe,
+  Image,
   LayoutDashboard,
+  Paperclip,
   Settings,
   Sparkles,
   SquareTerminal,
@@ -68,6 +70,8 @@ type Props = {
   onClose: () => void;
   /** Insert text at the cursor in the draft textarea. */
   onInsertMention: (text: string) => void;
+  onAddPhoto: () => void;
+  onAddFile: () => void;
 };
 
 /**
@@ -86,7 +90,7 @@ type Props = {
  * Closes on outside pointer-down, Escape, or scroll — same dismiss contract as
  * the existing {@link ContextMenu} component.
  */
-export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
+export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto, onAddFile }: Props) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -163,6 +167,27 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
       )}
     >
       {/* ── Captures section ──────────────────────────────────────────── */}
+      <div className="flex flex-col py-1">
+        <button
+          type="button"
+          onClick={onAddPhoto}
+          className="flex items-center gap-2 px-3 py-1.5 text-left text-body-sm text-fg-secondary hover:bg-surface-3/60 hover:text-fg-primary transition-colors duration-fast"
+        >
+          <Image size={13} className="shrink-0 text-fg-tertiary" />
+          <span>{t('agent.context.addPhoto')}</span>
+        </button>
+        <button
+          type="button"
+          onClick={onAddFile}
+          className="flex items-center gap-2 px-3 py-1.5 text-left text-body-sm text-fg-secondary hover:bg-surface-3/60 hover:text-fg-primary transition-colors duration-fast"
+        >
+          <Paperclip size={13} className="shrink-0 text-fg-tertiary" />
+          <span>{t('agent.context.addFile')}</span>
+        </button>
+      </div>
+
+      <div className="h-px bg-surface-3 shrink-0" />
+
       <ContextSection label={t('agent.context.captures')}>
         {!hasCaptures ? (
           <EmptyHint>

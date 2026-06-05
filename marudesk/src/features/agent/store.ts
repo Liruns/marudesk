@@ -8,6 +8,11 @@ import { toPayload } from '../composer/store';
 import { useGitStore } from '../git/store';
 import { useProvidersStore } from '../providers/store';
 import { useTabsStore } from '../tabs/store';
+import {
+  formatAttachedFilesForPrompt,
+  mergeFileAttachments,
+  type PendingFileAttachment,
+} from './chat/attachments';
 
 /**
  * Renderer projection of the agentic AI Chat (docs/agentic-chat-design.md §8).
@@ -54,6 +59,8 @@ type AgentState = {
   draft: string;
   /** Images pasted/dropped into the composer, sent with the next turn. */
   pendingImages: AgentImageInput[];
+  /** Local files attached as @path context, sent with the next turn. */
+  pendingFiles: PendingFileAttachment[];
   /** Transcript detail level for the message list. */
   verbosity: TranscriptVerbosity;
   /** Recently sent prompts (newest last) for up/down recall in the composer. */
@@ -70,8 +77,12 @@ type AgentActions = {
   setDraft: (v: string) => void;
   /** Append pasted/dropped images to the pending attachment strip. */
   addImages: (images: AgentImageInput[]) => void;
+  /** Append local file references to the pending attachment strip. */
+  addFiles: (files: PendingFileAttachment[]) => void;
   /** Remove one pending image by index. */
   removeImage: (index: number) => void;
+  /** Remove one pending file by index. */
+  removeFile: (index: number) => void;
   /** Set (or clear) the prompt queued to auto-send when the current turn ends. */
   setQueuedPrompt: (v: string | null) => void;
   setVerbosity: (v: TranscriptVerbosity) => void;
@@ -125,6 +136,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
   pendingImages: [],
+  pendingFiles: [],
   promptHistory: loadHistory(),
   queuedPrompt: null,
   verbosity: loadVerbosity(),
@@ -136,8 +148,14 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   addImages: (images) =>
     set((s) => ({ pendingImages: [...s.pendingImages, ...images].slice(0, 8) })),
 
+  addFiles: (files) =>
+    set((s) => ({ pendingFiles: mergeFileAttachments(s.pendingFiles, files) })),
+
   removeImage: (index) =>
     set((s) => ({ pendingImages: s.pendingImages.filter((_, i) => i !== index) })),
+
+  removeFile: (index) =>
+    set((s) => ({ pendingFiles: s.pendingFiles.filter((_, i) => i !== index) })),
 
   setQueuedPrompt: (queuedPrompt) => set({ queuedPrompt }),
 
@@ -175,7 +193,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   },
 
   send: async () => {
-    const { draft, chat, pendingImages } = get();
+    const { draft, chat, pendingImages, pendingFiles } = get();
     const text = draft.trim();
     if (text.length === 0) return;
     if (chat.status === 'thinking' || chat.status === 'working' || chat.status === 'waiting_for_user') {
@@ -185,7 +203,11 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     const providers = useProvidersStore.getState();
     const provider = providers.selectedProvider;
     const model = providers.selectedModel;
-    const hasKey = providers.hasKeyForSelected();
+    let hasKey = providers.hasKeyForSelected();
+    if (!hasKey && !providers.statusChecked) {
+      await providers.refreshProviderStatus();
+      hasKey = useProvidersStore.getState().hasKeyForSelected();
+    }
     // AI Chat no longer requires an open workspace — file tools just degrade to a
     // friendly "open a folder" message in main, while browser/page tools and a
     // plain conversation work without one.
@@ -206,20 +228,22 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     } catch {
       // ignore — in-memory history still updates
     }
-    set({ localError: null, draft: '', pendingImages: [], promptHistory: history });
+    const fileContext = formatAttachedFilesForPrompt(pendingFiles);
+    const prompt = fileContext ? `${text}\n\n${fileContext}` : text;
+    set({ localError: null, draft: '', pendingImages: [], pendingFiles: [], promptHistory: history });
     try {
       const res = await window.marudesk.invoke('agent:send', {
         provider,
         model,
-        prompt: text,
+        prompt,
         captures,
         images: pendingImages.length > 0 ? pendingImages : undefined,
         tabId: activeWebTabId(),
       });
       // Restore the draft + images so the user can retry without re-attaching.
-      if (!res.ok) set({ localError: res.reason, draft: text, pendingImages });
+      if (!res.ok) set({ localError: res.reason, draft: text, pendingImages, pendingFiles });
     } catch (err) {
-      set({ localError: toMessage(err), draft: text, pendingImages });
+      set({ localError: toMessage(err), draft: text, pendingImages, pendingFiles });
     }
   },
 

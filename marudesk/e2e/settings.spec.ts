@@ -1,5 +1,15 @@
 import { test, expect } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { launchApp } from './helpers/app';
+
+function mkWorkspaceRoot(base: string, name: string): string {
+  const dir = path.join(base, name);
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'App.tsx'), `export const name = "${name}";\n`);
+  return dir;
+}
 
 test('settings: opens as a tab; theme + zoom apply live', async () => {
   const { app, page } = await launchApp();
@@ -76,6 +86,98 @@ test('settings: Ctrl/Cmd+, opens the Settings tab', async () => {
 
     // Then: the Settings tab opens.
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test('settings: opens in the active workspace instead of reusing another workspace tab', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-settings-ws-'));
+  const alphaRoot = mkWorkspaceRoot(base, 'alpha');
+  const betaRoot = mkWorkspaceRoot(base, 'beta');
+  const { app, page } = await launchApp();
+  try {
+    const records = await page.evaluate(
+      async ({ alphaRoot, betaRoot }) => {
+        const alpha = await window.marudesk.invoke('workspaces:create', {
+          name: 'Project Alpha',
+          roots: [{ name: 'Alpha', path: alphaRoot }],
+        });
+        const beta = await window.marudesk.invoke('workspaces:create', {
+          name: 'Project Beta',
+          roots: [{ name: 'Beta', path: betaRoot }],
+        });
+        return { alphaId: alpha.id, betaId: beta.id };
+      },
+      { alphaRoot, betaRoot },
+    );
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    const rail = page.getByRole('navigation', { name: 'Workspace rail' });
+    await expect(rail.getByRole('button', { name: 'Workspace Project Alpha' })).toBeVisible();
+    await expect(rail.getByRole('button', { name: 'Workspace Project Beta' })).toBeVisible();
+
+    await rail.getByRole('button', { name: 'Workspace Project Alpha' }).click();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+
+    await expect
+      .poll(async () => {
+        const snapshot = await page.evaluate(() =>
+          window.marudesk.invoke('browser:tabs-snapshot'),
+        );
+        return snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId)?.workspaceId;
+      })
+      .toBe(records.alphaId);
+
+    await rail.getByRole('button', { name: 'Workspace Project Beta' }).click();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+
+    const snapshot = await page.evaluate(() =>
+      window.marudesk.invoke('browser:tabs-snapshot'),
+    );
+    const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
+    const settingsWorkspaces = snapshot.tabs
+      .filter((tab) => tab.kind === 'settings')
+      .map((tab) => tab.workspaceId)
+      .sort();
+
+    expect(active?.kind).toBe('settings');
+    expect(active?.workspaceId).toBe(records.betaId);
+    expect(settingsWorkspaces).toEqual([records.alphaId, records.betaId].sort());
+  } finally {
+    await app.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('settings: Plugins open-folder button invokes the install-folder handler', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await app.evaluate(({ ipcMain }) => {
+      const g = globalThis as typeof globalThis & { __pluginsOpenFolderCalls?: number };
+      g.__pluginsOpenFolderCalls = 0;
+      ipcMain.removeHandler('plugins:open-folder');
+      ipcMain.handle('plugins:open-folder', () => {
+        g.__pluginsOpenFolderCalls = (g.__pluginsOpenFolderCalls ?? 0) + 1;
+        return { path: 'C:\\fake\\plugins' };
+      });
+    });
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    await page.getByRole('button', { name: 'Plugins' }).click();
+    await expect(page.getByRole('heading', { name: 'Plugins' })).toBeVisible();
+    await page.getByRole('button', { name: 'Open plugins folder' }).click();
+
+    await expect.poll(() =>
+      app.evaluate(() => {
+        const g = globalThis as typeof globalThis & { __pluginsOpenFolderCalls?: number };
+        return g.__pluginsOpenFolderCalls ?? 0;
+      }),
+    ).toBe(1);
   } finally {
     await app.close();
   }
