@@ -22,7 +22,7 @@ import { expandInstructionImports } from './instruction-imports';
  * Dependency-light (node fs + path only, no Electron) so it's harness-testable.
  */
 
-const NESTED_CANDIDATES = ['AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'];
+const NESTED_CANDIDATES = ['AGENTS.override.md', 'AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'];
 const MAX_NESTED_BYTES = 8_000;
 /** Cap instruction files injected per single tool call (a deep path is bounded). */
 const MAX_FILES_PER_CALL = 4;

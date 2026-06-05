@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { keywordModePreamble, wantsDeepThinking } from './keyword-modes';
+import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './keyword-modes';
 import { claimNestedInstructions, clearNestedInstructionClaims } from './nested-instructions';
 import { expandInstructionImports } from './instruction-imports';
 import { buildEnvironmentContext } from './environment';
@@ -25,37 +25,63 @@ function check(name: string, fn: () => void | Promise<void>): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Mirror the loop's sticky-mode resolution so we can test persistence here.
+  function resolveSticky(prev: string[], prompt: string): string[] {
+    if (isModeClear(prompt)) return [];
+    const added = modesInPrompt(prompt);
+    return added.length > 0 ? [...new Set([...prev, ...added])] : prev;
+  }
+
   console.log('keyword-modes:');
 
-  await check('no keyword → null preamble, no deep-think', () => {
-    assert.equal(keywordModePreamble('please fix the login bug'), null);
-    assert.equal(wantsDeepThinking('please fix the login bug'), false);
+  await check('no keyword → no modes, null preamble', () => {
+    assert.deepEqual(modesInPrompt('please fix the login bug'), []);
+    assert.equal(modePreamble([]), null);
+    assert.equal(modeRaisesThinking([]), false);
   });
 
   await check('ulw triggers ultrawork', () => {
-    const p = keywordModePreamble('ulw refactor the parser');
-    assert.ok(p && p.includes('Ultrawork mode'));
+    assert.deepEqual(modesInPrompt('ulw refactor the parser'), ['ultrawork']);
+    assert.ok(modePreamble(['ultrawork'])?.includes('Ultrawork mode'));
   });
 
   await check('multiple modes accumulate (ultrathink + ulw)', () => {
-    const p = keywordModePreamble('ultrathink and ulw on this');
-    assert.ok(p && p.includes('Deep-thinking mode'), 'has think');
-    assert.ok(p && p.includes('Ultrawork mode'), 'has ultrawork');
-    assert.equal(wantsDeepThinking('ultrathink and ulw on this'), true);
+    const ids = modesInPrompt('ultrathink and ulw on this');
+    assert.ok(ids.includes('think') && ids.includes('ultrawork'));
+    const p = modePreamble(ids)!;
+    assert.ok(p.includes('Deep-thinking mode') && p.includes('Ultrawork mode'));
+    assert.equal(modeRaisesThinking(ids), true);
   });
 
   await check('search / analyze phrases trigger their modes', () => {
-    assert.ok(keywordModePreamble('deep search for callers')?.includes('Search mode'));
-    assert.ok(keywordModePreamble('deep analysis of the loop')?.includes('Analyze mode'));
+    assert.deepEqual(modesInPrompt('deep search for callers'), ['search']);
+    assert.deepEqual(modesInPrompt('deep analysis of the loop'), ['analyze']);
   });
 
   await check('keywords inside code fences do NOT trigger', () => {
-    assert.equal(keywordModePreamble('see `ulw` in the snippet'), null);
-    assert.equal(keywordModePreamble('```\nultrathink\n```\nwhat is this?'), null);
+    assert.deepEqual(modesInPrompt('see `ulw` in the snippet'), []);
+    assert.deepEqual(modesInPrompt('```\nultrathink\n```\nwhat is this?'), []);
   });
 
   await check('bare common words do not misfire', () => {
-    assert.equal(keywordModePreamble('search the docs and think about it'), null);
+    assert.deepEqual(modesInPrompt('search the docs and think about it'), []);
+  });
+
+  await check('modes are sticky across turns until cleared', () => {
+    let active: string[] = [];
+    active = resolveSticky(active, 'ulw build the feature');
+    assert.deepEqual(active, ['ultrawork']);
+    // A later plain message keeps the mode active (no re-typing needed).
+    active = resolveSticky(active, 'now wire up the button');
+    assert.deepEqual(active, ['ultrawork']);
+    // Adding another mode stacks it.
+    active = resolveSticky(active, 'ultrathink about the edge cases');
+    assert.ok(active.includes('ultrawork') && active.includes('think'));
+    // "mode off" clears everything, and a clear message does not re-add.
+    active = resolveSticky(active, 'mode off, just answer briefly');
+    assert.deepEqual(active, []);
+    active = resolveSticky(active, 'stop ultrawork');
+    assert.deepEqual(active, []);
   });
 
   console.log('nested-instructions:');
@@ -101,6 +127,13 @@ async function main(): Promise<void> {
       const block = await claimNestedInstructions(root, 'pkg/app.ts');
       assert.ok(block.includes('pkg/AGENTS.md'), 'AGENTS chosen');
       assert.ok(!block.includes('pkg claude (should be ignored)'), 'CLAUDE skipped');
+    });
+
+    await check('AGENTS.override.md wins over AGENTS.md', async () => {
+      await fs.writeFile(path.join(root, 'pkg', 'AGENTS.override.md'), '# pkg override wins');
+      clearNestedInstructionClaims();
+      const block = await claimNestedInstructions(root, 'pkg/app.ts');
+      assert.ok(block.includes('pkg/AGENTS.override.md') && block.includes('pkg override wins'));
     });
   } finally {
     await fs.rm(root, { recursive: true, force: true });

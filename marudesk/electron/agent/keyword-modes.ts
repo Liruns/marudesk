@@ -1,22 +1,25 @@
 /**
- * Keyword modes (absorbed from oh-my-openagent's IntentGate, starting with the
- * `ulw`/ultrawork trigger): shorthand a user can drop into a request to switch
- * the agent into a tuned working mode. When a keyword is present we prepend a
- * short preamble to the MODEL-facing user text (the chat still shows the user's
- * original message), so it's a cheap, opt-in steer with no model/loop changes.
+ * Keyword modes (absorbed from oh-my-openagent's IntentGate, beyond both it and
+ * Claude Code): shorthand a user drops into a request to switch the agent into a
+ * tuned working mode. We prepend a short preamble to the MODEL-facing user text
+ * (the chat still shows the user's original message), so it's a cheap, opt-in
+ * steer with no model/loop changes.
  *
- * Multiple modes accumulate: "ultrathink and ulw" applies both preambles. Order
- * is the MODES order, deduped. A `think`-family mode additionally asks the loop
- * to raise the model's reasoning effort this turn (see {@link wantsDeepThinking}).
+ * STICKY + user-controlled (the loop owns the active set): once a mode keyword
+ * appears it persists across turns until the user clears it ("mode off") — unlike
+ * oh-my-openagent, which re-injects a fixed mode's full prompt into EVERY message
+ * with no off switch, and unlike Claude Code, which has no equivalent. Multiple
+ * modes stack. A `think`-family mode also raises the turn's reasoning effort (see
+ * {@link modeRaisesThinking}).
  *
- * Triggers are intentional shorthands / phrases (not bare common words like
- * "search"), so per-message steering doesn't misfire on ordinary prose.
- * Detection ignores code (fenced ``` blocks + `inline`) so a literal keyword in
- * a snippet doesn't trigger it.
+ * This module is pure (no state): it detects which modes a message references and
+ * renders preambles for an id set. Triggers are intentional shorthands / phrases
+ * (not bare common words), and detection ignores code (fenced ``` + `inline`) so
+ * a keyword inside a snippet never triggers.
  */
 
 type KeywordMode = {
-  /** Stable id (dedupe + tests). */
+  /** Stable id — the loop tracks the active set by these. */
   id: string;
   /** Word-boundary pattern tested against the user's prose (code stripped). */
   pattern: RegExp;
@@ -24,8 +27,7 @@ type KeywordMode = {
   preamble: string;
   /**
    * Marks the model's extended-thinking effort to be raised this turn (the
-   * think/ultrathink family). The loop only acts on this for reasoning models;
-   * otherwise it's a no-op beyond the preamble steer.
+   * think/ultrathink family). The loop only acts on this for reasoning models.
    */
   raisesThinking?: boolean;
 };
@@ -72,33 +74,38 @@ const MODES: KeywordMode[] = [
   },
 ];
 
+/** Explicit "turn the modes off" control phrases (checked before additions). */
+const OFF_RE = /\b(modes? off|clear modes?|reset modes?|stop (?:ultrawork|ulw|deep[- ]?think(?:ing)?|modes?))\b/i;
+
 /** Remove fenced and inline code so keywords inside snippets don't trigger. */
 function stripCode(text: string): string {
   return text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ');
 }
 
-/** Every keyword mode present in `prompt` (code stripped), in MODES order. */
-function detectModes(prompt: string): KeywordMode[] {
+/** Whether the message is an explicit request to clear all active modes. */
+export function isModeClear(prompt: string): boolean {
+  return OFF_RE.test(stripCode(prompt));
+}
+
+/** The mode ids referenced in `prompt` (code stripped), in MODES order. */
+export function modesInPrompt(prompt: string): string[] {
   const prose = stripCode(prompt);
-  return MODES.filter((m) => m.pattern.test(prose));
+  return MODES.filter((m) => m.pattern.test(prose)).map((m) => m.id);
 }
 
 /**
- * The combined preamble for every keyword mode present in `prompt`, or null when
- * none match. Prepend it to the model-facing user text. Multiple modes stack,
- * separated by a blank line.
+ * The combined preamble for an active mode-id set, or null when empty. Modes are
+ * rendered in MODES order regardless of activation order, separated by a blank
+ * line. Unknown ids are ignored.
  */
-export function keywordModePreamble(prompt: string): string | null {
-  const modes = detectModes(prompt);
-  if (modes.length === 0) return null;
-  return modes.map((m) => m.preamble).join('\n\n');
+export function modePreamble(ids: readonly string[]): string | null {
+  const set = new Set(ids);
+  const blocks = MODES.filter((m) => set.has(m.id)).map((m) => m.preamble);
+  return blocks.length > 0 ? blocks.join('\n\n') : null;
 }
 
-/**
- * Whether the prompt asks for deep thinking (think/ultrathink family), so the
- * loop can raise the turn's reasoning effort. Only meaningful for reasoning
- * models — the caller gates on that.
- */
-export function wantsDeepThinking(prompt: string): boolean {
-  return detectModes(prompt).some((m) => m.raisesThinking === true);
+/** Whether any active mode raises the turn's reasoning effort (think family). */
+export function modeRaisesThinking(ids: readonly string[]): boolean {
+  const set = new Set(ids);
+  return MODES.some((m) => set.has(m.id) && m.raisesThinking === true);
 }

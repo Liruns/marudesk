@@ -34,7 +34,7 @@ import { ASK_USER, describeToolInput, type ToolContext } from './tools';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
 import { clearReadTracker } from './read-tracker';
-import { keywordModePreamble, wantsDeepThinking } from './keyword-modes';
+import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './keyword-modes';
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import type { SessionRecord, SessionSummary } from '../../shared/context';
 import { resolveProviderAuth } from './resolve-auth';
@@ -152,6 +152,14 @@ let approvalResolver: ((decision: ApprovalDecision) => void) | null = null;
  * always" parity). Cleared on reset/resume so it never leaks across conversations.
  */
 const sessionAllowedTools = new Set<string>();
+/**
+ * Active sticky keyword modes for this conversation (ultrawork/search/analyze/
+ * think). A mode keyword in any message activates it for all SUBSEQUENT turns
+ * until the user clears it ("mode off"), so the user doesn't re-type "ulw" every
+ * message (oh-my-openagent re-injects with no off switch; Claude Code has no
+ * modes). Cleared on reset/resume. See keyword-modes.ts.
+ */
+let activeModes: string[] = [];
 let answersResolver: ((answers: AgentAnswers) => void) | null = null;
 // Synchronous re-entrancy guard: status is only set busy *after* an await in
 // startTurn, so two near-simultaneous sends could both pass busy(). This closes
@@ -259,7 +267,11 @@ function recordEdits(turnId: string, changes: AppliedChange[] | undefined): void
 }
 
 /** Compact, model-facing context for the first user turn (captures + tab). */
-function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): string {
+function buildUserText(
+  input: AgentSendInput,
+  ws: WorkspaceSummary | null,
+  modePreambleText: string | null,
+): string {
   const lines: string[] = [
     ws
       ? `Workspace: ${ws.name} (${ws.files.length} files indexed).`
@@ -272,10 +284,9 @@ function buildUserText(input: AgentSendInput, ws: WorkspaceSummary | null): stri
     if (url) lines.push(`Active web tab URL: ${scrubText(url)}`);
   }
   // Keyword modes (e.g. "ulw"/ultrawork): steer the model via a prepended
-  // preamble. Applied to the model-facing text only — the chat shows the
-  // original message unchanged.
-  const preamble = keywordModePreamble(input.prompt);
-  if (preamble) lines.push('', preamble);
+  // preamble for every CURRENTLY-ACTIVE (sticky) mode. Applied to the
+  // model-facing text only — the chat shows the original message unchanged.
+  if (modePreambleText) lines.push('', modePreambleText);
   lines.push('', `User request: ${input.prompt.trim()}`);
   if (input.captures.length > 0) {
     lines.push('', 'Attached context (selected by the user):');
@@ -1145,7 +1156,18 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     state.pendingApproval = null;
     state.pendingQuestions = null;
 
-    const userText = buildUserText(input, ws);
+    // Resolve sticky keyword modes for this turn: an explicit "mode off" clears
+    // the set; otherwise any mode keyword in the message is added to the active
+    // set, which persists across turns. The preamble for the full active set is
+    // folded into the model-facing text below.
+    if (isModeClear(input.prompt)) {
+      activeModes = [];
+    } else {
+      const added = modesInPrompt(input.prompt);
+      if (added.length > 0) activeModes = [...new Set([...activeModes, ...added])];
+    }
+    const modePreambleText = modePreamble(activeModes);
+    const userText = buildUserText(input, ws, modePreambleText);
     const images = input.images ?? [];
     const promptNote = input.captures.length > 0 ? `${input.prompt.trim()}\n\n(+${input.captures.length} attached capture${input.captures.length === 1 ? '' : 's'})` : input.prompt.trim();
     // Show the prompt text plus any pasted images as thumbnails in the transcript.
@@ -1179,11 +1201,11 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // or remapped id still resolves through the same static catalog entry).
     const modelReasoning =
       MODELS.find((m) => m.provider === input.provider && m.id === input.model)?.reasoning ?? false;
-    // Deep-thinking keyword mode (think/ultrathink): raise this turn's reasoning
-    // effort to the max for a reasoning model. Never lowers the configured effort
-    // and is a no-op for non-reasoning models (the builder ignores effort there).
+    // Deep-thinking mode active (think/ultrathink, sticky): raise this turn's
+    // reasoning effort to the max for a reasoning model. Never lowers the
+    // configured effort and is a no-op for non-reasoning models.
     const reasoningEffort =
-      modelReasoning && wantsDeepThinking(input.prompt) ? 'high' : agentSettings.reasoningEffort;
+      modelReasoning && modeRaisesThinking(activeModes) ? 'high' : agentSettings.reasoningEffort;
     void runLoop({
       auth,
       baseUrl,
@@ -1310,6 +1332,8 @@ export function reset(): boolean {
   // Drop lazily-injected directory instruction claims so the next conversation
   // re-injects them on demand.
   clearNestedInstructionClaims();
+  // Sticky keyword modes are conversation-scoped — drop them with the chat.
+  activeModes = [];
   // "Allow always" choices are conversation-scoped — drop them with the chat.
   sessionAllowedTools.clear();
   // The prior conversation was persisted on its last turn's finish(); drop its id
@@ -1339,6 +1363,7 @@ export async function resumeSession(id: string): Promise<boolean> {
   // edit in the resumed session.
   clearReadTracker();
   clearNestedInstructionClaims();
+  activeModes = [];
   state = emptyAgentChatState();
   state.edits = keptEdits;
   state.messages = record.messages ?? [];

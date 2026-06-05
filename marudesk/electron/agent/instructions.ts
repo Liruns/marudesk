@@ -22,7 +22,9 @@ import { expandInstructionImports } from './instruction-imports';
  * file is skipped.
  */
 
-const INSTRUCTION_CANDIDATES = ['AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'];
+// AGENTS.override.md wins over AGENTS.md (Codex override-file parity), then the
+// Claude-side candidates.
+const INSTRUCTION_CANDIDATES = ['AGENTS.override.md', 'AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'];
 const LOCAL_INSTRUCTION = 'CLAUDE.local.md';
 const GLOBAL_USER_CANDIDATES = [
   path.join(os.homedir(), '.claude', 'CLAUDE.md'),
