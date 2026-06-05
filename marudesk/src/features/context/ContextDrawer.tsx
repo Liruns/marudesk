@@ -1,5 +1,5 @@
 import { useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { CheckSquare, History, Maximize2, Square, Trash2 } from 'lucide-react';
+import { CheckSquare, History, Maximize2, Square, Trash2, X } from 'lucide-react';
 import { Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
@@ -123,16 +123,19 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
       <div className="relative h-full flex flex-col" style={{ width }}>
         <header className="h-10 shrink-0 flex items-center justify-between px-3 border-b border-subtle">
           <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.title')}</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5">
             {tab === 'agent' ? (
               <button
                 type="button"
                 onClick={() => setShowHistory((v) => !v)}
                 aria-label={t('context.drawer.history')}
                 title={t('context.drawer.history')}
+                aria-pressed={showHistory}
                 className={cn(
-                  'transition-colors duration-fast',
-                  showHistory ? 'text-fg-primary' : 'text-fg-tertiary hover:text-fg-primary',
+                  'flex size-6 items-center justify-center rounded transition-colors duration-fast',
+                  showHistory
+                    ? 'text-fg-primary bg-surface-3'
+                    : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-3',
                 )}
               >
                 <History size={13} />
@@ -144,7 +147,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                 onClick={() => void openAgentTab()}
                 aria-label={t('context.drawer.openChatTab')}
                 title={t('context.drawer.openChatTab')}
-                className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
+                className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
               >
                 <Maximize2 size={13} />
               </button>
@@ -153,9 +156,9 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
               type="button"
               onClick={() => onOpenChange(false)}
               aria-label={t('context.drawer.close')}
-              className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body leading-none"
+              className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
             >
-              ×
+              <X size={14} />
             </button>
           </div>
         </header>
@@ -200,7 +203,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                       aria-label={t(
                         allSelected ? 'context.drawer.deselectAll' : 'context.drawer.selectAll',
                       )}
-                      className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
+                      className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
                     >
                       {allSelected ? (
                         <CheckSquare size={14} />
@@ -212,7 +215,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                       type="button"
                       onClick={clearCaptures}
                       aria-label={t('context.drawer.clearAll')}
-                      className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
+                      className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-error hover:bg-error-subtle/30 transition-colors duration-fast"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -243,9 +246,9 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                 type="button"
                 onClick={() => setShowHistory(false)}
                 aria-label={t('context.drawer.closeHistory')}
-                className="text-fg-tertiary hover:text-fg-primary transition-colors duration-fast text-body leading-none"
+                className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
               >
-                ×
+                <X size={14} />
               </button>
             </header>
             <SessionList className="flex-1" onPick={() => setShowHistory(false)} />

@@ -155,7 +155,9 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention }: Props) {
       style={{ left: pos?.left ?? 8, top: pos?.top, visibility: pos ? undefined : 'hidden' }}
       className={cn(
         'fixed z-50 w-72 -translate-y-full mb-1',
-        'rounded-lg border border-default bg-surface-1 shadow-xl',
+        // L2 "soft glow" is the design system's popover elevation (§6); shadow-xl
+        // was an off-system Tailwind default.
+        'rounded-lg border border-default bg-surface-1 shadow-glow',
         'flex flex-col overflow-hidden',
         'text-body-sm',
       )}
