@@ -15,13 +15,6 @@ import { isSshRootKey } from '../../shared/ssh';
  * host. Absolute paths, null bytes, and traversal are still refused.
  */
 
-/** SFTP status code for "no such file" (ssh2 surfaces it on the error's `code`). */
-const SFTP_NO_SUCH_FILE = 2;
-
-function isNoSuchFile(err: unknown): boolean {
-  return (err as { code?: number } | null)?.code === SFTP_NO_SUCH_FILE;
-}
-
 export type RemoteRoot = { connectionId: string; remoteRoot: string };
 
 /** Parse an `ssh://<connId><absPosixPath>` workspace-root key. */
@@ -88,16 +81,20 @@ export function lstat(sftp: SFTPWrapper, p: string): Promise<Stats> {
   });
 }
 
-/** lstat that yields null instead of throwing when the path doesn't exist. */
+/**
+ * lstat that yields null instead of throwing when the path is absent. Mirrors
+ * the local `lstatOrNull` (fs-safe.ts), which swallows any error — SFTP servers
+ * disagree on the status code for "no such file" (2 is common but not
+ * universal), so keying on a specific code would misbehave across servers.
+ */
 export async function lstatOrNull(
   sftp: SFTPWrapper,
   p: string,
 ): Promise<Stats | null> {
   try {
     return await lstat(sftp, p);
-  } catch (err) {
-    if (isNoSuchFile(err)) return null;
-    throw err;
+  } catch {
+    return null;
   }
 }
 
@@ -135,6 +132,31 @@ export function rename(sftp: SFTPWrapper, src: string, dest: string): Promise<vo
   return new Promise((resolve, reject) => {
     sftp.rename(src, dest, (err) => (err ? reject(err) : resolve()));
   });
+}
+
+/**
+ * Replace `dest` with `src`. Standard SFTP `SSH_FXP_RENAME` errors when the
+ * destination already exists (OpenSSH enforces this), which would break every
+ * editor save (the atomic temp→rename over an existing file). Prefer OpenSSH's
+ * `posix-rename@openssh.com` extension (atomic overwrite, supported by virtually
+ * all OpenSSH servers); fall back to unlink-then-rename when unavailable (a
+ * brief non-atomic window, but the temp is unguessable so nothing else races it).
+ */
+export async function renameReplace(
+  sftp: SFTPWrapper,
+  src: string,
+  dest: string,
+): Promise<void> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      sftp.ext_openssh_rename(src, dest, (err) => (err ? reject(err) : resolve()));
+    });
+    return;
+  } catch {
+    // Extension unsupported by this server — fall through to a plain replace.
+  }
+  await unlink(sftp, dest).catch(() => undefined);
+  await rename(sftp, src, dest);
 }
 
 export type RemoteDirEntry = { filename: string; attrs: Stats };
@@ -183,7 +205,7 @@ export async function writeFileAtomic(
     stream.end(content, 'utf8');
   });
   try {
-    await rename(sftp, tmp, abs);
+    await renameReplace(sftp, tmp, abs);
   } catch (err) {
     await unlink(sftp, tmp).catch(() => undefined);
     throw err;

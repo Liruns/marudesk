@@ -25,6 +25,8 @@ import {
  */
 
 const EXEC_MAX_OUTPUT = 64 * 1024 * 1024;
+/** Bound on a single remote command (mirrors the local indexer's git timeout). */
+const EXEC_TIMEOUT_MS = 15_000;
 
 type ManagedConnection = {
   info: Omit<SshConnectionInfo, 'connected'>;
@@ -32,7 +34,7 @@ type ManagedConnection = {
   client: Client | null;
   sftp: SFTPWrapper | null;
   /** De-dupes concurrent connects so callers share one handshake. */
-  pending: Promise<{ client: Client; sftp: SFTPWrapper }> | null;
+  pending: Promise<SFTPWrapper> | null;
 };
 
 const connections = new Map<SshConnectionId, ManagedConnection>();
@@ -130,17 +132,25 @@ function requireConn(id: SshConnectionId): ManagedConnection {
 }
 
 function detach(conn: ManagedConnection): void {
-  if (conn.client) {
-    conn.client.removeAllListeners();
+  const client = conn.client;
+  // Clear the fields first so the 'close' that `end()` triggers re-enters here
+  // as a no-op (the live-session listeners are guarded by identity).
+  conn.client = null;
+  conn.sftp = null;
+  conn.pending = null;
+  if (client) {
+    // Drop the teardown listeners but keep a no-op 'error' sink: ending an
+    // already-broken client can still emit 'error', which with no listener is
+    // an uncaught exception that crashes the main process.
+    client.removeAllListeners('close');
+    client.removeAllListeners('error');
+    client.on('error', () => undefined);
     try {
-      conn.client.end();
+      client.end();
     } catch {
       // best-effort teardown
     }
   }
-  conn.client = null;
-  conn.sftp = null;
-  conn.pending = null;
 }
 
 /** Get a live SFTP channel for a stored connection, connecting if needed. */
@@ -148,25 +158,34 @@ export async function ensureSftp(id: SshConnectionId): Promise<SFTPWrapper> {
   const conn = requireConn(id);
   if (conn.sftp && conn.client) return conn.sftp;
   if (!conn.pending) {
+    // Resolve to the live SFTP. The client/sftp fields are assigned INSIDE the
+    // factory (before resolve) so concurrent awaiters never observe a window
+    // where the handshake finished but the connection isn't recorded — which
+    // would let a second caller open a duplicate, leaked client. `pending` is
+    // cleared only on failure; on success it's harmless (the cached-handle
+    // check above short-circuits) and `detach` clears it on disconnect.
     conn.pending = (async () => {
       const config = await buildConnectConfig(conn.info, conn.auth);
       const opened = await openClient(config);
-      opened.client.on('close', () => {
+      // Keep an error handler attached for the connection's whole life: an
+      // EventEmitter 'error' with no listener is an uncaught exception that
+      // would crash the main process. Both error and close tear the session
+      // down so the next op reconnects.
+      const drop = (): void => {
         if (conn.client === opened.client) detach(conn);
-      });
-      return opened;
+      };
+      opened.client.on('error', drop);
+      opened.client.on('close', drop);
+      conn.client = opened.client;
+      conn.sftp = opened.sftp;
+      return opened.sftp;
     })();
   }
   try {
-    const { client, sftp } = await conn.pending;
-    conn.client = client;
-    conn.sftp = sftp;
-    return sftp;
+    return await conn.pending;
   } catch (err) {
     conn.pending = null;
     throw err;
-  } finally {
-    conn.pending = null;
   }
 }
 
@@ -189,6 +208,13 @@ export async function execCommand(
       const errParts: string[] = [];
       let total = 0;
       let overflowed = false;
+      let timedOut = false;
+      // A stuck/slow remote command must not hang the indexer forever (the
+      // local git path has its own timeout). Force the channel closed and fail.
+      const timer = setTimeout(() => {
+        timedOut = true;
+        stream.close();
+      }, EXEC_TIMEOUT_MS);
       stream.on('data', (data: Buffer) => {
         total += data.length;
         if (total > EXEC_MAX_OUTPUT) {
@@ -201,8 +227,16 @@ export async function execCommand(
       stream.stderr.on('data', (data: Buffer) => {
         errParts.push(data.toString('utf8'));
       });
-      stream.on('error', reject);
+      stream.on('error', (streamErr: Error) => {
+        clearTimeout(timer);
+        reject(streamErr);
+      });
       stream.on('close', (code: number | null) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          reject(new Error('ssh command timed out'));
+          return;
+        }
         if (overflowed) {
           reject(new Error('ssh command output exceeded the size limit'));
           return;

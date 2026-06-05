@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { isSshRootKey } from '../shared/ssh';
 
 /**
  * Canonical workspace path-safety helpers. Every main-process file operation
@@ -29,6 +30,17 @@ export function resolveWorkspacePath(
   root: string,
   rel: string,
 ): { rel: string; abs: string } {
+  // A remote (ssh://) root must never reach the local FS path machinery: node's
+  // `path.resolve('ssh://…', rel)` would silently produce a real LOCAL path that
+  // also passes isInsideRoot, so a caller that skipped the remote dispatch (the
+  // agent file tools, patch, git, search) would read/write stray local files
+  // instead of the remote host. Fail loudly here — the single local-FS chokepoint
+  // — rather than corrupt. Remote-aware ops route to electron/ssh/* before this.
+  if (isSshRootKey(root)) {
+    throw new Error(
+      'marudesk: this operation is not supported on a remote (SSH) workspace root',
+    );
+  }
   if (typeof rel !== 'string' || rel.length === 0) {
     throw new Error('marudesk: path must be a non-empty string');
   }

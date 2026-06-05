@@ -14,7 +14,7 @@ import {
   type WorkspaceSnapshot,
   type WorkspaceSaveAsResult,
 } from '../shared/workspace';
-import { sshRootKey } from '../shared/ssh';
+import { isSshRootKey, sshRootKey } from '../shared/ssh';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, obj, str } from './ipc/validate';
 import { getConnectionInfo } from './ssh/connection-manager';
@@ -509,12 +509,15 @@ export function registerWorkspaceHandlers(deps: {
         : requireRoot(record, str(p.rootId, 'rootId'));
     if (!root) return [];
     if (!isCaptureInput(p.capture)) throw new Error('invalid capture payload');
+    // Ranking reads file contents from the local FS; skip it for remote roots.
+    if (isSshRootKey(root.root)) return [];
     return rankFiles(root.root, p.capture, root.files);
   });
 
   defineHandler('workspace:rank', ([capture]) => {
     const { ws } = requireWorkspace();
     if (!isCaptureInput(capture)) throw new Error('invalid capture payload');
+    if (isSshRootKey(ws.root)) return [];
     return rankFiles(ws.root, capture, ws.files);
   });
 

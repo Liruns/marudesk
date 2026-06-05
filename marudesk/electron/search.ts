@@ -9,6 +9,7 @@ import type {
   SearchOptions,
   SearchResult,
 } from '../shared/search';
+import { isSshRootKey } from '../shared/ssh';
 import { isInsideRoot } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { bool, obj, str } from './ipc/validate';
@@ -229,6 +230,11 @@ async function searchContent(
   opts: SearchOptions,
 ): Promise<SearchResult> {
   if (query.length === 0) {
+    return { files: [], truncated: false, engine: 'node' };
+  }
+  // Content search shells out ripgrep / walks the local FS; a remote (ssh://)
+  // root has no local path to scan. Return empty rather than walk a bogus path.
+  if (isSshRootKey(root)) {
     return { files: [], truncated: false, engine: 'node' };
   }
   // A relative-path traversal can't happen — search is rooted at `root` and rg

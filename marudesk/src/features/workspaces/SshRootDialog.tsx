@@ -235,7 +235,13 @@ export function SshRootDialog({
             <Field label="Authentication">
               <select
                 value={authMethod}
-                onChange={(e) => setAuthMethod(e.currentTarget.value as SshAuthMethod)}
+                onChange={(e) => {
+                  // Drop any entered secret when leaving a method so it doesn't
+                  // linger in renderer state after the user changes their mind.
+                  setPassword('');
+                  setPassphrase('');
+                  setAuthMethod(e.currentTarget.value as SshAuthMethod);
+                }}
                 className={inputClass}
               >
                 <option value="agent">SSH agent</option>
