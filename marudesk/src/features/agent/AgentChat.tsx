@@ -209,6 +209,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // Stick-to-bottom: true while the user is at/near the bottom (auto-scroll on),
   // false once they scroll up to re-read mid-stream (auto-scroll paused).
   const stickToBottomRef = useRef(true);
+  // Mirror of the ref for rendering the "jump to latest" affordance — the ref
+  // drives auto-scroll without re-rendering, this drives the button's visibility.
+  const [atBottom, setAtBottom] = useState(true);
 
   // Subscribe to the server-owned snapshot stream while mounted; hydrate once so
   // we catch up on whatever happened while the panel was on another tab.
@@ -236,7 +239,20 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     if (!el) return;
     // Threshold large enough to survive a streaming chunk landing between the
     // scroll event and the re-render, small enough that scrolling up clearly pauses.
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickToBottomRef.current = near;
+    // setState bails out when the value is unchanged, so this only re-renders at
+    // the threshold crossing — cheap enough to run on every scroll tick.
+    setAtBottom(near);
+  };
+
+  // Re-arm auto-scroll and snap to the live edge — the "jump to latest" button.
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = true;
+    setAtBottom(true);
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
   // Auto-grow the composer to fit its content, up to the max height (max-h-40 =
@@ -626,7 +642,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     <div className="flex flex-col h-full min-h-0">
       <ProviderModelBar full={full} />
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto">
+      <div className="relative flex-1 min-h-0">
+       <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
         <div
           className={cn(
             'flex flex-col gap-4',
@@ -671,6 +688,21 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
           ) : null}
         </div>
+       </div>
+
+        {/* Jump to latest — appears only when the user has scrolled up off the
+            live edge, so a streaming turn never traps them mid-transcript. */}
+        {!empty && !atBottom ? (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label={t('agent.chat.jumpToLatest')}
+            title={t('agent.chat.jumpToLatest')}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex size-8 items-center justify-center rounded-pill border border-default bg-surface-2 text-fg-secondary shadow-lifted hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
+          >
+            <ChevronDown size={16} />
+          </button>
+        ) : null}
       </div>
 
       <footer className="shrink-0 border-t border-subtle">
@@ -680,8 +712,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             full ? 'mx-auto w-full max-w-3xl px-5 py-3' : 'px-3 py-2',
           )}
         >
-          {/* Status row: left = pill + usage; right = toggle cluster */}
-          <div className="flex items-center justify-between gap-2 min-w-0">
+          {/* Status row: left = pill + usage; right = toggle cluster. Wraps the
+              toggle pill to its own line on a narrow drawer instead of overflowing. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
             {/* Left: status + usage */}
             <div className="flex items-center gap-2.5 min-w-0 shrink-0">
               <StatusPill status={chat.status} elapsed={elapsed} />
@@ -755,29 +788,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             <SlashInfoCard kind={slashInfo} onClose={() => setSlashInfo(null)} />
           ) : null}
 
-          {pendingImages.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {pendingImages.map((img, i) => (
-                <div key={i} className="relative group/img">
-                  <img
-                    src={`data:${img.mediaType};base64,${img.data}`}
-                    alt={t('agent.chat.attachmentAlt')}
-                    className="h-14 w-14 rounded border border-default object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeImage(i)}
-                    aria-label={t('agent.chat.removeImage')}
-                    className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-pill bg-surface-3 border border-default text-fg-secondary hover:text-fg-primary opacity-0 group-hover/img:opacity-100 transition-opacity duration-fast"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="relative flex items-end gap-2">
+          {/* Composer well — attachments, prompt, and actions read as one box
+              (Claude/Cursor parity): the border lifts to the accent on focus, so
+              the whole control reacts as a unit rather than just the textarea. */}
+          <div className="relative">
             {slashOpen ? (
               <SlashMenu
                 items={slashItems}
@@ -794,55 +808,84 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 onHover={setMentionIndex}
               />
             ) : null}
-            <ContextButton
-              buttonRef={plusButtonRef}
-              open={contextOpen}
-              onToggle={() => setContextOpen((v) => !v)}
-            />
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraftAndTrackSlash(e.target.value, e.target.selectionStart ?? undefined)}
-              onKeyDown={onKeyDown}
-              onKeyUp={syncCaret}
-              onClick={syncCaret}
-              onSelect={syncCaret}
-              onPaste={handlePaste}
-              onDrop={handleDrop}
-              rows={full ? 3 : 2}
-              placeholder={t('agent.chat.promptPlaceholder')}
-              spellCheck={false}
-              className={cn(
-                'flex-1 min-h-[44px] max-h-40 resize-none rounded bg-surface-page border border-default px-3 py-2',
-                'font-mono text-body-sm text-fg-primary placeholder:text-fg-tertiary leading-relaxed',
-                'focus:outline-none focus:border-accent',
-              )}
-              aria-label={t('agent.chat.promptAria')}
-            />
-            {busy ? (
-              <Button variant="secondary" size="md" leadingIcon={<Square size={14} />} onClick={() => void abort()}>
-                {t('agent.chat.stop')}
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                size="md"
-                leadingIcon={<Send size={14} />}
-                onClick={handleSend}
-                disabled={draft.trim().length === 0}
-              >
-                {t('agent.chat.send')}
-              </Button>
-            )}
-          </div>
 
-          {contextOpen ? (
-            <ContextPopover
-              anchorRef={plusButtonRef}
-              onClose={() => setContextOpen(false)}
-              onInsertMention={handleInsertMention}
-            />
-          ) : null}
+            <div className="flex flex-col rounded-lg border border-default bg-surface-1 transition-colors duration-fast focus-within:border-accent">
+              {pendingImages.length > 0 ? (
+                <div className="flex flex-wrap gap-2 px-2.5 pt-2.5">
+                  {pendingImages.map((img, i) => (
+                    <div key={i} className="relative group/img">
+                      <img
+                        src={`data:${img.mediaType};base64,${img.data}`}
+                        alt={t('agent.chat.attachmentAlt')}
+                        className="h-14 w-14 rounded border border-default object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(i)}
+                        aria-label={t('agent.chat.removeImage')}
+                        className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-pill bg-surface-3 border border-default text-fg-secondary hover:text-fg-primary opacity-0 group-hover/img:opacity-100 transition-opacity duration-fast"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <textarea
+                ref={textareaRef}
+                value={draft}
+                onChange={(e) => setDraftAndTrackSlash(e.target.value, e.target.selectionStart ?? undefined)}
+                onKeyDown={onKeyDown}
+                onKeyUp={syncCaret}
+                onClick={syncCaret}
+                onSelect={syncCaret}
+                onPaste={handlePaste}
+                onDrop={handleDrop}
+                rows={full ? 3 : 2}
+                placeholder={t('agent.chat.promptPlaceholder')}
+                spellCheck={false}
+                className={cn(
+                  'w-full min-h-[40px] max-h-40 resize-none bg-transparent px-3 pt-2.5 pb-1',
+                  'text-body-sm text-fg-primary placeholder:text-fg-tertiary leading-relaxed',
+                  'focus:outline-none',
+                )}
+                aria-label={t('agent.chat.promptAria')}
+              />
+
+              {/* Action bar: attach on the left, send/stop on the right. */}
+              <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
+                <ContextButton
+                  buttonRef={plusButtonRef}
+                  open={contextOpen}
+                  onToggle={() => setContextOpen((v) => !v)}
+                />
+                {busy ? (
+                  <Button variant="secondary" size="sm" leadingIcon={<Square size={13} />} onClick={() => void abort()}>
+                    {t('agent.chat.stop')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leadingIcon={<Send size={13} />}
+                    onClick={handleSend}
+                    disabled={draft.trim().length === 0}
+                  >
+                    {t('agent.chat.send')}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {contextOpen ? (
+              <ContextPopover
+                anchorRef={plusButtonRef}
+                onClose={() => setContextOpen(false)}
+                onInsertMention={handleInsertMention}
+              />
+            ) : null}
+          </div>
         </div>
       </footer>
     </div>
@@ -1262,7 +1305,7 @@ function ContextButton({
   const selectedCount = selectedIds.size;
 
   return (
-    <div className="relative shrink-0 self-end mb-[3px]">
+    <div className="relative shrink-0">
       <button
         ref={buttonRef}
         type="button"
@@ -1272,13 +1315,13 @@ function ContextButton({
         aria-label={t('agent.context.addContext')}
         title={t('agent.chat.addContextTitle')}
         className={cn(
-          'size-8 flex items-center justify-center rounded border transition-colors duration-fast',
+          'size-7 flex items-center justify-center rounded transition-colors duration-fast',
           open
-            ? 'border-accent bg-accent-subtle/30 text-accent'
-            : 'border-default bg-surface-page text-fg-tertiary hover:border-accent/60 hover:text-fg-secondary',
+            ? 'bg-accent-subtle text-accent'
+            : 'text-fg-tertiary hover:bg-surface-3 hover:text-fg-secondary',
         )}
       >
-        <Plus size={14} />
+        <Plus size={16} />
       </button>
       {selectedCount > 0 ? (
         <span
@@ -1489,7 +1532,7 @@ const MessageView = memo(function MessageView({
     const images = message.parts.filter((p) => p.type === 'image');
     return (
       <div className="self-end max-w-[88%]">
-        <div className="rounded-xl bg-accent-subtle/30 border border-accent/20 px-3.5 py-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.15)]">
+        <div className="rounded-lg bg-accent-subtle/30 border border-accent/20 px-3.5 py-2.5">
           <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
             {textOf(message)}
           </p>
@@ -2346,7 +2389,7 @@ function EmptyState({
   return (
     <div className="flex flex-col items-center text-center gap-4 px-4 py-2">
       {/* Icon mark */}
-      <div className="flex size-12 items-center justify-center rounded-2xl bg-accent-subtle/60 ring-1 ring-accent/25 shadow-[0_0_0_4px_rgba(94,106,210,0.06)]">
+      <div className="flex size-12 items-center justify-center rounded-lg bg-accent-subtle/60 ring-1 ring-accent/25">
         <Sparkles size={20} className="text-accent" />
       </div>
 
