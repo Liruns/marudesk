@@ -79,7 +79,7 @@ export type StorageStats = {
 /** A full saved session — summary + the (display-shaped) transcript. */
 export type SessionRecord = SessionSummary & {
   messages: AgentMessage[];
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: { inputTokens: number; outputTokens: number; contextTokens?: number };
   /**
    * The provider-neutral running transcript, so a resumed session can keep
    * talking with full context (display `messages` alone can't reconstruct

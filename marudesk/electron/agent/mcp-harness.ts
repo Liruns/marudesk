@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { McpServerConfig } from '../../shared/mcp';
+import {
+  isHttpMcpConfig,
+  mcpDisplayTarget,
+  mcpTransportOf,
+  sanitizeMcpConfig,
+  type McpServerConfig,
+} from '../../shared/mcp';
 import { callMcpTool, listMcpTools } from './mcp';
 import type { ToolContext } from './tools';
 import { updateContextCache } from './context-cache';
@@ -9,32 +15,39 @@ import {
   buildExternalServer,
   connectServer,
   disposeExternalMcpServers,
+  listMcpServerStatuses,
   syncExternalMcpServers,
+  toToolResult,
   type McpCallToolResult,
   type McpClientLike,
   type McpExternalToolInfo,
 } from './mcp-external';
+import { startHttpMockServer } from './mcp-mock-http-server';
 
 /**
- * Headless harness for the external (stdio) MCP connector wrapping
- * (docs/remote-mobile-bridge-design §M3). Mirrors electron/server/harness.ts (run
- * with `node --experimental-strip-types`, see package.json `harness:mcp`); a small
- * resolve hook stubs the bare `electron` import and adds `.ts` resolution so the
- * agent module chain loads without Electron.
+ * Headless harness for the external MCP connector
+ * (docs/remote-mobile-bridge-design §M3, docs/context-mcp-design §8). Mirrors
+ * electron/server/harness.ts (run with `node --experimental-strip-types`, see
+ * package.json `harness:mcp`); a small resolve hook stubs the bare `electron` import
+ * and adds `.ts` resolution so the agent module chain loads without Electron.
  *
- * It exercises the manager BOTH ways:
+ * It exercises the manager every way:
+ *  - PURE: `sanitizeMcpConfig` over the stdio/http/sse config union (trust,
+ *    disabledTools, URL validation, dedupe);
  *  - against a MOCK client (deterministic spy) for the routing/result/isError/
- *    namespacing/unregister assertions, and
+ *    namespacing/unregister/trust/filter/crash + status-field assertions;
  *  - against the REAL `StdioClientTransport` + a tiny in-repo mock MCP server
- *    (mcp-mock-server.ts) for a true end-to-end spawn + protocol round-trip,
+ *    (mcp-mock-server.ts) for a true end-to-end spawn + protocol round-trip;
+ *  - against the REAL `StreamableHTTPClientTransport` + an in-process HTTP mock
+ *    server (mcp-mock-http-server.ts) for a true remote round-trip;
  *
  * plus a real spawn of a bogus command to prove graceful failure.
  *
  * Asserts: (a) an enabled server's tools appear namespaced `<id>__<tool>` with
- * gated:true; (b) calling a wrapped tool routes to client.callTool and maps the
- * result + isError into a ToolResult; (c) a server that fails to spawn is handled
- * gracefully (no throw; errored status); (d) disabling/unregistering removes its
- * tools.
+ * gated:true (or ungated when trusted); (b) calling a wrapped tool routes to
+ * client.callTool and maps the result + isError into a ToolResult; (c) a server that
+ * fails to connect is handled gracefully (no throw; errored status); (d)
+ * disabling/unregistering/crash removes its tools.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +103,49 @@ function makeMockClient(): {
 const ctx: ToolContext = { ws: null, signal: new AbortController().signal };
 
 async function main(): Promise<void> {
+  /* ── unit: sanitizeMcpConfig — stdio default, http/sse, trust, disabledTools ─ */
+  {
+    const { servers } = sanitizeMcpConfig({
+      servers: [
+        // stdio (no transport field) — the classic Claude-Desktop shape.
+        { id: 'local', command: 'npx', args: ['-y', 'some-server'], env: { TOKEN: 's3cret' } },
+        // explicit http transport.
+        { id: 'remote', transport: 'http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
+        // http inferred from a url + no command.
+        { id: 'inferred', url: 'https://api.example.com/v1/mcp' },
+        // sse transport with trust + disabledTools.
+        { id: 'sse1', transport: 'sse', url: 'http://localhost:9000/sse', trust: true, disabledTools: ['danger', '  '] },
+        // invalid: http transport but a non-http url → dropped.
+        { id: 'bad-url', transport: 'http', url: 'ftp://nope' },
+        // invalid: neither command nor url → dropped.
+        { id: 'empty', enabled: true },
+        // duplicate id → second dropped (first wins).
+        { id: 'local', command: 'other' },
+      ],
+    });
+    const byId = new Map(servers.map((s) => [s.id, s] as const));
+    check('sanitize: keeps the valid entries, drops the bad ones', servers.length === 4);
+    check('sanitize: stdio entry has no transport (defaults to stdio)', mcpTransportOf(byId.get('local')!) === 'stdio');
+    check('sanitize: explicit http transport preserved', byId.get('remote')?.transport === 'http');
+    check('sanitize: http inferred from url when no command', mcpTransportOf(byId.get('inferred')!) === 'http');
+    check('sanitize: sse transport preserved', byId.get('sse1')?.transport === 'sse');
+    check('sanitize: trust flag parsed', byId.get('sse1')?.trust === true);
+    check(
+      'sanitize: disabledTools trimmed + blanks dropped',
+      JSON.stringify(byId.get('sse1')?.disabledTools) === JSON.stringify(['danger']),
+    );
+    check('sanitize: non-http url for http transport is dropped', !byId.has('bad-url'));
+    check('sanitize: entry with neither command nor url is dropped', !byId.has('empty'));
+    check('sanitize: duplicate id keeps the first (command "npx")', (() => {
+      const l = byId.get('local');
+      return !!l && 'command' in l && l.command === 'npx';
+    })());
+    check(
+      'sanitize: http display target strips query/secrets to origin+path',
+      mcpDisplayTarget(byId.get('remote')!) === 'https://example.com/mcp',
+    );
+  }
+
   /* ── unit: buildExternalServer namespacing + gated + schema passthrough ──── */
   {
     const { client } = makeMockClient();
@@ -127,6 +183,79 @@ async function main(): Promise<void> {
     const errOut = await boom.exec({}, ctx);
     check('(b) isError result maps to ToolResult.isError', errOut.isError === true);
     check('(b) error result still carries its text', errOut.text.includes('kaboom'));
+  }
+
+  /* ── unit: toToolResult maps text / image / resource / link / structured ──── */
+  {
+    const big = 'A'.repeat(4096); // ~3 KB decoded
+    const out = toToolResult('t', {
+      content: [
+        { type: 'text', text: 'hello' },
+        { type: 'image', mimeType: 'image/png', data: big },
+        { type: 'resource_link', uri: 'file:///x.ts', name: 'x.ts', mimeType: 'text/plain' },
+        { type: 'resource', resource: { uri: 'mem://note', text: 'inline body' } },
+        { type: 'resource', resource: { uri: 'blob://b', mimeType: 'application/pdf', blob: big } },
+        { type: 'weird', foo: 1 },
+      ],
+    });
+    check('content: text part is kept verbatim', out.text.includes('hello'));
+    check('content: image noted with mime + size, blob not inlined', /\[image image\/png, [\d.]+ KB\]/.test(out.text) && !out.text.includes(big));
+    check('content: resource_link surfaces name + uri', out.text.includes('[resource link "x.ts": file:///x.ts'));
+    check('content: embedded text resource is inlined', out.text.includes('[resource mem://note]') && out.text.includes('inline body'));
+    check('content: binary resource noted with mime + size, blob not inlined', out.text.includes('[resource blob://b (application/pdf)') && out.text.includes('KB]'));
+    check('content: unknown type keeps the omitted fallback', out.text.includes('[weird content omitted]'));
+
+    const structured = toToolResult('t', { structuredContent: { ok: true, n: 2 } });
+    check('content: structuredContent stringified when no content parts', structured.text.includes('"ok":true') && structured.text.includes('"n":2'));
+
+    const empty = toToolResult('t', {});
+    check('content: empty result yields "(no content)"', empty.text === '(no content)');
+  }
+
+  /* ── unit: trust → ungated, disabledTools filtered out ──────────────────── */
+  {
+    const { client } = makeMockClient();
+    const trusted = buildExternalServer('t', client, [
+      { name: 'echo', inputSchema: { type: 'object', properties: {} } },
+      { name: 'boom', inputSchema: { type: 'object', properties: {} } },
+    ], { trusted: true, disabledTools: ['boom'] });
+    check('trust: a trusted server exposes its tools UN-gated', trusted.tools.every((t) => t.gated !== true));
+    check('disabledTools: a hidden tool is filtered out entirely', !trusted.tools.some((t) => t.name === 't__boom'));
+    check('disabledTools: the remaining tool is still present', trusted.tools.some((t) => t.name === 't__echo'));
+  }
+
+  /* ── integration: status carries transport / target / trusted / tools ────── */
+  {
+    const { client } = makeMockClient();
+    const cfg: McpServerConfig = {
+      id: 'meta',
+      transport: 'http',
+      url: 'https://host.example/mcp?token=secret',
+      trust: true,
+      enabled: true,
+    };
+    const statuses = await syncExternalMcpServers([cfg], async () => ({ client }));
+    const s = statuses.find((x) => x.id === 'meta');
+    check('status: reports the transport (http)', s?.transport === 'http');
+    check('status: target strips the query/secret (origin+path only)', s?.target === 'https://host.example/mcp');
+    check('status: reflects the trust flag', s?.trusted === true);
+    check('status: lists the exposed tool names (un-namespaced)', JSON.stringify(s?.tools) === JSON.stringify(['echo', 'boom']));
+    await syncExternalMcpServers([], async () => ({ client }));
+  }
+
+  /* ── crash detection: an unexpected transport close drops the tools ──────── */
+  {
+    const { client } = makeMockClient();
+    const cfg: McpServerConfig = { id: 'crashy', command: 'noop', enabled: true };
+    await syncExternalMcpServers([cfg], async () => ({ client }));
+    check('crash: tool is live before the drop', listMcpTools().some((t) => t.name === 'crashy__echo'));
+    // Simulate the transport dropping (process exit / network loss).
+    check('crash: connectServer wired an onclose handler', typeof client.onclose === 'function');
+    client.onclose?.();
+    const s = listMcpServerStatuses().find((x) => x.id === 'crashy');
+    check('crash: the server is marked error after the drop', s?.state === 'error');
+    check('crash: its tools are removed from the model list', !listMcpTools().some((t) => t.name === 'crashy__echo'));
+    await syncExternalMcpServers([], async () => ({ client }));
   }
 
   /* ── integration via injected connect: sync registers + lists namespaced ── */
@@ -186,10 +315,10 @@ async function main(): Promise<void> {
   {
     const { client } = makeMockClient();
     const url = 'https://mcp.example.com/mcp';
-    const cfg: McpServerConfig = { id: 'remote', url, enabled: true };
+    const cfg: McpServerConfig = { id: 'remote', transport: 'http', url, enabled: true };
     let capturedUrl = '';
     const connect = async (c: McpServerConfig) => {
-      capturedUrl = c.url ?? '';
+      capturedUrl = isHttpMcpConfig(c) ? c.url : '';
       return { client };
     };
     const statuses = await syncExternalMcpServers([cfg], connect);
@@ -266,6 +395,38 @@ async function main(): Promise<void> {
       '(d) dispose removed every external tool from the model list',
       !listMcpTools().some((t) => t.name.startsWith('real__') || t.name.startsWith('bogus__')),
     );
+  }
+
+  /* ── end-to-end: REAL StreamableHTTPClientTransport against an in-proc server ─ */
+  {
+    const mock = await startHttpMockServer();
+    try {
+      const cfg: McpServerConfig = {
+        id: 'web',
+        transport: 'http',
+        url: mock.url,
+        enabled: true,
+      };
+      const statuses = await syncExternalMcpServers([cfg]);
+      const s = statuses.find((x) => x.id === 'web');
+      check('(a/http) real remote HTTP server connected', s?.state === 'connected');
+      check('(a/http) status reports http transport', s?.transport === 'http');
+      check('(a/http) remote server exposed its 2 tools', s?.toolCount === 2);
+
+      // Drive a true MCP callTool over Streamable HTTP via the loop's entry point.
+      const out = await callMcpTool('web__echo', { text: 'http-wire' }, ctx);
+      check('(b/http) remote callTool round-trips the echo result', out.text.includes('echo: http-wire'));
+      const errOut = await callMcpTool('web__boom', {}, ctx);
+      check('(b/http) remote callTool maps an isError result', errOut.isError === true);
+
+      await disposeExternalMcpServers();
+      check(
+        '(d/http) dispose removed the remote server tools',
+        !listMcpTools().some((t) => t.name.startsWith('web__')),
+      );
+    } finally {
+      await mock.close();
+    }
   }
 
   console.log(`\nexternal-mcp harness: ${passed} assertions passed`);

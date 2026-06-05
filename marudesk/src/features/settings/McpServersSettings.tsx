@@ -4,9 +4,12 @@ import {
   CheckCircle2,
   CircleSlash,
   ExternalLink,
+  Globe,
   Loader2,
   RotateCcw,
   ServerCog,
+  ShieldCheck,
+  TerminalSquare,
 } from 'lucide-react';
 import { Badge, Button } from '../../components/ui';
 import { cn } from '../../lib/cn';
@@ -14,12 +17,14 @@ import { useI18n } from '../../i18n/useI18n';
 import type { McpServerStatus } from '../../../shared/mcp';
 
 /**
- * Settings → MCP Servers (docs/remote-mobile-bridge-design §M3). Lists the
- * user-configured external (stdio) MCP servers with their connection status and
- * tool count, with an enable/disable toggle and a Reload action. Adding/editing a
- * server is done by hand-editing the JSON config (Claude-Desktop style) — the
- * "Open config file" button reveals it. Every tool a connected server exposes is
- * routed through the same loop approval/read-only mediation as the built-in tools.
+ * Settings → MCP Servers (docs/remote-mobile-bridge-design §M3, docs/context-mcp-design
+ * §8). Lists the user-configured external MCP servers — local (stdio) or remote
+ * (HTTP/SSE) — with their transport, connection status, exposed tools, and trust
+ * state, plus an enable/disable toggle and a Reload action. Adding/editing a server
+ * is done by hand-editing the JSON config (Claude-Desktop style) — the "Open config
+ * file" button reveals it. Every tool a connected server exposes is routed through
+ * the same loop approval/read-only mediation as the built-in tools (a `trust`ed
+ * server skips the per-call approval prompt).
  */
 export function McpServersSettings() {
   const { t } = useI18n();
@@ -126,6 +131,7 @@ function ServerCard({
   busy: boolean;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
 }) {
+  const TransportIcon = status.transport === 'stdio' ? TerminalSquare : Globe;
   const { t } = useI18n();
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-1 px-4 py-3">
@@ -133,13 +139,27 @@ function ServerCard({
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-body-sm font-medium text-fg-primary truncate">{status.id}</span>
           <StatusBadge status={status} />
+          {status.trusted ? (
+            <Badge variant="accent" className="gap-1">
+              <ShieldCheck size={11} />
+              Trusted
+            </Badge>
+          ) : null}
           <span className="text-caption uppercase tracking-wide text-fg-tertiary/70 shrink-0">
             {status.transport === 'http'
               ? t('settings.mcp.transport.remote')
               : t('settings.mcp.transport.stdio')}
           </span>
         </div>
-        <span className="text-caption font-mono text-fg-tertiary truncate">{status.target}</span>
+        <span className="flex items-center gap-1.5 text-caption font-mono text-fg-tertiary truncate">
+          <TransportIcon size={12} className="shrink-0" />
+          {status.target}
+        </span>
+        {status.state === 'connected' && status.tools && status.tools.length > 0 ? (
+          <span className="text-caption text-fg-tertiary truncate" title={status.tools.join(', ')}>
+            {status.tools.join(', ')}
+          </span>
+        ) : null}
         {status.state === 'error' && status.error ? (
           <span className="text-caption text-error truncate">{status.error}</span>
         ) : null}

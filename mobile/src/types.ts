@@ -48,7 +48,17 @@ export type AgentTextPart = { type: 'text'; text: string };
 export type AgentToolPart = { type: 'tool'; call: ToolCall };
 /** The model's streamed reasoning ("extended thinking"); collapsible block. */
 export type AgentReasoningPart = { type: 'reasoning'; text: string };
-export type AgentPart = AgentTextPart | AgentToolPart | AgentReasoningPart;
+/**
+ * A `/compact` boundary: the earlier turns were summarized for the model while
+ * the scrollback stayed visible. Display-only marker; carries the summary the
+ * model now sees. Mirror of marudesk's AgentCompactionPart.
+ */
+export type AgentCompactionPart = { type: 'compaction'; summary: string; freedTokens?: number };
+export type AgentPart =
+  | AgentTextPart
+  | AgentToolPart
+  | AgentReasoningPart
+  | AgentCompactionPart;
 
 export type AgentRole = 'user' | 'assistant';
 
@@ -89,7 +99,7 @@ export type AgentChatState = {
   messages: AgentMessage[];
   pendingApproval: PendingApproval | null;
   pendingQuestions: PendingQuestions | null;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: { inputTokens: number; outputTokens: number; contextTokens: number };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
 };
@@ -101,7 +111,7 @@ export function emptyAgentChatState(): AgentChatState {
     messages: [],
     pendingApproval: null,
     pendingQuestions: null,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
   };
 }

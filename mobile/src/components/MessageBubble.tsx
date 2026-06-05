@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { Brain, ChevronDown, ChevronRight, Layers } from 'lucide-react';
 import type { AgentMessage, AgentPart } from '../types';
 import { ToolCallCard } from './ToolCallCard';
 
@@ -25,10 +25,25 @@ export function MessageBubble({ message, streaming }: { message: AgentMessage; s
 function Part({ part, last, streaming }: { part: AgentPart; last: boolean; streaming?: boolean }) {
   if (part.type === 'reasoning') return <ReasoningBlock text={part.text} />;
   if (part.type === 'tool') return <ToolCallCard call={part.call} />;
+  if (part.type === 'compaction') return <CompactionDivider summary={part.summary} />;
   return (
     <div className="message-text">
       {part.text}
       {streaming && last && <span className="caret">|</span>}
+    </div>
+  );
+}
+
+function CompactionDivider({ summary }: { summary: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="compaction-divider">
+      <button className="reasoning-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Layers size={14} />
+        Earlier turns compacted
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </button>
+      {open && <div className="reasoning-content">{summary}</div>}
     </div>
   );
 }

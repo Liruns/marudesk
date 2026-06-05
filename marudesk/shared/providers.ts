@@ -15,7 +15,16 @@ export type BuiltinProviderId =
   | 'openai-codex'
   | 'google-caa'
   | 'zai'
-  | 'opencode';
+  | 'opencode'
+  // OpenAI-compatible API-key gateways/vendors absorbed from the reference
+  // ecosystems (hermes-agent / opencode) — see docs/provider-expansion-plan.md.
+  // Each speaks the OpenAI dialect (Bearer key + /models), so they slot into the
+  // same createOpenAICompatible path as zai/opencode with just a base URL.
+  | 'openrouter'
+  | 'groq'
+  | 'cerebras'
+  | 'mistral'
+  | 'deepseek';
 
 /**
  * A provider id: either a built-in, or a user-configured custom OpenAI-compatible
@@ -226,6 +235,72 @@ export const PROVIDERS: ProviderDef[] = [
     apiKeyPlaceholder: '••••••••',
     apiKeyHint: 'opencode.ai/zen → API keys (OPENCODE_API_KEY)',
   },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    // The 300+ model gateway (openrouter.ai/api/v1), OpenAI-compatible Bearer
+    // auth. Model ids are `vendor/model`; the live /models fetch (no key needed
+    // to list) refreshes this seed once a key is set.
+    models: [
+      { id: 'openai/gpt-5.5', label: 'GPT-5.5 (OpenAI)' },
+      { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6 (Anthropic)' },
+      { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro (Google)' },
+      { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
+    ],
+    defaultModelId: 'anthropic/claude-sonnet-4.6',
+    apiKeyPlaceholder: 'sk-or-...',
+    apiKeyHint: 'openrouter.ai → Keys (OPENROUTER_API_KEY)',
+  },
+  {
+    id: 'groq',
+    label: 'Groq',
+    // Groq's fast LPU inference, OpenAI-compatible at api.groq.com/openai/v1.
+    models: [
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
+      { id: 'moonshotai/kimi-k2-instruct', label: 'Kimi K2 Instruct' },
+      { id: 'qwen/qwen3-32b', label: 'Qwen3 32B' },
+    ],
+    defaultModelId: 'llama-3.3-70b-versatile',
+    apiKeyPlaceholder: 'gsk_...',
+    apiKeyHint: 'console.groq.com → API Keys (GROQ_API_KEY)',
+  },
+  {
+    id: 'cerebras',
+    label: 'Cerebras',
+    // Cerebras wafer-scale inference, OpenAI-compatible at api.cerebras.ai/v1.
+    models: [
+      { id: 'llama-3.3-70b', label: 'Llama 3.3 70B' },
+      { id: 'qwen-3-235b-a22b-instruct', label: 'Qwen3 235B A22B Instruct' },
+    ],
+    defaultModelId: 'llama-3.3-70b',
+    apiKeyPlaceholder: 'csk-...',
+    apiKeyHint: 'cloud.cerebras.ai → API Keys (CEREBRAS_API_KEY)',
+  },
+  {
+    id: 'mistral',
+    label: 'Mistral',
+    // Mistral La Plateforme, OpenAI-compatible at api.mistral.ai/v1.
+    models: [
+      { id: 'mistral-large-latest', label: 'Mistral Large' },
+      { id: 'mistral-small-latest', label: 'Mistral Small' },
+      { id: 'codestral-latest', label: 'Codestral' },
+    ],
+    defaultModelId: 'mistral-large-latest',
+    apiKeyPlaceholder: '••••••••',
+    apiKeyHint: 'console.mistral.ai → API Keys (MISTRAL_API_KEY)',
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    // DeepSeek platform, OpenAI-compatible at api.deepseek.com.
+    models: [
+      { id: 'deepseek-chat', label: 'DeepSeek Chat' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
+    ],
+    defaultModelId: 'deepseek-chat',
+    apiKeyPlaceholder: 'sk-...',
+    apiKeyHint: 'platform.deepseek.com → API keys (DEEPSEEK_API_KEY)',
+  },
 ];
 
 export function getProvider(id: ProviderId): ProviderDef {
@@ -405,6 +480,26 @@ export const MODELS: ModelEntry[] = [
   { key: 'opencode:gpt-5.5', id: 'gpt-5.5', label: 'GPT-5.5', provider: 'opencode', contextWindow: 400_000, tools: true, reasoning: true },
   { key: 'opencode:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'opencode', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
   { key: 'opencode:grok-code', id: 'grok-code', label: 'Grok Code Fast 1', provider: 'opencode', contextWindow: 256_000, tools: true },
+  // OpenRouter gateway (openrouter.ai/api/v1) — `vendor/model` ids routed to the
+  // underlying provider. The live /models fetch refreshes this seed once a key is set.
+  { key: 'openrouter:openai/gpt-5.5', id: 'openai/gpt-5.5', label: 'GPT-5.5 (OpenAI)', provider: 'openrouter', contextWindow: 400_000, tools: true, reasoning: true },
+  { key: 'openrouter:anthropic/claude-sonnet-4.6', id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6 (Anthropic)', provider: 'openrouter', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'openrouter:google/gemini-2.5-pro', id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro (Google)', provider: 'openrouter', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
+  { key: 'openrouter:deepseek/deepseek-chat', id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat', provider: 'openrouter', contextWindow: 163_840, tools: true },
+  // Groq (api.groq.com/openai/v1) — OpenAI-compatible, tool-capable open models.
+  { key: 'groq:llama-3.3-70b-versatile', id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 131_072, tools: true },
+  { key: 'groq:moonshotai/kimi-k2-instruct', id: 'moonshotai/kimi-k2-instruct', label: 'Kimi K2 Instruct', provider: 'groq', contextWindow: 131_072, tools: true },
+  { key: 'groq:qwen/qwen3-32b', id: 'qwen/qwen3-32b', label: 'Qwen3 32B', provider: 'groq', contextWindow: 131_072, tools: true, reasoning: true },
+  // Cerebras (api.cerebras.ai/v1) — OpenAI-compatible, very high throughput.
+  { key: 'cerebras:llama-3.3-70b', id: 'llama-3.3-70b', label: 'Llama 3.3 70B', provider: 'cerebras', contextWindow: 131_072, tools: true },
+  { key: 'cerebras:qwen-3-235b-a22b-instruct', id: 'qwen-3-235b-a22b-instruct', label: 'Qwen3 235B A22B Instruct', provider: 'cerebras', contextWindow: 131_072, tools: true, reasoning: true },
+  // Mistral (api.mistral.ai/v1) — OpenAI-compatible.
+  { key: 'mistral:mistral-large-latest', id: 'mistral-large-latest', label: 'Mistral Large', provider: 'mistral', contextWindow: 131_072, tools: true },
+  { key: 'mistral:mistral-small-latest', id: 'mistral-small-latest', label: 'Mistral Small', provider: 'mistral', contextWindow: 131_072, tools: true },
+  { key: 'mistral:codestral-latest', id: 'codestral-latest', label: 'Codestral', provider: 'mistral', contextWindow: 262_144, tools: true },
+  // DeepSeek (api.deepseek.com) — OpenAI-compatible; -reasoner is the R1 line.
+  { key: 'deepseek:deepseek-chat', id: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek', contextWindow: 163_840, tools: true },
+  { key: 'deepseek:deepseek-reasoner', id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek', contextWindow: 163_840, tools: true, reasoning: true },
 ];
 
 export const DEFAULT_MODEL_KEY = modelKey('anthropic', 'claude-sonnet-4-6');

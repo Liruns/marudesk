@@ -232,9 +232,16 @@ claude-code · codex의 채팅 UX를 벤치마크해 다음을 컴포저에 흡�
 codex Rust 소스(`compact.rs`, `slash_command.rs`, 승인 UX)를 코드 레벨로 분석해 흡수:
 
 - **`/compact`**(`loop.compactConversation`): codex 레시피 — 트랜스크립트를 대화 자체
-  모델로 요약해 치환, usage 리셋. 프로바이더 분기(anthropic-OAuth 프리픽스, codex
-  `store:false`)는 기존 turn 스캐폴딩 재사용. Anthropic 역할 교대를 위해 요약 뒤 합성
-  assistant ack를 둠.
+  모델로 요약. 프로바이더 분기(anthropic-OAuth 프리픽스, codex `store:false`)는 기존 turn
+  스캐폴딩 재사용. Anthropic 역할 교대를 위해 요약 뒤 합성 assistant ack를 둠.
+  - **비파괴(claude-code/cursor 패리티)**: 화면 스크롤백(`state.messages`)은 보존하고
+    모델 컨텍스트(`transcript`)만 치환. 압축 지점에 `AgentCompactionPart` 구분선(요약
+    펼침 가능)을 추가. `/compact <focus>`로 특정 내용을 더 자세히 보존하도록 지시 가능.
+  - **Tail preservation**: 오래된 head만 요약하고 최근 턴(문자 가중치 ~30%, 턴 경계로
+    스냅)은 원문 유지 → 작업 중 맥락은 손실 0. `splitForTailPreservation`.
+  - **자동 압축**(`agent.autoCompact`): 턴이 정상 완료될 때 컨텍스트가 모델 창의 임계치
+    (기본 80%)를 넘으면 백그라운드로 압축. `usage.contextTokens`(최근 호출 입력 토큰 =
+    실제 컨텍스트 점유)로 판단하며, 같은 값이 사용량 게이지도 구동.
 - **"Allow always"** 승인(`sessionAllowedTools`): 게이트 툴을 이 대화 동안 항상 허용.
   reset/resume에서 클리어. 원격 always는 L-1 가드로 여전히 무효.
 - **`/copy`**(대화 markdown 복사) + **`/status`**(`/context` 별칭 — provider·model·승인

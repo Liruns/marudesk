@@ -3,12 +3,16 @@ import type { SearchOptions, SearchResult } from '../../../shared/search';
 import { toMessage } from '../../lib/toMessage';
 
 /**
- * Content-search panel state. Holds the query + toggles + the last result set,
- * plus a `focusNonce` the Shell bumps when Ctrl+Shift+F fires so the panel's
- * input can focus without prop-drilling a ref through the layout. The actual
- * search runs in main (search:content) — this store just drives the UI and
- * tracks in-flight/error state.
+ * Content-search panel state. Holds the query + toggles + glob filters + the
+ * last result set, plus a `focusNonce` the Shell bumps when Ctrl+Shift+F fires
+ * so the panel's input can focus without prop-drilling a ref through the layout.
+ * The actual search runs in main (search:content) — this store just drives the
+ * UI and tracks in-flight/error state.
  */
+
+/** Boolean toggles (case/word/regex) vs the free-text glob filters. */
+type SearchToggleKey = 'caseSensitive' | 'wholeWord' | 'regex';
+type SearchFilterKey = 'includes' | 'excludes';
 
 type SearchState = {
   query: string;
@@ -24,7 +28,8 @@ type SearchState = {
 
 type SearchActions = {
   setQuery: (q: string) => void;
-  toggleOption: (key: keyof SearchOptions) => void;
+  toggleOption: (key: SearchToggleKey) => void;
+  setFilter: (key: SearchFilterKey, value: string) => void;
   run: (query: string) => Promise<void>;
   clear: () => void;
   requestFocus: () => void;
@@ -32,7 +37,13 @@ type SearchActions = {
 
 export const useSearchStore = create<SearchState & SearchActions>((set, get) => ({
   query: '',
-  options: { caseSensitive: false, wholeWord: false, regex: false },
+  options: {
+    caseSensitive: false,
+    wholeWord: false,
+    regex: false,
+    includes: '',
+    excludes: '',
+  },
   result: null,
   loading: false,
   error: null,
@@ -41,12 +52,13 @@ export const useSearchStore = create<SearchState & SearchActions>((set, get) => 
 
   setQuery: (q) => set({ query: q }),
 
-  toggleOption: (key) => {
-    set((s) => ({ options: { ...s.options, [key]: !s.options[key] } }));
-    // Re-run with the new toggle if there's a live query.
-    const { query } = get();
-    if (query.trim()) void get().run(query);
-  },
+  // Toggles + filters only mutate state; the panel re-runs (debounced) when any
+  // option changes, so there's a single search path and no duplicate invokes.
+  toggleOption: (key) =>
+    set((s) => ({ options: { ...s.options, [key]: !s.options[key] } })),
+
+  setFilter: (key, value) =>
+    set((s) => ({ options: { ...s.options, [key]: value } })),
 
   run: async (query) => {
     const q = query.trim();

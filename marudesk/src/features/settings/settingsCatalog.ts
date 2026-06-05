@@ -122,6 +122,11 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
   },
   {
     categoryId: 'agent',
+    labelKey: 'settings.agent.autoCompact.label',
+    keywords: 'auto compact compaction summarize context window threshold 자동 압축 요약 컨텍스트',
+  },
+  {
+    categoryId: 'agent',
     labelKey: 'settings.agent.pcControl.label',
     keywords: 'pc control open files folders urls reveal 제어 파일 폴더',
   },
