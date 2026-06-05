@@ -1,13 +1,10 @@
-import type { AgentChatState } from '../types';
-import { Emitter } from './emitter';
+import { BaseTransport } from './base';
 import { P2pUpgrade } from './p2p';
 import { parseRelayFrame, parseRelayHostMessage, parseRtcSignal, type RelayHostMessage } from './relay-frames';
 import type {
   Transport,
   TransportCommand,
   TransportCommandArgs,
-  TransportStatusInfo,
-  Unsubscribe,
 } from './types';
 
 /**
@@ -38,10 +35,8 @@ const BACKOFF_MAX_MS = 20_000;
 /** Reject a command whose `ack` never arrives within this window. */
 const COMMAND_TIMEOUT_MS = 20_000;
 
-export class RelayTransport implements Transport {
+export class RelayTransport extends BaseTransport implements Transport {
   private ws: WebSocket | null = null;
-  private readonly stateEmitter = new Emitter<AgentChatState>();
-  private readonly statusEmitter = new Emitter<TransportStatusInfo>();
   private readonly pending = new Map<string, Pending>();
   /** The direct P2P upgrade, live once a host is online; null = relay-only. */
   private p2p: P2pUpgrade | null = null;
@@ -83,13 +78,6 @@ export class RelayTransport implements Transport {
     this.setStatus({ status: 'disconnected', hostOnline: false });
   }
 
-  onState(cb: (state: AgentChatState) => void): Unsubscribe {
-    return this.stateEmitter.subscribe(cb);
-  }
-
-  onStatus(cb: (info: TransportStatusInfo) => void): Unsubscribe {
-    return this.statusEmitter.subscribe(cb);
-  }
 
   send<K extends TransportCommand>(cmd: K, args: TransportCommandArgs[K]): Promise<void> {
     const cid = uuid();
@@ -296,9 +284,6 @@ export class RelayTransport implements Transport {
     this.pending.clear();
   }
 
-  private setStatus(info: TransportStatusInfo): void {
-    this.statusEmitter.emit(info);
-  }
 }
 
 /** Convert an http(s) relay URL to its ws(s) origin (no trailing slash). */

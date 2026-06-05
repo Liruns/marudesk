@@ -12,6 +12,7 @@ import {
   normalizeRelayUrl,
 } from '../auth/relayClient';
 import { StorageKeys, storageGet, storageRemove, storageSet } from '../auth/storage';
+import { messageOf } from '../lib/errorMessage';
 
 /** How the phone reaches the agent: the cloud relay (Model B) or a directly-paired PC (T2). */
 export type ConnMode = 'relay' | 'direct';
@@ -331,10 +332,6 @@ async function persistAuth(account: RelayAccount, accessToken: string, refreshTo
     storageSet(StorageKeys.refreshToken, refreshToken),
     storageSet(StorageKeys.account, JSON.stringify(account)),
   ]);
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : 'Something went wrong';
 }
 
 /**

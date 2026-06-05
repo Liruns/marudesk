@@ -10,14 +10,13 @@ import {
   type Envelope,
   type SessionKey,
 } from '../lib/e2e';
-import { Emitter } from './emitter';
+import { messageOf } from '../lib/errorMessage';
+import { BaseTransport } from './base';
 import type {
   DirectCreds,
   Transport,
   TransportCommand,
   TransportCommandArgs,
-  TransportStatusInfo,
-  Unsubscribe,
 } from './types';
 
 /**
@@ -42,15 +41,15 @@ const POST_PATH: Record<Exclude<TransportCommand, 'snapshot'>, string> = {
 
 const RECONNECT_MS = 2500;
 
-export class DirectTransport implements Transport {
+export class DirectTransport extends BaseTransport implements Transport {
   private key: SessionKey | null = null;
   private stream: AbortController | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
-  private readonly stateEmitter = new Emitter<AgentChatState>();
-  private readonly statusEmitter = new Emitter<TransportStatusInfo>();
 
-  constructor(private readonly creds: DirectCreds) {}
+  constructor(private readonly creds: DirectCreds) {
+    super();
+  }
 
   async connect(): Promise<void> {
     this.closed = false;
@@ -70,13 +69,6 @@ export class DirectTransport implements Transport {
     this.setStatus({ status: 'disconnected', hostOnline: false });
   }
 
-  onState(cb: (state: AgentChatState) => void): Unsubscribe {
-    return this.stateEmitter.subscribe(cb);
-  }
-
-  onStatus(cb: (info: TransportStatusInfo) => void): Unsubscribe {
-    return this.statusEmitter.subscribe(cb);
-  }
 
   async send<K extends TransportCommand>(cmd: K, args: TransportCommandArgs[K]): Promise<void> {
     const key = this.key;
@@ -158,7 +150,7 @@ export class DirectTransport implements Transport {
       }
     } catch (err) {
       if (ac.signal.aborted || this.closed) return;
-      this.setStatus({ status: 'disconnected', hostOnline: false, detail: messageOf(err) });
+      this.setStatus({ status: 'disconnected', hostOnline: false, detail: messageOf(err, 'connection lost') });
       this.scheduleReconnect();
     }
   }
@@ -171,11 +163,4 @@ export class DirectTransport implements Transport {
     }, RECONNECT_MS);
   }
 
-  private setStatus(info: TransportStatusInfo): void {
-    this.statusEmitter.emit(info);
-  }
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : 'connection lost';
 }

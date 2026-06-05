@@ -1,0 +1,57 @@
+import { describe, it, expect } from 'vitest';
+import { parseStatus, parseBranchHeaders, summarize } from './git-parse';
+
+describe('parseStatus', () => {
+  it('parses staged, modified, and untracked entries', () => {
+    const files = parseStatus(['M  src/a.ts', ' M src/b.ts', '?? src/c.ts']);
+    expect(files).toEqual([
+      expect.objectContaining({ path: 'src/a.ts', indexStatus: 'M', staged: true, untracked: false }),
+      expect.objectContaining({ path: 'src/b.ts', worktreeStatus: 'M', staged: false }),
+      expect.objectContaining({ path: 'src/c.ts', untracked: true, staged: false }),
+    ]);
+  });
+
+  it('pairs a rename with its NUL-split original path', () => {
+    const files = parseStatus(['R  new.ts', 'old.ts']);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({ path: 'new.ts', origPath: 'old.ts', staged: true });
+  });
+
+  it('flags conflicts (UU) as not staged', () => {
+    const [f] = parseStatus(['UU src/x.ts']);
+    expect(f).toMatchObject({ conflicted: true, staged: false });
+  });
+});
+
+describe('parseBranchHeaders', () => {
+  it('reads branch + upstream + ahead/behind', () => {
+    expect(parseBranchHeaders(['## main...origin/main [ahead 1, behind 2]'])).toEqual({
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 1,
+      behind: 2,
+      unborn: false,
+    });
+  });
+
+  it('detects an unborn branch (no commits yet)', () => {
+    expect(parseBranchHeaders(['## No commits yet on main'])).toMatchObject({
+      branch: 'main',
+      unborn: true,
+    });
+  });
+
+  it('treats detached HEAD as no branch', () => {
+    expect(parseBranchHeaders(['## HEAD (no branch)']).branch).toBeNull();
+  });
+});
+
+describe('summarize', () => {
+  it('prefers the last non-empty line, stderr first', () => {
+    expect(summarize('done\n', 'progress\nwarn\n', 'fallback')).toBe('done');
+  });
+
+  it('falls back when there is no output', () => {
+    expect(summarize('', '   \n', 'fallback')).toBe('fallback');
+  });
+});

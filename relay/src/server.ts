@@ -8,6 +8,7 @@ import type { AccountStore } from './accounts/store.ts';
 import { authenticate, type AuthDeps } from './auth/service.ts';
 import { RateLimiter } from './auth/rate-limit.ts';
 import { allowedOrigin, clientIp, handleRequest, type RouterDeps } from './http/router.ts';
+import { bearerToken } from './http/auth-header.ts';
 import { RelayHub, type HubSocket, type Role } from './ws/hub.ts';
 
 /**
@@ -62,12 +63,7 @@ function toHubSocket(ws: WebSocket): HubSocket {
 function tokenFromUpgrade(req: IncomingMessage, url: URL): string | null {
   const q = url.searchParams.get('token');
   if (q && q.trim()) return q.trim();
-  const header = req.headers.authorization;
-  if (typeof header === 'string') {
-    const m = /^Bearer\s+(\S.*)$/i.exec(header);
-    if (m) return m[1]!.trim();
-  }
-  return null;
+  return bearerToken(req);
 }
 
 function roleFromUpgrade(url: URL): Role | null {

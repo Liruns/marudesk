@@ -2,6 +2,7 @@ import dns from 'node:dns/promises';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import type { AppliedChange } from '../../shared/patch';
+import { globToRegExp } from '../../shared/glob';
 import type { ToolContext } from '../agent/tools';
 import { applyPatch } from '../patch';
 import { assertRealInsideRoot, resolveWorkspacePath } from '../fs-safe';
@@ -33,12 +34,6 @@ function requireWorkspace(ctx: ToolContext): { root: string } {
   return { root: ctx.ws.root };
 }
 
-/** Minimal glob→regexp (mirrors the agent's never-edit deny check). */
-function globToRegExp(glob: string): RegExp {
-  const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const body = esc.replace(/\*\*|\*/g, (m) => (m === '**' ? '.*' : '[^/]*'));
-  return new RegExp(`^${body}$`, 'i');
-}
 
 /** `ctx.fs.read` — read a workspace-relative file as UTF-8, guarded + bounded. */
 export async function guardedRead(ctx: ToolContext, relPath: string): Promise<string> {

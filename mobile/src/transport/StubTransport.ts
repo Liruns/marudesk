@@ -5,13 +5,11 @@ import type {
   ToolCall,
 } from '../types';
 import { emptyAgentChatState } from '../types';
-import { Emitter } from './emitter';
+import { BaseTransport } from './base';
 import type {
   Transport,
   TransportCommand,
   TransportCommandArgs,
-  TransportStatusInfo,
-  Unsubscribe,
 } from './types';
 
 /**
@@ -30,10 +28,8 @@ import type {
  *
  * Timers are tracked and cleared on `disconnect()`/`abort` so nothing leaks.
  */
-export class StubTransport implements Transport {
+export class StubTransport extends BaseTransport implements Transport {
   private state: AgentChatState = emptyAgentChatState();
-  private readonly stateEmitter = new Emitter<AgentChatState>();
-  private readonly statusEmitter = new Emitter<TransportStatusInfo>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private connected = false;
   private turnCounter = 0;
@@ -44,7 +40,7 @@ export class StubTransport implements Transport {
     // Simulate a brief handshake, then "PC host online".
     this.schedule(() => {
       this.setStatus({ status: 'connected', hostOnline: true });
-      this.emitState();
+      this.pushState();
     }, 350);
     return Promise.resolve();
   }
@@ -55,13 +51,6 @@ export class StubTransport implements Transport {
     this.setStatus({ status: 'disconnected', hostOnline: false });
   }
 
-  onState(cb: (state: AgentChatState) => void): Unsubscribe {
-    return this.stateEmitter.subscribe(cb);
-  }
-
-  onStatus(cb: (info: TransportStatusInfo) => void): Unsubscribe {
-    return this.statusEmitter.subscribe(cb);
-  }
 
   send<K extends TransportCommand>(cmd: K, args: TransportCommandArgs[K]): Promise<void> {
     if (!this.connected) return Promise.reject(new Error('not connected'));
@@ -81,10 +70,10 @@ export class StubTransport implements Transport {
       case 'reset':
         this.clearTimers();
         this.state = emptyAgentChatState();
-        this.emitState();
+        this.pushState();
         break;
       case 'snapshot':
-        this.emitState();
+        this.pushState();
         break;
     }
     return Promise.resolve();
@@ -265,14 +254,14 @@ export class StubTransport implements Transport {
     next.pendingApproval = null;
     next.pendingQuestions = null;
     this.state = next;
-    this.emitState();
+    this.pushState();
   }
 
   /* ── state helpers ─────────────────────────────────────────────────────── */
 
   private patch(partial: Partial<AgentChatState>): void {
     this.state = { ...this.state, ...partial };
-    this.emitState();
+    this.pushState();
   }
 
   private findAssistant(id: string): AgentMessage | undefined {
@@ -324,17 +313,14 @@ export class StubTransport implements Transport {
         ];
     this.state = { ...this.state, messages };
     if (turnId) this.state.turnId = turnId;
-    this.emitState();
+    this.pushState();
   }
 
-  private emitState(): void {
+  private pushState(): void {
     // Emit a shallow clone so React sees a new reference each tick.
     this.stateEmitter.emit({ ...this.state, messages: [...this.state.messages] });
   }
 
-  private setStatus(info: TransportStatusInfo): void {
-    this.statusEmitter.emit(info);
-  }
 
   private schedule(fn: () => void, ms: number): void {
     const t = setTimeout(() => {
