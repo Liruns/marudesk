@@ -2243,75 +2243,30 @@ const FORMATTERS: Readonly<Record<Locale, LocaleFormatters>> = {
   },
 };
 
-export function formatFileCountForLocale(
-  locale: Locale,
-  input: FileCountInput,
-): string {
-  return FORMATTERS[locale].fileCount(input);
+/**
+ * Build a locale-aware formatter for a single {@link LocaleFormatters} key. Each
+ * `format<Name>ForLocale` export below dispatches identically — pick the active
+ * locale's table, then call its entry — so the wrapper is generated rather than
+ * hand-written per key. `Parameters<…>[0]` preserves each formatter's exact
+ * argument type at the call site.
+ */
+function makeLocaleFormatter<K extends keyof LocaleFormatters>(
+  key: K,
+): (locale: Locale, input: Parameters<LocaleFormatters[K]>[0]) => string {
+  return (locale, input) =>
+    (FORMATTERS[locale][key] as (arg: Parameters<LocaleFormatters[K]>[0]) => string)(input);
 }
 
-export function formatCaptureCountForLocale(
-  locale: Locale,
-  count: number,
-): string {
-  return FORMATTERS[locale].captureCount(count);
-}
-
-export function formatMcpToolCountForLocale(
-  locale: Locale,
-  count: number,
-): string {
-  return FORMATTERS[locale].mcpToolCount(count);
-}
-
-export function formatProviderModelCountForLocale(
-  locale: Locale,
-  count: number,
-): string {
-  return FORMATTERS[locale].providerModelCount(count);
-}
-
-export function formatWorkspaceTruncatedForLocale(
-  locale: Locale,
-  count: number,
-): string {
-  return FORMATTERS[locale].workspaceTruncated(count);
-}
-
-export function formatSearchSummaryForLocale(
-  locale: Locale,
-  input: SearchSummaryInput,
-): string {
-  return FORMATTERS[locale].searchSummary(input);
-}
-
-export function formatSearchNoResultsForLocale(
-  locale: Locale,
-  query: string,
-): string {
-  return FORMATTERS[locale].searchNoResults(query);
-}
-
-export function formatSearchMatchLineTitleForLocale(
-  locale: Locale,
-  line: number,
-): string {
-  return FORMATTERS[locale].searchMatchLineTitle(line);
-}
-
-export function formatQuickOpenNoMatchForLocale(
-  locale: Locale,
-  query: string,
-): string {
-  return FORMATTERS[locale].quickOpenNoMatch(query);
-}
-
-export function formatTabPaletteNoMatchForLocale(
-  locale: Locale,
-  query: string,
-): string {
-  return FORMATTERS[locale].tabPaletteNoMatch(query);
-}
+export const formatFileCountForLocale = makeLocaleFormatter('fileCount');
+export const formatCaptureCountForLocale = makeLocaleFormatter('captureCount');
+export const formatMcpToolCountForLocale = makeLocaleFormatter('mcpToolCount');
+export const formatProviderModelCountForLocale = makeLocaleFormatter('providerModelCount');
+export const formatWorkspaceTruncatedForLocale = makeLocaleFormatter('workspaceTruncated');
+export const formatSearchSummaryForLocale = makeLocaleFormatter('searchSummary');
+export const formatSearchNoResultsForLocale = makeLocaleFormatter('searchNoResults');
+export const formatSearchMatchLineTitleForLocale = makeLocaleFormatter('searchMatchLineTitle');
+export const formatQuickOpenNoMatchForLocale = makeLocaleFormatter('quickOpenNoMatch');
+export const formatTabPaletteNoMatchForLocale = makeLocaleFormatter('tabPaletteNoMatch');
 
 export function parseLocale(value: unknown): Locale | null {
   switch (value) {
