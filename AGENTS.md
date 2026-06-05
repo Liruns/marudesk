@@ -6,8 +6,9 @@ workspace. More specific instructions in subdirectories override this file.
 ## Workspace Map
 
 - `marudesk/`: Electron + Vite desktop app. It owns the browser stage, DevTools
-  panels, workspace file access, patch flow, agent chat, runtime evidence, and
-  desktop packaging.
+  panels, workspace file access, patch flow, agent chat, runtime evidence, the
+  user plugin runtime (isolated-worker tools + slash commands), and desktop
+  packaging.
 - `mobile/`: Capacitor thin client for the Model-B bridge. It sends commands and
   renders the PC-owned agent state; it must not run model, tool, or workspace
   logic locally.
