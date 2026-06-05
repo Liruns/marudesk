@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Eraser, History, Send, Square, X } from 'lucide-react';
+import { ChevronDown, History, Send, Square, X } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
@@ -16,7 +16,6 @@ import {
   type SlashActionId,
   type SlashCommand,
 } from '../../../shared/slash-commands';
-import { useSettingsStore } from '../settings/store';
 import { useProvidersStore } from '../providers/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { useAgentStore } from './store';
@@ -29,9 +28,9 @@ import {
   StatusPill,
   UsageMeter,
 } from './chat/Controls';
-import { ApprovalToggle, EffortToggle, VerbosityToggle } from './chat/Toggles';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
 import { AttachmentPreview } from './chat/AttachmentPreview';
+import { ComposerToggles } from './chat/ComposerToggles';
 import { Transcript } from './chat/Transcript';
 import { ApprovalCard, QuestionsCard, ReceiptCard } from './chat/Cards';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
@@ -56,10 +55,6 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const queuedPrompt = useAgentStore((s) => s.queuedPrompt);
   const setQueuedPrompt = useAgentStore((s) => s.setQueuedPrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
-  const setVerbosity = useAgentStore((s) => s.setVerbosity);
-  const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
-  const reasoningEffort = useSettingsStore((s) => s.settings.agent.reasoningEffort);
-  const updateSettings = useSettingsStore((s) => s.update);
 
   const summary = useWorkspaceStore((s) => s.summary);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
@@ -598,42 +593,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
 
             {/* Right: toggles grouped in a single pill-shaped container */}
-            <div className="chrome-panel-strong flex items-center gap-px rounded p-0.5 shrink-0">
-              {isReasoningModel ? (
-                <>
-                  <EffortToggle
-                    value={reasoningEffort}
-                    onChange={(effort) => void updateSettings({ agent: { reasoningEffort: effort } })}
-                  />
-                  {/* Divider */}
-                  <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
-                </>
-              ) : null}
-              <ApprovalToggle
-                value={approvalMode}
-                onChange={(mode) => void updateSettings({ agent: { approvalMode: mode } })}
-              />
-              {!empty ? (
-                <>
-                  <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
-                  <VerbosityToggle value={verbosity} onChange={setVerbosity} />
-                </>
-              ) : null}
-              {!busy && !empty ? (
-                <>
-                  <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
-                  <button
-                    type="button"
-                    onClick={() => void resetChat()}
-                    className="flex items-center gap-1 h-5 px-1.5 rounded-sm text-caption text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
-                    title={t('agent.chat.newConversation')}
-                  >
-                    <Eraser size={11} />
-                    <span className="text-[10px] leading-none">{t('agent.chat.new')}</span>
-                  </button>
-                </>
-              ) : null}
-            </div>
+            <ComposerToggles empty={empty} busy={busy} isReasoningModel={isReasoningModel} />
           </div>
 
           {localError ? (
