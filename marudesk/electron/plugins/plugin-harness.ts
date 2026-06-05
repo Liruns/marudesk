@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import type { WorkspaceSummary } from '../../shared/workspace';
 import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
 import { buildPluginServer, PluginHost } from './host';
+import { guardedFetch } from './permissions';
 import { spawnViaChildProcess } from './transport';
 
 /**
@@ -46,7 +47,7 @@ function toolContext(root: string): ToolContext {
 
 async function main(): Promise<void> {
   // ── (a)(b)(c): the well-behaved hello-world plugin ───────────────────────────
-  const helloGrants = ['tools', 'commands', 'fs:read'] as const;
+  const helloGrants = ['tools', 'commands', 'fs:read', 'fs:write'] as const;
   const { channel } = spawnViaChildProcess({
     workerEntry: WORKER_ENTRY,
     pluginDir: HELLO_DIR,
@@ -55,11 +56,10 @@ async function main(): Promise<void> {
   const host = new PluginHost(channel, 'hello-world');
   const contributions = await host.load(HELLO_DIR, 'index.js', [...helloGrants]);
 
-  check('plugin contributes the greet + read_file tools', contributions.tools.length === 2);
+  check('plugin contributes the greet + read_file + write_note tools', contributions.tools.length === 3);
   check(
     'tool names are reported',
-    contributions.tools.some((t) => t.name === 'greet') &&
-      contributions.tools.some((t) => t.name === 'read_file'),
+    ['greet', 'read_file', 'write_note'].every((n) => contributions.tools.some((t) => t.name === n)),
   );
   check('plugin contributes the hello slash command', contributions.commands[0]?.name === 'hello');
   check('slash command carries a $ARGUMENTS template', contributions.commands[0]?.template.includes('$ARGUMENTS'));
@@ -88,6 +88,59 @@ async function main(): Promise<void> {
   const noWsRes = await readTool.exec({ path: 'NOTES.md' }, { ws: null, signal: new AbortController().signal });
   check('fs:read refuses when no workspace is open', noWsRes.isError === true);
 
+  // ── fs:write → AppliedChange surfaced as ToolResult.edits (P3) ────────────────
+  const writeTool = server.tools.find((t) => t.name === 'plugin:hello-world__write_note')!;
+  const createRes = await writeTool.exec({ path: 'OUT.md', content: 'first' }, ctx);
+  check('fs:write creates the file on disk', readFileSync(path.join(wsRoot, 'OUT.md'), 'utf8') === 'first');
+  check(
+    'fs:write surfaces an AppliedChange (create) in ToolResult.edits',
+    !createRes.isError &&
+      createRes.edits?.length === 1 &&
+      createRes.edits[0].kind === 'create' &&
+      createRes.edits[0].before === null &&
+      createRes.edits[0].after === 'first',
+  );
+  const overwriteRes = await writeTool.exec({ path: 'OUT.md', content: 'second' }, ctx);
+  check(
+    'fs:write overwrite yields an edit change with before/after',
+    overwriteRes.edits?.[0].kind === 'edit' &&
+      overwriteRes.edits[0].before === 'first' &&
+      overwriteRes.edits[0].after === 'second',
+  );
+  const denyCtx: ToolContext = { ...ctx, denyGlobs: ['*.md'] };
+  const deniedWrite = await writeTool.exec({ path: 'OUT.md', content: 'nope' }, denyCtx);
+  check('fs:write honors the never-edit denyGlobs', deniedWrite.isError === true);
+
+  // ── net guards (direct — no live network) ────────────────────────────────────
+  let allowlistErr = '';
+  try {
+    await guardedFetch('https://evil.example/', ['api.github.com']);
+  } catch (err) {
+    allowlistErr = (err as Error).message;
+  }
+  check('net refuses a host not in the allowlist', /allowlist/.test(allowlistErr));
+  let privateErr = '';
+  try {
+    await guardedFetch('http://localhost/', ['localhost']);
+  } catch (err) {
+    privateErr = (err as Error).message;
+  }
+  check('net refuses an allowlisted host that resolves to a private address', /non-public/.test(privateErr));
+
+  // ── grant enforcement: the same plugin without fs:write can't write ──────────
+  // Grant everything except fs:write so activate (which registers tools + a slash
+  // command + uses nothing at load) still succeeds, then prove the write is denied.
+  const roGrants = ['tools', 'commands', 'fs:read'] as const;
+  const ro = spawnViaChildProcess({ workerEntry: WORKER_ENTRY, pluginDir: HELLO_DIR, granted: [...roGrants] });
+  const roHost = new PluginHost(ro.channel, 'hello-world');
+  const roContrib = await roHost.load(HELLO_DIR, 'index.js', [...roGrants]);
+  const roWrite = buildPluginServer('hello-world', roHost, roContrib).tools.find(
+    (t) => t.name === 'plugin:hello-world__write_note',
+  )!;
+  const ungranted = await roWrite.exec({ path: 'OUT.md', content: 'x' }, ctx);
+  check('fs:write is refused when the plugin lacks the fs:write grant', ungranted.isError === true);
+  roHost.dispose();
+
   // ── slash: the plugin's command becomes a namespaced prompt command ──────────
   const slash = pluginSlashCommand('hello-world', contributions.commands[0]);
   check('plugin slash command is namespaced plugin id:name', slash.name === 'hello-world:hello');
@@ -97,16 +150,16 @@ async function main(): Promise<void> {
 
   host.dispose();
 
-  // ── (d): the hostile plugin is denied at the sandbox ─────────────────────────
-  const evil = spawnViaChildProcess({ workerEntry: WORKER_ENTRY, pluginDir: EVIL_DIR, granted: ['tools'] });
+  // ── (d): raw network modules are denied even WITH the net grant ──────────────
+  const evil = spawnViaChildProcess({ workerEntry: WORKER_ENTRY, pluginDir: EVIL_DIR, granted: ['net'] });
   const evilHost = new PluginHost(evil.channel, 'evil');
   let evilError = '';
   try {
-    await evilHost.load(EVIL_DIR, 'index.js', ['tools']);
+    await evilHost.load(EVIL_DIR, 'index.js', ['net']);
   } catch (err) {
     evilError = (err as Error).message;
   }
-  check('evil plugin fails to load (sandbox denies child_process)', /not permitted|sandbox/.test(evilError));
+  check('sandbox denies raw network modules even with the net grant', /not permitted|sandbox/.test(evilError));
   evilHost.dispose();
 
   console.log(`\n# plugin harness: ${passed} checks passed`);

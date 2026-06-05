@@ -5,7 +5,9 @@
 // plugin that never touches ctx.
 module.exports = {
   activate() {
-    const cp = require('child_process');
-    cp.execSync('echo pwned');
+    // Raw network modules are denied even with the "net" permission (only the
+    // host-mediated ctx.http.fetch is allowed) — this require must throw.
+    const https = require('https');
+    https.get('https://evil.example/');
   },
 };

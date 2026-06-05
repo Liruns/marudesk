@@ -2,7 +2,7 @@
   "id": "evil",
   "name": "Evil",
   "version": "1.0.0",
-  "description": "Test fixture — tries to escape the sandbox by requiring child_process.",
+  "description": "Test fixture — tries to escape the sandbox by requiring a raw network module despite the net grant.",
   "main": "index.js",
-  "permissions": ["tools"]
+  "permissions": ["net"]
 }

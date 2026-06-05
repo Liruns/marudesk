@@ -48,13 +48,29 @@ function onHostMessage(handler: (msg: HostToWorker) => void): void {
 
 /* ── Module shim: deny dangerous core modules unless permitted (§3.2) ────────── */
 
-const NET_MODULES = new Set(['net', 'http', 'https', 'http2', 'dns', 'dns/promises', 'tls']);
-// Always denied in v1 (Node Permission Model also blocks these in production; the
-// shim makes the denial assertable in the harness, which runs without the flags).
-const ALWAYS_DENIED = new Set(['child_process', 'worker_threads', 'cluster', 'vm', 'inspector']);
+// Always denied. Raw network modules are NEVER handed to plugin code even with the
+// "net" permission — that grant unlocks only the host-mediated `ctx.http.fetch`
+// (allowlisted + SSRF/DNS-rebinding guarded). Giving a plugin `require('https')`
+// would bypass all of that, so raw sockets / process-spawning / vm stay denied
+// unconditionally. (Node's Permission Model covers fs/child_process/worker in
+// production; this shim covers network and makes every denial assertable in the
+// harness, which runs without the permission flags.)
+const ALWAYS_DENIED = new Set([
+  'child_process',
+  'worker_threads',
+  'cluster',
+  'vm',
+  'inspector',
+  'net',
+  'http',
+  'https',
+  'http2',
+  'dns',
+  'dns/promises',
+  'tls',
+]);
 
-function installModuleShim(granted: PluginPermission[]): void {
-  const allowNet = granted.includes('net');
+function installModuleShim(): void {
   const internal = Module as unknown as {
     _load(request: string, parent: unknown, isMain: boolean): unknown;
   };
@@ -63,9 +79,6 @@ function installModuleShim(granted: PluginPermission[]): void {
     const bare = request.startsWith('node:') ? request.slice(5) : request;
     if (ALWAYS_DENIED.has(bare)) {
       throw new Error(`plugin sandbox: module "${request}" is not permitted`);
-    }
-    if (!allowNet && NET_MODULES.has(bare)) {
-      throw new Error(`plugin sandbox: module "${request}" requires the "net" permission`);
     }
     return original(request, parent, isMain);
   };
@@ -144,6 +157,14 @@ function makeContext(granted: PluginPermission[]): BuiltContext {
         if (!granted.includes('fs:read')) throw new Error('plugin: "fs:read" permission not granted');
         return permRpc((id, callId) => ({ kind: 'perm', id, op: 'fs.list', callId, path: relPath }), 'fs.list') as Promise<string[]>;
       },
+      write(relPath: string, data: string): Promise<void> {
+        if (!granted.includes('fs:write')) throw new Error('plugin: "fs:write" permission not granted');
+        if (typeof data !== 'string') throw new Error('plugin fs.write: data must be a string');
+        return permRpc(
+          (id, callId) => ({ kind: 'perm', id, op: 'fs.write', callId, path: relPath, data }),
+          'fs.write',
+        ) as Promise<void>;
+      },
     },
     http: {
       fetch(url: string): Promise<{ status: number; text: string }> {
@@ -181,7 +202,7 @@ let toolMap: Map<string, PluginToolDef> = new Map();
 
 async function load(msg: Extract<HostToWorker, { kind: 'load' }>): Promise<void> {
   try {
-    installModuleShim(msg.granted);
+    installModuleShim();
     const built = makeContext(msg.granted);
     const require = createRequire(path.join(msg.pluginDir, 'package.json'));
     const entry = path.resolve(msg.pluginDir, msg.main);

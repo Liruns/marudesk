@@ -234,10 +234,10 @@ R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러�
    **fs 연산 자체가 런타임에서 거부**되고, `child_process`/`worker_threads`/native-addon은 기본 차단된다.
    `utilityProcess.fork`/`child_process.fork` 둘 다 `execArgv`를 지원하므로 **두 백엔드 대칭**.
 2. **`Module._load` 셰임** — worker가 플러그인 `index.js`를 `require`하기 **전에** 자체 모듈 로더를
-   감싸, `net`/`http`/`https`/`http2`/`dns`/`tls`(및 `node:` 접두 변형)를 **net 권한 미승인 시 throw**.
-   Permission Model이 아직 네트워크를 안 막는 공백을 메운다. 허용된 네트워크는 오직 host가 중개하는
-   `ctx.http`뿐이고, 거기서 SSRF/리다이렉트/**DNS 리바인딩**(허용 도메인이 사설 IP로 해석되는 경우)을
-   host가 재검증한다.
+   감싸, `net`/`http`/`https`/`http2`/`dns`/`tls`(및 `node:` 접두 변형)와 `child_process`/`worker_threads`/
+   `vm`을 **항상 throw**(grant 무관). Permission Model이 아직 네트워크를 안 막는 공백을 메운다. **`net`
+   권한은 raw 소켓을 열어주지 않는다** — 오직 host가 중개하는 `ctx.http.fetch`만 열어주고, 거기서
+   https/http·allowlist·공인 IP(SSRF/리다이렉트/**DNS 리바인딩**)를 host가 재검증한다. (P3에서 확정.)
 
 이 샌드박스가 없으면 "inert 출하"가 유일한 보호막이고 사용자가 플러그인을 켜는 순간 경계가 사라진다 —
 그래서 P3가 아니라 **P1**이다. (한계: Permission Model은 CPU/메모리는 안 막는다 → §8 워치독으로 보완.)
@@ -334,8 +334,17 @@ R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러�
   `approvedPermissionsKey` 불일치 → `needs-approval` 상태(토글 off)로 재승인 요구. typecheck/lint/build
   통과 + 하니스 14 checks(슬래시 치환·네임스페이스 resolve 포함). (한계: 채팅 탭이 열린 채 플러그인을
   켜면 슬래시 스냅샷은 다음 마운트에 반영.)
-- **P3 — `fs:write` + net 강화 + 문서.** `AppliedChange` 채널로 플러그인 쓰기를 chat diff/revert에
-  노출 + `net` host-중개 fetch(SSRF/DNS 리바인딩 가드) + 보안 리뷰(§8) + README/AGENTS 작성법.
+- **P3 — `fs:write` + net 강화. ✅ 완료.** `ctx.fs.write`가 [workspace patch apply](../electron/patch.ts)를
+  거쳐 **`AppliedChange`(before/after)** 를 만들고, host가 그것을 호출 도구의 `ToolResult.edits`에 실어
+  **chat diff/revert에 노출**(보이지 않는 변경 제거 — R2 MAJOR 해소). never-edit denyGlobs + applyPatch의
+  escape/symlink/atomic 가드 재사용, 쓰기 상한 1MB. `ctx.http.fetch`는 **host 중개**: https/http only +
+  manifest allowlist 호스트 + 공인 IP만(사설/loopback/링크로컬/메타데이터 차단 = **SSRF·DNS 리바인딩**),
+  리다이렉트 미추종, 본문 1MB 상한. **보안 정정:** raw 네트워크 모듈(`net`/`http`/`https`/`dns`/`tls`)은
+  `net` 권한이 있어도 **항상 셰임이 차단** — `net`은 가드된 `ctx.http`만 열어주지 raw 소켓을 열지 않는다.
+  host는 모든 perm RPC에서 grant를 **재검증**(worker 게이트 + host 게이트 2중). 하니스 21 checks(쓰기→edits
+  생성/덮어쓰기/denyGlobs 거부/미승인 거부, net allowlist·사설IP 거부, net-grant raw 모듈 거부) +
+  typecheck/lint/build 통과.
+- **P3.5 — 문서.** ⏳ README/AGENTS에 플러그인 작성법(매니페스트·권한·`ctx` API·예제) 추가.
 - **v2(분리) — UI 패널 기여.** 샌드박스된 `webContents` + CSP로 플러그인이 탭/패널을 그리는 경로.
 
 > **R2 재스코핑 근거:** ① 샌드박스는 플러그인 코드를 spawn하는 순간 필요한 *load-bearing* 보안이라

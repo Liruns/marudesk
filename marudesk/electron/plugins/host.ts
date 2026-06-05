@@ -10,9 +10,10 @@ import {
   type WorkerPermissionRequest,
   type WorkerToHost,
 } from '../../shared/plugin';
+import type { AppliedChange } from '../../shared/patch';
 import type { McpServer } from '../agent/mcp';
 import type { McpTool, ToolContext, ToolResult } from '../agent/tools';
-import { guardedFetch, guardedList, guardedRead } from './permissions';
+import { guardedFetch, guardedList, guardedRead, guardedWrite } from './permissions';
 import type { HostChannel } from './rpc';
 import { makeIdGen } from './rpc';
 
@@ -43,13 +44,21 @@ export type PluginHostLike = {
 export class PluginHost implements PluginHostLike {
   private readonly nextId = makeIdGen();
   private readonly pending = new Map<number, PendingCall>();
-  /** ToolContext per in-flight callId — the only contexts fs/net RPCs may use. */
-  private readonly inflight = new Map<string, ToolContext>();
+  /**
+   * Per in-flight callId: the originating ToolContext (the only context fs/net
+   * RPCs may use, §R2) plus an edits buffer that fs.write appends to and the tool
+   * result carries back to the chat diff/revert history.
+   */
+  private readonly inflight = new Map<string, { ctx: ToolContext; edits: AppliedChange[] }>();
   private readonly disposers: Array<() => void> = [];
   private loadDone: { resolve(c: PluginContributions): void; reject(e: Error): void } | null = null;
   private disposed = false;
   private readonly channel: HostChannel;
   private readonly pluginId: string;
+  /** Permissions the user granted this plugin — host-enforced on every perm RPC. */
+  private granted: PluginPermission[] = [];
+  /** Manifest net allowlist — the only hosts ctx.http.fetch may reach. */
+  private netAllow: string[] = [];
 
   constructor(channel: HostChannel, pluginId: string) {
     this.channel = channel;
@@ -63,7 +72,14 @@ export class PluginHost implements PluginHostLike {
   }
 
   /** Send the load request and await the worker's `ready` (or `loadError`). */
-  load(pluginDir: string, main: string, granted: PluginPermission[]): Promise<PluginContributions> {
+  load(
+    pluginDir: string,
+    main: string,
+    granted: PluginPermission[],
+    netAllow: string[] = [],
+  ): Promise<PluginContributions> {
+    this.granted = granted;
+    this.netAllow = netAllow;
     return new Promise<PluginContributions>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.loadDone = null;
@@ -99,13 +115,18 @@ export class PluginHost implements PluginHostLike {
   /** PluginHostLike: execute a plugin tool, registering its ToolContext by callId. */
   async callTool(name: string, input: unknown, ctx: ToolContext): Promise<ToolResult> {
     const callId = `${this.pluginId}:${this.nextId()}`;
-    this.inflight.set(callId, ctx);
+    const entry = { ctx, edits: [] as AppliedChange[] };
+    this.inflight.set(callId, entry);
     try {
       let text = await this.callWorker(name, callId, input ?? {});
       if (text.length > PLUGIN_MAX_TOOL_TEXT) {
         text = `${text.slice(0, PLUGIN_MAX_TOOL_TEXT)}\n…[clipped ${text.length - PLUGIN_MAX_TOOL_TEXT} chars]`;
       }
-      return { summary: name, text: scrubText(text) || '(no content)' };
+      return {
+        summary: name,
+        text: scrubText(text) || '(no content)',
+        ...(entry.edits.length > 0 ? { edits: entry.edits } : {}),
+      };
     } catch (err) {
       return {
         summary: `${name} error`,
@@ -145,18 +166,38 @@ export class PluginHost implements PluginHostLike {
     }
   }
 
-  /** Fulfil a worker permission RPC against the originating call's ToolContext. */
+  /**
+   * Fulfil a worker permission RPC against the originating call's ToolContext.
+   * The worker is untrusted, so the host RE-CHECKS the grant here (not just the
+   * worker-side gate) before touching fs/net. fs.write appends its AppliedChange to
+   * the call's edits buffer so it reaches the chat diff.
+   */
   private async handlePerm(msg: WorkerPermissionRequest): Promise<void> {
-    const ctx = this.inflight.get(msg.callId);
-    if (!ctx) {
+    const entry = this.inflight.get(msg.callId);
+    if (!entry) {
       this.channel.postMessage({ kind: 'resolve', id: msg.id, ok: false, error: 'no active tool call for this request' });
       return;
     }
+    const require = (perm: PluginPermission): void => {
+      if (!this.granted.includes(perm)) throw new Error(`plugin: "${perm}" permission not granted`);
+    };
     try {
       let value: unknown;
-      if (msg.op === 'fs.read') value = await guardedRead(ctx, msg.path);
-      else if (msg.op === 'fs.list') value = await guardedList(ctx, msg.path);
-      else value = await guardedFetch();
+      if (msg.op === 'fs.read') {
+        require('fs:read');
+        value = await guardedRead(entry.ctx, msg.path);
+      } else if (msg.op === 'fs.list') {
+        require('fs:read');
+        value = await guardedList(entry.ctx, msg.path);
+      } else if (msg.op === 'fs.write') {
+        require('fs:write');
+        const change = await guardedWrite(entry.ctx, msg.path, msg.data);
+        if (change) entry.edits.push(change);
+        value = null;
+      } else {
+        require('net');
+        value = await guardedFetch(msg.url, this.netAllow);
+      }
       this.channel.postMessage({ kind: 'resolve', id: msg.id, ok: true, value });
     } catch (err) {
       this.channel.postMessage({ kind: 'resolve', id: msg.id, ok: false, error: scrubText((err as Error).message) });

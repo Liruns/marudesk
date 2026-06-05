@@ -5,5 +5,5 @@
   "description": "Example MaruDesk plugin — a greeting tool, a workspace-file reader, and a slash command.",
   "main": "index.js",
   "engine": { "marudesk": "^1.0.0" },
-  "permissions": ["tools", "commands", "fs:read"]
+  "permissions": ["tools", "commands", "fs:read", "fs:write"]
 }

@@ -185,7 +185,8 @@ export class PluginManager {
     try {
       const { channel } = this.spawn({ workerEntry: '', pluginDir: d.dir, granted });
       const host = new PluginHost(channel, d.manifest.id);
-      const contributions = await host.load(d.dir, d.manifest.main, granted);
+      const netAllow = d.manifest.net?.allow ?? [];
+      const contributions = await host.load(d.dir, d.manifest.main, granted, netAllow);
       registerMcpServer(buildPluginServer(d.manifest.id, host, contributions));
       const status: PluginStatus = {
         ...base,

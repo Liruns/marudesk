@@ -44,6 +44,28 @@ module.exports = {
       },
     });
 
+    // A tool that writes through the guarded fs bridge. The host routes the write
+    // through the agent's atomic patch apply, so the change shows in the chat
+    // diff/revert history just like an edit the agent made itself (design §4, P3).
+    ctx.registerTool({
+      name: 'write_note',
+      description: 'Write text to a workspace-relative file (creates or overwrites it).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Workspace-relative file path' },
+          content: { type: 'string', description: 'Text to write' },
+        },
+        required: ['path', 'content'],
+      },
+      async handler(input) {
+        const rel = input && typeof input.path === 'string' ? input.path : '';
+        const content = input && typeof input.content === 'string' ? input.content : '';
+        await ctx.fs.write(rel, content);
+        return `Wrote ${content.length} chars to ${rel}`;
+      },
+    });
+
     // A prompt slash command. `$ARGUMENTS` is substituted by the renderer with
     // whatever the user typed after the command (design §5).
     ctx.registerSlashCommand({

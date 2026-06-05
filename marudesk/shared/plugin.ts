@@ -125,6 +125,7 @@ export type HostToWorker =
 export type WorkerPermissionRequest =
   | { kind: 'perm'; id: number; op: 'fs.read'; callId: string; path: string }
   | { kind: 'perm'; id: number; op: 'fs.list'; callId: string; path: string }
+  | { kind: 'perm'; id: number; op: 'fs.write'; callId: string; path: string; data: string }
   | { kind: 'perm'; id: number; op: 'http.fetch'; callId: string; url: string };
 
 /** Messages the worker sends to the host. */
