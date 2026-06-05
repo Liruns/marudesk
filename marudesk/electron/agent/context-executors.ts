@@ -9,7 +9,7 @@ import {
 } from '../../shared/workspace';
 import type { SessionRecord } from '../../shared/context';
 import { activeRoot, rootById, workspaceById } from '../workspace-helpers';
-import { getActiveTabId, getConsole, getTab, tabValues, type TabRecord } from '../browser/state';
+import { getActiveTabId, getConsole, getTab, tabValues } from '../browser/state';
 import { sendCdp } from '../browser/cdp';
 import { getRecentTerminalOutput, getTerminalList, getTerminalOutput } from '../terminal';
 import { getWorkspaceSnapshot, readFileWindow } from '../workspace';
@@ -18,6 +18,7 @@ import { getEditorMirror, getEditorMirrors, getExplorerMirror } from './context-
 import { deleteSession, listSessions, readSession } from './sessions-store';
 import { deleteMemory, listMemory, readMemory, writeMemory } from './memory-store';
 import type { ToolContext, ToolResult } from './tools';
+import { ago, formatTabLine, resolveWebTab, tabUrl } from './context-helpers.ts';
 
 /**
  * The NEW context sources for the built-in MCP (docs/context-mcp-design §2). These
@@ -31,83 +32,6 @@ import type { ToolContext, ToolResult } from './tools';
  * throw for hard errors — the registry (mcp.ts) catches and renders them as a
  * tool error, exactly like the original executor path.
  */
-
-
-/** A short relative "when" label (e.g. "3m ago", "2h ago", "5d ago"). */
-function ago(ts: number): string {
-  const d = Date.now() - ts;
-  if (d < 60_000) return 'just now';
-  if (d < 3_600_000) return `${Math.round(d / 60_000)}m ago`;
-  if (d < 86_400_000) return `${Math.round(d / 3_600_000)}h ago`;
-  return `${Math.round(d / 86_400_000)}d ago`;
-}
-
-/** Resolve a web tab to target: the given id, else the turn's active tab. */
-function resolveWebTab(tabId: unknown, ctx: ToolContext): TabRecord {
-  const id = typeof tabId === 'string' && tabId ? tabId : ctx.tabId;
-  if (!id) throw new Error('no web tab — open a page, or pass a tabId from list_tabs');
-  const rec = getTab(id);
-  if (!rec || rec.kind !== 'web' || !rec.view) {
-    throw new Error(`tab ${id} is not a live web page (use list_tabs to see web tabs)`);
-  }
-  if (rec.chromeDevtoolsOpen) {
-    throw new Error(`tab ${id} has Chromium DevTools open, which holds the CDP client — close it to read this page`);
-  }
-  return rec;
-}
-
-function tabUrl(rec: TabRecord): string {
-  try {
-    return rec.view!.webContents.getURL();
-  } catch {
-    return '';
-  }
-}
-
-function tabWorkspaceScope(
-  rec: TabRecord,
-  workspaces: readonly WorkspaceRecord[],
-): string {
-  const record = workspaceById(workspaces, rec.workspaceId);
-  return record ? ` @ ${record.name}` : '';
-}
-
-function editorTabLabel(
-  rec: TabRecord,
-  workspaces: readonly WorkspaceRecord[],
-): string {
-  if (rec.editorFile) {
-    const record = workspaceById(workspaces, rec.editorFile.workspaceId);
-    const root = record ? rootById(record, rec.editorFile.rootId) : null;
-    return `${record?.name ?? rec.editorFile.workspaceId}/${root?.name ?? rec.editorFile.rootId}/${rec.editorFile.path}`;
-  }
-  return rec.filePath ?? '(untitled buffer)';
-}
-
-function formatTabLine(
-  rec: TabRecord,
-  activeTabId: string | null,
-  workspaces: readonly WorkspaceRecord[],
-): string {
-  const mark = rec.id === activeTabId ? '*' : ' ';
-  const scope = tabWorkspaceScope(rec, workspaces);
-  if (rec.kind === 'web') {
-    let title = '';
-    try {
-      title = rec.view?.webContents.getTitle() ?? '';
-    } catch {
-      /* destroyed */
-    }
-    const url = tabUrl(rec);
-    return `${mark} [web${scope}] ${rec.id} - ${scrubText(title) || '(untitled)'}  ${scrubText(url)}`.trimEnd();
-  }
-  if (rec.kind === 'editor') {
-    return `${mark} [editor${scope}] ${rec.id} - ${editorTabLabel(rec, workspaces)}`;
-  }
-  return `${mark} [${rec.kind}${scope}] ${rec.id}`;
-}
-
-/* ── browser / tabs ─────────────────────────────────────────────────────── */
 
 export async function listTabs(): Promise<ToolResult> {
   const active = getActiveTabId();
