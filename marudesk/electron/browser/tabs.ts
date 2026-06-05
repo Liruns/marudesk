@@ -2,7 +2,7 @@ import { WebContentsView, session, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { applyReorder, type TabKind } from '../../shared/browser';
+import { type TabKind } from '../../shared/browser';
 import type { WorkspaceFileRef, WorkspaceId } from '../../shared/workspace';
 import {
   clearConsole,
@@ -40,6 +40,8 @@ import { clearFavicon, updateFavicon } from './favicon';
 import { handleFoundInPage } from './find';
 import { reapplyZoom } from './zoom';
 import { handleTabShortcut } from './tab-shortcuts';
+import { pinnedFirst } from './tab-order.ts';
+export { reorderTabs, setTabPinned } from './tab-order.ts';
 import { registerDownloadHandler } from './downloads';
 import { recordTitle, recordVisit } from '../history';
 import { openExternalUrl } from '../safe-open';
@@ -472,36 +474,6 @@ export function reopenClosedTab(): boolean {
 }
 
 /** Stable partition keeping pinned tabs first; preserves order within each group. */
-function pinnedFirst(ids: string[]): string[] {
-  return [
-    ...ids.filter((id) => getTab(id)?.pinned),
-    ...ids.filter((id) => !getTab(id)?.pinned),
-  ];
-}
-
-export function reorderTabs(orderedIds: string[]): void {
-  // Reorder via the shared policy (requested order, then any unlisted tabs
-  // appended), then keep pinned tabs anchored at the front before rebuilding the
-  // authoritative tab map — a drag can't drop an ordinary tab ahead of a pin.
-  const order = pinnedFirst(applyReorder(tabKeys(), orderedIds));
-  reorderTabRecords(order);
-  pushState();
-}
-
-/**
- * Pin/unpin a tab. Pinned tabs render favicon-only and stay at the front of the
- * strip, so flipping the flag re-sorts pinned-first (Chrome/Edge "Pin tab").
- */
-export function setTabPinned(id: string, pinned: boolean): boolean {
-  const rec = getTab(id);
-  if (!rec) return false;
-  if (!!rec.pinned === pinned) return true;
-  rec.pinned = pinned;
-  reorderTabRecords(pinnedFirst(tabKeys()));
-  pushState();
-  savePinnedTabs();
-  return true;
-}
 
 /**
  * Recreate the pinned tabs saved from a previous session, in order, so they sit
