@@ -17,15 +17,14 @@ import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
 import { isProviderId, MODELS } from '../../shared/providers';
-import { coalesced } from '../coalesce';
 import { CLAUDE_CODE_SYSTEM_PREFIX } from '../oauth/config';
 import { getSettingsSync } from '../settings';
 import type { AgentApprovalMode, ModelRef, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
-import { getHost, setNetworkCapture } from '../browser/state';
+import { setNetworkCapture } from '../browser/state';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { writeFileForEditor } from '../workspace';
-import { streamText, generateText, type ModelMessage } from 'ai';
+import { streamText, generateText } from 'ai';
 import { buildModel, aiTools, humanizeModelError, isFailoverError, type ModelAuth } from './model';
 import { loadGlobalUserInstructions, loadWorkspaceInstructions } from './instructions';
 import { claimNestedInstructions, clearNestedInstructionClaims } from './nested-instructions';
@@ -53,6 +52,14 @@ import type { SessionRecord, SessionSummary } from '../../shared/context';
 import { resolveProviderAuth } from './resolve-auth';
 import { runSubagentTool } from './subagent';
 import {
+  S,
+  emit,
+  uid,
+  busy,
+  type ApprovalDecision,
+} from './loop-state.ts';
+export { subscribeAgentEvents } from './loop-state.ts';
+import {
   buildUserText,
   toolResult,
   type ToolResultPartLite,
@@ -64,7 +71,7 @@ export { testProviderConnection } from './loop-helpers.ts';
  * the authoritative {@link AgentChatState}; each step is one driver round-trip,
  * after which we execute the model's tool calls (parking on approval/ask_user),
  * append results, and re-enter. A single conversation at a time keeps the model
- * vs. transcript bookkeeping trivial. State is streamed to the renderer as a
+ * vs. S.transcript bookkeeping trivial. State is streamed to the renderer as a
  * coalesced `agent:event` snapshot (the renderer is a pure projection).
  */
 
@@ -75,109 +82,20 @@ const MAX_STEPS = 24;
  * when compacting. Only the older head is summarized; recent turns survive intact
  * so the model keeps full fidelity on what it's actively working on (cursor /
  * copilot "extract + tail preservation"). The tail is snapped to a turn (user
- * message) boundary so the rebuilt transcript stays valid.
+ * message) boundary so the rebuilt S.transcript stays valid.
  */
 const COMPACTION_TAIL_FRACTION = 0.3;
 
-/* ── module state ───────────────────────────────────────────────────────── */
-
-let state: AgentChatState = emptyAgentChatState();
-// The provider-neutral running transcript (multi-turn). Kept valid at all times
-// (every tool_use is answered by a tool_result) so a later turn can reuse it.
-let transcript: ModelMessage[] = [];
-let controller: AbortController | null = null;
-/** Approval decision from the UI: approved/denied, plus "always for this session". */
-type ApprovalDecision = { approved: boolean; always: boolean };
-let approvalResolver: ((decision: ApprovalDecision) => void) | null = null;
-/**
- * Gated tools the user chose to "Allow always" for this conversation. Future
- * calls to a tool in this set skip the approval prompt (claude-code "Allow
- * always" parity). Cleared on reset/resume so it never leaks across conversations.
- */
-const sessionAllowedTools = new Set<string>();
-/**
- * Active sticky keyword modes for this conversation (ultrawork/search/analyze/
- * think). A mode keyword in any message activates it for all SUBSEQUENT turns
- * until the user clears it ("mode off"), so the user doesn't re-type "ulw" every
- * message (oh-my-openagent re-injects with no off switch; Claude Code has no
- * modes). Cleared on reset/resume. See keyword-modes.ts.
- */
-let activeModes: string[] = [];
-let answersResolver: ((answers: AgentAnswers) => void) | null = null;
-// Synchronous re-entrancy guard: status is only set busy *after* an await in
-// startTurn, so two near-simultaneous sends could both pass busy(). This closes
-// that window before the first await.
-let starting = false;
-// The web tab the active turn targets — so finish() can stop the lazy network
-// capture it may have enabled (otherwise the relay keeps buffering forever).
-let activeTabId: string | undefined;
-// The current conversation's stable session id (assigned on the first turn after
-// a reset) + metadata, so finish() can persist the transcript to sessions-store
-// for the AI's `list_sessions` / `read_session` context tools (and a future
-// sessions UI). Reused across the conversation's turns — each save updates the
-// same record; reset() clears it so the next turn begins a new session.
-let conversationId: string | null = null;
-let conversationStartedAt = 0;
-let conversationProvider = '';
-let conversationModel = '';
-let conversationTitle = '';
-let seq = 0;
-
-function uid(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${++seq}`;
-}
-
-function busy(): boolean {
-  return state.status === 'thinking' || state.status === 'working' || state.status === 'waiting_for_user';
-}
-
-/* ── event fan-out (renderer push + in-process subscribers) ─────────────── */
-
-// In-process subscribers to the authoritative state stream. The headless server
-// (electron/server) subscribes here to relay `agent:event` over SSE — the loop's
-// functions are called directly (no IPC), so this is the renderer-side push's
-// peer for any non-renderer head. Kept module-level so it survives across turns.
-const subscribers = new Set<(state: AgentChatState) => void>();
-
-/**
- * Subscribe to the authoritative {@link AgentChatState} stream — every state the
- * renderer would receive on `agent:event` is also delivered here. Used by the
- * in-process bridge server (docs/remote-mobile-bridge-design §M4) so a future
- * companion app can mirror the same chat. Returns an unsubscribe fn. The callback
- * must not throw (we isolate it so one bad subscriber can't break the others or
- * the renderer push).
- */
-export function subscribeAgentEvents(cb: (state: AgentChatState) => void): () => void {
-  subscribers.add(cb);
-  return () => {
-    subscribers.delete(cb);
-  };
-}
-
-const emit = coalesced(() => {
-  const host = getHost();
-  if (host && !host.isDestroyed()) host.webContents.send('agent:event', state);
-  // Notify any in-process subscribers (the bridge server) with the same snapshot
-  // the renderer just got. Isolated per-callback so a throwing subscriber neither
-  // breaks its peers nor the renderer push above.
-  for (const cb of subscribers) {
-    try {
-      cb(state);
-    } catch {
-      // A subscriber must never break the loop's fan-out.
-    }
-  }
-});
 
 /* ── message helpers ────────────────────────────────────────────────────── */
 
-/** One tool result for the transcript (AI SDK tool-message content shape). */
+/** One tool result for the S.transcript (AI SDK tool-message content shape). */
 
 
 function recordEdits(turnId: string, changes: AppliedChange[] | undefined): void {
   if (!changes) return;
   for (const c of changes) {
-    state.edits.push({
+    S.state.edits.push({
       id: uid('edit'),
       turnId,
       path: c.path,
@@ -238,8 +156,8 @@ async function runVerifyNote(turnId: string, ws: WorkspaceSummary | null): Promi
   const cmd = getSettingsSync().agent.verifyCommand.trim();
   if (!cmd || !ws) return null;
   // Only verify when this turn actually changed files on disk.
-  if (!state.edits.some((e) => e.turnId === turnId)) return null;
-  state.status = 'working';
+  if (!S.state.edits.some((e) => e.turnId === turnId)) return null;
+  S.state.status = 'working';
   emit();
   let passed = false;
   let detail: string;
@@ -269,16 +187,16 @@ async function runVerifyNote(turnId: string, ws: WorkspaceSummary | null): Promi
 // promise. The turnId+callId guards in approveTool/respond are the primary gate;
 // this is belt-and-suspenders for the resolver lifecycle.
 function waitForApproval(): Promise<ApprovalDecision> {
-  approvalResolver?.({ approved: false, always: false });
+  S.approvalResolver?.({ approved: false, always: false });
   return new Promise((resolve) => {
-    approvalResolver = resolve;
+    S.approvalResolver = resolve;
   });
 }
 
 function waitForAnswers(): Promise<AgentAnswers> {
-  answersResolver?.({});
+  S.answersResolver?.({});
   return new Promise((resolve) => {
-    answersResolver = resolve;
+    S.answersResolver = resolve;
   });
 }
 
@@ -455,7 +373,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (opts.signal.aborted) return finish('completed', 'Stopped');
-    state.status = 'thinking';
+    S.state.status = 'thinking';
 
     // Create the assistant message up front so streamed text deltas render live
     // (real token streaming); tool calls are attached once the step settles.
@@ -467,12 +385,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
       timestamp: Date.now(),
     };
     const textPart = assistantMsg.parts[0] as AgentTextPart;
-    state.messages.push(assistantMsg);
+    S.state.messages.push(assistantMsg);
     emit();
 
     // Reasoning ("extended thinking") streams on a separate channel; render it as
     // a collapsible block ABOVE the answer (v3 §5-A). Created lazily on the first
-    // delta and kept display-only (never pushed into the provider transcript).
+    // delta and kept display-only (never pushed into the provider S.transcript).
     let reasoningPart: AgentReasoningPart | null = null;
 
     let toolUses: { id: string; name: string; input: unknown }[];
@@ -482,7 +400,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         // codex carries the system prompt in providerOptions.openai.instructions
         // (see above), so don't also pass it here or it lands twice.
         system: current.codexBackend ? undefined : current.system,
-        messages: transcript,
+        messages: S.transcript,
         tools,
         maxOutputTokens: current.maxOutputTokens,
         providerOptions: current.providerOptions,
@@ -507,23 +425,23 @@ async function runLoop(opts: RunOpts): Promise<void> {
       const calls = await res.toolCalls;
       const usage = await res.usage;
       toolUses = calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input }));
-      state.usage.inputTokens += usage.inputTokens ?? 0;
-      state.usage.outputTokens += usage.outputTokens ?? 0;
+      S.state.usage.inputTokens += usage.inputTokens ?? 0;
+      S.state.usage.outputTokens += usage.outputTokens ?? 0;
       // The latest call's input size is the live context-window occupancy (the
-      // whole transcript is re-sent each step), so overwrite rather than sum —
+      // whole S.transcript is re-sent each step), so overwrite rather than sum —
       // this drives the usage gauge and the auto-compaction threshold.
-      if (usage.inputTokens) state.usage.contextTokens = usage.inputTokens;
+      if (usage.inputTokens) S.state.usage.contextTokens = usage.inputTokens;
     } catch (err) {
       // Drop the optimistic streaming bubble if nothing was streamed into it, so
       // a failed/aborted step doesn't leave an empty assistant message behind.
       // Reasoning-only content still counts — keep a thinking-only bubble.
       if (!textPart.text.trim() && !reasoningPart?.text.trim()) {
-        const i = state.messages.indexOf(assistantMsg);
-        if (i !== -1) state.messages.splice(i, 1);
+        const i = S.state.messages.indexOf(assistantMsg);
+        if (i !== -1) S.state.messages.splice(i, 1);
       }
       if (opts.signal.aborted) return finish('completed', 'Stopped');
       // Provider exhausted (429) or a transient server error (5xx): fall over to
-      // the next configured model and retry THIS step. The transcript is
+      // the next configured model and retry THIS step. The S.transcript is
       // provider-neutral, so only the per-provider scaffolding swaps; once we
       // switch, the rest of the turn stays on the new model.
       if (isFailoverError(err)) {
@@ -531,8 +449,8 @@ async function runLoop(opts: RunOpts): Promise<void> {
         if (next) {
           // Discard any partial bubble from the failed attempt; the retry makes a
           // fresh one. (429 usually fires before any text streams.)
-          const i = state.messages.indexOf(assistantMsg);
-          if (i !== -1) state.messages.splice(i, 1);
+          const i = S.state.messages.indexOf(assistantMsg);
+          if (i !== -1) S.state.messages.splice(i, 1);
           current = next;
           emit();
           step--; // re-run this step index on the new model
@@ -547,7 +465,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     }
 
     // Attach tool-call cards to the streamed message + mirror the turn into the
-    // transcript (a valid tool_use the next step answers with a tool_result).
+    // S.transcript (a valid tool_use the next step answers with a tool_result).
     const calls: ToolCall[] = toolUses.map((t) => ({
       id: t.id,
       name: t.name,
@@ -569,7 +487,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     for (const t of toolUses) {
       assistantContent.push({ type: 'tool-call', toolCallId: t.id, toolName: t.name, input: t.input });
     }
-    transcript.push({ role: 'assistant', content: assistantContent });
+    S.transcript.push({ role: 'assistant', content: assistantContent });
     emit();
 
     if (calls.length === 0) {
@@ -585,8 +503,8 @@ async function runLoop(opts: RunOpts): Promise<void> {
       return finish('completed');
     }
 
-    // Execute each tool call; collect one tool_result per call (transcript stays valid).
-    state.status = 'working';
+    // Execute each tool call; collect one tool_result per call (S.transcript stays valid).
+    S.state.status = 'working';
     emit();
     const toolResultParts: ToolResultPartLite[] = [];
     for (const call of calls) {
@@ -636,11 +554,11 @@ async function runLoop(opts: RunOpts): Promise<void> {
         isGatedTool(call.name) &&
         opts.approvalMode !== 'auto' &&
         !opts.unattended &&
-        !sessionAllowedTools.has(call.name)
+        !S.sessionAllowedTools.has(call.name)
       ) {
         call.state = 'awaiting_approval';
-        state.status = 'waiting_for_user';
-        state.pendingApproval = {
+        S.state.status = 'waiting_for_user';
+        S.state.pendingApproval = {
           turnId: opts.turnId,
           callId: call.id,
           name: call.name,
@@ -648,24 +566,24 @@ async function runLoop(opts: RunOpts): Promise<void> {
         };
         emit();
         const decision = await waitForApproval();
-        approvalResolver = null;
-        state.pendingApproval = null;
+        S.approvalResolver = null;
+        S.state.pendingApproval = null;
         if (opts.signal.aborted) {
           call.state = 'aborted';
           toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
           continue;
         }
         // "Allow always": remember this tool so later calls skip the prompt.
-        if (decision.approved && decision.always) sessionAllowedTools.add(call.name);
+        if (decision.approved && decision.always) S.sessionAllowedTools.add(call.name);
         if (!decision.approved) {
           call.state = 'denied';
           call.resultText = 'Denied by the user.';
-          state.status = 'working';
+          S.state.status = 'working';
           emit();
           toolResultParts.push(toolResult(call.id, call.name, 'The user denied this tool call.', true));
           continue;
         }
-        state.status = 'working';
+        S.state.status = 'working';
         emit();
       }
 
@@ -698,7 +616,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       toolResultParts.push(toolResult(call.id, call.name, modelText, out.isError));
     }
 
-    transcript.push({ role: 'tool', content: toolResultParts });
+    S.transcript.push({ role: 'tool', content: toolResultParts });
     if (opts.signal.aborted) return finish('completed', 'Stopped');
   }
 
@@ -725,20 +643,20 @@ async function handleAskUser(
   }
   call.state = 'running';
   call.summary = `asked ${questions.length} question${questions.length === 1 ? '' : 's'}`;
-  state.status = 'waiting_for_user';
-  state.pendingQuestions = { turnId, callId: call.id, questions };
+  S.state.status = 'waiting_for_user';
+  S.state.pendingQuestions = { turnId, callId: call.id, questions };
   emit();
   const answers = await waitForAnswers();
-  answersResolver = null;
-  state.pendingQuestions = null;
+  S.answersResolver = null;
+  S.state.pendingQuestions = null;
   // Aborted while parked: record the call as aborted, not answered, so a resumed
-  // conversation's transcript doesn't carry a fabricated "answer".
+  // conversation's S.transcript doesn't carry a fabricated "answer".
   if (signal.aborted) {
     call.state = 'aborted';
     return { content: 'aborted by user', isError: true };
   }
   call.state = 'ok';
-  state.status = 'working';
+  S.state.status = 'working';
   emit();
   const text = questions
     .map((q) => `Q: ${q.question}\nA: ${answers[q.id] ?? '(no answer)'}`)
@@ -748,31 +666,31 @@ async function handleAskUser(
 
 function finish(status: AgentChatState['status'], note?: string, error?: string): void {
   // An early-end note (user Stop / step limit / dropped connection) shows as an
-  // interrupt LABEL, not a fake assistant message in the transcript (v3 polish).
-  state.endNote = note ?? null;
-  state.status = status;
-  state.error = error ?? null;
-  state.pendingApproval = null;
-  state.pendingQuestions = null;
+  // interrupt LABEL, not a fake assistant message in the S.transcript (v3 polish).
+  S.state.endNote = note ?? null;
+  S.state.status = status;
+  S.state.error = error ?? null;
+  S.state.pendingApproval = null;
+  S.state.pendingQuestions = null;
   // Settle + drop any parked resolver so none leaks past the turn.
-  approvalResolver?.({ approved: false, always: false });
-  approvalResolver = null;
-  answersResolver?.({});
-  answersResolver = null;
+  S.approvalResolver?.({ approved: false, always: false });
+  S.approvalResolver = null;
+  S.answersResolver?.({});
+  S.answersResolver = null;
   // Stop the lazy network capture this turn may have enabled — otherwise the
   // relay keeps buffering responses for the tab forever (the always-on path is
   // meant to stay Runtime-only when no agent turn is active).
-  if (activeTabId) {
-    setNetworkCapture(activeTabId, false);
-    activeTabId = undefined;
+  if (S.activeTabId) {
+    setNetworkCapture(S.activeTabId, false);
+    S.activeTabId = undefined;
   }
-  controller = null;
+  S.controller = null;
   emit();
   // Persist the conversation (best-effort) — each turn's end updates the same
   // session record. Emit AGAIN once it's on disk so the renderer refreshes its
   // sessions list only after the write lands; that fixes a list/write race that
   // kept a brand-new conversation out of the history until the next New chat.
-  if (conversationId && state.messages.length > 0) {
+  if (S.conversationId && S.state.messages.length > 0) {
     void persistSession()
       .then(() => emit())
       .catch(() => {});
@@ -790,10 +708,10 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
 function shouldAutoCompact(): boolean {
   const cfg = getSettingsSync().agent.autoCompact;
   if (!cfg.enabled) return false;
-  const ctx = state.usage.contextTokens;
+  const ctx = S.state.usage.contextTokens;
   if (ctx <= 0) return false;
   const window = MODELS.find(
-    (mm) => mm.provider === conversationProvider && mm.id === conversationModel,
+    (mm) => mm.provider === S.conversationProvider && mm.id === S.conversationModel,
   )?.contextWindow;
   if (!window) return false;
   return ctx / window >= cfg.threshold;
@@ -801,7 +719,7 @@ function shouldAutoCompact(): boolean {
 
 /** Clip a tool result before persisting so a session file can't grow unbounded. */
 function snapshotMessagesForSave(): AgentMessage[] {
-  return state.messages.map((m) => ({
+  return S.state.messages.map((m) => ({
     ...m,
     parts: m.parts.map((p) => {
       if (p.type !== 'tool') return p;
@@ -814,23 +732,23 @@ function snapshotMessagesForSave(): AgentMessage[] {
 }
 
 async function persistSession(): Promise<void> {
-  if (!conversationId) return;
+  if (!S.conversationId) return;
   // Respect the Data & Storage toggle: when session saving is off, conversations
-  // stay in-memory only (no transcript written, nothing added to history).
+  // stay in-memory only (no S.transcript written, nothing added to history).
   if (!getSettingsSync().storage.persistSessions) return;
   const record: SessionRecord = {
-    id: conversationId,
-    title: conversationTitle || 'Untitled chat',
-    createdAt: conversationStartedAt || Date.now(),
+    id: S.conversationId,
+    title: S.conversationTitle || 'Untitled chat',
+    createdAt: S.conversationStartedAt || Date.now(),
     updatedAt: Date.now(),
-    provider: conversationProvider,
-    model: conversationModel,
-    messageCount: state.messages.length,
+    provider: S.conversationProvider,
+    model: S.conversationModel,
+    messageCount: S.state.messages.length,
     messages: snapshotMessagesForSave(),
-    usage: { ...state.usage },
-    // Persist the provider-neutral transcript too, so a resumed session keeps
+    usage: { ...S.state.usage },
+    // Persist the provider-neutral S.transcript too, so a resumed session keeps
     // full context (display messages can't reconstruct tool_use/result pairing).
-    transcript: [...transcript],
+    transcript: [...S.transcript],
   };
   await saveSession(record);
 }
@@ -848,13 +766,13 @@ async function persistSession(): Promise<void> {
 
 /**
  * Compact the conversation (claude-code / codex `/compact`): summarize the older
- * head of the transcript with the conversation's own model and keep the recent
+ * head of the S.transcript with the conversation's own model and keep the recent
  * tail verbatim (see {@link splitForTailPreservation}), so later turns keep
  * context without the token weight while preserving full fidelity on the active
  * work. Uses the same provider-aware auth + system handling as a turn
  * (anthropic-OAuth prefix, codex `store:false`). Non-destructive (claude-code /
  * cursor parity): only the
- * model-facing `transcript` is replaced by the summary (capped with a synthetic
+ * model-facing `S.transcript` is replaced by the summary (capped with a synthetic
  * assistant ack so the next turn still alternates user→assistant→user, an
  * Anthropic requirement). The user's visible scrollback (`state.messages`) is
  * KEPT — we just append a compaction divider that carries the summary — so the
@@ -863,14 +781,14 @@ async function persistSession(): Promise<void> {
  * what to preserve in extra detail.
  */
 export async function compactConversation(focus?: string): Promise<{ ok: boolean; reason?: string }> {
-  if (busy() || starting) return { ok: false, reason: 'a turn is already in progress' };
-  if (!conversationProvider || !conversationModel || !isProviderId(conversationProvider)) {
+  if (busy() || S.starting) return { ok: false, reason: 'a turn is already in progress' };
+  if (!S.conversationProvider || !S.conversationModel || !isProviderId(S.conversationProvider)) {
     return { ok: false, reason: 'nothing to compact yet' };
   }
-  if (transcript.length < 2) return { ok: false, reason: 'conversation is too short to compact' };
-  const provider = conversationProvider;
-  const model = conversationModel;
-  starting = true;
+  if (S.transcript.length < 2) return { ok: false, reason: 'conversation is too short to compact' };
+  const provider = S.conversationProvider;
+  const model = S.conversationModel;
+  S.starting = true;
   try {
     const resolved = await resolveProviderAuth(provider);
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
@@ -885,8 +803,8 @@ export async function compactConversation(focus?: string): Promise<{ ok: boolean
       ? `${COMPACT_INSTRUCTION}\n\nThe user asked you to preserve this in extra detail: ${trimmedFocus}`
       : COMPACT_INSTRUCTION;
     // Keep the recent turns verbatim; only summarize the older head. The tail is
-    // snapped to a turn boundary so the rebuilt transcript stays valid.
-    const { head, tail } = splitForTailPreservation(transcript, COMPACTION_TAIL_FRACTION);
+    // snapped to a turn boundary so the rebuilt S.transcript stays valid.
+    const { head, tail } = splitForTailPreservation(S.transcript, COMPACTION_TAIL_FRACTION);
     if (head.length === 0) return { ok: false, reason: 'conversation is too short to compact' };
     const convo = serializeForCompaction(head);
     const res = await generateText({
@@ -902,12 +820,12 @@ export async function compactConversation(focus?: string): Promise<{ ok: boolean
     // Estimate the context tokens dropped: the share of the pre-compaction
     // context the summarized head accounted for. Drives the divider label and
     // the post-compaction gauge.
-    const before = state.usage.contextTokens;
+    const before = S.state.usage.contextTokens;
     const totalChars = head.reduce((n, x) => n + messageChars(x), 0) + tail.reduce((n, x) => n + messageChars(x), 0);
     const headChars = head.reduce((n, x) => n + messageChars(x), 0);
     const freed = before > 0 && totalChars > 0 ? Math.round(before * (headChars / totalChars)) : undefined;
 
-    transcript = [
+    S.transcript = [
       { role: 'user', content: `${SUMMARY_PREFIX}\n${summary}` },
       { role: 'assistant', content: 'Understood — I have the summary above and will continue from here.' },
       ...tail,
@@ -915,7 +833,7 @@ export async function compactConversation(focus?: string): Promise<{ ok: boolean
     // Keep the visible scrollback intact; just mark where the model's memory was
     // condensed. The divider holds the summary so the user can expand it to see
     // exactly what the model carried forward.
-    state.messages.push({
+    S.state.messages.push({
       id: uid('m'),
       role: 'assistant',
       parts: [{ type: 'compaction', summary, freedTokens: freed && freed > 0 ? freed : undefined }],
@@ -923,29 +841,29 @@ export async function compactConversation(focus?: string): Promise<{ ok: boolean
     });
     // Reset cumulative billing counters; keep an estimate of the live context so
     // the gauge reflects the lighter window until the next turn measures it.
-    state.usage = {
+    S.state.usage = {
       inputTokens: 0,
       outputTokens: 0,
       contextTokens: before > 0 && freed ? Math.max(0, before - freed) : 0,
     };
-    state.error = null;
-    state.endNote = null;
+    S.state.error = null;
+    S.state.endNote = null;
     emit();
-    if (conversationId) void persistSession().then(() => emit()).catch(() => {});
+    if (S.conversationId) void persistSession().then(() => emit()).catch(() => {});
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: humanizeModelError(err, provider, model) };
   } finally {
-    starting = false;
+    S.starting = false;
   }
 }
 
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
-  // `starting` closes the window between this check and `state.status` going
+  // `S.starting` closes the window between this check and `state.status` going
   // busy (there's an auth-resolution await before we set it), so two
-  // near-simultaneous sends can't both set up a turn and clobber `controller`.
-  if (busy() || starting) return { ok: false, reason: 'a turn is already in progress' };
-  starting = true;
+  // near-simultaneous sends can't both set up a turn and clobber `S.controller`.
+  if (busy() || S.starting) return { ok: false, reason: 'a turn is already in progress' };
+  S.starting = true;
   try {
     if (!input.prompt || input.prompt.trim().length === 0) {
       return { ok: false, reason: 'enter a prompt' };
@@ -968,43 +886,43 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // Open (or continue) the conversation's saved-session identity. The id +
     // title are pinned on the first turn after a reset; provider/model track the
     // latest turn (the user may switch models mid-conversation).
-    if (!conversationId) {
-      conversationId = uid('session');
-      conversationStartedAt = Date.now();
-      conversationTitle = input.prompt.trim().split('\n')[0].slice(0, 60) || 'Untitled chat';
+    if (!S.conversationId) {
+      S.conversationId = uid('session');
+      S.conversationStartedAt = Date.now();
+      S.conversationTitle = input.prompt.trim().split('\n')[0].slice(0, 60) || 'Untitled chat';
     }
-    conversationProvider = input.provider;
-    conversationModel = input.model;
-    state.activeSessionId = conversationId;
-    controller = new AbortController();
-    activeTabId = input.tabId;
-    state.turnId = turnId;
-    state.status = 'thinking';
-    state.error = null;
-    state.endNote = null;
-    state.pendingApproval = null;
-    state.pendingQuestions = null;
+    S.conversationProvider = input.provider;
+    S.conversationModel = input.model;
+    S.state.activeSessionId = S.conversationId;
+    S.controller = new AbortController();
+    S.activeTabId = input.tabId;
+    S.state.turnId = turnId;
+    S.state.status = 'thinking';
+    S.state.error = null;
+    S.state.endNote = null;
+    S.state.pendingApproval = null;
+    S.state.pendingQuestions = null;
 
     // Resolve sticky keyword modes for this turn: an explicit "mode off" clears
     // the set; otherwise any mode keyword in the message is added to the active
     // set, which persists across turns. The preamble for the full active set is
     // folded into the model-facing text below.
     if (isModeClear(input.prompt)) {
-      activeModes = [];
+      S.activeModes = [];
     } else {
       const added = modesInPrompt(input.prompt);
-      if (added.length > 0) activeModes = [...new Set([...activeModes, ...added])];
+      if (added.length > 0) S.activeModes = [...new Set([...S.activeModes, ...added])];
     }
-    const modePreambleText = modePreamble(activeModes);
+    const modePreambleText = modePreamble(S.activeModes);
     const userText = buildUserText(input, ws, modePreambleText);
     const images = input.images ?? [];
     const promptNote = input.captures.length > 0 ? `${input.prompt.trim()}\n\n(+${input.captures.length} attached capture${input.captures.length === 1 ? '' : 's'})` : input.prompt.trim();
-    // Show the prompt text plus any pasted images as thumbnails in the transcript.
+    // Show the prompt text plus any pasted images as thumbnails in the S.transcript.
     const userParts: AgentMessage['parts'] = [{ type: 'text', text: promptNote }];
     for (const img of images) {
       userParts.push({ type: 'image', mediaType: img.mediaType, data: img.data });
     }
-    state.messages.push({
+    S.state.messages.push({
       id: uid('m'),
       turnId,
       role: 'user',
@@ -1021,7 +939,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     const modelText = contextBlock ? `${userText}\n\n${contextBlock}` : userText;
     // Forward images to the model as multimodal content parts alongside the text.
     if (images.length > 0) {
-      transcript.push({
+      S.transcript.push({
         role: 'user',
         content: [
           { type: 'text', text: modelText },
@@ -1033,7 +951,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
         ],
       });
     } else {
-      transcript.push({ role: 'user', content: modelText });
+      S.transcript.push({ role: 'user', content: modelText });
     }
 
     const settings = getSettingsSync();
@@ -1047,7 +965,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // reasoning effort to the max for a reasoning model. Never lowers the
     // configured effort and is a no-op for non-reasoning models.
     const reasoningEffort =
-      modelReasoning && modeRaisesThinking(activeModes) ? 'high' : agentSettings.reasoningEffort;
+      modelReasoning && modeRaisesThinking(S.activeModes) ? 'high' : agentSettings.reasoningEffort;
     void runLoop({
       auth,
       baseUrl,
@@ -1056,7 +974,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       ws,
       tabId: input.tabId,
       turnId,
-      signal: controller.signal,
+      signal: S.controller.signal,
       approvalMode: agentSettings.approvalMode,
       denyGlobs: agentSettings.denyGlobs,
       customInstructions: agentSettings.instructions,
@@ -1069,7 +987,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     }).catch((err) => {
       // A user Stop surfaces here as an abort, not a real failure — label it
       // ('Stopped') rather than showing an error banner.
-      if (controller?.signal.aborted || (err as Error)?.name === 'AbortError') {
+      if (S.controller?.signal.aborted || (err as Error)?.name === 'AbortError') {
         finish('completed', 'Stopped');
       } else {
         finish('failed', undefined, (err as Error).message);
@@ -1079,24 +997,24 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     return { ok: true, turnId };
   } finally {
     // By here the turn is set up (status busy) or we returned an error; either
-    // way subsequent sends are gated by busy(), so releasing `starting` is safe.
-    starting = false;
+    // way subsequent sends are gated by busy(), so releasing `S.starting` is safe.
+    S.starting = false;
   }
 }
 
 export function abortTurn(turnId: string): boolean {
-  if (state.turnId !== turnId || !controller) return false;
-  controller.abort();
+  if (S.state.turnId !== turnId || !S.controller) return false;
+  S.controller.abort();
   // Unblock a parked turn so the loop can observe the abort and bail cleanly.
-  approvalResolver?.({ approved: false, always: false });
-  answersResolver?.({});
+  S.approvalResolver?.({ approved: false, always: false });
+  S.answersResolver?.({});
   return true;
 }
 
 export function respond(turnId: string, callId: string, answers: AgentAnswers): boolean {
-  if (state.pendingQuestions?.turnId !== turnId || state.pendingQuestions?.callId !== callId) return false;
-  if (!answersResolver) return false;
-  answersResolver(answers ?? {});
+  if (S.state.pendingQuestions?.turnId !== turnId || S.state.pendingQuestions?.callId !== callId) return false;
+  if (!S.answersResolver) return false;
+  S.answersResolver(answers ?? {});
   return true;
 }
 
@@ -1106,14 +1024,14 @@ export function approveTool(
   approved: boolean,
   always = false,
 ): boolean {
-  if (state.pendingApproval?.turnId !== turnId || state.pendingApproval?.callId !== callId) return false;
-  if (!approvalResolver) return false;
-  approvalResolver({ approved, always });
+  if (S.state.pendingApproval?.turnId !== turnId || S.state.pendingApproval?.callId !== callId) return false;
+  if (!S.approvalResolver) return false;
+  S.approvalResolver({ approved, always });
   return true;
 }
 
 export function acceptEdit(editId: string): boolean {
-  const edit = state.edits.find((e) => e.id === editId);
+  const edit = S.state.edits.find((e) => e.id === editId);
   if (!edit || edit.status !== 'applied') return false;
   edit.status = 'accepted';
   emit();
@@ -1121,7 +1039,7 @@ export function acceptEdit(editId: string): boolean {
 }
 
 export async function revertEdit(editId: string): Promise<boolean> {
-  const edit = state.edits.find((e) => e.id === editId);
+  const edit = S.state.edits.find((e) => e.id === editId);
   if (!edit || edit.status !== 'applied') return false;
   let ws: WorkspaceSummary;
   try {
@@ -1155,19 +1073,19 @@ async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void
 }
 
 export function snapshot(): AgentChatState {
-  return state;
+  return S.state;
 }
 
 export function reset(): boolean {
   if (busy()) return false;
-  // Clear the transcript but KEEP edits the user hasn't decided on yet: those
+  // Clear the S.transcript but KEEP edits the user hasn't decided on yet: those
   // files are still modified on disk, and dropping them would orphan the only
   // in-app affordance to revert (the `before` content lives on the edit). Edits
   // the user already accepted/reverted are resolved, so they drop with the chat.
-  const keptEdits = state.edits.filter((e) => e.status === 'applied');
-  state = emptyAgentChatState();
-  state.edits = keptEdits;
-  transcript = [];
+  const keptEdits = S.state.edits.filter((e) => e.status === 'applied');
+  S.state = emptyAgentChatState();
+  S.state.edits = keptEdits;
+  S.transcript = [];
   // Forget tracked reads — the next conversation starts fresh, so a file read in
   // the prior chat shouldn't gate an edit here.
   clearReadTracker();
@@ -1175,12 +1093,12 @@ export function reset(): boolean {
   // re-injects them on demand.
   clearNestedInstructionClaims();
   // Sticky keyword modes are conversation-scoped — drop them with the chat.
-  activeModes = [];
+  S.activeModes = [];
   // "Allow always" choices are conversation-scoped — drop them with the chat.
-  sessionAllowedTools.clear();
+  S.sessionAllowedTools.clear();
   // The prior conversation was persisted on its last turn's finish(); drop its id
   // so the next turn begins (and saves to) a fresh session.
-  conversationId = null;
+  S.conversationId = null;
   emit();
   return true;
 }
@@ -1190,7 +1108,7 @@ export function reset(): boolean {
  * is in flight. The current conversation was already persisted on its last
  * finish(), so replacing state here loses nothing; unresolved (applied) edits are
  * kept exactly as reset() does, since those files are still modified on disk.
- * Restores the provider-neutral transcript when present (sessions saved before
+ * Restores the provider-neutral S.transcript when present (sessions saved before
  * that field resume as read-only history — messages render, but the model has no
  * prior context to continue from).
  */
@@ -1198,18 +1116,18 @@ export async function resumeSession(id: string): Promise<boolean> {
   if (busy()) return false;
   const record = await readSession(id);
   if (!record) return false;
-  const keptEdits = state.edits.filter((e) => e.status === 'applied');
-  sessionAllowedTools.clear();
+  const keptEdits = S.state.edits.filter((e) => e.status === 'applied');
+  S.sessionAllowedTools.clear();
   // Forget the prior conversation's tracked reads — same as reset(). A file read
   // in the chat we're leaving must not gate (or wrongly clear staleness on) an
   // edit in the resumed session.
   clearReadTracker();
   clearNestedInstructionClaims();
-  activeModes = [];
-  state = emptyAgentChatState();
-  state.edits = keptEdits;
-  state.messages = record.messages ?? [];
-  state.usage = record.usage
+  S.activeModes = [];
+  S.state = emptyAgentChatState();
+  S.state.edits = keptEdits;
+  S.state.messages = record.messages ?? [];
+  S.state.usage = record.usage
     ? {
         inputTokens: record.usage.inputTokens,
         outputTokens: record.usage.outputTokens,
@@ -1218,13 +1136,13 @@ export async function resumeSession(id: string): Promise<boolean> {
         contextTokens: record.usage.contextTokens ?? record.usage.inputTokens,
       }
     : { inputTokens: 0, outputTokens: 0, contextTokens: 0 };
-  transcript = record.transcript ? [...record.transcript] : [];
-  conversationId = record.id;
-  conversationStartedAt = record.createdAt;
-  conversationTitle = record.title;
-  conversationProvider = record.provider;
-  conversationModel = record.model;
-  state.activeSessionId = conversationId;
+  S.transcript = record.transcript ? [...record.transcript] : [];
+  S.conversationId = record.id;
+  S.conversationStartedAt = record.createdAt;
+  S.conversationTitle = record.title;
+  S.conversationProvider = record.provider;
+  S.conversationModel = record.model;
+  S.state.activeSessionId = S.conversationId;
   emit();
   return true;
 }
@@ -1239,7 +1157,7 @@ export function listSavedSessions(): Promise<SessionSummary[]> {
  * so the next turn starts fresh; refuses if that conversation is mid-turn.
  */
 export async function deleteSavedSession(id: string): Promise<boolean> {
-  if (conversationId === id) {
+  if (S.conversationId === id) {
     if (busy()) return false;
     reset();
   }
