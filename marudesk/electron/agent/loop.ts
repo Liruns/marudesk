@@ -652,7 +652,7 @@ function shouldAutoCompact(): boolean {
  * tiny generateText against the provider's default model.
  */
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
-  // `S.starting` closes the window between this check and `state.status` going
+  // `S.starting` closes the window between this check and `S.state.status` going
   // busy (there's an auth-resolution await before we set it), so two
   // near-simultaneous sends can't both set up a turn and clobber `S.controller`.
   if (busy() || S.starting) return { ok: false, reason: 'a turn is already in progress' };
