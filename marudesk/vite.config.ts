@@ -1,13 +1,52 @@
+import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
+
+declare global {
+  namespace NodeJS {
+    interface Process {
+      electronApp?: ChildProcess;
+    }
+  }
+}
 
 // Absolute path to tslib's ESM build — see the resolve.alias note on the main
 // process build below.
 const tslibEsm = fileURLToPath(
   new URL('./node_modules/tslib/tslib.es6.mjs', import.meta.url),
 );
+
+const electronAppsWithClosedIpcHandler = new WeakSet<ChildProcess>();
+
+function hasErrorCode(error: Error): error is Error & { readonly code: string } {
+  return 'code' in error && typeof error.code === 'string';
+}
+
+function isClosedElectronIpcError(error: Error): boolean {
+  return hasErrorCode(error) && ['EPIPE', 'ERR_IPC_CHANNEL_CLOSED'].includes(error.code);
+}
+
+function installClosedIpcErrorHandler(electronApp: ChildProcess | undefined): void {
+  if (!electronApp || electronAppsWithClosedIpcHandler.has(electronApp)) return;
+
+  electronAppsWithClosedIpcHandler.add(electronApp);
+  electronApp.on('error', (error: Error) => {
+    if (isClosedElectronIpcError(error)) return;
+    throw error;
+  });
+}
+
+function reloadPreload(args: { readonly reload: () => void }): void {
+  installClosedIpcErrorHandler(process.electronApp);
+  args.reload();
+}
+
+export const __test = {
+  installClosedIpcErrorHandler,
+  isClosedElectronIpcError,
+} as const;
 
 export default defineConfig({
   // Monaco is loaded lazily (React.lazy on the editor surface), so without this
@@ -86,8 +125,8 @@ export default defineConfig({
       },
       {
         entry: 'electron/preload.ts',
-        onstart({ reload }) {
-          reload();
+        onstart(args) {
+          reloadPreload(args);
         },
         vite: {
           build: {
@@ -106,8 +145,8 @@ export default defineConfig({
       },
       {
         entry: 'electron/inspect-preload.ts',
-        onstart({ reload }) {
-          reload();
+        onstart(args) {
+          reloadPreload(args);
         },
         vite: {
           build: {
