@@ -1,6 +1,6 @@
 import { scrubText } from '../../../shared/scrub';
 import { getMessage, parseLocale, type Locale, type TranslationKey } from '../../i18n/messages';
-import type { DevtoolsState, DockSide } from './store';
+import type { DevtoolsState, DockSide, RenderingState } from './store';
 
 /**
  * Small internal constants/helpers shared between the devtools store and the
@@ -127,4 +127,19 @@ export function freshSlices(): Pick<
     domContentTime: null,
     loadTime: null,
   };
+}
+
+/** True if any rendering override is active (so it's worth re-applying on attach). */
+export function hasRenderingOverrides(r: RenderingState): boolean {
+  return (
+    r.paintRects ||
+    r.layoutShiftRegions ||
+    r.fpsCounter ||
+    r.scrollBottleneck ||
+    r.webVitals ||
+    r.colorScheme !== 'no-override' ||
+    r.reducedMotion ||
+    r.printMedia ||
+    r.visionDeficiency !== 'none'
+  );
 }
