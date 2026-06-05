@@ -10,6 +10,7 @@ import {
   type Envelope,
   type SessionKey,
 } from '../lib/e2e';
+import { messageOf } from '../lib/errorMessage';
 import { Emitter } from './emitter';
 import type {
   DirectCreds,
@@ -158,7 +159,7 @@ export class DirectTransport implements Transport {
       }
     } catch (err) {
       if (ac.signal.aborted || this.closed) return;
-      this.setStatus({ status: 'disconnected', hostOnline: false, detail: messageOf(err) });
+      this.setStatus({ status: 'disconnected', hostOnline: false, detail: messageOf(err, 'connection lost') });
       this.scheduleReconnect();
     }
   }
@@ -174,8 +175,4 @@ export class DirectTransport implements Transport {
   private setStatus(info: TransportStatusInfo): void {
     this.statusEmitter.emit(info);
   }
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : 'connection lost';
 }

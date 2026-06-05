@@ -4,6 +4,7 @@ import { toPublicAccount } from '../accounts/store.ts';
 import { signJwt, verifyJwt, type JwtClaims } from '../crypto/jwt.ts';
 import { hashPassword, verifyPassword } from '../crypto/password.ts';
 import { verifyPasswordDummy } from './dummy.ts';
+import { normalizeEmail } from './normalize.ts';
 
 /**
  * Authentication service: signup / login / refresh / token verification, plus the
@@ -70,7 +71,7 @@ function parseCredentials(body: unknown): { email: string; password: string } {
   if (typeof email !== 'string' || typeof password !== 'string') {
     throw new AuthError('invalid-input', 'email and password are required');
   }
-  const normEmail = email.trim().toLowerCase();
+  const normEmail = normalizeEmail(email);
   if (normEmail.length > MAX_EMAIL_LEN || !EMAIL_RE.test(normEmail)) {
     throw new AuthError('invalid-input', 'a valid email is required');
   }
@@ -249,7 +250,7 @@ export async function loginWithOAuthIdentity(
   deps: AuthDeps,
   identity: { method: Exclude<AccountMethod, 'local'>; providerSub: string; email: string; displayName?: string },
 ): Promise<{ account: PublicAccount; tokens: TokenPair }> {
-  const email = identity.email.trim().toLowerCase();
+  const email = normalizeEmail(identity.email);
   let account =
     (await deps.store.findByProvider(identity.method, identity.providerSub)) ??
     (await deps.store.findByEmail(email));

@@ -12,6 +12,7 @@ import {
   type AuthDeps,
 } from '../auth/service.ts';
 import type { RateLimiter } from '../auth/rate-limit.ts';
+import { bearerToken } from './auth-header.ts';
 import {
   buildAuthorizeUrl,
   consumeState,
@@ -112,13 +113,6 @@ function sendError(
   sendJson(res, status, { error: message }, extraHeaders);
 }
 
-/** Bearer token from the Authorization header (case-insensitive scheme), else null. */
-function bearerFrom(req: IncomingMessage): string | null {
-  const header = req.headers.authorization;
-  if (typeof header !== 'string') return null;
-  const m = /^Bearer\s+(\S.*)$/i.exec(header);
-  return m ? m[1]!.trim() : null;
-}
 
 /** Client IP for rate-limiting (socket address; we don't trust XFF in dev). */
 export function clientIp(req: IncomingMessage): string {
@@ -321,7 +315,7 @@ export async function handleRequest(
         sendJson(res, 200, { ...tokens }, { ...cors, ...NO_STORE_HEADERS });
       } else {
         // Logout: invalidate the presented session's refresh jti. Generic success.
-        await logout(deps.auth, body, bearerFrom(req));
+        await logout(deps.auth, body, bearerToken(req));
         sendJson(res, 200, { ok: true }, { ...cors, ...NO_STORE_HEADERS });
       }
     } catch (err) {
@@ -337,7 +331,7 @@ export async function handleRequest(
   // ── Authenticated: the account behind the bearer access token. ───────────
   if (pathname === '/me') {
     if (method !== 'GET') return sendError(res, 405, 'method not allowed', cors);
-    const token = bearerFrom(req);
+    const token = bearerToken(req);
     if (!token) return sendError(res, 401, 'unauthorized', cors);
     try {
       const account = await authenticate(deps.auth, token);
