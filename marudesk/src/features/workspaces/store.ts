@@ -52,6 +52,10 @@ type WorkspaceDeckActions = {
     paneId?: WorkspacePaneId,
   ) => Promise<void>;
   readonly addRoot: (workspaceId: WorkspaceId) => Promise<WorkspaceRecord | null>;
+  readonly addSshRoot: (
+    workspaceId: WorkspaceId,
+    params: { connectionId: string; remotePath: string; name?: string },
+  ) => Promise<WorkspaceRecord | null>;
   readonly setActiveRoot: (
     workspaceId: WorkspaceId,
     rootId: WorkspaceRootId,
@@ -189,6 +193,22 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
       set({ loading: true, error: null });
       try {
         const record = await window.marudesk.invoke('workspaces:add-root', { workspaceId });
+        const snapshot = await window.marudesk.invoke('workspaces:list');
+        set((state) => applySnapshot(state, snapshot));
+        return record;
+      } catch (err) {
+        set({ loading: false, error: toMessage(err) });
+        return null;
+      }
+    },
+
+    addSshRoot: async (workspaceId, params) => {
+      set({ loading: true, error: null });
+      try {
+        const record = await window.marudesk.invoke('workspaces:add-ssh-root', {
+          workspaceId,
+          ...params,
+        });
         const snapshot = await window.marudesk.invoke('workspaces:list');
         set((state) => applySnapshot(state, snapshot));
         return record;

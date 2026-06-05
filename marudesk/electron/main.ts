@@ -9,6 +9,7 @@ import {
 import { getCurrentWorkspace, registerWorkspaceHandlers } from './workspace';
 import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
+import { registerSshHandlers } from './ssh/handlers';
 import { registerGitHandlers } from './git';
 import { registerSearchHandlers } from './search';
 import { registerPatchHandlers } from './patch';
@@ -221,6 +222,7 @@ void app.whenReady().then(() => {
   registerBrowserHandlers({ getMainWindow });
   registerWorkspaceHandlers({ getMainWindow });
   registerWorkspaceMutateHandlers();
+  registerSshHandlers();
   registerGitHandlers();
   registerSearchHandlers();
   registerPatchHandlers();

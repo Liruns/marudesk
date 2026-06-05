@@ -14,8 +14,10 @@ import {
   type WorkspaceSnapshot,
   type WorkspaceSaveAsResult,
 } from '../shared/workspace';
+import { isSshRootKey, sshRootKey } from '../shared/ssh';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, obj, str } from './ipc/validate';
+import { getConnectionInfo } from './ssh/connection-manager';
 import {
   readFileForEditor,
   readMediaForPreview,
@@ -352,6 +354,45 @@ export function registerWorkspaceHandlers(deps: {
     return next;
   });
 
+  defineHandler('workspaces:add-ssh-root', async ([payload]) => {
+    const p = obj(payload);
+    const record = requireRecord(str(p.workspaceId, 'workspaceId'));
+    const connectionId = str(p.connectionId, 'connectionId');
+    const info = getConnectionInfo(connectionId);
+    const remotePath = str(p.remotePath, 'remotePath').replace(/\/+$/, '') || '/';
+    if (!remotePath.startsWith('/')) {
+      throw new Error('remotePath must be an absolute POSIX path');
+    }
+    const rootKey = sshRootKey(connectionId, remotePath);
+    const requested = typeof p.name === 'string' ? p.name.trim() : '';
+    const name = requested || path.posix.basename(remotePath) || info.label;
+    const summary = await summarizeWorkspace(rootKey);
+    const root: WorkspaceRootSummary = {
+      id: createId('root'),
+      name,
+      root: rootKey,
+      files: summary.files,
+      source: summary.source,
+      truncated: summary.truncated,
+      connection: {
+        kind: 'ssh',
+        connectionId,
+        host: info.host,
+        username: info.username,
+        remotePath,
+      },
+    };
+    const next = {
+      ...record,
+      roots: [...record.roots, root],
+      activeRootId: record.activeRootId ?? root.id,
+    };
+    workspaceRecords.set(next.id, next);
+    if (activeWorkspaceId === next.id) refreshCurrentWorkspace();
+    pushWorkspaceState();
+    return next;
+  });
+
   defineHandler('workspaces:remove-root', ([payload]) => {
     const p = obj(payload);
     const workspaceId = str(p.workspaceId, 'workspaceId');
@@ -468,12 +509,15 @@ export function registerWorkspaceHandlers(deps: {
         : requireRoot(record, str(p.rootId, 'rootId'));
     if (!root) return [];
     if (!isCaptureInput(p.capture)) throw new Error('invalid capture payload');
+    // Ranking reads file contents from the local FS; skip it for remote roots.
+    if (isSshRootKey(root.root)) return [];
     return rankFiles(root.root, p.capture, root.files);
   });
 
   defineHandler('workspace:rank', ([capture]) => {
     const { ws } = requireWorkspace();
     if (!isCaptureInput(capture)) throw new Error('invalid capture payload');
+    if (isSshRootKey(ws.root)) return [];
     return rankFiles(ws.root, capture, ws.files);
   });
 

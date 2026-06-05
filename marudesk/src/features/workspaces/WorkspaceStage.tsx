@@ -7,6 +7,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Server,
   Trash2,
   X,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import {
   type WorkspaceSplitDir,
 } from './layout';
 import { NameDialog } from './NameDialog';
+import { SshRootDialog } from './SshRootDialog';
 import { useWorkspaceDeckStore } from './store';
 
 type DeckDialog =
@@ -249,6 +251,7 @@ function WorkspacePane({
   const splitFocusedPane = useWorkspaceDeckStore((s) => s.splitFocusedPane);
   const closePane = useWorkspaceDeckStore((s) => s.closePane);
   const [peekOpen, setPeekOpen] = useState(false);
+  const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const focused = focusedPaneId === paneId;
   const paneCount = layout ? workspaceLeaves(layout).length : 1;
 
@@ -292,6 +295,11 @@ function WorkspacePane({
             </PaneButton>
           ) : null}
           {record ? (
+            <PaneButton label="Add SSH folder" onClick={() => setSshDialogOpen(true)}>
+              <Server size={15} />
+            </PaneButton>
+          ) : null}
+          {record ? (
             <PaneButton
               label="Reindex workspace"
               onClick={() => void reindexWorkspace(record.id)}
@@ -319,6 +327,12 @@ function WorkspacePane({
         <PeekExplorer
           record={record}
           onClose={() => setPeekOpen(false)}
+        />
+      ) : null}
+      {sshDialogOpen && record ? (
+        <SshRootDialog
+          workspaceId={record.id}
+          onClose={() => setSshDialogOpen(false)}
         />
       ) : null}
     </section>
@@ -424,8 +438,21 @@ function PeekExplorer({
         {roots.map(({ root, files }) => (
           <div key={root.id} className="pb-2">
             <div className="group px-3 h-6 flex items-center gap-2 text-caption font-medium text-fg-tertiary uppercase">
-              <FolderTree size={13} />
-              <span className="truncate">{root.name}</span>
+              {root.connection?.kind === 'ssh' ? (
+                <Server size={13} className="text-accent" />
+              ) : (
+                <FolderTree size={13} />
+              )}
+              <span
+                className="truncate"
+                title={
+                  root.connection?.kind === 'ssh'
+                    ? `${root.connection.username}@${root.connection.host}:${root.connection.remotePath}`
+                    : undefined
+                }
+              >
+                {root.name}
+              </span>
               <span className="ml-auto tabular-nums">{files.length}</span>
               {canRemoveRoot ? (
                 <button

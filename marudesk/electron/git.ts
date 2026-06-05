@@ -11,6 +11,7 @@ import type {
   GitRemoteResult,
   GitStatus,
 } from '../shared/git';
+import { isSshRootKey } from '../shared/ssh';
 import { resolveWorkspacePath } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, bool, obj, str } from './ipc/validate';
@@ -42,6 +43,12 @@ async function git(
   args: string[],
   timeout = FAST_TIMEOUT,
 ): Promise<{ stdout: string; stderr: string }> {
+  // Source Control runs git against a local checkout; a remote (ssh://) root has
+  // no local path to `-C` into. Fail clearly instead of spawning git with an
+  // invalid cwd. (Remote indexing uses git over SSH in electron/ssh/*.)
+  if (isSshRootKey(root)) {
+    throw new Error('Source Control is not available for remote (SSH) workspaces');
+  }
   return execFileAsync('git', ['-C', root, ...args], {
     cwd: root,
     maxBuffer: MAX_BUFFER,

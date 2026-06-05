@@ -9,6 +9,14 @@ import {
 } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { enumOf, obj, str } from './ipc/validate';
+import { isSshRootKey } from '../shared/ssh';
+import {
+  sshCopyEntry,
+  sshCreateEntry,
+  sshDeleteEntry,
+  sshMoveEntry,
+  sshRenameEntry,
+} from './ssh/ssh-workspace';
 
 /**
  * Mutating workspace filesystem ops behind validated IPC channels. Every path
@@ -57,6 +65,7 @@ async function createEntry(
   name: string,
   kind: CreateKind,
 ): Promise<MutateResult> {
+  if (isSshRootKey(root)) return sshCreateEntry(root, parentPath, name, kind);
   const safeName = assertValidName(name);
   if (parentPath) resolveWorkspacePath(root, parentPath);
   const { rel, abs } = resolveWorkspacePath(root, joinRel(parentPath, safeName));
@@ -79,6 +88,7 @@ async function renameEntry(
   relPath: string,
   newName: string,
 ): Promise<MutateResult> {
+  if (isSshRootKey(root)) return sshRenameEntry(root, relPath, newName);
   const safeName = assertValidName(newName);
   const { rel: srcRel, abs: srcAbs } = resolveWorkspacePath(root, relPath);
   if (!(await lstatOrNull(srcAbs))) {
@@ -103,6 +113,7 @@ async function renameEntry(
 }
 
 async function deleteEntry(root: string, relPath: string): Promise<MutateResult> {
+  if (isSshRootKey(root)) return sshDeleteEntry(root, relPath);
   const { rel, abs } = resolveWorkspacePath(root, relPath);
   if (!(await lstatOrNull(abs))) throw new Error(`marudesk: not found: ${rel}`);
   // Refuse a symlink target and any symlinked ancestor, so a delete can never
@@ -117,6 +128,7 @@ async function moveEntry(
   fromRel: string,
   toDir: string,
 ): Promise<MutateResult> {
+  if (isSshRootKey(root)) return sshMoveEntry(root, fromRel, toDir);
   const { rel: srcRel, abs: srcAbs } = resolveWorkspacePath(root, fromRel);
   if (!(await lstatOrNull(srcAbs))) {
     throw new Error(`marudesk: not found: ${srcRel}`);
@@ -165,6 +177,7 @@ async function copyEntry(
   fromRel: string,
   toDir: string,
 ): Promise<MutateResult> {
+  if (isSshRootKey(root)) return sshCopyEntry(root, fromRel, toDir);
   const { rel: srcRel, abs: srcAbs } = resolveWorkspacePath(root, fromRel);
   if (!(await lstatOrNull(srcAbs))) {
     throw new Error(`marudesk: not found: ${srcRel}`);
@@ -229,10 +242,12 @@ export function registerWorkspaceMutateHandlers(): void {
 
   defineHandler('workspace:reveal', ([payload]) => {
     const p = obj(payload);
-    const { abs } = resolveWorkspacePath(
-      requireWorkspace().root,
-      str(p.path, 'path'),
-    );
+    const root = requireWorkspace().root;
+    if (isSshRootKey(root)) {
+      // No local Finder/Explorer to reveal a remote path in.
+      throw new Error('marudesk: reveal is not available for remote workspaces');
+    }
+    const { abs } = resolveWorkspacePath(root, str(p.path, 'path'));
     shell.showItemInFolder(abs);
     return { ok: true };
   });

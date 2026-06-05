@@ -59,8 +59,10 @@ export default defineConfig({
             rollupOptions: {
               // node-pty and better-sqlite3 are native modules — never bundle
               // them; load from node_modules at runtime (the integrated terminal
-              // and the SQLite session store, both in main).
-              external: ['electron', 'node-pty', 'better-sqlite3'],
+              // and the SQLite session store, both in main). ssh2 (remote SSH
+              // workspace roots) is CommonJS with optional native bindings — keep
+              // it external so its dynamic requires resolve at runtime.
+              external: ['electron', 'node-pty', 'better-sqlite3', 'ssh2'],
               output: {
                 // Force a single-file main bundle (no code splitting). In lib
                 // mode rolldown still splits a bundled dep's dynamic `import()`
