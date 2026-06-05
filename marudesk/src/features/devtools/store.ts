@@ -31,7 +31,6 @@ import {
   type CdpNode,
   type ComputedStyleProperty,
   type ConsoleEntry,
-  type ConsoleKind,
   type CssStyle,
   type NetworkEntry,
   type NodeId,
@@ -40,6 +39,20 @@ import {
   type StyleSheetHeader,
 } from './types';
 import type { PatchOp, PatchPreview } from '../../../shared/patch';
+import {
+  DRAWER_MIN,
+  firstInLocation,
+  loadPrefs,
+  savePrefs,
+  snapshotPrefs,
+} from './store-prefs';
+import type { ToolLocation, DevtoolsTool } from './store-prefs';
+import { indexNode, setAttr, removeAttr } from './dom-index';
+import { consoleKindFromApi, consoleKindFromLog } from './console-kind';
+
+// Re-exported so existing consumers (DevtoolsContent) keep importing the tool
+// arrangement types from the store.
+export type { ToolLocation, DevtoolsTool } from './store-prefs';
 
 const MAX_NETWORK_PAYLOAD = 64_000;
 
@@ -193,135 +206,7 @@ const MAX_CONSOLE = 1500;
 const MAX_NETWORK = 1500;
 const MAX_HISTORY = 200;
 
-/* ── tool arrangement + bottom drawer (Chrome-style) ─────────────────────── */
-
-/** Where a DevTools tool's tab lives: the main (top) tab bar or the bottom drawer. */
-export type ToolLocation = 'main' | 'drawer';
-
-/**
- * One arrangeable DevTools tool. `order` sorts tabs within each location. The
- * arrangement is a user preference persisted to localStorage (like the dock
- * side/size) — Console now defaults to the main bar so it is discoverable
- * without the bottom drawer shortcut.
- */
-export type DevtoolsTool = {
-  id: DevtoolsPanel;
-  location: ToolLocation;
-  order: number;
-};
-
-/** The default arrangement: every primary tool is visible in the main bar. */
-const DEFAULT_TOOLS: DevtoolsTool[] = [
-  { id: 'elements', location: 'main', order: 0 },
-  { id: 'console', location: 'main', order: 1 },
-  { id: 'network', location: 'main', order: 2 },
-  { id: 'application', location: 'main', order: 3 },
-  { id: 'rendering', location: 'main', order: 4 },
-];
-
-const PANEL_IDS: ReadonlySet<DevtoolsPanel> = new Set<DevtoolsPanel>([
-  'elements',
-  'console',
-  'network',
-  'application',
-  'rendering',
-]);
-
-const DRAWER_MIN = 80;
-const DRAWER_DEFAULT_HEIGHT = 220;
-
-/* Persisted dock/tool preferences (localStorage). Kept separate from the CDP
- * session state, which is always reset per-page (freshSlices). Best-effort:
- * a malformed/absent blob falls back to defaults, mirroring workspace recents. */
-const PREFS_KEY = 'marudesk.devtools.prefs.v2';
-
-type DevtoolsPrefs = {
-  tools: DevtoolsTool[];
-  drawerOpen: boolean;
-  drawerHeight: number;
-  drawerPanel: DevtoolsPanel;
-};
-
-/** Coerce arbitrary stored JSON back into a valid tool arrangement (covering
- * every known panel exactly once) so a renamed/removed panel can't corrupt it. */
-function sanitizeTools(input: unknown): DevtoolsTool[] {
-  if (!Array.isArray(input)) return DEFAULT_TOOLS.map((t) => ({ ...t }));
-  const seen = new Map<DevtoolsPanel, DevtoolsTool>();
-  for (const raw of input) {
-    if (!raw || typeof raw !== 'object') continue;
-    const r = raw as Record<string, unknown>;
-    const id = r.id as DevtoolsPanel;
-    if (!PANEL_IDS.has(id) || seen.has(id)) continue;
-    seen.set(id, {
-      id,
-      location: r.location === 'drawer' ? 'drawer' : 'main',
-      order: typeof r.order === 'number' && Number.isFinite(r.order) ? r.order : 0,
-    });
-  }
-  // Backfill any panel the stored blob didn't mention (e.g. a newly-added one)
-  // from the defaults, so the union is always fully covered.
-  for (const def of DEFAULT_TOOLS) {
-    if (!seen.has(def.id)) seen.set(def.id, { ...def });
-  }
-  return [...seen.values()];
-}
-
-function loadPrefs(): DevtoolsPrefs {
-  const fallback: DevtoolsPrefs = {
-    tools: DEFAULT_TOOLS.map((t) => ({ ...t })),
-    drawerOpen: false,
-    drawerHeight: DRAWER_DEFAULT_HEIGHT,
-    drawerPanel: 'console',
-  };
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
-    if (!parsed || typeof parsed !== 'object') return fallback;
-    const tools = sanitizeTools(parsed.tools);
-    const drawerPanel = PANEL_IDS.has(parsed.drawerPanel)
-      ? (parsed.drawerPanel as DevtoolsPanel)
-      : 'console';
-    return {
-      tools,
-      drawerOpen: typeof parsed.drawerOpen === 'boolean' ? parsed.drawerOpen : false,
-      drawerHeight:
-        typeof parsed.drawerHeight === 'number' && Number.isFinite(parsed.drawerHeight)
-          ? Math.max(DRAWER_MIN, Math.round(parsed.drawerHeight))
-          : DRAWER_DEFAULT_HEIGHT,
-      drawerPanel,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function savePrefs(p: DevtoolsPrefs): void {
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
-  } catch {
-    // best-effort (private mode / quota)
-  }
-}
-
-/** Pull the persistable preference subset out of the live store state. */
-function snapshotPrefs(s: {
-  tools: DevtoolsTool[];
-  drawerOpen: boolean;
-  drawerHeight: number;
-  drawerPanel: DevtoolsPanel;
-}): DevtoolsPrefs {
-  return {
-    tools: s.tools,
-    drawerOpen: s.drawerOpen,
-    drawerHeight: s.drawerHeight,
-    drawerPanel: s.drawerPanel,
-  };
-}
-
-/** First tool (by order) in a location, or null when the location is empty. */
-function firstInLocation(tools: DevtoolsTool[], loc: ToolLocation): DevtoolsPanel | null {
-  const inLoc = tools.filter((t) => t.location === loc).sort((a, b) => a.order - b.order);
-  return inLoc[0]?.id ?? null;
-}
+/* ── tool arrangement + bottom drawer: extracted to ./store-prefs.ts ──────── */
 
 /* ── Console autocomplete: helpers + types extracted to ./console/completion.ts ── */
 
@@ -606,75 +491,7 @@ function freshSlices(): Pick<
   };
 }
 
-/* ── DOM indexing helpers (operate on mutable containers; caller clones) ── */
-
-function indexNode(
-  node: CdpNode,
-  nodes: Map<NodeId, CdpNode>,
-  childIds: Map<NodeId, NodeId[]>,
-): void {
-  const { children, ...flat } = node;
-  nodes.set(node.nodeId, flat);
-  if (children) {
-    childIds.set(
-      node.nodeId,
-      children.map((c) => c.nodeId),
-    );
-    for (const c of children) indexNode(c, nodes, childIds);
-  } else if (node.childNodeCount === 0) {
-    childIds.set(node.nodeId, []);
-  }
-}
-
-function setAttr(attrs: string[] | undefined, name: string, value: string): string[] {
-  const next = attrs ? [...attrs] : [];
-  for (let i = 0; i < next.length; i += 2) {
-    if (next[i] === name) {
-      next[i + 1] = value;
-      return next;
-    }
-  }
-  next.push(name, value);
-  return next;
-}
-
-function removeAttr(attrs: string[] | undefined, name: string): string[] {
-  const next: string[] = [];
-  if (!attrs) return next;
-  for (let i = 0; i < attrs.length; i += 2) {
-    if (attrs[i] !== name) next.push(attrs[i], attrs[i + 1]);
-  }
-  return next;
-}
-
-function consoleKindFromApi(type: string): ConsoleKind {
-  switch (type) {
-    case 'error':
-    case 'assert':
-      return 'error';
-    case 'warning':
-      return 'warning';
-    case 'debug':
-      return 'debug';
-    case 'info':
-      return 'info';
-    default:
-      return 'log';
-  }
-}
-
-function consoleKindFromLog(level: string): ConsoleKind {
-  switch (level) {
-    case 'error':
-      return 'error';
-    case 'warning':
-      return 'warning';
-    case 'verbose':
-      return 'debug';
-    default:
-      return 'info';
-  }
-}
+/* ── DOM indexing + console-kind helpers extracted to ./dom-index, ./console-kind ── */
 
 let entrySeq = 0;
 function entryId(): string {
