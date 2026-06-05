@@ -7,6 +7,8 @@
  * main process never acts on malformed input.
  */
 
+import { asBool, asEnum, asRecord, asString, clampFraction, clampNumber } from './coerce.ts';
+
 export type ThemeMode = 'dark' | 'light' | 'system';
 /**
  * Where the custom browser DevTools opens:
@@ -291,36 +293,6 @@ const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto'
 const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 const MAX_DENY_GLOBS = 100;
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object'
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function clampNumber(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, Math.round(value)));
-}
-
-/** Clamp a 0–1 fraction (no rounding, unlike {@link clampNumber}). */
-function clampFraction(value: unknown, fallback: number, min: number, max: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, value));
-}
-
-function asString(value: unknown, fallback: string): string {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function asBool(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback;
-}
-
 /**
  * Sentinel "shell" values that aren't real executables — older/foreign builds
  * (or a hand-edited file) persisted things like `"system"`, which the terminal
@@ -351,16 +323,6 @@ function asRelayUrl(value: unknown, fallback: string): string {
   } catch {
     return fallback;
   }
-}
-
-function asEnum<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  fallback: T,
-): T {
-  return typeof value === 'string' && (allowed as readonly string[]).includes(value)
-    ? (value as T)
-    : fallback;
 }
 
 /**
