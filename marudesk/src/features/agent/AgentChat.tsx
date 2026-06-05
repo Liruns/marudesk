@@ -1432,7 +1432,7 @@ function ProviderModelBar({ full }: { full?: boolean }) {
             label={providerLabel(selectedProvider, customProviders)}
             size={18}
           />
-          <span className="truncate flex-1 text-left font-medium text-[0.8125rem]">{current?.label ?? selectedModel}</span>
+          <span className="truncate flex-1 text-left font-medium text-body-sm">{current?.label ?? selectedModel}</span>
           {current?.contextWindow ? (
             <span className="text-[0.6875rem] text-fg-tertiary/70 tabular-nums shrink-0 font-mono">
               {formatContext(current.contextWindow)}
@@ -2108,16 +2108,19 @@ function ApprovalCard({ approval }: { approval: PendingApproval }) {
   const { t } = useI18n();
   const approve = useAgentStore((s) => s.approve);
   return (
-    <div className="rounded border border-warning/40 bg-warning-subtle/30 p-2 flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-body-sm text-fg-primary">
-        <AlertCircle size={14} className="text-warning" />
-        {t('agent.chat.approveBefore')} <span className="font-mono">{approval.name}</span>
-        {t('agent.chat.approveAfter')}
+    <div className="rounded border border-warning/40 bg-warning-subtle/30 p-2.5 flex flex-col gap-2.5">
+      <div className="flex items-start gap-2 text-body-sm text-fg-primary">
+        <AlertCircle size={14} className="mt-0.5 shrink-0 text-warning" />
+        <span className="min-w-0">
+          {t('agent.chat.approveBefore')}{' '}
+          <span className="font-mono break-all">{approval.name}</span>
+          {t('agent.chat.approveAfter')}
+        </span>
       </div>
       <pre className="m-0 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded bg-surface-page px-2 py-1.5">
         {approval.detail}
       </pre>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" size="sm" onClick={() => void approve(approval.callId, true)}>
           {t('agent.chat.approve')}
         </Button>
@@ -2145,9 +2148,9 @@ function QuestionsCard({ pending }: { pending: PendingQuestions }) {
   const submit = () => void answer(pending.callId, values);
 
   return (
-    <div className="rounded border border-accent/40 bg-accent-subtle/20 p-2 flex flex-col gap-2">
+    <div className="rounded border border-accent/40 bg-accent-subtle/20 p-2.5 flex flex-col gap-2.5">
       <div className="flex items-center gap-2 text-body-sm text-fg-primary">
-        <Sparkles size={14} className="text-accent" /> {t('agent.chat.needsInput')}
+        <Sparkles size={14} className="shrink-0 text-accent" /> {t('agent.chat.needsInput')}
       </div>
       {pending.questions.map((q) => (
         <div key={q.id} className="flex flex-col gap-1">
@@ -2160,10 +2163,10 @@ function QuestionsCard({ pending }: { pending: PendingQuestions }) {
                   type="button"
                   onClick={() => setValues((v) => ({ ...v, [q.id]: opt }))}
                   className={cn(
-                    'h-6 px-2 rounded border text-caption transition-colors',
+                    'h-6 px-2 rounded border text-caption transition-colors duration-fast',
                     values[q.id] === opt
                       ? 'border-accent text-fg-primary bg-accent-subtle/40'
-                      : 'border-subtle text-fg-tertiary hover:text-fg-secondary',
+                      : 'border-subtle text-fg-tertiary hover:text-fg-secondary hover:border-default',
                   )}
                 >
                   {opt}
