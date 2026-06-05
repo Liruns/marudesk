@@ -113,6 +113,16 @@ function sendError(
   sendJson(res, status, { error: message }, extraHeaders);
 }
 
+/** Token-bearing JSON response: same as {@link sendJson} but always `cache-control: no-store`. */
+function sendJsonNoStore(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  cors: Record<string, string>,
+): void {
+  sendJson(res, status, body, { ...cors, ...NO_STORE_HEADERS });
+}
+
 
 /** Client IP for rate-limiting (socket address; we don't trust XFF in dev). */
 export function clientIp(req: IncomingMessage): string {
@@ -242,7 +252,7 @@ async function handleOAuth(
   try {
     const identity = await exchangeForIdentity(match.provider, cfg, code);
     const { account, tokens } = await loginWithOAuthIdentity(deps.auth, identity);
-    sendJson(res, 200, { account, ...tokens }, { ...cors, ...NO_STORE_HEADERS });
+    sendJsonNoStore(res, 200, { account, ...tokens }, cors);
   } catch {
     // Don't leak provider/internal error detail to the browser.
     sendError(res, 502, 'oauth exchange failed', cors);
@@ -306,17 +316,17 @@ export async function handleRequest(
     try {
       if (pathname === '/auth/signup') {
         const { account, tokens } = await signup(deps.auth, body);
-        sendJson(res, 201, { account, ...tokens }, { ...cors, ...NO_STORE_HEADERS });
+        sendJsonNoStore(res, 201, { account, ...tokens }, cors);
       } else if (pathname === '/auth/login') {
         const { account, tokens } = await login(deps.auth, body);
-        sendJson(res, 200, { account, ...tokens }, { ...cors, ...NO_STORE_HEADERS });
+        sendJsonNoStore(res, 200, { account, ...tokens }, cors);
       } else if (pathname === '/auth/refresh') {
         const { tokens } = await refresh(deps.auth, body);
-        sendJson(res, 200, { ...tokens }, { ...cors, ...NO_STORE_HEADERS });
+        sendJsonNoStore(res, 200, { ...tokens }, cors);
       } else {
         // Logout: invalidate the presented session's refresh jti. Generic success.
         await logout(deps.auth, body, bearerToken(req));
-        sendJson(res, 200, { ok: true }, { ...cors, ...NO_STORE_HEADERS });
+        sendJsonNoStore(res, 200, { ok: true }, cors);
       }
     } catch (err) {
       if (err instanceof AuthError) {
