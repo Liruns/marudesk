@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Blocks, CheckCircle2, CircleSlash, Loader2, RotateCcw, ShieldAlert } from 'lucide-react';
+import {
+  AlertCircle,
+  Blocks,
+  CheckCircle2,
+  CircleSlash,
+  Loader2,
+  PanelRight,
+  RotateCcw,
+  ShieldAlert,
+} from 'lucide-react';
 import { Badge, Button } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { PluginStatus } from '../../../shared/plugin';
+import { useTabsStore } from '../tabs/store';
 
 /**
  * Settings → Plugins (docs/plugin-runtime-design.md §7 P2). Lists user/project
@@ -104,6 +114,7 @@ function PluginCard({
   onToggle: (id: string, enabled: boolean) => Promise<void>;
 }) {
   const { t } = useI18n();
+  const openPluginPanel = useTabsStore((s) => s.openPluginPanel);
   const on = status.state === 'active';
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-1 px-4 py-3">
@@ -131,6 +142,16 @@ function PluginCard({
           <span className="text-caption text-error truncate">{status.error}</span>
         ) : null}
       </div>
+      {status.panel ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          leadingIcon={<PanelRight size={14} />}
+          onClick={() => void openPluginPanel(status.id, status.panel!.entry)}
+        >
+          {t('settings.plugins.openPanel')}
+        </Button>
+      ) : null}
       <button
         type="button"
         role="switch"

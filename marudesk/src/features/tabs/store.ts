@@ -33,6 +33,8 @@ type TabsActions = {
   setNavState: (state: NavState) => void;
   setTabsState: (snapshot: TabsSnapshot) => void;
   newTab: (kind?: TabKind, url?: string, workspaceId?: WorkspaceId) => Promise<void>;
+  /** Open a plugin's sandboxed UI panel in a new tab (v2 — §8.5). */
+  openPluginPanel: (pluginId: string, entry: string) => Promise<void>;
   /**
    * Convert an existing tab into another kind in place (keeps its strip slot).
    * The New Tab page uses this so a launcher click / URL entry replaces the home
@@ -113,6 +115,13 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
       ...(workspaceId === undefined ? {} : { workspaceId }),
     };
     await window.marudesk.invoke('browser:tabs-new', payload);
+  },
+
+  openPluginPanel: async (pluginId, entry) => {
+    await window.marudesk.invoke('browser:tabs-new', {
+      kind: 'plugin',
+      pluginPanel: { id: pluginId, entry },
+    });
   },
 
   replaceTab: async (id, kind = 'home', url, workspaceId) => {

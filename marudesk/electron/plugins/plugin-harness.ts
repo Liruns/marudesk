@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { WorkspaceSummary } from '../../shared/workspace';
+import { isSafePanelPath } from '../../shared/plugin';
 import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
 import { buildPluginServer, PluginHost } from './host';
@@ -161,6 +162,21 @@ async function main(): Promise<void> {
   }
   check('sandbox denies raw network modules even with the net grant', /not permitted|sandbox/.test(evilError));
   evilHost.dispose();
+
+  // ── v2: panel path-scoping gate (the plugin:// resolver's first check) ───────
+  check('panel path allows a plain relative file', isSafePanelPath('panel.html') && isSafePanelPath('assets/app.js'));
+  check(
+    'panel path rejects traversal / absolute / scheme / backslash / nul',
+    !isSafePanelPath('../secret') &&
+      !isSafePanelPath('a/../../b') &&
+      !isSafePanelPath('/etc/passwd') &&
+      !isSafePanelPath('..') &&
+      !isSafePanelPath('c:\\win') &&
+      !isSafePanelPath('a\\b') &&
+      !isSafePanelPath('http://x') &&
+      !isSafePanelPath('a\0b') &&
+      !isSafePanelPath(''),
+  );
 
   console.log(`\n# plugin harness: ${passed} checks passed`);
 }

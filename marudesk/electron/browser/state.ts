@@ -39,6 +39,8 @@ export type TabRecord = {
   editorFile?: WorkspaceFileRef;
   // For an unsaved 'editor' tab (no filePath): its display name, e.g. Untitled-1.
   untitledName?: string;
+  // For a 'plugin' tab: which plugin panel it renders (v2 — docs/plugin-runtime-design §8.5).
+  pluginPanel?: { id: string; entry: string };
   // Custom CDP DevTools (electron/browser/cdp.ts): whether our debugger is
   // attached to this web tab, plus a sync guard against a re-entrant attach
   // race (two near-simultaneous cdp-send calls both seeing !isAttached). The
@@ -73,6 +75,7 @@ const FEATURE_TITLES: Record<Exclude<TabKind, 'web'>, string> = {
   editor: 'Editor',
   settings: 'Settings',
   agent: 'AI Chat',
+  plugin: 'Plugin',
 };
 
 // Renderer input is never trusted: validate the kind before acting on it.
@@ -83,7 +86,8 @@ export function isTabKind(value: unknown): value is TabKind {
     value === 'terminal' ||
     value === 'editor' ||
     value === 'settings' ||
-    value === 'agent'
+    value === 'agent' ||
+    value === 'plugin'
   );
 }
 
@@ -371,6 +375,17 @@ function tabStateFor(rec: TabRecord): TabState {
       title: base,
       filePath: rec.filePath,
       editorFile: rec.editorFile,
+    };
+  }
+  if (rec.kind === 'plugin') {
+    return {
+      id: rec.id,
+      kind: 'plugin',
+      workspaceId: rec.workspaceId ?? SYSTEM_WORKSPACE_ID,
+      pinned,
+      ...ZERO_NAV,
+      title: rec.pluginPanel?.id ?? FEATURE_TITLES.plugin,
+      pluginPanel: rec.pluginPanel,
     };
   }
   return {

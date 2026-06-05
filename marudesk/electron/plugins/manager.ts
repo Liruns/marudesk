@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import fsSync from 'node:fs';
 import {
+  isSafePanelPath,
   isValidPluginId,
   permissionsKey,
   PLUGIN_PERMISSIONS,
@@ -8,6 +10,7 @@ import {
   pluginToolName,
   type PluginCommandSnapshot,
   type PluginManifest,
+  type PluginPanel,
   type PluginPermission,
   type PluginSlashContribution,
   type PluginStatus,
@@ -34,7 +37,14 @@ import type { SpawnWorker } from './transport';
 
 type Discovered = { scope: 'user' | 'project'; dir: string; manifest: PluginManifest };
 
-type LivePlugin = { host: PluginHost; status: PluginStatus; commands: PluginSlashContribution[] };
+type LivePlugin = {
+  host: PluginHost;
+  status: PluginStatus;
+  commands: PluginSlashContribution[];
+  /** Absolute plugin folder + its panel, when active with the `ui` grant (v2). */
+  dir: string;
+  panel?: PluginPanel;
+};
 
 export type PluginManagerDeps = {
   /** `<userData>/plugins`. */
@@ -80,7 +90,16 @@ async function readManifest(dir: string): Promise<PluginManifest | null> {
     main: m.main,
     permissions,
     ...(m.net && typeof m.net === 'object' ? { net: m.net as PluginManifest['net'] } : {}),
+    ...(parsePanel(m.panel) ? { panel: parsePanel(m.panel)! } : {}),
   };
+}
+
+/** Validate a manifest `panel` block: a string title + a safe folder-relative entry. */
+function parsePanel(value: unknown): PluginPanel | null {
+  if (!value || typeof value !== 'object') return null;
+  const p = value as { title?: unknown; entry?: unknown };
+  if (typeof p.title !== 'string' || !isSafePanelPath(p.entry)) return null;
+  return { title: p.title.slice(0, 120), entry: p.entry };
 }
 
 async function scanDir(dir: string, scope: 'user' | 'project'): Promise<Discovered[]> {
@@ -188,13 +207,22 @@ export class PluginManager {
       const netAllow = d.manifest.net?.allow ?? [];
       const contributions = await host.load(d.dir, d.manifest.main, granted, netAllow);
       registerMcpServer(buildPluginServer(d.manifest.id, host, contributions));
+      // A panel is only exposed when the plugin declares one AND holds the `ui` grant.
+      const panel = d.manifest.panel && granted.includes('ui') ? d.manifest.panel : undefined;
       const status: PluginStatus = {
         ...base,
         state: 'active',
         toolNames: contributions.tools.map((t) => pluginToolName(d.manifest.id, t.name)),
         commandNames: contributions.commands.map((c) => c.name),
+        ...(panel ? { panel } : {}),
       };
-      this.live.set(d.manifest.id, { host, status, commands: contributions.commands });
+      this.live.set(d.manifest.id, {
+        host,
+        status,
+        commands: contributions.commands,
+        dir: d.dir,
+        panel,
+      });
       return status;
     } catch (err) {
       this.deactivate(d.manifest.id);
@@ -220,6 +248,28 @@ export class PluginManager {
   /** Latest per-plugin statuses (cheap; no scan). */
   list(): PluginStatus[] {
     return this.statuses;
+  }
+
+  /**
+   * Resolve a `plugin://<id>/<relPath>` request to an absolute file, or null
+   * (v2 §8.5). Serves ONLY an active plugin that holds the `ui` grant + declares a
+   * panel, only paths inside its folder (no `..`, symlink realpath re-checked).
+   */
+  resolvePanelFile(pluginId: string, relPath: string): string | null {
+    const live = this.live.get(pluginId);
+    if (!live || !live.panel) return null; // not active / no ui panel
+    if (!isSafePanelPath(relPath)) return null;
+    const root = path.resolve(live.dir);
+    const abs = path.resolve(root, relPath);
+    if (abs !== root && !abs.startsWith(root + path.sep)) return null;
+    try {
+      const real = fsSync.realpathSync(abs);
+      if (real !== root && !real.startsWith(root + path.sep)) return null;
+      if (!fsSync.statSync(real).isFile()) return null;
+      return real;
+    } catch {
+      return null;
+    }
   }
 
   /** Slash commands contributed by currently-active plugins (for the composer). */

@@ -1,5 +1,6 @@
 import { clipboard, ipcMain, type BrowserWindow } from 'electron';
 import { type TabKind } from '../../shared/browser';
+import { isSafePanelPath, isValidPluginId } from '../../shared/plugin';
 import type { WorkspaceFileRef, WorkspaceId } from '../../shared/workspace';
 import { defineHandler } from '../ipc/define-handler';
 import { arrayOf, bool, num, obj, str } from '../ipc/validate';
@@ -85,16 +86,18 @@ function parseTabSpec(payload: unknown): {
   url: string | undefined;
   workspaceId: WorkspaceId | undefined;
   editorFile: WorkspaceFileRef | undefined;
+  pluginPanel: { id: string; entry: string } | undefined;
 } {
   let kind: TabKind = 'home';
   let url: string | undefined;
   let workspaceId: WorkspaceId | undefined;
   let editorFile: WorkspaceFileRef | undefined;
+  let pluginPanel: { id: string; entry: string } | undefined;
   if (typeof payload === 'string') {
-    return { kind: 'web', url: payload, workspaceId, editorFile };
+    return { kind: 'web', url: payload, workspaceId, editorFile, pluginPanel };
   }
   if (payload && typeof payload === 'object') {
-    const p = payload as { kind?: unknown; url?: unknown; path?: unknown };
+    const p = payload as { kind?: unknown; url?: unknown; path?: unknown; pluginPanel?: unknown };
     if (isTabKind(p.kind)) kind = p.kind;
     else if (typeof p.url === 'string') kind = 'web';
     if (typeof p.url === 'string') url = p.url;
@@ -104,8 +107,17 @@ function parseTabSpec(payload: unknown): {
     }
     editorFile = parseWorkspaceFile('file' in p ? p.file : undefined);
     if (kind === 'editor' && editorFile) url = editorFile.path;
+    if (kind === 'plugin') pluginPanel = parsePluginPanel(p.pluginPanel);
   }
-  return { kind, url, workspaceId, editorFile };
+  return { kind, url, workspaceId, editorFile, pluginPanel };
+}
+
+/** Validate the renderer-supplied plugin-panel ref (untrusted): id slug + safe entry. */
+function parsePluginPanel(value: unknown): { id: string; entry: string } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as { id?: unknown; entry?: unknown };
+  if (!isValidPluginId(v.id) || !isSafePanelPath(v.entry)) return undefined;
+  return { id: v.id, entry: v.entry };
 }
 
 export function registerBrowserHandlers(deps: {
@@ -347,16 +359,16 @@ export function registerBrowserHandlers(deps: {
   });
 
   defineHandler('browser:tabs-new', ([payload]) => {
-    const { kind, url, workspaceId, editorFile } = parseTabSpec(payload);
-    const rec = createAndActivateTab(kind, url, { workspaceId, editorFile });
+    const { kind, url, workspaceId, editorFile, pluginPanel } = parseTabSpec(payload);
+    const rec = createAndActivateTab(kind, url, { workspaceId, editorFile, pluginPanel });
     return rec.id;
   });
 
   defineHandler('browser:tabs-replace', ([payload]) => {
     const p = obj(payload);
     const id = str(p.id, 'id');
-    const { kind, url, workspaceId, editorFile } = parseTabSpec(payload);
-    const rec = replaceTab(id, kind, url, { workspaceId, editorFile });
+    const { kind, url, workspaceId, editorFile, pluginPanel } = parseTabSpec(payload);
+    const rec = replaceTab(id, kind, url, { workspaceId, editorFile, pluginPanel });
     return rec ? rec.id : null;
   });
 

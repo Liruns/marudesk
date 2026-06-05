@@ -382,9 +382,46 @@ R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러�
 
 ---
 
+## 8.5 v2 — UI 패널 기여 (렌더러 샌드박스 뷰) ✅ 구현 완료
+
+v1의 비목표였던 "플러그인이 자기 UI를 그리는" 경로. 핵심 결정과 보안 모델:
+
+> 구현: `shared/plugin.ts`(`ui` 권한·`panel`·`PLUGIN_SCHEME`·`isSafePanelPath`), `electron/plugins/protocol.ts`
+> (스킴 권한 + path-scoped 핸들러 + 엄격 CSP), `manager.resolvePanelFile`(활성+ui+realpath 가드),
+> `electron/browser/*`(`plugin` 탭 kind + `pluginPanel` 통과, editor `filePath` 선례), main의 CSP
+> `frame-src plugin:` + 스킴/프로토콜 등록, 렌더러 `PluginPanel.tsx`(sandbox iframe + postMessage 브리지),
+> 탭 레지스트리·PaneHeader·`openPluginPanel` 스토어·Settings "패널 열기"·i18n, 예제 `hello-world/panel.html`.
+> typecheck/lint/build + 하니스 23 checks(경로 스코프 게이트 포함) 통과. **GUI 실렌더(iframe 표시·
+> postMessage 왕복)는 디스플레이 없는 환경이라 수동 검증 대기.**
+
+- **매니페스트 선언 + `ui` 권한.** `"panel": { "title": "...", "entry": "panel.html" }` + 새 권한 `"ui"`.
+  도구/슬래시처럼 enable 토글이 곧 승인. 패널은 **활성 + `ui` 승인** 플러그인만 로드된다.
+- **렌더 = `<iframe sandbox="allow-scripts">`.** `allow-same-origin`을 **주지 않아** iframe은 **opaque
+  origin** — 부모 DOM/쿠키/스토리지/`window.marudesk`에 접근 불가. 별도 `webContents`(`<webview>`는
+  `webviewTag:false`로 꺼져 있음) 대신 가벼운 sandbox iframe으로 충분한 격리를 얻는다.
+- **커스텀 `plugin://` 스킴.** main이 `registerSchemesAsPrivileged`(ready 전, `standard+secure`)로
+  등록하고 `protocol.handle('plugin', …)`로 응답. `plugin://<id>/<relpath>`를 그 플러그인 폴더 안의
+  파일로만 매핑 — **경로 이탈(`..`) 거부 + realpath가 폴더 안인지 재검사**, 활성+`ui` 아니면 거부.
+- **엄격 per-response CSP.** 패널 문서엔 `default-src 'none'; script-src 'unsafe-inline' plugin:;
+  style-src 'unsafe-inline'; img-src plugin: data:; **connect-src 'none'**` 를 응답 헤더로 박는다.
+  `connect-src 'none'`이 패널의 **네트워크 유출을 원천 봉쇄**(패널은 표시 + 프롬프트 삽입 전용, 네트워크는
+  도구의 `ctx.http`로만). 부모 창 CSP엔 `frame-src plugin:` 한 줄을 추가해 iframe 임베드를 허용.
+- **좁은 postMessage 브리지.** iframe→부모 메시지는 `event.source === iframe.contentWindow`로 검증 후
+  **화이트리스트 액션만**: `insertPrompt(text)`(컴포저 draft에 채움 — 사용자가 검토 후 전송), `resize(height)`
+  (iframe 높이 자동조정). **패널에서 도구를 직접 실행하지 않는다** — 그러면 루프의 승인/read-only 중재를
+  우회하므로, 패널은 평소 에이전트 흐름(프롬프트)으로만 작업을 구동한다(v2 비목표).
+- **탭 통합.** editor 탭이 `filePath`를 `TabRecord`→`TabState`로 실어나르는 선례를 그대로 따라,
+  `kind: 'plugin'` 탭이 `pluginPanel: { id, entry }`를 실어나른다. 렌더러 `PluginPanel(tabId)`이 그걸 읽어
+  `plugin://<id>/<entry>`를 sandbox iframe에 띄운다. Settings → Plugins의 "패널 열기"가 탭을 연다.
+
+> v2 비목표: 패널의 **도구 직접 실행**(중재 우회), 패널↔패널 통신, 패널의 **임의 네트워크**(`connect-src
+> 'none'`). 이들은 의도적으로 닫아 표면을 최소화한다.
+
+---
+
 ## 9. Non-goals (v1)
 
-- 렌더러 **UI 패널/탭 기여** — v2(샌드박스 뷰)로 분리.
+- ~~렌더러 **UI 패널/탭 기여**~~ — **v2에서 구현**(§8.5, 샌드박스 iframe + `plugin://`).
 - 플러그인 **마켓플레이스/원격 설치/자동 업데이트** — v1은 로컬 폴더 설치만.
 - 임의 **네이티브 모듈/NPM 의존성 해석** — v1 플러그인은 단일 `index.js`(번들 책임은 작성자).
 - 렌더러 `action` 슬래시 커맨드(패널 열기 등) — 권한 위임 위험으로 제외, `prompt`만 허용.

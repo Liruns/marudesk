@@ -48,6 +48,11 @@ export function listPluginCommands(): PluginCommandSnapshot[] {
   return manager ? manager.listCommands() : [];
 }
 
+/** Resolve a `plugin://<id>/<path>` panel request to an absolute file (or null). */
+export function resolvePluginPanelFile(pluginId: string, relPath: string): string | null {
+  return manager ? manager.resolvePanelFile(pluginId, relPath) : null;
+}
+
 /** Tear down every plugin worker (before-quit). */
 export function shutdownPlugins(): void {
   manager?.dispose();

@@ -360,6 +360,8 @@ export interface IpcMap {
         path?: string;
         workspaceId?: WorkspaceId;
         file?: WorkspaceFileRef;
+        /** For a `plugin` tab: which plugin panel to render (v2). */
+        pluginPanel?: { id: string; entry: string };
       },
     ];
     result: string;

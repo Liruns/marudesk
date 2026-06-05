@@ -15,7 +15,8 @@ export type PluginPermission =
   | 'commands' // registerSlashCommand
   | 'fs:read' // ctx.fs.read/list (read-only; P1)
   | 'fs:write' // ctx.fs.write (P3 — needs AppliedChange diff wiring)
-  | 'net'; // ctx.http.fetch (P3 — host-mediated, allowlisted)
+  | 'net' // ctx.http.fetch (P3 — host-mediated, allowlisted)
+  | 'ui'; // a sandboxed UI panel (v2 — manifest `panel`)
 
 export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'tools',
@@ -23,10 +24,14 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'fs:read',
   'fs:write',
   'net',
+  'ui',
 ];
 
 /** Reserved server-name prefix for synthetic plugin MCP servers (design §1.1). */
 export const PLUGIN_SERVER_PREFIX = 'plugin:';
+
+/** Custom scheme that serves a plugin's sandboxed UI panel files (v2, §8.5). */
+export const PLUGIN_SCHEME = 'plugin';
 
 /** The `manifest.json` a plugin ships, as parsed from a trusted scan (design §2). */
 export type PluginManifest = {
@@ -43,7 +48,12 @@ export type PluginManifest = {
   permissions?: PluginPermission[];
   /** Allowlisted hosts for `ctx.http`; only meaningful with the `net` permission. */
   net?: { allow?: string[] };
+  /** A sandboxed UI panel; only meaningful with the `ui` permission (v2, §8.5). */
+  panel?: PluginPanel;
 };
+
+/** A plugin's UI panel declaration. `entry` is a plugin-folder-relative HTML file. */
+export type PluginPanel = { title: string; entry: string };
 
 /** Lifecycle state surfaced to the settings panel / IPC (mirrors McpServerStatus). */
 export type PluginState =
@@ -66,6 +76,8 @@ export type PluginStatus = {
   toolNames: string[];
   /** Slash command names this plugin contributes. */
   commandNames: string[];
+  /** The declared UI panel, when the plugin has one + holds the `ui` grant (v2). */
+  panel?: PluginPanel;
   /** Scrubbed error message when `state === 'error'`. */
   error?: string;
 };
@@ -172,4 +184,23 @@ export function pluginToolName(pluginId: string, tool: string): string {
 /** A stable key over a permission set, to detect manifest permission changes. */
 export function permissionsKey(perms: readonly PluginPermission[]): string {
   return [...new Set(perms)].sort().join(',');
+}
+
+/**
+ * A plugin-folder-relative resource path safe to serve over `plugin://` (v2): no
+ * absolute paths, no `..` traversal, no backslashes/NUL, no protocol-relative or
+ * scheme prefixes. The protocol handler still re-checks realpath stays in the
+ * folder; this is the cheap first gate shared by the manifest parser + handler.
+ */
+export function isSafePanelPath(rel: unknown): rel is string {
+  return (
+    typeof rel === 'string' &&
+    rel.length > 0 &&
+    rel.length < 1024 &&
+    !rel.includes('\0') &&
+    !rel.includes('\\') &&
+    !rel.includes(':') &&
+    !rel.startsWith('/') &&
+    !rel.split('/').includes('..')
+  );
 }
