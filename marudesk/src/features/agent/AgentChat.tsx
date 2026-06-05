@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Eraser, FileText, History, Send, Square, X } from 'lucide-react';
+import { ChevronDown, Eraser, History, Send, Square, X } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
@@ -31,6 +31,7 @@ import {
 } from './chat/Controls';
 import { ApprovalToggle, EffortToggle, VerbosityToggle } from './chat/Toggles';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
+import { AttachmentPreview } from './chat/AttachmentPreview';
 import { Transcript } from './chat/Transcript';
 import { ApprovalCard, QuestionsCard, ReceiptCard } from './chat/Cards';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
@@ -49,12 +50,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const abort = useAgentStore((s) => s.abort);
   const resetChat = useAgentStore((s) => s.resetChat);
   const compact = useAgentStore((s) => s.compact);
-  const pendingImages = useAgentStore((s) => s.pendingImages);
-  const pendingFiles = useAgentStore((s) => s.pendingFiles);
   const addImages = useAgentStore((s) => s.addImages);
   const addFiles = useAgentStore((s) => s.addFiles);
-  const removeImage = useAgentStore((s) => s.removeImage);
-  const removeFile = useAgentStore((s) => s.removeFile);
   const promptHistory = useAgentStore((s) => s.promptHistory);
   const queuedPrompt = useAgentStore((s) => s.queuedPrompt);
   const setQueuedPrompt = useAgentStore((s) => s.setQueuedPrompt);
@@ -689,49 +686,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             ) : null}
 
             <div className="chrome-panel-strong flex flex-col rounded-lg transition-[border-color,box-shadow] duration-fast focus-within:border-accent focus-within:shadow-focus-accent">
-              {pendingImages.length > 0 ? (
-                <div className="flex flex-wrap gap-2 px-2.5 pt-2.5">
-                  {pendingImages.map((img, i) => (
-                    <div key={i} className="relative group/img">
-                      <img
-                        src={`data:${img.mediaType};base64,${img.data}`}
-                        alt={t('agent.chat.attachmentAlt')}
-                        className="h-14 w-14 rounded border border-default object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeImage(i)}
-                        aria-label={t('agent.chat.removeImage')}
-                        className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-pill bg-surface-3 border border-default text-fg-secondary hover:text-fg-primary opacity-0 group-hover/img:opacity-100 transition-opacity duration-fast"
-                      >
-                        <X size={10} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {pendingFiles.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
-                  {pendingFiles.map((file, i) => (
-                    <span
-                      key={`${file.name}:${file.size}:${file.text.length}`}
-                      title={file.name}
-                      className="group/file flex min-w-0 max-w-full items-center gap-1.5 rounded border border-default bg-surface-2 px-2 py-1 text-caption text-fg-secondary"
-                    >
-                      <FileText size={12} className="shrink-0 text-fg-tertiary" />
-                      <span className="truncate">{file.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeFile(i)}
-                        aria-label={`${t('agent.chat.removeFile')} ${file.name}`}
-                        className="shrink-0 text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
-                      >
-                        <X size={11} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
+              <AttachmentPreview />
 
               <textarea
                 ref={textareaRef}
