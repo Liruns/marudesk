@@ -98,7 +98,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
       aria-label={t('context.drawer.label')}
       aria-hidden={!open}
       className={cn(
-        'relative shrink-0 bg-surface-1 border-l border-subtle overflow-hidden',
+        'chrome-panel relative shrink-0 border-y-0 border-r-0 overflow-hidden',
         // No width transition mid-drag — it would lag a frame behind the pointer.
         resizing ? '' : 'transition-[width] duration-standard',
       )}
@@ -121,7 +121,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
         </div>
       ) : null}
       <div className="relative h-full flex flex-col" style={{ width }}>
-        <header className="h-10 shrink-0 flex items-center justify-between px-3 border-b border-subtle">
+        <header className="chrome-header h-10 shrink-0 flex items-center justify-between px-3">
           <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.title')}</h2>
           <div className="flex items-center gap-0.5">
             {tab === 'agent' ? (
@@ -132,10 +132,10 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                 title={t('context.drawer.history')}
                 aria-pressed={showHistory}
                 className={cn(
-                  'flex size-6 items-center justify-center rounded transition-colors duration-fast',
+                  'chrome-icon-button size-6',
                   showHistory
-                    ? 'text-fg-primary bg-surface-3'
-                    : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-3',
+                    ? 'chrome-icon-button-active'
+                    : 'text-fg-tertiary',
                 )}
               >
                 <History size={13} />
@@ -147,7 +147,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                 onClick={() => void openAgentTab()}
                 aria-label={t('context.drawer.openChatTab')}
                 title={t('context.drawer.openChatTab')}
-                className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
+                className="chrome-icon-button size-6"
               >
                 <Maximize2 size={13} />
               </button>
@@ -156,7 +156,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
               type="button"
               onClick={() => onOpenChange(false)}
               aria-label={t('context.drawer.close')}
-              className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
+              className="chrome-icon-button size-6"
             >
               <X size={14} />
             </button>
@@ -166,7 +166,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
         <nav
           role="tablist"
           aria-label={t('context.tabs.label')}
-          className="shrink-0 flex border-b border-subtle"
+          className="shrink-0 flex border-b border-subtle bg-surface-1/70"
         >
           <TabButton active={tab === 'agent'} onClick={() => setTab('agent')} label={t('context.tabs.agent')} />
           <TabButton
@@ -181,7 +181,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
           <AgentChat />
         ) : (
           <>
-            <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-subtle">
+            <div className="chrome-header shrink-0 flex items-center justify-between px-4 py-2">
               <div className="flex items-center gap-2 text-caption text-fg-tertiary tabular-nums">
                 {captures.length > 0 ? (
                   <>
@@ -203,7 +203,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                       aria-label={t(
                         allSelected ? 'context.drawer.deselectAll' : 'context.drawer.selectAll',
                       )}
-                      className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
+                      className="chrome-icon-button size-6"
                     >
                       {allSelected ? (
                         <CheckSquare size={14} />
@@ -215,7 +215,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
                       type="button"
                       onClick={clearCaptures}
                       aria-label={t('context.drawer.clearAll')}
-                      className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-error hover:bg-error-subtle/30 transition-colors duration-fast"
+                      className="chrome-icon-button size-6 hover:text-error hover:bg-error-subtle/30"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -225,7 +225,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-3">
               {captures.length === 0 ? (
-                <div className="text-body-sm text-fg-tertiary p-3">
+                <div className="chrome-panel-strong rounded-lg p-4 text-body-sm text-fg-tertiary">
                   {t('context.drawer.empty')}
                 </div>
               ) : (
@@ -239,14 +239,14 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
           </>
         )}
         {showHistory && tab === 'agent' ? (
-          <div className="absolute inset-0 z-20 flex flex-col bg-surface-1">
-            <header className="h-10 shrink-0 flex items-center justify-between px-3 border-b border-subtle">
+          <div className="chrome-panel absolute inset-0 z-20 flex flex-col rounded-none border-0">
+            <header className="chrome-header h-10 shrink-0 flex items-center justify-between px-3">
               <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.history')}</h2>
               <button
                 type="button"
                 onClick={() => setShowHistory(false)}
                 aria-label={t('context.drawer.closeHistory')}
-                className="flex size-6 items-center justify-center rounded text-fg-tertiary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast"
+                className="chrome-icon-button size-6"
               >
                 <X size={14} />
               </button>
@@ -279,8 +279,8 @@ function TabButton({
       className={cn(
         'flex-1 h-9 flex items-center justify-center gap-2 text-body-sm transition-colors duration-fast',
         active
-          ? 'text-fg-primary border-b border-accent -mb-px'
-          : 'text-fg-tertiary hover:text-fg-secondary',
+          ? 'text-fg-primary border-b border-accent -mb-px bg-surface-2/50 shadow-highlight'
+          : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/40',
       )}
     >
       <span>{label}</span>

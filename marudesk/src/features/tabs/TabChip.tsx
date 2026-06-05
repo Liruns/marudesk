@@ -99,7 +99,7 @@ export function TabChip({
       title={tab.url || label}
       className={cn(
         'group relative flex items-center rounded-md',
-        'text-caption cursor-default select-none transition-colors duration-fast',
+        'text-caption cursor-default select-none transition-[background-color,color,box-shadow] duration-fast',
         pinned
           ? 'h-8 w-9 shrink-0 justify-center'
           : grouped
@@ -107,8 +107,8 @@ export function TabChip({
             : 'h-8 flex-1 basis-0 min-w-[80px] max-w-[240px] gap-2 pl-3 pr-1.5',
         active
           ? grouped
-            ? 'bg-surface-3 text-fg-primary'
-            : 'bg-surface-2 text-fg-primary'
+            ? 'bg-surface-3 text-fg-primary shadow-highlight'
+            : 'bg-surface-2 bg-surface-gradient text-fg-primary shadow-highlight'
           : grouped
             ? 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-3/50'
             : 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-2/50',

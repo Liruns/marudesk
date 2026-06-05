@@ -226,7 +226,7 @@ function Divider({ splitId, dir }: { splitId: PaneId; dir: 'row' | 'col' }) {
       className={cn(
         'relative shrink-0 z-10 group',
         isRow ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
-        active ? 'bg-accent' : 'bg-subtle hover:bg-accent',
+        active ? 'bg-accent shadow-focus-accent' : 'bg-subtle hover:bg-accent/80',
         'transition-colors duration-fast',
       )}
     >
@@ -293,9 +293,9 @@ function PaneLeaf({
   return (
     <div
       className={cn(
-        'absolute inset-0 flex flex-col overflow-hidden bg-surface-1',
+        'chrome-panel absolute inset-0 flex flex-col overflow-hidden rounded-none',
         'ring-inset transition-shadow duration-fast',
-        focused ? 'ring-1 ring-accent/40' : 'ring-0',
+        focused ? 'ring-1 ring-accent/40 shadow-focus-accent' : 'ring-0',
       )}
       onMouseDown={() => {
         focus(leaf.id);
@@ -332,7 +332,7 @@ function PaneContent({
 }) {
   if (!tab) {
     return (
-      <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 text-center px-6 pointer-events-none">
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 text-center px-6 pointer-events-none bg-surface-page">
         <Columns2 size={20} className="text-fg-tertiary/60" aria-hidden />
         <p className="text-caption text-fg-tertiary">
           Empty pane — drag a tab here

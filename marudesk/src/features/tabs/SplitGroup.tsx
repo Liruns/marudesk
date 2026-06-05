@@ -20,7 +20,7 @@ export function SplitGroup({ children, labels, onExit }: SplitGroupProps) {
       aria-label={labels.group}
       className={cn(
         'group/split relative flex items-center gap-0.5 h-8 px-1 rounded-lg shrink-0',
-        'bg-surface-2/60 ring-1 ring-inset ring-accent/25 no-drag',
+        'chrome-panel-strong no-drag border-accent/25',
       )}
     >
       <button

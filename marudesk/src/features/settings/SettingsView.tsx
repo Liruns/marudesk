@@ -38,12 +38,12 @@ export function SettingsView() {
 
   return (
     <div className="flex-1 min-h-0 flex bg-surface-page">
-      <aside className="w-52 shrink-0 flex flex-col border-r border-subtle bg-surface-1">
-        <header className="h-11 shrink-0 flex items-center px-4 border-b border-subtle">
+      <aside className="chrome-rail w-52 shrink-0 flex flex-col border-r">
+        <header className="chrome-header h-11 shrink-0 flex items-center px-4">
           <h1 className="text-body font-medium text-fg-primary">{t('settings.title')}</h1>
         </header>
         <div className="shrink-0 px-2 pt-2">
-          <div className="flex items-center gap-1.5 h-7 rounded-md bg-surface-page border border-subtle px-2 focus-within:border-accent">
+          <div className="flex items-center gap-1.5 h-7 rounded bg-surface-page border border-subtle px-2 shadow-inset-soft focus-within:border-accent focus-within:shadow-focus-accent transition-[border-color,box-shadow] duration-fast">
             <SearchIcon size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
             <input
               value={filter}
@@ -77,8 +77,8 @@ export function SettingsView() {
         </nav>
       </aside>
 
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-2xl px-8 py-8 flex flex-col gap-6">
+      <div className="flex-1 min-w-0 overflow-y-auto bg-vignette">
+        <div className="max-w-3xl px-8 py-7 flex flex-col gap-5">
           {searching ? (
             <>
               <header className="flex flex-col gap-1">

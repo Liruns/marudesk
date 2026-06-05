@@ -19,8 +19,7 @@ export function HomeLauncherCard({
       type="button"
       onClick={onOpen}
       className={cn(
-        'group flex flex-col items-start gap-2.5 p-4 rounded-xl text-left',
-        'bg-surface-1 bg-surface-gradient border border-subtle shadow-highlight',
+        'chrome-panel group flex flex-col items-start gap-2.5 p-4 rounded-lg text-left',
         'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-card',
         'active:translate-y-0 active:scale-[0.99] active:shadow-highlight',
         'transition duration-fast',
@@ -30,7 +29,7 @@ export function HomeLauncherCard({
         {icon}
       </span>
       <span className="text-body-sm text-fg-primary font-medium">{label}</span>
-      <span className="text-caption text-fg-tertiary">{hint}</span>
+      <span className="hidden xl:block text-caption text-fg-tertiary">{hint}</span>
     </button>
   );
 }

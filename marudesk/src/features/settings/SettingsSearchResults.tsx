@@ -71,7 +71,7 @@ export function SettingsSearchResults({ query, categories, onPick }: Props) {
       <h3 className="px-1 text-caption uppercase tracking-wider text-fg-tertiary">
         {t('settings.search.settingsGroup')}
       </h3>
-      <div className="flex flex-col rounded-lg border border-subtle bg-surface-1 shadow-highlight divide-y divide-subtle">
+      <div className="chrome-panel flex flex-col rounded-lg overflow-hidden divide-y divide-subtle">
         {matches.map((entry, i) => {
           const cat = categoryById.get(entry.categoryId);
           return (
@@ -105,8 +105,7 @@ function ResultRow({
       type="button"
       onClick={onClick}
       className={cn(
-        'group flex items-center gap-3 px-4 py-3 text-left',
-        'transition-colors duration-fast hover:bg-surface-2',
+        'chrome-list-row group gap-3 px-4 py-3 text-left rounded-none',
       )}
     >
       <span className="shrink-0 text-fg-tertiary group-hover:text-accent" aria-hidden>

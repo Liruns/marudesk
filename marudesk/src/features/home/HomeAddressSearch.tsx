@@ -76,8 +76,8 @@ export function HomeAddressSearch({ onOpen }: HomeAddressSearchProps) {
     >
       <div
         className={cn(
-          'h-11 w-full rounded-pill bg-surface-1 border flex items-center pl-4 pr-2 gap-2',
-          'border-default focus-within:border-accent focus-within:shadow-focus-accent',
+          'chrome-panel-strong h-11 w-full rounded-lg flex items-center pl-4 pr-2 gap-2',
+          'focus-within:border-accent focus-within:shadow-focus-accent',
           'transition-[border-color,box-shadow] duration-fast',
         )}
       >
@@ -102,7 +102,7 @@ export function HomeAddressSearch({ onOpen }: HomeAddressSearchProps) {
       </div>
       {suggestions.length > 0 ? (
         <ul
-          className="absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-xl border border-default bg-surface-1 shadow-card py-1"
+          className="chrome-popover absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-lg py-1"
           role="listbox"
         >
           {suggestions.map((s, i) => (
@@ -115,8 +115,8 @@ export function HomeAddressSearch({ onOpen }: HomeAddressSearchProps) {
                 }}
                 onMouseEnter={() => setHighlight(i)}
                 className={cn(
-                  'flex w-full items-center gap-2.5 px-3 py-1.5 text-left',
-                  i === highlight ? 'bg-surface-2' : 'hover:bg-surface-2',
+                  'chrome-list-row w-full gap-2.5 px-3 py-1.5 text-left rounded-none',
+                  i === highlight ? 'bg-surface-2 text-fg-primary' : '',
                 )}
               >
                 <History size={14} className="shrink-0 text-fg-tertiary" aria-hidden />

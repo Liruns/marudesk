@@ -68,7 +68,7 @@ export function ActivityBar({
   return (
     <nav
       aria-label={t('activity.barLabel')}
-      className="w-12 shrink-0 flex flex-col items-center py-2 gap-1 bg-surface-1 border-r border-subtle"
+      className="chrome-rail w-12 shrink-0 flex flex-col items-center py-2 gap-1 border-r"
     >
       <ActivityButton
         label={
@@ -198,11 +198,10 @@ function ActivityButton({
       aria-pressed={active}
       title={label}
       className={cn(
-        'relative size-9 rounded-md flex items-center justify-center shrink-0',
-        'transition-colors duration-fast',
+        'chrome-icon-button relative size-9 shrink-0',
         active
-          ? 'text-accent bg-accent-subtle/30'
-          : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
+          ? 'text-accent bg-accent-subtle/40 shadow-highlight hover:bg-accent-subtle/40 hover:text-accent'
+          : 'text-fg-tertiary',
         disabled ? 'opacity-40 cursor-not-allowed' : '',
       )}
     >

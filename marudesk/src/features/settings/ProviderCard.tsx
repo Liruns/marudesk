@@ -26,12 +26,12 @@ export function ProviderCard({
   const provider = getProvider(providerId);
 
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 overflow-hidden">
+    <div className="chrome-panel rounded-lg overflow-hidden">
       <button
         type="button"
         onClick={onSelect}
         aria-expanded={expanded}
-        className="w-full flex items-center gap-2 px-3 h-11 text-left"
+        className="chrome-list-row w-full gap-2 px-3 h-11 text-left rounded-none"
       >
         <ChevronRight
           size={14}
