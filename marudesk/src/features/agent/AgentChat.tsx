@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, History, Send, Square, X } from 'lucide-react';
+import { ChevronDown, Send, Square } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
@@ -31,6 +31,7 @@ import {
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
 import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
+import { ComposerBanners } from './chat/ComposerBanners';
 import { Transcript } from './chat/Transcript';
 import { ApprovalCard, QuestionsCard, ReceiptCard } from './chat/Cards';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
@@ -41,7 +42,6 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const { t } = useI18n();
   const chat = useAgentStore((s) => s.chat);
   const draft = useAgentStore((s) => s.draft);
-  const localError = useAgentStore((s) => s.localError);
   const setDraft = useAgentStore((s) => s.setDraft);
   const ingest = useAgentStore((s) => s.ingest);
   const hydrate = useAgentStore((s) => s.hydrate);
@@ -596,29 +596,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             <ComposerToggles empty={empty} busy={busy} isReasoningModel={isReasoningModel} />
           </div>
 
-          {localError ? (
-            <div className="rounded border border-subtle bg-error-subtle/40 px-3 py-1.5 text-caption text-fg-secondary break-words shadow-highlight">
-              {localError}
-            </div>
-          ) : null}
-
-          {queuedPrompt ? (
-            <div className="chrome-panel flex items-start gap-2 rounded px-3 py-1.5">
-              <History size={12} className="mt-0.5 shrink-0 text-fg-tertiary" />
-              <span className="flex-1 min-w-0 text-caption text-fg-secondary break-words">
-                <span className="text-fg-tertiary">{t('agent.chat.queuedPrompt')}</span>{' '}
-                {queuedPrompt}
-              </span>
-              <button
-                type="button"
-                onClick={() => setQueuedPrompt(null)}
-                aria-label={t('agent.chat.cancelQueued')}
-                className="shrink-0 text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ) : null}
+          <ComposerBanners />
 
           {slashInfo ? (
             <SlashInfoCard kind={slashInfo} onClose={() => setSlashInfo(null)} />
