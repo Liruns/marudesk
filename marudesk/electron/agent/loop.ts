@@ -1,10 +1,8 @@
-import fs from 'node:fs/promises';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import type {
   AgentAnswers,
   AgentChatState,
-  AgentEdit,
   AgentMessage,
   AgentReasoningPart,
   AgentSendInput,
@@ -21,8 +19,6 @@ import { getSettingsSync } from '../settings';
 import type { AgentApprovalMode, ModelRef, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
 import { setNetworkCapture } from '../browser/state';
-import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
-import { writeFileForEditor } from '../workspace';
 import { streamText } from 'ai';
 import { buildModel, aiTools, humanizeModelError, isFailoverError, type ModelAuth } from './model';
 import { loadGlobalUserInstructions, loadWorkspaceInstructions } from './instructions';
@@ -52,6 +48,14 @@ import { persistSession } from './loop-sessions.ts';
 export { reset, resumeSession, listSavedSessions, deleteSavedSession } from './loop-sessions.ts';
 import { compactConversation } from './loop-compaction.ts';
 export { compactConversation } from './loop-compaction.ts';
+export {
+  abortTurn,
+  respond,
+  approveTool,
+  acceptEdit,
+  revertEdit,
+  snapshot,
+} from './loop-turn-actions.ts';
 import {
   buildUserText,
   toolResult,
@@ -861,79 +865,5 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // way subsequent sends are gated by busy(), so releasing `S.starting` is safe.
     S.starting = false;
   }
-}
-
-export function abortTurn(turnId: string): boolean {
-  if (S.state.turnId !== turnId || !S.controller) return false;
-  S.controller.abort();
-  // Unblock a parked turn so the loop can observe the abort and bail cleanly.
-  S.approvalResolver?.({ approved: false, always: false });
-  S.answersResolver?.({});
-  return true;
-}
-
-export function respond(turnId: string, callId: string, answers: AgentAnswers): boolean {
-  if (S.state.pendingQuestions?.turnId !== turnId || S.state.pendingQuestions?.callId !== callId) return false;
-  if (!S.answersResolver) return false;
-  S.answersResolver(answers ?? {});
-  return true;
-}
-
-export function approveTool(
-  turnId: string,
-  callId: string,
-  approved: boolean,
-  always = false,
-): boolean {
-  if (S.state.pendingApproval?.turnId !== turnId || S.state.pendingApproval?.callId !== callId) return false;
-  if (!S.approvalResolver) return false;
-  S.approvalResolver({ approved, always });
-  return true;
-}
-
-export function acceptEdit(editId: string): boolean {
-  const edit = S.state.edits.find((e) => e.id === editId);
-  if (!edit || edit.status !== 'applied') return false;
-  edit.status = 'accepted';
-  emit();
-  return true;
-}
-
-export async function revertEdit(editId: string): Promise<boolean> {
-  const edit = S.state.edits.find((e) => e.id === editId);
-  if (!edit || edit.status !== 'applied') return false;
-  let ws: WorkspaceSummary;
-  try {
-    ws = requireWorkspace().ws;
-  } catch {
-    return false;
-  }
-  try {
-    await revertOnDisk(ws, edit);
-  } catch {
-    return false;
-  }
-  edit.status = 'reverted';
-  emit();
-  return true;
-}
-
-async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void> {
-  if (edit.kind === 'edit' && edit.before !== null) {
-    await writeFileForEditor(ws.root, edit.path, edit.before);
-    return;
-  }
-  if (edit.kind === 'create') {
-    const { abs } = resolveWorkspacePath(ws.root, edit.path);
-    const lst = await fs.lstat(abs).catch(() => null);
-    if (lst && !lst.isSymbolicLink() && lst.isFile()) {
-      const real = await fs.realpath(abs);
-      if (isInsideRoot(ws.root, real)) await fs.unlink(abs);
-    }
-  }
-}
-
-export function snapshot(): AgentChatState {
-  return S.state;
 }
 
