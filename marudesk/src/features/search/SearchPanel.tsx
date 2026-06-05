@@ -21,6 +21,7 @@ import {
 import { Spinner } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
+import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import type {
   SearchFileResult,
   SearchMatchRange,
@@ -44,13 +45,7 @@ const S_DRAG_FLOOR = 56;
 const DEBOUNCE_MS = 250;
 
 function readWidth(): number {
-  try {
-    const v = Number(localStorage.getItem(S_WIDTH_KEY));
-    if (Number.isFinite(v) && v >= S_MIN && v <= S_MAX) return v;
-  } catch {
-    // localStorage unavailable — fall through to the default.
-  }
-  return S_DEFAULT;
+  return readStoredWidth(S_WIDTH_KEY, S_MIN, S_MAX, S_DEFAULT);
 }
 
 /**
@@ -470,11 +465,7 @@ function Highlight({
 }
 
 function persistWidth(w: number): void {
-  try {
-    localStorage.setItem(S_WIDTH_KEY, String(Math.round(w)));
-  } catch {
-    // best-effort persistence
-  }
+  writeStoredWidth(S_WIDTH_KEY, w);
 }
 
 function Toggle({

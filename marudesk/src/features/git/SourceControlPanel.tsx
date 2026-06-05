@@ -25,6 +25,7 @@ import { Spinner } from '../../components/ui';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
+import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import type { GitChange } from '../../../shared/git';
 import { bucketChanges, useGitStore } from './store';
 import { baseName, dirName, statusBadge } from './statusMeta';
@@ -46,13 +47,7 @@ const SC_CLOSE_AT = 88;
 const SC_DRAG_FLOOR = 52;
 
 function readWidth(): number {
-  try {
-    const v = Number(localStorage.getItem(SC_WIDTH_KEY));
-    if (Number.isFinite(v) && v >= SC_MIN && v <= SC_MAX) return v;
-  } catch {
-    // localStorage unavailable — fall through to the default.
-  }
-  return SC_DEFAULT;
+  return readStoredWidth(SC_WIDTH_KEY, SC_MIN, SC_MAX, SC_DEFAULT);
 }
 
 /** What the diff overlay is currently showing. */
@@ -667,11 +662,7 @@ function FileRow({
 }
 
 function persistWidth(w: number): void {
-  try {
-    localStorage.setItem(SC_WIDTH_KEY, String(Math.round(w)));
-  } catch {
-    // best-effort persistence
-  }
+  writeStoredWidth(SC_WIDTH_KEY, w);
 }
 
 function IconButton({

@@ -3,6 +3,7 @@ import { CheckSquare, History, Maximize2, Square, Trash2, X } from 'lucide-react
 import { Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
+import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import { useWebPageStore } from '../browser/store';
 import { useComposerStore } from '../composer/store';
 import { AgentChat } from '../agent/AgentChat';
@@ -26,13 +27,7 @@ const DRAWER_DEFAULT = 420;
 const DRAWER_WIDTH_KEY = 'marudesk.contextDrawerWidth';
 
 function readDrawerWidth(): number {
-  try {
-    const v = Number(localStorage.getItem(DRAWER_WIDTH_KEY));
-    if (Number.isFinite(v) && v >= DRAWER_MIN && v <= DRAWER_MAX) return v;
-  } catch {
-    // localStorage unavailable — fall through to the default.
-  }
-  return DRAWER_DEFAULT;
+  return readStoredWidth(DRAWER_WIDTH_KEY, DRAWER_MIN, DRAWER_MAX, DRAWER_DEFAULT);
 }
 
 /**
@@ -75,11 +70,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
       setResizing(false);
       handle.removeEventListener('pointermove', onMove);
       handle.removeEventListener('lostpointercapture', onDone);
-      try {
-        localStorage.setItem(DRAWER_WIDTH_KEY, String(Math.round(last)));
-      } catch {
-        // best-effort persistence
-      }
+      writeStoredWidth(DRAWER_WIDTH_KEY, last);
     };
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('lostpointercapture', onDone);

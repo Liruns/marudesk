@@ -25,6 +25,7 @@ import { Spinner } from '../../components/ui';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
+import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import type {
   WorkspaceFileRef,
   WorkspaceRecord,
@@ -75,13 +76,7 @@ const EXPLORER_CLOSE_AT = 72;
 const EXPLORER_DRAG_FLOOR = 44;
 
 function readExplorerWidth(): number {
-  try {
-    const v = Number(localStorage.getItem(EXPLORER_WIDTH_KEY));
-    if (Number.isFinite(v) && v >= EXPLORER_MIN && v <= EXPLORER_MAX) return v;
-  } catch {
-    // localStorage unavailable — fall through to the default.
-  }
-  return EXPLORER_DEFAULT;
+  return readStoredWidth(EXPLORER_WIDTH_KEY, EXPLORER_MIN, EXPLORER_MAX, EXPLORER_DEFAULT);
 }
 
 /**
@@ -154,21 +149,13 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
         // 60px wide when the user reopens it via Ctrl+B or the ActivityBar.
         const restore = lastGood >= EXPLORER_MIN ? lastGood : EXPLORER_DEFAULT;
         setWidth(restore);
-        try {
-          localStorage.setItem(EXPLORER_WIDTH_KEY, String(Math.round(restore)));
-        } catch {
-          // best-effort persistence
-        }
+        writeStoredWidth(EXPLORER_WIDTH_KEY, restore);
         onRequestClose?.();
       } else {
         // Normal release — clamp to valid range and persist.
         const clamped = Math.min(EXPLORER_MAX, Math.max(EXPLORER_MIN, last));
         setWidth(clamped);
-        try {
-          localStorage.setItem(EXPLORER_WIDTH_KEY, String(Math.round(clamped)));
-        } catch {
-          // best-effort persistence
-        }
+        writeStoredWidth(EXPLORER_WIDTH_KEY, clamped);
       }
     };
     handle.addEventListener('pointermove', onMove);
