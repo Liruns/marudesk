@@ -2386,6 +2386,7 @@ function EmptyState({
   onPick: (text: string) => void;
 }) {
   const { t } = useI18n();
+  const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
   return (
     <div className="flex flex-col items-center text-center gap-4 px-4 py-2">
       {/* Icon mark */}
@@ -2425,7 +2426,18 @@ function EmptyState({
             );
           })}
         </div>
-      ) : null}
+      ) : (
+        // No workspace yet: give the empty state a real next step instead of a
+        // dead-end instruction (DESIGN.md §10 — empty states are a direct action).
+        <Button
+          variant="secondary"
+          size="sm"
+          leadingIcon={<FolderOpen size={14} />}
+          onClick={() => void openWorkspace()}
+        >
+          {t('workspace.action.openFolder')}
+        </Button>
+      )}
     </div>
   );
 }
