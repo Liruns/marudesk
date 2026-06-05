@@ -17,7 +17,7 @@ export type {
   McpToolDef,
   McpTool,
 } from './types';
-export { GATED_TOOLS, ASK_USER } from './types';
+export { GATED_TOOLS, ASK_USER, SPAWN_SUBAGENT } from './types';
 export { executeTool, describeToolInput } from './executors';
 export { TOOL_SCHEMAS } from './schemas';
-export { BUILTIN_TOOLS, ASK_USER_DEF } from './registry';
+export { BUILTIN_TOOLS, ASK_USER_DEF, SPAWN_SUBAGENT_DEF } from './registry';

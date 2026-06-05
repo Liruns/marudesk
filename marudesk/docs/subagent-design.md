@@ -3,6 +3,23 @@
 > 상태: **제안 (2026-06-04)** · 범위: AI Chat에 multi-provider subagent spawn 추가.
 > 동반: [agentic-chat 설계](./agentic-chat-design.md) · [context-mcp 설계](./context-mcp-design.md) · [remote/mobile bridge 설계](./remote-mobile-bridge-design.md)
 > 결정 입력: 실행/표시 = **병렬 visible agent** · 툴 범위 = **부모와 동일** · 진행 = **설계 먼저**.
+> 구현 체크포인트: **Phase 1 shipped (2026-06-05)** 는 bounded read-only child runner다. 아래 full tree 설계는
+> 여전히 목표 상태이며, `AgentTreeState`/통합 승인 큐/동시 편집 직렬화는 아직 구현 범위 밖이다.
+
+## Phase 1 구현 메모 (2026-06-05)
+
+사용자에게 즉시 쓸 수 있는 `spawn_subagent` 진입점은 추가했다. 단, full parallel tree 설계를 한 번에
+넓히지 않고 안전한 좁은 범위로 먼저 착지했다.
+
+- `spawn_subagent`는 모델에 노출되는 gated tool이며, 부모 승인 후 실행된다.
+- 자식은 부모 provider/model을 기본값으로 쓰고, 요청에 provider/model이 있으면 검증 후 사용한다.
+- 자식 루프는 bounded step limit 안에서 별도 transcript로 실행되고, 결과를 부모의 tool result로 반환한다.
+- 자식이 볼 수 있는 tool은 read-only이면서 non-gated인 도구뿐이다. `ask_user`, `spawn_subagent`,
+  write tool, gated tool은 제외한다.
+- UI는 현재 별도 child panel/tree가 아니라 기존 tool card로 task, provider/model, status, result를 보여준다.
+
+남은 full-scope 작업은 §12의 `AgentRuntime` 추출, `AgentTreeState`, 통합 승인 큐, 병렬 child panel,
+root-mediated child approvals, abort propagation, stale-edit refusal e2e다.
 
 ## 0. 한 줄
 

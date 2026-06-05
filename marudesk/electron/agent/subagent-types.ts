@@ -1,0 +1,36 @@
+import type { ProviderId } from '../../shared/providers';
+import type { ToolContext, ToolResult } from './tools/types';
+
+export const MAX_TASK_CHARS = 8_000;
+export const MAX_LABEL_CHARS = 80;
+export const DEFAULT_CHILD_STEPS = 4;
+export const MAX_CHILD_STEPS = 6;
+export const MAX_CHILD_RESULT_CHARS = 16_000;
+
+export type SubagentRunRequest = {
+  readonly task: string;
+  readonly label: string;
+  readonly provider: ProviderId;
+  readonly model: string;
+  readonly maxSteps: number;
+};
+
+export type SubagentRunner = (
+  request: SubagentRunRequest,
+  ctx: ToolContext,
+) => Promise<ToolResult>;
+
+export type ChildToolCall = {
+  readonly id: string;
+  readonly name: string;
+  readonly input: unknown;
+};
+
+export type ChildToolResultPart = {
+  readonly type: 'tool-result';
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly output:
+    | { readonly type: 'text'; readonly value: string }
+    | { readonly type: 'error-text'; readonly value: string };
+};

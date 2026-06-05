@@ -22,7 +22,12 @@ import type {
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
-import type { NavState, TabKind, TabsSnapshot } from './browser';
+import type {
+  BrowserNativeMenuItem,
+  NavState,
+  TabKind,
+  TabsSnapshot,
+} from './browser';
 import type { McpServerStatus } from './mcp';
 import type { PluginCommandSnapshot, PluginStatus } from './plugin';
 import type { DownloadAction, DownloadEntry } from './downloads';
@@ -126,6 +131,7 @@ export const CHANNELS = {
     'browser:tabs-reorder',
     'browser:tabs-set-pinned',
     'browser:tabs-bind-path',
+    'browser:popup-menu',
   ],
   devtools: [
     'devtools:open',
@@ -259,6 +265,7 @@ export const CHANNELS = {
     'plugins:reload',
     'plugins:set-enabled',
     'plugins:commands',
+    'plugins:open-folder',
   ],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
   // Cloud relay (Bridge Model B §B2): log the PC's cloud account in/out and read
@@ -412,6 +419,16 @@ export interface IpcMap {
   'browser:tabs-bind-path': {
     args: [payload: { id: string; path: string }];
     result: boolean;
+  };
+  'browser:popup-menu': {
+    args: [
+      payload: {
+        x: number;
+        y: number;
+        items: BrowserNativeMenuItem[];
+      },
+    ];
+    result: string | null;
   };
   // devtools (custom CDP DevTools — electron/browser/cdp.ts)
   'devtools:open': { args: [payload: { tabId: string }]; result: boolean };
@@ -725,6 +742,7 @@ export interface IpcMap {
     result: PluginStatus[];
   };
   'plugins:commands': { args: []; result: PluginCommandSnapshot[] };
+  'plugins:open-folder': { args: []; result: { path: string } };
 
   // settings
   'settings:get': { args: []; result: AppSettings };

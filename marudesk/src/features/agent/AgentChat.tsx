@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Eraser, History, Send, Square, X } from 'lucide-react';
+import { ChevronDown, Eraser, FileText, History, Send, Square, X } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
@@ -7,7 +7,7 @@ import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { findModel } from '../../../shared/providers';
-import type { AgentChatState, AgentImageInput } from '../../../shared/agent';
+import type { AgentChatState } from '../../../shared/agent';
 import {
   filterSlash,
   pluginSlashCommand,
@@ -33,6 +33,8 @@ import { ApprovalToggle, EffortToggle, VerbosityToggle } from './chat/Toggles';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
 import { MessageList } from './chat/Message';
 import { ApprovalCard, ChangesSection, QuestionsCard, ReceiptCard } from './chat/Cards';
+import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
+import { fileAttachmentsFromFiles, readImageFiles } from './chat/attachments';
 
 
 export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' } = {}) {
@@ -48,8 +50,11 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const resetChat = useAgentStore((s) => s.resetChat);
   const compact = useAgentStore((s) => s.compact);
   const pendingImages = useAgentStore((s) => s.pendingImages);
+  const pendingFiles = useAgentStore((s) => s.pendingFiles);
   const addImages = useAgentStore((s) => s.addImages);
+  const addFiles = useAgentStore((s) => s.addFiles);
   const removeImage = useAgentStore((s) => s.removeImage);
+  const removeFile = useAgentStore((s) => s.removeFile);
   const promptHistory = useAgentStore((s) => s.promptHistory);
   const queuedPrompt = useAgentStore((s) => s.queuedPrompt);
   const setQueuedPrompt = useAgentStore((s) => s.setQueuedPrompt);
@@ -67,9 +72,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
   const isReasoningModel = !!findModel(models, selectedModelKey)?.reasoning;
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const changesRef = useRef<HTMLDivElement>(null);
   const [contextOpen, setContextOpen] = useState(false);
   // Slash-command menu (`/` in the composer). `slashIndex` is the highlighted
@@ -103,12 +109,15 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // active; `mentionIndex` is the highlighted file row.
   const [caret, setCaret] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
-  // Stick-to-bottom: true while the user is at/near the bottom (auto-scroll on),
-  // false once they scroll up to re-read mid-stream (auto-scroll paused).
-  const stickToBottomRef = useRef(true);
-  // Mirror of the ref for rendering the "jump to latest" affordance — the ref
-  // drives auto-scroll without re-rendering, this drives the button's visibility.
-  const [atBottom, setAtBottom] = useState(true);
+  const { scrollRef, atBottom, handleScroll, handleWheel, scrollToBottom, stickToBottom } =
+    useStickyTranscriptScroll({
+      messages: chat.messages,
+      status: chat.status,
+      edits: chat.edits,
+      pendingApproval: chat.pendingApproval,
+      pendingQuestions: chat.pendingQuestions,
+      endNote: chat.endNote,
+    });
 
   // Subscribe to the server-owned snapshot stream while mounted; hydrate once so
   // we catch up on whatever happened while the panel was on another tab.
@@ -121,36 +130,6 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   useEffect(() => {
     if (!statusChecked) void refreshStatus();
   }, [statusChecked, refreshStatus]);
-
-  // Pin to the bottom as the transcript grows — but only while the user is still
-  // near the bottom. If they scroll up (e.g. to re-read mid-stream) we stop
-  // yanking them down; scrolling back to the bottom re-arms it.
-  useEffect(() => {
-    if (!stickToBottomRef.current) return;
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [chat.messages, chat.status, chat.edits, chat.pendingApproval, chat.pendingQuestions, chat.endNote]);
-
-  const handleScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    // Threshold large enough to survive a streaming chunk landing between the
-    // scroll event and the re-render, small enough that scrolling up clearly pauses.
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    stickToBottomRef.current = near;
-    // setState bails out when the value is unchanged, so this only re-renders at
-    // the threshold crossing — cheap enough to run on every scroll tick.
-    setAtBottom(near);
-  };
-
-  // Re-arm auto-scroll and snap to the live edge — the "jump to latest" button.
-  const scrollToBottom = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottomRef.current = true;
-    setAtBottom(true);
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  };
 
   // Auto-grow the composer to fit its content, up to the max height (max-h-40 =
   // 160px); taller drafts then scroll. Resetting to `auto` first re-derives the
@@ -372,7 +351,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     const text = raw.trim();
     if (text.length === 0) return;
     // A fresh prompt should snap back to the bottom even if the user scrolled up.
-    stickToBottomRef.current = true;
+    stickToBottom();
     const resolved = resolveSlash(text, pluginSlash);
     if (resolved) {
       if (resolved.command.kind === 'action') {
@@ -413,27 +392,37 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     });
   };
 
-  // Paste/drop images straight into the composer (claude-code / codex image
-  // input). Non-image clipboard/drop content is left alone so text paste works.
-  const ingestImageFiles = async (files: File[]) => {
+  const ingestAttachmentFiles = async (files: readonly File[]) => {
     const images = await readImageFiles(files);
     if (images.length > 0) addImages(images);
+    const attachedFiles = await fileAttachmentsFromFiles(files);
+    if (attachedFiles.length > 0) addFiles(attachedFiles);
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData.files);
     if (files.some((f) => f.type.startsWith('image/'))) {
       e.preventDefault();
-      void ingestImageFiles(files);
+      void ingestAttachmentFiles(files);
     }
   };
 
   const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.dataTransfer.files);
-    if (files.some((f) => f.type.startsWith('image/'))) {
+    if (files.length > 0) {
       e.preventDefault();
-      void ingestImageFiles(files);
+      void ingestAttachmentFiles(files);
     }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLTextAreaElement>) => {
+    if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+  };
+
+  const handlePickedFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.currentTarget.files ?? []);
+    e.currentTarget.value = '';
+    if (files.length > 0) void ingestAttachmentFiles(files);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -540,7 +529,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       <ProviderModelBar full={full} />
 
       <div className="relative flex-1 min-h-0">
-       <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
+       <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto">
         <div
           className={cn(
             'flex flex-col gap-4',
@@ -721,6 +710,28 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                   ))}
                 </div>
               ) : null}
+              {pendingFiles.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
+                  {pendingFiles.map((file, i) => (
+                    <span
+                      key={`${file.name}:${file.size}:${file.text.length}`}
+                      title={file.name}
+                      className="group/file flex min-w-0 max-w-full items-center gap-1.5 rounded border border-default bg-surface-2 px-2 py-1 text-caption text-fg-secondary"
+                    >
+                      <FileText size={12} className="shrink-0 text-fg-tertiary" />
+                      <span className="truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(i)}
+                        aria-label={`${t('agent.chat.removeFile')} ${file.name}`}
+                        className="shrink-0 text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
 
               <textarea
                 ref={textareaRef}
@@ -731,6 +742,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 onClick={syncCaret}
                 onSelect={syncCaret}
                 onPaste={handlePaste}
+                onDragOver={handleDragOver}
                 onDrop={handleDrop}
                 rows={full ? 3 : 2}
                 placeholder={t('agent.chat.promptPlaceholder')}
@@ -773,34 +785,37 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 anchorRef={plusButtonRef}
                 onClose={() => setContextOpen(false)}
                 onInsertMention={handleInsertMention}
+                onAddPhoto={() => {
+                  imageInputRef.current?.click();
+                  setContextOpen(false);
+                }}
+                onAddFile={() => {
+                  fileInputRef.current?.click();
+                  setContextOpen(false);
+                }}
               />
             ) : null}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              aria-label={t('agent.chat.attachPhotos')}
+              className="hidden"
+              onChange={handlePickedFiles}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              aria-label={t('agent.chat.attachFiles')}
+              className="hidden"
+              onChange={handlePickedFiles}
+            />
           </div>
         </div>
       </footer>
     </div>
   );
-}
-
-/**
- * Read image files (from a paste or drop) into base64 attachment inputs. Skips
- * non-image entries and anything that fails to read, so a mixed clipboard (text
- * + image) still works.
- */
-async function readImageFiles(files: File[]): Promise<AgentImageInput[]> {
-  const images = files.filter((f) => f.type.startsWith('image/'));
-  const out: AgentImageInput[] = [];
-  for (const file of images) {
-    try {
-      const buf = await file.arrayBuffer();
-      let binary = '';
-      const bytes = new Uint8Array(buf);
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      out.push({ mediaType: file.type, data: btoa(binary) });
-    } catch {
-      // skip unreadable entries
-    }
-  }
-  return out;
 }
 

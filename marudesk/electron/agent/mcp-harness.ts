@@ -10,6 +10,11 @@ import {
 } from '../../shared/mcp';
 import { callMcpTool, listMcpTools } from './mcp';
 import type { ToolContext } from './tools';
+import {
+  parseBoundedWebSearchJsonForTests,
+  setWebSearchTransportForTests,
+  WEB_SEARCH_MAX_RESPONSE_BYTES_FOR_TESTS,
+} from './tools/web-search';
 import { updateContextCache } from './context-cache';
 import {
   buildExternalServer,
@@ -274,7 +279,70 @@ async function main(): Promise<void> {
     check('built-in workspace MCP list tool is present', listed.includes('list_workspaces'));
     check('built-in workspace MCP file lister is present', listed.includes('list_workspace_files'));
     check('built-in workspace MCP file reader is present', listed.includes('read_workspace_file'));
+    check('built-in web search tool is present', listed.includes('web_search'));
+    check(
+      'built-in web search requires per-call approval',
+      listMcpTools().find((t) => t.name === 'web_search')?.gated === true,
+    );
     check('built-in ask_user is still listed', listed.includes('ask_user'));
+
+    let capturedSearchQuery = '';
+    let capturedSearchSignalWasLive = false;
+    setWebSearchTransportForTests(async (url, signal) => {
+      capturedSearchQuery = url.searchParams.get('q') ?? '';
+      capturedSearchSignalWasLive = !signal.aborted;
+      return {
+        Heading: 'Marudesk',
+        AbstractText: 'A desktop shell with agent chat.',
+        AbstractURL: 'https://example.test/marudesk',
+        RelatedTopics: [
+          {
+            Text: 'Marudesk docs - Agent chat reference.',
+            FirstURL: 'https://example.test/marudesk/docs',
+          },
+          {
+            Text: 'Marudesk docs duplicate - Duplicate URL should be deduped.',
+            FirstURL: 'https://example.test/marudesk/docs',
+          },
+          {
+            Text: 'Marudesk changelog - Recent releases.',
+            FirstURL: 'https://example.test/marudesk/changelog',
+          },
+        ],
+      };
+    });
+    const webOut = await callMcpTool('web_search', { query: 'marudesk ai chat', maxResults: 2 }, ctx);
+    check('web_search executes through the MCP tool registry', webOut.summary.includes('marudesk ai chat'));
+    check('web_search forwards the bounded query to the provider', capturedSearchQuery === 'marudesk ai chat');
+    check('web_search passes a live abort signal to its provider', capturedSearchSignalWasLive);
+    check('web_search formats source URLs for the model', webOut.text.includes('https://example.test/marudesk'));
+    check('web_search formats related topic snippets', webOut.text.includes('Agent chat reference'));
+    const webUrlCount = webOut.text.match(/URL:/g)?.length ?? 0;
+    check('web_search respects maxResults after dedupe', webUrlCount === 2);
+
+    setWebSearchTransportForTests(async () => {
+      throw new Error('search provider unavailable: Bearer sk-123456789012345678901234');
+    });
+    const failedWebOut = await callMcpTool('web_search', { query: 'marudesk failure' }, ctx);
+    check('web_search provider failure returns a tool error', failedWebOut.isError === true);
+    check('web_search failure returns a generic provider message', failedWebOut.text === 'Search provider request failed.');
+    check('web_search failure omits raw provider error text', !failedWebOut.text.includes('search provider unavailable'));
+    check('web_search failure scrubs provider secrets', !failedWebOut.text.includes('sk-123456789012345678901234'));
+    let oversizeError = '';
+    try {
+      parseBoundedWebSearchJsonForTests([Buffer.alloc(WEB_SEARCH_MAX_RESPONSE_BYTES_FOR_TESTS + 1)]);
+    } catch (err) {
+      oversizeError = err instanceof Error ? err.message : '';
+    }
+    check('web_search bounded parser rejects oversized provider responses', oversizeError.includes('too large'));
+    let invalidJsonError = '';
+    try {
+      parseBoundedWebSearchJsonForTests([Buffer.from('{')]);
+    } catch (err) {
+      invalidJsonError = err instanceof Error ? err.message : '';
+    }
+    check('web_search bounded parser rejects invalid provider JSON with safe text', invalidJsonError === 'Search provider returned invalid JSON.');
+    setWebSearchTransportForTests(null);
 
     updateContextCache({
       editors: [

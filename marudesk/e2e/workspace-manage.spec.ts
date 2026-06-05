@@ -92,3 +92,40 @@ test('workspace deck: remove a folder root from Peek Explorer', async () => {
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+test('workspace explorer: remove a folder root from the root context menu', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-ws-root-menu-'));
+  const fe = mkProject(base, 'alpha-fe');
+  const be = mkProject(base, 'alpha-be');
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(
+      async ({ fe, be }) => {
+        await window.marudesk.invoke('workspaces:create', {
+          name: 'Project Alpha',
+          roots: [{ name: 'FE', path: fe }, { name: 'BE', path: be }],
+        });
+      },
+      { fe, be },
+    );
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    const explorer = page.getByRole('complementary', { name: 'Explorer' });
+    await expect(explorer.getByRole('button', { name: 'Use root FE' })).toBeVisible();
+    await expect(explorer.getByRole('button', { name: 'Use root BE' })).toBeVisible();
+
+    page.on('dialog', (dialog) => void dialog.accept());
+    await explorer.getByRole('button', { name: 'Use root BE' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Remove folder from workspace' }).click();
+
+    await expect(explorer.getByRole('button', { name: 'Use root BE' })).toHaveCount(0);
+    await expect(explorer.getByRole('button', { name: 'Use root FE' })).toBeVisible();
+
+    const snapshot = await page.evaluate(() => window.marudesk.invoke('workspaces:list'));
+    const alpha = snapshot.workspaces.find((workspace) => workspace.name === 'Project Alpha');
+    expect(alpha?.roots.map((root) => root.name)).toEqual(['FE']);
+  } finally {
+    await app.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});

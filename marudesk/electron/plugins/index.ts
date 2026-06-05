@@ -15,17 +15,24 @@ import { PluginManager } from './manager';
 
 let manager: PluginManager | null = null;
 let initialized = false;
+let userPluginsDir: string | null = null;
 
 /** Scan the user/project plugin folders and activate any approved plugins. */
 export async function initPlugins(getWorkspaceRoot: () => string | null): Promise<void> {
   if (initialized) return;
   initialized = true;
+  userPluginsDir = path.join(app.getPath('userData'), 'plugins');
   manager = new PluginManager({
-    userDir: path.join(app.getPath('userData'), 'plugins'),
+    userDir: userPluginsDir,
     getWorkspaceRoot,
   });
   await ensurePluginsConfigFile();
   await manager.reload();
+}
+
+/** User-level plugin install folder: `<userData>/plugins`. */
+export function getUserPluginsDir(): string {
+  return userPluginsDir ?? path.join(app.getPath('userData'), 'plugins');
 }
 
 /** Re-scan + reconcile (Settings "Reload", or after an enable/grant change). */

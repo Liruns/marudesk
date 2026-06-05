@@ -4,6 +4,7 @@ import {
   Blocks,
   CheckCircle2,
   CircleSlash,
+  FolderOpen,
   Loader2,
   PanelRight,
   RotateCcw,
@@ -55,6 +56,10 @@ export function PluginsSettings() {
     }
   };
 
+  const openPluginsFolder = () => {
+    void window.marudesk.invoke('plugins:open-folder').catch(() => {});
+  };
+
   const toggle = async (id: string, enabled: boolean) => {
     setBusy(true);
     try {
@@ -79,6 +84,14 @@ export function PluginsSettings() {
           disabled={busy}
         >
           {t('settings.plugins.reload')}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          leadingIcon={<FolderOpen size={14} />}
+          onClick={openPluginsFolder}
+        >
+          {t('settings.plugins.openFolder')}
         </Button>
       </div>
 

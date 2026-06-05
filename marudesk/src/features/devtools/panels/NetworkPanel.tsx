@@ -160,6 +160,18 @@ function prettyBody(body: string, mime?: string): string {
   }
 }
 
+function headerValue(
+  headers: Record<string, string> | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) return undefined;
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === wanted) return value;
+  }
+  return undefined;
+}
+
 /**
  * Render `text` with case-insensitive occurrences of `query` wrapped in a tinted
  * <mark>. Returns the plain string when there's no query so the common path
@@ -346,6 +358,10 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
 
   // The displayed body: JSON pretty-printed when applicable. `null` until loaded.
   const shownBody = body === null ? null : prettyBody(body, entry.mimeType);
+  const requestPayload =
+    entry.requestPostData === undefined
+      ? null
+      : prettyBody(entry.requestPostData, headerValue(entry.requestHeaders, 'content-type'));
   const bodyMatches =
     shownBody && bodyQuery
       ? shownBody.toLowerCase().split(bodyQuery.toLowerCase()).length - 1
@@ -440,6 +456,18 @@ function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () => void }
         <Section title={t('devtools.network.requestHeaders')}>
           <HeaderList headers={entry.requestHeaders} />
         </Section>
+        {requestPayload !== null ? (
+          <Section title={t('devtools.network.requestPayload')}>
+            <pre className="font-mono text-caption text-fg-secondary px-2 whitespace-pre-wrap break-words max-h-48 overflow-auto">
+              {requestPayload}
+            </pre>
+            {entry.requestPostDataTruncated ? (
+              <div className="text-caption text-fg-tertiary px-2">
+                {t('devtools.network.requestPayloadClipped')}
+              </div>
+            ) : null}
+          </Section>
+        ) : null}
         <Section title={t('devtools.network.timing')}>
           <TimingBars entry={entry} />
         </Section>

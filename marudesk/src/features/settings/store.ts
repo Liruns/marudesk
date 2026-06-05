@@ -8,6 +8,7 @@ import {
 } from '../../../shared/settings';
 import { fontStack } from '../../../shared/fonts';
 import { useTabsStore } from '../tabs/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 
 export type { SettingsPatch };
 
@@ -169,9 +170,16 @@ export async function openSettingsTab(
 ): Promise<void> {
   if (category) useSettingsStore.getState().setCategory(category);
   const tabsState = useTabsStore.getState();
-  const existing = tabsState.tabs.find((t) => t.kind === 'settings');
+  const activeWorkspaceId =
+    useWorkspaceDeckStore.getState().activeWorkspaceId ??
+    tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.workspaceId;
+  const existing = tabsState.tabs.find(
+    (t) =>
+      t.kind === 'settings' &&
+      (activeWorkspaceId === undefined || t.workspaceId === activeWorkspaceId),
+  );
   if (existing) await tabsState.activateTab(existing.id);
-  else await tabsState.newTab('settings');
+  else await tabsState.newTab('settings', undefined, activeWorkspaceId);
 }
 
 /**

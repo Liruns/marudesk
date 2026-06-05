@@ -94,6 +94,15 @@ export type TabsSnapshot = {
   activeTabId: string | null;
 };
 
+export type BrowserNativeMenuItem =
+  | { readonly type: 'separator' }
+  | {
+      readonly id: string;
+      readonly label: string;
+      readonly enabled?: boolean;
+      readonly shortcut?: string;
+    };
+
 /** A zeroed navigation state — feature tabs and freshly-created tabs use this. */
 export const ZERO_NAV: NavState = {
   url: '',

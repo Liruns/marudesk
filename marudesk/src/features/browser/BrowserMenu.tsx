@@ -1,49 +1,64 @@
-import { useState } from 'react';
-import {
-  Camera,
-  Copy,
-  CopyPlus,
-  Download,
-  MoreVertical,
-  RotateCw,
-  Search,
-  Settings,
-  Volume2,
-  VolumeX,
-  Wrench,
-  X,
-  ZoomIn,
-  ZoomOut,
-} from 'lucide-react';
-import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
-import { cn } from '../../lib/cn';
+import { History, MoreVertical } from 'lucide-react';
+import type { BrowserNativeMenuItem } from '../../../shared/browser';
+import type { HistoryEntry } from '../../../shared/history';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
-import type { HistoryEntry } from '../../../shared/history';
-import { useWebPageStore } from './store';
 import { useDownloadsStore } from './downloads';
-import { useTabsStore } from '../tabs/store';
+import { useBrowserStrings } from './browserStrings';
+import { useWebPageStore } from './store';
 import { useDevtoolsStore } from '../devtools/store';
 import { openSettingsTab } from '../settings/store';
-import { useBrowserStrings } from './browserStrings';
+import { useTabsStore } from '../tabs/store';
 
-/**
- * Browser overflow (⋮) menu — Chrome/Arc-style page-action menu for the embedded
- * browser tab. Page- and dev-scoped actions only (the IDE shell owns window /
- * profile / theme concerns); each item maps to an already-built renderer
- * capability. Lives in the React toolbar (not over the stage) because the native
- * WebContentsView composites above React, so a stage popover would be occluded —
- * the same constraint that keeps the find bar in the chrome.
- *
- * Items whose precondition isn't met (no current URL → Copy URL / Duplicate tab)
- * are disabled rather than shown as dead actions. Stop only appears while a load
- * is in flight. View-page-source / Print / History are intentionally omitted —
- * they'd need new IPC/security work this pass avoids.
- */
+const HISTORY_ACTION_PREFIX = 'history:';
+
+function separator(): BrowserNativeMenuItem {
+  return { type: 'separator' };
+}
+
+function historyLabel(entry: HistoryEntry): string {
+  return entry.title || entry.url.replace(/^https?:\/\//i, '');
+}
+
+async function recentHistory(): Promise<HistoryEntry[]> {
+  try {
+    return await window.marudesk.invoke('history:recent');
+  } catch {
+    return [];
+  }
+}
+
+async function popupMenu(
+  button: HTMLButtonElement,
+  items: readonly BrowserNativeMenuItem[],
+): Promise<string | null> {
+  const rect = button.getBoundingClientRect();
+  return window.marudesk.invoke('browser:popup-menu', {
+    x: rect.right,
+    y: rect.bottom + 6,
+    items: [...items],
+  });
+}
+
+function historyEntryFromAction(
+  action: string,
+  recent: readonly HistoryEntry[],
+): HistoryEntry | undefined {
+  if (!action.startsWith(HISTORY_ACTION_PREFIX)) return undefined;
+  const index = Number(action.slice(HISTORY_ACTION_PREFIX.length));
+  return Number.isInteger(index) ? recent[index] : undefined;
+}
+
+function nativeMenuButtonClass(): string {
+  return [
+    'size-8 rounded-pill flex items-center justify-center shrink-0',
+    'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary',
+    'transition-colors duration-fast',
+  ].join(' ');
+}
+
 export function BrowserMenu() {
   const { t } = useBrowserStrings();
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [recent, setRecent] = useState<HistoryEntry[]>([]);
   const currentUrl = useWebPageStore((s) => s.currentUrl);
   const nav = useTabsStore((s) => s.nav);
   const downloadCount = useDownloadsStore((s) => s.downloads.length);
@@ -52,7 +67,7 @@ export function BrowserMenu() {
   const url = currentUrl || nav.url;
   const zoomPct = Math.round(nav.zoomFactor * 100);
 
-  const copyUrl = async () => {
+  const copyUrl = async (): Promise<void> => {
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
@@ -62,7 +77,7 @@ export function BrowserMenu() {
     }
   };
 
-  const screenshot = async () => {
+  const screenshot = async (): Promise<void> => {
     try {
       const ok = await window.marudesk.invoke('browser:capture-page');
       toast(
@@ -75,156 +90,161 @@ export function BrowserMenu() {
     }
   };
 
-  const items: MenuItem[] = [
+  const buildItems = (recent: readonly HistoryEntry[]): BrowserNativeMenuItem[] => [
+    { id: 'find', label: t('browser.menu.find'), shortcut: 'Ctrl+F' },
+    { id: 'zoom-in', label: t('browser.menu.zoomIn'), shortcut: 'Ctrl++' },
+    { id: 'zoom-out', label: t('browser.menu.zoomOut'), shortcut: 'Ctrl+-' },
     {
-      label: t('browser.menu.find'),
-      icon: <Search size={15} />,
-      shortcut: 'Ctrl+F',
-      onSelect: () => useWebPageStore.getState().openFind(),
-    },
-    {
-      label: t('browser.menu.zoomIn'),
-      icon: <ZoomIn size={15} />,
-      shortcut: 'Ctrl++',
-      onSelect: () => void useTabsStore.getState().zoom('in'),
-    },
-    {
-      label: t('browser.menu.zoomOut'),
-      icon: <ZoomOut size={15} />,
-      shortcut: 'Ctrl+-',
-      onSelect: () => void useTabsStore.getState().zoom('out'),
-    },
-    {
+      id: 'zoom-reset',
       label: `${t('browser.menu.resetZoom')} (${zoomPct}%)`,
       shortcut: 'Ctrl+0',
-      disabled: zoomPct === 100,
-      onSelect: () => void useTabsStore.getState().zoom('reset'),
+      enabled: zoomPct !== 100,
     },
-    { type: 'separator' },
+    separator(),
+    { id: 'reload', label: t('browser.menu.reload'), shortcut: 'Ctrl+R', enabled: hasUrl },
     {
-      label: t('browser.menu.reload'),
-      icon: <RotateCw size={15} />,
-      shortcut: 'Ctrl+R',
-      disabled: !hasUrl,
-      onSelect: () => void useTabsStore.getState().reload(),
-    },
-    {
+      id: 'hard-reload',
       label: t('browser.menu.hardReload'),
       shortcut: 'Ctrl+Shift+R',
-      disabled: !hasUrl,
-      onSelect: () => void useTabsStore.getState().reload(true),
+      enabled: hasUrl,
     },
     ...(nav.isLoading
-      ? [
-          {
-            label: t('browser.menu.stop'),
-            icon: <X size={15} />,
-            shortcut: 'Esc',
-            onSelect: () => void useTabsStore.getState().reloadOrStop(),
-          } satisfies MenuItem,
-        ]
+      ? [{ id: 'stop', label: t('browser.menu.stop'), shortcut: 'Esc' }]
       : []),
-    { type: 'separator' },
+    separator(),
     {
+      id: 'downloads',
       label: t('browser.menu.downloads'),
-      icon: <Download size={15} />,
       shortcut: 'Ctrl+J',
-      disabled: downloadCount === 0,
-      onSelect: () => useDownloadsStore.getState().openShelf(),
+      enabled: downloadCount > 0,
     },
-    {
-      label: t('browser.menu.copyUrl'),
-      icon: <Copy size={15} />,
-      disabled: !url,
-      onSelect: () => void copyUrl(),
-    },
-    {
-      label: t('browser.menu.copyScreenshot'),
-      icon: <Camera size={15} />,
-      disabled: !hasUrl,
-      onSelect: () => void screenshot(),
-    },
+    { id: 'copy-url', label: t('browser.menu.copyUrl'), enabled: !!url },
+    { id: 'copy-screenshot', label: t('browser.menu.copyScreenshot'), enabled: hasUrl },
     ...(nav.audible || nav.audioMuted
       ? [
           {
+            id: 'toggle-audio',
             label: t(nav.audioMuted ? 'browser.audio.unmute' : 'browser.audio.mute'),
-            icon: nav.audioMuted ? <Volume2 size={15} /> : <VolumeX size={15} />,
-            onSelect: () =>
-              void window.marudesk.invoke('browser:set-audio-muted', !nav.audioMuted),
-          } satisfies MenuItem,
+          },
         ]
       : []),
-    {
-      label: t('browser.menu.duplicateTab'),
-      icon: <CopyPlus size={15} />,
-      disabled: !url,
-      onSelect: () => void useTabsStore.getState().newTab('web', url),
-    },
-    {
-      label: t('browser.menu.openDevtools'),
-      icon: <Wrench size={15} />,
-      shortcut: 'F12',
-      onSelect: () => useDevtoolsStore.getState().toggle(),
-    },
+    { id: 'duplicate-tab', label: t('browser.menu.duplicateTab'), enabled: !!url },
+    { id: 'open-devtools', label: t('browser.menu.openDevtools'), shortcut: 'F12' },
     ...(recent.length > 0
       ? [
-          { type: 'separator' } satisfies MenuItem,
-          ...recent.slice(0, 6).map(
-            (e): MenuItem => ({
-              label: e.title || e.url.replace(/^https?:\/\//i, ''),
-              onSelect: () => void window.marudesk.invoke('browser:navigate', e.url),
-            }),
-          ),
+          separator(),
+          ...recent.slice(0, 6).map((entry, index) => ({
+            id: `${HISTORY_ACTION_PREFIX}${index}`,
+            label: historyLabel(entry),
+          })),
         ]
       : []),
-    { type: 'separator' },
-    {
-      label: t('browser.menu.settings'),
-      icon: <Settings size={15} />,
-      onSelect: () => void openSettingsTab('browser'),
-    },
+    separator(),
+    { id: 'settings', label: t('browser.menu.settings') },
   ];
 
+  const handleAction = (action: string, recent: readonly HistoryEntry[]): void => {
+    const historyEntry = historyEntryFromAction(action, recent);
+    if (historyEntry) {
+      void window.marudesk.invoke('browser:navigate', historyEntry.url);
+      return;
+    }
+    switch (action) {
+      case 'find':
+        useWebPageStore.getState().openFind();
+        return;
+      case 'zoom-in':
+        void useTabsStore.getState().zoom('in');
+        return;
+      case 'zoom-out':
+        void useTabsStore.getState().zoom('out');
+        return;
+      case 'zoom-reset':
+        void useTabsStore.getState().zoom('reset');
+        return;
+      case 'reload':
+        void useTabsStore.getState().reload();
+        return;
+      case 'hard-reload':
+        void useTabsStore.getState().reload(true);
+        return;
+      case 'stop':
+        void useTabsStore.getState().reloadOrStop();
+        return;
+      case 'downloads':
+        useDownloadsStore.getState().openShelf();
+        return;
+      case 'copy-url':
+        void copyUrl();
+        return;
+      case 'copy-screenshot':
+        void screenshot();
+        return;
+      case 'toggle-audio':
+        void window.marudesk.invoke('browser:set-audio-muted', !nav.audioMuted);
+        return;
+      case 'duplicate-tab':
+        void useTabsStore.getState().newTab('web', url);
+        return;
+      case 'open-devtools':
+        useDevtoolsStore.getState().toggle();
+        return;
+      case 'settings':
+        void openSettingsTab('browser');
+        return;
+      default:
+        return;
+    }
+  };
+
+  const openMenu = async (button: HTMLButtonElement): Promise<void> => {
+    const recent = await recentHistory();
+    const selected = await popupMenu(button, buildItems(recent));
+    if (selected) handleAction(selected, recent);
+  };
+
   return (
-    <>
-      <button
-        type="button"
-        aria-label={t('browser.menu.button')}
-        title={t('browser.menu.button')}
-        aria-haspopup="menu"
-        aria-expanded={!!menu}
-        onClick={(e) => {
-          // Set unconditionally (matching the ActivityBar menu): when the menu
-          // is already open, the ContextMenu's outside-pointerdown dismissal has
-          // already fired by the time this click runs, so a re-click closes it.
-          const r = e.currentTarget.getBoundingClientRect();
-          setMenu({ x: r.right, y: r.bottom + 6 });
-          // Refresh the "recently visited" tail each time the menu opens.
-          void window.marudesk
-            .invoke('history:recent')
-            .then(setRecent)
-            .catch(() => undefined);
-        }}
-        className={cn(
-          'size-8 rounded-pill flex items-center justify-center shrink-0 transition-colors duration-fast',
-          menu
-            ? 'text-accent bg-accent-subtle/40 hover:bg-accent-subtle/60'
-            : 'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary',
-        )}
-      >
-        <MoreVertical size={16} />
-      </button>
-      {menu ? (
-        // Anchor by the button's right edge: the menu clamps left into the
-        // viewport (ContextMenu does this), so it hangs left from the toolbar's
-        // right side like Chrome's ⋮.
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          items={items}
-          onClose={() => setMenu(null)}
-        />
-      ) : null}
-    </>
+    <button
+      type="button"
+      aria-label={t('browser.menu.button')}
+      title={t('browser.menu.button')}
+      aria-haspopup="menu"
+      onClick={(event) => void openMenu(event.currentTarget)}
+      className={nativeMenuButtonClass()}
+    >
+      <MoreVertical size={16} />
+    </button>
+  );
+}
+
+export function BrowserHistoryMenu() {
+  const { t } = useBrowserStrings();
+
+  const openMenu = async (button: HTMLButtonElement): Promise<void> => {
+    const recent = await recentHistory();
+    const items: BrowserNativeMenuItem[] =
+      recent.length > 0
+        ? recent.slice(0, 12).map((entry, index) => ({
+            id: `${HISTORY_ACTION_PREFIX}${index}`,
+            label: historyLabel(entry),
+          }))
+        : [{ id: 'empty', label: t('context.drawer.history'), enabled: false }];
+    const selected = await popupMenu(button, items);
+    if (!selected) return;
+    const entry = historyEntryFromAction(selected, recent);
+    if (entry) void window.marudesk.invoke('browser:navigate', entry.url);
+  };
+
+  return (
+    <button
+      type="button"
+      aria-label={t('context.drawer.history')}
+      title={t('context.drawer.history')}
+      aria-haspopup="menu"
+      onClick={(event) => void openMenu(event.currentTarget)}
+      className={nativeMenuButtonClass()}
+    >
+      <History size={16} />
+    </button>
   );
 }

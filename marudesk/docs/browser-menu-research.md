@@ -48,11 +48,20 @@ Set-as-default, Cast, Profiles/users, Sync/sign-in, Bookmarks bar/manager
 Extensions/Web Store, Incognito windows, New-window/tab-management in menu,
 reading list/tab groups/name-window/send-to-devices/QR/translate, in-browser themes.
 
-## Scope decision for THIS pass (pragmatic, non-bloat)
-1. Add a browser-toolbar ⋮ menu with the page/dev actions that map to ALREADY-built
-   features (find, zoom/reset, reload/hard-reload, history, downloads, devtools,
-   view-source, copy URL, duplicate tab) + footer "Browser settings…".
-2. Add a minimal **Browser** settings category: new-tab behavior (home/blank/URL),
-   default search engine, default zoom, downloads (auto-open shelf), UA override,
-   disable-cache-with-devtools. Wire what's cheap; stub nothing user-visible.
-3. Do NOT build profiles/sync/extensions/bookmarks.
+## Implementation checkpoint (2026-06-05)
+
+This pass shipped the user-requested browser fixes without taking the whole
+settings surface at once:
+
+1. The browser toolbar menu is native, so opening it no longer darkens/occludes
+   the embedded browser view.
+2. Visit history exists and is reachable from the menu; selecting a history item
+   navigates the current browser tab.
+3. The embedded browser view resizes with its host tab/stage.
+4. The menu keeps the already-wired page/dev actions that are safe in the current
+   browser shell.
+
+Remaining follow-up from the fuller design below: `view-source`, a dedicated
+Browser settings category, new-tab behavior, default zoom, downloads auto-open
+shelf, UA override, and disable-cache-with-devtools. Do NOT build
+profiles/sync/extensions/bookmarks.

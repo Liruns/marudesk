@@ -83,6 +83,7 @@ export const GATED_TOOLS = new Set([
 
 /** `ask_user` is intercepted by the loop (it parks the turn), never executed here. */
 export const ASK_USER = 'ask_user';
+export const SPAWN_SUBAGENT = 'spawn_subagent';
 
 /* ── MCP descriptor layer (docs/context-mcp-design §1.1) ─────────────────── */
 
@@ -102,7 +103,9 @@ export type McpGroup =
   | 'sessions'
   | 'memory'
   | 'skills'
+  | 'agent'
   | 'pc'
+  | 'web'
   // Tools from an external (stdio) MCP connector — third-party, so `gated` by
   // default (see electron/agent/mcp-external.ts).
   | 'mcp'

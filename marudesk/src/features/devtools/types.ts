@@ -223,6 +223,8 @@ export type NetworkEntry = {
   failed?: boolean;
   errorText?: string;
   requestHeaders?: Record<string, string>;
+  requestPostData?: string;
+  requestPostDataTruncated?: boolean;
   responseHeaders?: Record<string, string>;
   remoteIPAddress?: string;
   /** Per-phase timing from the response (for the detail waterfall). */

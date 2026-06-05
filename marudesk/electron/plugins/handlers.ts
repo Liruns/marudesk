@@ -1,11 +1,14 @@
+import { shell } from 'electron';
 import { defineHandler } from '../ipc/define-handler';
 import { bool, nonEmptyStr, obj } from '../ipc/validate';
 import {
+  getUserPluginsDir,
   listPluginCommands,
   listPluginStatuses,
   reloadPlugins,
   setPluginEnabled,
 } from './index';
+import { openUserPluginsFolder } from './open-folder';
 
 /**
  * IPC for Settings → Plugins and the composer's plugin slash commands
@@ -31,4 +34,10 @@ export function registerPluginHandlers(): void {
 
   // Snapshot of slash commands contributed by active plugins, for the composer.
   defineHandler('plugins:commands', () => listPluginCommands());
+
+  // Open the user plugin install folder so "drop a folder here, then Reload" is
+  // an actual UI action instead of an instruction with no affordance.
+  defineHandler('plugins:open-folder', async () => {
+    return openUserPluginsFolder(getUserPluginsDir(), (dir) => shell.openPath(dir));
+  });
 }

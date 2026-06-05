@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
 import { buildPluginServer, PluginHost } from './host';
 import { guardedFetch } from './permissions';
+import { openUserPluginsFolder } from './open-folder';
 import { spawnViaChildProcess } from './transport';
 
 /**
@@ -177,6 +178,24 @@ async function main(): Promise<void> {
       !isSafePanelPath('a\0b') &&
       !isSafePanelPath(''),
   );
+
+  // ── Settings → Plugins: "Open plugins folder" handler core ───────────────
+  const installDir = path.join(mkdtempSync(path.join(os.tmpdir(), 'marudesk-plugins-open-')), 'plugins');
+  const opened: string[] = [];
+  const openedResult = await openUserPluginsFolder(installDir, async (dir) => {
+    opened.push(dir);
+    return '';
+  });
+  check('open plugins folder creates the install directory', existsSync(installDir));
+  check('open plugins folder calls shell.openPath with that directory', opened[0] === installDir);
+  check('open plugins folder returns the opened path', openedResult.path === installDir);
+  let openFolderError = '';
+  try {
+    await openUserPluginsFolder(installDir, async () => 'open failed');
+  } catch (err) {
+    openFolderError = (err as Error).message;
+  }
+  check('open plugins folder surfaces shell.openPath failures', openFolderError === 'open failed');
 
   console.log(`\n# plugin harness: ${passed} checks passed`);
 }

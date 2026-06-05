@@ -6,6 +6,7 @@ import { useWebPageStore } from '../browser/store';
 import { getMessage, parseLocale, type Locale, type TranslationKey } from '../../i18n/messages';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
+import { scrubText } from '../../../shared/scrub';
 import { cdpSend, cdpTry } from './cdp';
 import {
   COMMAND_LINE_API,
@@ -40,6 +41,8 @@ import {
 } from './types';
 import type { PatchOp, PatchPreview } from '../../../shared/patch';
 
+const MAX_NETWORK_PAYLOAD = 64_000;
+
 function currentLocale(): Locale {
   try {
     return parseLocale(localStorage.getItem('marudesk.locale')) ?? 'en';
@@ -50,6 +53,21 @@ function currentLocale(): Locale {
 
 function msg(key: TranslationKey): string {
   return getMessage(currentLocale(), key);
+}
+
+function boundedNetworkPayload(value: string | undefined): {
+  text: string;
+  truncated: boolean;
+} | null {
+  if (value === undefined) return null;
+  const scrubbed = scrubText(value);
+  if (scrubbed.length <= MAX_NETWORK_PAYLOAD) {
+    return { text: scrubbed, truncated: false };
+  }
+  return {
+    text: scrubbed.slice(0, MAX_NETWORK_PAYLOAD),
+    truncated: true,
+  };
 }
 
 /**
@@ -183,8 +201,8 @@ export type ToolLocation = 'main' | 'drawer';
 /**
  * One arrangeable DevTools tool. `order` sorts tabs within each location. The
  * arrangement is a user preference persisted to localStorage (like the dock
- * side/size) — Console defaults to the drawer so you can read it while another
- * panel (Elements/Network/…) is shown in the main area.
+ * side/size) — Console now defaults to the main bar so it is discoverable
+ * without the bottom drawer shortcut.
  */
 export type DevtoolsTool = {
   id: DevtoolsPanel;
@@ -192,13 +210,13 @@ export type DevtoolsTool = {
   order: number;
 };
 
-/** The default arrangement: Console in the drawer, everything else in the main bar. */
+/** The default arrangement: every primary tool is visible in the main bar. */
 const DEFAULT_TOOLS: DevtoolsTool[] = [
   { id: 'elements', location: 'main', order: 0 },
-  { id: 'network', location: 'main', order: 1 },
-  { id: 'application', location: 'main', order: 2 },
-  { id: 'rendering', location: 'main', order: 3 },
-  { id: 'console', location: 'drawer', order: 0 },
+  { id: 'console', location: 'main', order: 1 },
+  { id: 'network', location: 'main', order: 2 },
+  { id: 'application', location: 'main', order: 3 },
+  { id: 'rendering', location: 'main', order: 4 },
 ];
 
 const PANEL_IDS: ReadonlySet<DevtoolsPanel> = new Set<DevtoolsPanel>([
@@ -215,7 +233,7 @@ const DRAWER_DEFAULT_HEIGHT = 220;
 /* Persisted dock/tool preferences (localStorage). Kept separate from the CDP
  * session state, which is always reset per-page (freshSlices). Best-effort:
  * a malformed/absent blob falls back to defaults, mirroring workspace recents. */
-const PREFS_KEY = 'marudesk.devtools.prefs.v1';
+const PREFS_KEY = 'marudesk.devtools.prefs.v2';
 
 type DevtoolsPrefs = {
   tools: DevtoolsTool[];
@@ -327,7 +345,7 @@ type DevtoolsState = {
   // drawer, `panel` follows to the next remaining main tool (see `_reflowActive`).
   panel: DevtoolsPanel;
   // User-arrangeable tool tabs: each tool lives in the main bar or the bottom
-  // drawer (§drawer). Persisted to localStorage; Console defaults to the drawer.
+  // drawer (§drawer). Persisted to localStorage; Console defaults to the main bar.
   tools: DevtoolsTool[];
   // Bottom drawer (Chrome-style): a secondary panel surface pinned below the
   // main panel, visible while ANY main panel is shown. Open state + height are
@@ -2096,7 +2114,10 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
                 url: string;
                 method: string;
                 headers: Record<string, string>;
+                postData?: string;
+                hasPostData?: boolean;
               };
+              const requestPostData = boundedNetworkPayload(req.postData);
               const entry: NetworkEntry = {
                 requestId,
                 url: req.url,
@@ -2104,6 +2125,8 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
                 resourceType: pAny.type as string | undefined,
                 startTime: pAny.timestamp as number,
                 requestHeaders: req.headers,
+                requestPostData: requestPostData?.text,
+                requestPostDataTruncated: requestPostData?.truncated,
                 initiator: pAny.initiator as NetworkEntry['initiator'],
               };
               // First request of the document is the navigation baseline the
@@ -2115,6 +2138,29 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
                 network.push(entry);
               } else {
                 network[idx] = { ...network[idx], ...entry };
+              }
+              const tabId = get().tabId;
+              if (tabId && req.hasPostData && !req.postData) {
+                effects.push(() => {
+                  void cdpTry<{ postData: string }>(tabId, 'Network.getRequestPostData', { requestId }).then((res) => {
+                    const loaded = boundedNetworkPayload(res?.postData);
+                    if (!loaded) return;
+                    set((current) => {
+                      if (current.tabId !== tabId) return {};
+                      const updateIndex = current.network.findIndex((item) => item.requestId === requestId);
+                      if (updateIndex < 0) return {};
+                      const next = [...current.network];
+                      const currentEntry = next[updateIndex];
+                      if (!currentEntry) return {};
+                      next[updateIndex] = {
+                        ...currentEntry,
+                        requestPostData: loaded.text,
+                        requestPostDataTruncated: loaded.truncated,
+                      };
+                      return { network: next };
+                    });
+                  });
+                });
               }
               break;
             }
