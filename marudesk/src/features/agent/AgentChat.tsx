@@ -1956,7 +1956,7 @@ function ChangesSection({ edits }: { edits: AgentEdit[] }) {
             <button
               type="button"
               onClick={() => applied.forEach((e) => void acceptEdit(e.id))}
-              className="flex items-center gap-1 text-fg-tertiary hover:text-accent transition-colors"
+              className="flex items-center gap-1 text-fg-tertiary hover:text-accent transition-colors duration-fast"
               title={t('agent.chat.keepAllTitle')}
             >
               <Check size={12} /> {t('agent.chat.keepAll')}
@@ -1964,7 +1964,7 @@ function ChangesSection({ edits }: { edits: AgentEdit[] }) {
             <button
               type="button"
               onClick={() => applied.forEach((e) => void revertEdit(e.id))}
-              className="flex items-center gap-1 text-fg-tertiary hover:text-error transition-colors"
+              className="flex items-center gap-1 text-fg-tertiary hover:text-error transition-colors duration-fast"
               title={t('agent.chat.revertAllTitle')}
             >
               <RotateCcw size={12} /> {t('agent.chat.revertAll')}
@@ -1976,7 +1976,7 @@ function ChangesSection({ edits }: { edits: AgentEdit[] }) {
           onClick={toggleAll}
           aria-label={allOpen ? t('agent.chat.collapseDiffs') : t('agent.chat.expandDiffs')}
           title={allOpen ? t('agent.chat.collapseDiffs') : t('agent.chat.expandDiffs')}
-          className="text-fg-tertiary hover:text-fg-secondary transition-colors"
+          className="text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
         >
           {allOpen ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
         </button>
@@ -2024,7 +2024,7 @@ function EditCard({
             <button
               type="button"
               onClick={() => void acceptEdit(edit.id)}
-              className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-accent transition-colors"
+              className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-accent transition-colors duration-fast"
               title={t('agent.chat.keepTitle')}
             >
               <Check size={12} /> {t('agent.chat.keep')}
@@ -2032,7 +2032,7 @@ function EditCard({
             <button
               type="button"
               onClick={() => void revertEdit(edit.id)}
-              className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-error transition-colors"
+              className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-error transition-colors duration-fast"
               title={t('agent.chat.revertTitle')}
             >
               <RotateCcw size={12} /> {t('agent.chat.revert')}
