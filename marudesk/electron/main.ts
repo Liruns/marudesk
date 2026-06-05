@@ -24,6 +24,9 @@ import {
   registerMcpHandlers,
   shutdownExternalMcp,
 } from './agent/mcp-handlers';
+import { initPlugins, shutdownPlugins } from './plugins';
+import { registerPluginHandlers } from './plugins/handlers';
+import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol';
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
@@ -76,6 +79,10 @@ function applyHostContentSecurityPolicy(): void {
       (isDev ? ' ws://localhost:5173 http://localhost:5173' : ''),
     "object-src 'none'",
     "frame-ancestors 'none'",
+    // Plugin UI panels load in a sandboxed <iframe> from the privileged plugin://
+    // scheme (docs/plugin-runtime-design §8.5); allow embedding it (the iframe's
+    // OWN document gets a strict, no-network CSP from the protocol handler).
+    'frame-src plugin:',
   ];
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -200,8 +207,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return win;
 }
 
+// Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
+// sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
+registerPluginScheme();
+
 void app.whenReady().then(() => {
   applyHostContentSecurityPolicy();
+  // Serve plugin panel files over plugin:// (path-scoped + strict CSP, see protocol.ts).
+  registerPluginProtocol();
   // Wire the current-workspace accessor once; defineHandler's requireWorkspace()
   // reads it for every workspace-scoped channel's "no workspace open" guard.
   setWorkspaceProvider(getCurrentWorkspace);
@@ -219,6 +232,7 @@ void app.whenReady().then(() => {
   registerStorageHandlers();
   registerAppInfoHandlers();
   registerMcpHandlers();
+  registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the
@@ -272,6 +286,11 @@ void app.whenReady().then(() => {
   // per-server spawn/init failure is handled inside the manager and never crashes
   // the app — see docs/remote-mobile-bridge-design §M3.
   void initExternalMcp();
+  // Scan the user/project plugin folders and activate any the user has approved
+  // (docs/plugin-runtime-design.md). Off by default — nothing is spawned until a
+  // plugin is enabled + its permissions granted in Settings, and a bad manifest /
+  // failed load is recorded and skipped, never crashing the app.
+  void initPlugins(() => getCurrentWorkspace()?.root ?? null);
   void createMainWindow();
 
   app.on('activate', () => {
@@ -298,6 +317,8 @@ app.on('before-quit', () => {
   // Close every external MCP stdio connection so no spawned child process lingers
   // past app exit.
   void shutdownExternalMcp();
+  // Tear down every plugin worker so no utilityProcess lingers past app exit.
+  shutdownPlugins();
   // Close the SQLite handle (flushes the WAL) if it was opened.
   closeDb();
 });

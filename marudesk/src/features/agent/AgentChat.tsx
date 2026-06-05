@@ -76,6 +76,7 @@ import type {
 } from '../../../shared/agent';
 import {
   filterSlash,
+  pluginSlashCommand,
   resolveSlash,
   slashQuery,
   SLASH_COMMANDS,
@@ -180,6 +181,24 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashInfo, setSlashInfo] = useState<'help' | 'context' | null>(null);
+  // Slash commands contributed by active plugins, merged into the `/` menu. Pulled
+  // once on mount as a transport-safe snapshot, then rebuilt into prompt commands
+  // whose `expand` substitutes `$ARGUMENTS` (plugin runtime design §5).
+  const [pluginSlash, setPluginSlash] = useState<SlashCommand[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void window.marudesk
+      .invoke('plugins:commands')
+      .then((cmds) => {
+        if (alive) setPluginSlash(cmds.map((c) => pluginSlashCommand(c.pluginId, c)));
+      })
+      .catch(() => {
+        // No plugins / handler unavailable — the built-in commands still work.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   // Prompt-history recall: -1 means "not navigating"; otherwise the index into
   // promptHistory currently shown in the composer (ArrowUp/ArrowDown step it).
   const [histIndex, setHistIndex] = useState(-1);
@@ -261,8 +280,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // the command runs on Enter via the resolver in handleSend.
   const slashQ = slashQuery(draft);
   const slashItems = useMemo(
-    () => (slashQ !== null && !slashDismissed ? filterSlash(slashQ) : []),
-    [slashQ, slashDismissed],
+    () => (slashQ !== null && !slashDismissed ? filterSlash(slashQ, pluginSlash) : []),
+    [slashQ, slashDismissed, pluginSlash],
   );
   const slashOpen = slashItems.length > 0;
 
@@ -441,7 +460,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     if (text.length === 0) return;
     // A fresh prompt should snap back to the bottom even if the user scrolled up.
     stickToBottomRef.current = true;
-    const resolved = resolveSlash(text);
+    const resolved = resolveSlash(text, pluginSlash);
     if (resolved) {
       if (resolved.command.kind === 'action') {
         runSlashAction(resolved.command.action, resolved.arg);

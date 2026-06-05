@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Code2,
+  Blocks,
   Globe,
   House,
   Lock,
@@ -38,6 +39,7 @@ const KIND_ICON: Record<TabKind, ComponentType<{ size?: number }>> = {
   home: House,
   settings: SlidersHorizontal,
   agent: Sparkles,
+  plugin: Blocks,
 };
 
 export function PaneHeader({

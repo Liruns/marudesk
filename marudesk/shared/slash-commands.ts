@@ -170,14 +170,37 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
 ];
 
+/** The placeholder a plugin slash template uses for the trailing argument. */
+export const SLASH_ARGUMENTS_TOKEN = '$ARGUMENTS';
+
+/**
+ * Convert a plugin's slash contribution (a prompt TEMPLATE, never a closure —
+ * design §R1/§5) into a {@link SlashPromptCommand}. The name is namespaced
+ * `pluginId:name` so it can't collide with a built-in, and `expand` substitutes
+ * every `$ARGUMENTS` occurrence with the trailing text the user typed.
+ */
+export function pluginSlashCommand(
+  pluginId: string,
+  c: { name: string; description: string; argHint?: string; template: string },
+): SlashPromptCommand {
+  return {
+    kind: 'prompt',
+    name: `${pluginId}:${c.name}`.toLowerCase(),
+    description: c.description,
+    argHint: c.argHint,
+    expand: (arg) => c.template.split(SLASH_ARGUMENTS_TOKEN).join(arg),
+  };
+}
+
+// Slash tokens may contain `:` so plugin commands (`/myplugin:foo`) parse.
 /** True when `text` is the start of a slash-command invocation (leading `/`). */
 export function isSlashInvocation(text: string): boolean {
-  return /^\/[^\s]*$/.test(text) || /^\/[a-zA-Z][\w-]*\s/.test(text);
+  return /^\/[^\s]*$/.test(text) || /^\/[a-zA-Z][\w:-]*\s/.test(text);
 }
 
 /** The token typed right after the leading slash, used to filter the menu. */
 export function slashQuery(text: string): string | null {
-  const m = /^\/([a-zA-Z][\w-]*)?$/.exec(text);
+  const m = /^\/([a-zA-Z][\w:-]*)?$/.exec(text);
   return m ? (m[1] ?? '') : null;
 }
 
@@ -189,20 +212,20 @@ function matchesName(cmd: SlashCommand, token: string): boolean {
 /** Resolve a fully-typed command line (`/review auth`) to its command + arg. */
 export function resolveSlash(
   text: string,
+  extra: readonly SlashCommand[] = [],
 ): { command: SlashCommand; arg: string } | null {
-  const m = /^\/([a-zA-Z][\w-]*)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  const m = /^\/([a-zA-Z][\w:-]*)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (!m) return null;
   const token = m[1].toLowerCase();
   const arg = (m[2] ?? '').trim();
-  const command = SLASH_COMMANDS.find((c) => matchesName(c, token));
+  const command = [...SLASH_COMMANDS, ...extra].find((c) => matchesName(c, token));
   return command ? { command, arg } : null;
 }
 
 /** Filter commands by the current query token (prefix match on name/alias). */
-export function filterSlash(query: string): SlashCommand[] {
+export function filterSlash(query: string, extra: readonly SlashCommand[] = []): SlashCommand[] {
+  const all = [...SLASH_COMMANDS, ...extra];
   const q = query.toLowerCase();
-  if (q === '') return SLASH_COMMANDS;
-  return SLASH_COMMANDS.filter((c) =>
-    [c.name, ...(c.aliases ?? [])].some((n) => n.startsWith(q)),
-  );
+  if (q === '') return all;
+  return all.filter((c) => [c.name, ...(c.aliases ?? [])].some((n) => n.startsWith(q)));
 }

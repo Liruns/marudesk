@@ -24,6 +24,7 @@ import type {
 import type { SearchOptions, SearchResult } from './search';
 import type { NavState, TabKind, TabsSnapshot } from './browser';
 import type { McpServerStatus } from './mcp';
+import type { PluginCommandSnapshot, PluginStatus } from './plugin';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
@@ -234,6 +235,15 @@ export const CHANNELS = {
     'mcp:set-enabled',
     'mcp:open-config',
   ],
+  // User plugins running in isolated workers — Settings → Plugins lists/reloads/
+  // toggles them, and the composer reads the slash commands they contribute
+  // (docs/plugin-runtime-design.md §5, §7 P2).
+  plugins: [
+    'plugins:list',
+    'plugins:reload',
+    'plugins:set-enabled',
+    'plugins:commands',
+  ],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
   // Cloud relay (Bridge Model B §B2): log the PC's cloud account in/out and read
   // the sanitized status (logged-in account + connected-as-host). Tokens never
@@ -350,6 +360,8 @@ export interface IpcMap {
         path?: string;
         workspaceId?: WorkspaceId;
         file?: WorkspaceFileRef;
+        /** For a `plugin` tab: which plugin panel to render (v2). */
+        pluginPanel?: { id: string; entry: string };
       },
     ];
     result: string;
@@ -654,6 +666,16 @@ export interface IpcMap {
     result: McpServerStatus[];
   };
   'mcp:open-config': { args: []; result: { path: string } };
+
+  // plugins — Settings → Plugins + composer slash commands. set-enabled returns
+  // the fresh statuses so the panel reprojects without a follow-up fetch.
+  'plugins:list': { args: []; result: PluginStatus[] };
+  'plugins:reload': { args: []; result: PluginStatus[] };
+  'plugins:set-enabled': {
+    args: [payload: { id: string; enabled: boolean }];
+    result: PluginStatus[];
+  };
+  'plugins:commands': { args: []; result: PluginCommandSnapshot[] };
 
   // settings
   'settings:get': { args: []; result: AppSettings };

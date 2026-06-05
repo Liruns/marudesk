@@ -99,6 +99,9 @@ export type McpGroup =
   // Tools from an external (stdio) MCP connector — third-party, so `gated` by
   // default (see electron/agent/mcp-external.ts).
   | 'mcp'
+  // Tools contributed by a user plugin running in an isolated worker — also
+  // third-party, so `gated` by default (see electron/plugins/*).
+  | 'plugin'
   | 'ask';
 
 /** A self-describing tool definition (JSON-Schema + the metadata the loop needs). */

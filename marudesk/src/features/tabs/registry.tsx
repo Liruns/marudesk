@@ -1,9 +1,10 @@
 import { type ComponentType, type ReactNode } from 'react';
-import { Code2, Globe, House, Sparkles, SlidersHorizontal, SquareTerminal } from 'lucide-react';
+import { Blocks, Code2, Globe, House, Sparkles, SlidersHorizontal, SquareTerminal } from 'lucide-react';
 import { AgentTab } from '../agent/AgentTab';
 import { BrowserCanvas } from '../browser/BrowserCanvas';
 import { EditorView } from '../editor/EditorView';
 import { HomeView } from '../home/HomeView';
+import { PluginPanel } from '../plugins/PluginPanel';
 import { SettingsView } from '../settings/SettingsView';
 import { TerminalSurface } from './TerminalSurface';
 import type { TabKind } from '../../../shared/browser';
@@ -52,5 +53,10 @@ export const tabKinds: Record<TabKind, TabKindDef> = {
     title: 'AI Chat',
     icon: Sparkles,
     render: () => <AgentTab />,
+  },
+  plugin: {
+    title: 'Plugin',
+    icon: Blocks,
+    render: (tabId) => <PluginPanel tabId={tabId} />,
   },
 };

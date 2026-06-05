@@ -70,6 +70,9 @@ A Monaco code editor, a real shell terminal (node-pty) with find and copy/paste,
 ### Context MCP and external MCP
 A built-in, in-process MCP server exposes tabs, the active page, terminals, editor buffers (including unsaved edits), the explorer tree, sessions, and memory to the agent. External MCP servers can also be connected — local over **stdio** or remote over **HTTP** (Streamable HTTP, with an SSE fallback) — configured Claude-Desktop-style in `mcp-servers.json`. Each external tool is routed through the same approval / read-only mediation as the built-in ones; a server can be marked `trust` to auto-approve its tools, hide specific tools via `disabledTools`, and a dropped connection is detected and surfaced. Manage them in Settings → MCP Servers.
 
+### Plugins
+Extend the agent with your own JavaScript. A plugin is a folder with a `manifest.json` and an `index.js` exporting `activate(ctx)`; it can contribute **agent tools** and **slash commands**. Plugins run in an **isolated worker** (Electron `utilityProcess` with the Node Permission Model + a module sandbox), never in the main process, and reach the filesystem/network only through a **capability-gated bridge** the user approves per plugin (`fs:read`, `fs:write`, `net`). Contributed tools flow through the same approval / read-only mediation as the built-in ones, and a plugin's file writes show up in the chat diff/revert history. Manage them in **Settings → Plugins**; see [`marudesk/docs/plugin-runtime-design.md`](marudesk/docs/plugin-runtime-design.md). Plugin folders are scanned from `<userData>/plugins/` (user) and `<workspace>/.marudesk/plugins/` (project); a runnable example lives in [`marudesk/examples/plugins/hello-world`](marudesk/examples/plugins/hello-world).
+
 ### Remote / mobile bridge
 Drive your PC's agent from your phone. QR-code pairing, application-level end-to-end encryption (X25519 + AES-GCM), direct LAN / Tailscale transport, and an optional cloud relay for access from anywhere. The phone is a thin client; the model, tools, and workspace always stay on the PC.
 
@@ -147,6 +150,7 @@ npm run harness:e2e           # server end-to-end
 npm run harness:pair          # secure device pairing
 npm run harness:relay-bridge  # cloud relay bridge
 npm run harness:mcp           # MCP tools
+npm run harness:plugins       # isolated plugin runtime (worker sandbox + tool RPC)
 ```
 
 UI work follows `marudesk/DESIGN.md`: dark-first, restrained, token-based colors only (no hard-coded colors), Lucide icons, and calm, precise copy.

@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  Example plugin UI panel (docs/plugin-runtime-design.md §8.5). Loaded over
+  plugin://hello-world/panel.html inside a sandboxed <iframe sandbox="allow-scripts">,
+  so this page is an opaque origin: it can't reach the host app, cookies, or the
+  network (the protocol response sets connect-src 'none'). Its only channel to
+  MaruDesk is window.parent.postMessage with a small whitelisted set of actions.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hello Panel</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 14px/1.5 system-ui, sans-serif;
+        background: #0e0f11;
+        color: #e6e6e6;
+      }
+      h1 { font-size: 15px; margin: 0 0 8px; }
+      p { color: #9aa0a6; margin: 0 0 14px; }
+      input, button {
+        font: inherit;
+        border-radius: 8px;
+        border: 1px solid #2a2d31;
+        background: #16181b;
+        color: #e6e6e6;
+        padding: 8px 10px;
+      }
+      button { cursor: pointer; background: #2563eb; border-color: #2563eb; }
+      .row { display: flex; gap: 8px; }
+      input { flex: 1; }
+    </style>
+  </head>
+  <body>
+    <h1>Hello from a plugin panel 👋</h1>
+    <p>This UI runs in an isolated sandbox. Type a name and it will draft a prompt
+      in the chat composer for you to review and send.</p>
+    <div class="row">
+      <input id="name" placeholder="a name to greet" value="Ada" />
+      <button id="go">Draft greeting</button>
+    </div>
+
+    <script>
+      // Report our height so the host can size the iframe to the content.
+      function reportHeight() {
+        parent.postMessage({ type: 'plugin:resize', height: document.body.scrollHeight + 24 }, '*');
+      }
+      window.addEventListener('load', reportHeight);
+      window.addEventListener('resize', reportHeight);
+
+      document.getElementById('go').addEventListener('click', () => {
+        const name = document.getElementById('name').value || 'world';
+        // Ask the host to put a prompt in the composer — the user reviews + sends,
+        // so this never bypasses the agent's normal approval flow.
+        parent.postMessage({ type: 'plugin:insertPrompt', text: 'Greet ' + name + ' warmly.' }, '*');
+      });
+    </script>
+  </body>
+</html>

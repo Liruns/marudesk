@@ -74,7 +74,11 @@ const closedTabs: ClosedTab[] = [];
 export function createTab(
   kind: TabKind,
   initialUrl?: string,
-  opts?: { workspaceId?: WorkspaceId; editorFile?: WorkspaceFileRef },
+  opts?: {
+    workspaceId?: WorkspaceId;
+    editorFile?: WorkspaceFileRef;
+    pluginPanel?: { id: string; entry: string };
+  },
 ): TabRecord {
   const host = getHost();
   if (!host) throw new Error('createTab: host window not mounted');
@@ -94,6 +98,7 @@ export function createTab(
       inspectOn: false,
       filePath: opts?.editorFile?.path ?? filePath,
       editorFile: opts?.editorFile,
+      pluginPanel: kind === 'plugin' ? opts?.pluginPanel : undefined,
       untitledName:
         kind === 'editor' && !filePath && !opts?.editorFile
           ? `Untitled-${nextUntitledSeq()}`
@@ -413,7 +418,11 @@ export function createTab(
 export function createAndActivateTab(
   kind: TabKind,
   initialUrl?: string,
-  opts?: { workspaceId?: WorkspaceId; editorFile?: WorkspaceFileRef },
+  opts?: {
+    workspaceId?: WorkspaceId;
+    editorFile?: WorkspaceFileRef;
+    pluginPanel?: { id: string; entry: string };
+  },
 ): TabRecord {
   const rec = createTab(kind, initialUrl, opts);
   activateTab(rec.id);
@@ -434,7 +443,11 @@ export function replaceTab(
   oldId: string,
   kind: TabKind,
   initialUrl?: string,
-  opts?: { workspaceId?: WorkspaceId; editorFile?: WorkspaceFileRef },
+  opts?: {
+    workspaceId?: WorkspaceId;
+    editorFile?: WorkspaceFileRef;
+    pluginPanel?: { id: string; entry: string };
+  },
 ): TabRecord | null {
   const old = getTab(oldId);
   if (!old) return null;
@@ -445,6 +458,7 @@ export function replaceTab(
   const rec = createTab(kind, initialUrl, {
     workspaceId: opts?.workspaceId ?? old.workspaceId,
     editorFile: opts?.editorFile,
+    pluginPanel: opts?.pluginPanel,
   });
 
   // Tear the old tab down (web view + any DevTools); feature tabs have none.

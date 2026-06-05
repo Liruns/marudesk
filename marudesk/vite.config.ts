@@ -122,6 +122,27 @@ export default defineConfig({
           },
         },
       },
+      {
+        // The isolated plugin worker (docs/plugin-runtime-design.md §3). Built as
+        // its own standalone ESM file so the main process can `utilityProcess.fork`
+        // it at runtime. It must stay Electron-free; plugin code is loaded by the
+        // worker via require() at runtime and is never bundled here.
+        entry: 'electron/plugins/worker.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            emptyOutDir: false,
+            lib: {
+              entry: 'electron/plugins/worker.ts',
+              formats: ['es'],
+              fileName: () => 'plugin-worker.mjs',
+            },
+            rollupOptions: {
+              external: ['electron'],
+            },
+          },
+        },
+      },
     ]),
   ],
 });
