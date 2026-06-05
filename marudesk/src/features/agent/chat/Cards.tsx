@@ -21,7 +21,7 @@ import { formatChangedFiles, formatRuntimeChecks, type Receipt } from './format'
 
 /* ── edits (P2: accept / revert) ────────────────────────────────────────── */
 
-export function ChangesSection({ edits }: { edits: AgentEdit[] }) {
+export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[] }) {
   const { locale, t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);

@@ -31,8 +31,8 @@ import {
 } from './chat/Controls';
 import { ApprovalToggle, EffortToggle, VerbosityToggle } from './chat/Toggles';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
-import { MessageList } from './chat/Message';
-import { ApprovalCard, ChangesSection, QuestionsCard, ReceiptCard } from './chat/Cards';
+import { Transcript } from './chat/Transcript';
+import { ApprovalCard, QuestionsCard, ReceiptCard } from './chat/Cards';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
 import { fileAttachmentsFromFiles, readImageFiles } from './chat/attachments';
 
@@ -156,7 +156,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, queuedPrompt]);
 
-  const empty = chat.messages.length === 0;
+  const empty = chat.messages.length === 0 && chat.edits.length === 0;
   // The full-surface `agent` tab centers the conversation in a readable column
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
   // Same single server-owned state projects into both.
@@ -540,14 +540,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           {empty ? (
             <EmptyState hasWorkspace={!!summary} onPick={handlePickSuggestion} />
           ) : (
-            <MessageList messages={chat.messages} status={chat.status} verbosity={verbosity} />
+            <Transcript
+              messages={chat.messages}
+              edits={chat.edits}
+              status={chat.status}
+              verbosity={verbosity}
+              changesRef={changesRef}
+            />
           )}
-
-          {chat.edits.length > 0 ? (
-            <div ref={changesRef}>
-              <ChangesSection edits={chat.edits} />
-            </div>
-          ) : null}
 
           {receipt ? <ReceiptCard receipt={receipt} /> : null}
 

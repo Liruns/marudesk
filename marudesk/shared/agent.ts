@@ -112,6 +112,8 @@ export type AgentRole = 'user' | 'assistant';
 
 export type AgentMessage = {
   id: string;
+  /** Turn that produced this row; absent for legacy saved sessions/system markers. */
+  turnId?: string;
   role: AgentRole;
   parts: AgentPart[];
   timestamp: number;

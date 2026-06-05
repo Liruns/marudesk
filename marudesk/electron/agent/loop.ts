@@ -577,6 +577,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     // (real token streaming); tool calls are attached once the step settles.
     const assistantMsg: AgentMessage = {
       id: uid('m'),
+      turnId: opts.turnId,
       role: 'assistant',
       parts: [{ type: 'text', text: '' }],
       timestamp: Date.now(),
@@ -1211,7 +1212,13 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     for (const img of images) {
       userParts.push({ type: 'image', mediaType: img.mediaType, data: img.data });
     }
-    state.messages.push({ id: uid('m'), role: 'user', parts: userParts, timestamp: Date.now() });
+    state.messages.push({
+      id: uid('m'),
+      turnId,
+      role: 'user',
+      parts: userParts,
+      timestamp: Date.now(),
+    });
     // Show the user's message immediately, before the (possibly slow) context
     // hook runs below.
     emit();
