@@ -23,6 +23,7 @@ export function msg(key: TranslationKey): string {
 }
 
 export const MAX_CONSOLE = 1500;
+export const MAX_HISTORY = 200;
 export const MAX_NETWORK = 1500;
 const MAX_NETWORK_PAYLOAD = 64_000;
 
