@@ -99,6 +99,16 @@ export function AgentCategory() {
         />
       </Field>
       <Field
+        label={t('settings.agent.contextCommand.label')}
+        hint={t('settings.agent.contextCommand.hint')}
+      >
+        <TextField
+          value={agent.contextCommand}
+          placeholder="git status -sb"
+          onCommit={(contextCommand) => void update({ agent: { contextCommand } })}
+        />
+      </Field>
+      <Field
         label={t('settings.agent.fallback.label')}
         hint={t('settings.agent.fallback.hint')}
       >

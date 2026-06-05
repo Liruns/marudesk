@@ -615,6 +615,9 @@ const EN_MESSAGES = {
   'settings.agent.verifyCommand.hint':
     'Runs in the workspace after any turn that edited files; the PASS/FAIL result is folded back into the chat. Leave blank to disable. Example: npm run typecheck.',
   'settings.agent.verifyCommand.label': 'Post-edit verify command',
+  'settings.agent.contextCommand.hint':
+    'Runs in the workspace at the start of every turn; its output is added to that turn’s context for the model (not shown in the chat). Leave blank to disable. Example: git status -sb.',
+  'settings.agent.contextCommand.label': 'Per-turn context command',
   'settings.about.hardened': 'Hardened',
   'settings.about.github.button': 'Open GitHub',
   'settings.about.github.hint':
@@ -1714,6 +1717,9 @@ const KO_MESSAGES: Messages = {
   'settings.agent.verifyCommand.hint':
     '파일을 수정한 턴 뒤 워크스페이스에서 실행할 명령입니다. PASS/FAIL 결과가 채팅에 반영됩니다. 비워두면 비활성화됩니다. 예: npm run typecheck.',
   'settings.agent.verifyCommand.label': '수정 후 검증 명령',
+  'settings.agent.contextCommand.hint':
+    '매 턴 시작 시 워크스페이스에서 실행할 명령입니다. 출력이 그 턴의 모델 컨텍스트에 추가됩니다(채팅에는 표시되지 않음). 비워두면 비활성화됩니다. 예: git status -sb.',
+  'settings.agent.contextCommand.label': '턴별 컨텍스트 명령',
   'settings.about.hardened': '강화됨',
   'settings.about.github.button': 'GitHub 열기',
   'settings.about.github.hint':
