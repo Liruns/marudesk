@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expandInstructionImports } from './instruction-imports';
 
 /**
  * On-demand directory instruction injection (docs/agentic-chat-v4-design.md §B2,
@@ -77,10 +78,13 @@ export async function claimNestedInstructions(wsRoot: string, relPath: string): 
       // Found this directory's instruction file; inject once per conversation.
       if (!claimed.has(abs)) {
         claimed.add(abs);
-        const trimmed = content.slice(0, MAX_NESTED_BYTES).trim();
+        // Expand `@import` tokens (bounded to the workspace) just like the root
+        // file, then clip — so a nested AGENTS.md that imports siblings resolves.
+        const expanded = await expandInstructionImports(content, abs, root);
+        const trimmed = expanded.slice(0, MAX_NESTED_BYTES).trim();
         if (trimmed) {
           const relDir = path.relative(root, d) || '.';
-          blocks.push(formatBlock(relDir, name, trimmed, content.length > MAX_NESTED_BYTES));
+          blocks.push(formatBlock(relDir, name, trimmed, expanded.length > MAX_NESTED_BYTES));
         }
       }
       break; // first-match-wins for this directory, claimed or not

@@ -4,6 +4,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { keywordModePreamble, wantsDeepThinking } from './keyword-modes';
 import { claimNestedInstructions, clearNestedInstructionClaims } from './nested-instructions';
+import { expandInstructionImports } from './instruction-imports';
+import { buildEnvironmentContext } from './environment';
 
 /**
  * Standalone runtime checks for the prompt-injection logic (no Electron deps):
@@ -103,6 +105,73 @@ async function main(): Promise<void> {
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+
+  console.log('instruction-imports:');
+
+  const iroot = await fs.mkdtemp(path.join(os.tmpdir(), 'omd-import-'));
+  try {
+    await fs.mkdir(path.join(iroot, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(iroot, 'AGENTS.md'), '# real rules\nbe careful');
+    await fs.writeFile(path.join(iroot, 'CLAUDE.md'), '@AGENTS.md'); // our repo's pattern
+    await fs.writeFile(path.join(iroot, 'docs', 'git.md'), 'use rebase');
+    await fs.writeFile(path.join(iroot, 'chain-a.md'), 'A then @chain-b.md');
+    await fs.writeFile(path.join(iroot, 'chain-b.md'), 'B end');
+    await fs.writeFile(path.join(iroot, 'cycle-a.md'), 'A @cycle-b.md');
+    await fs.writeFile(path.join(iroot, 'cycle-b.md'), 'B @cycle-a.md');
+
+    await check('@import inlines a sibling file (CLAUDE.md → @AGENTS.md)', async () => {
+      const abs = path.join(iroot, 'CLAUDE.md');
+      const out = await expandInstructionImports('@AGENTS.md', abs, iroot);
+      assert.ok(out.includes('real rules'), 'imported content present');
+      assert.ok(!out.includes('@AGENTS.md'), 'token replaced');
+    });
+
+    await check('nested @imports expand recursively', async () => {
+      const abs = path.join(iroot, 'chain-a.md');
+      const out = await expandInstructionImports('A then @chain-b.md', abs, iroot);
+      assert.ok(out.includes('B end'));
+    });
+
+    await check('import cycle terminates without dupe blowup', async () => {
+      const abs = path.join(iroot, 'cycle-a.md');
+      const out = await expandInstructionImports('A @cycle-b.md', abs, iroot);
+      assert.ok(out.includes('A') && out.includes('B'));
+    });
+
+    await check('out-of-root / home import is left as literal text', async () => {
+      const abs = path.join(iroot, 'AGENTS.md');
+      assert.equal(await expandInstructionImports('see @~/.ssh/id_rsa', abs, iroot), 'see @~/.ssh/id_rsa');
+      assert.equal(await expandInstructionImports('see @../escape.md', abs, iroot), 'see @../escape.md');
+    });
+
+    await check('ordinary @mentions are not clobbered', async () => {
+      const abs = path.join(iroot, 'AGENTS.md');
+      const text = 'ping @teammate and use @scope/pkg';
+      assert.equal(await expandInstructionImports(text, abs, iroot), text);
+    });
+  } finally {
+    await fs.rm(iroot, { recursive: true, force: true });
+  }
+
+  console.log('environment:');
+
+  await check('environment block always carries a date + platform', async () => {
+    const block = await buildEnvironmentContext(null);
+    assert.ok(block.includes('<environment>') && block.includes("Today's date:"));
+    assert.ok(block.includes('Platform:'));
+    assert.ok(block.includes('none open'), 'no-workspace note');
+  });
+
+  await check('environment block reports git state for a repo', async () => {
+    const groot = await fs.mkdtemp(path.join(os.tmpdir(), 'omd-env-'));
+    try {
+      const block = await buildEnvironmentContext({ root: groot });
+      assert.ok(block.includes(`Workspace root: ${groot}`));
+      assert.ok(block.includes('Git:'), 'has a git line (repo or not)');
+    } finally {
+      await fs.rm(groot, { recursive: true, force: true });
+    }
+  });
 
   console.log(process.exitCode ? '\nFAILED' : '\nAll checks passed.');
 }
