@@ -14,6 +14,8 @@ import {
   resolveWorkspacePath,
 } from './fs-safe';
 import { MAX_AGENT_FILE_SIZE, MAX_FILE_SIZE } from './workspace-config';
+import { isSshRootKey } from '../shared/ssh';
+import { sshWriteFileForEditor } from './ssh/ssh-workspace';
 
 export { readFileForEditor, readMediaForPreview } from './workspace-read';
 
@@ -111,6 +113,7 @@ export async function writeFileForEditor(
   rel: string,
   content: string,
 ): Promise<WriteFileResult> {
+  if (isSshRootKey(root)) return sshWriteFileForEditor(root, rel, content);
   if (typeof content !== 'string') {
     throw new Error('marudesk: content must be a string');
   }
@@ -138,6 +141,11 @@ export async function saveAsForEditor(
   content: string,
   parentWindow: BrowserWindow,
 ): Promise<SaveAsResult> {
+  if (isSshRootKey(root)) {
+    // Save As needs a native destination picker rooted on the local FS; there's
+    // no equivalent for a remote root yet. Use the editor's plain Save instead.
+    return { ok: false, reason: 'Save As is not available for remote workspaces.' };
+  }
   if (typeof content !== 'string') {
     throw new Error('marudesk: content must be a string');
   }

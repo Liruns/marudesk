@@ -14,8 +14,10 @@ import {
   type WorkspaceSnapshot,
   type WorkspaceSaveAsResult,
 } from '../shared/workspace';
+import { sshRootKey } from '../shared/ssh';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, obj, str } from './ipc/validate';
+import { getConnectionInfo } from './ssh/connection-manager';
 import {
   readFileForEditor,
   readMediaForPreview,
@@ -341,6 +343,45 @@ export function registerWorkspaceHandlers(deps: {
           })();
     if (!input) return record;
     const root = await summarizeRoot(input);
+    const next = {
+      ...record,
+      roots: [...record.roots, root],
+      activeRootId: record.activeRootId ?? root.id,
+    };
+    workspaceRecords.set(next.id, next);
+    if (activeWorkspaceId === next.id) refreshCurrentWorkspace();
+    pushWorkspaceState();
+    return next;
+  });
+
+  defineHandler('workspaces:add-ssh-root', async ([payload]) => {
+    const p = obj(payload);
+    const record = requireRecord(str(p.workspaceId, 'workspaceId'));
+    const connectionId = str(p.connectionId, 'connectionId');
+    const info = getConnectionInfo(connectionId);
+    const remotePath = str(p.remotePath, 'remotePath').replace(/\/+$/, '') || '/';
+    if (!remotePath.startsWith('/')) {
+      throw new Error('remotePath must be an absolute POSIX path');
+    }
+    const rootKey = sshRootKey(connectionId, remotePath);
+    const requested = typeof p.name === 'string' ? p.name.trim() : '';
+    const name = requested || path.posix.basename(remotePath) || info.label;
+    const summary = await summarizeWorkspace(rootKey);
+    const root: WorkspaceRootSummary = {
+      id: createId('root'),
+      name,
+      root: rootKey,
+      files: summary.files,
+      source: summary.source,
+      truncated: summary.truncated,
+      connection: {
+        kind: 'ssh',
+        connectionId,
+        host: info.host,
+        username: info.username,
+        remotePath,
+      },
+    };
     const next = {
       ...record,
       roots: [...record.roots, root],

@@ -1,7 +1,28 @@
+import type { SshConnectionId } from './ssh';
+
 export type FileEntry = {
   path: string;
   size: number;
 };
+
+/**
+ * Where a workspace root's files physically live. `local` is the default
+ * (host filesystem); `ssh` addresses a folder on a remote host over SFTP. This
+ * is display/identity metadata — the main-process file-op router keys on the
+ * root string (an `ssh://` key for remote roots) to choose the backend.
+ */
+export type WorkspaceConnection =
+  | { kind: 'local' }
+  | {
+      kind: 'ssh';
+      connectionId: SshConnectionId;
+      host: string;
+      username: string;
+      /** Absolute POSIX path of the root on the remote host. */
+      remotePath: string;
+    };
+
+export const LOCAL_CONNECTION: WorkspaceConnection = { kind: 'local' };
 
 export type WorkspaceId = string;
 export type WorkspaceRootId = string;
@@ -15,6 +36,8 @@ export type WorkspaceSummary = {
   files: FileEntry[];
   source: 'git' | 'walk';
   truncated: boolean;
+  /** Backend this root lives on; absent means {@link LOCAL_CONNECTION}. */
+  connection?: WorkspaceConnection;
 };
 
 export type WorkspaceRootInput = {
@@ -29,6 +52,8 @@ export type WorkspaceRootSummary = {
   files: FileEntry[];
   source: 'git' | 'walk';
   truncated: boolean;
+  /** Backend this root lives on; absent means {@link LOCAL_CONNECTION}. */
+  connection?: WorkspaceConnection;
 };
 
 export type WorkspaceRecord = {

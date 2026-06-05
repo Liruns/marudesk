@@ -37,6 +37,12 @@ import type {
 } from './providers';
 import type { AppSettings, SettingsPatch } from './settings';
 import type {
+  SshConnectionInfo,
+  SshConnectionInput,
+  SshListDirResult,
+  SshTestResult,
+} from './ssh';
+import type {
   PairedDeviceInfo,
   PairingRequestInfo,
   PairingStartInfo,
@@ -159,6 +165,16 @@ export const CHANNELS = {
     'workspaces:write-file',
     'workspaces:save-as',
     'workspaces:rank',
+    'workspaces:add-ssh-root',
+  ],
+  // Remote SSH connections (electron/ssh/*). Manage configured hosts and probe
+  // them; credentials cross inbound only and never come back to the renderer.
+  ssh: [
+    'ssh:list-connections',
+    'ssh:add-connection',
+    'ssh:remove-connection',
+    'ssh:test-connection',
+    'ssh:list-dir',
   ],
   history: ['history:query', 'history:recent'],
   // Workspace Source Control (electron/git.ts). All run against the open
@@ -504,6 +520,39 @@ export interface IpcMap {
   'workspaces:rank': {
     args: [payload: { workspaceId: WorkspaceId; rootId?: WorkspaceRootId; capture: CaptureInput }];
     result: RankedFile[];
+  };
+  // Add a folder on an SSH host as a new root of an existing workspace. The root
+  // is indexed (git ls-files over SSH, else SFTP walk) before it's returned.
+  'workspaces:add-ssh-root': {
+    args: [
+      payload: {
+        workspaceId: WorkspaceId;
+        connectionId: string;
+        remotePath: string;
+        name?: string;
+      },
+    ];
+    result: WorkspaceRecord;
+  };
+
+  // ssh (remote connections — electron/ssh/*). `add`/`test` carry credentials
+  // inbound; only the sanitized SshConnectionInfo ever comes back.
+  'ssh:list-connections': { args: []; result: SshConnectionInfo[] };
+  'ssh:add-connection': {
+    args: [input: SshConnectionInput];
+    result: SshConnectionInfo;
+  };
+  'ssh:remove-connection': {
+    args: [payload: { connectionId: string }];
+    result: { ok: true };
+  };
+  'ssh:test-connection': {
+    args: [input: SshConnectionInput];
+    result: SshTestResult;
+  };
+  'ssh:list-dir': {
+    args: [payload: { connectionId: string; path: string }];
+    result: SshListDirResult;
   };
 
   // git (Source Control — electron/git.ts). Paths are workspace-relative POSIX.

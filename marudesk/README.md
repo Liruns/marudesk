@@ -76,6 +76,19 @@ npm run harness:search
   tabs, focused-root Explorer sync, and pane-local Peek Explorer. The deck rail
   manages workspace lifecycle from the UI — create, rename, reindex, delete, and
   per-root removal.
+- `electron/ssh/*` and `shared/ssh.ts` add **remote SSH workspace roots**: a
+  folder on another host can be added as a workspace root and indexed/opened/
+  edited over SFTP. A remote root is identified by an `ssh://<connId><path>` key
+  that the file-op entry points route to the SFTP backend; `electron/ssh/sftp.ts`
+  re-expresses fs-safe's path contract (relative-only, no traversal, symlink-
+  refused) for POSIX/SFTP. Connections (key file / password / SSH agent) are
+  managed via the `ssh:*` IPC channels; credentials stay in the main process and
+  never return to the renderer. Add one from a workspace pane's **Add SSH folder**
+  button (`src/features/workspaces/SshRootDialog.tsx`). Indexing prefers
+  `git ls-files` over SSH and falls back to an SFTP walk. Remote deletes are
+  permanent (no host trash); Save As, Reveal, and the agent's workspace file
+  tools remain local-only for now. Host keys are accepted on first sight (no
+  known_hosts pinning yet — see the SECURITY TODO in `connection-manager.ts`).
 - `electron/agent/*` owns agent session orchestration, MCP tool plumbing, context
   sources, and model loop behavior. Built-in context tools include workspace
   read/list helpers so an agent can inspect non-focused workspace roots without

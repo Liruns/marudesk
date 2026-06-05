@@ -3,12 +3,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { FileEntry, WorkspaceSummary } from '../shared/workspace';
+import { isSshRootKey } from '../shared/ssh';
 import { isInsideRoot } from './fs-safe';
+import { sshSummarize } from './ssh/ssh-workspace';
 import { IGNORE_DIRS, MAX_FILES } from './workspace-config';
 
 const execFileAsync = promisify(execFile);
 
 export async function summarizeWorkspace(root: string): Promise<WorkspaceSummary> {
+  if (isSshRootKey(root)) return sshSummarize(root);
   const absRoot = path.resolve(root);
   const { files, source, truncated } = await listFiles(absRoot);
   files.sort((a, b) => a.path.localeCompare(b.path));

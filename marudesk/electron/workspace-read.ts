@@ -7,12 +7,15 @@ import {
   type ReadFileResult,
   type ReadMediaResult,
 } from '../shared/workspace';
+import { isSshRootKey } from '../shared/ssh';
 import { isInsideRoot, resolveWorkspacePath } from './fs-safe';
+import { sshReadFileForEditor, sshReadMediaForPreview } from './ssh/ssh-workspace';
 
 export async function readFileForEditor(
   root: string,
   rel: string,
 ): Promise<ReadFileResult> {
+  if (isSshRootKey(root)) return sshReadFileForEditor(root, rel);
   const { abs } = resolveWorkspacePath(root, rel);
   const lst = await fs.lstat(abs);
   if (lst.isSymbolicLink()) {
@@ -57,6 +60,7 @@ export async function readMediaForPreview(
   root: string,
   rel: string,
 ): Promise<ReadMediaResult> {
+  if (isSshRootKey(root)) return sshReadMediaForPreview(root, rel);
   const media = mediaMediaTypeForPath(rel);
   if (!media) return { ok: false, reason: 'unsupported' };
   const { abs } = resolveWorkspacePath(root, rel);
