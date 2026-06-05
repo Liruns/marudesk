@@ -6,7 +6,7 @@ import { SessionList } from './SessionList';
 /**
  * Full-surface left rail listing saved sessions (v3 §5-C), mirroring the
  * ExplorerPanel `<aside>` structure (h-9 header + scrollable body). Collapsible
- * to a thin strip; v1 has no drag-resize (fixed 240px). Hosted by AgentTab
+ * to a thin strip; v1 has no drag-resize (fixed 224px). Hosted by AgentTab
  * beside the centered chat column — the drawer companion uses an overlay instead.
  */
 export function SessionRail() {

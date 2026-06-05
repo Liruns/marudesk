@@ -91,7 +91,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
           <span>{t('agent.sessions.newChat')}</span>
         </button>
         {sessions.length > 0 ? (
-          <div className="mt-2 flex items-center gap-1.5 h-7 rounded-md bg-surface-page border border-subtle px-2 focus-within:border-accent">
+          <div className="mt-2 flex items-center gap-1.5 h-7 rounded bg-surface-page border border-subtle px-2 focus-within:border-accent">
             <Search size={12} className="shrink-0 text-fg-tertiary" aria-hidden />
             <input
               value={filter}
