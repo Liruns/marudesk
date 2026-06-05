@@ -18,11 +18,10 @@ export function NavItem({
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'h-8 rounded-md px-2.5 flex items-center gap-2 text-body-sm text-left',
-        'transition-colors duration-fast',
+        'chrome-list-row h-8 px-2.5 gap-2 text-body-sm text-left',
         active
-          ? 'bg-accent-subtle/40 text-fg-primary'
-          : 'text-fg-secondary hover:bg-surface-2 hover:text-fg-primary',
+          ? 'bg-accent-subtle/40 text-fg-primary shadow-highlight hover:bg-accent-subtle/40'
+          : 'text-fg-secondary',
       )}
     >
       <span className={active ? 'text-accent' : 'text-fg-tertiary'} aria-hidden>
@@ -35,7 +34,7 @@ export function NavItem({
 
 export function Section({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col rounded-lg border border-subtle bg-surface-1 shadow-highlight divide-y divide-subtle">
+    <div className="chrome-panel flex flex-col rounded-lg overflow-hidden divide-y divide-subtle">
       {children}
     </div>
   );

@@ -584,7 +584,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         ) : null}
       </div>
 
-      <footer className="shrink-0 border-t border-subtle">
+      <footer className="chrome-panel shrink-0 border-x-0 border-b-0">
         <div
           className={cn(
             'flex flex-col gap-2',
@@ -601,7 +601,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
 
             {/* Right: toggles grouped in a single pill-shaped container */}
-            <div className="flex items-center gap-px rounded border border-subtle bg-surface-1 p-0.5 shrink-0">
+            <div className="chrome-panel-strong flex items-center gap-px rounded p-0.5 shrink-0">
               {isReasoningModel ? (
                 <>
                   <EffortToggle
@@ -640,13 +640,13 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           </div>
 
           {localError ? (
-            <div className="rounded border border-subtle bg-error-subtle/40 px-3 py-1.5 text-caption text-fg-secondary break-words">
+            <div className="rounded border border-subtle bg-error-subtle/40 px-3 py-1.5 text-caption text-fg-secondary break-words shadow-highlight">
               {localError}
             </div>
           ) : null}
 
           {queuedPrompt ? (
-            <div className="flex items-start gap-2 rounded border border-subtle bg-surface-1 px-3 py-1.5">
+            <div className="chrome-panel flex items-start gap-2 rounded px-3 py-1.5">
               <History size={12} className="mt-0.5 shrink-0 text-fg-tertiary" />
               <span className="flex-1 min-w-0 text-caption text-fg-secondary break-words">
                 <span className="text-fg-tertiary">{t('agent.chat.queuedPrompt')}</span>{' '}
@@ -688,7 +688,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               />
             ) : null}
 
-            <div className="flex flex-col rounded-lg border border-default bg-surface-1 transition-colors duration-fast focus-within:border-accent">
+            <div className="chrome-panel-strong flex flex-col rounded-lg transition-[border-color,box-shadow] duration-fast focus-within:border-accent focus-within:shadow-focus-accent">
               {pendingImages.length > 0 ? (
                 <div className="flex flex-wrap gap-2 px-2.5 pt-2.5">
                   {pendingImages.map((img, i) => (

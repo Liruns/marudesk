@@ -60,7 +60,7 @@ export function PaneHeader({
   return (
     <div
       className={cn(
-        'relative h-7 shrink-0 flex items-center gap-1 pl-2 pr-1 border-b border-subtle',
+        'chrome-header relative h-7 shrink-0 flex items-center gap-1 pl-2 pr-1',
         // Focused pane's header lifts a step and grows an accent top edge — the
         // same grouping cue the strip uses — so the live pane (the one the
         // omnibox + keyboard drive) is unmistakable among the tiles.
@@ -92,10 +92,10 @@ export function PaneHeader({
         title={maximizeLabel}
         aria-pressed={maximized}
         className={cn(
-          'size-5 shrink-0 rounded flex items-center justify-center transition-colors duration-fast',
+          'chrome-icon-button size-5 shrink-0',
           maximized
             ? 'text-accent hover:bg-surface-3'
-            : 'text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary',
+            : 'text-fg-tertiary',
         )}
       >
         {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
@@ -108,7 +108,7 @@ export function PaneHeader({
         }}
         aria-label={t('tabs.pane.close')}
         title={t('tabs.pane.close')}
-        className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
+        className="chrome-icon-button size-5 shrink-0 hover:bg-surface-3"
       >
         <X size={13} />
       </button>
@@ -151,7 +151,7 @@ function WebOmnibox() {
         {nav.isLoading ? <X size={13} /> : <RotateCw size={13} />}
       </MiniBtn>
       <form onSubmit={onSubmit} className="flex-1 min-w-0" role="search">
-        <div className="h-5 w-full rounded bg-surface-page border border-default focus-within:border-accent transition-colors duration-fast flex items-center px-1.5 gap-1.5">
+        <div className="h-5 w-full rounded bg-surface-page border border-default shadow-inset-soft focus-within:border-accent transition-[border-color,box-shadow] duration-fast flex items-center px-1.5 gap-1.5">
           <Scheme url={nav.url} isSecure={nav.isSecure} />
           <input
             type="text"
@@ -229,10 +229,10 @@ function MiniBtn({
       aria-label={label}
       title={label}
       className={cn(
-        'size-5 shrink-0 rounded flex items-center justify-center transition-colors duration-fast',
+        'chrome-icon-button size-5 shrink-0',
         disabled
           ? 'text-fg-tertiary opacity-40 cursor-not-allowed'
-          : 'text-fg-secondary hover:bg-surface-2 hover:text-fg-primary',
+          : 'text-fg-secondary',
       )}
     >
       {children}

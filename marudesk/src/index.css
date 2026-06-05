@@ -106,6 +106,80 @@
 /* ─── Lucide icons ────────────────────────────────────────────────────────────
    Drop the default 2px stroke to 1.5 globally — at the 11–18px sizes used in the
    chrome, 1.5 reads refined where 2 looks heavy (matches Linear / VS Code). */
+@layer components {
+  .chrome-panel {
+    background-color: var(--surface-1);
+    background-image: var(--surface-gradient);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--highlight);
+  }
+
+  .chrome-panel-strong {
+    background-color: var(--surface-2);
+    background-image: var(--surface-gradient);
+    border: 1px solid var(--border-default);
+    box-shadow: var(--elevate-card);
+  }
+
+  .chrome-header {
+    background-color: color-mix(in srgb, var(--surface-1) 94%, transparent);
+    background-image: var(--surface-gradient);
+    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--highlight);
+  }
+
+  .chrome-rail {
+    background-color: var(--surface-1);
+    background-image: var(--surface-gradient);
+    border-color: var(--border-subtle);
+    box-shadow: var(--highlight);
+  }
+
+  .chrome-popover {
+    background-color: var(--surface-2);
+    background-image: var(--surface-gradient);
+    border: 1px solid var(--border-default);
+    box-shadow: var(--elevate-card);
+  }
+
+  .chrome-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    border-radius: var(--radius);
+    transition:
+      background-color var(--motion-fast) var(--easing),
+      color var(--motion-fast) var(--easing),
+      border-color var(--motion-fast) var(--easing);
+  }
+
+  .chrome-icon-button:hover {
+    background-color: var(--surface-2);
+    color: var(--text-primary);
+  }
+
+  .chrome-icon-button-active {
+    background-color: var(--surface-3);
+    color: var(--text-primary);
+  }
+
+  .chrome-list-row {
+    display: flex;
+    align-items: center;
+    color: var(--text-secondary);
+    border-radius: var(--radius);
+    transition:
+      background-color var(--motion-fast) var(--easing),
+      color var(--motion-fast) var(--easing);
+  }
+
+  .chrome-list-row:hover {
+    background-color: var(--surface-2);
+    color: var(--text-primary);
+  }
+}
+
 svg.lucide {
   stroke-width: 1.5;
 }

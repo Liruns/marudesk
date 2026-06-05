@@ -114,8 +114,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       onKeyDown={onMenuKeyDown}
       style={{ left: pos.x, top: pos.y }}
       className={cn(
-        'fixed z-50 min-w-[200px] py-1 rounded-md',
-        'bg-surface-2 border border-default shadow-xl',
+        'chrome-popover fixed z-50 min-w-[200px] py-1 rounded animate-scale-in',
         'text-body-sm text-fg-primary',
       )}
     >
@@ -135,8 +134,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
               onClose();
             }}
             className={cn(
-              'w-full flex items-center gap-2.5 px-3 h-7 text-left outline-none',
-              'transition-colors duration-fast',
+              'chrome-list-row w-full gap-2.5 px-3 h-7 text-left outline-none rounded-none',
               item.disabled
                 ? 'text-fg-tertiary/50 cursor-not-allowed'
                 : item.danger

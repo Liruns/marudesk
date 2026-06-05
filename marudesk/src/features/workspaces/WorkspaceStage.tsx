@@ -122,7 +122,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
   return (
     <nav
       aria-label="Workspace rail"
-      className="w-12 shrink-0 border-r border-subtle bg-surface-1 flex flex-col items-center py-2 gap-1"
+      className="chrome-rail w-12 shrink-0 border-r flex flex-col items-center py-2 gap-1"
     >
       {workspaces.map((workspace) => {
         const active = workspace.id === activeWorkspaceId;
@@ -141,8 +141,8 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
               'size-8 rounded-md border flex items-center justify-center text-caption font-semibold',
               'transition-colors duration-fast',
               active
-                ? 'border-accent bg-accent-subtle text-accent'
-                : 'border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default',
+                ? 'border-accent bg-accent-subtle text-accent shadow-highlight'
+                : 'border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3',
             )}
           >
             {workspaceInitials(workspace.name)}
@@ -265,7 +265,7 @@ function WorkspacePane({
       className={cn(
         'relative flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page',
         'ring-inset transition-shadow duration-fast',
-        focused ? 'ring-1 ring-accent/50' : 'ring-0',
+        focused ? 'ring-1 ring-accent/50 shadow-focus-accent' : 'ring-0',
       )}
       aria-label={record?.name ?? 'System workspace'}
       onMouseDown={() => {
@@ -273,7 +273,7 @@ function WorkspacePane({
         else focusPane(paneId);
       }}
     >
-      <header className="h-10 shrink-0 flex items-center gap-2 border-b border-subtle bg-surface-1">
+      <header className="chrome-header h-10 shrink-0 flex items-center gap-2">
         <div className="min-w-[128px] max-w-[220px] pl-3 flex items-center gap-2">
           <span className="size-6 rounded-md bg-surface-2 border border-subtle flex items-center justify-center text-fg-tertiary">
             <PanelLeft size={14} />
@@ -384,7 +384,7 @@ function WorkspaceDivider({
       className={cn(
         'relative shrink-0 z-20',
         isRow ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize',
-        active ? 'bg-accent' : 'bg-subtle hover:bg-accent/70',
+        active ? 'bg-accent shadow-focus-accent' : 'bg-subtle hover:bg-accent/70',
         'transition-colors duration-fast',
       )}
     />
@@ -415,8 +415,8 @@ function PeekExplorer({
   );
 
   return (
-    <div className="absolute right-3 top-12 z-40 w-[360px] max-h-[70%] flex flex-col rounded-lg bg-surface-1 border border-default shadow-lifted overflow-hidden">
-      <div className="h-10 shrink-0 flex items-center gap-2 px-3 border-b border-subtle">
+    <div className="chrome-popover absolute right-3 top-12 z-40 w-[360px] max-h-[70%] flex flex-col rounded-lg overflow-hidden">
+      <div className="chrome-header h-10 shrink-0 flex items-center gap-2 px-3">
         <Search size={15} className="text-fg-tertiary" />
         <input
           value={query}
@@ -429,7 +429,7 @@ function PeekExplorer({
           type="button"
           aria-label="Close Peek Explorer"
           onClick={onClose}
-          className="size-6 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
+          className="chrome-icon-button size-6"
         >
           <X size={14} />
         </button>
@@ -486,7 +486,7 @@ function PeekExplorer({
                   });
                   onClose();
                 }}
-                className="w-full h-7 flex items-center gap-2 px-5 text-left text-body-sm text-fg-secondary hover:text-fg-primary hover:bg-surface-2"
+                className="chrome-list-row w-full h-7 gap-2 px-5 text-left text-body-sm"
                 title={`${root.name} / ${file.path}`}
               >
                 <span className="truncate">{file.path}</span>
@@ -514,7 +514,7 @@ function PaneButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="size-7 rounded-md flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
+      className="chrome-icon-button size-7"
     >
       {children}
     </button>
