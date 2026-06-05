@@ -1,5 +1,4 @@
 import { dialog, type BrowserWindow } from 'electron';
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
   SYSTEM_WORKSPACE_ID,
@@ -26,6 +25,12 @@ import {
   writeFileForEditor,
 } from './workspace-files';
 import { summarizeWorkspace } from './workspace-index';
+import {
+  createId,
+  rootToLegacySummary,
+  summarizeRoot,
+  toRootInput,
+} from './workspace-registry-helpers';
 import { isCaptureInput, rankFiles } from './workspace-rank';
 
 let currentWorkspace: WorkspaceSummary | null = null;
@@ -46,27 +51,12 @@ export function getWorkspaceSnapshot(): WorkspaceSnapshot {
   return snapshot();
 }
 
-function createId(prefix: string): string {
-  return `${prefix}-${randomUUID()}`;
-}
 
 function activeRecord(): WorkspaceRecord | null {
   return activeWorkspaceId ? (workspaceRecords.get(activeWorkspaceId) ?? null) : null;
 }
 
 
-function rootToLegacySummary(
-  record: WorkspaceRecord,
-  root: WorkspaceRootSummary,
-): WorkspaceSummary {
-  return {
-    root: root.root,
-    name: record.roots.length > 1 ? `${record.name} / ${root.name}` : record.name,
-    files: root.files,
-    source: root.source,
-    truncated: root.truncated,
-  };
-}
 
 function summaryForActiveRoot(): WorkspaceSummary | null {
   const record = activeRecord();
@@ -120,27 +110,7 @@ function requireFileRef(value: unknown): {
   return { file, record, root };
 }
 
-function toRootInput(value: unknown, index: number): WorkspaceRootInput {
-  const p = obj(value, `roots[${index}]`);
-  return {
-    name: str(p.name, `roots[${index}].name`).trim(),
-    path: str(p.path, `roots[${index}].path`),
-  };
-}
 
-async function summarizeRoot(input: WorkspaceRootInput): Promise<WorkspaceRootSummary> {
-  const name = input.name.trim();
-  if (!name) throw new Error('root name must not be empty');
-  const summary = await summarizeWorkspace(input.path);
-  return {
-    id: createId('root'),
-    name,
-    root: summary.root,
-    files: summary.files,
-    source: summary.source,
-    truncated: summary.truncated,
-  };
-}
 
 async function createWorkspaceRecord(
   name: string,
