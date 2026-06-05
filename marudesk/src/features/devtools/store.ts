@@ -23,13 +23,7 @@ import {
   type StyleSheetHeader,
 } from './types';
 import type { PatchOp } from '../../../shared/patch';
-import {
-  DRAWER_MIN,
-  firstInLocation,
-  loadPrefs,
-  savePrefs,
-  snapshotPrefs,
-} from './store-prefs';
+import { loadPrefs } from './store-prefs';
 import type { ToolLocation, DevtoolsTool } from './store-prefs';
 
 // Re-exported so existing consumers (DevtoolsContent) keep importing the tool
@@ -40,6 +34,7 @@ import { applyIngestBatch } from './ingest-batch';
 import { createElementsSlice } from './slice-elements';
 import { createConsoleSlice } from './slice-console';
 import { createPanelsSlice } from './slice-panels';
+import { createDockSlice } from './slice-dock';
 
 /**
  * The custom DevTools session store. One dock, bound to the active web tab; it
@@ -499,79 +494,7 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
       void window.marudesk.invoke('devtools:popout-open', { tabId });
     },
 
-    setWindowMode: (on) => set({ windowMode: on }),
-
-    setPanel: (panel) => {
-      if (get().panel === panel) return;
-      set({ panel });
-      if (get().session === 'attached') void get()._enablePanel(panel);
-    },
-
-    setSide: (side) => set({ side, size: DEFAULT_SIZE[side] }),
-
-    setSize: (size) => set({ size: Math.max(MIN_SIZE, Math.round(size)) }),
-
-    /* ── bottom drawer + tool arrangement ───────────────────────────────── */
-
-    setDrawerPanel: (panel) => {
-      if (get().drawerPanel === panel) return;
-      set({ drawerPanel: panel });
-      savePrefs(snapshotPrefs(get()));
-      if (get().session === 'attached') void get()._enablePanel(panel);
-    },
-
-    toggleDrawer: () => get().setDrawerOpen(!get().drawerOpen),
-
-    setDrawerOpen: (open) => {
-      if (get().drawerOpen === open) return;
-      set({ drawerOpen: open });
-      savePrefs(snapshotPrefs(get()));
-      // Enabling the drawer's panel lazily mirrors setPanel — its CDP domains
-      // (e.g. Network) only turn on when the surface is actually shown.
-      if (open && get().session === 'attached') void get()._enablePanel(get().drawerPanel);
-    },
-
-    setDrawerHeight: (height) => {
-      set({ drawerHeight: Math.max(DRAWER_MIN, Math.round(height)) });
-      savePrefs(snapshotPrefs(get()));
-    },
-
-    moveTool: (id, location) => {
-      const s = get();
-      const tool = s.tools.find((t) => t.id === id);
-      if (!tool || tool.location === location) return;
-      // Append to the end of the destination location's order.
-      const maxOrder = s.tools
-        .filter((t) => t.location === location)
-        .reduce((m, t) => Math.max(m, t.order), -1);
-      const tools = s.tools.map((t) =>
-        t.id === id ? { ...t, location, order: maxOrder + 1 } : t,
-      );
-
-      const patch: Partial<DevtoolsState> = { tools };
-      // If the moved tool was the active tab of its old location, hand activity
-      // to the next remaining tool there so the surface never points at a tool
-      // that's no longer present.
-      if (tool.location === 'main' && s.panel === id) {
-        const next = firstInLocation(tools, 'main');
-        if (next) patch.panel = next;
-      }
-      if (tool.location === 'drawer' && s.drawerPanel === id) {
-        const next = firstInLocation(tools, 'drawer');
-        if (next) patch.drawerPanel = next;
-      }
-      // Make the moved tool the active tab in its NEW location, and reveal the
-      // drawer when something lands there (so "Move to bottom" is visible).
-      if (location === 'main') patch.panel = id;
-      else {
-        patch.drawerPanel = id;
-        patch.drawerOpen = true;
-      }
-
-      set(patch);
-      savePrefs(snapshotPrefs(get()));
-      if (get().session === 'attached') void get()._enablePanel(id);
-    },
+    ...createDockSlice(set, get),
 
     rebindToActive: (tabId) => {
       const s = get();
