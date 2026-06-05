@@ -33,7 +33,9 @@
     "harness:plugins": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/plugins/plugin-harness.ts",
     "harness:browser-menu": "node --experimental-strip-types electron/browser/native-menu-harness.ts",
     "harness:subagent": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/subagent-harness.ts",
-    "harness:agent-turn-edits": "node --experimental-strip-types electron/agent/turn-edits-harness.ts"
+    "harness:agent-turn-edits": "node --experimental-strip-types electron/agent/turn-edits-harness.ts",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest"
   },
   "build": {
     "appId": "com.marudesk.app",
