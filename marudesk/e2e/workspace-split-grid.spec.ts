@@ -100,3 +100,81 @@ test('workspace split: selecting a pre-split tab shows its grid (non-zero height
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+test('workspace split: creating a tab in a sibling workspace keeps browser panes visible', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-split-new-tab-'));
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(
+      async ({ alpha, beta }) => {
+        const a = await window.marudesk.invoke('workspaces:create', {
+          name: 'Project Alpha',
+          roots: [{ name: 'FE', path: alpha }],
+        });
+        const b = await window.marudesk.invoke('workspaces:create', {
+          name: 'Project Beta',
+          roots: [{ name: 'FE', path: beta }],
+        });
+        await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: 'about:blank', workspaceId: a.id });
+        const alphaActive = await window.marudesk.invoke('browser:tabs-new', {
+          kind: 'web',
+          url: 'about:blank',
+          workspaceId: a.id,
+        });
+        await window.marudesk.invoke('browser:tabs-new', { kind: 'home', workspaceId: b.id });
+        await window.marudesk.invoke('browser:tabs-activate', alphaActive);
+        await window.marudesk.invoke('workspaces:set-active', { workspaceId: a.id });
+      },
+      { alpha: mkProject(base, 'alpha'), beta: mkProject(base, 'beta') },
+    );
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('navigation', { name: 'Workspace rail' })).toBeVisible();
+
+    await expect(page.getByRole('tab')).toHaveCount(2);
+    const box = await page.getByRole('main').boundingBox();
+    if (!box) throw new Error('no stage box');
+    await page.getByRole('tab').nth(0).hover();
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 12 });
+    await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.5, { steps: 12 });
+    await page.mouse.up();
+    await expect(page.getByLabel('Grid pane')).toHaveCount(2);
+
+    await page.getByRole('button', { name: 'Split workspace right' }).first().click();
+    await page.getByRole('button', { name: 'Workspace Project Beta' }).click();
+
+    const alphaPane = page.getByRole('region', { name: 'Project Alpha' });
+    const betaPane = page.getByRole('region', { name: 'Project Beta' });
+    await expect(alphaPane).toBeVisible();
+    await expect(betaPane).toBeVisible();
+    await alphaPane.getByRole('tab').last().click();
+    await alphaPane
+      .getByRole('group', { name: 'Split view group' })
+      .getByRole('tab')
+      .first()
+      .click();
+    await expect(alphaPane.getByLabel('Grid pane')).toHaveCount(2);
+
+    const alphaBox = await alphaPane.boundingBox();
+    if (!alphaBox) throw new Error('no alpha pane box');
+
+    const visibleAlphaViews = async () => {
+      const views = await onScreenWebViews(app);
+      return views.filter(
+        (b) =>
+          b.x >= alphaBox.x - 5 &&
+          b.x + b.width <= alphaBox.x + alphaBox.width + 5,
+      ).length;
+    };
+
+    await expect.poll(visibleAlphaViews).toBeGreaterThanOrEqual(2);
+
+    await betaPane.getByRole('button', { name: 'New tab' }).click();
+
+    await expect.poll(visibleAlphaViews).toBeGreaterThanOrEqual(2);
+  } finally {
+    await app.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
