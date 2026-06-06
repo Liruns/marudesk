@@ -2,6 +2,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import {
+  ToolListChangedNotificationSchema,
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { scrubText } from '../../shared/scrub';
 import {
   isHttpMcpConfig,
@@ -82,6 +87,12 @@ export type McpClientLike = {
   /** Optional — present only when the server advertises the `resources` capability. */
   listResources?(): Promise<{ resources: McpResourceInfo[] }>;
   readResource?(params: { uri: string }): Promise<McpReadResourceResult>;
+  /**
+   * Subscribe to a server→client notification (e.g. `notifications/tools/list_changed`).
+   * Present on the real SDK `Client`; optional here so a mock can omit it (→ no live
+   * refresh). Loosely typed (the SDK takes a zod schema) — we pass the SDK's own.
+   */
+  setNotificationHandler?(schema: object, handler: () => void | Promise<void>): void;
 };
 
 /**
@@ -548,29 +559,17 @@ export async function connectServer(
       await client.close().catch(() => {});
       throw err;
     }
-    const opts: ExternalServerOptions = {
-      trusted: config.trust === true,
-      disabledTools: config.disabledTools,
-      autoApproveTools: config.autoApproveTools,
-    };
-    const base = buildExternalServer(config.id, client, tools, opts);
-    // Surface the server's prompts/resources (if advertised) as namespaced
-    // meta-tools; a real tool of the same name wins (existing set passed in).
-    const existing = new Set(base.tools.map((t) => t.name));
-    const capabilityTools = buildCapabilityTools(config.id, client, opts, existing);
-    const server: McpServer =
-      capabilityTools.length > 0
-        ? { name: config.id, tools: [...base.tools, ...capabilityTools] }
-        : base;
+    const server = wrapExternalServer(config.id, client, tools, optsFromConfig(config));
     registerMcpServer(server);
-    const toolNames = server.tools.map((t) => t.name.slice(`${config.id}__`.length));
-    const status = setStatus(config, 'connected', server.tools.length, { tools: toolNames });
+    const status = setConnectedStatus(config, server);
     live.set(config.id, { config, client, status });
     // Remember the connector so an unexpected drop can reconnect over the same path.
     connectorOf.set(config.id, connect);
     // Crash detection: if the transport drops after we're connected, drop the dead
     // tools and schedule a backoff reconnect (§health) so a transient blip recovers.
     client.onclose = () => handleUnexpectedClose(config.id);
+    // Live refresh: re-discover tools when the server announces a list change.
+    subscribeListChanges(config.id, client);
     console.log(`[mcp] connected "${config.id}" — ${server.tools.length} tool(s)`);
     return status;
   } catch (err) {
@@ -579,6 +578,89 @@ export async function connectServer(
     // scrubbed reason is enough to debug.
     console.error(`[mcp] server "${config.id}" failed to connect: ${scrubText(message)}`);
     return setStatus(config, 'error', 0, { error: message });
+  }
+}
+
+/** The wrapping options derived from a server's config (trust + tool filters). */
+function optsFromConfig(config: McpServerConfig): ExternalServerOptions {
+  return {
+    trusted: config.trust === true,
+    disabledTools: config.disabledTools,
+    autoApproveTools: config.autoApproveTools,
+  };
+}
+
+/**
+ * Build the full external {@link McpServer}: the wrapped real tools plus the
+ * synthesized prompt/resource meta-tools (a real tool of the same name wins). Used by
+ * both the initial connect and the live tool-list refresh.
+ */
+function wrapExternalServer(
+  id: string,
+  client: McpClientLike,
+  tools: McpExternalToolInfo[],
+  opts: ExternalServerOptions,
+): McpServer {
+  const base = buildExternalServer(id, client, tools, opts);
+  const existing = new Set(base.tools.map((t) => t.name));
+  const capabilityTools = buildCapabilityTools(id, client, opts, existing);
+  return capabilityTools.length > 0
+    ? { name: id, tools: [...base.tools, ...capabilityTools] }
+    : base;
+}
+
+/** Record a connected status row for a (re)registered server. */
+function setConnectedStatus(config: McpServerConfig, server: McpServer): McpServerStatus {
+  const toolNames = server.tools.map((t) => t.name.slice(`${config.id}__`.length));
+  return setStatus(config, 'connected', server.tools.length, { tools: toolNames });
+}
+
+/* ── live tool-list refresh (docs/context-mcp-design §9) ─────────────────────── */
+
+/**
+ * Subscribe to the server's list-changed notifications so the agent's tool set tracks
+ * a server that adds/removes tools at runtime (the MCP spec's
+ * `notifications/tools/list_changed`). Prompts/resources are read live through the
+ * synthesized meta-tools, so their list-changed events need no re-registration — but
+ * we still re-run discovery on them harmlessly to keep capability tools in sync. A
+ * server/SDK without notification support (no `setNotificationHandler`) just skips
+ * this — the initial tool set stays put.
+ */
+function subscribeListChanges(id: string, client: McpClientLike): void {
+  if (!client.setNotificationHandler) return;
+  const refresh = (): Promise<void> => refreshServerTools(id);
+  for (const schema of [
+    ToolListChangedNotificationSchema,
+    PromptListChangedNotificationSchema,
+    ResourceListChangedNotificationSchema,
+  ]) {
+    try {
+      client.setNotificationHandler(schema, refresh);
+    } catch {
+      // Some transports/servers reject unknown handlers — ignore; live refresh is
+      // a best-effort enhancement, never required for correctness.
+    }
+  }
+}
+
+/**
+ * Re-list a connected server's tools and re-register them (responding to a
+ * list-changed notification). No-op if the server isn't currently live (it may be
+ * reconnecting or torn down). A failed re-list is logged and leaves the prior tools
+ * in place rather than blanking them.
+ */
+async function refreshServerTools(id: string): Promise<void> {
+  const entry = live.get(id);
+  if (!entry) return;
+  try {
+    const listed = await entry.client.listTools();
+    const tools = Array.isArray(listed?.tools) ? listed.tools : [];
+    const server = wrapExternalServer(id, entry.client, tools, optsFromConfig(entry.config));
+    registerMcpServer(server);
+    entry.status = setConnectedStatus(entry.config, server);
+    console.log(`[mcp] "${id}" tool list changed — now ${server.tools.length} tool(s)`);
+  } catch (err) {
+    console.error(`[mcp] "${id}" tool refresh failed: ${scrubText((err as Error).message)}`);
   }
 }
 

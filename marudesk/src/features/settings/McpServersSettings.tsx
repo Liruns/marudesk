@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Globe,
   Loader2,
+  Plus,
   RotateCcw,
   ServerCog,
   ShieldCheck,
@@ -15,6 +16,7 @@ import { Badge, Button } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { McpServerStatus } from '../../../shared/mcp';
+import { MCP_PRESETS } from '../../../shared/mcp-presets';
 
 /**
  * Settings → MCP Servers (docs/remote-mobile-bridge-design §M3, docs/context-mcp-design
@@ -68,9 +70,22 @@ export function McpServersSettings() {
     }
   };
 
+  const addPreset = async (id: string) => {
+    setBusy(true);
+    try {
+      setServers(await window.marudesk.invoke('mcp:add-preset', { id }));
+    } catch {
+      // no-op — leave the list as-is on a transient failure
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openConfig = () => {
     void window.marudesk.invoke('mcp:open-config').catch(() => {});
   };
+
+  const configuredIds = new Set((servers ?? []).map((s) => s.id));
 
   return (
     <div className="flex flex-col gap-3">
@@ -96,6 +111,28 @@ export function McpServersSettings() {
         >
           {t('settings.mcp.openConfig')}
         </Button>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-caption text-fg-tertiary">{t('settings.mcp.presets.label')}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {MCP_PRESETS.map((preset) => {
+            const added = configuredIds.has(preset.id);
+            return (
+              <Button
+                key={preset.id}
+                variant="secondary"
+                size="sm"
+                leadingIcon={added ? <CheckCircle2 size={14} /> : <Plus size={14} />}
+                onClick={() => void addPreset(preset.id)}
+                disabled={busy || added}
+                title={added ? t('settings.mcp.presets.added') : preset.description}
+              >
+                {preset.label}
+              </Button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">

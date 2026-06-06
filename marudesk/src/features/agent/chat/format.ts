@@ -148,6 +148,7 @@ export const TOOL_META: Record<string, ToolMeta> = {
   browser_cookies: { labelKey: 'agent.chat.tool.cookies', icon: Cookie, runtime: true },
   browser_storage: { labelKey: 'agent.chat.tool.webStorage', icon: Database, runtime: true },
   web_search: { labelKey: 'agent.chat.tool.webSearch', icon: Globe, runtime: true },
+  fetch_url: { labelKey: 'agent.chat.tool.fetchUrl', icon: ExternalLink, runtime: true },
   spawn_subagent: { labelKey: 'agent.chat.tool.spawnSubagent', icon: Bot, runtime: true },
   list_tabs: { labelKey: 'agent.chat.tool.listTabs', icon: LayoutGrid, runtime: true },
   read_page: { labelKey: 'agent.chat.tool.readPage', icon: Globe, runtime: true },

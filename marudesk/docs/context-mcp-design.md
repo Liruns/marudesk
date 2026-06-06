@@ -251,7 +251,8 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
   매핑(text/image/resource/link/structured/empty), buildExternalServer(trust→ungated, disabledTools
   필터, annotations→write, autoApprove→ungate), capability bridge(prompts/resources 합성 도구), 자동
   재연결(backoff/포기/취소), 상태 필드(transport/target/trusted/tools), crash(onclose), 그리고 **실제
-  Streamable HTTP 왕복**(in-proc mock HTTP 서버 `mcp-mock-http-server.ts` 대상)까지 124개 assertion.
+  Streamable HTTP 왕복**(in-proc mock HTTP 서버 `mcp-mock-http-server.ts` 대상), live refresh
+  (tools/list_changed), fetch_url(SSRF guard·HTML→text), web_search HTML 폴백까지 145개 assertion.
 - `npm run typecheck` / `npm run lint` / `npm run build` 통과.
 
 ---
@@ -295,3 +296,36 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
   추가해 **개별 도구만** 호출당 승인 없이 실행하게 한다(나머지는 그대로 gated). read-only/plan 규칙은 유지 —
   비-read-only로 표시된 도구는 auto-approve여도 read-only에서 차단된다. `sanitizeMcpConfig`가 trim/중복
   정리, `configChanged`가 변경 시 재연결(re-wrap)에 반영.
+
+---
+
+## 10. 외부 MCP·웹 도구 고도화 III (live refresh · fetch_url · web_search 폴백 · 프리셋)
+
+> §8/§9 위에 라이브 갱신·웹 읽기·검색 품질·원클릭 프리셋을 더한다. 루프 불변식은 동일하게 유지.
+
+### 10.1 Live tool-list refresh (notifications/tools/list_changed)
+- 기존엔 연결 시 1회만 `listTools()`. 이제 SDK `setNotificationHandler`로 `tools/list_changed`(+ prompts/
+  resources list_changed)를 구독해 서버가 런타임에 도구를 추가/제거하면 **자동 재나열·재등록**한다
+  (`refreshServerTools`). prompts/resources는 메타 도구가 매번 live로 읽으므로 재등록 불필요(동일 핸들러로
+  harmless refresh). `setNotificationHandler`가 없는 서버/transport는 조용히 스킵(초기 도구셋 유지).
+- 재나열 실패는 로그만 남기고 이전 도구셋을 유지(빈 셋으로 날리지 않음). 재연결 중/teardown 상태면 no-op.
+
+### 10.2 `fetch_url` — 페이지 본문 읽기 도구
+- `web_search`는 스니펫만 주므로, 검색 결과나 알려진 URL의 **본문을 읽는** 내장 도구를 추가
+  (`electron/agent/tools/fetch-url.ts`, group `web`, `gated`). http(s) 1건을 리다이렉트 추적·시간/바이트
+  상한 하에 가져와 HTML은 텍스트로 환원, text/JSON은 그대로(clip). 바이너리는 노트만.
+- **SSRF 방어**: non-http(s) 거부, loopback/private/link-local 호스트 거부(리다이렉트 매 홉 재검사),
+  호출당 승인(gated). egress `scrubText` + maxChars clip.
+
+### 10.3 `web_search` HTML 결과 폴백
+- DuckDuckGo Instant Answer는 엔티티/disambiguation만 커버해 일반 질의는 0건이 흔함. IA가 **성공했지만
+  0건**일 때 `html.duckduckgo.com/html/` 결과 페이지로 폴백해 실제 웹 결과를 파싱(`uddg` 리다이렉트 디코드,
+  title↔snippet 문서 순서 페어링). IA 호출 *실패* 시에는 폴백하지 않음(기존 에러 동작/테스트 유지).
+
+### 10.4 외부 MCP 프리셋 (브라우저 제어 등)
+- `shared/mcp-presets.ts`에 큐레이션된 서버 프리셋. 헤드라인은 **브라우저 제어** — Codex Desktop의
+  "Chrome MCP"처럼 Google `chrome-devtools-mcp`(별도 Chrome 프로세스, 풀 커서 제어)를 **기존 외부 커넥터**로
+  바로 붙인다(우리 앱 CDP allowlist 불변, 안전). Playwright MCP도 포함.
+- 추가는 **untrusted + enabled**(브라우저 컨트롤러는 side-effecting → 호출당 승인 기본). `mcp:add-preset`
+  IPC가 `addMcpServer`로 config에 한 번만 추가(중복 id no-op) 후 재동기화. Settings → MCP Servers에
+  "서버 추가" 버튼(이미 추가된 프리셋은 비활성+체크).

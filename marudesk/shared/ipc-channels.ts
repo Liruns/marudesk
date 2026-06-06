@@ -156,6 +156,7 @@ export const CHANNELS = {
     'mcp:list-servers',
     'mcp:reload',
     'mcp:set-enabled',
+    'mcp:add-preset',
     'mcp:open-config',
   ],
   // User plugins running in isolated workers — Settings → Plugins lists/reloads/

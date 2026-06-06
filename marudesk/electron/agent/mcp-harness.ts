@@ -12,9 +12,11 @@ import { callMcpTool, isWriteTool, listMcpTools } from './mcp';
 import type { ToolContext } from './tools';
 import {
   parseBoundedWebSearchJsonForTests,
+  setWebSearchHtmlTransportForTests,
   setWebSearchTransportForTests,
   WEB_SEARCH_MAX_RESPONSE_BYTES_FOR_TESTS,
 } from './tools/web-search';
+import { htmlToText, isBlockedHost, setFetchUrlTransportForTests } from './tools/fetch-url';
 import { updateContextCache } from './context-cache';
 import {
   buildExternalServer,
@@ -717,6 +719,115 @@ async function main(): Promise<void> {
 
     await syncExternalMcpServers([], connect); // cleanup
     setReconnectSchedulerForTests(null);
+  }
+
+  /* ── live refresh: notifications/tools/list_changed re-discovers tools ─────── */
+  {
+    let toolset: McpExternalToolInfo[] = [
+      { name: 'echo', inputSchema: { type: 'object', properties: {} } },
+    ];
+    const handlers: (() => void | Promise<void>)[] = [];
+    const client: McpClientLike = {
+      async listTools() {
+        return { tools: toolset };
+      },
+      async callTool() {
+        return { content: [{ type: 'text', text: 'ok' }] };
+      },
+      async close() {},
+      setNotificationHandler(_schema, handler) {
+        handlers.push(handler);
+      },
+    };
+    const cfg: McpServerConfig = { id: 'lc', command: 'noop', enabled: true };
+    await syncExternalMcpServers([cfg], async () => ({ client }));
+    check('list_changed: subscribed to the server notifications', handlers.length >= 1);
+    check('list_changed: initial tool present', listMcpTools().some((t) => t.name === 'lc__echo'));
+    check('list_changed: a not-yet-added tool is absent', !listMcpTools().some((t) => t.name === 'lc__added'));
+
+    // Server adds a tool, then announces the change.
+    toolset = [
+      { name: 'echo', inputSchema: { type: 'object', properties: {} } },
+      { name: 'added', inputSchema: { type: 'object', properties: {} } },
+    ];
+    await handlers[0]!();
+    check('list_changed: a newly-added tool appears after the notification', listMcpTools().some((t) => t.name === 'lc__added'));
+    const lcStatus = listMcpServerStatuses().find((x) => x.id === 'lc');
+    check('list_changed: status tool count reflects the refresh', lcStatus?.toolCount === 2);
+
+    // Server removes all tools, announces again.
+    toolset = [];
+    await handlers[0]!();
+    check('list_changed: removed tools disappear after the notification', !listMcpTools().some((t) => t.name.startsWith('lc__')));
+
+    await syncExternalMcpServers([], async () => ({ client }));
+  }
+
+  /* ── fetch_url: SSRF guard + HTML→text + content-type handling ─────────────── */
+  {
+    check('fetch_url: localhost is a blocked host', isBlockedHost('localhost'));
+    check('fetch_url: 127.0.0.1 is blocked', isBlockedHost('127.0.0.1'));
+    check('fetch_url: 10.x private is blocked', isBlockedHost('10.1.2.3'));
+    check('fetch_url: 192.168.x private is blocked', isBlockedHost('192.168.0.5'));
+    check('fetch_url: 169.254.x link-local is blocked', isBlockedHost('169.254.1.1'));
+    check('fetch_url: a public host is allowed', !isBlockedHost('example.com'));
+    check('fetch_url: htmlToText strips tags + keeps title', (() => {
+      const out = htmlToText('<html><head><title>Doc</title></head><body><script>x()</script><h1>Hi</h1><p>Body text.</p></body></html>');
+      return out.includes('Doc') && out.includes('Hi') && out.includes('Body text.') && !out.includes('x()') && !out.includes('<');
+    })());
+
+    setFetchUrlTransportForTests(async (url) => ({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: `<html><title>Example</title><body><p>Hello from ${url.hostname}.</p></body></html>`,
+      finalUrl: url.href,
+    }));
+    const htmlOut = await callMcpTool('fetch_url', { url: 'https://example.com/page' }, ctx);
+    check('fetch_url: returns readable text from an HTML page', htmlOut.text.includes('Example') && htmlOut.text.includes('Hello from example.com'));
+    check('fetch_url: HTML tags are not present in the output', !htmlOut.text.includes('<p>'));
+
+    setFetchUrlTransportForTests(async (url) => ({
+      status: 200,
+      contentType: 'text/plain',
+      body: 'plain body line',
+      finalUrl: url.href,
+    }));
+    const textOut = await callMcpTool('fetch_url', { url: 'https://example.com/raw.txt' }, ctx);
+    check('fetch_url: passes text/plain through verbatim', textOut.text.includes('plain body line'));
+
+    // The SSRF guard refuses before any transport runs.
+    let transportCalled = false;
+    setFetchUrlTransportForTests(async (url) => {
+      transportCalled = true;
+      return { status: 200, contentType: 'text/plain', body: 'secret', finalUrl: url.href };
+    });
+    const blockedOut = await callMcpTool('fetch_url', { url: 'http://localhost:8080/admin' }, ctx);
+    check('fetch_url: a loopback URL is refused', blockedOut.isError === true && !transportCalled);
+    const schemeOut = await callMcpTool('fetch_url', { url: 'file:///etc/passwd' }, ctx);
+    check('fetch_url: a non-http(s) scheme is refused', schemeOut.isError === true);
+
+    setFetchUrlTransportForTests(null);
+  }
+
+  /* ── web_search: HTML results fallback when Instant Answer is empty ────────── */
+  {
+    // IA returns nothing (the common case for ordinary queries).
+    setWebSearchTransportForTests(async () => ({ RelatedTopics: [] }));
+    let htmlQueried = '';
+    setWebSearchHtmlTransportForTests(async (url) => {
+      htmlQueried = url.searchParams.get('q') ?? '';
+      return `
+        <div class="result">
+          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Fwiki">Example Wiki</a>
+          <a class="result__snippet">A snippet about the example wiki.</a>
+        </div>`;
+    });
+    const out = await callMcpTool('web_search', { query: 'some ordinary query' }, ctx);
+    check('web_search: falls back to the HTML endpoint when IA is empty', htmlQueried === 'some ordinary query');
+    check('web_search: HTML fallback decodes the real target URL', out.text.includes('https://example.org/wiki'));
+    check('web_search: HTML fallback surfaces the title + snippet', out.text.includes('Example Wiki') && out.text.includes('example wiki'));
+    setWebSearchTransportForTests(null);
+    setWebSearchHtmlTransportForTests(null);
   }
 
   console.log(`\nexternal-mcp harness: ${passed} assertions passed`);
