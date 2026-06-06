@@ -465,7 +465,10 @@ function activateFallbackAfterClosing(closed: TabRecord): void {
     activateTab(sameWorkspace.id);
     return;
   }
-  createAndActivateTab('home', undefined, { workspaceId: closed.workspaceId });
+  // No tab remains in this workspace: allow the empty state (the renderer shows a
+  // dedicated empty-stage screen) instead of forcing a fresh home tab. activeTabId
+  // was already cleared by closeTab; just refresh so the pane re-renders empty.
+  pushState();
 }
 
 /** Reopen the most recently closed tab (web page / saved editor file). */

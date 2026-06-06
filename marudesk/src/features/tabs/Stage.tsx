@@ -2,6 +2,7 @@ import { useTabsStore } from './store';
 import { tabKinds } from './registry';
 import { useGridStore, groupForTab } from './grid';
 import { GridStage } from './GridStage';
+import { EmptyStage } from './EmptyStage';
 import { SeedDropOverlay } from './SeedDropOverlay';
 import type { WorkspaceId } from '../../../shared/workspace';
 
@@ -33,6 +34,10 @@ export function Stage({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const scopedActiveTabId = scopedTabs.some((tab) => tab.id === preferredActiveTabId)
     ? preferredActiveTabId
     : (scopedTabs[0]?.id ?? null);
+
+  // No tabs in this pane's workspace: show the dedicated empty screen (closing the
+  // last tab no longer forces a home tab). Distinct from the New Tab dashboard.
+  if (scopedTabs.length === 0) return <EmptyStage workspaceId={workspaceId} />;
 
   // The active tab's split group, if any. Persistent groups mean switching tabs
   // just swaps which grid renders (or shows the single view for a standalone
