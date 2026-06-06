@@ -188,9 +188,12 @@ export function DiffViewer({
                   theme: 'pierre-dark',
                   preferredHighlighter: 'shiki-js',
                   diffStyle,
-                  // Word-level intra-line highlight, bar indicators to match the
-                  // in-house diff language, and a pinned file header.
-                  lineDiffType: 'word',
+                  // Highlight the whole changed line (the line-level add/remove
+                  // tint) rather than boxing the changed tokens within it. This
+                  // is calmer and matches the in-house DiffBlock, which also
+                  // tints by line. ('word' / 'word-alt' / 'char' add intra-line
+                  // emphasis boxes; see docs for the comparison.)
+                  lineDiffType: 'none',
                   diffIndicators: 'bars',
                   expandUnchanged: true,
                   stickyHeader: true,

@@ -3,20 +3,21 @@ import { StrictMode, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PatchDiff } from '@pierre/diffs/react';
 
-// A realistic unified diff to exercise syntax highlighting + add/remove/context.
+// A realistic unified diff: a pure addition (import), a context line, and a
+// genuine 1:1 line edit. This keeps intra-line pairing meaningful so word-alt
+// boxes exactly the inserted `twMerge( … )` wrapper and leaves unchanged code
+// (including `inputs`) un-boxed — rather than the misleading cross-line token
+// match a full-block replacement would produce.
 const SAMPLE_PATCH = `diff --git a/src/lib/cn.ts b/src/lib/cn.ts
 index 1234567..89abcde 100644
 --- a/src/lib/cn.ts
 +++ b/src/lib/cn.ts
-@@ -1,9 +1,11 @@
+@@ -1,7 +1,8 @@
  import { clsx, type ClassValue } from 'clsx';
 +import { twMerge } from 'tailwind-merge';
 
--// Join class names, ignoring falsy values.
--export function cn(...inputs: ClassValue[]): string {
+ export function cn(...inputs: ClassValue[]): string {
 -  return clsx(inputs);
-+/** Merge Tailwind classes, de-duplicating conflicting utilities. */
-+export function cn(...inputs: ClassValue[]): string {
 +  return twMerge(clsx(inputs));
  }
 
@@ -50,8 +51,14 @@ const DIFF_CHROME_STYLE = {
   '--diffs-fg-number-override': 'var(--text-tertiary)',
 } as CSSProperties;
 
-const diffStyle =
-  new URLSearchParams(location.search).get('style') === 'split' ? 'split' : 'unified';
+const params = new URLSearchParams(location.search);
+const diffStyle = params.get('style') === 'split' ? 'split' : 'unified';
+const ld = params.get('linediff');
+// Default matches the DiffViewer spike: 'none' tints the whole changed line
+// (no intra-line boxes) — calmer and consistent with the in-house DiffBlock.
+// Pass ?linediff=word-alt|word|char to compare the intra-line emphasis modes.
+const lineDiffType: 'word' | 'word-alt' | 'char' | 'none' =
+  ld === 'char' || ld === 'word' || ld === 'word-alt' ? ld : 'none';
 
 createRoot(mount).render(
   <StrictMode>
@@ -61,7 +68,7 @@ createRoot(mount).render(
         theme: 'pierre-dark',
         preferredHighlighter: 'shiki-js',
         diffStyle,
-        lineDiffType: 'word',
+        lineDiffType,
         diffIndicators: 'bars',
         expandUnchanged: true,
         stickyHeader: true,
