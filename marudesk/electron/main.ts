@@ -32,6 +32,8 @@ import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
 import { registerDiagnosticsHandlers } from './diagnostics/handlers';
+import { syncFromContext as syncLspFromContext, disposeAllLsp } from './lsp/manager';
+import { setContextCacheListener } from './agent/context-cache';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
@@ -269,6 +271,12 @@ void app.whenReady().then(() => {
   });
   registerHistoryHandlers();
   registerDiagnosticsHandlers({ getMainWindow });
+  // Drive LSP document sync from the editor mirror: when the renderer pushes its
+  // open buffers (context:sync), reconcile language servers + open documents for
+  // the active workspace root. Inert until a server is configured in languages.json.
+  setContextCacheListener((payload) =>
+    syncLspFromContext(getCurrentWorkspace()?.root ?? null, payload.editors),
+  );
   registerTerminalHandlers({
     getMainWindow,
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,
@@ -313,6 +321,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   disposeAllTerminals();
+  // Tear down every language server so no spawned LSP process lingers past exit.
+  disposeAllLsp();
   // Stop the bridge server so its loopback port is released and no SSE
   // connection lingers past app exit.
   void stopServer();

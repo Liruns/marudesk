@@ -23,7 +23,7 @@ type DiagnosticsStoreActions = {
   readonly run: () => Promise<void>;
 };
 
-const EMPTY: DiagnosticsState = { root: null, running: false, lastRun: null };
+const EMPTY: DiagnosticsState = { root: null, running: false, lastRun: null, live: [] };
 
 export const useDiagnosticsStore = create<DiagnosticsStoreState & DiagnosticsStoreActions>(
   (set) => ({
@@ -48,9 +48,14 @@ export const useDiagnosticsStore = create<DiagnosticsStoreState & DiagnosticsSto
   }),
 );
 
-/** Findings of the current cached run (empty until a check has run). */
+/**
+ * All current findings: the batch checker pass (tsc/eslint) merged with live
+ * language-server diagnostics (Tier 2). Consumers (squiggles, Problems popover,
+ * counts) use this so both sources show up uniformly.
+ */
 export function currentDiagnostics(state: DiagnosticsState): readonly Diagnostic[] {
-  return state.lastRun?.diagnostics ?? [];
+  const batch = state.lastRun?.diagnostics ?? [];
+  return state.live.length > 0 ? [...batch, ...state.live] : batch;
 }
 
 /** Error / warning tallies for the current cached run. */

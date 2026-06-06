@@ -36,7 +36,23 @@ type ExternalRecipe = {
   parser?: unknown;
   parse?: unknown;
 };
-type LanguagesFile = { checkers?: unknown };
+type LanguagesFile = { checkers?: unknown; lspServers?: unknown };
+
+/**
+ * A language server registration (Tier 2). LSP is opt-in: there are NO built-in
+ * servers (spawning one runs third-party code), so nothing starts until the user
+ * adds an entry here — same inert-by-default model as mcp-servers.json.
+ */
+export type LspServerSpec = {
+  id: string;
+  languageId: string;
+  /** Full shell command, e.g. "npx --no-install typescript-language-server --stdio". */
+  command: string;
+  /** Root markers — any present makes this server apply to that workspace root. */
+  appliesWhen: readonly string[];
+  /** File extensions (with dot) this server handles, e.g. [".ts", ".tsx"]. */
+  extensions: readonly string[];
+};
 
 export function languagesConfigPath(): string {
   return path.join(app.getPath('userData'), 'languages.json');
@@ -139,12 +155,48 @@ export function getActiveCheckers(): CheckerRecipe[] {
   return [...byId.values()];
 }
 
+function compileLspServer(raw: unknown): LspServerSpec | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string' || !o.id.trim()) return null;
+  if (typeof o.languageId !== 'string' || !o.languageId.trim()) return null;
+  if (typeof o.command !== 'string' || !o.command.trim()) return null;
+  if (!isStringArray(o.appliesWhen) || o.appliesWhen.length === 0) return null;
+  if (!isStringArray(o.extensions) || o.extensions.length === 0) return null;
+  return {
+    id: o.id,
+    languageId: o.languageId,
+    command: o.command,
+    appliesWhen: o.appliesWhen,
+    extensions: o.extensions.map((e) => (e.startsWith('.') ? e.toLowerCase() : `.${e.toLowerCase()}`)),
+  };
+}
+
+/** User-configured language servers from languages.json (none by default → inert). */
+export function getActiveLspServers(): LspServerSpec[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(languagesConfigPath(), 'utf8'));
+  } catch {
+    return [];
+  }
+  const list = raw && typeof raw === 'object' ? (raw as LanguagesFile).lspServers : null;
+  if (!Array.isArray(list)) return [];
+  const out: LspServerSpec[] = [];
+  for (const item of list) {
+    const spec = compileLspServer(item);
+    if (spec) out.push(spec);
+  }
+  return out;
+}
+
 /** A seeded file with a (disabled) example, so "open config" reveals a real file. */
 const TEMPLATE = {
   checkers: [],
-  // Move an entry from "example" into "checkers" to enable it. "parser" reuses a
-  // built-in ("tsc" | "eslint-json"); "parse.regex" uses named groups
-  // (file, line, col, severity, message, code) for any line-oriented checker.
+  lspServers: [],
+  // Move an entry from "example" into "checkers" to enable a batch checker.
+  // "parser" reuses a built-in ("tsc" | "eslint-json"); "parse.regex" uses named
+  // groups (file, line, col, severity, message, code) for any line-oriented tool.
   example: {
     id: 'rust',
     label: 'Rust',
@@ -154,6 +206,15 @@ const TEMPLATE = {
       regex: '^(?<file>[^:\\n]+):(?<line>\\d+):(?<col>\\d+):\\s+(?<severity>error|warning):\\s+(?<message>.*)$',
       source: 'rustc',
     },
+  },
+  // Move an entry from "lspExample" into "lspServers" to enable a live language
+  // server (Tier 2). Requires the server binary to be installed/resolvable.
+  lspExample: {
+    id: 'typescript',
+    languageId: 'typescript',
+    command: 'npx --no-install typescript-language-server --stdio',
+    appliesWhen: ['tsconfig.json', 'package.json'],
+    extensions: ['.ts', '.tsx', '.js', '.jsx'],
   },
 };
 

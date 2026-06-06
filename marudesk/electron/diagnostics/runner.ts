@@ -26,6 +26,8 @@ let lastRun: DiagnosticsRun | null = null;
 let lastRunRoot: string | null = null;
 let runningRoot: string | null = null;
 let listener: ((state: DiagnosticsState) => void) | null = null;
+/** Live language-server diagnostics per root (Tier 2), set by the LSP manager. */
+const liveByRoot = new Map<string, Diagnostic[]>();
 
 /** Wire the renderer-push listener once (from main.ts via handlers.ts). */
 export function setDiagnosticsListener(fn: ((state: DiagnosticsState) => void) | null): void {
@@ -34,7 +36,15 @@ export function setDiagnosticsListener(fn: ((state: DiagnosticsState) => void) |
 
 function stateFor(root: string | null): DiagnosticsState {
   const run = root !== null && lastRunRoot === root ? lastRun : null;
-  return { root, running: runningRoot !== null && runningRoot === root, lastRun: run };
+  const live = root !== null ? (liveByRoot.get(root) ?? []) : [];
+  return { root, running: runningRoot !== null && runningRoot === root, lastRun: run, live };
+}
+
+/** Replace the live (LSP) diagnostics for a root and push the merged state. */
+export function setLiveDiagnostics(root: string, diagnostics: Diagnostic[]): void {
+  if (diagnostics.length === 0) liveByRoot.delete(root);
+  else liveByRoot.set(root, diagnostics);
+  emit(root);
 }
 
 /** The current diagnostics state for a root (null lastRun until a pass runs for it). */

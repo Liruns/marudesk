@@ -52,5 +52,12 @@ export type DiagnosticsRun = {
 export type DiagnosticsState = {
   root: string | null;
   running: boolean;
+  /** Last batch checker pass (tsc/eslint/…), or null until one runs. */
   lastRun: DiagnosticsRun | null;
+  /**
+   * Live diagnostics from language servers (Tier 2), pushed per open file. Kept
+   * separate from the batch `lastRun` because they have different lifecycles;
+   * consumers merge the two for display.
+   */
+  live: Diagnostic[];
 };

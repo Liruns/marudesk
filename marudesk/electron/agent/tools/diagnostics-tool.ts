@@ -35,15 +35,17 @@ function formatOne(d: Diagnostic): string {
 
 /** Render a diagnostics state (errors first, grouped by file) for the model. */
 function formatState(summaryName: string, state: DiagnosticsState, filter: string | null): ToolResult {
-  const run = state.lastRun;
-  if (!run) {
+  // Merge the batch checker pass with live language-server findings (Tier 2).
+  const combined = [...(state.lastRun?.diagnostics ?? []), ...state.live];
+  const checkerId = state.lastRun?.checkerId ?? (state.live.length > 0 ? 'lsp' : 'none');
+  if (!state.lastRun && state.live.length === 0) {
     return {
       summary: summaryName,
       text: "No diagnostics cached yet. Use run_diagnostics to compute them (or run_command with the project's checker, e.g. `npm run typecheck`).",
     };
   }
 
-  let diags = run.diagnostics;
+  let diags = combined;
   if (filter) diags = diags.filter((d) => d.file === filter);
 
   const errors = diags.filter((d) => d.severity === 'error').length;
@@ -53,7 +55,7 @@ function formatState(summaryName: string, state: DiagnosticsState, filter: strin
     const scope = filter ? ` for ${filter}` : '';
     return {
       summary: `${summaryName}: clean`,
-      text: `No diagnostics${scope} (checker: ${run.checkerId}). The last check was clean.`,
+      text: `No diagnostics${scope} (checker: ${checkerId}). The last check was clean.`,
     };
   }
 
@@ -78,7 +80,7 @@ function formatState(summaryName: string, state: DiagnosticsState, filter: strin
     }
   }
   const more = diags.length > shown ? `\n…(${diags.length - shown} more not shown)` : '';
-  const header = `${errors} error(s), ${warnings} warning(s) — checker: ${run.checkerId}`;
+  const header = `${errors} error(s), ${warnings} warning(s) — checker: ${checkerId}`;
 
   return {
     summary: `${summaryName}: ${errors}E ${warnings}W`,
