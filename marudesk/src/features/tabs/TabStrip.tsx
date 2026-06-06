@@ -165,7 +165,7 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
       onClose={() => {
         if (confirmCloseTab(tab)) void closeTab(tab.id);
       }}
-      canClose={scopedTabs.length > 1}
+      canClose={true}
       onDragStart={() => {
         setDraggingId(tab.id);
         setDraggingTab(tab.id);

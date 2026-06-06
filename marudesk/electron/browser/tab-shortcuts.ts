@@ -58,6 +58,18 @@ export function handleTabShortcut(
       }
       return;
     }
+    // Close the active tab: Ctrl/Cmd+W. Intercepted here so it never falls through
+    // to Chromium's default (which would close the window/app). The renderer owns
+    // the tab list + the dirty-discard prompt, so forward the intent. Placed
+    // before the `wc` guard since closing doesn't act on the page.
+    if (mod && !input.shift && !input.alt && key === 'w') {
+      event.preventDefault();
+      const h = getHost();
+      if (h && !h.isDestroyed()) {
+        h.webContents.send('app:tab-shortcut', { type: 'close' });
+      }
+      return;
+    }
     // Split-pane shortcuts: Ctrl+Alt+Arrow cycles pane focus, Ctrl+Shift+Enter
     // zooms the focused pane. No-ops in the renderer when there's no split.
     if (input.control && input.alt && (input.key === 'ArrowLeft' || input.key === 'ArrowRight' || input.key === 'ArrowUp' || input.key === 'ArrowDown')) {

@@ -61,6 +61,16 @@ function runShortcut(p: EventPayload<'app:tab-shortcut'>): void {
     useGridStore.getState().maximizeFocused();
     return;
   }
+  if (p.type === 'close') {
+    // Ctrl/Cmd+W forwarded from a focused web view. Mirror the chrome-focused
+    // path: close the active tab (with the dirty-discard prompt), never the app.
+    const cst = useTabsStore.getState();
+    const active = cst.activeTabId;
+    if (!active) return;
+    const tab = cst.tabs.find((t) => t.id === active);
+    if (confirmCloseTab(tab)) void cst.closeTab(active);
+    return;
+  }
   const st = useTabsStore.getState();
   const { tabs, activeTabId } = st;
   if (tabs.length === 0) return;
