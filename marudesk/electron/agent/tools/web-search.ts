@@ -1,6 +1,7 @@
 import https from 'node:https';
 import { z } from 'zod';
 import { scrubText } from '../../../shared/scrub';
+import { decodeEntities, stripTags } from './fetch-url';
 import type { McpTool, ToolResult } from './types';
 
 const MAX_RESULTS = 6;
@@ -170,6 +171,11 @@ function formatHit(hit: SearchHit): string {
   return `- ${scrubText(hit.title)}\n  URL: ${scrubText(hit.url)}\n  ${scrubText(hit.snippet)}`;
 }
 
+// Compiled once (these scan whole result pages); `exec` loops below run to completion
+// so each global regex's lastIndex returns to 0, but we reset defensively too.
+const RESULT_LINK_RE = /<a\b[^>]*class="[^"]*\bresult__a\b[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+const RESULT_SNIPPET_RE = /<a\b[^>]*class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+
 /**
  * Parse the DuckDuckGo HTML results page (the `html.duckduckgo.com/html/` endpoint)
  * into hits. Result links carry the real target in a `uddg` redirect param, which we
@@ -178,14 +184,14 @@ function formatHit(hit: SearchHit): string {
  */
 function parseHtmlHits(html: string): SearchHit[] {
   const hits: SearchHit[] = [];
-  const linkRe = /<a\b[^>]*class="[^"]*\bresult__a\b[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippetRe = /<a\b[^>]*class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+  RESULT_LINK_RE.lastIndex = 0;
+  RESULT_SNIPPET_RE.lastIndex = 0;
   const snippets: string[] = [];
   let sm: RegExpExecArray | null;
-  while ((sm = snippetRe.exec(html))) snippets.push(htmlText(sm[1]));
+  while ((sm = RESULT_SNIPPET_RE.exec(html))) snippets.push(htmlText(sm[1]));
   let m: RegExpExecArray | null;
   let i = 0;
-  while ((m = linkRe.exec(html))) {
+  while ((m = RESULT_LINK_RE.exec(html))) {
     const target = decodeDuckUrl(m[1]);
     const title = htmlText(m[2]);
     const snippet = snippets[i] ?? '';
@@ -208,18 +214,10 @@ function decodeDuckUrl(href: string): string {
   }
 }
 
-/** Strip tags + decode the common entities from a snippet of result HTML. */
+/** Strip tags + decode entities from a snippet of result HTML (shares the fetch_url
+ *  helpers so entity handling stays in one place). */
 function htmlText(fragment: string): string {
-  return fragment
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return decodeEntities(stripTags(fragment)).replace(/\s+/g, ' ').trim();
 }
 
 function clip(text: string): string {

@@ -152,11 +152,13 @@ export type McpCallToolResult = {
   [k: string]: unknown;
 };
 
-/** A live connection: its client, the registered server, and current status. */
+/** A live connection: its client, the registered server, its status, and the
+ *  connector factory it was opened with (reused to reconnect after an unexpected drop). */
 type LiveServer = {
   config: McpServerConfig;
   client: McpClientLike;
   status: McpServerStatus;
+  connect: ConnectFn;
 };
 
 /** Registry of currently connected servers, keyed by config id (= server name). */
@@ -562,9 +564,8 @@ export async function connectServer(
     const server = wrapExternalServer(config.id, client, tools, optsFromConfig(config));
     registerMcpServer(server);
     const status = setConnectedStatus(config, server);
-    live.set(config.id, { config, client, status });
-    // Remember the connector so an unexpected drop can reconnect over the same path.
-    connectorOf.set(config.id, connect);
+    // Keep the connector on the live entry so an unexpected drop reconnects the same way.
+    live.set(config.id, { config, client, status, connect });
     // Crash detection: if the transport drops after we're connected, drop the dead
     // tools and schedule a backoff reconnect (§health) so a transient blip recovers.
     client.onclose = () => handleUnexpectedClose(config.id);
@@ -675,8 +676,6 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
 
-/** The factory that produced each live connection — reused on reconnect. */
-const connectorOf = new Map<string, ConnectFn>();
 /** Pending reconnect timers, keyed by config id (with the data to retry). */
 type ReconnectEntry = { handle: unknown; config: McpServerConfig; connect: ConnectFn; attempt: number };
 const reconnects = new Map<string, ReconnectEntry>();
@@ -725,7 +724,6 @@ function cancelReconnect(id: string): void {
  */
 function beginReconnect(config: McpServerConfig, connect: ConnectFn, attempt: number): void {
   if (attempt > MAX_RECONNECT_ATTEMPTS) {
-    connectorOf.delete(config.id);
     console.error(`[mcp] server "${config.id}" gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts`);
     setStatus(config, 'error', 0, { error: 'connection closed' });
     return;
@@ -759,15 +757,13 @@ function handleUnexpectedClose(id: string): void {
   live.delete(id);
   unregisterMcpServer(id);
   console.error(`[mcp] server "${id}" connection closed unexpectedly — scheduling reconnect`);
-  const connect = connectorOf.get(id) ?? connectClient;
-  beginReconnect(entry.config, connect, 1);
+  beginReconnect(entry.config, entry.connect, 1);
 }
 
 /** Disconnect one server: cancel any reconnect, unregister its tools + close it. */
 async function disconnectServer(id: string): Promise<void> {
   // Cancel a pending reconnect first (a reconnecting server isn't in `live`).
   cancelReconnect(id);
-  connectorOf.delete(id);
   const entry = live.get(id);
   if (!entry) return;
   live.delete(id);
@@ -811,7 +807,6 @@ export async function syncExternalMcpServers(
     const next = byId.get(id);
     if (!next || !next.enabled || configChanged(reconnects.get(id)!.config, next)) {
       cancelReconnect(id);
-      connectorOf.delete(id);
     }
   }
 
@@ -867,7 +862,6 @@ export function listMcpServerStatuses(): McpServerStatus[] {
 export async function disposeExternalMcpServers(): Promise<void> {
   // Cancel any pending reconnect timers (including for non-live, reconnecting ones).
   for (const id of [...reconnects.keys()]) cancelReconnect(id);
-  connectorOf.clear();
   const ids = [...live.keys()];
   await Promise.all(ids.map((id) => disconnectServer(id)));
   statuses.clear();

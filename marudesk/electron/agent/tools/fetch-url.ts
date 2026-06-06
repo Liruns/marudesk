@@ -88,14 +88,18 @@ const ENTITIES: Record<string, string> = {
   '&nbsp;': ' ',
 };
 
-/** Decode the handful of HTML entities that survive tag-stripping. */
-function decodeEntities(text: string): string {
+/** Decode the handful of HTML entities (named + decimal/hex numeric) that survive
+ *  tag-stripping. Exported + reused by web-search.ts's snippet cleaner. */
+export function decodeEntities(text: string): string {
   return text
     .replace(/&(?:amp|lt|gt|quot|#39|apos|nbsp);/g, (m) => ENTITIES[m] ?? m)
-    .replace(/&#(\d+);/g, (_m, code) => {
-      const n = Number(code);
-      return Number.isFinite(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : _m;
-    });
+    .replace(/&#x([0-9a-f]+);/gi, (m, hex) => codePoint(parseInt(hex, 16), m))
+    .replace(/&#(\d+);/g, (m, code) => codePoint(Number(code), m));
+}
+
+/** A numeric character reference → its code point, or the original text if invalid. */
+function codePoint(n: number, original: string): string {
+  return Number.isFinite(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : original;
 }
 
 /**
@@ -122,7 +126,9 @@ export function htmlToText(html: string): string {
   return title && !body.startsWith(title) ? `${title}\n\n${body}` : body;
 }
 
-function stripTags(html: string): string {
+/** Replace every HTML tag with a space (collapse the spaces afterwards). Exported
+ *  + reused by web-search.ts. */
+export function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, ' ');
 }
 
