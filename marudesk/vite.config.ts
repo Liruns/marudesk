@@ -97,12 +97,13 @@ export default defineConfig({
               fileName: () => 'main.mjs',
             },
             rollupOptions: {
-              // node-pty and better-sqlite3 are native modules — never bundle
-              // them; load from node_modules at runtime (the integrated terminal
-              // and the SQLite session store, both in main). ssh2 (remote SSH
-              // workspace roots) is CommonJS with optional native bindings — keep
-              // it external so its dynamic requires resolve at runtime.
-              external: ['electron', 'node-pty', 'better-sqlite3', 'ssh2'],
+              // node-pty is a native module — never bundle it; load from
+              // node_modules at runtime (the integrated terminal, in main). The
+              // SQLite session store now uses Node's built-in node:sqlite, which
+              // is externalized as a node: builtin automatically. ssh2 (remote
+              // SSH workspace roots) is CommonJS with optional native bindings —
+              // keep it external so its dynamic requires resolve at runtime.
+              external: ['electron', 'node-pty', 'ssh2'],
               output: {
                 // Force a single-file main bundle (no code splitting). In lib
                 // mode rolldown still splits a bundled dep's dynamic `import()`
