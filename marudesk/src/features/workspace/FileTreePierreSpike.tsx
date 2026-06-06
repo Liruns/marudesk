@@ -145,26 +145,33 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
   );
 
   // Latest values for listeners captured once at construction, so selection ->
-  // open never goes stale across re-renders.
+  // open never goes stale across re-renders. Refreshed after commit (not during
+  // render); the listeners that read it only fire on later user interaction.
   const latest = useRef({ fileSet, onOpenFile });
-  latest.current = { fileSet, onOpenFile };
+  useEffect(() => {
+    latest.current = { fileSet, onOpenFile };
+  });
 
   // Placeholder paths mid-creation -> kind, so the single rename handler can
   // route "finish create" vs "finish rename".
   const pendingCreates = useRef(new Map<string, 'file' | 'dir'>());
 
   // onRename fires after the model has optimistically moved the node; persist
-  // to disk and let reindex -> resetPaths reconcile against the real tree.
+  // to disk and let reindex -> resetPaths reconcile against the real tree. Kept
+  // in a ref (refreshed after commit) so the handler closes over current props
+  // without re-subscribing the tree on every render.
   const onRenameRef = useRef<(e: FileTreeRenameEvent) => void>(() => {});
-  onRenameRef.current = (e) => {
-    const kind = pendingCreates.current.get(e.sourcePath);
-    if (kind) {
-      pendingCreates.current.delete(e.sourcePath);
-      void commitCreate(parentOf(e.destinationPath), basename(e.destinationPath), kind);
-    } else {
-      void commitRename(e.sourcePath, basename(e.destinationPath));
-    }
-  };
+  useEffect(() => {
+    onRenameRef.current = (e) => {
+      const kind = pendingCreates.current.get(e.sourcePath);
+      if (kind) {
+        pendingCreates.current.delete(e.sourcePath);
+        void commitCreate(parentOf(e.destinationPath), basename(e.destinationPath), kind);
+      } else {
+        void commitRename(e.sourcePath, basename(e.destinationPath));
+      }
+    };
+  });
 
   const { model } = useFileTree({
     preparedInput,

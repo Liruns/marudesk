@@ -164,23 +164,25 @@ export function SshRootDialog({
   useEffect(() => {
     if (!connectionId || showNew) return;
     let active = true;
-    setHomeLoading(true);
-    setError(null);
-    setStatus(null);
-    void window.marudesk
-      .invoke('ssh:list-dir', {
-        connectionId,
-        path: '.',
-      })
-      .then((res) => {
+    const loadHome = async () => {
+      setHomeLoading(true);
+      setError(null);
+      setStatus(null);
+      try {
+        const res = await window.marudesk.invoke('ssh:list-dir', {
+          connectionId,
+          path: '.',
+        });
         if (!active) return;
         if (res.ok) setRemotePath(res.path);
         else setError(res.reason);
-      })
-      .catch((err) => active && setError(toMessage(err)))
-      .finally(() => {
+      } catch (err) {
+        if (active) setError(toMessage(err));
+      } finally {
         if (active) setHomeLoading(false);
-      });
+      }
+    };
+    void loadHome();
     return () => {
       active = false;
       setHomeLoading(false);

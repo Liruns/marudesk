@@ -1,4 +1,4 @@
-import { WebContentsView, session, type BrowserWindow } from 'electron';
+import { WebContentsView, app, session, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +41,7 @@ import { handleFoundInPage } from './find';
 import { reapplyZoom } from './zoom';
 import { handleTabShortcut } from './tab-shortcuts';
 import { pinnedFirst } from './tab-order.ts';
+import { buildWebTabUserAgent } from './user-agent.ts';
 export { reorderTabs, setTabPinned } from './tab-order.ts';
 import { registerDownloadHandler } from './downloads';
 import { recordTitle, recordVisit } from '../history';
@@ -522,6 +523,14 @@ export function mountBrowserView(win: BrowserWindow): void {
   inspectSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(false);
   });
+  // Present the embedded web tabs as a plain Chrome on this OS: strip the
+  // Electron/app tokens from the UA (keeping the real Chromium version) so sites
+  // don't trip "unsupported browser" gates, embedded-webview sign-in blocks, or
+  // anti-bot heuristics. Scoped to this web-tab partition; the host window UA is
+  // internal and left untouched. See ./user-agent.
+  inspectSession.setUserAgent(
+    buildWebTabUserAgent(inspectSession.getUserAgent(), app.getName()),
+  );
   // Track downloads originating from the web tabs (this partition), auto-saving
   // them to the Downloads folder and feeding the renderer's download shelf.
   registerDownloadHandler(inspectSession);

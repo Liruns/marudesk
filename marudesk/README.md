@@ -20,7 +20,7 @@ client and relay should treat the PC host as the owner of that state.
 
 ## Stack
 
-- Electron 33
+- Electron 42 (Chromium 148)
 - React 19 + Vite 8
 - TypeScript 6 in strict project builds
 - Tailwind tokens backed by `src/styles/tokens.css`

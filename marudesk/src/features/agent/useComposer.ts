@@ -306,11 +306,13 @@ export function useComposer({
   };
 
   // Auto-send a queued prompt once the running turn finishes (busy goes false).
+  // The dispatch is deferred to a microtask so it runs after this effect commits
+  // rather than cascading another synchronous render inside the effect body.
   useEffect(() => {
     if (busy || !queuedPrompt) return;
     const text = queuedPrompt;
     setQueuedPrompt(null);
-    submitText(text);
+    queueMicrotask(() => submitText(text));
     // submitText closes over stable store actions; rerun only on these two.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, queuedPrompt]);

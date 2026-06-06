@@ -95,7 +95,7 @@ Inside `marudesk/`:
 
 ## Tech stack
 
-- **Electron 33**, **React 19**, **TypeScript** (strict project builds)
+- **Electron 42** (Chromium 148), **React 19**, **TypeScript** (strict project builds)
 - **Vite 8** build, **Zustand** state, **Tailwind** design tokens
 - **Monaco** editor, **xterm.js** + **node-pty** terminal
 - **Vercel AI SDK** (`@ai-sdk/*`) for model integration, **Model Context Protocol SDK** for tools
