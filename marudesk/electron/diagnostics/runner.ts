@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { inheritSafeEnv } from '../proc-env';
 import type { Diagnostic, DiagnosticsRun, DiagnosticsState } from '../../shared/diagnostics';
-import { CHECKERS } from './checkers';
+import { CHECKERS, PARSERS } from './checkers';
 
 /**
  * Diagnostics runner (docs/workspace-language-support-design.md, Tier 1). Runs
@@ -45,30 +45,46 @@ function emit(root: string): void {
   listener?.(stateFor(root));
 }
 
-/** Run one checker command, capturing combined stdout+stderr (bounded + timed). */
-function runOne(command: string, cwd: string): Promise<{ output: string; exitCode: number | null }> {
+type CheckerOutput = { stdout: string; stderr: string; exitCode: number | null; truncated: boolean };
+
+/**
+ * Run one checker command, capturing stdout and stderr SEPARATELY (bounded +
+ * timed). Parsers receive stdout — checkers emit their machine-readable output
+ * there (tsc diagnostics, eslint --format json), and keeping stderr out of it
+ * stops a config-warning line from corrupting JSON parsing.
+ */
+function runOne(command: string, cwd: string): Promise<CheckerOutput> {
   return new Promise((resolve) => {
     const child = spawn(command, { cwd, env: inheritSafeEnv(), shell: true });
-    let output = '';
+    let stdout = '';
+    let stderr = '';
     let truncated = false;
-    const append = (chunk: Buffer): void => {
-      if (truncated) return;
-      output += chunk.toString('utf8');
-      if (output.length > MAX_OUTPUT) {
-        output = output.slice(0, MAX_OUTPUT);
+    const onOut = (chunk: Buffer): void => {
+      if (stdout.length >= MAX_OUTPUT) {
+        truncated = true;
+        return;
+      }
+      stdout += chunk.toString('utf8');
+      if (stdout.length > MAX_OUTPUT) {
+        stdout = stdout.slice(0, MAX_OUTPUT);
         truncated = true;
       }
     };
-    child.stdout?.on('data', append);
-    child.stderr?.on('data', append);
+    const onErr = (chunk: Buffer): void => {
+      if (stderr.length >= MAX_OUTPUT) return;
+      stderr += chunk.toString('utf8');
+      if (stderr.length > MAX_OUTPUT) stderr = stderr.slice(0, MAX_OUTPUT);
+    };
+    child.stdout?.on('data', onOut);
+    child.stderr?.on('data', onErr);
     const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
     child.on('error', (err) => {
       clearTimeout(timer);
-      resolve({ output: `failed to start: ${err.message}`, exitCode: null });
+      resolve({ stdout: '', stderr: `failed to start: ${err.message}`, exitCode: null, truncated });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ output, exitCode: code });
+      resolve({ stdout, stderr, exitCode: code, truncated });
     });
   });
 }
@@ -99,18 +115,24 @@ export async function runDiagnostics(root: string): Promise<DiagnosticsState> {
   try {
     const diagnostics: Diagnostic[] = [];
     const commands: string[] = [];
-    let exitCode: number | null = checkers.length > 0 ? 0 : null;
+    const ran: string[] = [];
+    let exitCode: number | null = null;
     let truncated = false;
     for (const checker of checkers) {
-      commands.push(checker.command);
-      const { output, exitCode: code } = await runOne(checker.command, root);
-      if (output.length >= MAX_OUTPUT) truncated = true;
-      diagnostics.push(...checker.parse(output));
+      const command = checker.resolveCommand(root);
+      if (!command) continue; // recipe opted out for this root
+      commands.push(command);
+      ran.push(checker.id);
+      // A checker that has run participates in the aggregate exit code (start at 0).
+      if (exitCode === null) exitCode = 0;
+      const result = await runOne(command, root);
+      if (result.truncated) truncated = true;
+      diagnostics.push(...PARSERS[checker.parser](result.stdout, root));
       // Surface the first non-zero/failed exit (a clean pass leaves it at 0).
-      if (code !== 0) exitCode = code;
+      if (result.exitCode !== 0) exitCode = result.exitCode;
     }
     lastRun = {
-      checkerId: checkers.map((c) => c.id).join('+') || 'none',
+      checkerId: ran.join('+') || 'none',
       command: commands.join(' && '),
       exitCode,
       durationMs: Date.now() - started,
