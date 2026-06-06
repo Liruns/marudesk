@@ -53,9 +53,13 @@ and fixes the design:
   character (noisier on unrelated lines). See the `?linediff=` comparison
   captures (`diff-preview/linediff-none.png` vs `linediff-word-alt.png`).
   **`diffIndicators: 'bars'`** matches the in-house left-bar look.
-- **Fuller token chrome.** `DIFF_CHROME_STYLE` maps line/number/selection
-  backgrounds onto tokens (and a `color-mix` word-emphasis tint for the
-  intra-line modes), so every value stays token-driven — no literal hex.
+- **Token chrome on neutral surfaces only.** `DIFF_CHROME_STYLE` retints the
+  panel/gutter/separator/hover/selection/line-number surfaces onto marudesk
+  tokens, but **leaves the add/remove line backgrounds to `pierre-dark`**, which
+  renders a clear saturated green/red. An earlier pass overrode them with the
+  faint `--success-subtle` / `--error-subtle` tokens, which washed the change
+  colour out — very visible with `lineDiffType: 'none'`, where the line tint is
+  the only change signal.
 
 Not yet wired (clear next steps): per-hunk `diffAcceptRejectHunk` for an
 interactive accept/reject review, `CodeView` for an all-changed-files scroll, the

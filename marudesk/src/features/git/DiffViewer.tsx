@@ -15,21 +15,17 @@ import { parseUnifiedDiff } from './parseDiff';
 const USE_PIERRE_DIFF = false;
 
 // Map design tokens onto the diffs chrome (the library's first-class
-// `--diffs-*-override` surface). Syntax colors come from the bundled
-// `pierre-dark` theme; these retint the panel/gutter/line/number/selection
-// backgrounds so the diff sits inside marudesk's surfaces. Emphasis (the
-// word-level intra-line highlight) is a stronger token-derived tint via
-// color-mix, keeping every value token-driven (no literal hex).
+// `--diffs-*-override` surface). We retint only the *neutral* surfaces — panel,
+// gutter, separator, hover, selection, line numbers — so the diff sits inside
+// marudesk's surfaces. The add/remove line backgrounds are deliberately left to
+// the bundled `pierre-dark` theme, which renders a clear, saturated green/red;
+// overriding them with marudesk's faint subtle tokens washed the change colour
+// out (especially with `lineDiffType: 'none'`, where the line tint is the only
+// change signal).
 const DIFF_CHROME_STYLE = {
   '--diffs-bg-buffer-override': 'var(--surface-1)',
   '--diffs-bg-context-override': 'var(--surface-1)',
   '--diffs-bg-context-gutter-override': 'var(--surface-1)',
-  '--diffs-bg-addition-override': 'var(--success-subtle)',
-  '--diffs-bg-deletion-override': 'var(--error-subtle)',
-  '--diffs-bg-addition-number-override': 'var(--success-subtle)',
-  '--diffs-bg-deletion-number-override': 'var(--error-subtle)',
-  '--diffs-bg-addition-emphasis-override': 'color-mix(in srgb, var(--success) 22%, transparent)',
-  '--diffs-bg-deletion-emphasis-override': 'color-mix(in srgb, var(--error) 22%, transparent)',
   '--diffs-bg-separator-override': 'var(--surface-2)',
   '--diffs-bg-hover-override': 'var(--surface-2)',
   '--diffs-bg-selection-override': 'var(--accent-subtle)',

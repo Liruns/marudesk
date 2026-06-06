@@ -31,7 +31,10 @@ document.body.style.cssText =
 const mount = document.getElementById('app')!;
 mount.style.cssText = 'max-width:760px;margin:0 auto;';
 
-// Mirror the DiffViewer spike: shiki-js engine (no WASM) + token chrome.
+const params = new URLSearchParams(location.search);
+
+// Mirror the DiffViewer spike: retint only the neutral surfaces; leave the
+// add/remove line backgrounds to the pierre-dark theme (clear green/red).
 const DIFF_CHROME_STYLE = {
   border: '1px solid var(--border-default)',
   borderRadius: '8px',
@@ -39,19 +42,12 @@ const DIFF_CHROME_STYLE = {
   '--diffs-bg-buffer-override': 'var(--surface-1)',
   '--diffs-bg-context-override': 'var(--surface-1)',
   '--diffs-bg-context-gutter-override': 'var(--surface-1)',
-  '--diffs-bg-addition-override': 'var(--success-subtle)',
-  '--diffs-bg-deletion-override': 'var(--error-subtle)',
-  '--diffs-bg-addition-number-override': 'var(--success-subtle)',
-  '--diffs-bg-deletion-number-override': 'var(--error-subtle)',
-  '--diffs-bg-addition-emphasis-override': 'color-mix(in srgb, var(--success) 22%, transparent)',
-  '--diffs-bg-deletion-emphasis-override': 'color-mix(in srgb, var(--error) 22%, transparent)',
   '--diffs-bg-separator-override': 'var(--surface-2)',
   '--diffs-bg-hover-override': 'var(--surface-2)',
   '--diffs-bg-selection-override': 'var(--accent-subtle)',
   '--diffs-fg-number-override': 'var(--text-tertiary)',
 } as CSSProperties;
 
-const params = new URLSearchParams(location.search);
 const diffStyle = params.get('style') === 'split' ? 'split' : 'unified';
 const ld = params.get('linediff');
 // Default matches the DiffViewer spike: 'none' tints the whole changed line
