@@ -7,19 +7,13 @@ import {
 import {
   ChevronsDownUp,
   ClipboardPaste,
-  Copy,
-  ExternalLink,
-  File as FileIcon,
   FilePlus,
   FolderOpen,
   FolderPlus,
   FolderSearch,
-  Link,
-  Pencil,
   RefreshCw,
-  Scissors,
-  Trash2,
 } from 'lucide-react';
+import { FileTree } from '@pierre/trees/react';
 import { Spinner } from '../../components/ui';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useI18n } from '../../i18n/useI18n';
@@ -32,29 +26,16 @@ import { IconButton, WorkspaceRootsBar } from './ExplorerPanel.parts';
 import { useWorkspaceStore } from './store';
 import { useEditorStore } from '../editor/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
-import { buildFileTree, flattenTree } from './tree';
-import { FileTree, type MenuTarget } from './FileTree';
-import {
-  commitCreate,
-  commitRename,
-  copyAbsolutePath,
-  copyRelativePath,
-  deletePath,
-  pasteInto,
-  revealPath,
-} from './fsActions';
+import { useWorkspaceTree, TREE_THEME_STYLE } from './useWorkspaceTree';
+import { pasteInto } from './fsActions';
 
 type Props = {
   open: boolean;
   onRequestClose?: () => void;
 };
 
-type MenuState = { x: number; y: number; target: MenuTarget };
-
-function parentOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i >= 0 ? rel.slice(0, i) : '';
-}
+// Right-click on the tree's empty body targets the workspace root.
+type MenuState = { x: number; y: number };
 
 // Explorer width is user-resizable (VSCode/Cursor pattern). Persisted locally so
 // it survives reloads; clamped so the panel can't be dragged uselessly thin or
@@ -91,17 +72,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   const opening = useWorkspaceStore((s) => s.opening);
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
   const reindex = useWorkspaceStore((s) => s.reindex);
-  const expandedDirs = useWorkspaceStore((s) => s.expandedDirs);
-  const selectedPath = useWorkspaceStore((s) => s.selectedPath);
-  const pendingEdit = useWorkspaceStore((s) => s.pendingEdit);
   const clipboard = useWorkspaceStore((s) => s.clipboard);
-  const toggleDir = useWorkspaceStore((s) => s.toggleDir);
-  const selectFile = useWorkspaceStore((s) => s.selectFile);
-  const collapseAll = useWorkspaceStore((s) => s.collapseAll);
-  const beginRename = useWorkspaceStore((s) => s.beginRename);
-  const beginCreate = useWorkspaceStore((s) => s.beginCreate);
-  const cancelPending = useWorkspaceStore((s) => s.cancelPending);
-  const setClipboard = useWorkspaceStore((s) => s.setClipboard);
   const openFile = useEditorStore((s) => s.openFile);
   const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
@@ -160,14 +131,6 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     handle.addEventListener('lostpointercapture', onDone);
   };
 
-  const tree = useMemo(
-    () => (summary ? buildFileTree(summary.files) : []),
-    [summary],
-  );
-  const rows = useMemo(
-    () => flattenTree(tree, expandedDirs),
-    [tree, expandedDirs],
-  );
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
     [activeWorkspaceId, workspaces],
@@ -182,56 +145,28 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     };
   };
 
-  const openRowMenu = (e: ReactMouseEvent, target: MenuTarget) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (target.kind === 'file' || target.kind === 'dir') selectFile(target.path);
-    setMenu({ x: e.clientX, y: e.clientY, target });
-  };
+  // The file tree is owned by @pierre/trees; this hook bridges it to the
+  // workspace (open on select, inline rename/create via fsActions, our own
+  // ContextMenu for row actions). Per-row right-click is handled inside the
+  // library via `renderContextMenu`; only the empty-body menu lives here.
+  const { model, renderContextMenu, beginCreate, collapseAll } = useWorkspaceTree({
+    onOpenFile: (p) => void openFile(workspaceFile(p)),
+  });
+
   const openEmptyMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
-    setMenu({ x: e.clientX, y: e.clientY, target: { kind: 'empty' } });
+    setMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const menuItems = (target: MenuTarget): MenuItem[] => {
-    const canPaste = clipboard !== null;
-    if (target.kind === 'empty') {
-      return [
-        { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate('', 'file') },
-        { label: t('workspace.action.newFolder'), icon: <FolderPlus size={15} />, onSelect: () => beginCreate('', 'dir') },
-        { type: 'separator' },
-        { label: t('workspace.action.paste'), icon: <ClipboardPaste size={15} />, disabled: !canPaste, onSelect: () => void pasteInto('') },
-        { type: 'separator' },
-        { label: t('workspace.action.collapseFolders'), icon: <ChevronsDownUp size={15} />, onSelect: collapseAll },
-        { label: t('workspace.action.refresh'), icon: <RefreshCw size={15} />, onSelect: () => void reindex() },
-      ];
-    }
-    const { kind, path } = target;
-    const pasteDir = kind === 'dir' ? path : parentOf(path);
-    const items: MenuItem[] = [];
-    if (kind === 'file') {
-      items.push({ label: t('workspace.action.open'), icon: <FileIcon size={15} />, onSelect: () => void openFile(workspaceFile(path)) });
-    } else {
-      items.push(
-        { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate(path, 'file') },
-        { label: t('workspace.action.newFolder'), icon: <FolderPlus size={15} />, onSelect: () => beginCreate(path, 'dir') },
-      );
-    }
-    items.push(
-      { type: 'separator' },
-      { label: t('workspace.action.cut'), icon: <Scissors size={15} />, onSelect: () => setClipboard(path, 'cut') },
-      { label: t('workspace.action.copy'), icon: <Copy size={15} />, onSelect: () => setClipboard(path, 'copy') },
-      { label: t('workspace.action.paste'), icon: <ClipboardPaste size={15} />, disabled: !canPaste, onSelect: () => void pasteInto(pasteDir) },
-      { type: 'separator' },
-      { label: t('workspace.action.copyPath'), icon: <Link size={15} />, onSelect: () => void copyAbsolutePath(path) },
-      { label: t('workspace.action.copyRelativePath'), onSelect: () => void copyRelativePath(path) },
-      { label: t('workspace.action.revealInFileExplorer'), icon: <ExternalLink size={15} />, onSelect: () => void revealPath(path) },
-      { type: 'separator' },
-      { label: t('workspace.action.rename'), icon: <Pencil size={15} />, onSelect: () => beginRename(path) },
-      { label: t('workspace.action.delete'), icon: <Trash2 size={15} />, danger: true, onSelect: () => void deletePath(path) },
-    );
-    return items;
-  };
+  const emptyMenuItems = (): MenuItem[] => [
+    { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate('', 'file') },
+    { label: t('workspace.action.newFolder'), icon: <FolderPlus size={15} />, onSelect: () => beginCreate('', 'dir') },
+    { type: 'separator' },
+    { label: t('workspace.action.paste'), icon: <ClipboardPaste size={15} />, disabled: clipboard === null, onSelect: () => void pasteInto('') },
+    { type: 'separator' },
+    { label: t('workspace.action.collapseFolders'), icon: <ChevronsDownUp size={15} />, onSelect: collapseAll },
+    { label: t('workspace.action.refresh'), icon: <RefreshCw size={15} />, onSelect: () => void reindex() },
+  ];
 
   // Close-zone affordance: dim content and tint the seam when the live drag
   // width drops into the dismiss range, signalling that releasing will close.
@@ -277,7 +212,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                 <IconButton
                   label={t('workspace.action.collapseFolders')}
                   onClick={collapseAll}
-                  disabled={expandedDirs.size === 0}
+                  disabled={summary.files.length === 0}
                 >
                   <ChevronsDownUp size={14} />
                 </IconButton>
@@ -316,31 +251,19 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
               />
             ) : null}
             <div
-              className="flex-1 min-h-0 overflow-y-auto"
+              className="flex-1 min-h-0 relative"
               onContextMenu={openEmptyMenu}
             >
-              {rows.length === 0 && !pendingEdit ? (
-                <p className="px-3 py-4 text-body-sm text-fg-tertiary">
+              <FileTree
+                model={model}
+                renderContextMenu={renderContextMenu}
+                style={TREE_THEME_STYLE}
+              />
+              {summary.files.length === 0 ? (
+                <p className="absolute inset-x-0 top-0 px-3 py-4 text-body-sm text-fg-tertiary pointer-events-none">
                   {t('workspace.emptyFolder')}
                 </p>
-              ) : (
-                <FileTree
-                  rows={rows}
-                  expanded={expandedDirs}
-                  selectedPath={selectedPath}
-                  pendingEdit={pendingEdit}
-                  clipboard={clipboard}
-                  onToggleDir={toggleDir}
-                  onSelectFile={selectFile}
-                  onOpenFile={(p) => void openFile(workspaceFile(p))}
-                  onContextMenu={openRowMenu}
-                  onCommitRename={(p, n) => commitRename(p, n).then((r) => r !== null)}
-                  onCommitCreate={(dir, n, k) =>
-                    commitCreate(dir, n, k).then((r) => r !== null)
-                  }
-                  onCancelEdit={cancelPending}
-                />
-              )}
+              ) : null}
               {summary.truncated ? (
                 <p className="px-3 py-2 text-caption text-fg-tertiary border-t border-subtle">
                   {formatWorkspaceTruncated(summary.files.length)}
@@ -416,7 +339,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={menuItems(menu.target)}
+          items={emptyMenuItems()}
           onClose={() => setMenu(null)}
         />
       ) : null}

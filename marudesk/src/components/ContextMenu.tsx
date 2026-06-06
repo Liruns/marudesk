@@ -26,6 +26,13 @@ type Props = {
   y: number;
   items: MenuItem[];
   onClose: () => void;
+  /**
+   * Marks the portaled root with `data-file-tree-context-menu-root` so when this
+   * menu is rendered through `@pierre/trees`' `renderContextMenu` slot, the
+   * library's outside-click detection treats clicks inside it as internal (the
+   * menu portals to <body>, outside the tree's shadow root).
+   */
+  contextMenuRoot?: boolean;
 };
 
 /**
@@ -33,7 +40,7 @@ type Props = {
  * Dismisses on outside pointer-down, Esc, scroll, blur, or resize. Arrow keys
  * move between enabled items; Enter/click selects (then closes).
  */
-export function ContextMenu({ x, y, items, onClose }: Props) {
+export function ContextMenu({ x, y, items, onClose, contextMenuRoot }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -111,6 +118,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     <div
       ref={ref}
       role="menu"
+      data-file-tree-context-menu-root={contextMenuRoot ? 'true' : undefined}
       onKeyDown={onMenuKeyDown}
       style={{ left: pos.x, top: pos.y }}
       className={cn(
