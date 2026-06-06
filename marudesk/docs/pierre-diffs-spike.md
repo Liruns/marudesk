@@ -16,13 +16,51 @@ direct feed:
 ```tsx
 <PatchDiff
   patch={diff}
-  options={{ theme: 'pierre-dark', preferredHighlighter: 'shiki-js' }}
+  options={{
+    theme: 'pierre-dark',
+    preferredHighlighter: 'shiki-js',
+    diffStyle,                 // 'unified' | 'split', toggled in the overlay header
+    lineDiffType: 'none',      // tint the whole changed line (no intra-line boxes)
+    diffIndicators: 'bars',    // matches the in-house left-bar diff language
+    expandUnchanged: true,     // expand context where the patch provides it
+    stickyHeader: true,        // pin the file header while scrolling
+  }}
   style={DIFF_CHROME_STYLE}
 />
 ```
 
-The result is a split, syntax-highlighted diff with a file header, `-N +N`
-stats, and add/remove bars (see `diff-preview/diff-spike.png`).
+The result is a syntax-highlighted diff with a pinned file header (`-N +N`
+stats), whole-line add/remove tint, and bar indicators
+(`diff-preview/diff-spike.png` unified, `diff-preview/diff-split.png` split).
+
+### Leveraging the library + design integration
+
+The first pass only fed `patch` + theme; this revision uses the option surface
+and fixes the design:
+
+- **Unified default + `split` toggle.** The overlay is narrow (`max-w-3xl`), so
+  split was cramped; default to unified and offer a segmented toggle in the
+  header. The overlay widens to `max-w-5xl` only while split is selected.
+- **No duplicate header.** PatchDiff renders its own file header (icon + path +
+  `-N +N`), so the overlay header drops the redundant path and carries only the
+  staged badge, the unified/split toggle, and close. `stickyHeader: true` pins
+  the file header while scrolling.
+- **`lineDiffType: 'none'`** tints the whole changed line instead of boxing the
+  changed tokens within it — calmer, and consistent with the in-house DiffBlock
+  which also highlights by line. The intra-line modes remain available:
+  `'word-alt'` (library default) joins single-space gaps into one continuous box
+  via `pushOrJoinSpan`; `'word'` leaves a gap at every space; `'char'` diffs by
+  character (noisier on unrelated lines). See the `?linediff=` comparison
+  captures (`diff-preview/linediff-none.png` vs `linediff-word-alt.png`).
+  **`diffIndicators: 'bars'`** matches the in-house left-bar look.
+- **Fuller token chrome.** `DIFF_CHROME_STYLE` maps line/number/selection
+  backgrounds onto tokens (and a `color-mix` word-emphasis tint for the
+  intra-line modes), so every value stays token-driven — no literal hex.
+
+Not yet wired (clear next steps): per-hunk `diffAcceptRejectHunk` for an
+interactive accept/reject review, `CodeView` for an all-changed-files scroll, the
+worker pool for very large diffs, and `MultiFileDiff` with both file versions to
+unlock full "expand unchanged" beyond the patch context.
 
 ## The cost (measured) and the mitigations applied
 
