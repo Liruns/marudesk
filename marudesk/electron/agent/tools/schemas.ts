@@ -83,6 +83,16 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
   {
+    name: 'read_diagnostics',
+    description:
+      "Read the latest cached compiler/linter diagnostics (errors + warnings) for the workspace, as produced by the PROJECT'S OWN checker and parsed into file:line findings — the same results shown in the Problems panel. Read-only: it does NOT run anything. If nothing is cached yet, run the checker first with run_command (e.g. `npm run typecheck`). Optionally filter to one file with `path`. Prefer this over re-reading raw run_command output when you just need the current error list.",
+    inputSchema: {
+      type: 'object',
+      properties: { path: strProp('Optional workspace-relative path to filter findings to.') },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'get_console_errors',
     description: 'Read the live page\'s captured runtime errors (always-on). Each carries a confidence-tagged source file when its stack maps deterministically to a workspace file. Start here for a "fix this error" task.',
     inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max errors (default 20).' } }, additionalProperties: false },

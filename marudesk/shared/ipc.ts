@@ -7,6 +7,7 @@ import type { AppSettings } from './settings';
 import type { PairingRequestInfo, RelayStatus, ServerStatus } from './remote';
 import type { TerminalDataEvent, TerminalExitEvent } from './terminal';
 import type { WorkspaceSnapshot } from './workspace';
+import type { DiagnosticsState } from './diagnostics';
 import type { IpcMap } from './ipc-map.ts';
 /**
  * The single source of truth for the renderer↔main IPC contract.
@@ -90,6 +91,9 @@ export interface EventPayloadMap {
   // Workspace deck state, pushed when a legacy or multi-workspace IPC mutation
   // changes the active workspace/root set.
   'workspaces:state': WorkspaceSnapshot;
+  // Workspace diagnostics (Tier 1): pushed as a checker pass starts and finishes
+  // so the Problems panel + Monaco markers update without polling.
+  'diagnostics:update': DiagnosticsState;
   // Cloud relay (Bridge Model B §B2): the sanitized status, pushed when the host
   // connects/disconnects or the session changes (so the Settings UI reflects the
   // connected-as-host indicator live). Never carries tokens.
@@ -141,6 +145,7 @@ export const EVENT_CHANNELS = [
   'devtools:error-count',
   'agent:event',
   'workspaces:state',
+  'diagnostics:update',
   'relay:status-changed',
   'server:status-changed',
   'server:pairing-request',

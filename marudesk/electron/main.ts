@@ -31,6 +31,7 @@ import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
+import { registerDiagnosticsHandlers } from './diagnostics/handlers';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
@@ -267,6 +268,7 @@ void app.whenReady().then(() => {
     },
   });
   registerHistoryHandlers();
+  registerDiagnosticsHandlers({ getMainWindow });
   registerTerminalHandlers({
     getMainWindow,
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,

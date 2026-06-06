@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { scrubText } from '../../../shared/scrub';
+import { inheritSafeEnv } from '../../proc-env';
 import type { Executor, ToolResult } from './types';
 
 /**
@@ -18,22 +19,12 @@ import type { Executor, ToolResult } from './types';
  * can't wedge the turn; the turn's AbortSignal kills the child.
  */
 
-/** Strip secret-shaped vars so a spawned command (and its children) can't read them. */
-const SENSITIVE_ENV = /(_API_KEY|_TOKEN|_SECRET|_PASSWORD|^ANTHROPIC_)/i;
 /** Cap captured output so a chatty command can't blow up the model context. */
 const MAX_OUTPUT = 60_000;
 /** Default run cap; commands are meant to be finite checks/builds, not servers. */
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 600_000;
-
-function safeEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === 'string' && !SENSITIVE_ENV.test(key)) env[key] = value;
-  }
-  return env;
-}
 
 function clampTimeout(raw: unknown): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return DEFAULT_TIMEOUT_MS;
@@ -67,7 +58,7 @@ export const runCommand: Executor = (input, ctx): Promise<ToolResult> => {
     // shims). The user approved this exact string via the gated approval card,
     // and it targets their own machine — same trust model as the integrated
     // terminal — so shell interpretation is intended, not an injection vector.
-    const child = spawn(command, { cwd, env: safeEnv(), shell: true });
+    const child = spawn(command, { cwd, env: inheritSafeEnv(), shell: true });
 
     let output = '';
     let truncated = false;

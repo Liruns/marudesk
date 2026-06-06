@@ -11,6 +11,7 @@ import type {
   AgentSendResult,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
+import type { DiagnosticsState } from './diagnostics';
 import type {
   ContextSyncPayload,
   SessionSearchHit,
@@ -397,6 +398,12 @@ export interface IpcMap {
   // history (address-bar autocomplete)
   'history:query': { args: [query: string]; result: HistoryEntry[] };
   'history:recent': { args: []; result: HistoryEntry[] };
+
+  // diagnostics (workspace language support, Tier 1 — electron/diagnostics/*).
+  // `run` runs the open project's own checker and parses its output; `get` pulls
+  // the cached state. Live updates push on the `diagnostics:update` event.
+  'diagnostics:run': { args: []; result: DiagnosticsState };
+  'diagnostics:get': { args: []; result: DiagnosticsState };
 
   // secrets / providers
   'secrets:list-providers': { args: []; result: ProviderStatus[] };

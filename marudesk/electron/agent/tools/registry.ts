@@ -16,6 +16,7 @@ import { FETCH_URL_TOOL } from './fetch-url';
 const TOOL_GROUP: Record<string, McpGroup> = {
   run_command: 'terminal',
   read_file: 'files',
+  read_diagnostics: 'devtools',
   list_files: 'files',
   grep: 'files',
   edit_file: 'files',
@@ -48,7 +49,7 @@ const WEB_TOOL_NAMES = new Set([
   'browser_cookies',
   'browser_storage',
 ]);
-const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_file', 'multi_edit', 'run_command']);
+const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_file', 'multi_edit', 'run_command', 'read_diagnostics']);
 
 /**
  * The original file/runtime/context tools, expressed as MCP tools (schema +

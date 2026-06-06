@@ -13,6 +13,7 @@ import {
 } from './runtime-tools.ts';
 import { click, fill, pressKey, scroll } from './interaction-tools.ts';
 import { runCommand } from './command-tools.ts';
+import { readDiagnostics } from './diagnostics-tool.ts';
 
 /**
  * The agent tool registry (docs/agentic-chat-design.md §4) — the §9 promotion of
@@ -27,6 +28,7 @@ import { runCommand } from './command-tools.ts';
 export const EXECUTORS: Record<string, Executor> = {
   read_file: readFile as Executor,
   run_command: runCommand as Executor,
+  read_diagnostics: readDiagnostics as Executor,
   list_files: listFiles as Executor,
   grep: grep as Executor,
   edit_file: editFile as Executor,
