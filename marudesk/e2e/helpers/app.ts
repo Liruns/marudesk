@@ -39,7 +39,29 @@ export async function launchApp(opts?: {
     ],
     cwd: MARUDESK_ROOT,
   });
-  const page = await app.firstWindow();
+  // The splash window (electron/splash.ts) opens first, so firstWindow() can be
+  // the splash — wait for the real renderer (index.html) instead.
+  const page = await mainWindow(app);
   await page.waitForLoadState('domcontentloaded');
   return { app, page };
+}
+
+/** Resolve the main renderer window (URL ends in index.html), not the splash. */
+export async function mainWindow(app: ElectronApplication): Promise<Page> {
+  const isMain = (p: Page): boolean => {
+    try {
+      return p.url().includes('index.html');
+    } catch {
+      return false;
+    }
+  };
+  const existing = app.windows().find(isMain);
+  if (existing) return existing;
+  for (let i = 0; i < 80; i += 1) {
+    const win = await app.waitForEvent('window').catch(() => null);
+    if (win && isMain(win)) return win;
+    const found = app.windows().find(isMain);
+    if (found) return found;
+  }
+  return app.firstWindow();
 }

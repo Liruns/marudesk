@@ -73,34 +73,38 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
           </p>
         ) : null}
 
-        {showGuide ? <HomeGuide scenarios={scenarios} onDismiss={dismissGuide} /> : null}
-
-        <div className="w-full max-w-2xl grid grid-cols-1 xl:grid-cols-2 gap-2.5 animate-fade-rise [animation-delay:120ms]">
-          <HomeLauncherCard
-            label={t('home.launcher.agent.label')}
-            hint={t('home.launcher.agent.hint')}
-            icon={<Sparkles size={18} />}
-            onOpen={() => open('agent')}
-          />
-          <HomeLauncherCard
-            label={t('home.launcher.browser.label')}
-            hint={t('home.launcher.browser.hint')}
-            icon={<Globe size={18} />}
-            onOpen={() => open('web')}
-          />
-          <HomeLauncherCard
-            label={t('home.launcher.terminal.label')}
-            hint={t('home.launcher.terminal.hint')}
-            icon={<SquareTerminal size={18} />}
-            onOpen={() => open('terminal')}
-          />
-          <HomeLauncherCard
-            label={t('home.launcher.editor.label')}
-            hint={t('home.launcher.editor.hint')}
-            icon={<Code2 size={18} />}
-            onOpen={() => open('editor')}
-          />
-        </div>
+        {showGuide ? (
+          // The guide already surfaces these actions (and more), so hide the
+          // compact launcher grid while it's open to avoid duplicate cards.
+          <HomeGuide scenarios={scenarios} onDismiss={dismissGuide} />
+        ) : (
+          <div className="w-full max-w-2xl grid grid-cols-1 xl:grid-cols-2 gap-2.5 animate-fade-rise [animation-delay:120ms]">
+            <HomeLauncherCard
+              label={t('home.launcher.agent.label')}
+              hint={t('home.launcher.agent.hint')}
+              icon={<Sparkles size={18} />}
+              onOpen={() => open('agent')}
+            />
+            <HomeLauncherCard
+              label={t('home.launcher.browser.label')}
+              hint={t('home.launcher.browser.hint')}
+              icon={<Globe size={18} />}
+              onOpen={() => open('web')}
+            />
+            <HomeLauncherCard
+              label={t('home.launcher.terminal.label')}
+              hint={t('home.launcher.terminal.hint')}
+              icon={<SquareTerminal size={18} />}
+              onOpen={() => open('terminal')}
+            />
+            <HomeLauncherCard
+              label={t('home.launcher.editor.label')}
+              hint={t('home.launcher.editor.hint')}
+              icon={<Code2 size={18} />}
+              onOpen={() => open('editor')}
+            />
+          </div>
+        )}
 
         <HomeRecents />
 

@@ -6,14 +6,6 @@ import { NameDialog } from './NameDialog';
 
 type ProfileDialog = { mode: 'create' } | { mode: 'rename'; id: string; name: string };
 
-function initials(name: string | undefined): string {
-  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
-  const first = words[0]?.[0] ?? '?';
-  const second = words.length > 1 ? words[1]?.[0] : words[0]?.[1];
-  return `${first}${second ?? ''}`.toUpperCase();
-}
-
 /**
  * Profile switcher at the top of the workspace rail. Lists profiles, switches
  * (which relaunches into that profile's isolated data set), and creates / renames
@@ -82,9 +74,9 @@ export function ProfileSwitcher() {
         aria-label={`Profile: ${active?.name ?? 'Default'}`}
         title={`Profile: ${active?.name ?? 'Default'}`}
         onClick={openMenu}
-        className="size-8 rounded-md border border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 flex items-center justify-center text-caption font-semibold transition-colors duration-fast"
+        className="size-8 rounded-full border border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 flex items-center justify-center transition-colors duration-fast"
       >
-        {active ? initials(active.name) : <UserRound size={15} />}
+        <UserRound size={16} aria-hidden />
       </button>
       <div className="w-6 h-px bg-subtle my-1" aria-hidden />
 
