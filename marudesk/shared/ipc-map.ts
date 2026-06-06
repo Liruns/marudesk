@@ -404,6 +404,9 @@ export interface IpcMap {
   // the cached state. Live updates push on the `diagnostics:update` event.
   'diagnostics:run': { args: []; result: DiagnosticsState };
   'diagnostics:get': { args: []; result: DiagnosticsState };
+  // Ensure + return the path to the user's languages.json (external checker
+  // recipes), seeding a template on first open. Hand-edited, like mcp config.
+  'diagnostics:open-config': { args: []; result: { path: string } };
 
   // secrets / providers
   'secrets:list-providers': { args: []; result: ProviderStatus[] };

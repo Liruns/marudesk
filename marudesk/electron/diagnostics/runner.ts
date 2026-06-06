@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { inheritSafeEnv } from '../proc-env';
 import type { Diagnostic, DiagnosticsRun, DiagnosticsState } from '../../shared/diagnostics';
-import { CHECKERS, PARSERS } from './checkers';
+import type { CheckerRecipe } from './checkers';
+import { getActiveCheckers } from './config';
 
 /**
  * Diagnostics runner (docs/workspace-language-support-design.md, Tier 1). Runs
@@ -89,9 +90,9 @@ function runOne(command: string, cwd: string): Promise<CheckerOutput> {
   });
 }
 
-/** Recipes whose marker file exists at the workspace root. */
-function applicableCheckers(root: string): typeof CHECKERS {
-  return CHECKERS.filter((c) =>
+/** Active recipes (built-in + user languages.json) whose marker exists at root. */
+function applicableCheckers(root: string): CheckerRecipe[] {
+  return getActiveCheckers().filter((c) =>
     c.appliesWhen.some((marker) => {
       try {
         return fs.existsSync(path.join(root, marker));
@@ -127,7 +128,7 @@ export async function runDiagnostics(root: string): Promise<DiagnosticsState> {
       if (exitCode === null) exitCode = 0;
       const result = await runOne(command, root);
       if (result.truncated) truncated = true;
-      diagnostics.push(...PARSERS[checker.parser](result.stdout, root));
+      diagnostics.push(...checker.parse(result.stdout, root));
       // Surface the first non-zero/failed exit (a clean pass leaves it at 0).
       if (result.exitCode !== 0) exitCode = result.exitCode;
     }

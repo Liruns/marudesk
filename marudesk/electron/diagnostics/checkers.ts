@@ -16,6 +16,9 @@ import type { Diagnostic, DiagnosticSeverity } from '../../shared/diagnostics';
 /** A named output parser. External recipes reference these by key. */
 export type ParserId = 'tsc' | 'eslint-json';
 
+/** Parse a checker's stdout into diagnostics (paths relativized to `root`). */
+export type ParseFn = (output: string, root: string) => Diagnostic[];
+
 export type CheckerRecipe = {
   /** Stable id; also the default Diagnostic.source for findings this produces. */
   id: string;
@@ -28,14 +31,14 @@ export type CheckerRecipe = {
    * Lets a recipe prefer the project's own npm script over a generic invocation.
    */
   resolveCommand: (root: string) => string | null;
-  /** Parser key — resolved to a function via {@link PARSERS}. */
-  parser: ParserId;
+  /** Parse this checker's stdout into diagnostics. */
+  parse: ParseFn;
 };
 
 /* ── parsers ─────────────────────────────────────────────────────────────── */
 
 /** Normalize a path to a workspace-relative POSIX path. */
-function toRel(file: string, root: string): string {
+export function toRel(file: string, root: string): string {
   const abs = path.isAbsolute(file) ? path.relative(root, file) : file;
   return abs.replace(/\\/g, '/').replace(/^\.\//, '');
 }
@@ -123,7 +126,7 @@ export function parseEslintJson(output: string, root: string): Diagnostic[] {
 }
 
 /** Registry of named parsers — external recipes reference these by {@link ParserId}. */
-export const PARSERS: Record<ParserId, (output: string, root: string) => Diagnostic[]> = {
+export const PARSERS: Record<ParserId, ParseFn> = {
   tsc: parseTsc,
   'eslint-json': parseEslintJson,
 };
@@ -162,7 +165,7 @@ export const CHECKERS: readonly CheckerRecipe[] = [
       hasNpmScript(root, 'typecheck')
         ? 'npm run typecheck --silent'
         : 'npx --no-install tsc -b --pretty false',
-    parser: 'tsc',
+    parse: parseTsc,
   },
   {
     id: 'eslint',
@@ -182,6 +185,6 @@ export const CHECKERS: readonly CheckerRecipe[] = [
     // Run ESLint directly with JSON output (a project `lint` script rarely emits
     // JSON). `.` lints the project per its config/ignores.
     resolveCommand: () => 'npx --no-install eslint . --format json',
-    parser: 'eslint-json',
+    parse: parseEslintJson,
   },
 ];

@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron';
 import { defineHandler, requireWorkspace } from '../ipc/define-handler';
 import { getDiagnosticsState, runDiagnostics, setDiagnosticsListener } from './runner';
+import { ensureLanguagesConfigFile } from './config';
 
 /**
  * IPC surface for workspace diagnostics (docs/workspace-language-support-design.md,
@@ -30,5 +31,9 @@ export function registerDiagnosticsHandlers(deps: {
   defineHandler('diagnostics:get', () => {
     const { root } = requireWorkspace();
     return getDiagnosticsState(root);
+  });
+
+  defineHandler('diagnostics:open-config', async () => {
+    return { path: await ensureLanguagesConfigFile() };
   });
 }

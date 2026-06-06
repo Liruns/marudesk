@@ -88,7 +88,7 @@ export const CHANNELS = {
   // Workspace diagnostics (docs/workspace-language-support-design.md, Tier 1).
   // `run` triggers the project's own checker (tsc/eslint/…) and parses its output;
   // `get` is the pull for initial render. Results also push on diagnostics:update.
-  diagnostics: ['diagnostics:run', 'diagnostics:get'],
+  diagnostics: ['diagnostics:run', 'diagnostics:get', 'diagnostics:open-config'],
   // Workspace Source Control (electron/git.ts). All run against the open
   // workspace root via execFile git (argv arrays, never a shell). `status`
   // returns isRepo:false cleanly when the folder isn't a repo; discards are
