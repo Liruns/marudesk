@@ -23,6 +23,18 @@ export function recordSubagentInput(value: unknown): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value));
 }
 
+/**
+ * Placeholder values a model commonly fills an "optional" provider/model field
+ * with when it really means "use the parent's". We treat these as "inherit"
+ * instead of rejecting them, so `spawn_subagent` works without the caller having
+ * to know the concrete provider/model ids.
+ */
+const INHERIT_SENTINELS = new Set(['default', 'auto', 'inherit', 'parent']);
+
+function isInheritSentinel(value: string): boolean {
+  return INHERIT_SENTINELS.has(value.trim().toLowerCase());
+}
+
 export function parseSubagentRequest(
   input: Record<string, unknown>,
   ctx: ToolContext,
@@ -33,7 +45,7 @@ export function parseSubagentRequest(
   if (!provider) {
     throw new SubagentInputError('spawn_subagent requires provider, or a parent provider context.');
   }
-  const model = stringInput(input.model, 'model', ctx.model).trim();
+  const model = modelInput(input.model, ctx.model);
   if (!model) throw new SubagentInputError('spawn_subagent requires model, or a parent model context.');
   const label = stringInput(input.label, 'label', task).trim().slice(0, MAX_LABEL_CHARS);
   return {
@@ -55,7 +67,18 @@ function providerInput(value: unknown, fallback: ProviderId | undefined): Provid
   if (value === undefined || value === null || value === '') return fallback ?? null;
   if (typeof value !== 'string') throw new SubagentInputError('provider must be a string.');
   const trimmed = value.trim();
+  // A blank or placeholder ("default"/"auto"/…) means "inherit the parent provider".
+  if (trimmed === '' || isInheritSentinel(trimmed)) return fallback ?? null;
   if (!isProviderId(trimmed)) throw new SubagentInputError(`unknown provider "${trimmed}".`);
+  return trimmed;
+}
+
+function modelInput(value: unknown, fallback: string | undefined): string {
+  if (value === undefined || value === null || value === '') return (fallback ?? '').trim();
+  if (typeof value !== 'string') throw new SubagentInputError('model must be a string.');
+  const trimmed = value.trim();
+  // A blank or placeholder ("default"/"auto"/…) means "inherit the parent model".
+  if (trimmed === '' || isInheritSentinel(trimmed)) return (fallback ?? '').trim();
   return trimmed;
 }
 
