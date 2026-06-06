@@ -6,7 +6,7 @@ import {
   mountBrowserView,
   registerBrowserHandlers,
 } from './browser';
-import { getCurrentWorkspace, registerWorkspaceHandlers } from './workspace';
+import { getCurrentWorkspace, registerWorkspaceHandlers, restoreWorkspaces } from './workspace';
 import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
@@ -229,6 +229,9 @@ void app.whenReady().then(() => {
   setWorkspaceProvider(getCurrentWorkspace);
   registerBrowserHandlers({ getMainWindow });
   registerWorkspaceHandlers({ getMainWindow });
+  // Rebuild persisted workspaces from disk (fire-and-forget — re-indexes local
+  // roots, then pushes state once the renderer is listening).
+  void restoreWorkspaces();
   registerWorkspaceMutateHandlers();
   registerSshHandlers();
   registerGitHandlers();

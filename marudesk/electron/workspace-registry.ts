@@ -32,12 +32,85 @@ import {
   toRootInput,
 } from './workspace-registry-helpers';
 import { isCaptureInput, rankFiles } from './workspace-rank';
+import {
+  loadPersistedRegistry,
+  saveWorkspaceRegistry,
+  type PersistedRoot,
+} from './workspace-persistence';
 
 let currentWorkspace: WorkspaceSummary | null = null;
 const workspaceRecords = new Map<WorkspaceId, WorkspaceRecord>();
 let activeWorkspaceId: WorkspaceId | null = null;
 let focusedPaneId: WorkspacePaneId | null = null;
 let workspaceRevision = 0;
+let getMainWindowRef: (() => BrowserWindow | null) | null = null;
+
+/** Write the live registry to disk so workspaces survive a restart. */
+function persistRegistry(): void {
+  saveWorkspaceRegistry([...workspaceRecords.values()], activeWorkspaceId);
+}
+
+/**
+ * Persist + broadcast registry state. Called after every mutation (module-scoped
+ * so {@link restoreWorkspaces} can reach it). The window may not exist yet during
+ * startup restore — persistence still runs, and the renderer picks up the pushed
+ * snapshot once it's listening.
+ */
+function pushWorkspaceState(): void {
+  persistRegistry();
+  workspaceRevision += 1;
+  const next = snapshot();
+  const win = getMainWindowRef?.();
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('workspaces:state', next);
+}
+
+/** Rebuild a root summary from its persisted identity, re-indexing local roots. */
+async function restoreRoot(r: PersistedRoot): Promise<WorkspaceRootSummary> {
+  const base: WorkspaceRootSummary = {
+    id: r.id,
+    name: r.name,
+    root: r.root,
+    files: [],
+    source: 'walk',
+    truncated: false,
+    ...(r.connection ? { connection: r.connection } : {}),
+  };
+  // SSH roots need a live connection we don't have at startup; restore the
+  // identity and let a later reindex (after reconnect) fill in the files.
+  if (isSshRootKey(r.root)) return base;
+  try {
+    const s = await summarizeWorkspace(r.root);
+    return { ...base, files: s.files, source: s.source, truncated: s.truncated };
+  } catch {
+    // Folder moved/deleted/unreadable — keep the workspace, just with no files.
+    return base;
+  }
+}
+
+/**
+ * Restore persisted workspaces on launch (fire-and-forget from main). Rebuilds
+ * each record (re-indexing local roots), restores the active workspace, then
+ * pushes state so the renderer reflects the restored deck.
+ */
+export async function restoreWorkspaces(): Promise<void> {
+  if (workspaceRecords.size > 0) return; // already populated this session
+  const data = loadPersistedRegistry();
+  if (data.workspaces.length === 0) return;
+  for (const w of data.workspaces) {
+    const roots: WorkspaceRootSummary[] = [];
+    for (const r of w.roots) roots.push(await restoreRoot(r));
+    if (roots.length === 0) continue;
+    const activeRootId = roots.find((rt) => rt.id === w.activeRootId)?.id ?? roots[0]?.id ?? null;
+    workspaceRecords.set(w.id, { id: w.id, name: w.name, roots, activeRootId });
+  }
+  activeWorkspaceId =
+    data.activeWorkspaceId && workspaceRecords.has(data.activeWorkspaceId)
+      ? data.activeWorkspaceId
+      : (workspaceRecords.keys().next().value ?? null);
+  refreshCurrentWorkspace();
+  pushWorkspaceState();
+}
 
 export function getCurrentWorkspace(): WorkspaceSummary | null {
   return summaryForActiveRoot() ?? currentWorkspace;
@@ -240,13 +313,7 @@ async function pickWorkspaceRoot(
 export function registerWorkspaceHandlers(deps: {
   getMainWindow: () => BrowserWindow | null;
 }): void {
-  const pushWorkspaceState = (): void => {
-    workspaceRevision += 1;
-    const next = snapshot();
-    const win = deps.getMainWindow();
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send('workspaces:state', next);
-  };
+  getMainWindowRef = deps.getMainWindow;
 
   defineHandler('workspace:open', async () => {
     const win = deps.getMainWindow();
