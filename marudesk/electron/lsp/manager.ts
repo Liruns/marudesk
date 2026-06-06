@@ -35,6 +35,9 @@ type Entry = {
 const clients = new Map<string, Entry>();
 /** Diagnostics per root, keyed `${serverId}::${file}` so servers don't clobber. */
 const live = new Map<string, Map<string, Diagnostic[]>>();
+/** The most recent reconcile inputs, replayed when a server finishes starting. */
+let lastRoot: string | null = null;
+let lastEditors: readonly EditorMirror[] = [];
 
 function key(root: string, serverId: string): string {
   return `${root}::${serverId}`;
@@ -104,7 +107,12 @@ function startClient(root: string, spec: LspServerSpec): void {
   entry.client
     .start()
     .then(() => {
-      if (clients.get(k) === entry) entry.status = 'ready';
+      if (clients.get(k) !== entry) return;
+      entry.status = 'ready';
+      // Files already open when the server was still starting weren't synced yet
+      // (they only sync for ready clients). Replay the latest mirror so didOpen
+      // fires now — otherwise diagnostics wouldn't appear until the next edit.
+      syncFromContext(lastRoot, lastEditors);
     })
     .catch(() => {
       // Failed to initialize (binary missing, handshake error) — drop, stay quiet.
@@ -119,6 +127,8 @@ function startClient(root: string, spec: LspServerSpec): void {
  * active workspace root, or null when none is open.
  */
 export function syncFromContext(root: string | null, editors: readonly EditorMirror[]): void {
+  lastRoot = root;
+  lastEditors = editors;
   // Tear down clients for any other root (workspace switch) or no workspace.
   for (const [k, entry] of clients) {
     if (root === null || entry.root !== root) {
