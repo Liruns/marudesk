@@ -34,6 +34,7 @@ import { registerHistoryHandlers } from './history';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
+import { loadWindowState, trackWindowState } from './window-state';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
@@ -97,9 +98,13 @@ function applyHostContentSecurityPolicy(): void {
 }
 
 async function createMainWindow(): Promise<BrowserWindow> {
+  const windowState = loadWindowState();
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: windowState.width,
+    height: windowState.height,
+    ...(windowState.x !== undefined && windowState.y !== undefined
+      ? { x: windowState.x, y: windowState.y }
+      : {}),
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: '#08090A',
@@ -133,9 +138,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
   win.on('leave-full-screen', pushMaximizeState);
 
   win.once('ready-to-show', () => {
+    if (windowState.maximized) win.maximize();
     win.show();
     pushMaximizeState();
   });
+  // Persist size/position/maximized across restarts.
+  trackWindowState(win);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     openExternalUrl(url);
