@@ -324,8 +324,20 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
 
 ### 10.4 외부 MCP 프리셋 (브라우저 제어 등)
 - `shared/mcp-presets.ts`에 큐레이션된 서버 프리셋. 헤드라인은 **브라우저 제어** — Codex Desktop의
-  "Chrome MCP"처럼 Google `chrome-devtools-mcp`(별도 Chrome 프로세스, 풀 커서 제어)를 **기존 외부 커넥터**로
-  바로 붙인다(우리 앱 CDP allowlist 불변, 안전). Playwright MCP도 포함.
+  "Chrome MCP"처럼 Google `chrome-devtools-mcp`(풀 커서 제어, navigate/click/type/screenshot/DOM·network
+  inspection)를 **기존 외부 커넥터**로 붙인다. 단 **별도 Chrome을 띄우지 않고** 우리 앱의 내장 브라우저
+  탭(`electron/browser/tabs.ts`의 `WebContentsView`)에 CDP로 붙는다: 프리셋 args에
+  `--browser-url=http://127.0.0.1:9333`(`EMBEDDED_CHROMIUM_DEBUG_URL`)을 넣어 우리가 여는 remote-debugging
+  엔드포인트에 연결시킨다. Playwright MCP도 포함.
+- **포트 게이팅**: Chromium의 remote-debugging-port는 런타임 API가 없고 app-ready 전 command-line 스위치로만
+  켤 수 있다. 그래서 `electron/main.ts`가 부팅 시 `readMcpConfigSync()`로 config를 동기 읽어, 내장
+  `--browser-url`을 참조하는 enabled 서버가 있을 때**만** 127.0.0.1 루프백으로 포트를 연다. 패키지 빌드에서
+  이 프리셋을 켜지 않으면 내장 탭이 CDP로 절대 노출되지 않는다. 스위치를 부팅 전에만 걸 수 있으므로 프리셋을
+  **새로 추가하면 다음 실행부터** 연결된다(첫 추가 직후의 연결 시도는 포트가 닫혀 있어 `error`로 graceful 처리).
+- **CDP 단일 클라이언트 주의**: 한 `webContents`에는 CDP 클라이언트가 하나만 붙는다. 자체 DevTools 도크
+  (`electron/browser/cdp.ts`의 `debugger.attach`)가 붙어 있는 탭을 에이전트가 동시에 조작하면 "another
+  debugger is already attached" 충돌이 난다(built-in vs 커스텀 DevTools와 동일한 제약, `custom-devtools-design.md`).
+  동일 탭에 둘을 동시에 붙이지 말 것.
 - 추가는 **untrusted + enabled**(브라우저 컨트롤러는 side-effecting → 호출당 승인 기본). `mcp:add-preset`
   IPC가 `addMcpServer`로 config에 한 번만 추가(중복 id no-op) 후 재동기화. Settings → MCP Servers에
   "서버 추가" 버튼(이미 추가된 프리셋은 비활성+체크).
