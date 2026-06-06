@@ -4,6 +4,7 @@
  * own. ipc.ts re-exports it and keeps the channel lists + completeness guards.
  */
 import type { AppInfo, UpdateCheckResult } from './app-info';
+import type { ProfileMeta, ProfilesState } from './profiles';
 import type {
   AgentAnswers,
   AgentChatState,
@@ -594,6 +595,13 @@ export interface IpcMap {
   // ui — renderer-owned layout persisted to main JSON (opaque payload).
   'ui:get-layout': { args: []; result: unknown };
   'ui:set-layout': { args: [layout: unknown]; result: void };
+
+  // profiles — isolated data sets; switch relaunches the app.
+  'profiles:list': { args: []; result: ProfilesState };
+  'profiles:create': { args: [name: string]; result: ProfileMeta };
+  'profiles:rename': { args: [payload: { id: string; name: string }]; result: ProfilesState };
+  'profiles:delete': { args: [id: string]; result: ProfilesState };
+  'profiles:switch': { args: [id: string]; result: void };
 
   // window
   'window:minimize': { args: []; result: boolean };

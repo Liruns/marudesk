@@ -1,4 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
+// Redirect userData to the active profile BEFORE any persistence module loads.
+import './profile-init';
+import { registerProfileHandlers } from './profile-store';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
@@ -254,6 +257,7 @@ void app.whenReady().then(() => {
   registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);
   registerUiLayoutHandlers();
+  registerProfileHandlers();
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the
   // renderer so Settings reflects it without polling. Sanitized — never tokens.

@@ -30,6 +30,7 @@ import {
   type WorkspaceSplitDir,
 } from './layout';
 import { NameDialog } from './NameDialog';
+import { ProfileSwitcher } from './ProfileSwitcher';
 import { SshRootDialog } from './SshRootDialog';
 import { startLayoutPersistence, useWorkspaceDeckStore } from './store';
 import { PeekExplorer } from './WorkspaceStage.parts';
@@ -127,6 +128,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
       data-tour="workspace-rail"
       className="chrome-rail w-12 shrink-0 border-r flex flex-col items-center py-2 gap-1"
     >
+      <ProfileSwitcher />
       {workspaces.map((workspace) => {
         const active = workspace.id === activeWorkspaceId;
         return (
