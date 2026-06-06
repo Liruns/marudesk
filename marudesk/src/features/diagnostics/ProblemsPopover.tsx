@@ -100,6 +100,25 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
         </button>
       </header>
 
+      {state.lspServers.length > 0 ? (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-subtle text-fg-tertiary">
+          <span>LSP:</span>
+          {state.lspServers.map((s) => (
+            <span
+              key={s.id}
+              className={cn(
+                'flex items-center gap-1',
+                s.state === 'error' && 'text-error',
+                s.state === 'ready' && 'text-fg-secondary',
+              )}
+            >
+              {s.id}
+              {s.state === 'ready' ? '' : ` (${s.state})`}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       <div className="flex-1 overflow-auto py-1">
         {groups.length === 0 ? (
           <p className="px-3 py-4 text-fg-tertiary">

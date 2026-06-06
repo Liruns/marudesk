@@ -23,7 +23,13 @@ type DiagnosticsStoreActions = {
   readonly run: () => Promise<void>;
 };
 
-const EMPTY: DiagnosticsState = { root: null, running: false, lastRun: null, live: [] };
+const EMPTY: DiagnosticsState = {
+  root: null,
+  running: false,
+  lastRun: null,
+  live: [],
+  lspServers: [],
+};
 
 export const useDiagnosticsStore = create<DiagnosticsStoreState & DiagnosticsStoreActions>(
   (set) => ({

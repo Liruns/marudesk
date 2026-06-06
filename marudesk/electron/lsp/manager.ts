@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LspClient } from './client';
 import { getActiveLspServers, type LspServerSpec } from '../diagnostics/config';
-import { setLiveDiagnostics } from '../diagnostics/runner';
+import { setLiveDiagnostics, setLspStatuses } from '../diagnostics/runner';
 import type { EditorMirror } from '../../shared/context';
-import type { Diagnostic } from '../../shared/diagnostics';
+import type { Diagnostic, LspServerStatus } from '../../shared/diagnostics';
 
 /**
  * Language-server manager (Tier 2, docs/workspace-language-support-design.md).
@@ -71,6 +71,30 @@ function clearRoot(root: string): void {
   if (live.delete(root)) setLiveDiagnostics(root, []);
 }
 
+/** Push the lifecycle rows for a root (from the live client entries). */
+function pushStatuses(root: string): void {
+  const rows: LspServerStatus[] = [];
+  for (const entry of clients.values()) {
+    if (entry.root === root) rows.push({ id: entry.spec.id, state: entry.status });
+  }
+  setLspStatuses(root, rows);
+}
+
+/**
+ * The text to sync for an editor buffer. The mirror bounds buffer size, so a
+ * large file arrives truncated — sending that to the server would misreport
+ * diagnostics past the cut. Fall back to the on-disk file in that case (loses
+ * unsaved edits past the cut, but the positions are correct).
+ */
+function contentFor(root: string, ed: EditorMirror): string {
+  if (!ed.truncated) return ed.content;
+  try {
+    return fs.readFileSync(path.join(root, ed.path), 'utf8');
+  } catch {
+    return ed.content;
+  }
+}
+
 /** Servers whose marker file exists at the root. */
 function applicableServers(root: string): LspServerSpec[] {
   return getActiveLspServers().filter((s) =>
@@ -92,10 +116,19 @@ function startClient(root: string, spec: LspServerSpec): void {
       root,
       languageId: spec.languageId,
       source: spec.id,
+      ...(spec.initializationOptions !== undefined
+        ? { initializationOptions: spec.initializationOptions }
+        : {}),
       onDiagnostics: (file, diags) => setFileDiagnostics(root, spec.id, file, diags),
       onClose: () => {
-        // Drop a crashed/exited server; its findings go with it.
-        if (clients.get(k) === entry) clients.delete(k);
+        // A crash/exit after readiness: mark errored + clear its findings (kept in
+        // the map so the UI shows it failed; no auto-retry until workspace reload).
+        if (clients.get(k) !== entry) return;
+        entry.status = 'error';
+        entry.client.dispose();
+        for (const file of entry.docs.keys()) setFileDiagnostics(root, spec.id, file, []);
+        entry.docs.clear();
+        pushStatuses(root);
       },
     }),
     spec,
@@ -104,20 +137,25 @@ function startClient(root: string, spec: LspServerSpec): void {
     docs: new Map(),
   };
   clients.set(k, entry);
+  pushStatuses(root);
   entry.client
     .start()
     .then(() => {
       if (clients.get(k) !== entry) return;
       entry.status = 'ready';
+      pushStatuses(root);
       // Files already open when the server was still starting weren't synced yet
       // (they only sync for ready clients). Replay the latest mirror so didOpen
       // fires now — otherwise diagnostics wouldn't appear until the next edit.
       syncFromContext(lastRoot, lastEditors);
     })
     .catch(() => {
-      // Failed to initialize (binary missing, handshake error) — drop, stay quiet.
-      if (clients.get(k) === entry) clients.delete(k);
+      // Failed to initialize (binary missing, handshake error) — mark errored and
+      // keep the row so the user sees it (no respawn loop on each sync).
+      if (clients.get(k) !== entry) return;
+      entry.status = 'error';
       entry.client.dispose();
+      pushStatuses(root);
     });
 }
 
@@ -130,13 +168,16 @@ export function syncFromContext(root: string | null, editors: readonly EditorMir
   lastRoot = root;
   lastEditors = editors;
   // Tear down clients for any other root (workspace switch) or no workspace.
+  const drainedRoots = new Set<string>();
   for (const [k, entry] of clients) {
     if (root === null || entry.root !== root) {
       entry.client.dispose();
       clients.delete(k);
       clearRoot(entry.root);
+      drainedRoots.add(entry.root);
     }
   }
+  for (const drained of drainedRoots) pushStatuses(drained);
   if (!root) return;
 
   const servers = applicableServers(root);
@@ -164,7 +205,7 @@ export function syncFromContext(root: string | null, editors: readonly EditorMir
     for (const ed of editors) {
       if (!ed.path || ed.path.startsWith('untitled-')) continue;
       if (!spec.extensions.includes(extOf(ed.path))) continue;
-      desired.set(ed.path, ed.content);
+      desired.set(ed.path, contentFor(root, ed));
     }
 
     for (const [file, text] of desired) {
@@ -181,6 +222,8 @@ export function syncFromContext(root: string | null, editors: readonly EditorMir
       }
     }
   }
+
+  pushStatuses(root);
 }
 
 /** Tear down every language server (call on app quit). */

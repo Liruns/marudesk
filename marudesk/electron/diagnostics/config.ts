@@ -52,6 +52,8 @@ export type LspServerSpec = {
   appliesWhen: readonly string[];
   /** File extensions (with dot) this server handles, e.g. [".ts", ".tsx"]. */
   extensions: readonly string[];
+  /** Optional LSP `initializationOptions` passed through verbatim at initialize. */
+  initializationOptions?: unknown;
 };
 
 export function languagesConfigPath(): string {
@@ -169,6 +171,9 @@ function compileLspServer(raw: unknown): LspServerSpec | null {
     command: o.command,
     appliesWhen: o.appliesWhen,
     extensions: o.extensions.map((e) => (e.startsWith('.') ? e.toLowerCase() : `.${e.toLowerCase()}`)),
+    ...(o.initializationOptions !== undefined
+      ? { initializationOptions: o.initializationOptions }
+      : {}),
   };
 }
 

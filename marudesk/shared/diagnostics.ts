@@ -44,6 +44,12 @@ export type DiagnosticsRun = {
   truncated: boolean;
 };
 
+/** Lifecycle of a language server for the current root (Tier 2). */
+export type LspServerStatus = {
+  id: string;
+  state: 'starting' | 'ready' | 'error';
+};
+
 /**
  * The diagnostics state for a workspace root, pushed on `diagnostics:update` and
  * returned by `diagnostics:get`. `lastRun` is null until a check has run for the
@@ -60,4 +66,6 @@ export type DiagnosticsState = {
    * consumers merge the two for display.
    */
   live: Diagnostic[];
+  /** Language-server lifecycle rows for the current root (Tier 2). */
+  lspServers: LspServerStatus[];
 };

@@ -25,6 +25,8 @@ export type LspClientOptions = {
   languageId: string;
   /** Diagnostic.source label for findings (usually the server id). */
   source: string;
+  /** Optional LSP initializationOptions passed verbatim at initialize. */
+  initializationOptions?: unknown;
   /** Called with workspace-relative POSIX file + its current diagnostics. */
   onDiagnostics: (file: string, diagnostics: Diagnostic[]) => void;
   /** Called once when the connection drops (crash/exit) or fails to start. */
@@ -99,6 +101,9 @@ export class LspClient {
       processId: process.pid,
       rootUri,
       workspaceFolders: [{ uri: rootUri, name: path.basename(this.opts.root) }],
+      ...(this.opts.initializationOptions !== undefined
+        ? { initializationOptions: this.opts.initializationOptions }
+        : {}),
       capabilities: {
         textDocument: {
           synchronization: { dynamicRegistration: false, didSave: false },

@@ -2,7 +2,12 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { inheritSafeEnv } from '../proc-env';
-import type { Diagnostic, DiagnosticsRun, DiagnosticsState } from '../../shared/diagnostics';
+import type {
+  Diagnostic,
+  DiagnosticsRun,
+  DiagnosticsState,
+  LspServerStatus,
+} from '../../shared/diagnostics';
 import type { CheckerRecipe } from './checkers';
 import { getActiveCheckers } from './config';
 
@@ -28,6 +33,8 @@ let runningRoot: string | null = null;
 let listener: ((state: DiagnosticsState) => void) | null = null;
 /** Live language-server diagnostics per root (Tier 2), set by the LSP manager. */
 const liveByRoot = new Map<string, Diagnostic[]>();
+/** Language-server lifecycle rows per root (Tier 2), set by the LSP manager. */
+const lspStatusByRoot = new Map<string, LspServerStatus[]>();
 
 /** Wire the renderer-push listener once (from main.ts via handlers.ts). */
 export function setDiagnosticsListener(fn: ((state: DiagnosticsState) => void) | null): void {
@@ -37,13 +44,27 @@ export function setDiagnosticsListener(fn: ((state: DiagnosticsState) => void) |
 function stateFor(root: string | null): DiagnosticsState {
   const run = root !== null && lastRunRoot === root ? lastRun : null;
   const live = root !== null ? (liveByRoot.get(root) ?? []) : [];
-  return { root, running: runningRoot !== null && runningRoot === root, lastRun: run, live };
+  const lspServers = root !== null ? (lspStatusByRoot.get(root) ?? []) : [];
+  return {
+    root,
+    running: runningRoot !== null && runningRoot === root,
+    lastRun: run,
+    live,
+    lspServers,
+  };
 }
 
 /** Replace the live (LSP) diagnostics for a root and push the merged state. */
 export function setLiveDiagnostics(root: string, diagnostics: Diagnostic[]): void {
   if (diagnostics.length === 0) liveByRoot.delete(root);
   else liveByRoot.set(root, diagnostics);
+  emit(root);
+}
+
+/** Replace the language-server lifecycle rows for a root and push state. */
+export function setLspStatuses(root: string, statuses: LspServerStatus[]): void {
+  if (statuses.length === 0) lspStatusByRoot.delete(root);
+  else lspStatusByRoot.set(root, statuses);
   emit(root);
 }
 
