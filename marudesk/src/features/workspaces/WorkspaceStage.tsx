@@ -36,6 +36,7 @@ import { PeekExplorer } from './WorkspaceStage.parts';
 
 type DeckDialog =
   | { mode: 'create' }
+  | { mode: 'create-ssh' }
   | { mode: 'rename'; workspace: WorkspaceRecord };
 
 export function WorkspaceStage() {
@@ -86,6 +87,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
   const [menu, setMenu] = useState<{ workspace: WorkspaceRecord; x: number; y: number } | null>(
     null,
   );
+  const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null);
   const [dialog, setDialog] = useState<DeckDialog | null>(null);
 
   const openMenu = (event: ReactMouseEvent, workspace: WorkspaceRecord) => {
@@ -151,7 +153,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
         type="button"
         aria-label="New workspace"
         title="New workspace"
-        onClick={() => setDialog({ mode: 'create' })}
+        onClick={(event) => setCreateMenu({ x: event.clientX, y: event.clientY })}
         className={cn(
           'size-8 rounded-md border border-dashed border-subtle flex items-center justify-center',
           'text-fg-tertiary hover:text-fg-primary hover:border-default transition-colors duration-fast',
@@ -168,6 +170,25 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
           onClose={() => setMenu(null)}
         />
       ) : null}
+      {createMenu ? (
+        <ContextMenu
+          x={createMenu.x}
+          y={createMenu.y}
+          items={[
+            {
+              label: 'New workspace (folder)…',
+              icon: <FolderPlus size={14} />,
+              onSelect: () => setDialog({ mode: 'create' }),
+            },
+            {
+              label: 'New workspace (SSH folder)…',
+              icon: <Server size={14} />,
+              onSelect: () => setDialog({ mode: 'create-ssh' }),
+            },
+          ]}
+          onClose={() => setCreateMenu(null)}
+        />
+      ) : null}
       {dialog?.mode === 'create' ? (
         <NameDialog
           title="New workspace"
@@ -177,6 +198,9 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
           onSubmit={(name) => void createWorkspace(name, [])}
           onClose={() => setDialog(null)}
         />
+      ) : null}
+      {dialog?.mode === 'create-ssh' ? (
+        <SshRootDialog onClose={() => setDialog(null)} />
       ) : null}
       {dialog?.mode === 'rename' ? (
         <NameDialog
@@ -249,7 +273,6 @@ function WorkspacePane({
   const splitFocusedPane = useWorkspaceDeckStore((s) => s.splitFocusedPane);
   const closePane = useWorkspaceDeckStore((s) => s.closePane);
   const [peekOpen, setPeekOpen] = useState(false);
-  const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const focused = focusedPaneId === paneId;
   const paneCount = layout ? workspaceLeaves(layout).length : 1;
 
@@ -293,11 +316,6 @@ function WorkspacePane({
             </PaneButton>
           ) : null}
           {record ? (
-            <PaneButton label="Add SSH folder" onClick={() => setSshDialogOpen(true)}>
-              <Server size={15} />
-            </PaneButton>
-          ) : null}
-          {record ? (
             <PaneButton
               label="Reindex workspace"
               onClick={() => void reindexWorkspace(record.id)}
@@ -325,12 +343,6 @@ function WorkspacePane({
         <PeekExplorer
           record={record}
           onClose={() => setPeekOpen(false)}
-        />
-      ) : null}
-      {sshDialogOpen && record ? (
-        <SshRootDialog
-          workspaceId={record.id}
-          onClose={() => setSshDialogOpen(false)}
         />
       ) : null}
     </section>

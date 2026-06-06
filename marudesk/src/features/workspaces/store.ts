@@ -56,6 +56,9 @@ type WorkspaceDeckActions = {
     workspaceId: WorkspaceId,
     params: { connectionId: string; remotePath: string; name?: string },
   ) => Promise<WorkspaceRecord | null>;
+  readonly createSshWorkspace: (
+    params: { connectionId: string; remotePath: string; name?: string; workspaceName?: string },
+  ) => Promise<WorkspaceRecord | null>;
   readonly setActiveRoot: (
     workspaceId: WorkspaceId,
     rootId: WorkspaceRootId,
@@ -78,6 +81,29 @@ function layoutForSnapshot(snapshot: WorkspaceSnapshot): WorkspaceLayoutNode | n
     snapshot.focusedWorkspaceId ?? snapshot.activeWorkspaceId ?? snapshot.workspaces[0]?.id;
   if (!focused) return null;
   return workspaceLeaf(focused);
+}
+
+/**
+ * After creating a workspace, ingest the new snapshot AND point a visible pane at
+ * the new workspace — the stage/tab strip/file tree render from the layout leaf's
+ * workspaceId, not from activeWorkspaceId, so without repointing the workspace
+ * would be "active" yet no pane would show it.
+ */
+function applyCreatedWorkspace(
+  state: WorkspaceDeckState,
+  snapshot: WorkspaceSnapshot,
+  recordId: WorkspaceId,
+): WorkspaceDeckState {
+  const next = applySnapshot(state, snapshot);
+  let layout = next.layout ?? workspaceLeaf(recordId);
+  const targetPane = next.focusedPaneId ?? workspaceLeaves(layout)[0]?.id ?? null;
+  if (targetPane) layout = setWorkspaceLeaf(layout, targetPane, recordId);
+  return {
+    ...next,
+    activeWorkspaceId: recordId,
+    focusedPaneId: targetPane ?? next.focusedPaneId,
+    layout,
+  };
 }
 
 function applySnapshot(
@@ -146,23 +172,7 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
           return null;
         }
         const snapshot = await window.marudesk.invoke('workspaces:list');
-        set((state) => {
-          const next = applySnapshot(state, snapshot);
-          let layout = next.layout ?? workspaceLeaf(record.id);
-          // The stage/tab strip/file tree render from the layout leaf's
-          // workspaceId, not from activeWorkspaceId. An existing session already
-          // has a layout whose leaves point at the previous workspaces, so we must
-          // repoint a visible pane to the new workspace — otherwise it becomes
-          // "active" but no pane shows it (tabs + tree stay on the old workspace).
-          const targetPane = next.focusedPaneId ?? workspaceLeaves(layout)[0]?.id ?? null;
-          if (targetPane) layout = setWorkspaceLeaf(layout, targetPane, record.id);
-          return {
-            ...next,
-            activeWorkspaceId: record.id,
-            focusedPaneId: targetPane ?? next.focusedPaneId,
-            layout,
-          };
-        });
+        set((state) => applyCreatedWorkspace(state, snapshot, record.id));
         return record;
       } catch (err) {
         set({ loading: false, error: toMessage(err) });
@@ -202,6 +212,19 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         const record = await window.marudesk.invoke('workspaces:add-root', { workspaceId });
         const snapshot = await window.marudesk.invoke('workspaces:list');
         set((state) => applySnapshot(state, snapshot));
+        return record;
+      } catch (err) {
+        set({ loading: false, error: toMessage(err) });
+        return null;
+      }
+    },
+
+    createSshWorkspace: async (params) => {
+      set({ loading: true, error: null });
+      try {
+        const record = await window.marudesk.invoke('workspaces:create-ssh', params);
+        const snapshot = await window.marudesk.invoke('workspaces:list');
+        set((state) => applyCreatedWorkspace(state, snapshot, record.id));
         return record;
       } catch (err) {
         set({ loading: false, error: toMessage(err) });

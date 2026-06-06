@@ -425,6 +425,47 @@ export function registerWorkspaceHandlers(deps: {
     return next;
   });
 
+  defineHandler('workspaces:create-ssh', async ([payload]) => {
+    const p = obj(payload);
+    const connectionId = str(p.connectionId, 'connectionId');
+    const info = getConnectionInfo(connectionId);
+    const remotePath = str(p.remotePath, 'remotePath').replace(/\/+$/, '') || '/';
+    if (!remotePath.startsWith('/')) {
+      throw new Error('remotePath must be an absolute POSIX path');
+    }
+    const rootKey = sshRootKey(connectionId, remotePath);
+    const requestedRoot = typeof p.name === 'string' ? p.name.trim() : '';
+    const rootName = requestedRoot || path.posix.basename(remotePath) || info.label;
+    const summary = await summarizeWorkspace(rootKey);
+    const root: WorkspaceRootSummary = {
+      id: createId('root'),
+      name: rootName,
+      root: rootKey,
+      files: summary.files,
+      source: summary.source,
+      truncated: summary.truncated,
+      connection: {
+        kind: 'ssh',
+        connectionId,
+        host: info.host,
+        username: info.username,
+        remotePath,
+      },
+    };
+    const requestedWs = typeof p.workspaceName === 'string' ? p.workspaceName.trim() : '';
+    const record: WorkspaceRecord = {
+      id: createId('workspace'),
+      name: requestedWs || rootName,
+      roots: [root],
+      activeRootId: root.id,
+    };
+    workspaceRecords.set(record.id, record);
+    activeWorkspaceId = record.id;
+    refreshCurrentWorkspace();
+    pushWorkspaceState();
+    return record;
+  });
+
   defineHandler('workspaces:remove-root', ([payload]) => {
     const p = obj(payload);
     const workspaceId = str(p.workspaceId, 'workspaceId');

@@ -74,6 +74,7 @@ export const CHANNELS = {
     'workspaces:save-as',
     'workspaces:rank',
     'workspaces:add-ssh-root',
+    'workspaces:create-ssh',
   ],
   // Remote SSH connections (electron/ssh/*). Manage configured hosts and probe
   // them; credentials cross inbound only and never come back to the renderer.

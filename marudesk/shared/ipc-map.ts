@@ -334,6 +334,19 @@ export interface IpcMap {
     ];
     result: WorkspaceRecord;
   };
+  // Create a NEW workspace seeded with an SSH folder as its first root (the
+  // "New workspace → SSH folder" flow). Indexed before it's returned.
+  'workspaces:create-ssh': {
+    args: [
+      payload: {
+        connectionId: string;
+        remotePath: string;
+        name?: string;
+        workspaceName?: string;
+      },
+    ];
+    result: WorkspaceRecord;
+  };
 
   // ssh (remote connections — electron/ssh/*). `add`/`test` carry credentials
   // inbound; only the sanitized SshConnectionInfo ever comes back.

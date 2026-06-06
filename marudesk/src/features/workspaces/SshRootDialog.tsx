@@ -23,10 +23,13 @@ export function SshRootDialog({
   workspaceId,
   onClose,
 }: {
-  workspaceId: WorkspaceId;
+  /** Omitted = create a NEW workspace seeded with the chosen SSH folder. */
+  workspaceId?: WorkspaceId;
   onClose: () => void;
 }) {
   const addSshRoot = useWorkspaceDeckStore((s) => s.addSshRoot);
+  const createSshWorkspace = useWorkspaceDeckStore((s) => s.createSshWorkspace);
+  const createMode = !workspaceId;
 
   const [connections, setConnections] = useState<SshConnectionInfo[]>([]);
   const [connectionId, setConnectionId] = useState<string | null>(null);
@@ -194,11 +197,14 @@ export function SshRootDialog({
     setBusy(true);
     setError(null);
     try {
-      const record = await addSshRoot(workspaceId, {
+      const params = {
         connectionId,
         remotePath: remotePath.trim(),
         name: rootName.trim() || undefined,
-      });
+      };
+      const record = workspaceId
+        ? await addSshRoot(workspaceId, params)
+        : await createSshWorkspace(params);
       if (record) onClose();
       else setError(useWorkspaceDeckStore.getState().error ?? 'Failed to add remote folder.');
     } finally {
@@ -213,11 +219,13 @@ export function SshRootDialog({
     >
       <div
         role="dialog"
-        aria-label="Add SSH folder"
+        aria-label={createMode ? 'New SSH workspace' : 'Add SSH folder'}
         onMouseDown={(event) => event.stopPropagation()}
         className="w-[420px] max-h-[88vh] overflow-y-auto rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-3"
       >
-        <h2 className="text-body font-semibold text-fg-primary">Add SSH folder</h2>
+        <h2 className="text-body font-semibold text-fg-primary">
+          {createMode ? 'New SSH workspace' : 'Add SSH folder'}
+        </h2>
 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -395,7 +403,7 @@ export function SshRootDialog({
             disabled={busy || homeLoading || showNew || !connectionId || !remotePath.trim()}
             className={primaryBtn}
           >
-            Add folder
+            {createMode ? 'Create workspace' : 'Add folder'}
           </button>
         </div>
       </div>
