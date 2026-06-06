@@ -35,6 +35,7 @@ import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
 import { loadWindowState, trackWindowState } from './window-state';
+import { closeSplash, showSplash } from './splash';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
@@ -140,6 +141,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   win.once('ready-to-show', () => {
     if (windowState.maximized) win.maximize();
     win.show();
+    closeSplash();
     pushMaximizeState();
   });
   // Persist size/position/maximized across restarts.
@@ -221,6 +223,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
 registerPluginScheme();
 
 void app.whenReady().then(() => {
+  // Show the splash immediately so there's feedback while handlers register and
+  // the renderer loads; closed on the main window's ready-to-show.
+  showSplash();
   applyHostContentSecurityPolicy();
   // Serve plugin panel files over plugin:// (path-scoped + strict CSP, see protocol.ts).
   registerPluginProtocol();
