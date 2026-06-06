@@ -83,7 +83,7 @@ export async function claimNestedInstructions(wsRoot: string, relPath: string): 
         const expanded = await expandInstructionImports(content, abs, root);
         const trimmed = expanded.slice(0, MAX_NESTED_BYTES).trim();
         if (trimmed) {
-          const relDir = path.relative(root, d) || '.';
+          const relDir = (path.relative(root, d) || '.').split(path.sep).join('/');
           blocks.push(formatBlock(relDir, name, trimmed, expanded.length > MAX_NESTED_BYTES));
         }
       }
