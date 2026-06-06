@@ -4,13 +4,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
 
-declare global {
-  namespace NodeJS {
-    interface Process {
-      electronApp?: ChildProcess;
-    }
-  }
-}
+// vite-plugin-electron stashes the spawned Electron child on `process` so the
+// reload hook can reach it. Type that access locally (an optional extra prop is
+// assignable from the base `process`, so no cast) rather than augmenting the
+// global NodeJS.Process namespace.
+type ProcessWithElectronApp = NodeJS.Process & {
+  readonly electronApp?: ChildProcess;
+};
 
 // Absolute path to tslib's ESM build — see the resolve.alias note on the main
 // process build below.
@@ -39,7 +39,8 @@ function installClosedIpcErrorHandler(electronApp: ChildProcess | undefined): vo
 }
 
 function reloadPreload(args: { readonly reload: () => void }): void {
-  installClosedIpcErrorHandler(process.electronApp);
+  const proc: ProcessWithElectronApp = process;
+  installClosedIpcErrorHandler(proc.electronApp);
   args.reload();
 }
 
