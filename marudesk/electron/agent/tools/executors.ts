@@ -12,6 +12,7 @@ import {
   browserStorage,
 } from './runtime-tools.ts';
 import { click, fill, pressKey, scroll } from './interaction-tools.ts';
+import { runCommand } from './command-tools.ts';
 
 /**
  * The agent tool registry (docs/agentic-chat-design.md §4) — the §9 promotion of
@@ -25,6 +26,7 @@ import { click, fill, pressKey, scroll } from './interaction-tools.ts';
 
 export const EXECUTORS: Record<string, Executor> = {
   read_file: readFile as Executor,
+  run_command: runCommand as Executor,
   list_files: listFiles as Executor,
   grep: grep as Executor,
   edit_file: editFile as Executor,
@@ -63,6 +65,7 @@ export function describeToolInput(name: string, input: unknown): string {
   if (name === 'generate_image') return typeof o.prompt === 'string' ? o.prompt.slice(0, 500) : '(no prompt)';
   if (name === 'generate_video') return typeof o.prompt === 'string' ? o.prompt.slice(0, 500) : '(no prompt)';
   if (name === SPAWN_SUBAGENT) return typeof o.task === 'string' ? o.task.slice(0, 500) : '(no task)';
+  if (name === 'run_command') return typeof o.command === 'string' ? o.command.slice(0, 300) : '(no command)';
   if (name === 'eval_js') return typeof o.expression === 'string' ? o.expression.slice(0, 500) : '(no expression)';
   // Interaction tools (click/fill/press_key/scroll): show the action target plainly.
   if (name === 'click') return typeof o.selector === 'string' ? `click ${o.selector}`.slice(0, 300) : '(no selector)';

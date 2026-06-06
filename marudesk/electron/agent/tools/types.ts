@@ -72,6 +72,7 @@ export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Pro
 export const GATED_TOOLS = new Set([
   'generate_image',
   'generate_video',
+  'run_command',
   'eval_js',
   'click',
   'fill',

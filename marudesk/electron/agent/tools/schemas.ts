@@ -69,6 +69,20 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
   {
+    name: 'run_command',
+    description:
+      "Run a shell command in the workspace root and return its combined stdout+stderr and exit status. Requires user approval each call. Use this to run the PROJECT'S OWN checks — type-check, lint, build, tests (e.g. `npm run typecheck`, `tsc --noEmit`, `eslint .`, `cargo check`, `go build ./...`, `pytest`). It uses the project's real config, so the diagnostics are trustworthy — prefer it over guessing whether code compiles. The command must terminate on its own: long-running servers will hit the timeout, so keep it to finite checks/builds. Mutating commands (installs, codegen) are fine but run real code, hence the approval.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: strProp('Shell command to run, e.g. "npm run typecheck".'),
+        timeoutMs: intProp('Max run time in ms (default 120000, min 1000, max 600000).'),
+      },
+      required: ['command'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'get_console_errors',
     description: 'Read the live page\'s captured runtime errors (always-on). Each carries a confidence-tagged source file when its stack maps deterministically to a workspace file. Start here for a "fix this error" task.',
     inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max errors (default 20).' } }, additionalProperties: false },
