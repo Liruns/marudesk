@@ -300,16 +300,40 @@ function WorkspacePane({
       }}
     >
       <header className="chrome-header h-10 shrink-0 flex items-center gap-2">
-        <div className="min-w-[128px] max-w-[220px] pl-3 flex items-center gap-2">
-          <span className="size-6 rounded-md bg-surface-2 border border-subtle flex items-center justify-center text-fg-tertiary">
-            <PanelLeft size={14} />
+        <div className="min-w-[140px] max-w-[230px] pl-2.5 flex items-center gap-2.5">
+          {/* Workspace identity avatar — same initials as the rail so a pane is
+              recognizable at a glance; falls back to the panel icon for System. */}
+          <span
+            className={cn(
+              'size-7 shrink-0 rounded-md border flex items-center justify-center text-caption font-semibold',
+              focused
+                ? 'border-accent/60 bg-accent-subtle text-accent'
+                : 'border-subtle bg-surface-2 text-fg-secondary',
+            )}
+          >
+            {record ? workspaceInitials(record.name) : <PanelLeft size={14} className="text-fg-tertiary" />}
           </span>
           <div className="min-w-0">
             <div className="truncate text-caption font-medium text-fg-primary">
               {record?.name ?? 'System'}
             </div>
-            <div className="truncate text-caption text-fg-tertiary tabular-nums">
-              {record ? `${record.roots.length} roots` : 'No folder roots'}
+            <div className="flex items-center gap-2 text-caption text-fg-tertiary tabular-nums">
+              {record ? (
+                <>
+                  <span className="inline-flex items-center gap-1" title={`${record.roots.length} folder root(s)`}>
+                    <FolderTree size={11} aria-hidden />
+                    {record.roots.length}
+                  </span>
+                  {record.roots.some((r) => r.connection?.kind === 'ssh') ? (
+                    <span className="inline-flex items-center gap-1 text-accent" title="Includes an SSH folder">
+                      <Server size={11} aria-hidden />
+                      SSH
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                'No folder roots'
+              )}
             </div>
           </div>
         </div>
