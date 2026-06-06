@@ -21,7 +21,16 @@ import { buildModel, aiTools, humanizeModelError, isFailoverError, type ModelAut
 import { loadGlobalUserInstructions, loadWorkspaceInstructions } from './instructions';
 import { claimNestedInstructions } from './nested-instructions';
 import { buildEnvironmentContext } from './environment';
-import { ASK_USER, SPAWN_SUBAGENT, describeToolInput, type ToolContext } from './tools';
+import {
+  ASK_USER,
+  SPAWN_SUBAGENT,
+  SPAWN_BACKGROUND_AGENT,
+  COLLECT_BACKGROUND_AGENT,
+  CANCEL_BACKGROUND_AGENT,
+  describeToolInput,
+  type ToolContext,
+  type ToolResult,
+} from './tools';
 import {
   SYSTEM_PROMPT,
   PLAN_MODE_SYSTEM,
@@ -33,6 +42,11 @@ import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import { resolveProviderAuth } from './resolve-auth';
 import { runSubagentTool } from './subagent';
+import {
+  startBackgroundAgentTool,
+  collectBackgroundTool,
+  cancelBackgroundTool,
+} from './background';
 import { runContextHook, runVerifyNote } from './loop-commands.ts';
 import {
   S,
@@ -512,12 +526,11 @@ async function runLoop(opts: RunOpts): Promise<void> {
       }
 
       call.state = 'running';
-      if (call.name === SPAWN_SUBAGENT) call.summary = describeToolInput(call.name, call.input);
+      if (call.name === SPAWN_SUBAGENT || call.name === SPAWN_BACKGROUND_AGENT) {
+        call.summary = describeToolInput(call.name, call.input);
+      }
       emit();
-      const out =
-        call.name === SPAWN_SUBAGENT
-          ? await runSubagentTool(call.input, ctx)
-          : await callMcpTool(call.name, call.input, ctx);
+      const out = await dispatchTool(call.name, call.input, ctx);
       call.state = out.isError ? 'error' : 'ok';
       call.summary = out.summary;
       call.resultText = out.text;
@@ -545,6 +558,20 @@ async function runLoop(opts: RunOpts): Promise<void> {
   }
 
   finish('completed', 'Stopped at the step limit — ask me to continue');
+}
+
+/**
+ * Route a tool call. Most tools go through the MCP registry; the agent meta-tools
+ * are loop-intercepted so they can reach the child runtime: spawn_subagent blocks
+ * for the child report, while the background trio manage detached agents
+ * (spawn returns immediately; collect/cancel are synchronous registry calls).
+ */
+async function dispatchTool(name: string, input: unknown, ctx: ToolContext): Promise<ToolResult> {
+  if (name === SPAWN_SUBAGENT) return runSubagentTool(input, ctx);
+  if (name === SPAWN_BACKGROUND_AGENT) return startBackgroundAgentTool(input, ctx);
+  if (name === COLLECT_BACKGROUND_AGENT) return collectBackgroundTool(input);
+  if (name === CANCEL_BACKGROUND_AGENT) return cancelBackgroundTool(input);
+  return callMcpTool(name, input, ctx);
 }
 
 async function handleAskUser(

@@ -17,7 +17,21 @@ export type {
   McpToolDef,
   McpTool,
 } from './types';
-export { GATED_TOOLS, ASK_USER, SPAWN_SUBAGENT } from './types';
+export {
+  GATED_TOOLS,
+  ASK_USER,
+  SPAWN_SUBAGENT,
+  SPAWN_BACKGROUND_AGENT,
+  COLLECT_BACKGROUND_AGENT,
+  CANCEL_BACKGROUND_AGENT,
+} from './types';
 export { executeTool, describeToolInput } from './executors';
 export { TOOL_SCHEMAS } from './schemas';
-export { BUILTIN_TOOLS, ASK_USER_DEF, SPAWN_SUBAGENT_DEF } from './registry';
+export {
+  BUILTIN_TOOLS,
+  ASK_USER_DEF,
+  SPAWN_SUBAGENT_DEF,
+  SPAWN_BACKGROUND_AGENT_DEF,
+  COLLECT_BACKGROUND_AGENT_DEF,
+  CANCEL_BACKGROUND_AGENT_DEF,
+} from './registry';

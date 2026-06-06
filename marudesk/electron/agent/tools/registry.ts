@@ -1,4 +1,14 @@
-import { ASK_USER, SPAWN_SUBAGENT, GATED_TOOLS, type McpGroup, type McpTool, type McpToolDef } from './types';
+import {
+  ASK_USER,
+  SPAWN_SUBAGENT,
+  SPAWN_BACKGROUND_AGENT,
+  COLLECT_BACKGROUND_AGENT,
+  CANCEL_BACKGROUND_AGENT,
+  GATED_TOOLS,
+  type McpGroup,
+  type McpTool,
+  type McpToolDef,
+} from './types';
 import { TOOL_SCHEMAS } from './schemas';
 import { EXECUTORS } from './executors';
 import { IMAGE_GENERATION_TOOL } from './image-generation';
@@ -89,4 +99,23 @@ export const SPAWN_SUBAGENT_DEF: McpToolDef = {
   ...TOOL_SCHEMAS.find((s) => s.name === SPAWN_SUBAGENT)!,
   group: 'agent',
   gated: true,
+};
+
+/**
+ * Background-agent meta-tools — all loop-intercepted (the registry's exec path is
+ * bypassed). spawn is gated (the user approves detaching an agent); collect/cancel
+ * are read-only management calls. See docs/background-agent-design.md.
+ */
+export const SPAWN_BACKGROUND_AGENT_DEF: McpToolDef = {
+  ...TOOL_SCHEMAS.find((s) => s.name === SPAWN_BACKGROUND_AGENT)!,
+  group: 'agent',
+  gated: true,
+};
+export const COLLECT_BACKGROUND_AGENT_DEF: McpToolDef = {
+  ...TOOL_SCHEMAS.find((s) => s.name === COLLECT_BACKGROUND_AGENT)!,
+  group: 'agent',
+};
+export const CANCEL_BACKGROUND_AGENT_DEF: McpToolDef = {
+  ...TOOL_SCHEMAS.find((s) => s.name === CANCEL_BACKGROUND_AGENT)!,
+  group: 'agent',
 };

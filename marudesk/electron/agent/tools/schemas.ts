@@ -1,4 +1,11 @@
-import { ASK_USER, SPAWN_SUBAGENT, type ToolSchema } from './types';
+import {
+  ASK_USER,
+  SPAWN_SUBAGENT,
+  SPAWN_BACKGROUND_AGENT,
+  COLLECT_BACKGROUND_AGENT,
+  CANCEL_BACKGROUND_AGENT,
+  type ToolSchema,
+} from './types';
 
 /**
  * JSON-Schema (Anthropic `input_schema`) for every built-in tool, including the
@@ -145,6 +152,43 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
       },
       required: ['task'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: SPAWN_BACKGROUND_AGENT,
+    description:
+      'Delegate a self-contained, READ-ONLY subtask to a DETACHED background agent (optionally on a different provider/model). Returns IMMEDIATELY with a task id; the agent keeps running after this turn ends. Use for long research fan-out or fire-and-forget investigation you will read later with collect_background_agent. The background agent has read-only tools only — it cannot edit files, run gated actions, or spawn further agents.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: strProp('Self-contained instructions for the background agent.'),
+        provider: strProp('Optional provider id; defaults to the parent turn provider.'),
+        model: strProp('Optional model id; defaults to the parent turn model.'),
+        label: strProp('Optional short label for the background tray entry.'),
+        maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
+      },
+      required: ['task'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: COLLECT_BACKGROUND_AGENT,
+    description:
+      'Fetch the status and (when finished) final report of background agents started this conversation. Pass an id to collect one, or omit to list them all. Reading a finished agent marks it collected.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: strProp('Optional task id; omit to list all background agents.') },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: CANCEL_BACKGROUND_AGENT,
+    description: 'Cancel a running background agent by id. No-op if it already finished.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: strProp('The background task id to cancel.') },
+      required: ['id'],
       additionalProperties: false,
     },
   },

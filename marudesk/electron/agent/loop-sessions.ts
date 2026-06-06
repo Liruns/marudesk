@@ -8,6 +8,7 @@ import { clearReadTracker } from './read-tracker';
 import { clearNestedInstructionClaims } from './nested-instructions';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
 import { S, busy, emit } from './loop-state.ts';
+import { cancelBackgroundForConversation } from './background.ts';
 
 /**
  * Session persistence + lifecycle for the agent loop: snapshot/persist the live
@@ -54,6 +55,9 @@ export async function persistSession(): Promise<void> {
 
 export function reset(): boolean {
   if (busy()) return false;
+  // Detached background agents are conversation-scoped — abort + drop the leaving
+  // conversation's tasks so they never bleed into the next chat.
+  cancelBackgroundForConversation(S.conversationId);
   // Clear the S.transcript but KEEP edits the user hasn't decided on yet: those
   // files are still modified on disk, and dropping them would orphan the only
   // in-app affordance to revert (the `before` content lives on the edit). Edits
@@ -92,6 +96,9 @@ export async function resumeSession(id: string): Promise<boolean> {
   if (busy()) return false;
   const record = await readSession(id);
   if (!record) return false;
+  // Abort the leaving conversation's background agents (a detached child process
+  // can't be restored on resume, so the resumed chat starts with none).
+  cancelBackgroundForConversation(S.conversationId);
   const keptEdits = S.state.edits.filter((e) => e.status === 'applied');
   S.sessionAllowedTools.clear();
   // Forget the prior conversation's tracked reads — same as reset(). A file read
