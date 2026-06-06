@@ -12,8 +12,7 @@ import {
   ShieldCheck,
   TerminalSquare,
 } from 'lucide-react';
-import { Badge, Button } from '../../components/ui';
-import { cn } from '../../lib/cn';
+import { Badge, Button, Switch } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import type { McpServerStatus } from '../../../shared/mcp';
 import { MCP_PRESETS } from '../../../shared/mcp-presets';
@@ -201,26 +200,12 @@ function ServerCard({
           <span className="text-caption text-error truncate">{status.error}</span>
         ) : null}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={status.enabled}
-        aria-label={`${status.enabled ? t('settings.mcp.toggle.disable') : t('settings.mcp.toggle.enable')} ${status.id}`}
+      <Switch
+        checked={status.enabled}
         disabled={busy}
-        onClick={() => void onToggle(status.id, !status.enabled)}
-        className={cn(
-          'relative h-5 w-9 shrink-0 rounded-pill transition-colors duration-fast',
-          'disabled:opacity-50 disabled:cursor-not-allowed',
-          status.enabled ? 'bg-accent' : 'bg-surface-3',
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-0.5 size-4 rounded-full bg-white transition-transform duration-fast',
-            status.enabled ? 'translate-x-[18px]' : 'translate-x-0.5',
-          )}
-        />
-      </button>
+        onChange={(next) => void onToggle(status.id, next)}
+        label={`${status.enabled ? t('settings.mcp.toggle.disable') : t('settings.mcp.toggle.enable')} ${status.id}`}
+      />
     </div>
   );
 }

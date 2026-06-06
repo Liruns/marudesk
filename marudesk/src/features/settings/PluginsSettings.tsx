@@ -10,8 +10,7 @@ import {
   RotateCcw,
   ShieldAlert,
 } from 'lucide-react';
-import { Badge, Button } from '../../components/ui';
-import { cn } from '../../lib/cn';
+import { Badge, Button, Switch } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import type { PluginStatus } from '../../../shared/plugin';
 import { useTabsStore } from '../tabs/store';
@@ -165,26 +164,12 @@ function PluginCard({
           {t('settings.plugins.openPanel')}
         </Button>
       ) : null}
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={`${on ? t('settings.plugins.toggle.disable') : t('settings.plugins.toggle.enable')} ${status.name}`}
+      <Switch
+        checked={on}
         disabled={busy}
-        onClick={() => void onToggle(status.id, !on)}
-        className={cn(
-          'relative h-5 w-9 shrink-0 rounded-pill transition-colors duration-fast',
-          'disabled:opacity-50 disabled:cursor-not-allowed',
-          on ? 'bg-accent' : 'bg-surface-3',
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-0.5 size-4 rounded-full bg-white transition-transform duration-fast',
-            on ? 'translate-x-[18px]' : 'translate-x-0.5',
-          )}
-        />
-      </button>
+        onChange={(next) => void onToggle(status.id, next)}
+        label={`${on ? t('settings.plugins.toggle.disable') : t('settings.plugins.toggle.enable')} ${status.name}`}
+      />
     </div>
   );
 }
