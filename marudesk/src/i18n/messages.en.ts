@@ -773,6 +773,7 @@ export const EN_MESSAGES = {
   'settings.mcp.openConfig': 'Open config file',
   'settings.mcp.reload': 'Reload',
   'settings.mcp.status.connecting': 'Connecting',
+  'settings.mcp.status.reconnecting': 'Reconnecting',
   'settings.mcp.status.disabled': 'Disabled',
   'settings.mcp.status.error': 'Error',
   'settings.mcp.toggle.disable': 'Disable',

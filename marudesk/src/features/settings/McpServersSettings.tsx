@@ -198,11 +198,13 @@ function StatusBadge({ status }: { status: McpServerStatus }) {
       </Badge>
     );
   }
-  if (status.state === 'connecting') {
+  if (status.state === 'connecting' || status.state === 'reconnecting') {
     return (
       <Badge variant="accent" className="gap-1">
         <Loader2 size={11} className="animate-spin" />
-        {t('settings.mcp.status.connecting')}
+        {status.state === 'reconnecting'
+          ? t('settings.mcp.status.reconnecting')
+          : t('settings.mcp.status.connecting')}
       </Badge>
     );
   }

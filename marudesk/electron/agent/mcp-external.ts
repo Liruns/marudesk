@@ -13,7 +13,13 @@ import {
 } from '../../shared/mcp';
 import { registerMcpServer, unregisterMcpServer, type McpServer } from './mcp';
 import type { McpTool, ToolResult } from './tools';
-import { toToolResult } from './mcp-content';
+import {
+  promptToToolResult,
+  resourceToToolResult,
+  toToolResult,
+  type McpGetPromptResult,
+  type McpReadResourceResult,
+} from './mcp-content';
 export { toToolResult } from './mcp-content';
 
 /**
@@ -63,13 +69,62 @@ export type McpClientLike = {
   close(): Promise<void>;
   /** Invoked by the transport when the connection drops — we use it for crash detection. */
   onclose?: () => void;
+  /**
+   * The capabilities the server advertised at `initialize`. We gate the optional
+   * prompts/resources discovery below on this so we never call a method a
+   * tools-only server doesn't implement. Present on the real SDK `Client`; optional
+   * here so the harness mock can omit it (→ treated as tools-only).
+   */
+  getServerCapabilities?(): { prompts?: object; resources?: object; tools?: object } | undefined;
+  /** Optional — present only when the server advertises the `prompts` capability. */
+  listPrompts?(): Promise<{ prompts: McpPromptInfo[] }>;
+  getPrompt?(params: { name: string; arguments?: Record<string, string> }): Promise<McpGetPromptResult>;
+  /** Optional — present only when the server advertises the `resources` capability. */
+  listResources?(): Promise<{ resources: McpResourceInfo[] }>;
+  readResource?(params: { uri: string }): Promise<McpReadResourceResult>;
+};
+
+/**
+ * MCP `ToolAnnotations` (spec) — optional behavioral hints a server may attach to a
+ * tool. We consume `title` (a friendlier label) and the read-only/destructive hints
+ * to decide whether a tool mutates state (see {@link buildExternalServer}); the rest
+ * are accepted but unused.
+ */
+export type McpToolAnnotations = {
+  title?: string;
+  /** The tool does not modify its environment (a pure read). */
+  readOnlyHint?: boolean;
+  /** The tool may perform destructive updates (only meaningful when not read-only). */
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
 };
 
 /** A tool as reported by `client.listTools()` (only the fields we consume). */
 export type McpExternalToolInfo = {
   name: string;
+  /** A human-readable display name (spec `title`); falls back to `annotations.title`. */
+  title?: string;
   description?: string;
   inputSchema?: { type: 'object'; properties?: Record<string, object>; required?: string[] };
+  annotations?: McpToolAnnotations;
+};
+
+/** A prompt as reported by `client.listPrompts()` (only the fields we consume). */
+export type McpPromptInfo = {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: { name: string; description?: string; required?: boolean }[];
+};
+
+/** A resource as reported by `client.listResources()` (only the fields we consume). */
+export type McpResourceInfo = {
+  uri: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
 };
 
 /** Content item of a `client.callTool` result (text / image / audio / resource / link). */
@@ -126,7 +181,29 @@ export type ExternalServerOptions = {
   trusted?: boolean;
   /** Tool names (un-namespaced) to hide from the agent entirely. */
   disabledTools?: readonly string[];
+  /**
+   * Tool names (un-namespaced) to auto-approve even when the server isn't fully
+   * `trusted` — a finer-grained gate-off. Ignored for tools in {@link disabledTools}
+   * (those are hidden) and redundant when `trusted` (everything is already un-gated).
+   */
+  autoApproveTools?: readonly string[];
 };
+
+/**
+ * Whether an external tool should be treated as a state-mutating ("write") tool —
+ * i.e. refused outright in read-only / plan mode. External tools carry no `write`
+ * flag by default (so read-only mode doesn't blanket-refuse harmless read tools on a
+ * server that declares nothing). We only mark one `write` when the SERVER ITSELF
+ * declares it mutating via MCP `annotations`: `readOnlyHint: false` (explicitly not a
+ * read) or `destructiveHint: true`. A tool with `readOnlyHint: true`, or no
+ * annotations at all, stays non-write (callable in read-only mode but still gated for
+ * approval unless trusted/auto-approved).
+ */
+function annotatedAsWrite(ann: McpToolAnnotations | undefined): boolean {
+  if (!ann) return false;
+  if (ann.readOnlyHint === true) return false;
+  return ann.readOnlyHint === false || ann.destructiveHint === true;
+}
 
 /**
  * Wrap a connected client's tools as namespaced {@link McpTool}s. Each `exec`
@@ -147,23 +224,32 @@ export function buildExternalServer(
 ): McpServer {
   const prefix = `${id}__`;
   const hidden = new Set(opts.disabledTools ?? []);
-  const gated = opts.trusted !== true;
+  const autoApprove = new Set(opts.autoApproveTools ?? []);
+  const trustedAll = opts.trusted === true;
   const wrapped: McpTool[] = tools
     .filter((t) => typeof t.name === 'string' && t.name.length > 0 && !hidden.has(t.name))
     .map((t) => {
       const toolName = t.name;
       const namespaced = `${prefix}${toolName}`;
+      // A whole-server `trust` un-gates everything; otherwise a per-tool allow-list
+      // can un-gate individual tools on an untrusted server.
+      const gated = !trustedAll && !autoApprove.has(toolName);
+      const write = annotatedAsWrite(t.annotations);
+      // Prefer the spec `title` (or annotations.title) for a friendlier label.
+      const title = t.title ?? t.annotations?.title;
+      const label = title && title !== toolName ? `${title} — ${toolName}` : toolName;
       // Pass the server's own schema through; fall back to a permissive object
       // schema if it omitted one (a tool with no declared inputs).
       const inputSchema = t.inputSchema ?? { type: 'object' as const, properties: {} };
       const tool: McpTool = {
         name: namespaced,
         description: t.description
-          ? `[${id}] ${t.description}`
-          : `[${id}] external MCP tool "${toolName}".`,
+          ? `[${id}] ${label}: ${t.description}`
+          : `[${id}] external MCP tool "${label}".`,
         inputSchema,
         group: 'mcp',
         gated,
+        ...(write ? { write: true } : {}),
         async exec(input): Promise<ToolResult> {
           try {
             const res = await client.callTool(
@@ -184,6 +270,171 @@ export function buildExternalServer(
       return tool;
     });
   return { name: id, tools: wrapped };
+}
+
+/**
+ * Synthesize the prompt/resource access tools for a server that advertises those
+ * capabilities. MCP exposes prompts (reusable, server-authored instruction
+ * templates) and resources (server-hosted context the model can read by uri) over
+ * methods that are NOT tools — but our agent surface is tool-only, and the loop
+ * mediates every tool. So we bridge each capability into a small set of namespaced
+ * meta-tools the model can call:
+ *
+ *   `<id>__list_prompts`   — enumerate the server's prompts (read-only)
+ *   `<id>__get_prompt`     — expand one prompt into messages (read-only)
+ *   `<id>__list_resources` — enumerate the server's resources (read-only)
+ *   `<id>__read_resource`  — read one resource by uri (read-only)
+ *
+ * They're all reads, so none is marked `write` (callable in read-only mode); they
+ * follow the same gating as the server's real tools (gated unless trusted /
+ * auto-approved). A synthesized name that would collide with a real tool the server
+ * already exposes is skipped (the real tool wins). Returns `[]` when the server
+ * advertises neither capability — so a tools-only server is unaffected.
+ */
+export function buildCapabilityTools(
+  id: string,
+  client: McpClientLike,
+  opts: ExternalServerOptions,
+  existingNames: ReadonlySet<string>,
+): McpTool[] {
+  const caps = client.getServerCapabilities?.();
+  if (!caps) return [];
+  const prefix = `${id}__`;
+  const gatedDefault = opts.trusted !== true;
+  const autoApprove = new Set(opts.autoApproveTools ?? []);
+  const out: McpTool[] = [];
+
+  const add = (
+    bare: string,
+    description: string,
+    inputSchema: McpTool['inputSchema'],
+    exec: McpTool['exec'],
+  ): void => {
+    const namespaced = `${prefix}${bare}`;
+    // A real tool of the same namespaced name takes precedence — don't shadow it.
+    if (existingNames.has(namespaced)) return;
+    out.push({
+      name: namespaced,
+      description: `[${id}] ${description}`,
+      inputSchema,
+      group: 'mcp',
+      gated: gatedDefault && !autoApprove.has(bare),
+      exec,
+    });
+  };
+
+  if (caps.prompts && client.listPrompts && client.getPrompt) {
+    const listPrompts = client.listPrompts.bind(client);
+    const getPrompt = client.getPrompt.bind(client);
+    add(
+      'list_prompts',
+      `List the prompt templates this MCP server offers (name, description, arguments). Read-only.`,
+      { type: 'object', properties: {} },
+      async (): Promise<ToolResult> => {
+        try {
+          const { prompts } = await listPrompts();
+          const lines = (Array.isArray(prompts) ? prompts : []).map((p) => {
+            const args = (p.arguments ?? [])
+              .map((a) => (a.required ? `${a.name}*` : a.name))
+              .join(', ');
+            const desc = p.description ? ` — ${p.description}` : '';
+            return `• ${p.name}${args ? ` (${args})` : ''}${desc}`;
+          });
+          const text = lines.length > 0 ? lines.join('\n') : '(no prompts)';
+          return { summary: `${prefix}list_prompts`, text: scrubText(text) };
+        } catch (err) {
+          return errorResult(`${prefix}list_prompts`, err);
+        }
+      },
+    );
+    add(
+      'get_prompt',
+      `Expand one of this server's prompt templates into messages. Args: { name, arguments? }. Read-only.`,
+      {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'The prompt name from list_prompts.' },
+          arguments: { type: 'object', description: 'Prompt argument values (string→string).' },
+        },
+        required: ['name'],
+      },
+      async (input): Promise<ToolResult> => {
+        const name = typeof input?.name === 'string' ? input.name : '';
+        if (!name) {
+          return { summary: `${prefix}get_prompt`, text: 'get_prompt requires a "name".', isError: true };
+        }
+        const argsIn = input?.arguments;
+        const args =
+          argsIn && typeof argsIn === 'object' && !Array.isArray(argsIn)
+            ? Object.fromEntries(
+                Object.entries(argsIn as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+              )
+            : undefined;
+        try {
+          const res = await getPrompt({ name, ...(args ? { arguments: args } : {}) });
+          return promptToToolResult(`${prefix}get_prompt`, res);
+        } catch (err) {
+          return errorResult(`${prefix}get_prompt`, err);
+        }
+      },
+    );
+  }
+
+  if (caps.resources && client.listResources && client.readResource) {
+    const listResources = client.listResources.bind(client);
+    const readResource = client.readResource.bind(client);
+    add(
+      'list_resources',
+      `List the resources this MCP server exposes (uri, name, mime). Read-only.`,
+      { type: 'object', properties: {} },
+      async (): Promise<ToolResult> => {
+        try {
+          const { resources } = await listResources();
+          const lines = (Array.isArray(resources) ? resources : []).map((r) => {
+            const nm = r.title ?? r.name;
+            const mime = r.mimeType ? ` [${r.mimeType}]` : '';
+            return `• ${r.uri}${nm ? ` — ${nm}` : ''}${mime}`;
+          });
+          const text = lines.length > 0 ? lines.join('\n') : '(no resources)';
+          return { summary: `${prefix}list_resources`, text: scrubText(text) };
+        } catch (err) {
+          return errorResult(`${prefix}list_resources`, err);
+        }
+      },
+    );
+    add(
+      'read_resource',
+      `Read one of this server's resources by uri. Args: { uri }. Read-only.`,
+      {
+        type: 'object',
+        properties: { uri: { type: 'string', description: 'The resource uri from list_resources.' } },
+        required: ['uri'],
+      },
+      async (input): Promise<ToolResult> => {
+        const uri = typeof input?.uri === 'string' ? input.uri : '';
+        if (!uri) {
+          return { summary: `${prefix}read_resource`, text: 'read_resource requires a "uri".', isError: true };
+        }
+        try {
+          const res = await readResource({ uri });
+          return resourceToToolResult(`${prefix}read_resource`, res);
+        } catch (err) {
+          return errorResult(`${prefix}read_resource`, err);
+        }
+      },
+    );
+  }
+
+  return out;
+}
+
+/** Shared error→ToolResult mapping for the synthesized capability tools. */
+function errorResult(name: string, err: unknown): ToolResult {
+  return {
+    summary: `${name} error`,
+    text: `${name} failed — ${scrubText((err as Error).message)}`,
+    isError: true,
+  };
 }
 
 /** A fresh MCP `Client` with marudesk's identity (no special capabilities). */
@@ -282,8 +533,10 @@ function getInheritedEnv(): Record<string, string> {
  */
 export async function connectServer(
   config: McpServerConfig,
-  connect: (c: McpServerConfig) => Promise<{ client: McpClientLike }> = connectClient,
+  connect: ConnectFn = connectClient,
 ): Promise<McpServerStatus> {
+  // A deliberate connect supersedes any pending backoff retry for this id.
+  cancelReconnect(config.id);
   setStatus(config, 'connecting', 0);
   try {
     const { client } = await connect(config);
@@ -295,16 +548,28 @@ export async function connectServer(
       await client.close().catch(() => {});
       throw err;
     }
-    const server = buildExternalServer(config.id, client, tools, {
+    const opts: ExternalServerOptions = {
       trusted: config.trust === true,
       disabledTools: config.disabledTools,
-    });
+      autoApproveTools: config.autoApproveTools,
+    };
+    const base = buildExternalServer(config.id, client, tools, opts);
+    // Surface the server's prompts/resources (if advertised) as namespaced
+    // meta-tools; a real tool of the same name wins (existing set passed in).
+    const existing = new Set(base.tools.map((t) => t.name));
+    const capabilityTools = buildCapabilityTools(config.id, client, opts, existing);
+    const server: McpServer =
+      capabilityTools.length > 0
+        ? { name: config.id, tools: [...base.tools, ...capabilityTools] }
+        : base;
     registerMcpServer(server);
     const toolNames = server.tools.map((t) => t.name.slice(`${config.id}__`.length));
     const status = setStatus(config, 'connected', server.tools.length, { tools: toolNames });
     live.set(config.id, { config, client, status });
+    // Remember the connector so an unexpected drop can reconnect over the same path.
+    connectorOf.set(config.id, connect);
     // Crash detection: if the transport drops after we're connected, drop the dead
-    // tools and mark the server errored so the agent + UI stop seeing stale tools.
+    // tools and schedule a backoff reconnect (§health) so a transient blip recovers.
     client.onclose = () => handleUnexpectedClose(config.id);
     console.log(`[mcp] connected "${config.id}" — ${server.tools.length} tool(s)`);
     return status;
@@ -317,23 +582,110 @@ export async function connectServer(
   }
 }
 
+/* ── auto-reconnect with exponential backoff (docs/context-mcp-design §8.3) ──── */
+
+/** The connector factory shape — injectable so the harness can drive reconnects. */
+type ConnectFn = (c: McpServerConfig) => Promise<{ client: McpClientLike }>;
+
+/** Up to this many backoff retries after an unexpected drop before giving up. */
+const MAX_RECONNECT_ATTEMPTS = 5;
+/** First retry delay; doubles each attempt, capped at {@link RECONNECT_CAP_MS}. */
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_CAP_MS = 30_000;
+
+/** The factory that produced each live connection — reused on reconnect. */
+const connectorOf = new Map<string, ConnectFn>();
+/** Pending reconnect timers, keyed by config id (with the data to retry). */
+type ReconnectEntry = { handle: unknown; config: McpServerConfig; connect: ConnectFn; attempt: number };
+const reconnects = new Map<string, ReconnectEntry>();
+
+// Injectable scheduler so the headless harness drives reconnects deterministically
+// instead of waiting real wall-clock backoff. Production uses setTimeout/clearTimeout.
+let scheduleReconnect: (run: () => Promise<void>, ms: number) => unknown = (run, ms) =>
+  setTimeout(() => void run(), ms);
+let cancelScheduled: (handle: unknown) => void = (handle) =>
+  clearTimeout(handle as ReturnType<typeof setTimeout>);
+
+/**
+ * Override the reconnect scheduler (harness only). Pass a `schedule` that captures the
+ * runner (so the test can flush it) and an optional matching `cancel`; pass `null` to
+ * restore the real `setTimeout`-based scheduler.
+ */
+export function setReconnectSchedulerForTests(
+  schedule: ((run: () => Promise<void>, ms: number) => unknown) | null,
+  cancel?: (handle: unknown) => void,
+): void {
+  if (schedule) {
+    scheduleReconnect = schedule;
+    cancelScheduled = cancel ?? (() => {});
+  } else {
+    scheduleReconnect = (run, ms) => setTimeout(() => void run(), ms);
+    cancelScheduled = (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>);
+  }
+}
+
+/** Exponential backoff for attempt N (1-based), capped. */
+function backoffMs(attempt: number): number {
+  return Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** (attempt - 1));
+}
+
+/** Cancel and forget any pending reconnect timer for an id. */
+function cancelReconnect(id: string): void {
+  const entry = reconnects.get(id);
+  if (!entry) return;
+  cancelScheduled(entry.handle);
+  reconnects.delete(id);
+}
+
+/**
+ * Schedule reconnect attempt N. After {@link MAX_RECONNECT_ATTEMPTS} we give up and
+ * leave the server in `error` (so the UI shows it failed and the user can Reload).
+ */
+function beginReconnect(config: McpServerConfig, connect: ConnectFn, attempt: number): void {
+  if (attempt > MAX_RECONNECT_ATTEMPTS) {
+    connectorOf.delete(config.id);
+    console.error(`[mcp] server "${config.id}" gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts`);
+    setStatus(config, 'error', 0, { error: 'connection closed' });
+    return;
+  }
+  const delay = backoffMs(attempt);
+  setStatus(config, 'reconnecting', 0, {
+    error: `reconnecting (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
+  });
+  const handle = scheduleReconnect(() => runReconnect(config, connect, attempt), delay);
+  reconnects.set(config.id, { handle, config, connect, attempt });
+}
+
+/** Fire one reconnect attempt; on failure, schedule the next with a longer backoff. */
+async function runReconnect(config: McpServerConfig, connect: ConnectFn, attempt: number): Promise<void> {
+  // A deliberate teardown / config change between scheduling and firing cancels us.
+  if (!reconnects.has(config.id)) return;
+  reconnects.delete(config.id);
+  const status = await connectServer(config, connect);
+  if (status.state !== 'connected') beginReconnect(config, connect, attempt + 1);
+}
+
 /**
  * Handle a live server's transport closing unexpectedly (process exit, network
- * loss). We unregister its tools so the agent can't call into a dead connection and
- * mark it `error` for the UI. A deliberate teardown (disconnectServer) clears the
- * `onclose` first, so this only fires on real drops.
+ * loss). We unregister its tools so the agent can't call into a dead connection, then
+ * schedule a backoff reconnect over the same connector. A deliberate teardown
+ * (disconnectServer) clears the `onclose` first, so this only fires on real drops.
  */
 function handleUnexpectedClose(id: string): void {
   const entry = live.get(id);
   if (!entry) return;
   live.delete(id);
   unregisterMcpServer(id);
-  console.error(`[mcp] server "${id}" connection closed unexpectedly`);
-  setStatus(entry.config, 'error', 0, { error: 'connection closed' });
+  console.error(`[mcp] server "${id}" connection closed unexpectedly — scheduling reconnect`);
+  const connect = connectorOf.get(id) ?? connectClient;
+  beginReconnect(entry.config, connect, 1);
 }
 
-/** Disconnect one live server: unregister its tools + close the transport. */
+/** Disconnect one server: cancel any reconnect, unregister its tools + close it. */
 async function disconnectServer(id: string): Promise<void> {
+  // Cancel a pending reconnect first (a reconnecting server isn't in `live`).
+  cancelReconnect(id);
+  connectorOf.delete(id);
   const entry = live.get(id);
   if (!entry) return;
   live.delete(id);
@@ -371,14 +723,24 @@ export async function syncExternalMcpServers(
     }
   }
 
+  // Cancel pending backoff reconnects for servers now removed / disabled / changed —
+  // a reconnecting server isn't in `live`, so the loop above wouldn't catch it.
+  for (const id of [...reconnects.keys()]) {
+    const next = byId.get(id);
+    if (!next || !next.enabled || configChanged(reconnects.get(id)!.config, next)) {
+      cancelReconnect(id);
+      connectorOf.delete(id);
+    }
+  }
+
   // Record disabled servers (so they appear in the UI) and connect enabled ones
-  // that aren't already live.
+  // that aren't already live (and aren't mid-reconnect, which we leave to back off).
   for (const config of configs) {
     if (!config.enabled) {
       if (!live.has(config.id)) setStatus(config, 'disabled', 0);
       continue;
     }
-    if (live.has(config.id)) continue;
+    if (live.has(config.id) || reconnects.has(config.id)) continue;
     // Connect sequentially — a slow/hung server is bounded by CONNECT_TIMEOUT_MS,
     // and configs are few. Each call is graceful (never throws).
     await connectServer(config, connect ?? connectClient);
@@ -390,13 +752,14 @@ export async function syncExternalMcpServers(
 /**
  * Whether a server's connection-affecting fields changed (forces a reconnect).
  * Covers the transport, its endpoint/secrets, and the wrapping options (trust /
- * disabledTools) — the latter change the tool set the agent sees, so a reconnect
- * re-wraps them.
+ * disabledTools / autoApproveTools) — the latter change the tool set or its gating
+ * the agent sees, so a reconnect re-wraps them.
  */
 function configChanged(a: McpServerConfig, b: McpServerConfig): boolean {
   if (mcpTransportOf(a) !== mcpTransportOf(b)) return true;
   if (a.trust !== b.trust) return true;
   if (JSON.stringify(a.disabledTools ?? []) !== JSON.stringify(b.disabledTools ?? [])) return true;
+  if (JSON.stringify(a.autoApproveTools ?? []) !== JSON.stringify(b.autoApproveTools ?? [])) return true;
   if (isHttpMcpConfig(a) && isHttpMcpConfig(b)) {
     return (
       a.url !== b.url ||
@@ -420,6 +783,9 @@ export function listMcpServerStatuses(): McpServerStatus[] {
 
 /** Tear down every live connection (called on app quit). */
 export async function disposeExternalMcpServers(): Promise<void> {
+  // Cancel any pending reconnect timers (including for non-live, reconnecting ones).
+  for (const id of [...reconnects.keys()]) cancelReconnect(id);
+  connectorOf.clear();
   const ids = [...live.keys()];
   await Promise.all(ids.map((id) => disconnectServer(id)));
   statuses.clear();

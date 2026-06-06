@@ -247,8 +247,51 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
   않음**(컨텍스트 비대화 + 시크릿 스캔 비용 방지). egress `scrubText`/길이 클립 유지.
 
 ### 8.6 검증
-- `npm run harness:mcp` — sanitize(유니온/trust/disabledTools/URL drop/중복), 콘텐츠 매핑(text/image/
-  resource/link/structured/empty), buildExternalServer(trust→ungated, disabledTools 필터), 상태
-  필드(transport/target/trusted/tools), crash(onclose), 그리고 **실제 Streamable HTTP 왕복**(in-proc
-  mock HTTP 서버 `mcp-mock-http-server.ts` 대상)까지 70개 assertion.
+- `npm run harness:mcp` — sanitize(유니온/trust/disabledTools/autoApproveTools/URL drop/중복), 콘텐츠
+  매핑(text/image/resource/link/structured/empty), buildExternalServer(trust→ungated, disabledTools
+  필터, annotations→write, autoApprove→ungate), capability bridge(prompts/resources 합성 도구), 자동
+  재연결(backoff/포기/취소), 상태 필드(transport/target/trusted/tools), crash(onclose), 그리고 **실제
+  Streamable HTTP 왕복**(in-proc mock HTTP 서버 `mcp-mock-http-server.ts` 대상)까지 124개 assertion.
 - `npm run typecheck` / `npm run lint` / `npm run build` 통과.
+
+---
+
+## 9. 외부 MCP 고도화 II (annotations · 자동 재연결 · prompts/resources · per-tool 승인)
+
+> §8의 외부 커넥터 위에 네 가지를 더 얹는다. **루프 불변식(승인/read-only/ask_user 중재)은 여전히 그대로** —
+> 추가되는 도구는 전부 plain `McpTool`이고 실행은 우리가 `client.callTool`(또는 capability 메서드)을 직접
+> 호출한다. 구현은 `electron/agent/mcp-external.ts` + `electron/agent/mcp-content.ts` + `shared/mcp.ts`.
+
+### 9.1 Tool annotations → read-only 모드 보호
+- MCP 스펙의 `ToolAnnotations`(`title`/`readOnlyHint`/`destructiveHint`/…)를 `listTools()`에서 읽는다.
+- 기존엔 외부 도구를 **절대 `write`로 표시하지 않아** read-only/plan 모드에서 서드파티의 파괴적 도구도
+  그냥 실행됐다(gating만 통제). 이제 서버가 **명시적으로** 비-read-only로 선언한 도구
+  (`readOnlyHint: false` 또는 `destructiveHint: true`)만 `write: true`로 표시 → read-only/plan에서 차단.
+  `readOnlyHint: true`이거나 annotation이 아예 없으면 종전대로 비-write(읽기 도구 blanket 차단 방지, 하위호환).
+- `title`(또는 `annotations.title`)은 도구 description 라벨에 사용해 모델이 더 잘 식별하게 한다.
+
+### 9.2 자동 재연결 (exponential backoff)
+- §8.3의 crash 감지는 죽은 서버를 `error`로만 표시했다. 이제 비정상 종료 시 **같은 connector로 백오프
+  재연결**을 시도한다: base 1s, ×2, cap 30s, 최대 5회. 시도 중 상태는 새 `reconnecting`(초기 `connecting`과
+  구분), 5회 실패 후 `error('connection closed')`로 포기.
+- 의도적 teardown(disconnect/disable/config 변경/dispose)은 대기 중 타이머를 먼저 취소한다. 재연결 중인
+  서버는 `live`에 없으므로 `syncExternalMcpServers`가 별도로 `reconnects` 맵을 훑어 취소/스킵한다.
+- 스케줄러는 주입 가능(`setReconnectSchedulerForTests`) — 하니스가 실제 wall-clock 대기 없이 백오프를
+  결정적으로 구동.
+
+### 9.3 Prompts / Resources 브리지
+- MCP 서버는 도구 외에 **prompts**(재사용 지시 템플릿)와 **resources**(uri로 읽는 컨텍스트)를 노출할 수 있다.
+  우리 에이전트 표면은 도구 전용이라, 서버가 해당 capability를 광고하면(`getServerCapabilities()`) 네 개의
+  네임스페이스 메타 도구를 합성한다: `<id>__list_prompts` / `<id>__get_prompt` /
+  `<id>__list_resources` / `<id>__read_resource`. 전부 읽기라 비-write(read-only에서도 호출 가능)이고,
+  gating은 서버의 실제 도구와 동일(trust/auto-approve 규칙). 서버 실제 도구와 이름이 겹치면 실제 도구가 우선.
+- `getPrompt`/`readResource` 결과는 `mcp-content.ts`의 `promptToToolResult`/`resourceToToolResult`로
+  매핑(role 태그·텍스트 인라인, 바이너리 blob은 §8.5처럼 mime+size 노트만, egress scrub/clip 유지).
+- capability가 없는 tools-only 서버는 메타 도구가 합성되지 않아 영향 없음. (컴포저 슬래시 명령 UI는 후속 —
+  지금은 에이전트 도구 표면으로만 노출.)
+
+### 9.4 Per-tool 자동 승인 (autoApproveTools)
+- `trust`는 서버 전체를 un-gate하는 all-or-nothing이다. `autoApproveTools: string[]`(서버 자기 이름 기준)을
+  추가해 **개별 도구만** 호출당 승인 없이 실행하게 한다(나머지는 그대로 gated). read-only/plan 규칙은 유지 —
+  비-read-only로 표시된 도구는 auto-approve여도 read-only에서 차단된다. `sanitizeMcpConfig`가 trim/중복
+  정리, `configChanged`가 변경 시 재연결(re-wrap)에 반영.

@@ -8,7 +8,7 @@ import {
   sanitizeMcpConfig,
   type McpServerConfig,
 } from '../../shared/mcp';
-import { callMcpTool, listMcpTools } from './mcp';
+import { callMcpTool, isWriteTool, listMcpTools } from './mcp';
 import type { ToolContext } from './tools';
 import {
   parseBoundedWebSearchJsonForTests,
@@ -21,6 +21,7 @@ import {
   connectServer,
   disposeExternalMcpServers,
   listMcpServerStatuses,
+  setReconnectSchedulerForTests,
   syncExternalMcpServers,
   toToolResult,
   type McpCallToolResult,
@@ -103,6 +104,50 @@ function makeMockClient(): {
   return { client, calls, closed: () => isClosed };
 }
 
+/**
+ * A mock client that advertises the `prompts` + `resources` capabilities and
+ * implements their methods — for the capability-bridge (synthesized meta-tool)
+ * assertions. Kept separate from {@link makeMockClient} so the existing tools-only
+ * assertions (toolCount === 2, tools === [echo, boom]) stay unaffected.
+ */
+function makeRichMockClient(): McpClientLike {
+  const tools: McpExternalToolInfo[] = [
+    { name: 'echo', description: 'Echo.', inputSchema: { type: 'object', properties: {} } },
+  ];
+  return {
+    async listTools() {
+      return { tools };
+    },
+    async callTool() {
+      return { content: [{ type: 'text', text: 'ok' }] };
+    },
+    async close() {},
+    getServerCapabilities() {
+      return { tools: {}, prompts: {}, resources: {} };
+    },
+    async listPrompts() {
+      return {
+        prompts: [
+          { name: 'greet', description: 'Say hi', arguments: [{ name: 'who', required: true }] },
+        ],
+      };
+    },
+    async getPrompt(params) {
+      const who = typeof params.arguments?.who === 'string' ? params.arguments.who : '';
+      return {
+        description: 'Greeting prompt',
+        messages: [{ role: 'user', content: { type: 'text', text: `hi ${who}` } }],
+      };
+    },
+    async listResources() {
+      return { resources: [{ uri: 'mem://note', name: 'Note', mimeType: 'text/plain' }] };
+    },
+    async readResource(params) {
+      return { contents: [{ uri: params.uri, mimeType: 'text/plain', text: 'resource body' }] };
+    },
+  };
+}
+
 // The tool context the loop would pass; external tools only use input + the SDK
 // client, so a minimal ws-less context is enough for the harness.
 const ctx: ToolContext = { ws: null, signal: new AbortController().signal };
@@ -118,8 +163,8 @@ async function main(): Promise<void> {
         { id: 'remote', transport: 'http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
         // http inferred from a url + no command.
         { id: 'inferred', url: 'https://api.example.com/v1/mcp' },
-        // sse transport with trust + disabledTools.
-        { id: 'sse1', transport: 'sse', url: 'http://localhost:9000/sse', trust: true, disabledTools: ['danger', '  '] },
+        // sse transport with trust + disabledTools + autoApproveTools.
+        { id: 'sse1', transport: 'sse', url: 'http://localhost:9000/sse', trust: true, disabledTools: ['danger', '  '], autoApproveTools: ['safe', '  '] },
         // invalid: http transport but a non-http url → dropped.
         { id: 'bad-url', transport: 'http', url: 'ftp://nope' },
         // invalid: neither command nor url → dropped.
@@ -138,6 +183,10 @@ async function main(): Promise<void> {
     check(
       'sanitize: disabledTools trimmed + blanks dropped',
       JSON.stringify(byId.get('sse1')?.disabledTools) === JSON.stringify(['danger']),
+    );
+    check(
+      'sanitize: autoApproveTools trimmed + blanks dropped',
+      JSON.stringify(byId.get('sse1')?.autoApproveTools) === JSON.stringify(['safe']),
     );
     check('sanitize: non-http url for http transport is dropped', !byId.has('bad-url'));
     check('sanitize: entry with neither command nor url is dropped', !byId.has('empty'));
@@ -229,6 +278,35 @@ async function main(): Promise<void> {
     check('disabledTools: the remaining tool is still present', trusted.tools.some((t) => t.name === 't__echo'));
   }
 
+  /* ── unit: tool annotations → write flag derivation + title in description ── */
+  {
+    const { client } = makeMockClient();
+    const server = buildExternalServer('ann', client, [
+      { name: 'read_thing', title: 'Read Thing', annotations: { readOnlyHint: true }, inputSchema: { type: 'object', properties: {} } },
+      { name: 'delete_thing', annotations: { readOnlyHint: false, destructiveHint: true }, inputSchema: { type: 'object', properties: {} } },
+      { name: 'mutate', annotations: { readOnlyHint: false }, inputSchema: { type: 'object', properties: {} } },
+      { name: 'plain', inputSchema: { type: 'object', properties: {} } },
+    ]);
+    const byName = new Map(server.tools.map((t) => [t.name, t] as const));
+    check('annotations: readOnlyHint tool is NOT write (callable in read-only)', byName.get('ann__read_thing')?.write !== true);
+    check('annotations: destructiveHint tool IS write (refused in read-only)', byName.get('ann__delete_thing')?.write === true);
+    check('annotations: non-read-only tool IS write', byName.get('ann__mutate')?.write === true);
+    check('annotations: tool without annotations stays non-write (back-compat)', byName.get('ann__plain')?.write !== true);
+    check('annotations: title surfaced in the tool description', byName.get('ann__read_thing')?.description.includes('Read Thing') === true);
+  }
+
+  /* ── unit: per-tool autoApproveTools un-gates specific tools ──────────────── */
+  {
+    const { client } = makeMockClient();
+    const server = buildExternalServer('aa', client, [
+      { name: 'safe', inputSchema: { type: 'object', properties: {} } },
+      { name: 'risky', inputSchema: { type: 'object', properties: {} } },
+    ], { autoApproveTools: ['safe'] });
+    const byName = new Map(server.tools.map((t) => [t.name, t] as const));
+    check('autoApprove: an allow-listed tool is un-gated', byName.get('aa__safe')?.gated === false);
+    check('autoApprove: a non-listed tool on the same server stays gated', byName.get('aa__risky')?.gated === true);
+  }
+
   /* ── integration: status carries transport / target / trusted / tools ────── */
   {
     const { client } = makeMockClient();
@@ -250,6 +328,12 @@ async function main(): Promise<void> {
 
   /* ── crash detection: an unexpected transport close drops the tools ──────── */
   {
+    // Capture (don't run) the backoff retry so the drop's immediate effect is what
+    // we assert — the dedicated reconnect blocks below exercise the recovery path.
+    const queue: (() => Promise<void>)[] = [];
+    setReconnectSchedulerForTests((run) => {
+      queue.push(run);
+    });
     const { client } = makeMockClient();
     const cfg: McpServerConfig = { id: 'crashy', command: 'noop', enabled: true };
     await syncExternalMcpServers([cfg], async () => ({ client }));
@@ -258,9 +342,10 @@ async function main(): Promise<void> {
     check('crash: connectServer wired an onclose handler', typeof client.onclose === 'function');
     client.onclose?.();
     const s = listMcpServerStatuses().find((x) => x.id === 'crashy');
-    check('crash: the server is marked error after the drop', s?.state === 'error');
+    check('crash: the server is marked "reconnecting" after the drop', s?.state === 'reconnecting');
     check('crash: its tools are removed from the model list', !listMcpTools().some((t) => t.name === 'crashy__echo'));
     await syncExternalMcpServers([], async () => ({ client }));
+    setReconnectSchedulerForTests(null);
   }
 
   /* ── integration via injected connect: sync registers + lists namespaced ── */
@@ -495,6 +580,143 @@ async function main(): Promise<void> {
     } finally {
       await mock.close();
     }
+  }
+
+  /* ── capability bridge: prompts/resources surfaced as namespaced meta-tools ── */
+  {
+    const client = makeRichMockClient();
+    const cfg: McpServerConfig = { id: 'cap', command: 'noop', enabled: true };
+    await syncExternalMcpServers([cfg], async () => ({ client }));
+    const names = listMcpTools().map((t) => t.name);
+    check('caps: list_prompts meta-tool synthesized', names.includes('cap__list_prompts'));
+    check('caps: get_prompt meta-tool synthesized', names.includes('cap__get_prompt'));
+    check('caps: list_resources meta-tool synthesized', names.includes('cap__list_resources'));
+    check('caps: read_resource meta-tool synthesized', names.includes('cap__read_resource'));
+    check('caps: the real tool is still present alongside the meta-tools', names.includes('cap__echo'));
+    check('caps: read-only meta-tools are NOT write (callable in read-only)', !isWriteTool('cap__read_resource') && !isWriteTool('cap__list_prompts'));
+
+    const lp = await callMcpTool('cap__list_prompts', {}, ctx);
+    check('caps: list_prompts enumerates the prompt + required arg', lp.text.includes('greet') && lp.text.includes('who*'));
+    const gp = await callMcpTool('cap__get_prompt', { name: 'greet', arguments: { who: 'sam' } }, ctx);
+    check('caps: get_prompt expands the template into role-tagged messages', gp.text.includes('[user]') && gp.text.includes('hi sam'));
+    const gpMissing = await callMcpTool('cap__get_prompt', {}, ctx);
+    check('caps: get_prompt without a name returns a tool error', gpMissing.isError === true);
+    const lr = await callMcpTool('cap__list_resources', {}, ctx);
+    check('caps: list_resources enumerates uri + mime', lr.text.includes('mem://note') && lr.text.includes('text/plain'));
+    const rr = await callMcpTool('cap__read_resource', { uri: 'mem://note' }, ctx);
+    check('caps: read_resource returns the resource body under its uri', rr.text.includes('[resource mem://note]') && rr.text.includes('resource body'));
+
+    await syncExternalMcpServers([], async () => ({ client }));
+    check('caps: dispose removes the synthesized meta-tools', !listMcpTools().some((t) => t.name.startsWith('cap__')));
+  }
+
+  /* ── capability guard: a tools-only server gets no synthesized meta-tools ──── */
+  {
+    const { client } = makeMockClient(); // no getServerCapabilities
+    await syncExternalMcpServers([{ id: 'plain', command: 'noop', enabled: true }], async () => ({ client }));
+    const names = listMcpTools().map((t) => t.name);
+    check('caps: a tools-only server exposes no list_prompts/list_resources', !names.includes('plain__list_prompts') && !names.includes('plain__list_resources'));
+    await syncExternalMcpServers([], async () => ({ client }));
+  }
+
+  /* ── health: an unexpected drop reconnects via backoff (injected scheduler) ── */
+  {
+    const queue: (() => Promise<void>)[] = [];
+    setReconnectSchedulerForTests((run) => {
+      queue.push(run);
+      return queue.length;
+    });
+    const flush = async (): Promise<void> => {
+      let guard = 0;
+      while (queue.length > 0 && guard < 50) {
+        guard += 1;
+        await queue.shift()!();
+      }
+    };
+
+    let current = makeMockClient().client;
+    const connect = async (): Promise<{ client: McpClientLike }> => {
+      current = makeMockClient().client;
+      return { client: current };
+    };
+    const cfg: McpServerConfig = { id: 'rc', command: 'noop', enabled: true };
+    await syncExternalMcpServers([cfg], connect);
+    check('reconnect: server is connected with tools before the drop', listMcpTools().some((t) => t.name === 'rc__echo'));
+
+    // Simulate the transport dropping unexpectedly.
+    current.onclose?.();
+    const dropped = listMcpServerStatuses().find((x) => x.id === 'rc');
+    check('reconnect: an unexpected drop marks the server "reconnecting"', dropped?.state === 'reconnecting');
+    check('reconnect: the dropped server\'s tools are removed while down', !listMcpTools().some((t) => t.name === 'rc__echo'));
+
+    await flush(); // run the scheduled backoff attempt
+    const recovered = listMcpServerStatuses().find((x) => x.id === 'rc');
+    check('reconnect: a backoff retry restores the connection', recovered?.state === 'connected');
+    check('reconnect: the tools are back after reconnect', listMcpTools().some((t) => t.name === 'rc__echo'));
+
+    await syncExternalMcpServers([], connect); // cleanup
+    setReconnectSchedulerForTests(null);
+  }
+
+  /* ── health: reconnect gives up + errors after the max attempts ──────────── */
+  {
+    const queue: (() => Promise<void>)[] = [];
+    setReconnectSchedulerForTests((run) => {
+      queue.push(run);
+    });
+    const flush = async (): Promise<void> => {
+      let guard = 0;
+      while (queue.length > 0 && guard < 50) {
+        guard += 1;
+        await queue.shift()!();
+      }
+    };
+
+    let first: McpClientLike | null = null;
+    const okThenFail = async (): Promise<{ client: McpClientLike }> => {
+      if (!first) {
+        first = makeMockClient().client;
+        return { client: first };
+      }
+      throw new Error('still down');
+    };
+    const cfg: McpServerConfig = { id: 'rcf', command: 'noop', enabled: true };
+    await syncExternalMcpServers([cfg], okThenFail);
+    first!.onclose?.(); // drop → begins reconnect attempts that all fail
+    await flush();
+    const gaveUp = listMcpServerStatuses().find((x) => x.id === 'rcf');
+    check('reconnect: gives up and marks "error" after exhausting retries', gaveUp?.state === 'error');
+    check('reconnect: no tools remain after giving up', !listMcpTools().some((t) => t.name === 'rcf__echo'));
+
+    await syncExternalMcpServers([], okThenFail); // cleanup
+    setReconnectSchedulerForTests(null);
+  }
+
+  /* ── health: disabling a reconnecting server cancels its backoff ─────────── */
+  {
+    const queue: (() => Promise<void>)[] = [];
+    setReconnectSchedulerForTests((run) => {
+      queue.push(run);
+    });
+    let current = makeMockClient().client;
+    const connect = async (): Promise<{ client: McpClientLike }> => {
+      current = makeMockClient().client;
+      return { client: current };
+    };
+    const cfg: McpServerConfig = { id: 'rcd', command: 'noop', enabled: true };
+    await syncExternalMcpServers([cfg], connect);
+    current.onclose?.(); // → reconnecting (a backoff attempt is queued)
+    check('reconnect: a backoff attempt was scheduled', queue.length === 1);
+    // Disable the server while it's mid-reconnect.
+    const after = await syncExternalMcpServers([{ ...cfg, enabled: false }], connect);
+    const s = after.find((x) => x.id === 'rcd');
+    check('reconnect: disabling a reconnecting server reports "disabled"', s?.state === 'disabled');
+    // The previously-queued attempt must be a no-op now (its entry was cancelled).
+    await queue.shift()?.();
+    check('reconnect: the cancelled backoff attempt did not reconnect', !listMcpTools().some((t) => t.name === 'rcd__echo'));
+
+    await syncExternalMcpServers([], connect); // cleanup
+    setReconnectSchedulerForTests(null);
   }
 
   console.log(`\nexternal-mcp harness: ${passed} assertions passed`);

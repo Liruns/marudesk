@@ -769,6 +769,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.mcp.openConfig': '설정 파일 열기',
   'settings.mcp.reload': '새로고침',
   'settings.mcp.status.connecting': '연결 중',
+  'settings.mcp.status.reconnecting': '재연결 중',
   'settings.mcp.status.disabled': '비활성화됨',
   'settings.mcp.status.error': '오류',
   'settings.mcp.toggle.disable': '비활성화',

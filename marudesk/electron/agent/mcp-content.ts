@@ -97,3 +97,82 @@ export function toToolResult(name: string, res: McpCallToolResult): ToolResult {
     isError: res.isError === true,
   };
 }
+
+/** Shape of a `client.getPrompt` result (only the fields we map). */
+export type McpGetPromptResult = {
+  description?: string;
+  messages?: { role?: string; content?: McpContentItem | McpContentItem[] }[];
+  [k: string]: unknown;
+};
+
+type McpContentItem =
+  | { type: 'text'; text: string }
+  | { type: string; [k: string]: unknown };
+
+/**
+ * Render a `getPrompt` result (a prompt template expanded into chat messages) into a
+ * {@link ToolResult} the agent can read. Each message is prefixed with its role; text
+ * content is inlined verbatim and non-text content rendered as the same compact note
+ * as {@link toToolResult}. Scrubbed + clipped at egress like every external payload.
+ */
+export function promptToToolResult(name: string, res: McpGetPromptResult): ToolResult {
+  const parts: string[] = [];
+  if (typeof res.description === 'string' && res.description.trim()) {
+    parts.push(res.description.trim());
+  }
+  for (const msg of Array.isArray(res.messages) ? res.messages : []) {
+    const role = typeof msg?.role === 'string' ? msg.role : 'user';
+    const blocks = Array.isArray(msg?.content)
+      ? msg.content
+      : msg?.content
+        ? [msg.content]
+        : [];
+    const rendered = blocks
+      .map((item) =>
+        item && typeof item.type === 'string' && item.type === 'text' && typeof (item as { text?: unknown }).text === 'string'
+          ? (item as { text: string }).text
+          : item && typeof item.type === 'string'
+            ? describeContentItem(item as { type: string; [k: string]: unknown })
+            : '',
+      )
+      .filter((s) => s.length > 0)
+      .join('\n');
+    parts.push(`[${role}]\n${rendered}`.trimEnd());
+  }
+  const text = parts.join('\n\n').trim() || '(no content)';
+  return { summary: name, text: scrubText(clipText(text, MAX_TOOL_TEXT)) };
+}
+
+/** Shape of a `client.readResource` result (only the fields we map). */
+export type McpReadResourceResult = {
+  contents?: {
+    uri?: string;
+    mimeType?: string;
+    text?: string;
+    blob?: string;
+    [k: string]: unknown;
+  }[];
+  [k: string]: unknown;
+};
+
+/**
+ * Render a `readResource` result into a {@link ToolResult}. A text resource is
+ * inlined under its uri; a binary (`blob`) one is noted with its mime + decoded size
+ * but NEVER inlined (same blob policy as {@link toToolResult} — avoids context bloat
+ * and a costly secret scan over base64). Scrubbed + clipped at egress.
+ */
+export function resourceToToolResult(name: string, res: McpReadResourceResult): ToolResult {
+  const parts: string[] = [];
+  for (const c of Array.isArray(res.contents) ? res.contents : []) {
+    const uri = typeof c?.uri === 'string' && c.uri ? c.uri : '?';
+    if (typeof c?.text === 'string') {
+      parts.push(`[resource ${uri}]\n${c.text}`);
+      continue;
+    }
+    const mime = typeof c?.mimeType === 'string' && c.mimeType ? c.mimeType : undefined;
+    const size = base64Bytes(c?.blob);
+    parts.push(`[resource ${uri}${mime ? ` (${mime})` : ''}${size ? `, ${humanBytes(size)}` : ''}]`);
+  }
+  const text = parts.join('\n').trim() || '(no content)';
+  return { summary: name, text: scrubText(clipText(text, MAX_TOOL_TEXT)) };
+}
