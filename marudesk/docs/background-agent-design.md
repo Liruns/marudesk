@@ -1,10 +1,28 @@
 # marudesk — Background Agent (분리 실행 에이전트) 설계
 
-> 상태: **제안 (2026-06-06)** · 범위: AI Chat에 부모 턴 수명을 넘어 분리 실행되는 백그라운드 에이전트 추가.
+> 상태: **Phase 1 shipped (2026-06-06)** · 범위: AI Chat에 부모 턴 수명을 넘어 분리 실행되는 백그라운드 에이전트 추가.
 > 동반: [subagent 설계](./subagent-design.md) · [agentic-chat 설계](./agentic-chat-design.md) · [remote/mobile bridge 설계](./remote-mobile-bridge-design.md)
 > 결정 입력: 실행 = **detached(턴 비차단)** · 툴 범위 = **read-only/non-gated만(v1)** · 결과 회수 = **registry + on-demand collect**.
 > 관계: 본 문서는 [subagent 설계](./subagent-design.md)의 **직교(orthogonal) 확장**이다. subagent는
 > "한 턴 안의 병렬"(부모 턴이 자식 종료를 기다림)을 다루고, 본 문서는 "**턴을 넘는 분리 실행**"을 다룬다.
+
+## Phase 1 구현 메모 (2026-06-06)
+
+`spawn_background_agent` / `collect_background_agent` / `cancel_background_agent` 세 도구를 loop-intercept로
+착지했다(`electron/agent/background.ts` 레지스트리 + `loop.ts` `dispatchTool`). 검증: `npm run typecheck`,
+`npm run build`, `npm run harness:background`(17 assertions), 인접 `harness:subagent`/`harness:mcp` 회귀 없음.
+
+- spawn은 자식을 **동기 기동하되 await하지 않고** task id를 즉시 ack로 반환한다. 자식 신호는 부모 턴이
+  아니라 레지스트리 entry의 `AbortController`에 묶여 턴 종료가 자식을 죽이지 않는다.
+- 자식은 `runChildAgent`를 그대로 재사용(read-only/non-gated). 자식 툴셋에서 background 3종도 제외해
+  깊이 1을 고정했다.
+- `reset()`/`resumeSession()`이 떠나는 대화의 작업을 abort + drop한다.
+- 렌더러 트레이(`BackgroundTray`)는 **읽기 전용**으로 착지했다(라벨/model/status + 완료 결과 펼침).
+
+**v1에서 의도적으로 연기한 것:** ① `usage`/`trace` 투영 — `runChildAgent`가 `ToolResult`만 반환해
+자식 토큰/trace를 노출하지 않으므로(§4 참고) 넣지 않았다. ② 누적 토큰 상한(§8) — 동시 활성 상한만 구현.
+③ 완료 알림(§7). ④ 사용자 트레이 취소 버튼(§5.3) — 별도 IPC 채널이 필요. ⑤ 브리지 `cancelBackground`(§12)
+와 모바일 트레이. (현재 `state.background`는 스냅샷에 자동 포함되어 원격에 전파는 된다.)
 
 ## 0. 한 줄
 
@@ -114,15 +132,18 @@ export type BackgroundTask = {
   finishedAt: number | null;
   /** 완료 시 자식 최종 리포트(read-only). 미완료면 null. */
   result: string | null;
-  /** 진행 표시용 짧은 trace tail (자식 transcript 전체가 아님). */
-  trace: string[];
-  usage: { inputTokens: number; outputTokens: number };
+  /** error/cancelled 상태의 사유. 그 외엔 null. */
+  error: string | null;
   /** 부모가 이미 collect 했는지 — 중복 회수/노이즈 방지. */
   collected: boolean;
 };
 
-// 기존 AgentChatState에 추가 (하위호환: 옵셔널, 기본 []):
+// 기존 AgentChatState에 추가 (필수 필드, emptyAgentChatState 기본 []):
 //   background: BackgroundTask[];
+
+// ※ v1 미구현(정직 기록): usage/trace는 runChildAgent가 ToolResult만 반환해
+//    노출 불가하므로 타입에서 뺐다. 자식 토큰 집계를 원하면 runChildAgent의
+//    반환 계약을 먼저 확장해야 한다.
 ```
 
 스냅샷은 여전히 **틱당 1개**(`agent:event`). `background`는 그 페이로드의 한 필드일 뿐 → 렌더러와

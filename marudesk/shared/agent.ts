@@ -191,6 +191,38 @@ export type AgentChatState = {
    * or is still running. (Hard errors use {@link error} instead.)
    */
   endNote: string | null;
+  /**
+   * Detached background agents spawned this conversation (docs/background-agent-design.md).
+   * Unlike spawn_subagent (which blocks the parent turn), a background agent runs
+   * past the turn that started it; this list is the renderer/bridge projection of
+   * the main-process task registry. Read-only here — the model collects results
+   * via collect_background_agent and the user cancels via the tray.
+   */
+  background: BackgroundTask[];
+};
+
+/** Lifecycle of a detached background agent. */
+export type BackgroundStatus = 'running' | 'done' | 'error' | 'cancelled';
+
+/** A detached background agent task, projected from the main-process registry. */
+export type BackgroundTask = {
+  id: string;
+  /** Short name for the tray entry. */
+  label: string;
+  /** The delegated task instructions (clipped). */
+  task: string;
+  provider: ProviderId;
+  model: string;
+  status: BackgroundStatus;
+  startedAt: number;
+  /** Set when the task reaches a terminal status, else null. */
+  finishedAt: number | null;
+  /** The child's final report on success, else null. */
+  result: string | null;
+  /** The failure/cancellation reason when status is error/cancelled, else null. */
+  error: string | null;
+  /** Whether the parent already read this with collect_background_agent. */
+  collected: boolean;
 };
 
 export function emptyAgentChatState(): AgentChatState {
@@ -205,6 +237,7 @@ export function emptyAgentChatState(): AgentChatState {
     error: null,
     activeSessionId: null,
     endNote: null,
+    background: [],
   };
 }
 
