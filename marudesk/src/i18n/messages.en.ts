@@ -1072,6 +1072,7 @@ export const EN_MESSAGES = {
   'workspace.action.copyPath': 'Copy Path',
   'workspace.action.copyRelativePath': 'Copy Relative Path',
   'workspace.action.cut': 'Cut',
+  'workspace.action.create': 'Create',
   'workspace.action.delete': 'Delete',
   'workspace.action.newFile': 'New file',
   'workspace.action.newFolder': 'New folder',

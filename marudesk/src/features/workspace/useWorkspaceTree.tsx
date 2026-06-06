@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type CSSProperties,
   type ReactNode,
 } from 'react';
@@ -11,7 +12,6 @@ import type {
   ContextMenuOpenContext as TreeMenuOpenCtx,
   FileTree as FileTreeModel,
   FileTreeDropResult,
-  FileTreeRenameEvent,
   GitStatus as TreeGitStatus,
   GitStatusEntry,
 } from '@pierre/trees';
@@ -30,6 +30,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import { NameDialog } from '../workspaces/NameDialog';
 import { useI18n } from '../../i18n/useI18n';
 import { useWorkspaceStore } from './store';
 import {
@@ -47,10 +48,9 @@ import {
  * Theme bridge between marudesk's design tokens and `@pierre/trees`. The tree
  * renders in a shadow root, but CSS custom properties inherit across the shadow
  * boundary, so setting the library's `--trees-*-override` hooks on the host maps
- * the whole component onto our token layer (DESIGN.md §2). Icons stay monochrome
- * (`colored: false` in the icon config) to honour the single-accent rule. The
- * indent guide derives from `--trees-fg-muted` by default, so it follows the
- * tertiary text token automatically.
+ * the whole component onto our token layer (DESIGN.md §2). The indent guide
+ * derives from `--trees-fg-muted` by default, so it follows the tertiary text
+ * token automatically; git badges ride our semantic tokens.
  */
 export const TREE_THEME_STYLE = {
   height: '100%',
@@ -67,10 +67,8 @@ export const TREE_THEME_STYLE = {
   '--trees-selected-fg-override': 'var(--text-primary)',
   '--trees-selected-focused-border-color-override': 'var(--accent)',
   '--trees-indent-guide-bg-override': 'var(--border-subtle)',
-  '--trees-input-bg-override': 'var(--surface-3)',
   '--trees-search-bg-override': 'var(--surface-2)',
   '--trees-search-fg-override': 'var(--text-primary)',
-  // Git status badges ride our semantic tokens (DESIGN.md §2).
   '--trees-git-added-color-override': 'var(--success)',
   '--trees-git-untracked-color-override': 'var(--success)',
   '--trees-git-modified-color-override': 'var(--warning)',
@@ -114,14 +112,12 @@ function gitStatusEntries(status: GitStatus | null): GitStatusEntry[] {
   }));
 }
 
-/** A new-item placeholder awaiting its name in the inline rename input. */
-type PendingCreate = {
-  tempPath: string;
-  parentDir: string;
-  kind: 'file' | 'dir';
-};
-
 type PathKind = 'dir' | 'file';
+
+/** The single-field dialog the tree opens for create / rename. */
+type TreeDialog =
+  | { mode: 'create'; parentDir: string; kind: 'file' | 'dir' }
+  | { mode: 'rename'; path: string };
 
 /** Parent directory of a POSIX-relative path ('' for a top-level entry). */
 function parentOf(rel: string): string {
@@ -163,13 +159,20 @@ type Result = {
   renderContextMenu: (item: TreeMenuItem, ctx: TreeMenuOpenCtx) => ReactNode;
   beginCreate: (parentDir: string, kind: 'file' | 'dir') => void;
   collapseAll: () => void;
+  /** The create/rename dialog, rendered by the panel (null when idle). */
+  dialog: ReactNode;
 };
 
 /**
  * Wires `@pierre/trees` to marudesk's workspace: feeds it the file list, opens
- * files on selection, drives inline rename / create through the validated
- * `workspace:*` channels (fsActions), and renders our own ContextMenu via the
- * library's `renderContextMenu` slot.
+ * files on selection, persists drag-moves, and renders our own ContextMenu via
+ * the library's `renderContextMenu` slot.
+ *
+ * Create and rename go through {@link NameDialog} (the same modal the workspace
+ * deck uses — Electron disables `window.prompt`) and the validated `workspace:*`
+ * channels (fsActions), rather than the library's inline input: the inline
+ * editor lives in the tree's shadow root and loses a focus race when triggered
+ * from our light-DOM context menu.
  *
  * The model is created once (the library never re-reads options), so paths are
  * pushed imperatively via `resetPaths` whenever the summary changes — expansion
@@ -182,14 +185,14 @@ export function useWorkspaceTree(opts: {
   const { t } = useI18n();
   const summary = useWorkspaceStore((s) => s.summary);
   const gitStatus = useGitStore((s) => s.status);
+  const [dialog, setDialog] = useState<TreeDialog | null>(null);
 
-  // Refs so the once-captured library callbacks (onSelectionChange / onRename,
+  // Refs so the once-captured library callbacks (onSelectionChange / onDrop,
   // which the library reads only at construction) always see live values.
   const modelRef = useRef<FileTreeModel | null>(null);
   const onOpenFileRef = useRef(opts.onOpenFile);
   const pathKindRef = useRef<Map<string, PathKind>>(new Map());
   const currentPathsRef = useRef<readonly string[]>([]);
-  const pendingCreateRef = useRef<PendingCreate | null>(null);
   // Suppresses the open-on-select side effect while we restore selection
   // programmatically after a resetPaths.
   const suppressSelRef = useRef(false);
@@ -202,25 +205,6 @@ export function useWorkspaceTree(opts: {
     if (pathKindRef.current.get(path) === 'file') {
       onOpenFileRef.current(path);
     }
-  }, []);
-
-  const handleRename = useCallback((event: FileTreeRenameEvent) => {
-    const newName = baseName(event.destinationPath);
-    const pending = pendingCreateRef.current;
-    if (pending && pending.tempPath === event.sourcePath) {
-      // Committing a new-item placeholder: create on disk instead of moving.
-      pendingCreateRef.current = null;
-      void commitCreate(pending.parentDir, newName, pending.kind).then((res) => {
-        // On failure drop the optimistic placeholder the library left behind.
-        if (!res) modelRef.current?.remove(event.destinationPath);
-      });
-      return;
-    }
-    void commitRename(event.sourcePath, newName).then((res) => {
-      // On failure re-sync the model from disk (the library already moved the
-      // node optimistically; reindex restores the truth).
-      if (!res) void useWorkspaceStore.getState().reindex();
-    });
   }, []);
 
   const handleDrop = useCallback((event: FileTreeDropResult) => {
@@ -236,10 +220,6 @@ export function useWorkspaceTree(opts: {
     icons: { set: 'standard', colored: true },
     search: true,
     dragAndDrop: { onDropComplete: handleDrop },
-    renaming: {
-      onRename: handleRename,
-      onError: (error) => window.alert(error),
-    },
     composition: {
       contextMenu: {
         enabled: true,
@@ -290,19 +270,12 @@ export function useWorkspaceTree(opts: {
 
   const beginCreate = useCallback(
     (parentDir: string, kind: 'file' | 'dir') => {
-      const base = kind === 'dir' ? 'new-folder' : 'new-file';
-      const exists = (nm: string) =>
-        pathKindRef.current.has(parentDir ? `${parentDir}/${nm}` : nm);
-      let name = base;
-      for (let n = 1; exists(name); n++) name = `${base}-${n}`;
-      const tempPath = parentDir ? `${parentDir}/${name}` : name;
+      // Expand the target dir so the new entry is visible once created.
       if (parentDir) {
         const dir = model.getItem(parentDir);
         if (dir && 'expand' in dir) dir.expand();
       }
-      pendingCreateRef.current = { tempPath, parentDir, kind };
-      model.add(tempPath);
-      model.startRenaming(tempPath, { removeIfCanceled: true });
+      setDialog({ mode: 'create', parentDir, kind });
     },
     [model],
   );
@@ -382,7 +355,7 @@ export function useWorkspaceTree(opts: {
         {
           label: t('workspace.action.rename'),
           icon: <Pencil size={15} />,
-          onSelect: () => model.startRenaming(path),
+          onSelect: () => setDialog({ mode: 'rename', path }),
         },
         {
           label: t('workspace.action.delete'),
@@ -393,7 +366,7 @@ export function useWorkspaceTree(opts: {
       );
       return items;
     },
-    [t, beginCreate, model],
+    [t, beginCreate],
   );
 
   const renderContextMenu = useCallback(
@@ -403,13 +376,38 @@ export function useWorkspaceTree(opts: {
         y={ctx.anchorRect.bottom}
         contextMenuRoot
         items={buildRowMenu(item)}
-        // Close without restoring row focus so actions that hand focus to the
-        // inline rename input (rename / new item) aren't yanked back.
-        onClose={() => ctx.close({ restoreFocus: false })}
+        onClose={() => ctx.close()}
       />
     ),
     [buildRowMenu],
   );
 
-  return { model, renderContextMenu, beginCreate, collapseAll };
+  const dialogNode: ReactNode = dialog
+    ? dialog.mode === 'rename'
+      ? (
+          <NameDialog
+            title={t('workspace.action.rename')}
+            confirmLabel={t('workspace.action.rename')}
+            initialValue={baseName(dialog.path)}
+            onSubmit={(name) => void commitRename(dialog.path, name)}
+            onClose={() => setDialog(null)}
+          />
+        )
+      : (
+          <NameDialog
+            title={
+              dialog.kind === 'dir'
+                ? t('workspace.action.newFolder')
+                : t('workspace.action.newFile')
+            }
+            confirmLabel={t('workspace.action.create')}
+            onSubmit={(name) =>
+              void commitCreate(dialog.parentDir, name, dialog.kind)
+            }
+            onClose={() => setDialog(null)}
+          />
+        )
+    : null;
+
+  return { model, renderContextMenu, beginCreate, collapseAll, dialog: dialogNode };
 }

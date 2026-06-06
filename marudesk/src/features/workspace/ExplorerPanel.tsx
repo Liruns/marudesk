@@ -149,11 +149,16 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   // workspace (open on select, inline rename/create via fsActions, our own
   // ContextMenu for row actions). Per-row right-click is handled inside the
   // library via `renderContextMenu`; only the empty-body menu lives here.
-  const { model, renderContextMenu, beginCreate, collapseAll } = useWorkspaceTree({
+  const { model, renderContextMenu, beginCreate, collapseAll, dialog } = useWorkspaceTree({
     onOpenFile: (p) => void openFile(workspaceFile(p)),
   });
 
   const openEmptyMenu = (e: ReactMouseEvent) => {
+    // Row right-clicks are handled by the tree's own context menu, which
+    // preventDefaults the native event before it composes out of the shadow
+    // root and bubbles here — so only open the empty-body menu when nothing
+    // downstream claimed the event.
+    if (e.defaultPrevented) return;
     e.preventDefault();
     setMenu({ x: e.clientX, y: e.clientY });
   };
@@ -343,6 +348,8 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
           onClose={() => setMenu(null)}
         />
       ) : null}
+
+      {dialog}
     </aside>
   );
 }
