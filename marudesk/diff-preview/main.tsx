@@ -54,10 +54,11 @@ const DIFF_CHROME_STYLE = {
 const params = new URLSearchParams(location.search);
 const diffStyle = params.get('style') === 'split' ? 'split' : 'unified';
 const ld = params.get('linediff');
-// Default matches the DiffViewer spike (and the library default): word-alt
-// joins single-space gaps into the change span for continuous emphasis.
+// Default matches the DiffViewer spike: 'none' tints the whole changed line
+// (no intra-line boxes) — calmer and consistent with the in-house DiffBlock.
+// Pass ?linediff=word-alt|word|char to compare the intra-line emphasis modes.
 const lineDiffType: 'word' | 'word-alt' | 'char' | 'none' =
-  ld === 'char' || ld === 'word' || ld === 'none' ? ld : 'word-alt';
+  ld === 'char' || ld === 'word' || ld === 'word-alt' ? ld : 'none';
 
 createRoot(mount).render(
   <StrictMode>

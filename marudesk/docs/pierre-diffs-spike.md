@@ -20,7 +20,7 @@ direct feed:
     theme: 'pierre-dark',
     preferredHighlighter: 'shiki-js',
     diffStyle,                 // 'unified' | 'split', toggled in the overlay header
-    lineDiffType: 'word-alt',  // word-level intra-line highlight (joined; the library default)
+    lineDiffType: 'none',      // tint the whole changed line (no intra-line boxes)
     diffIndicators: 'bars',    // matches the in-house left-bar diff language
     expandUnchanged: true,     // expand context where the patch provides it
     stickyHeader: true,        // pin the file header while scrolling
@@ -30,7 +30,7 @@ direct feed:
 ```
 
 The result is a syntax-highlighted diff with a pinned file header (`-N +N`
-stats), word-level change boxes, and bar indicators
+stats), whole-line add/remove tint, and bar indicators
 (`diff-preview/diff-spike.png` unified, `diff-preview/diff-split.png` split).
 
 ### Leveraging the library + design integration
@@ -45,17 +45,17 @@ and fixes the design:
   `-N +N`), so the overlay header drops the redundant path and carries only the
   staged badge, the unified/split toggle, and close. `stickyHeader: true` pins
   the file header while scrolling.
-- **`lineDiffType: 'word-alt'`** boxes the exact changed tokens within a
-  modified line. `word-alt` is the library default (and the right choice): its
-  `pushOrJoinSpan` join absorbs single-character unchanged tokens — the spaces
-  between changed words — into the change span, giving one continuous box. Plain
-  `'word'` disables that join and leaves a gap at every space; `'char'` diffs by
-  character (noisier on unrelated lines); `'none'` drops the boxes for just the
-  line tint. See the `?linediff=` comparison captures in `diff-preview/`.
+- **`lineDiffType: 'none'`** tints the whole changed line instead of boxing the
+  changed tokens within it — calmer, and consistent with the in-house DiffBlock
+  which also highlights by line. The intra-line modes remain available:
+  `'word-alt'` (library default) joins single-space gaps into one continuous box
+  via `pushOrJoinSpan`; `'word'` leaves a gap at every space; `'char'` diffs by
+  character (noisier on unrelated lines). See the `?linediff=` comparison
+  captures (`diff-preview/linediff-none.png` vs `linediff-word-alt.png`).
   **`diffIndicators: 'bars'`** matches the in-house left-bar look.
-- **Fuller token chrome.** `DIFF_CHROME_STYLE` now maps line/number/selection
-  backgrounds and the word-emphasis tint (a stronger token via `color-mix`, so
-  every value stays token-driven — no literal hex).
+- **Fuller token chrome.** `DIFF_CHROME_STYLE` maps line/number/selection
+  backgrounds onto tokens (and a `color-mix` word-emphasis tint for the
+  intra-line modes), so every value stays token-driven — no literal hex.
 
 Not yet wired (clear next steps): per-hunk `diffAcceptRejectHunk` for an
 interactive accept/reject review, `CodeView` for an all-changed-files scroll, the
