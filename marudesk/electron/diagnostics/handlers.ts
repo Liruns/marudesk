@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron';
+import { shell, type BrowserWindow } from 'electron';
 import { defineHandler, requireWorkspace } from '../ipc/define-handler';
 import { getDiagnosticsState, runDiagnostics, setDiagnosticsListener } from './runner';
 import { ensureLanguagesConfigFile } from './config';
@@ -34,6 +34,9 @@ export function registerDiagnosticsHandlers(deps: {
   });
 
   defineHandler('diagnostics:open-config', async () => {
-    return { path: await ensureLanguagesConfigFile() };
+    const configPath = await ensureLanguagesConfigFile();
+    // Open it in the OS default editor so the user can hand-edit recipes.
+    void shell.openPath(configPath);
+    return { path: configPath };
   });
 }

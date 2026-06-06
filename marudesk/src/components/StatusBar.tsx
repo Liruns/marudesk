@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { GitBranch } from 'lucide-react';
 import { useWebPageStore } from '../features/browser/store';
 import { useProvidersStore } from '../features/providers/store';
 import { useWorkspaceStore } from '../features/workspace/store';
 import { useDiagnosticsStore, diagnosticCounts } from '../features/diagnostics/store';
+import { ProblemsPopover } from '../features/diagnostics/ProblemsPopover';
 import { useGitStore } from '../features/git/store';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { providerLabel } from '../../shared/providers';
@@ -44,11 +46,10 @@ export function StatusBar() {
   const customProviders = useProvidersStore((s) => s.customProviders);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
   const diagnosticsState = useDiagnosticsStore((s) => s.state);
-  const runDiagnostics = useDiagnosticsStore((s) => s.run);
+  const [problemsOpen, setProblemsOpen] = useState(false);
   const { formatCaptureCount, formatFileCount, t } = useI18n();
 
   const { errors: diagErrors, warnings: diagWarnings } = diagnosticCounts(diagnosticsState);
-  const diagHasRun = diagnosticsState.lastRun !== null;
 
   const hasKey = providerStatus.find((p) => p.id === selectedProvider)?.hasKey;
   // Branch + ahead/behind, read passively from the git store (populated when
@@ -107,32 +108,29 @@ export function StatusBar() {
         </span>
       ) : null}
       {summary ? (
-        <button
-          type="button"
-          onClick={() => void runDiagnostics()}
-          disabled={diagnosticsState.running}
-          title={
-            diagnosticsState.running
-              ? 'Running the project checker…'
-              : diagHasRun
-                ? 'Re-run the project type-check / diagnostics'
-                : 'Run the project type-check / diagnostics'
-          }
-          className="flex items-center gap-2 hover:text-fg-secondary transition-colors duration-fast disabled:opacity-60"
-        >
-          {diagnosticsState.running ? (
-            <span>checking…</span>
-          ) : (
-            <>
-              <span className={cn('flex items-center gap-1', diagErrors > 0 && 'text-error')}>
-                ✖ {diagErrors}
-              </span>
-              <span className={cn('flex items-center gap-1', diagWarnings > 0 && 'text-warning')}>
-                ⚠ {diagWarnings}
-              </span>
-            </>
-          )}
-        </button>
+        <span className="relative flex items-center">
+          <button
+            type="button"
+            onClick={() => setProblemsOpen((v) => !v)}
+            aria-expanded={problemsOpen}
+            title="Problems — click for the list, run the project checker"
+            className="flex items-center gap-2 hover:text-fg-secondary transition-colors duration-fast"
+          >
+            {diagnosticsState.running ? (
+              <span>checking…</span>
+            ) : (
+              <>
+                <span className={cn('flex items-center gap-1', diagErrors > 0 && 'text-error')}>
+                  ✖ {diagErrors}
+                </span>
+                <span className={cn('flex items-center gap-1', diagWarnings > 0 && 'text-warning')}>
+                  ⚠ {diagWarnings}
+                </span>
+              </>
+            )}
+          </button>
+          {problemsOpen ? <ProblemsPopover onClose={() => setProblemsOpen(false)} /> : null}
+        </span>
       ) : null}
       <span className="flex-1" aria-hidden />
       {inspectMode ? <span className="text-accent">{t('status.inspectOn')}</span> : null}
