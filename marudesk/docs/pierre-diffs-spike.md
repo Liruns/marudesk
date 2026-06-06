@@ -20,7 +20,7 @@ direct feed:
     theme: 'pierre-dark',
     preferredHighlighter: 'shiki-js',
     diffStyle,                 // 'unified' | 'split', toggled in the overlay header
-    lineDiffType: 'word',      // word-level intra-line highlight
+    lineDiffType: 'word-alt',  // word-level intra-line highlight (joined; the library default)
     diffIndicators: 'bars',    // matches the in-house left-bar diff language
     expandUnchanged: true,     // expand context where the patch provides it
     stickyHeader: true,        // pin the file header while scrolling
@@ -45,8 +45,14 @@ and fixes the design:
   `-N +N`), so the overlay header drops the redundant path and carries only the
   staged badge, the unified/split toggle, and close. `stickyHeader: true` pins
   the file header while scrolling.
-- **`lineDiffType: 'word'`** boxes the exact changed tokens within a modified
-  line; **`diffIndicators: 'bars'`** matches the in-house left-bar look.
+- **`lineDiffType: 'word-alt'`** boxes the exact changed tokens within a
+  modified line. `word-alt` is the library default (and the right choice): its
+  `pushOrJoinSpan` join absorbs single-character unchanged tokens — the spaces
+  between changed words — into the change span, giving one continuous box. Plain
+  `'word'` disables that join and leaves a gap at every space; `'char'` diffs by
+  character (noisier on unrelated lines); `'none'` drops the boxes for just the
+  line tint. See the `?linediff=` comparison captures in `diff-preview/`.
+  **`diffIndicators: 'bars'`** matches the in-house left-bar look.
 - **Fuller token chrome.** `DIFF_CHROME_STYLE` now maps line/number/selection
   backgrounds and the word-emphasis tint (a stronger token via `color-mix`, so
   every value stays token-driven — no literal hex).

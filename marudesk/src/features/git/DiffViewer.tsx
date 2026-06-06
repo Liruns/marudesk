@@ -188,9 +188,12 @@ export function DiffViewer({
                   theme: 'pierre-dark',
                   preferredHighlighter: 'shiki-js',
                   diffStyle,
-                  // Word-level intra-line highlight, bar indicators to match the
-                  // in-house diff language, and a pinned file header.
-                  lineDiffType: 'word',
+                  // Word-level intra-line highlight. `word-alt` is the library
+                  // default: it joins single-character unchanged tokens (the
+                  // spaces between changed words) into the change span, so the
+                  // emphasis reads as one continuous box instead of a gappy
+                  // per-word boxes (plain `word` leaves a gap at every space).
+                  lineDiffType: 'word-alt',
                   diffIndicators: 'bars',
                   expandUnchanged: true,
                   stickyHeader: true,

@@ -52,7 +52,11 @@ const DIFF_CHROME_STYLE = {
 
 const params = new URLSearchParams(location.search);
 const diffStyle = params.get('style') === 'split' ? 'split' : 'unified';
-const lineDiffType = params.get('linediff') === 'char' ? 'char' : 'word';
+const ld = params.get('linediff');
+// Default matches the DiffViewer spike (and the library default): word-alt
+// joins single-space gaps into the change span for continuous emphasis.
+const lineDiffType: 'word' | 'word-alt' | 'char' | 'none' =
+  ld === 'char' || ld === 'word' || ld === 'none' ? ld : 'word-alt';
 
 createRoot(mount).render(
   <StrictMode>
