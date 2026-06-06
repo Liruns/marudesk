@@ -10,8 +10,13 @@ import type {
   ContextMenuItem as TreeMenuItem,
   ContextMenuOpenContext as TreeMenuOpenCtx,
   FileTree as FileTreeModel,
+  FileTreeDropResult,
   FileTreeRenameEvent,
+  GitStatus as TreeGitStatus,
+  GitStatusEntry,
 } from '@pierre/trees';
+import type { GitChange, GitStatus } from '../../../shared/git';
+import { useGitStore } from '../git/store';
 import {
   ClipboardPaste,
   Copy,
@@ -33,6 +38,7 @@ import {
   copyAbsolutePath,
   copyRelativePath,
   deletePath,
+  moveInto,
   pasteInto,
   revealPath,
 } from './fsActions';
@@ -62,10 +68,51 @@ export const TREE_THEME_STYLE = {
   '--trees-selected-focused-border-color-override': 'var(--accent)',
   '--trees-indent-guide-bg-override': 'var(--border-subtle)',
   '--trees-input-bg-override': 'var(--surface-3)',
+  '--trees-search-bg-override': 'var(--surface-2)',
+  '--trees-search-fg-override': 'var(--text-primary)',
+  // Git status badges ride our semantic tokens (DESIGN.md §2).
+  '--trees-git-added-color-override': 'var(--success)',
+  '--trees-git-untracked-color-override': 'var(--success)',
+  '--trees-git-modified-color-override': 'var(--warning)',
+  '--trees-git-deleted-color-override': 'var(--error)',
+  '--trees-git-renamed-color-override': 'var(--accent)',
+  '--trees-git-ignored-color-override': 'var(--text-tertiary)',
   '--trees-scrollbar-thumb-override': 'var(--scrollbar-thumb)',
   '--trees-font-family-override': 'var(--font-body)',
   '--trees-font-size-override': '13px',
 } as CSSProperties;
+
+/**
+ * Map a porcelain `GitChange` to the single status keyword `@pierre/trees`
+ * renders as a row badge. Worktree (unstaged) status wins over the index column
+ * when both are set; conflicts fall back to "modified" (the library has no
+ * conflict badge).
+ */
+function toTreeGitStatus(change: GitChange): TreeGitStatus {
+  if (change.untracked) return 'untracked';
+  if (change.conflicted) return 'modified';
+  const code =
+    change.worktreeStatus !== ' ' ? change.worktreeStatus : change.indexStatus;
+  switch (code) {
+    case 'A':
+      return 'added';
+    case 'D':
+      return 'deleted';
+    case 'R':
+    case 'C':
+      return 'renamed';
+    default:
+      return 'modified';
+  }
+}
+
+function gitStatusEntries(status: GitStatus | null): GitStatusEntry[] {
+  if (!status || !status.isRepo) return [];
+  return status.files.map((change) => ({
+    path: change.path,
+    status: toTreeGitStatus(change),
+  }));
+}
 
 /** A new-item placeholder awaiting its name in the inline rename input. */
 type PendingCreate = {
@@ -134,6 +181,7 @@ export function useWorkspaceTree(opts: {
 }): Result {
   const { t } = useI18n();
   const summary = useWorkspaceStore((s) => s.summary);
+  const gitStatus = useGitStore((s) => s.status);
 
   // Refs so the once-captured library callbacks (onSelectionChange / onRename,
   // which the library reads only at construction) always see live values.
@@ -175,10 +223,19 @@ export function useWorkspaceTree(opts: {
     });
   }, []);
 
+  const handleDrop = useCallback((event: FileTreeDropResult) => {
+    // The library has already moved the nodes optimistically; persist to disk
+    // (moveInto reindexes, which re-syncs the model either way).
+    const toDir = event.target.directoryPath ?? '';
+    void moveInto(event.draggedPaths, toDir);
+  }, []);
+
   const { model } = useFileTree({
     paths: [],
     initialExpansion: 'closed',
-    icons: { set: 'standard', colored: false },
+    icons: { set: 'standard', colored: true },
+    search: true,
+    dragAndDrop: { onDropComplete: handleDrop },
     renaming: {
       onRename: handleRename,
       onError: (error) => window.alert(error),
@@ -220,7 +277,16 @@ export function useWorkspaceTree(opts: {
     } finally {
       suppressSelRef.current = false;
     }
+    // Refresh git status so the row badges track the workspace (a no-op when
+    // there's no git binary / not a repo). Fires on open and after every
+    // reindex (i.e. after each fs mutation), which is what the SCM panel does.
+    void useGitStore.getState().refresh();
   }, [summary, model]);
+
+  // Feed git status into the tree as per-row badges whenever it changes.
+  useEffect(() => {
+    model.setGitStatus(gitStatusEntries(gitStatus));
+  }, [gitStatus, model]);
 
   const beginCreate = useCallback(
     (parentDir: string, kind: 'file' | 'dir') => {

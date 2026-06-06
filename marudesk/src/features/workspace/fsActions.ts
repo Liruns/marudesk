@@ -89,6 +89,25 @@ export async function pasteInto(dir: string): Promise<void> {
   }
 }
 
+/**
+ * Move one or more entries into a directory (drag & drop in the tree). The
+ * caller (the tree) has already moved the nodes optimistically; on any failure
+ * we reindex so the view snaps back to disk truth. Returns true on full success.
+ */
+export async function moveInto(paths: readonly string[], toDir: string): Promise<boolean> {
+  try {
+    for (const from of paths) {
+      await window.marudesk.invoke('workspace:move', { from, toDir });
+    }
+    await refresh();
+    return true;
+  } catch (err) {
+    window.alert(toMessage(err));
+    await refresh();
+    return false;
+  }
+}
+
 export async function revealPath(path: string): Promise<void> {
   try {
     await window.marudesk.invoke('workspace:reveal', { path });
