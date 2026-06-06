@@ -113,34 +113,50 @@ Corrections made after the review:
   are an inline `style` object on `<FileTree>` (and `host.style.setProperty` in
   the preview). Render output is identical.
 
-Remaining doc-driven notes (not bugs, but "do it properly at scale"):
+Doc-driven improvements applied after the review:
 
-- **Input shape.** The spike feeds raw `paths` + `resetPaths` on every reindex.
-  The docs call raw `paths` the path "for demos, tests, and very small static
-  trees," and recommend `prepareFileTreeInput(...)` /
-  `preparePresortedFileTreeInput(...)` produced off the UI boundary for real
-  trees. marudesk's main process already builds and sorts the file list, so it
-  is the natural place to emit **presorted prepared input** — the highest-perf
-  path. This is the right production follow-up.
-- **`flattenEmptyDirectories`.** The compact `a/b` rows in the screenshot are the
-  library flattening single-child chains (on by default). The in-house tree does
-  not compact; set `flattenEmptyDirectories: false` if we want parity.
-- **`canRename` / `onError`.** The docs recommend `canRename` to protect files
-  like `package.json` and `onError` to surface invalid renames. The spike wires
-  only `onRename`; add the guards before adoption.
-- **Density.** Prefer the `density` keyword (`'compact' | 'default' | 'relaxed'`)
-  or `itemHeight` over hand-setting font size, to match the in-house 28px rows.
+- **Prepared input.** Switched from raw `paths` to
+  `prepareFileTreeInput(paths, { flattenEmptyDirectories: false })`, with
+  `resetPaths(paths, { preparedInput })` on reindex. The docs call raw `paths`
+  the demo/small-tree path and recommend prepared input for real trees. We shape
+  it in the renderer for now; the production follow-up is to emit **presorted
+  prepared input** (`preparePresortedFileTreeInput`) from the main process, which
+  already builds and sorts the file list — the highest-perf path.
+- **`flattenEmptyDirectories` parity (with a gotcha).** Set to `false` so each
+  directory is its own row, matching the in-house tree. **The effective knob is
+  the store-level option on `FileTreeOptions` — passing it only to
+  `prepareFileTreeInput` does not disable the projection-time flattening** (the
+  `.github/workflows` row stayed compacted until the store-level option was set;
+  verified by screenshot). Flip both to `true` for VSCode-style compact folders.
+- **`canRename` / `onError`.** Wired `canRename` to protect root manifests and
+  lockfiles (`package.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`,
+  `.git`) and `onError` to surface invalid renames — per the docs' guidance.
+- **Density.** Use the `density: 'default'` keyword instead of hand-tuning row
+  height.
+
+Remaining note:
+
 - **No "open/activate" event.** Confirmed: the model exposes selection and focus,
   not a file-open event. Opening on `onSelectionChange` is a marudesk product
   decision (single-click-opens), with the known caveat that re-selecting an
   already-selected path won't re-fire.
 
+## Rename verified end-to-end
+
+`spike-preview/rename-test.mjs` drives the real library headlessly:
+`startRenaming('src/lib/cn.ts')` opens the inline input (stem auto-selected,
+matching the in-house tree), typing `classnames.ts` + Enter fires `onRename`
+exactly once with `{ sourcePath: 'src/lib/cn.ts', destinationPath:
+'src/lib/classnames.ts', isFolder: false }`. In the component that event routes
+to `commitRename(sourcePath, basename(destinationPath))` →
+`workspace:rename`. Captured in `spike-preview/tree-rename.png`.
+
 ## Recommendation
 
 The bridge is real and the wins (virtualization, git status, drag/drop, Pierre's
-polish) are concrete, and the implementation now follows the documented styling
-surface. Before committing to a full swap, the next step is a manual GUI pass
-with the flag on to confirm shadow-DOM rendering, the inline rename input, and
-context-menu placement feel right — then decide between full adoption (resolving
-the gaps above, and moving to presorted prepared input) and keeping the in-house
-tree with selective visual borrowing.
+polish) are concrete; the implementation now follows the documented styling and
+input surfaces, and rename is verified. Before a full swap, the remaining step is
+a manual GUI pass in the Electron app (the spike here is an isolated render) to
+confirm context-menu placement and feel — then decide between full adoption
+(moving prep to the main process) and keeping the in-house tree with selective
+visual borrowing.

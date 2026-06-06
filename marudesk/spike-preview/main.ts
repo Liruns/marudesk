@@ -1,5 +1,6 @@
 import '../src/styles/tokens.css';
-import { FileTree } from '@pierre/trees';
+import { FileTree, prepareFileTreeInput } from '@pierre/trees';
+import type { FileTreeRenameEvent } from '@pierre/trees';
 
 // Same token -> --trees-*-override mapping the spike component uses, so this
 // preview reflects the real theming. Per the docs these override variables are
@@ -74,12 +75,30 @@ treeMount.style.cssText = 'flex:1;min-height:0;display:flex;';
 sidebar.append(header, treeMount);
 app.append(sidebar);
 
+// Record rename events so the Playwright check can assert the rename pipeline
+// actually fires. Mirrors the spike component's prepared-input + renaming setup.
+declare global {
+  interface Window {
+    __renameEvents: FileTreeRenameEvent[];
+    __startRename: (path: string) => boolean;
+  }
+}
+window.__renameEvents = [];
+
 const tree = new FileTree({
-  paths,
+  preparedInput: prepareFileTreeInput(paths, { flattenEmptyDirectories: false }),
   initialExpansion: 'open',
+  flattenEmptyDirectories: false,
+  density: 'default',
   icons: { set: 'complete', colored: true },
+  renaming: {
+    onRename: (e) => {
+      window.__renameEvents.push(e);
+    },
+  },
 });
 tree.render({ containerWrapper: treeMount });
+window.__startRename = (path: string) => tree.startRenaming(path);
 
 // Apply the token theme on the host element (the docs' first-class styling
 // surface) rather than via unsafeCSS.

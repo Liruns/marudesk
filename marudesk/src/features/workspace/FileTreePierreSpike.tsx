@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import { FileTree, useFileTree } from '@pierre/trees/react';
+import { prepareFileTreeInput } from '@pierre/trees';
 import type {
   ContextMenuItem as FileTreeContextMenuItem,
   ContextMenuOpenContext as FileTreeContextMenuOpenContext,
   FileTreeRenameEvent,
+  FileTreeRenamingItem,
 } from '@pierre/trees';
 import {
   ClipboardPaste,
@@ -98,6 +100,17 @@ function basename(path: string): string {
   return i >= 0 ? path.slice(i + 1) : path;
 }
 
+// Root manifests / lockfiles whose rename would break tooling. The docs
+// recommend a `canRename` guard for exactly this; the in-house tree had none,
+// so this is a small, deliberate hardening.
+const RENAME_PROTECTED = new Set([
+  'package.json',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  '.git',
+]);
+
 type MenuRow = {
   label: string;
   icon: ReactNode;
@@ -119,6 +132,17 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
   // segments, so any path present here is always openable.
   const paths = useMemo(() => files.map((f) => f.path), [files]);
   const fileSet = useMemo(() => new Set(paths), [paths]);
+
+  // The docs treat raw `paths` as the demo/small-tree path and recommend
+  // prepared input (ideally produced off the UI boundary) for real trees. We
+  // shape it here in the renderer for now; the production move is to emit
+  // presorted prepared input from the main process that already builds the
+  // file list. `flattenEmptyDirectories: false` keeps one row per directory,
+  // matching the in-house tree (flip to true for VSCode-style compact folders).
+  const preparedInput = useMemo(
+    () => prepareFileTreeInput(paths, { flattenEmptyDirectories: false }),
+    [paths],
+  );
 
   // Latest values for listeners captured once at construction, so selection ->
   // open never goes stale across re-renders.
@@ -143,10 +167,20 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
   };
 
   const { model } = useFileTree({
-    paths,
+    preparedInput,
     initialExpansion: 'closed',
     search: true,
-    renaming: { onRename: (e) => onRenameRef.current(e) },
+    density: 'default',
+    // One row per directory (parity with the in-house tree). The store-level
+    // option is the effective knob — the prepareFileTreeInput option alone does
+    // not disable the projection-time flattening. Flip both to true for compact
+    // VSCode-style single-child folder chains.
+    flattenEmptyDirectories: false,
+    renaming: {
+      canRename: (item: FileTreeRenamingItem) => !RENAME_PROTECTED.has(basename(item.path)),
+      onRename: (e) => onRenameRef.current(e),
+      onError: (message) => window.alert(message),
+    },
     icons: { set: 'complete', colored: true },
     onSelectionChange: (selected) => {
       const { fileSet: fs, onOpenFile: open } = latest.current;
@@ -162,8 +196,8 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
       firstRun.current = false;
       return;
     }
-    model.resetPaths(paths);
-  }, [paths, model]);
+    model.resetPaths(paths, { preparedInput });
+  }, [preparedInput, paths, model]);
 
   const beginCreate = (parentDir: string, kind: 'file' | 'dir') => {
     const base = kind === 'dir' ? 'new-folder' : 'new-file';
