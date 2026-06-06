@@ -158,6 +158,7 @@ export const CHANNELS = {
     'mcp:set-enabled',
     'mcp:add-preset',
     'mcp:open-config',
+    'mcp:embedded-browser-status',
   ],
   // User plugins running in isolated workers — Settings → Plugins lists/reloads/
   // toggles them, and the composer reads the slash commands they contribute

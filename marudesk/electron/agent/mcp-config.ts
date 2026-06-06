@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { atomicWriteFile } from '../fs-safe';
 import {
@@ -31,6 +32,21 @@ export async function readMcpConfig(): Promise<McpServersFile> {
     return sanitizeMcpConfig(JSON.parse(raw));
   } catch {
     // Missing or unreadable/corrupt — treat as no servers configured.
+    return { servers: [] };
+  }
+}
+
+/**
+ * Synchronous variant for the pre-app-ready boot path: the remote-debugging-port
+ * gate in electron/main.ts must decide before `app.whenReady()` (the switch has no
+ * runtime API), and that path can't await. Same sanitize + missing/corrupt → empty
+ * list as {@link readMcpConfig}. `app.getPath('userData')` is valid before ready.
+ */
+export function readMcpConfigSync(): McpServersFile {
+  try {
+    const raw = readFileSync(mcpConfigPath(), 'utf8');
+    return sanitizeMcpConfig(JSON.parse(raw));
+  } catch {
     return { servers: [] };
   }
 }

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { maybeOpenEmbeddedDebugPort } from './agent/embedded-browser';
 import {
   disposeBrowserView,
   mountBrowserView,
@@ -207,6 +208,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
   return win;
 }
+
+// Open Chromium's remote-debugging endpoint (loopback only) so chrome-devtools-mcp
+// can attach to marudesk's embedded browser tabs instead of launching a separate
+// local Chrome. Boot-only (the switch has no runtime API) and gated on the
+// browser-control preset being enabled — see electron/agent/embedded-browser.ts.
+maybeOpenEmbeddedDebugPort();
 
 // Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
 // sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).

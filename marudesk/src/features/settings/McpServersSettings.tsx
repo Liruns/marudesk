@@ -27,10 +27,22 @@ import { MCP_PRESETS } from '../../../shared/mcp-presets';
  * the same loop approval/read-only mediation as the built-in tools (a `trust`ed
  * server skips the per-call approval prompt).
  */
+type EmbeddedStatus = { portOpen: boolean; required: boolean };
+
 export function McpServersSettings() {
   const { t } = useI18n();
   const [servers, setServers] = useState<McpServerStatus[] | null>(null);
+  const [embedded, setEmbedded] = useState<EmbeddedStatus | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Whether the browser-control preset drives the embedded Chromium, and whether the
+  // remote-debugging port it attaches to was opened this launch (boot-only switch).
+  const refreshEmbedded = () => {
+    void window.marudesk
+      .invoke('mcp:embedded-browser-status')
+      .then(setEmbedded)
+      .catch(() => {});
+  };
 
   useEffect(() => {
     let alive = true;
@@ -42,6 +54,7 @@ export function McpServersSettings() {
       .catch(() => {
         if (alive) setServers([]);
       });
+    refreshEmbedded();
     return () => {
       alive = false;
     };
@@ -51,6 +64,7 @@ export function McpServersSettings() {
     setBusy(true);
     try {
       setServers(await window.marudesk.invoke('mcp:reload'));
+      refreshEmbedded();
     } catch {
       // Keep the current list; a transient failure shouldn't blank the panel.
     } finally {
@@ -62,6 +76,7 @@ export function McpServersSettings() {
     setBusy(true);
     try {
       setServers(await window.marudesk.invoke('mcp:set-enabled', { id, enabled }));
+      refreshEmbedded();
     } catch {
       // no-op — the list stays as-is
     } finally {
@@ -73,6 +88,7 @@ export function McpServersSettings() {
     setBusy(true);
     try {
       setServers(await window.marudesk.invoke('mcp:add-preset', { id }));
+      refreshEmbedded();
     } catch {
       // no-op — leave the list as-is on a transient failure
     } finally {
@@ -133,6 +149,20 @@ export function McpServersSettings() {
           })}
         </div>
       </div>
+
+      {embedded?.required ? (
+        embedded.portOpen ? (
+          <div className="flex items-start gap-2 rounded-lg border border-success/40 bg-success-subtle px-4 py-3 text-body-sm text-fg-secondary">
+            <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-success" />
+            <span>{t('settings.mcp.embedded.active')}</span>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning-subtle px-4 py-3 text-body-sm text-fg-secondary">
+            <AlertCircle size={15} className="mt-0.5 shrink-0 text-warning" />
+            <span>{t('settings.mcp.embedded.restart')}</span>
+          </div>
+        )
+      ) : null}
 
       <div className="flex flex-col gap-2">
         {servers === null ? (
