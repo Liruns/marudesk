@@ -34,6 +34,7 @@ import { useEditorStore } from '../editor/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { buildFileTree, flattenTree } from './tree';
 import { FileTree, type MenuTarget } from './FileTree';
+import { FileTreePierreSpike } from './FileTreePierreSpike';
 import {
   commitCreate,
   commitRename,
@@ -72,6 +73,11 @@ const EXPLORER_WIDTH_KEY = 'marudesk.explorerWidth';
 // shrinks toward the close zone before the user lets go.
 const EXPLORER_CLOSE_AT = 72;
 const EXPLORER_DRAG_FLOOR = 44;
+
+// SPIKE flag: render the @pierre/trees-backed tree instead of the in-house one.
+// Default off so shipped behavior is unchanged; flip locally to evaluate.
+// See FileTreePierreSpike.tsx / docs/pierre-trees-spike.md.
+const USE_PIERRE_TREE = false;
 
 function readExplorerWidth(): number {
   return readStoredWidth(EXPLORER_WIDTH_KEY, EXPLORER_MIN, EXPLORER_MAX, EXPLORER_DEFAULT);
@@ -319,7 +325,12 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
               className="flex-1 min-h-0 overflow-y-auto"
               onContextMenu={openEmptyMenu}
             >
-              {rows.length === 0 && !pendingEdit ? (
+              {USE_PIERRE_TREE ? (
+                <FileTreePierreSpike
+                  files={summary.files}
+                  onOpenFile={(p) => void openFile(workspaceFile(p))}
+                />
+              ) : rows.length === 0 && !pendingEdit ? (
                 <p className="px-3 py-4 text-body-sm text-fg-tertiary">
                   {t('workspace.emptyFolder')}
                 </p>
