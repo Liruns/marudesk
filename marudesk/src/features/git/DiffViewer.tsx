@@ -1,11 +1,33 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { X } from 'lucide-react';
+import { PatchDiff } from '@pierre/diffs/react';
 import { DiffBlock } from '../../components/ui';
 import { Spinner } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toMessage } from '../../lib/toMessage';
 import { parseUnifiedDiff } from './parseDiff';
+
+// SPIKE flag: render the @pierre/diffs PatchDiff (syntax-highlighted, split
+// view) instead of the in-house plain-text DiffBlock. Default off so shipped
+// behavior is unchanged. `shiki-js` keeps highlighting off WebAssembly (no CSP
+// `wasm-unsafe-eval` needed). See docs/pierre-diffs-spike.md.
+const USE_PIERRE_DIFF = false;
+
+// Map design tokens onto the diffs chrome (the library's first-class
+// `--diffs-*-override` surface). Syntax colors come from the bundled
+// `pierre-dark` theme; these only retint the panel/gutter/line backgrounds so
+// the diff sits inside marudesk's surfaces.
+const DIFF_CHROME_STYLE = {
+  '--diffs-bg-buffer-override': 'var(--surface-1)',
+  '--diffs-bg-context-override': 'var(--surface-1)',
+  '--diffs-bg-context-gutter-override': 'var(--surface-1)',
+  '--diffs-bg-addition-override': 'var(--success-subtle)',
+  '--diffs-bg-deletion-override': 'var(--error-subtle)',
+  '--diffs-bg-separator-override': 'var(--surface-2)',
+  '--diffs-bg-hover-override': 'var(--surface-2)',
+  '--diffs-fg-number-override': 'var(--text-tertiary)',
+} as CSSProperties;
 
 /**
  * A centered overlay showing the unified diff for one file (staged or not).
@@ -101,6 +123,19 @@ export function DiffViewer({
             <div className="flex items-center justify-center gap-2 py-10 text-fg-tertiary">
               <Spinner size={16} /> {t('git.diff.loading')}
             </div>
+          ) : USE_PIERRE_DIFF ? (
+            diff.trim() === '' ? (
+              <p className="py-10 text-center text-body-sm text-fg-tertiary">
+                {t('git.diff.empty')}
+              </p>
+            ) : (
+              <PatchDiff
+                patch={diff}
+                options={{ theme: 'pierre-dark', preferredHighlighter: 'shiki-js' }}
+                className="rounded border border-subtle overflow-hidden"
+                style={DIFF_CHROME_STYLE}
+              />
+            )
           ) : lines.length === 0 ? (
             <p className="py-10 text-center text-body-sm text-fg-tertiary">
               {t('git.diff.empty')}
