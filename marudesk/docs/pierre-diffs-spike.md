@@ -16,13 +16,45 @@ direct feed:
 ```tsx
 <PatchDiff
   patch={diff}
-  options={{ theme: 'pierre-dark', preferredHighlighter: 'shiki-js' }}
+  options={{
+    theme: 'pierre-dark',
+    preferredHighlighter: 'shiki-js',
+    diffStyle,                 // 'unified' | 'split', toggled in the overlay header
+    lineDiffType: 'word',      // word-level intra-line highlight
+    diffIndicators: 'bars',    // matches the in-house left-bar diff language
+    expandUnchanged: true,     // expand context where the patch provides it
+    stickyHeader: true,        // pin the file header while scrolling
+  }}
   style={DIFF_CHROME_STYLE}
 />
 ```
 
-The result is a split, syntax-highlighted diff with a file header, `-N +N`
-stats, and add/remove bars (see `diff-preview/diff-spike.png`).
+The result is a syntax-highlighted diff with a pinned file header (`-N +N`
+stats), word-level change boxes, and bar indicators
+(`diff-preview/diff-spike.png` unified, `diff-preview/diff-split.png` split).
+
+### Leveraging the library + design integration
+
+The first pass only fed `patch` + theme; this revision uses the option surface
+and fixes the design:
+
+- **Unified default + `split` toggle.** The overlay is narrow (`max-w-3xl`), so
+  split was cramped; default to unified and offer a segmented toggle in the
+  header. The overlay widens to `max-w-5xl` only while split is selected.
+- **No duplicate header.** PatchDiff renders its own file header (icon + path +
+  `-N +N`), so the overlay header drops the redundant path and carries only the
+  staged badge, the unified/split toggle, and close. `stickyHeader: true` pins
+  the file header while scrolling.
+- **`lineDiffType: 'word'`** boxes the exact changed tokens within a modified
+  line; **`diffIndicators: 'bars'`** matches the in-house left-bar look.
+- **Fuller token chrome.** `DIFF_CHROME_STYLE` now maps line/number/selection
+  backgrounds and the word-emphasis tint (a stronger token via `color-mix`, so
+  every value stays token-driven — no literal hex).
+
+Not yet wired (clear next steps): per-hunk `diffAcceptRejectHunk` for an
+interactive accept/reject review, `CodeView` for an all-changed-files scroll, the
+worker pool for very large diffs, and `MultiFileDiff` with both file versions to
+unlock full "expand unchanged" beyond the patch context.
 
 ## The cost (measured) and the mitigations applied
 

@@ -33,22 +33,39 @@ mount.style.cssText = 'max-width:760px;margin:0 auto;';
 // Mirror the DiffViewer spike: shiki-js engine (no WASM) + token chrome.
 const DIFF_CHROME_STYLE = {
   border: '1px solid var(--border-default)',
+  borderRadius: '8px',
+  overflow: 'hidden',
   '--diffs-bg-buffer-override': 'var(--surface-1)',
   '--diffs-bg-context-override': 'var(--surface-1)',
   '--diffs-bg-context-gutter-override': 'var(--surface-1)',
   '--diffs-bg-addition-override': 'var(--success-subtle)',
   '--diffs-bg-deletion-override': 'var(--error-subtle)',
+  '--diffs-bg-addition-number-override': 'var(--success-subtle)',
+  '--diffs-bg-deletion-number-override': 'var(--error-subtle)',
+  '--diffs-bg-addition-emphasis-override': 'color-mix(in srgb, var(--success) 22%, transparent)',
+  '--diffs-bg-deletion-emphasis-override': 'color-mix(in srgb, var(--error) 22%, transparent)',
   '--diffs-bg-separator-override': 'var(--surface-2)',
   '--diffs-bg-hover-override': 'var(--surface-2)',
+  '--diffs-bg-selection-override': 'var(--accent-subtle)',
   '--diffs-fg-number-override': 'var(--text-tertiary)',
 } as CSSProperties;
+
+const diffStyle =
+  new URLSearchParams(location.search).get('style') === 'split' ? 'split' : 'unified';
 
 createRoot(mount).render(
   <StrictMode>
     <PatchDiff
       patch={SAMPLE_PATCH}
-      options={{ theme: 'pierre-dark', preferredHighlighter: 'shiki-js' }}
-      className="rounded-md overflow-hidden"
+      options={{
+        theme: 'pierre-dark',
+        preferredHighlighter: 'shiki-js',
+        diffStyle,
+        lineDiffType: 'word',
+        diffIndicators: 'bars',
+        expandUnchanged: true,
+        stickyHeader: true,
+      }}
       style={DIFF_CHROME_STYLE}
     />
   </StrictMode>,
