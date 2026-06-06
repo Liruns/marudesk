@@ -50,8 +50,9 @@ const DIFF_CHROME_STYLE = {
   '--diffs-fg-number-override': 'var(--text-tertiary)',
 } as CSSProperties;
 
-const diffStyle =
-  new URLSearchParams(location.search).get('style') === 'split' ? 'split' : 'unified';
+const params = new URLSearchParams(location.search);
+const diffStyle = params.get('style') === 'split' ? 'split' : 'unified';
+const lineDiffType = params.get('linediff') === 'char' ? 'char' : 'word';
 
 createRoot(mount).render(
   <StrictMode>
@@ -61,7 +62,7 @@ createRoot(mount).render(
         theme: 'pierre-dark',
         preferredHighlighter: 'shiki-js',
         diffStyle,
-        lineDiffType: 'word',
+        lineDiffType,
         diffIndicators: 'bars',
         expandUnchanged: true,
         stickyHeader: true,
