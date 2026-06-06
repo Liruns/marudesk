@@ -2,26 +2,29 @@ import '../src/styles/tokens.css';
 import { FileTree } from '@pierre/trees';
 
 // Same token -> --trees-*-override mapping the spike component uses, so this
-// preview reflects the real theming. Colored built-in icons are enabled.
-const TREE_THEME_CSS = `:host {
-  --trees-bg-override: var(--surface-1);
-  --trees-fg-override: var(--text-secondary);
-  --trees-fg-muted-override: var(--text-tertiary);
-  --trees-selected-bg-override: var(--accent-subtle);
-  --trees-selected-fg-override: var(--text-primary);
-  --trees-selected-focused-border-color-override: transparent;
-  --trees-accent-override: var(--accent);
-  --trees-border-color-override: var(--border-subtle);
-  --trees-border-radius-override: 6px;
-  --trees-focus-ring-color-override: var(--accent);
-  --trees-indent-guide-bg-override: var(--border-subtle);
-  --trees-font-family-override: var(--font-body);
-  --trees-font-size-override: 13px;
-  --trees-input-bg-override: var(--surface-3);
-  --trees-search-bg-override: var(--surface-3);
-  --trees-search-fg-override: var(--text-primary);
-  --trees-scrollbar-thumb-override: var(--surface-3);
-}`;
+// preview reflects the real theming. Per the docs these override variables are
+// the first-class styling surface and go on the host element's style (applied
+// after render via getFileTreeContainer()), not through the unsafeCSS escape
+// hatch. Colored built-in icons are enabled.
+const TREE_THEME_VARS: Record<string, string> = {
+  '--trees-bg-override': 'var(--surface-1)',
+  '--trees-fg-override': 'var(--text-secondary)',
+  '--trees-fg-muted-override': 'var(--text-tertiary)',
+  '--trees-selected-bg-override': 'var(--accent-subtle)',
+  '--trees-selected-fg-override': 'var(--text-primary)',
+  '--trees-selected-focused-border-color-override': 'transparent',
+  '--trees-accent-override': 'var(--accent)',
+  '--trees-border-color-override': 'var(--border-subtle)',
+  '--trees-border-radius-override': '6px',
+  '--trees-focus-ring-color-override': 'var(--accent)',
+  '--trees-indent-guide-bg-override': 'var(--border-subtle)',
+  '--trees-font-family-override': 'var(--font-body)',
+  '--trees-font-size-override': '13px',
+  '--trees-input-bg-override': 'var(--surface-3)',
+  '--trees-search-bg-override': 'var(--surface-3)',
+  '--trees-search-fg-override': 'var(--text-primary)',
+  '--trees-scrollbar-thumb-override': 'var(--surface-3)',
+};
 
 const paths = [
   '.github/workflows/ci.yml',
@@ -75,9 +78,15 @@ const tree = new FileTree({
   paths,
   initialExpansion: 'open',
   icons: { set: 'complete', colored: true },
-  unsafeCSS: TREE_THEME_CSS,
 });
 tree.render({ containerWrapper: treeMount });
+
+// Apply the token theme on the host element (the docs' first-class styling
+// surface) rather than via unsafeCSS.
+const host = tree.getFileTreeContainer();
+if (host) {
+  for (const [k, v] of Object.entries(TREE_THEME_VARS)) host.style.setProperty(k, v);
+}
 
 // Signal readiness for the screenshot harness.
 requestAnimationFrame(() => {

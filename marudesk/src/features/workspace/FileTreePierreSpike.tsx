@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import { FileTree, useFileTree } from '@pierre/trees/react';
 import type {
   ContextMenuItem as FileTreeContextMenuItem,
@@ -45,7 +45,10 @@ import {
  * - inline create (add + startRenaming with removeIfCanceled) -> workspace:create
  * - right-click menu drawn with marudesk tokens (the slotted node lives in light
  *   DOM, so Tailwind classes apply) wired to fsActions + the store clipboard
- * - theming mapped from design tokens onto the library --trees-*-override vars
+ * - theming mapped from design tokens onto the library --trees-*-override vars,
+ *   set on the host `style` prop (the docs' first-class styling surface — not
+ *   the `unsafeCSS` escape hatch, which is reserved for cases the variable
+ *   surface can't express)
  *
  * Icons use Pierre's built-in colored file-type set (`set: 'complete',
  * colored: true`) — the per-type chromatic glyphs are a deliberate design
@@ -56,32 +59,34 @@ import {
  * decorations, and expansion preservation across resetPaths.
  */
 
-// Map design tokens onto the library's shadow-DOM override variables. Custom
-// properties inherit through the shadow boundary, so `var(--surface-1)` etc.
-// resolve against marudesk's :root tokens. Injected via the `unsafeCSS` option.
-const TREE_THEME_CSS = `:host {
-  --trees-bg-override: var(--surface-1);
-  --trees-fg-override: var(--text-secondary);
-  --trees-fg-muted-override: var(--text-tertiary);
-  --trees-selected-bg-override: var(--accent-subtle);
-  --trees-selected-fg-override: var(--text-primary);
-  --trees-selected-focused-border-color-override: transparent;
-  --trees-accent-override: var(--accent);
-  --trees-border-color-override: var(--border-subtle);
-  --trees-border-radius-override: 6px;
-  --trees-focus-ring-color-override: var(--accent);
-  --trees-indent-guide-bg-override: var(--border-subtle);
-  --trees-font-family-override: var(--font-body);
-  --trees-font-size-override: 13px;
-  --trees-input-bg-override: var(--surface-3);
-  --trees-search-bg-override: var(--surface-3);
-  --trees-search-fg-override: var(--text-primary);
-  --trees-scrollbar-thumb-override: var(--surface-3);
-  --trees-git-added-color-override: var(--success);
-  --trees-git-modified-color-override: var(--warning);
-  --trees-git-deleted-color-override: var(--error);
-  --trees-git-untracked-color-override: var(--success);
-}`;
+// Map design tokens onto the library's override variables. Per the docs these
+// are the first-class styling surface (fallback layer 1: `--trees-*-override`
+// → `--trees-theme-*` → defaults) and belong on the host element's `style`.
+// Custom properties inherit through the shadow boundary, so `var(--surface-1)`
+// etc. resolve against marudesk's :root tokens.
+const TREE_THEME_STYLE = {
+  '--trees-bg-override': 'var(--surface-1)',
+  '--trees-fg-override': 'var(--text-secondary)',
+  '--trees-fg-muted-override': 'var(--text-tertiary)',
+  '--trees-selected-bg-override': 'var(--accent-subtle)',
+  '--trees-selected-fg-override': 'var(--text-primary)',
+  '--trees-selected-focused-border-color-override': 'transparent',
+  '--trees-accent-override': 'var(--accent)',
+  '--trees-border-color-override': 'var(--border-subtle)',
+  '--trees-border-radius-override': '6px',
+  '--trees-focus-ring-color-override': 'var(--accent)',
+  '--trees-indent-guide-bg-override': 'var(--border-subtle)',
+  '--trees-font-family-override': 'var(--font-body)',
+  '--trees-font-size-override': '13px',
+  '--trees-input-bg-override': 'var(--surface-3)',
+  '--trees-search-bg-override': 'var(--surface-3)',
+  '--trees-search-fg-override': 'var(--text-primary)',
+  '--trees-scrollbar-thumb-override': 'var(--surface-3)',
+  '--trees-git-added-color-override': 'var(--success)',
+  '--trees-git-modified-color-override': 'var(--warning)',
+  '--trees-git-deleted-color-override': 'var(--error)',
+  '--trees-git-untracked-color-override': 'var(--success)',
+} as CSSProperties;
 
 function parentOf(path: string): string {
   const i = path.lastIndexOf('/');
@@ -143,7 +148,6 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
     search: true,
     renaming: { onRename: (e) => onRenameRef.current(e) },
     icons: { set: 'complete', colored: true },
-    unsafeCSS: TREE_THEME_CSS,
     onSelectionChange: (selected) => {
       const { fileSet: fs, onOpenFile: open } = latest.current;
       for (const p of selected) if (fs.has(p)) open(p);
@@ -242,7 +246,11 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
 
   return (
     <div className="h-full min-h-0">
-      <FileTree model={model} renderContextMenu={renderContextMenu} style={{ height: '100%' }} />
+      <FileTree
+        model={model}
+        renderContextMenu={renderContextMenu}
+        style={{ height: '100%', ...TREE_THEME_STYLE }}
+      />
     </div>
   );
 }
