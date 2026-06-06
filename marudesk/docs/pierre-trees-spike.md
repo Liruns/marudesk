@@ -75,10 +75,12 @@ so runtime interaction is the next manual step before any decision to adopt.
 2. **Cut/copy/paste dimming.** No built-in clipboard. Menu actions wire to the
    existing store clipboard + `pasteInto`, but the "cut" 50%-opacity affordance
    would be a `renderRowDecoration` / `unsafeCSS` add.
-3. **Icons vs DESIGN.md §11.** Spike uses the built-in `set: 'standard'` with
-   `colored: false` (monochrome, token-driven) to stay close to the design
-   rules. Strict Lucide-only parity means injecting a Lucide `spriteSheet` and
-   remapping slots/extensions — mechanical but real.
+3. **Icons vs DESIGN.md §11.** Spike now uses Pierre's built-in colored
+   file-type set (`set: 'complete', colored: true`) — the per-type chromatic
+   glyphs are the design upgrade we want, and they intentionally override the
+   §11 "Lucide-only / currentColor" rule for this surface. If we later want
+   Lucide geometry with this richness, the library accepts a custom
+   `spriteSheet` + slot/extension remap, but that is optional, not required.
 4. **Header buttons.** ExplorerPanel's new-file / new-folder / collapse-all /
    reindex buttons drive the in-house tree's store state. With the library
    owning expansion they need rewiring to model methods (`add` +

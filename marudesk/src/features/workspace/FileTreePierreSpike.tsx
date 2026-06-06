@@ -47,9 +47,13 @@ import {
  *   DOM, so Tailwind classes apply) wired to fsActions + the store clipboard
  * - theming mapped from design tokens onto the library --trees-*-override vars
  *
+ * Icons use Pierre's built-in colored file-type set (`set: 'complete',
+ * colored: true`) — the per-type chromatic glyphs are a deliberate design
+ * upgrade over the in-house monochrome Lucide glyphs, and override the
+ * DESIGN.md §11 "Lucide-only / currentColor" rule for this surface.
+ *
  * Known gaps (documented, not yet bridged): cut-dimming visual, git-status
- * decorations, a Lucide icon sprite (spike uses the built-in monochrome set),
- * and expansion preservation across resetPaths.
+ * decorations, and expansion preservation across resetPaths.
  */
 
 // Map design tokens onto the library's shadow-DOM override variables. Custom
@@ -138,7 +142,7 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
     initialExpansion: 'closed',
     search: true,
     renaming: { onRename: (e) => onRenameRef.current(e) },
-    icons: { set: 'standard', colored: false },
+    icons: { set: 'complete', colored: true },
     unsafeCSS: TREE_THEME_CSS,
     onSelectionChange: (selected) => {
       const { fileSet: fs, onOpenFile: open } = latest.current;
