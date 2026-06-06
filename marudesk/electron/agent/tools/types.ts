@@ -73,6 +73,7 @@ export const GATED_TOOLS = new Set([
   'generate_image',
   'generate_video',
   'run_command',
+  'run_diagnostics',
   'eval_js',
   'click',
   'fill',

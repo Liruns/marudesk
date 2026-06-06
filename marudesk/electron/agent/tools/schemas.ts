@@ -83,9 +83,19 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
   {
+    name: 'run_diagnostics',
+    description:
+      "Run the PROJECT'S OWN checker (type-check/lint) now and return the parsed errors + warnings as file:line findings. Requires user approval (it executes the project's tooling). This also refreshes the shared cache — the user's Problems indicator and in-editor squiggles update from this call — so prefer it over a bare run_command when you want structured diagnostics that the user sees too. Optionally filter the returned list to one file with `path`.",
+    inputSchema: {
+      type: 'object',
+      properties: { path: strProp('Optional workspace-relative path to filter findings to.') },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'read_diagnostics',
     description:
-      "Read the latest cached compiler/linter diagnostics (errors + warnings) for the workspace, as produced by the PROJECT'S OWN checker and parsed into file:line findings — the same results shown in the Problems panel. Read-only: it does NOT run anything. If nothing is cached yet, run the checker first with run_command (e.g. `npm run typecheck`). Optionally filter to one file with `path`. Prefer this over re-reading raw run_command output when you just need the current error list.",
+      "Read the latest CACHED compiler/linter diagnostics (errors + warnings) for the workspace, as produced by the PROJECT'S OWN checker and parsed into file:line findings — the same results shown in the Problems indicator. Read-only: it does NOT run anything. If nothing is cached yet, use run_diagnostics first. Optionally filter to one file with `path`.",
     inputSchema: {
       type: 'object',
       properties: { path: strProp('Optional workspace-relative path to filter findings to.') },

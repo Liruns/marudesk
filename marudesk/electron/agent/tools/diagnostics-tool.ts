@@ -1,15 +1,22 @@
-import { getDiagnosticsState } from '../../diagnostics/runner';
+import { getDiagnosticsState, runDiagnostics } from '../../diagnostics/runner';
 import { scrubText } from '../../../shared/scrub';
-import type { Diagnostic } from '../../../shared/diagnostics';
+import type { Diagnostic, DiagnosticsState } from '../../../shared/diagnostics';
 import type { Executor, ToolResult } from './types';
 
 /**
- * `read_diagnostics` — read the latest cached compiler/linter findings for the
- * open workspace (docs/workspace-language-support-design.md, Tier 1). Read-only:
- * it returns what the project's checker last produced (the same results the
- * Problems panel shows), so the agent sees the project's TRUE config view without
- * re-running anything. To compute fresh results the agent uses run_command (which
- * is approval-gated); this tool just reads the shared cache.
+ * The agent's two diagnostics tools (docs/workspace-language-support-design.md,
+ * Tier 1), both built on the project's OWN checker so findings carry the real
+ * project config:
+ *
+ *   read_diagnostics — read-only view of the cached last pass (ungated).
+ *   run_diagnostics  — run the checker now, return structured findings, AND
+ *                      populate the shared cache (gated — it executes the
+ *                      project's tooling). Because it calls the same
+ *                      runDiagnostics() the IPC handler uses, the human's
+ *                      Problems indicator + Monaco squiggles update live too.
+ *
+ * Fresh results come from run_diagnostics (or approval-gated run_command); the
+ * read path stays ungated.
  */
 
 /** Cap how many findings are rendered to the model so a noisy repo can't flood it. */
@@ -17,35 +24,26 @@ const MAX_SHOWN = 100;
 
 const SEV_RANK: Record<Diagnostic['severity'], number> = { error: 0, warning: 1, info: 2 };
 
+function pathFilter(input: Record<string, unknown>): string | null {
+  return typeof input.path === 'string' ? input.path.replace(/\\/g, '/') : null;
+}
+
 function formatOne(d: Diagnostic): string {
   const code = d.code ? ` ${d.code}` : '';
   return `  ${d.line}:${d.column} ${d.severity}${code} — ${d.message} [${d.source}]`;
 }
 
-export const readDiagnostics: Executor = (input, ctx): Promise<ToolResult> => {
-  if (!ctx.ws) {
-    return Promise.resolve({
-      summary: 'read_diagnostics',
-      text: 'no workspace is open.',
-      isError: true,
-    });
-  }
-  const state = getDiagnosticsState(ctx.ws.root);
-  if (state.running) {
-    return Promise.resolve({
-      summary: 'read_diagnostics',
-      text: 'a diagnostics check is currently running — try again shortly.',
-    });
-  }
-  if (!state.lastRun) {
-    return Promise.resolve({
-      summary: 'read_diagnostics',
-      text: "No diagnostics cached yet. Run the project's checker with run_command (e.g. `npm run typecheck` or `tsc --noEmit`); results then appear here and in the Problems panel.",
-    });
+/** Render a diagnostics state (errors first, grouped by file) for the model. */
+function formatState(summaryName: string, state: DiagnosticsState, filter: string | null): ToolResult {
+  const run = state.lastRun;
+  if (!run) {
+    return {
+      summary: summaryName,
+      text: "No diagnostics cached yet. Use run_diagnostics to compute them (or run_command with the project's checker, e.g. `npm run typecheck`).",
+    };
   }
 
-  const filter = typeof input.path === 'string' ? input.path.replace(/\\/g, '/') : null;
-  let diags = state.lastRun.diagnostics;
+  let diags = run.diagnostics;
   if (filter) diags = diags.filter((d) => d.file === filter);
 
   const errors = diags.filter((d) => d.severity === 'error').length;
@@ -53,13 +51,12 @@ export const readDiagnostics: Executor = (input, ctx): Promise<ToolResult> => {
 
   if (diags.length === 0) {
     const scope = filter ? ` for ${filter}` : '';
-    return Promise.resolve({
-      summary: 'read_diagnostics: clean',
-      text: `No diagnostics${scope} (checker: ${state.lastRun.checkerId}). The last check was clean.`,
-    });
+    return {
+      summary: `${summaryName}: clean`,
+      text: `No diagnostics${scope} (checker: ${run.checkerId}). The last check was clean.`,
+    };
   }
 
-  // Group by file, errors first, then by line.
   const byFile = new Map<string, Diagnostic[]>();
   for (const d of [...diags].sort(
     (a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity] || a.line - b.line,
@@ -81,10 +78,35 @@ export const readDiagnostics: Executor = (input, ctx): Promise<ToolResult> => {
     }
   }
   const more = diags.length > shown ? `\n…(${diags.length - shown} more not shown)` : '';
-  const header = `${errors} error(s), ${warnings} warning(s) — checker: ${state.lastRun.checkerId}`;
+  const header = `${errors} error(s), ${warnings} warning(s) — checker: ${run.checkerId}`;
 
-  return Promise.resolve({
-    summary: `read_diagnostics: ${errors}E ${warnings}W`,
+  return {
+    summary: `${summaryName}: ${errors}E ${warnings}W`,
     text: scrubText(`${header}\n\n${lines.join('\n')}${more}`),
-  });
+  };
+}
+
+export const readDiagnostics: Executor = (input, ctx): Promise<ToolResult> => {
+  if (!ctx.ws) {
+    return Promise.resolve({ summary: 'read_diagnostics', text: 'no workspace is open.', isError: true });
+  }
+  const state = getDiagnosticsState(ctx.ws.root);
+  if (state.running) {
+    return Promise.resolve({
+      summary: 'read_diagnostics',
+      text: 'a diagnostics check is currently running — try again shortly.',
+    });
+  }
+  return Promise.resolve(formatState('read_diagnostics', state, pathFilter(input)));
+};
+
+export const runDiagnosticsTool: Executor = async (input, ctx): Promise<ToolResult> => {
+  if (!ctx.ws) {
+    return { summary: 'run_diagnostics', text: 'no workspace is open.', isError: true };
+  }
+  // Same path the renderer "Check" button uses: runs the applicable checkers,
+  // caches the result, and pushes diagnostics:update — so squiggles + the
+  // Problems indicator refresh from this very call.
+  const state = await runDiagnostics(ctx.ws.root);
+  return formatState('run_diagnostics', state, pathFilter(input));
 };
