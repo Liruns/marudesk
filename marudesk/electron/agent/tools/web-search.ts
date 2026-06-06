@@ -1,6 +1,7 @@
 import https from 'node:https';
 import { z } from 'zod';
 import { scrubText } from '../../../shared/scrub';
+import { decodeEntities, stripTags } from './fetch-url';
 import type { McpTool, ToolResult } from './types';
 
 const MAX_RESULTS = 6;
@@ -74,6 +75,15 @@ export function setWebSearchTransportForTests(transport: WebSearchTransport | nu
   webSearchTransportForTests = transport;
 }
 
+type WebSearchHtmlTransport = (url: URL, signal: AbortSignal) => Promise<string>;
+
+let webSearchHtmlTransportForTests: WebSearchHtmlTransport | null = null;
+
+/** Inject the HTML-fallback transport (harness only); pass null to restore the real one. */
+export function setWebSearchHtmlTransportForTests(transport: WebSearchHtmlTransport | null): void {
+  webSearchHtmlTransportForTests = transport;
+}
+
 async function webSearch(input: Record<string, unknown>, ctx: { readonly signal: AbortSignal }): Promise<ToolResult> {
   const rawQuery = typeof input.query === 'string' ? input.query.trim() : '';
   const query = rawQuery.length > MAX_QUERY_CHARS ? rawQuery.slice(0, MAX_QUERY_CHARS) : rawQuery;
@@ -90,7 +100,20 @@ async function webSearch(input: Record<string, unknown>, ctx: { readonly signal:
   try {
     const payload = await (webSearchTransportForTests ?? getJson)(url, ctx.signal);
     const parsed = DuckResponse.parse(payload);
-    const hits = resultHits(parsed).slice(0, maxResults);
+    let hits = resultHits(parsed).slice(0, maxResults);
+    // The Instant Answer API only covers entities/disambiguation, so most ordinary
+    // queries return nothing. Fall back to DuckDuckGo's HTML results endpoint for
+    // real web results. A fallback failure is non-fatal — we just report none.
+    if (hits.length === 0) {
+      const htmlUrl = new URL('https://html.duckduckgo.com/html/');
+      htmlUrl.searchParams.set('q', query);
+      try {
+        const html = await (webSearchHtmlTransportForTests ?? getText)(htmlUrl, ctx.signal);
+        hits = parseHtmlHits(html).slice(0, maxResults);
+      } catch {
+        // Keep the empty result — the IA call already succeeded.
+      }
+    }
     const displayQuery = scrubText(query);
     return {
       summary: `web_search "${displayQuery}"`,
@@ -148,6 +171,55 @@ function formatHit(hit: SearchHit): string {
   return `- ${scrubText(hit.title)}\n  URL: ${scrubText(hit.url)}\n  ${scrubText(hit.snippet)}`;
 }
 
+// Compiled once (these scan whole result pages); `exec` loops below run to completion
+// so each global regex's lastIndex returns to 0, but we reset defensively too.
+const RESULT_LINK_RE = /<a\b[^>]*class="[^"]*\bresult__a\b[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+const RESULT_SNIPPET_RE = /<a\b[^>]*class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+
+/**
+ * Parse the DuckDuckGo HTML results page (the `html.duckduckgo.com/html/` endpoint)
+ * into hits. Result links carry the real target in a `uddg` redirect param, which we
+ * decode. Best-effort regex parsing (no DOM in the main process); title↔snippet are
+ * paired by document order, which is how the page lays them out.
+ */
+function parseHtmlHits(html: string): SearchHit[] {
+  const hits: SearchHit[] = [];
+  RESULT_LINK_RE.lastIndex = 0;
+  RESULT_SNIPPET_RE.lastIndex = 0;
+  const snippets: string[] = [];
+  let sm: RegExpExecArray | null;
+  while ((sm = RESULT_SNIPPET_RE.exec(html))) snippets.push(htmlText(sm[1]));
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = RESULT_LINK_RE.exec(html))) {
+    const target = decodeDuckUrl(m[1]);
+    const title = htmlText(m[2]);
+    const snippet = snippets[i] ?? '';
+    i += 1;
+    if (target && title) hits.push({ title, url: target, snippet });
+  }
+  return dedupeHits(hits);
+}
+
+/** Pull the real target URL out of a DuckDuckGo `/l/?uddg=…` redirect href. */
+function decodeDuckUrl(href: string): string {
+  const abs = href.startsWith('//') ? `https:${href}` : href;
+  try {
+    const u = new URL(abs, 'https://duckduckgo.com');
+    const uddg = u.searchParams.get('uddg');
+    if (uddg) return uddg;
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : '';
+  } catch {
+    return '';
+  }
+}
+
+/** Strip tags + decode entities from a snippet of result HTML (shares the fetch_url
+ *  helpers so entity handling stays in one place). */
+function htmlText(fragment: string): string {
+  return decodeEntities(stripTags(fragment)).replace(/\s+/g, ' ').trim();
+}
+
 function clip(text: string): string {
   return text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT)}\n[clipped ${text.length - MAX_TEXT} chars]`;
 }
@@ -180,6 +252,46 @@ function getJson(url: URL, signal: AbortSignal): Promise<unknown> {
           if (err instanceof Error) reject(err);
           else reject(new WebSearchProviderError('Search provider request failed.'));
         }
+      });
+    });
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      fail(new WebSearchProviderError('Web search timed out.'));
+      req.destroy();
+    });
+    req.on('error', () => fail(new WebSearchProviderError('Search provider request failed.')));
+  });
+}
+
+/** Fetch a text body (the HTML results page) with the same time + byte caps as getJson. */
+function getText(url: URL, signal: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    const fail = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+    const req = https.get(url, { headers: { 'User-Agent': 'marudesk-agent/0.1' }, signal }, (res) => {
+      const status = res.statusCode ?? 0;
+      if (status < 200 || status >= 300) {
+        res.resume();
+        return fail(new WebSearchProviderError(`Search provider returned HTTP ${status}.`));
+      }
+      res.on('data', (chunk: Buffer) => {
+        total += chunk.length;
+        if (total > MAX_RESPONSE_BYTES) {
+          fail(new WebSearchProviderError('Search provider response was too large.'));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        if (settled) return;
+        settled = true;
+        resolve(Buffer.concat(chunks).toString('utf8'));
       });
     });
     req.setTimeout(REQUEST_TIMEOUT_MS, () => {

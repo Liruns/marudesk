@@ -43,15 +43,24 @@ const builtinServer: McpServer = {
 const servers: McpServer[] = [builtinServer];
 
 /**
+ * Cached name→tool index, rebuilt lazily on first use after the server set changes.
+ * The loop calls {@link isWriteTool}/{@link isGatedTool} for EVERY tool invocation,
+ * so rebuilding the map per call (flatMapping every server's tools each time) was
+ * wasted work on a hot path; (un)register invalidates it instead. `null` = stale.
+ */
+let cachedIndex: Map<string, McpTool> | null = null;
+
+/**
  * Register (or REPLACE by name) an MCP server. Replacing supports an external
  * connector reconnecting — the manager re-registers the same id with a fresh tool
- * set. `index()` rebuilds per call, so {@link listMcpTools} / {@link callMcpTool}
- * pick up the change immediately. The built-in `marudesk` server stays first.
+ * set. Invalidates the tool index so {@link listMcpTools} / {@link callMcpTool} pick
+ * up the change immediately. The built-in `marudesk` server stays first.
  */
 export function registerMcpServer(server: McpServer): void {
   const i = servers.findIndex((s) => s.name === server.name);
   if (i === -1) servers.push(server);
   else servers[i] = server;
+  cachedIndex = null;
 }
 
 /**
@@ -64,6 +73,7 @@ export function unregisterMcpServer(name: string): boolean {
   const i = servers.findIndex((s) => s.name === name);
   if (i === -1) return false;
   servers.splice(i, 1);
+  cachedIndex = null;
   return true;
 }
 
@@ -72,7 +82,9 @@ function allTools(): McpTool[] {
 }
 
 function index(): Map<string, McpTool> {
-  return new Map(allTools().map((t) => [t.name, t] as const));
+  if (cachedIndex) return cachedIndex;
+  cachedIndex = new Map(allTools().map((t) => [t.name, t] as const));
+  return cachedIndex;
 }
 
 /**

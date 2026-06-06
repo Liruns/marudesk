@@ -36,6 +36,16 @@ type McpServerBase = {
    * disabling the whole server.
    */
   disabledTools?: string[];
+  /**
+   * Tool names (the server's own, un-namespaced) to AUTO-APPROVE without the
+   * per-call prompt — a finer-grained alternative to `trust` (which un-gates the
+   * WHOLE server). Use this to skip approval for a couple of read-only tools on an
+   * otherwise-untrusted server. A `trust: true` server un-gates everything, so this
+   * list is only meaningful when `trust` is unset. Auto-approved tools still obey
+   * read-only/plan mode (a tool the server marks non-read-only is still refused
+   * there). Default: none.
+   */
+  autoApproveTools?: string[];
 };
 
 /** A local server spawned over stdio (Claude-Desktop-style). */
@@ -98,8 +108,18 @@ export function mcpDisplayTarget(c: McpServerConfig): string {
   }
 }
 
-/** Connection lifecycle state of a configured server, for the Settings UI. */
-export type McpConnectionState = 'connected' | 'connecting' | 'disabled' | 'error';
+/**
+ * Connection lifecycle state of a configured server, for the Settings UI.
+ * `reconnecting` is a connected server whose transport dropped and is being
+ * retried with backoff (see electron/agent/mcp-external.ts §health) — distinct
+ * from the initial `connecting` so the UI can tell "recovering" from "first try".
+ */
+export type McpConnectionState =
+  | 'connected'
+  | 'connecting'
+  | 'reconnecting'
+  | 'disabled'
+  | 'error';
 
 /**
  * Per-server status surfaced to the renderer (Settings → MCP Servers). Never
@@ -128,6 +148,8 @@ export type McpServerStatus = {
 export const MAX_MCP_SERVERS = 50;
 /** Max number of `disabledTools` entries honored per server (defense against a huge hand-edit). */
 const MAX_DISABLED_TOOLS = 200;
+/** Max number of `autoApproveTools` entries honored per server (defense against a huge hand-edit). */
+const MAX_AUTO_APPROVE_TOOLS = 200;
 
 /** Whether a string is a syntactically valid http(s) URL. */
 function isHttpUrl(value: string): boolean {
@@ -191,11 +213,13 @@ export function sanitizeMcpConfig(input: unknown): McpServersFile {
     const enabled = r.enabled !== false; // absent → enabled (Claude-Desktop omits it)
     const trust = r.trust === true;
     const disabledTools = parseStringList(r.disabledTools, MAX_DISABLED_TOOLS);
+    const autoApproveTools = parseStringList(r.autoApproveTools, MAX_AUTO_APPROVE_TOOLS);
     const common = {
       id,
       enabled,
       ...(trust ? { trust: true as const } : {}),
       ...(disabledTools ? { disabledTools } : {}),
+      ...(autoApproveTools ? { autoApproveTools } : {}),
     };
 
     if (wantsHttp) {

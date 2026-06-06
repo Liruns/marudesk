@@ -502,6 +502,10 @@ export interface IpcMap {
     args: [payload: { id: string; enabled: boolean }];
     result: McpServerStatus[];
   };
+  'mcp:add-preset': {
+    args: [payload: { id: string }];
+    result: McpServerStatus[];
+  };
   'mcp:open-config': { args: []; result: { path: string } };
 
   // plugins — Settings → Plugins + composer slash commands. set-enabled returns

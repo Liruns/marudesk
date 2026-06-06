@@ -2,7 +2,9 @@ import { shell } from 'electron';
 import type { McpServerStatus } from '../../shared/mcp';
 import { defineHandler } from '../ipc/define-handler';
 import { bool, nonEmptyStr, obj } from '../ipc/validate';
+import { findMcpPreset } from '../../shared/mcp-presets';
 import {
+  addMcpServer,
   ensureMcpConfigFile,
   mcpConfigPath,
   readMcpConfig,
@@ -69,6 +71,17 @@ export function registerMcpHandlers(): void {
     const id = nonEmptyStr(o.id, 'id');
     const enabled = bool(o.enabled, 'enabled');
     await setMcpServerEnabled(id, enabled);
+    return reloadExternalMcp();
+  });
+
+  // Add a curated preset server (e.g. Chrome DevTools browser control) to the config
+  // and connect it. No-op if its id is already configured. Returns fresh statuses.
+  defineHandler('mcp:add-preset', async ([payload]) => {
+    const o = obj(payload);
+    const id = nonEmptyStr(o.id, 'id');
+    const preset = findMcpPreset(id);
+    if (!preset) throw new Error(`unknown MCP preset: ${id}`);
+    await addMcpServer(preset.config);
     return reloadExternalMcp();
   });
 

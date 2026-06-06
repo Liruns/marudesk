@@ -63,6 +63,22 @@ export async function setMcpServerEnabled(id: string, enabled: boolean): Promise
 }
 
 /**
+ * Add a server config (e.g. from a preset) if its id isn't already present, and
+ * persist. Returns the resulting config plus whether anything was added — an existing
+ * id is left untouched (the caller surfaces "already added"). Re-sanitized on write.
+ */
+export async function addMcpServer(
+  config: McpServerConfig,
+): Promise<{ file: McpServersFile; added: boolean }> {
+  const current = await readMcpConfig();
+  if (current.servers.some((s) => s.id === config.id)) {
+    return { file: current, added: false };
+  }
+  const file = await writeMcpConfig({ servers: [...current.servers, config] });
+  return { file, added: true };
+}
+
+/**
  * Ensure the config file exists on disk (seeded with an empty, commented-by-example
  * shape) so "open config" reveals a real, editable file rather than a missing one.
  * Best-effort — a failure just means the file is created on the next write.
