@@ -249,6 +249,6 @@ export function registerWorkspaceMutateHandlers(): void {
     }
     const { abs } = resolveWorkspacePath(root, str(p.path, 'path'));
     shell.showItemInFolder(abs);
-    return { ok: true };
+    return { ok: true as const };
   });
 }

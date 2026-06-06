@@ -564,7 +564,7 @@ export function registerWorkspaceHandlers(deps: {
     const record = requireRecord(str(p.workspaceId, 'workspaceId'));
     const root = requireRoot(record, str(p.rootId, 'rootId'));
     const win = deps.getMainWindow();
-    if (!win) return { ok: false };
+    if (!win) return { ok: false as const };
     const res = await saveAsForEditor(root.root, str(p.content, 'content'), win);
     if (!res.ok) return res;
     return {
@@ -614,7 +614,7 @@ export function registerWorkspaceHandlers(deps: {
   defineHandler('workspace:save-as', ([payload]) => {
     const content = str(obj(payload).content, 'content');
     const win = deps.getMainWindow();
-    if (!win) return { ok: false };
+    if (!win) return { ok: false as const };
     return saveAsForEditor(requireWorkspace().root, content, win);
   });
 }

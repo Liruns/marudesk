@@ -44,15 +44,15 @@ export function registerSshHandlers(): void {
   defineHandler('ssh:remove-connection', ([payload]) => {
     const p = obj(payload);
     removeConnection(str(p.connectionId, 'connectionId'));
-    return { ok: true };
+    return { ok: true as const };
   });
 
   defineHandler('ssh:test-connection', async ([input]) => {
     try {
       const { homeDir } = await probeConnection(toSshInput(input));
-      return { ok: true, homeDir };
+      return { ok: true as const, homeDir };
     } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+      return { ok: false as const, reason: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -81,9 +81,9 @@ export function registerSshHandlers(): void {
         if (a.kind !== 'dir' && b.kind === 'dir') return 1;
         return a.name.localeCompare(b.name);
       });
-      return { ok: true, path: abs, entries: mapped };
+      return { ok: true as const, path: abs, entries: mapped };
     } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+      return { ok: false as const, reason: err instanceof Error ? err.message : String(err) };
     }
   });
 }

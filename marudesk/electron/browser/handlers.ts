@@ -247,16 +247,16 @@ export function registerBrowserHandlers(deps: {
     // own (the host renderer is trusted, but the debugger only exists on web).
     const rec = getTab(tabId);
     if (!rec || rec.kind !== 'web' || !rec.view) {
-      return { ok: false, error: 'tab is not a web tab' };
+      return { ok: false as const, error: 'tab is not a web tab' };
     }
     // A command failure is a value, not a thrown error — so the renderer can
     // tell "CSS.setStyleTexts rejected" from "session is dead".
     try {
       const value = await sendCdp(rec, method, params, sessionId);
-      return { ok: true, value };
+      return { ok: true as const, value };
     } catch (err) {
       return {
-        ok: false,
+        ok: false as const,
         error: err instanceof Error ? err.message : String(err),
       };
     }
