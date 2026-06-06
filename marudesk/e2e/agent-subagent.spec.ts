@@ -56,6 +56,7 @@ function chatStateWithSubagentTool(): AgentChatState {
     error: null,
     activeSessionId: null,
     endNote: null,
+    background: [],
   };
 }
 

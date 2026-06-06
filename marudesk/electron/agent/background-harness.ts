@@ -101,6 +101,8 @@ check('cancel reports success', cancelled.isError !== true && cancelled.text.inc
 check('task projected as cancelled', S.state.background.find((t) => t.id === id2)?.status === 'cancelled');
 await whenBackgroundSettled(id2);
 check('cancelled task stays cancelled after runner settles', S.state.background.find((t) => t.id === id2)?.status === 'cancelled');
+collectBackgroundTool({ id: id2 });
+check('collecting a cancelled task marks it collected', S.state.background.find((t) => t.id === id2)?.collected === true);
 
 /* ── concurrency cap ──────────────────────────────────────────────────── */
 setBackgroundRunnerForTests(() => new Promise(() => {})); // never settles → stays running

@@ -294,7 +294,7 @@ const BG_STATUS_ICON: Record<BackgroundStatus, typeof Loader2> = {
  */
 export function BackgroundTray({ tasks }: { readonly tasks: readonly BackgroundTask[] }) {
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
-  if (tasks.length === 0) return null;
+  if (!tasks || tasks.length === 0) return null;
   const toggle = (id: string) =>
     setOpenIds((prev) => {
       const next = new Set(prev);

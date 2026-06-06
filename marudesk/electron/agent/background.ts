@@ -1,3 +1,4 @@
+import { scrubText } from '../../shared/scrub';
 import type { BackgroundTask } from '../../shared/agent';
 import { S, emit, uid } from './loop-state';
 import { parseSubagentRequest, recordSubagentInput, SubagentInputError } from './subagent-request';
@@ -61,7 +62,7 @@ export function startBackgroundAgentTool(input: unknown, ctx: ToolContext): Tool
   } catch (err) {
     const message =
       err instanceof SubagentInputError || err instanceof Error ? err.message : String(err);
-    return { summary: 'spawn_background_agent failed', text: message, isError: true };
+    return { summary: 'spawn_background_agent failed', text: scrubText(message), isError: true };
   }
 
   const conversationId = S.conversationId ?? '';
@@ -145,12 +146,14 @@ export function collectBackgroundTool(input: unknown): ToolResult {
   if (t.status === 'running') {
     return { summary: `background ${t.label} running`, text: `Background agent ${id} ("${t.label}") is still running.` };
   }
-  if (t.status !== 'done') {
-    return { summary: `background ${t.label} ${t.status}`, text: `Background agent ${id} ("${t.label}") ${t.status}: ${t.error ?? 'no detail'}.` };
-  }
+  // Reading any terminal task marks it collected (done OR error/cancelled), so the
+  // tray badge and the no-id list stop re-surfacing what the model already read.
   if (!t.collected) {
     t.collected = true;
     syncIntoState();
+  }
+  if (t.status !== 'done') {
+    return { summary: `background ${t.label} ${t.status}`, text: `Background agent ${id} ("${t.label}") ${t.status}: ${t.error ?? 'no detail'}.` };
   }
   return { summary: `background ${t.label} done`, text: t.result ?? '(no report)' };
 }
