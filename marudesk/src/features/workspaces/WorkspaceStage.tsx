@@ -31,7 +31,7 @@ import {
 } from './layout';
 import { NameDialog } from './NameDialog';
 import { SshRootDialog } from './SshRootDialog';
-import { useWorkspaceDeckStore } from './store';
+import { startLayoutPersistence, useWorkspaceDeckStore } from './store';
 import { PeekExplorer } from './WorkspaceStage.parts';
 
 type DeckDialog =
@@ -48,6 +48,8 @@ export function WorkspaceStage() {
 
   useEffect(() => {
     void refresh();
+    // Restore the saved deck split arrangement and keep persisting changes.
+    void startLayoutPersistence();
   }, [refresh]);
 
   useEffect(() => {

@@ -591,6 +591,10 @@ export interface IpcMap {
   'app:open-releases': { args: []; result: void };
   'app:check-for-updates': { args: []; result: UpdateCheckResult };
 
+  // ui — renderer-owned layout persisted to main JSON (opaque payload).
+  'ui:get-layout': { args: []; result: unknown };
+  'ui:set-layout': { args: [layout: unknown]; result: void };
+
   // window
   'window:minimize': { args: []; result: boolean };
   'window:maximize-toggle': { args: []; result: boolean };

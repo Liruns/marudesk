@@ -1,15 +1,17 @@
 import { create } from 'zustand';
-import type {
-  WorkspaceId,
-  WorkspacePaneId,
-  WorkspaceRecord,
-  WorkspaceRootId,
-  WorkspaceRootInput,
-  WorkspaceSnapshot,
+import {
+  SYSTEM_WORKSPACE_ID,
+  type WorkspaceId,
+  type WorkspacePaneId,
+  type WorkspaceRecord,
+  type WorkspaceRootId,
+  type WorkspaceRootInput,
+  type WorkspaceSnapshot,
 } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
 import {
   removeWorkspaceLeaf,
+  sanitizeWorkspaceLayout,
   setWorkspaceLeaf,
   setWorkspaceSplitRatio,
   splitWorkspaceLeaf,
@@ -365,3 +367,62 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
     },
   }),
 );
+
+/* ── deck-layout persistence (split arrangement → main JSON) ─────────────── */
+
+let layoutPersistenceStarted = false;
+let pendingSavedLayout: unknown = null;
+// True once we've had a chance to apply (or decided there's nothing to apply).
+// Guards the push so a default single-pane layout can't overwrite the saved file
+// before the restore lands.
+let restoreSettled = false;
+let pushTimer: ReturnType<typeof setTimeout> | null = null;
+let lastPushedJson = '';
+
+/** Apply the saved layout once workspaces exist; reconcile against them. */
+function tryApplySavedLayout(): void {
+  if (restoreSettled || pendingSavedLayout == null) return;
+  const st = useWorkspaceDeckStore.getState();
+  if (st.workspaces.length === 0) return; // wait until workspaces are restored
+  const valid = new Set(st.workspaces.map((w) => w.id));
+  valid.add(SYSTEM_WORKSPACE_ID);
+  const layout = sanitizeWorkspaceLayout(pendingSavedLayout, (id) => valid.has(id));
+  pendingSavedLayout = null;
+  restoreSettled = true;
+  if (!layout) return;
+  const leaves = workspaceLeaves(layout);
+  const focusedPaneId =
+    leaves.find((l) => l.workspaceId === st.activeWorkspaceId)?.id ?? leaves[0]?.id ?? null;
+  useWorkspaceDeckStore.setState({ layout, focusedPaneId });
+}
+
+/**
+ * Start persisting the workspace deck layout to main: load the saved tree, apply
+ * it once workspaces are present (reconciled), and push later changes (debounced).
+ * Idempotent; safe to call from every WorkspaceStage mount.
+ */
+export async function startLayoutPersistence(): Promise<void> {
+  if (layoutPersistenceStarted) return;
+  layoutPersistenceStarted = true;
+  try {
+    pendingSavedLayout = await window.marudesk.invoke('ui:get-layout');
+  } catch {
+    pendingSavedLayout = null;
+  }
+  // Nothing to restore → allow saving immediately.
+  if (pendingSavedLayout == null) restoreSettled = true;
+  tryApplySavedLayout();
+  useWorkspaceDeckStore.subscribe((state) => {
+    tryApplySavedLayout();
+    if (!restoreSettled) return; // don't overwrite the saved file before restore
+    const layout = state.layout;
+    if (!layout) return;
+    const json = JSON.stringify(layout);
+    if (json === lastPushedJson) return;
+    lastPushedJson = json;
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => {
+      void window.marudesk.invoke('ui:set-layout', layout);
+    }, 500);
+  });
+}

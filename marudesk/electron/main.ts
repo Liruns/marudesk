@@ -36,6 +36,7 @@ import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
 import { loadWindowState, trackWindowState } from './window-state';
 import { closeSplash, showSplash } from './splash';
+import { registerUiLayoutHandlers } from './ui-layout';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
@@ -252,6 +253,7 @@ void app.whenReady().then(() => {
   registerMcpHandlers();
   registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);
+  registerUiLayoutHandlers();
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the
   // renderer so Settings reflects it without polling. Sanitized — never tokens.
