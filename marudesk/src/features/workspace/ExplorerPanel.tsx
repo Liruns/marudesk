@@ -77,7 +77,7 @@ const EXPLORER_DRAG_FLOOR = 44;
 // SPIKE flag: render the @pierre/trees-backed tree instead of the in-house one.
 // Default off so shipped behavior is unchanged; flip locally to evaluate.
 // See FileTreePierreSpike.tsx / docs/pierre-trees-spike.md.
-const USE_PIERRE_TREE = false;
+const USE_PIERRE_TREE = true;
 
 function readExplorerWidth(): number {
   return readStoredWidth(EXPLORER_WIDTH_KEY, EXPLORER_MIN, EXPLORER_MAX, EXPLORER_DEFAULT);

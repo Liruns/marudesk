@@ -12,7 +12,7 @@ import { parseUnifiedDiff } from './parseDiff';
 // view) instead of the in-house plain-text DiffBlock. Default off so shipped
 // behavior is unchanged. `shiki-js` keeps highlighting off WebAssembly (no CSP
 // `wasm-unsafe-eval` needed). See docs/pierre-diffs-spike.md.
-const USE_PIERRE_DIFF = false;
+const USE_PIERRE_DIFF = true;
 
 // Map design tokens onto the diffs chrome (the library's first-class
 // `--diffs-*-override` surface). We retint only the *neutral* surfaces — panel,
