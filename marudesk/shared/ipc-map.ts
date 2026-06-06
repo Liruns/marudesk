@@ -507,6 +507,14 @@ export interface IpcMap {
     result: McpServerStatus[];
   };
   'mcp:open-config': { args: []; result: { path: string } };
+  // Whether the chrome-devtools (browser-control) preset is wired to marudesk's
+  // embedded Chromium, and whether the remote-debugging port we attach to was opened
+  // this launch. `required && !portOpen` → the user just enabled it and must restart
+  // for it to drive the embedded browser (see electron/agent/embedded-browser.ts).
+  'mcp:embedded-browser-status': {
+    args: [];
+    result: { portOpen: boolean; required: boolean };
+  };
 
   // plugins — Settings → Plugins + composer slash commands. set-enabled returns
   // the fresh statuses so the panel reprojects without a follow-up fetch.

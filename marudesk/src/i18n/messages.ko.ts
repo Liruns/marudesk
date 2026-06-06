@@ -771,6 +771,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.mcp.reload': '새로고침',
   'settings.mcp.presets.label': '서버 추가',
   'settings.mcp.presets.added': '이미 추가됨',
+  'settings.mcp.embedded.restart':
+    'Chrome DevTools가 marudesk 내장 브라우저 탭을 제어하도록 설정되었습니다. 적용하려면 marudesk를 재시작하세요 — 그 전까지는 내장 브라우저에 연결할 수 없습니다.',
+  'settings.mcp.embedded.active':
+    'Chrome DevTools가 marudesk 내장 브라우저 탭을 제어합니다 (CDP로 연결 — 별도 Chrome 창 없음).',
   'settings.mcp.status.connecting': '연결 중',
   'settings.mcp.status.reconnecting': '재연결 중',
   'settings.mcp.status.disabled': '비활성화됨',

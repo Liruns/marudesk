@@ -15,6 +15,7 @@ import {
   listMcpServerStatuses,
   syncExternalMcpServers,
 } from './mcp-external';
+import { embeddedBrowserDebugStatus } from './embedded-browser';
 
 /**
  * Glue between the external-MCP config store (mcp-config.ts) and the connector
@@ -84,6 +85,11 @@ export function registerMcpHandlers(): void {
     await addMcpServer(preset.config);
     return reloadExternalMcp();
   });
+
+  // Whether the browser-control preset drives the embedded Chromium, and whether the
+  // remote-debugging port it attaches to was opened this launch — lets Settings show
+  // a "restart to apply" hint right after the preset is added (the switch is boot-only).
+  defineHandler('mcp:embedded-browser-status', () => embeddedBrowserDebugStatus());
 
   // Reveal the config file in the OS so the user can hand-edit it (Claude-Desktop
   // style). Ensures it exists first so there's a real file to open.

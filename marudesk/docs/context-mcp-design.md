@@ -334,6 +334,10 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
   `--browser-url`을 참조하는 enabled 서버가 있을 때**만** 127.0.0.1 루프백으로 포트를 연다. 패키지 빌드에서
   이 프리셋을 켜지 않으면 내장 탭이 CDP로 절대 노출되지 않는다. 스위치를 부팅 전에만 걸 수 있으므로 프리셋을
   **새로 추가하면 다음 실행부터** 연결된다(첫 추가 직후의 연결 시도는 포트가 닫혀 있어 `error`로 graceful 처리).
+  게이트 로직과 부팅 결정 상태는 `electron/agent/embedded-browser.ts`에 모은다(`maybeOpenEmbeddedDebugPort`,
+  `embeddedBrowserDebugStatus`). Settings → MCP Servers는 `mcp:embedded-browser-status` IPC로 "포트가 이번
+  세션에 열렸는지 / 현재 config가 이를 요구하는지"를 받아, 요구하지만 안 열렸으면 **재시작 안내 배너**, 열렸으면
+  내장 브라우저 제어 활성 배너를 띄운다.
 - **CDP 단일 클라이언트 주의**: 한 `webContents`에는 CDP 클라이언트가 하나만 붙는다. 자체 DevTools 도크
   (`electron/browser/cdp.ts`의 `debugger.attach`)가 붙어 있는 탭을 에이전트가 동시에 조작하면 "another
   debugger is already attached" 충돌이 난다(built-in vs 커스텀 DevTools와 동일한 제약, `custom-devtools-design.md`).

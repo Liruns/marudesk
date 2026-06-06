@@ -1,12 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { isHttpMcpConfig } from '../shared/mcp';
-import {
-  EMBEDDED_CHROMIUM_DEBUG_PORT,
-  EMBEDDED_CHROMIUM_DEBUG_URL,
-} from '../shared/mcp-presets';
-import { readMcpConfigSync } from './agent/mcp-config';
+import { maybeOpenEmbeddedDebugPort } from './agent/embedded-browser';
 import {
   disposeBrowserView,
   mountBrowserView,
@@ -214,32 +209,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return win;
 }
 
-/**
- * Whether a configured + enabled MCP server is wired to attach to marudesk's OWN
- * embedded Chromium — i.e. its args reference our loopback `--browser-url`
- * ({@link EMBEDDED_CHROMIUM_DEBUG_URL}). The chrome-devtools (browser-control) preset
- * writes exactly that. Only then do we open the remote-debugging port below, so a
- * packaged build never exposes the embedded tabs over CDP unless the user opted in.
- */
-function embeddedDebugPortRequested(): boolean {
-  return readMcpConfigSync().servers.some(
-    (s) =>
-      s.enabled &&
-      !isHttpMcpConfig(s) &&
-      (s.args ?? []).some((a) => a.includes(EMBEDDED_CHROMIUM_DEBUG_URL)),
-  );
-}
-
-// Chromium's remote-debugging endpoint can only be enabled by a command-line switch
-// set before app-ready — there is no runtime API. We open it on a fixed loopback
-// port (127.0.0.1 only) so chrome-devtools-mcp can attach to marudesk's embedded
-// browser tabs via `--browser-url` instead of launching a separate local Chrome.
-// Gated on the browser-control preset actually being enabled (read synchronously
-// from the on-disk config); adding the preset therefore takes effect on next launch.
-if (embeddedDebugPortRequested()) {
-  app.commandLine.appendSwitch('remote-debugging-port', String(EMBEDDED_CHROMIUM_DEBUG_PORT));
-  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
-}
+// Open Chromium's remote-debugging endpoint (loopback only) so chrome-devtools-mcp
+// can attach to marudesk's embedded browser tabs instead of launching a separate
+// local Chrome. Boot-only (the switch has no runtime API) and gated on the
+// browser-control preset being enabled — see electron/agent/embedded-browser.ts.
+maybeOpenEmbeddedDebugPort();
 
 // Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
 // sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
