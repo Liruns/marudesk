@@ -19,6 +19,7 @@ import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
 import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
+import { Tour } from '../features/tour/Tour';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
 import type { EventPayload } from '../../shared/ipc';
@@ -329,6 +330,7 @@ export function Shell() {
       </div>
       <StatusBar />
       <ToastHost />
+      <Tour />
       {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}
       {tabPalette ? <TabPalette onClose={() => setTabPalette(false)} /> : null}
     </div>

@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
+import { useTourStore } from '../tour/tourStore';
 
 export type HomeScenario = {
   readonly key: string;
@@ -24,6 +25,7 @@ export function HomeGuide({
   readonly onDismiss: () => void;
 }) {
   const { t } = useI18n();
+  const startTour = useTourStore((s) => s.start);
   return (
     <section
       aria-label={t('home.guide.title')}
@@ -62,7 +64,14 @@ export function HomeGuide({
         ))}
       </div>
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={startTour}
+          className="rounded-md px-3 py-1.5 text-caption text-fg-secondary transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
+        >
+          {t('tour.start')}
+        </button>
         <button
           type="button"
           onClick={onDismiss}

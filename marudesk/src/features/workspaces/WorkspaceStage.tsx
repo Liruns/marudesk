@@ -124,6 +124,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
   return (
     <nav
       aria-label="Workspace rail"
+      data-tour="workspace-rail"
       className="chrome-rail w-12 shrink-0 border-r flex flex-col items-center py-2 gap-1"
     >
       {workspaces.map((workspace) => {

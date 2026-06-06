@@ -217,7 +217,7 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const maskImage = tabStripMask(edge.l, edge.r);
 
   return (
-    <div className="flex items-center flex-1 min-w-0 h-full pl-1.5">
+    <div data-tour="tabs" className="flex items-center flex-1 min-w-0 h-full pl-1.5">
       <div
         ref={scrollRef}
         role="tablist"
