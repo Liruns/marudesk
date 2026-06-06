@@ -1067,7 +1067,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'workspace.action.copyPath': '경로 복사',
   'workspace.action.copyRelativePath': '상대 경로 복사',
   'workspace.action.cut': '잘라내기',
-  'workspace.action.create': '만들기',
   'workspace.action.delete': '삭제',
   'workspace.action.newFile': '새 파일',
   'workspace.action.newFolder': '새 폴더',

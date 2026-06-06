@@ -27,20 +27,27 @@ type Props = {
   items: MenuItem[];
   onClose: () => void;
   /**
-   * Marks the portaled root with `data-file-tree-context-menu-root` so when this
-   * menu is rendered through `@pierre/trees`' `renderContextMenu` slot, the
-   * library's outside-click detection treats clicks inside it as internal (the
-   * menu portals to <body>, outside the tree's shadow root).
+   * Marks the root with `data-file-tree-context-menu-root` so `@pierre/trees`'
+   * outside-click detection treats clicks inside it as internal.
    */
   contextMenuRoot?: boolean;
+  /**
+   * Render inline (no portal to <body>). Used when hosted inside `@pierre/trees`'
+   * context-menu slot: keeping the menu in the tree's own DOM neighbourhood — not
+   * a body portal — lets focus hand off to the tree's inline rename input without
+   * the cross-boundary focus race that drops it. Still `position: fixed`, so it
+   * positions and escapes overflow the same way.
+   */
+  inline?: boolean;
 };
 
 /**
- * Cursor-anchored popup menu, portaled to <body> and clamped into the viewport.
- * Dismisses on outside pointer-down, Esc, scroll, blur, or resize. Arrow keys
- * move between enabled items; Enter/click selects (then closes).
+ * Cursor-anchored popup menu, portaled to <body> (or rendered inline, see
+ * `inline`) and clamped into the viewport. Dismisses on outside pointer-down,
+ * Esc, scroll, blur, or resize. Arrow keys move between enabled items;
+ * Enter/click selects (then closes).
  */
-export function ContextMenu({ x, y, items, onClose, contextMenuRoot }: Props) {
+export function ContextMenu({ x, y, items, onClose, contextMenuRoot, inline }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -114,7 +121,7 @@ export function ContextMenu({ x, y, items, onClose, contextMenuRoot }: Props) {
     btns[next]?.focus();
   };
 
-  return createPortal(
+  const menu = (
     <div
       ref={ref}
       role="menu"
@@ -166,7 +173,8 @@ export function ContextMenu({ x, y, items, onClose, contextMenuRoot }: Props) {
           </button>
         ),
       )}
-    </div>,
-    document.body,
+    </div>
   );
+
+  return inline ? menu : createPortal(menu, document.body);
 }
