@@ -8,6 +8,7 @@ import {
   type WorkspaceRootSummary,
 } from '../../shared/workspace';
 import type { SessionRecord } from '../../shared/context';
+import type { TabKind } from '../../shared/browser';
 import { activeRoot, rootById, workspaceById } from '../workspace-helpers';
 import { getActiveTabId, getConsole, getTab, tabValues } from '../browser/state';
 import { sendCdp } from '../browser/cdp';
@@ -58,6 +59,105 @@ export async function listTabs(): Promise<ToolResult> {
     summary: `${tabs.length} tab${tabs.length === 1 ? '' : 's'}`,
     text: clip(`${lines.join('\n')}\n\n${hint}`),
   };
+}
+
+/* ── tab control (open / activate / navigate / close) ───────────────────── */
+
+// Feature tabs the agent may open. 'web' and 'editor' take extra args; the rest
+// are argument-free launchers. ('plugin' is intentionally excluded — it needs a
+// panel descriptor only the renderer/plugin runtime owns.)
+const OPENABLE_KINDS = new Set<TabKind>(['web', 'editor', 'terminal', 'home', 'settings', 'agent']);
+
+export async function openTab(input: {
+  kind?: unknown;
+  url?: unknown;
+  workspaceId?: unknown;
+  rootId?: unknown;
+  path?: unknown;
+}): Promise<ToolResult> {
+  const url = typeof input.url === 'string' ? input.url.trim() : '';
+  const kindRaw = typeof input.kind === 'string' ? input.kind.trim().toLowerCase() : '';
+  const kind = (kindRaw || (url ? 'web' : '')) as TabKind | '';
+  if (!kind) {
+    throw new Error('open_tab requires "kind" (web|editor|terminal|home|settings|agent) or a "url"');
+  }
+  if (!OPENABLE_KINDS.has(kind as TabKind)) {
+    throw new Error(`open_tab cannot open kind "${kind}" (use web|editor|terminal|home|settings|agent)`);
+  }
+  // Browser lifecycle + navigation/settings modules pull in heavy Electron APIs
+  // (Menu, WebContentsView, …), so they're imported lazily here rather than at
+  // module load — keeping the agent's static module graph importable under the
+  // harness's minimal electron stub.
+  const { createAndActivateTab } = await import('../browser/tabs');
+  if (kind === 'editor') {
+    const path = typeof input.path === 'string' ? input.path.trim() : '';
+    if (!path) throw new Error('open_tab editor requires "path" (root-relative; see list_workspaces)');
+    const { record, root } = resolveWorkspaceRoot(input);
+    const rec = createAndActivateTab('editor', undefined, {
+      workspaceId: record.id,
+      editorFile: { workspaceId: record.id, rootId: root.id, path },
+    });
+    return {
+      summary: `opened editor ${record.name}/${root.name}/${path}`,
+      text: `Opened editor tab ${rec.id} for ${scrubText(path)}.`,
+    };
+  }
+  if (kind === 'web') {
+    let resolved = '';
+    if (url) {
+      const [{ resolveAddressBarInput, searchBaseFor }, { getSettingsSync }] = await Promise.all([
+        import('../browser/url'),
+        import('../settings'),
+      ]);
+      resolved = resolveAddressBarInput(url, searchBaseFor(getSettingsSync().browser.searchEngine));
+    }
+    const rec = createAndActivateTab('web', resolved || undefined);
+    return {
+      summary: 'opened web tab',
+      text: `Opened web tab ${rec.id}${url ? ` → ${scrubText(url)}` : ' (blank)'}.`,
+    };
+  }
+  const rec = createAndActivateTab(kind);
+  return { summary: `opened ${kind} tab`, text: `Opened ${kind} tab ${rec.id}.` };
+}
+
+export async function activateTabTool(input: { tabId?: unknown }): Promise<ToolResult> {
+  const id = typeof input.tabId === 'string' ? input.tabId.trim() : '';
+  if (!id) throw new Error('activate_tab requires "tabId" (from list_tabs)');
+  const rec = getTab(id);
+  if (!rec) return { summary: `activate_tab ${id}`, text: `no tab with id ${id} (use list_tabs)`, isError: true };
+  const { activateTab } = await import('../browser/tabs');
+  activateTab(id);
+  return { summary: `activated tab ${id}`, text: `Switched to the ${rec.kind} tab ${id}.` };
+}
+
+export async function navigateTab(input: { tabId?: unknown; url?: unknown }): Promise<ToolResult> {
+  const url = typeof input.url === 'string' ? input.url.trim() : '';
+  if (!url) throw new Error('navigate_tab requires "url"');
+  const id = typeof input.tabId === 'string' ? input.tabId.trim() : '';
+  if (id) {
+    const rec = getTab(id);
+    if (!rec) return { summary: `navigate_tab ${id}`, text: `no tab with id ${id} (use list_tabs)`, isError: true };
+    const { activateTab } = await import('../browser/tabs');
+    activateTab(id);
+  }
+  // navigateActive resolves the input (URL or search) and loads it in the active
+  // web view, opening one if the (now-active) target is a feature tab.
+  const { navigateActive } = await import('../browser/navigation');
+  await navigateActive(url);
+  return { summary: `navigated → ${scrubText(url)}`, text: `Navigated to ${scrubText(url)}.` };
+}
+
+export async function closeTabTool(input: { tabId?: unknown }): Promise<ToolResult> {
+  const id = typeof input.tabId === 'string' ? input.tabId.trim() : '';
+  if (!id) throw new Error('close_tab requires "tabId" (from list_tabs)');
+  const rec = getTab(id);
+  if (!rec) return { summary: `close_tab ${id}`, text: `no tab with id ${id} (use list_tabs)`, isError: true };
+  const { closeTab } = await import('../browser/tabs');
+  const ok = closeTab(id);
+  return ok
+    ? { summary: `closed tab ${id}`, text: `Closed the ${rec.kind} tab ${id}.` }
+    : { summary: `close_tab ${id} (failed)`, text: `could not close tab ${id}`, isError: true };
 }
 
 function resolveWorkspaceRoot(input: {

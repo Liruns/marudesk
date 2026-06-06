@@ -1,5 +1,7 @@
 import type { McpTool } from './tools';
 import {
+  activateTabTool,
+  closeTabTool,
   deleteMemoryTool,
   deleteSessionTool,
   listMemoryTool,
@@ -8,6 +10,8 @@ import {
   listTerminals,
   listWorkspaceFiles,
   listWorkspaces,
+  navigateTab,
+  openTab,
   readConsole,
   readEditor,
   readExplorer,
@@ -50,6 +54,52 @@ export const CONTEXT_TOOLS: McpTool[] = [
       "List every open tab across the app (web pages, editors, terminals, settings, the AI Chat) with its id and what identifies it. The starting point for reading OTHER tabs' content.",
     inputSchema: obj({}),
     exec: () => listTabs(),
+  },
+  {
+    name: 'open_tab',
+    group: 'tabs',
+    write: true,
+    description:
+      'Open and activate a new tab. kind="web" opens a page (pass url, or omit for a blank tab); kind="editor" opens a workspace file (pass path, plus workspaceId/rootId from list_workspaces, or omit them for the active workspace/root); kind can also be terminal|home|settings|agent. Returns the new tab id.',
+    inputSchema: obj({
+      kind: strProp('web | editor | terminal | home | settings | agent. Defaults to web when a url is given.'),
+      url: strProp('For kind=web: URL or search text to load (omit for a blank tab).'),
+      workspaceId: strProp('For kind=editor: workspace id from list_workspaces; omitted = active workspace.'),
+      rootId: strProp('For kind=editor: root id from list_workspaces; omitted = active root.'),
+      path: strProp('For kind=editor: root-relative POSIX path of the file to open.'),
+    }),
+    exec: (input) => openTab(input),
+  },
+  {
+    name: 'activate_tab',
+    group: 'tabs',
+    write: true,
+    description: 'Switch to (focus) an existing tab by id. Pass a tabId from list_tabs.',
+    inputSchema: obj({ tabId: strProp('Tab id from list_tabs.') }, ['tabId']),
+    exec: (input) => activateTabTool(input),
+  },
+  {
+    name: 'navigate_tab',
+    group: 'tabs',
+    write: true,
+    requiresWeb: true,
+    description:
+      'Navigate a web tab to a URL (or search text). Pass tabId (from list_tabs) to target a specific tab; omit it to use the active tab. A feature/blank target opens a fresh web tab for the navigation.',
+    inputSchema: obj({
+      url: strProp('URL or search text to load.'),
+      tabId: strProp('Optional tab id from list_tabs; defaults to the active tab.'),
+    }, ['url']),
+    exec: (input) => navigateTab(input),
+  },
+  {
+    name: 'close_tab',
+    group: 'tabs',
+    write: true,
+    gated: true,
+    description:
+      'Close a tab by id (from list_tabs). Asks for approval — closing an editor tab with unsaved edits would discard them, so confirm before closing.',
+    inputSchema: obj({ tabId: strProp('Tab id from list_tabs.') }, ['tabId']),
+    exec: (input) => closeTabTool(input),
   },
   {
     name: 'list_workspaces',

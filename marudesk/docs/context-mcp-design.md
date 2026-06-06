@@ -100,8 +100,9 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
 | 메모리 | `list_memory`, `read_memory`, `write_memory` | **신규** `memory-store.ts`(userData) | 신규 |
 | DevTools 내용 | `read_console`(log/warn/error 레벨필터), `read_network`, `read_network_body` | main 에러버퍼 + 렌더러 devtools console 미러 + CDP | read_console 확장 |
 | 다른 탭의 내용 | `list_tabs`(전 종류) + 종류별: web→`read_page`, editor→`read_editor`(미저장 포함), terminal→`read_terminal` | main(web) + 렌더러 미러(editor/탭목록) | read_editor/전체 list_tabs 신규 |
+| 탭 제어 (AI가 MaruDesk 조작) | `open_tab`✎(web/editor/terminal/…), `activate_tab`✎, `navigate_tab`✎, `close_tab`⚠✎ | main `browser/tabs.ts` 라이프사이클(`createAndActivateTab`/`activateTab`/`closeTab`)·`navigation.ts` (지연 import) | 신규 |
 
-⚠ = `gated`(호출당 승인; read-only/auto 모드 규칙은 v4 §B4 그대로).
+⚠ = `gated`(호출당 승인; read-only/auto 모드 규칙은 v4 §B4 그대로). ✎ = `write`(read-only 모드에서 거부).
 
 모든 페이지/터미널/에디터 텍스트는 **egress에서 `scrubText`** 통과(현행 유지).
 
