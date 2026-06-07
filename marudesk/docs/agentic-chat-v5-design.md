@@ -374,5 +374,9 @@ hatchworks "Safe failure & recovery"(위험↑ → 결정론 강등 + "막혔어
 - **2026-06-07:** §H 하드닝 **H1~H10 전부 구현·검증·커밋 완료.** 다음 = §3 신규 격차(G) 착수.
 - **2026-06-07:** §3 신규 격차 **G1~G5 전부 구현·검증·커밋 완료.** v5 라운드 종료 — H1~H10 + G1~G5
   모두 착지. G1은 별도 모드 대신 `agent.editApproval` 설정 플래그로 결정(§8 열린 결정 해소).
+- **2026-06-07:** UI/UX 후속 라운드 — (1) `update_plan` 툴카드 중복 제거 + Taskboard 접기 + G1 승인
+  카드 편집 맥락화, (2) **Taskboard 사이드 패널화**(full surface 우측 Mission Control 패널), (3)
+  **모바일 패리티**(plan + 편집 diff 렌더), (4) **Taskboard step→트랜스크립트 점프**(안정 slug id +
+  anchorMessageId + scrollIntoView). 데스크탑/모바일 typecheck+build(+smoke) 그린.
 </content>
 </invoke>
