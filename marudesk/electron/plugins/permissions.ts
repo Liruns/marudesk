@@ -1,5 +1,7 @@
 import dns from 'node:dns/promises';
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import type { AppliedChange } from '../../shared/patch';
 import { globToRegExp } from '../../shared/glob';
@@ -149,14 +151,66 @@ export async function guardedFetch(
   if (addrs.length === 0 || addrs.some((ip) => isBlockedIp(ip.replace(/^::ffff:/i, '')))) {
     throw new Error(`plugin net: "${host}" resolves to a non-public address`);
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const res = await fetch(parsed, { method: 'GET', redirect: 'manual', signal: controller.signal });
-    const buf = await res.arrayBuffer();
-    const slice = buf.byteLength > MAX_FETCH_BYTES ? buf.slice(0, MAX_FETCH_BYTES) : buf;
-    return { status: res.status, text: new TextDecoder().decode(slice) };
-  } finally {
-    clearTimeout(timer);
-  }
+  // Pin the connection to a validated IP (audit H9). Global fetch would re-resolve
+  // DNS independently of the lookup above, leaving a TOCTOU window where a hostile
+  // authoritative server returns a public IP to the check and a private/metadata
+  // IP to the actual connection. Connecting by IP closes that; for https we still
+  // pass the hostname as TLS servername so the certificate is verified against the
+  // real host (and as the Host header), so pinning can't be bypassed by rebinding.
+  const pinned = addrs[0].replace(/^::ffff:/i, '');
+  return pinnedGet(parsed, pinned, pinned.includes(':') ? 6 : 4);
+}
+
+/** GET against a pre-validated IP, keeping the hostname for Host header + TLS SNI. */
+function pinnedGet(
+  parsed: URL,
+  ip: string,
+  family: 4 | 6,
+): Promise<{ status: number; text: string }> {
+  const isHttps = parsed.protocol === 'https:';
+  const lib = isHttps ? https : http;
+  const port = parsed.port ? Number(parsed.port) : isHttps ? 443 : 80;
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        host: ip,
+        family,
+        port,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: 'GET',
+        headers: { Host: parsed.host, 'user-agent': 'marudesk-plugin' },
+        // TLS SNI + certificate validation target the real hostname, not the IP.
+        ...(isHttps ? { servername: parsed.hostname } : {}),
+        timeout: 15_000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let total = 0;
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') });
+        };
+        res.on('data', (c: Buffer) => {
+          if (settled) return;
+          const room = MAX_FETCH_BYTES - total;
+          if (room <= 0) {
+            res.destroy();
+            finish();
+            return;
+          }
+          chunks.push(c.length > room ? c.subarray(0, room) : c);
+          total += Math.min(c.length, room);
+        });
+        res.on('end', finish);
+        res.on('error', (e) => {
+          if (!settled) reject(e);
+        });
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('plugin net: request timed out')));
+    req.on('error', reject);
+    req.end();
+  });
 }
