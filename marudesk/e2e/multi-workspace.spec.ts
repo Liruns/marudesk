@@ -102,8 +102,12 @@ test('multi-workspace deck: Explorer opens files with the selected root identity
     await explorer.getByRole('button', { name: 'Use root BE' }).click();
     await expect(explorer.getByText('Project Alpha / BE')).toBeVisible();
 
-    await explorer.getByRole('button', { name: 'src' }).click();
-    await explorer.getByRole('button', { name: 'App.tsx' }).click();
+    // The file tree renders via @pierre/trees as a <file-tree-container> custom
+    // element; rows are buttons keyed by data-item-path (folders carry a
+    // trailing slash). Expand "src", then open the file from it.
+    const tree = explorer.locator('file-tree-container');
+    await tree.locator('button[data-item-path="src/"]').click();
+    await tree.locator('button[data-item-path="src/App.tsx"]').click();
 
     const snapshot = await page.evaluate(() => window.marudesk.invoke('browser:tabs-snapshot'));
     const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
