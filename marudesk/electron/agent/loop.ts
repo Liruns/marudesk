@@ -36,6 +36,7 @@ import {
   PLAN_MODE_SYSTEM,
   SAFETY_FOOTER,
   approvalModeContext,
+  modelGuidance,
 } from './prompts.ts';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './keyword-modes';
@@ -259,6 +260,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     const trustFooter = hasFoldedInstructions ? SAFETY_FOOTER : null;
     const system = [
       baseSystem,
+      modelGuidance(a.provider, a.modelId, a.modelReasoning),
       envContext,
       modeContext,
       wsInstructions,

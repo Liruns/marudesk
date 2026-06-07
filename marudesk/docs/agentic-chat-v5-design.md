@@ -187,6 +187,11 @@ hatchworks "Safe failure & recovery"(위험↑ → 결정론 강등 + "막혔어
 
 > 4-클러스터 심층 감사가 찾은 *실제* 결함. file:line은 감사 시점 기준(shift 가능, 구현 시 재확인).
 > 우선순위는 **데이터 손실 > 안전/누수 > 정확성 > 위생**. **H1~H3는 §3의 G1보다 먼저 닫는다.**
+>
+> ✅ **상태: H1~H10 전부 구현 완료(2026-06-07).** 커밋: H1-H3(revert staleness·세션 edit 영속·
+> 무음실패 토스트), H4·H6(dispatch abort/timeout·background eviction+취소 UI), H5(자식 토큰 롤업),
+> H7·H8·H10(context-read nested-instr·memory atomic write·binary NUL 스니핑), H9(plugin DNS-pin·
+> engine compat). 각 단계 typecheck+build+lint+관련 harness 그린.
 
 ### H1 (P0, 데이터 손실). revert가 edit 이후 변경을 무검사 덮어쓰기
 - **증상:** `revertEdit`이 `edit.before`를 **무조건** 디스크에 씀([loop-turn-actions.ts:76](../electron/agent/loop-turn-actions.ts#L76)).
@@ -360,5 +365,6 @@ hatchworks "Safe failure & recovery"(위험↑ → 결정론 강등 + "막혔어
   게이팅/마크다운 보안)는 SOLID 확인. *구현됐지만 부실/버그* 10건을 §H 하드닝으로 채록(H1·H2는
   데이터 손실급 → G1보다 선행). 감사 verdict: revert/세션-영속/렌더러-무음실패 = 최우선 부채,
   서브·백그라운드 비용블라인드+누수+취소불가 = 차순위.
+- **2026-06-07:** §H 하드닝 **H1~H10 전부 구현·검증·커밋 완료.** 다음 = §3 신규 격차(G) 착수.
 </content>
 </invoke>
