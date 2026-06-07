@@ -19,9 +19,18 @@ import {
 import { childPrompt, subagentFailure, subagentSuccess, SUBAGENT_SYSTEM } from './subagent-format';
 import type { ChildToolCall, ChildToolResultPart, SubagentRunRequest } from './subagent-types';
 
+/**
+ * Optional per-step usage sink (audit H5). The foreground subagent passes one
+ * that rolls child token spend into the parent conversation's cumulative totals,
+ * so child cost is no longer invisible. Background agents omit it — their
+ * conversation may have moved on, so they must not touch the live usage gauge.
+ */
+export type ChildUsageSink = (usage: { inputTokens: number; outputTokens: number }) => void;
+
 export async function runChildAgent(
   request: SubagentRunRequest,
   ctx: ToolContext,
+  onUsage?: ChildUsageSink,
 ): Promise<ToolResult> {
   const resolved = await resolveProviderAuth(request.provider);
   if (!resolved.ok) return subagentFailure(request, resolved.reason);
@@ -59,6 +68,7 @@ export async function runChildAgent(
       if (text.trim()) finalText = text.trim();
       if (inputTokens || outputTokens) {
         traces.push(`usage: ${inputTokens ?? 0} input / ${outputTokens ?? 0} output tokens`);
+        onUsage?.({ inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 });
       }
       transcript.push({ role: 'assistant', content: assistantContent(text, calls) });
       if (calls.length === 0) {
