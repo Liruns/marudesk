@@ -27,6 +27,7 @@ import {
   SPAWN_BACKGROUND_AGENT,
   COLLECT_BACKGROUND_AGENT,
   CANCEL_BACKGROUND_AGENT,
+  UPDATE_PLAN,
   describeToolInput,
   type ToolContext,
   type ToolResult,
@@ -36,12 +37,14 @@ import {
   PLAN_MODE_SYSTEM,
   SAFETY_FOOTER,
   approvalModeContext,
+  modelGuidance,
 } from './prompts.ts';
 import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
 import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './keyword-modes';
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import { resolveProviderAuth } from './resolve-auth';
 import { runSubagentTool } from './subagent';
+import { updatePlanTool } from './plan';
 import {
   startBackgroundAgentTool,
   collectBackgroundTool,
@@ -85,6 +88,13 @@ export { testProviderConnection } from './loop-helpers.ts';
  */
 
 const MAX_STEPS = 24;
+
+/**
+ * Wall-clock backstop for a single tool call (audit H4). Generous enough to not
+ * cut off a legitimate slow tool or a multi-step subagent, but bounds a tool
+ * that hangs and ignores the abort signal so it can't wedge the turn forever.
+ */
+const TOOL_WALL_CLOCK_MS = 15 * 60_000;
 
 /**
  * Fraction of the conversation (by character weight) kept VERBATIM as the tail
@@ -252,6 +262,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     const trustFooter = hasFoldedInstructions ? SAFETY_FOOTER : null;
     const system = [
       baseSystem,
+      modelGuidance(a.provider, a.modelId, a.modelReasoning),
       envContext,
       modeContext,
       wsInstructions,
@@ -288,6 +299,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
   // the primary). `pickNextFallback` walks the configured chain and returns the
   // first *connected* candidate (resolving its creds), or null when spent.
   const triedModels = new Set<string>([`${opts.provider}::${opts.model}`]);
+
+  // Recovery bookkeeping (v5 §G4): consecutive failures per tool name within this
+  // turn, reset on that tool's next success. When a tool keeps failing we append a
+  // recovery hint to its model-facing result so the agent stops blindly repeating
+  // the same call and instead re-reads state, changes approach, or asks the user.
+  const toolFailures = new Map<string, number>();
   const pickNextFallback = async (): Promise<ActiveTurnModel | null> => {
     for (const ref of opts.fallbacks) {
       const key = `${ref.provider}::${ref.model}`;
@@ -488,12 +505,20 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // explicit approval — unless the mode is `auto` or the bridge is in
       // unattended mode, which auto-approve, or the user already chose "Allow
       // always" for this tool this conversation. (§B4)
-      if (
-        isGatedTool(call.name) &&
-        opts.approvalMode !== 'auto' &&
+      //
+      // Edit preview (§G1): when the user set editApproval='preview', also park
+      // file edits (edit_file/multi_edit) in Ask mode so they can confirm the
+      // proposed diff BEFORE it's written. read-only/plan already blocked above;
+      // Auto and unattended keep applying straight through (no one to confirm).
+      const editPreview =
         !opts.unattended &&
-        !S.sessionAllowedTools.has(call.name)
-      ) {
+        opts.approvalMode === 'ask' &&
+        getSettingsSync().agent.editApproval === 'preview' &&
+        isWriteTool(call.name) &&
+        !isGatedTool(call.name);
+      const gatedApproval =
+        isGatedTool(call.name) && opts.approvalMode !== 'auto' && !opts.unattended;
+      if ((gatedApproval || editPreview) && !S.sessionAllowedTools.has(call.name)) {
         call.state = 'awaiting_approval';
         S.state.status = 'waiting_for_user';
         S.state.pendingApproval = {
@@ -501,6 +526,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
           callId: call.id,
           name: call.name,
           detail: describeToolInput(call.name, call.input),
+          ...(editPreview ? { diffs: editDiffs(call.input) } : {}),
         };
         emit();
         const decision = await waitForApproval();
@@ -530,7 +556,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         call.summary = describeToolInput(call.name, call.input);
       }
       emit();
-      const out = await dispatchTool(call.name, call.input, ctx);
+      const out = await dispatchToolBounded(call.name, call.input, ctx);
       call.state = out.isError ? 'error' : 'ok';
       call.summary = out.summary;
       call.resultText = out.text;
@@ -542,6 +568,16 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // this tool entered (§B2 on-demand). Appended to the MODEL-facing result
       // only — the UI card (call.resultText) stays focused on the tool output.
       let modelText = out.text;
+      // Recovery hint (§G4): track consecutive per-tool failures and nudge the
+      // agent out of a retry loop. Appended to the model-facing text only.
+      if (out.isError) {
+        const n = (toolFailures.get(call.name) ?? 0) + 1;
+        toolFailures.set(call.name, n);
+        const hint = recoveryHint(call.name, n);
+        if (hint) modelText = `${modelText}\n\n${hint}`;
+      } else {
+        toolFailures.delete(call.name);
+      }
       if (!out.isError && opts.ws && out.touchedPaths?.length) {
         const reminders: string[] = [];
         for (const rel of out.touchedPaths) {
@@ -571,7 +607,86 @@ async function dispatchTool(name: string, input: unknown, ctx: ToolContext): Pro
   if (name === SPAWN_BACKGROUND_AGENT) return startBackgroundAgentTool(input, ctx);
   if (name === COLLECT_BACKGROUND_AGENT) return collectBackgroundTool(input);
   if (name === CANCEL_BACKGROUND_AGENT) return cancelBackgroundTool(input);
+  if (name === UPDATE_PLAN) return updatePlanTool(input);
   return callMcpTool(name, input, ctx);
+}
+
+/**
+ * Wall-clock + abort backstop around {@link dispatchTool} (audit H4). Almost
+ * every tool honors `ctx.signal` (run_command kills its child, streamText
+ * cancels), but a misbehaving one — a custom/external MCP tool, a subagent that
+ * ignores the signal — could otherwise run past a user Stop and wedge the turn,
+ * since the loop only re-checks `signal.aborted` AFTER the await returns. We race
+ * the dispatch against the abort signal and a generous wall-clock so the loop
+ * always regains control: the abandoned operation may keep running detached, but
+ * its result is discarded and the loop's post-tool abort check ends the turn.
+ */
+async function dispatchToolBounded(
+  name: string,
+  input: unknown,
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  if (ctx.signal.aborted) return { summary: 'aborted', text: `${name} aborted`, isError: true };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      dispatchTool(name, input, ctx),
+      new Promise<ToolResult>((resolve) => {
+        onAbort = () => resolve({ summary: 'aborted', text: `${name} aborted`, isError: true });
+        ctx.signal.addEventListener('abort', onAbort, { once: true });
+      }),
+      new Promise<ToolResult>((resolve) => {
+        timer = setTimeout(
+          () =>
+            resolve({
+              summary: 'timed out',
+              text: `${name} exceeded the ${Math.round(TOOL_WALL_CLOCK_MS / 60_000)}-minute tool time limit and was abandoned`,
+              isError: true,
+            }),
+          TOOL_WALL_CLOCK_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onAbort) ctx.signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * Recovery nudge for a tool that keeps failing in the same turn (§G4). Escalates:
+ * a 2nd consecutive failure says "stop repeating, re-read / change approach"; a
+ * 3rd+ says "this approach is stuck — solve it differently or ask the user".
+ * Returns null on the first failure (a single error needs no nudge).
+ */
+function recoveryHint(name: string, consecutiveFailures: number): string | null {
+  if (consecutiveFailures <= 1) return null;
+  if (consecutiveFailures === 2) {
+    return `[recovery] ${name} has now failed twice in a row. Do not repeat the same call — re-read the relevant file/state (it may have changed) or take a different approach.`;
+  }
+  return `[recovery] ${name} has failed ${consecutiveFailures} times in a row. Stop retrying this approach: either solve the problem a fundamentally different way, or call ask_user to get the user's help instead of guessing.`;
+}
+
+/**
+ * Derive the proposed per-op diffs from an edit_file/multi_edit call input, for
+ * the §G1 preview approval card. before = oldString, after = newString (the
+ * change the agent is about to write); nothing is read from disk here.
+ */
+function editDiffs(input: unknown): { path: string; before: string; after: string }[] {
+  const o = (input ?? {}) as Record<string, unknown>;
+  const ops = Array.isArray(o.edits) ? o.edits : [o];
+  return ops.flatMap((raw) => {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    if (typeof r.path !== 'string') return [];
+    return [
+      {
+        path: r.path,
+        before: typeof r.oldString === 'string' ? r.oldString : '',
+        after: typeof r.newString === 'string' ? r.newString : '',
+      },
+    ];
+  });
 }
 
 async function handleAskUser(

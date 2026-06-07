@@ -8,6 +8,7 @@ import type { ProfileMeta, ProfilesState } from './profiles';
 import type {
   AgentAnswers,
   AgentChatState,
+  AgentEditActionResult,
   AgentSendInput,
   AgentSendResult,
 } from './agent';
@@ -15,6 +16,8 @@ import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { DiagnosticsState } from './diagnostics';
 import type {
   ContextSyncPayload,
+  MemoryEntry,
+  MemoryEntryFull,
   SessionSearchHit,
   SessionSummary,
   StorageStats,
@@ -482,8 +485,10 @@ export interface IpcMap {
     result: boolean;
   };
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
-  'agent:accept-edit': { args: [payload: { editId: string }]; result: boolean };
-  'agent:revert-edit': { args: [payload: { editId: string }]; result: boolean };
+  'agent:accept-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
+  'agent:revert-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
+  // User-initiated cancel of a running background agent from the tray (audit H6).
+  'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
   // Pull the current chat state (initial render / re-mount).
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
@@ -509,6 +514,17 @@ export interface IpcMap {
   'storage:stats': { args: []; result: StorageStats };
   'storage:clear-sessions': { args: []; result: number };
   'storage:reveal': { args: []; result: void };
+
+  // Memory controls (v5 §G5): the Settings → Data panel lets the user see what
+  // the agent has remembered, edit a note's body, or delete one. Backed by the
+  // same memory-store the agent's list/read/write_memory tools use.
+  'memory:list': { args: []; result: MemoryEntry[] };
+  'memory:read': { args: [payload: { name: string }]; result: MemoryEntryFull | null };
+  'memory:write': {
+    args: [payload: { name: string; body: string }];
+    result: { ok: boolean; name: string; reason?: string };
+  };
+  'memory:delete': { args: [payload: { name: string }]; result: boolean };
 
   // context (built-in MCP mirror): the renderer pushes the surfaces main can't
   // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget

@@ -4,8 +4,12 @@ import {
   Ban,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Circle,
+  CircleDot,
   Loader2,
   RotateCcw,
   Sparkles,
@@ -13,8 +17,11 @@ import {
 import { Badge, Button, DiffBlock } from '../../../components/ui';
 import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
+import { toast } from '../../../lib/toast';
 import type {
   AgentEdit,
+  AgentPlan,
+  AgentPlanStepStatus,
   BackgroundTask,
   BackgroundStatus,
   PendingApproval,
@@ -25,6 +32,17 @@ import { toDiffLines, diffStats } from '../diff';
 import { formatChangedFiles, formatRuntimeChecks, type Receipt } from './format';
 
 /* ── edits (P2: accept / revert) ────────────────────────────────────────── */
+
+/** Surface a refused/failed revert instead of a silent no-op (audit H3). */
+function toastRevertFailure(t: ReturnType<typeof useI18n>['t'], stale: boolean): void {
+  toast({
+    title: t('agent.chat.toast.revertFailed.title'),
+    description: t(
+      stale ? 'agent.chat.toast.revertFailed.stale' : 'agent.chat.toast.revertFailed.description',
+    ),
+    variant: 'error',
+  });
+}
 
 export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[] }) {
   const { locale, t } = useI18n();
@@ -79,7 +97,13 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
             </button>
             <button
               type="button"
-              onClick={() => applied.forEach((e) => void revertEdit(e.id))}
+              onClick={async () => {
+                const results = await Promise.all(applied.map((e) => revertEdit(e.id)));
+                const failed = results.filter((r) => !r.ok);
+                if (failed.length > 0) {
+                  toastRevertFailure(t, failed.some((r) => r.reason === 'stale'));
+                }
+              }}
               className="flex items-center gap-1 text-fg-tertiary hover:text-error transition-colors duration-fast"
               title={t('agent.chat.revertAllTitle')}
             >
@@ -147,7 +171,10 @@ function EditCard({
             </button>
             <button
               type="button"
-              onClick={() => void revertEdit(edit.id)}
+              onClick={async () => {
+                const res = await revertEdit(edit.id);
+                if (!res.ok) toastRevertFailure(t, res.reason === 'stale');
+              }}
               className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-error transition-colors duration-fast"
               title={t('agent.chat.revertTitle')}
             >
@@ -195,22 +222,41 @@ export function ReceiptCard({ receipt }: { receipt: Receipt }) {
 export function ApprovalCard({ approval }: { approval: PendingApproval }) {
   const { t } = useI18n();
   const approve = useAgentStore((s) => s.approve);
+  const isEdit = !!approval.diffs && approval.diffs.length > 0;
   return (
     <div className="rounded border border-warning/40 bg-warning-subtle/30 p-2.5 flex flex-col gap-2.5">
       <div className="flex items-start gap-2 text-body-sm text-fg-primary">
         <AlertCircle size={14} className="mt-0.5 shrink-0 text-warning" />
         <span className="min-w-0">
-          {t('agent.chat.approveBefore')}{' '}
-          <span className="font-mono break-all">{approval.name}</span>
-          {t('agent.chat.approveAfter')}
+          {isEdit ? (
+            t('agent.chat.reviewEdit')
+          ) : (
+            <>
+              {t('agent.chat.approveBefore')}{' '}
+              <span className="font-mono break-all">{approval.name}</span>
+              {t('agent.chat.approveAfter')}
+            </>
+          )}
         </span>
       </div>
-      <pre className="m-0 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded bg-surface-page px-2 py-1.5">
-        {approval.detail}
-      </pre>
+      {approval.diffs && approval.diffs.length > 0 ? (
+        <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+          {approval.diffs.map((d, i) => (
+            <DiffBlock
+              key={`${d.path}-${i}`}
+              filePath={d.path}
+              lines={toDiffLines(d.before || null, d.after)}
+            />
+          ))}
+        </div>
+      ) : (
+        <pre className="m-0 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded bg-surface-page px-2 py-1.5">
+          {approval.detail}
+        </pre>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" size="sm" onClick={() => void approve(approval.callId, true)}>
-          {t('agent.chat.approve')}
+          {isEdit ? t('agent.chat.apply') : t('agent.chat.approve')}
         </Button>
         <Button
           variant="secondary"
@@ -277,6 +323,99 @@ export function QuestionsCard({ pending }: { pending: PendingQuestions }) {
   );
 }
 
+/* ── plan / taskboard (v5 §G2) ───────────────────────────────────────────── */
+
+const PLAN_STATUS_ICON: Record<AgentPlanStepStatus, typeof Circle> = {
+  pending: Circle,
+  in_progress: CircleDot,
+  done: CheckCircle2,
+};
+
+/** Scroll the transcript to the message a plan step is anchored to (§G2/C). The
+ *  message rows carry `id="agent-msg-<id>"`; scrollIntoView finds its scroll
+ *  ancestor on its own, so this works for both the full surface and the drawer. */
+function jumpToMessage(messageId: string): void {
+  const el = document.getElementById(`agent-msg-${messageId}`);
+  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/**
+ * The agent's working plan, rendered as a compact Taskboard (v5 §G2). A read-only
+ * projection of `chat.plan`, maintained by the model via the update_plan tool:
+ * an ordered step list with status icons + a progress bar so the user can follow
+ * multi-step work. Renders nothing when there's no active plan.
+ */
+export function Taskboard({ plan }: { readonly plan: AgentPlan | null }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(true);
+  if (!plan || plan.steps.length === 0) return null;
+  const done = plan.steps.filter((s) => s.status === 'done').length;
+  const pct = Math.round((done / plan.steps.length) * 100);
+  return (
+    <div className="flex flex-col gap-1.5 rounded border border-subtle bg-surface-2 p-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 text-caption uppercase tracking-wider text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
+        <span>{t('agent.chat.plan.title')}</span>
+        <span className="ml-auto tabular-nums">
+          {done}/{plan.steps.length}
+        </span>
+      </button>
+      <div className="h-1 w-full overflow-hidden rounded bg-surface-3">
+        <div className="h-full bg-accent transition-all duration-fast" style={{ width: `${pct}%` }} />
+      </div>
+      {open ? (
+        <ol className="flex flex-col gap-1">
+          {plan.steps.map((step) => {
+            const Icon = PLAN_STATUS_ICON[step.status];
+            const jumpable = !!step.anchorMessageId;
+            return (
+              <li key={step.id}>
+                <button
+                  type="button"
+                  disabled={!jumpable}
+                  onClick={() => jumpable && jumpToMessage(step.anchorMessageId!)}
+                  title={jumpable ? t('agent.chat.plan.jump') : undefined}
+                  className={cn(
+                    'flex w-full items-start gap-2 rounded px-1 py-0.5 text-left text-body-sm',
+                    jumpable && 'hover:bg-surface-3 transition-colors duration-fast cursor-pointer',
+                  )}
+                >
+                  <Icon
+                    size={13}
+                    className={cn(
+                      'mt-0.5 shrink-0',
+                      step.status === 'done' && 'text-success',
+                      step.status === 'in_progress' && 'text-accent',
+                      step.status === 'pending' && 'text-fg-tertiary',
+                    )}
+                  />
+                  <div className="min-w-0">
+                    <span
+                      className={cn(
+                        step.status === 'done' ? 'text-fg-tertiary line-through' : 'text-fg-primary',
+                      )}
+                    >
+                      {step.title}
+                    </span>
+                    {step.note ? (
+                      <div className="truncate text-caption text-fg-tertiary">{step.note}</div>
+                    ) : null}
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
+
 /* ── background agents (detached spawn tray) ─────────────────────────────── */
 
 const BG_STATUS_ICON: Record<BackgroundStatus, typeof Loader2> = {
@@ -293,6 +432,8 @@ const BG_STATUS_ICON: Record<BackgroundStatus, typeof Loader2> = {
  * results via collect_background_agent; this surface just keeps the user aware.
  */
 export function BackgroundTray({ tasks }: { readonly tasks: readonly BackgroundTask[] }) {
+  const { t } = useI18n();
+  const cancelBackground = useAgentStore((s) => s.cancelBackground);
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   if (!tasks || tasks.length === 0) return null;
   const toggle = (id: string) =>
@@ -315,31 +456,44 @@ export function BackgroundTray({ tasks }: { readonly tasks: readonly BackgroundT
         const open = openIds.has(task.id);
         return (
           <div key={task.id} className="rounded border border-subtle bg-surface-2">
-            <button
-              type="button"
-              disabled={!expandable}
-              onClick={() => expandable && toggle(task.id)}
-              className={cn(
-                'flex w-full items-center gap-2 px-2.5 py-1.5 text-left',
-                expandable && 'hover:bg-surface-3',
-              )}
-            >
-              <Icon
-                size={13}
+            <div className="flex w-full items-center">
+              <button
+                type="button"
+                disabled={!expandable}
+                onClick={() => expandable && toggle(task.id)}
                 className={cn(
-                  'shrink-0',
-                  task.status === 'running' && 'animate-spin text-fg-tertiary',
-                  task.status === 'done' && 'text-success',
-                  task.status === 'error' && 'text-error',
-                  task.status === 'cancelled' && 'text-fg-tertiary',
+                  'flex flex-1 items-center gap-2 px-2.5 py-1.5 text-left min-w-0',
+                  expandable && 'hover:bg-surface-3',
                 )}
-              />
-              <span className="truncate text-body-sm text-fg-primary">{task.label}</span>
-              <Badge variant="neutral">
-                {task.provider}/{task.model}
-              </Badge>
-              <span className="ml-auto shrink-0 text-caption text-fg-tertiary">{task.status}</span>
-            </button>
+              >
+                <Icon
+                  size={13}
+                  className={cn(
+                    'shrink-0',
+                    task.status === 'running' && 'animate-spin text-fg-tertiary',
+                    task.status === 'done' && 'text-success',
+                    task.status === 'error' && 'text-error',
+                    task.status === 'cancelled' && 'text-fg-tertiary',
+                  )}
+                />
+                <span className="truncate text-body-sm text-fg-primary">{task.label}</span>
+                <Badge variant="neutral">
+                  {task.provider}/{task.model}
+                </Badge>
+                <span className="ml-auto shrink-0 text-caption text-fg-tertiary">{task.status}</span>
+              </button>
+              {task.status === 'running' ? (
+                <button
+                  type="button"
+                  onClick={() => void cancelBackground(task.id)}
+                  title={t('agent.chat.background.cancelTitle')}
+                  aria-label={t('agent.chat.background.cancelTitle')}
+                  className="shrink-0 px-2 py-1.5 text-fg-tertiary hover:text-error transition-colors duration-fast"
+                >
+                  <Ban size={13} />
+                </button>
+              ) : null}
+            </div>
             {expandable && open ? (
               <div className="border-t border-subtle px-2.5 py-1.5 text-body-sm text-fg-secondary whitespace-pre-wrap break-words">
                 {body}

@@ -7,6 +7,7 @@ import type { WorkspaceSummary } from '../../shared/workspace';
 import { isSafePanelPath } from '../../shared/plugin';
 import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
+import { satisfiesEngine } from './engine-compat';
 import { buildPluginServer, PluginHost } from './host';
 import { guardedFetch } from './permissions';
 import { openUserPluginsFolder } from './open-folder';
@@ -196,6 +197,13 @@ async function main(): Promise<void> {
     openFolderError = (err as Error).message;
   }
   check('open plugins folder surfaces shell.openPath failures', openFolderError === 'open failed');
+
+  // Engine compat (audit H9): the range forms a manifest realistically uses.
+  check('engine: empty/any range allows', satisfiesEngine('0.1.1', undefined) && satisfiesEngine('0.1.1', '*'));
+  check('engine: caret 0.x pins the minor', satisfiesEngine('0.1.5', '^0.1.0') && !satisfiesEngine('0.2.0', '^0.1.0'));
+  check('engine: caret >=1 pins the major', satisfiesEngine('1.4.0', '^1.2.0') && !satisfiesEngine('2.0.0', '^1.2.0'));
+  check('engine: >= and exact', satisfiesEngine('0.2.0', '>=0.1.0') && !satisfiesEngine('0.1.0', '0.2.0'));
+  check('engine: unparseable range does not block', satisfiesEngine('0.1.1', 'next'));
 
   console.log(`\n# plugin harness: ${passed} checks passed`);
 }

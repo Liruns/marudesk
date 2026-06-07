@@ -254,9 +254,16 @@ export async function readWorkspaceFile(input: {
     limit: input.limit,
     truncated,
   });
+  // Report touchedPaths so the loop lazily injects this directory's not-yet-seen
+  // AGENTS.md (audit H7) — same as read_file. Only when this read targets the
+  // ACTIVE workspace, since the loop walks touchedPaths against the active root;
+  // a non-active-workspace read must not pull the active workspace's nested
+  // instructions for a path that lives elsewhere.
+  const onActiveWorkspace = record.id === getWorkspaceSnapshot().activeWorkspaceId;
   return {
     summary: `read ${record.name}/${root.name}/${filePath}${view.ranged ? ` (lines ${view.firstLine}-${view.lastLine})` : ''}`,
     text: view.text,
+    ...(onActiveWorkspace ? { touchedPaths: [filePath] } : {}),
   };
 }
 

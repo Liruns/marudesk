@@ -24,6 +24,7 @@ export {
   SPAWN_BACKGROUND_AGENT,
   COLLECT_BACKGROUND_AGENT,
   CANCEL_BACKGROUND_AGENT,
+  UPDATE_PLAN,
 } from './types';
 export { executeTool, describeToolInput } from './executors';
 export { TOOL_SCHEMAS } from './schemas';
@@ -34,4 +35,5 @@ export {
   SPAWN_BACKGROUND_AGENT_DEF,
   COLLECT_BACKGROUND_AGENT_DEF,
   CANCEL_BACKGROUND_AGENT_DEF,
+  UPDATE_PLAN_DEF,
 } from './registry';

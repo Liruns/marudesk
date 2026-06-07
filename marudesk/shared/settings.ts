@@ -139,6 +139,15 @@ export type AppSettings = {
      * (trusted, opt-in); output is scrubbed + clipped and framed as reference data.
      */
     contextCommand: string;
+    /**
+     * File-edit approval (v5 §G1). `auto-apply` (default) writes edits straight to
+     * disk in Ask/Auto mode — the chat's accept/revert is the safety net.
+     * `preview` instead parks edit_file/multi_edit for approval in Ask mode,
+     * showing the proposed diff BEFORE writing (Codex/Claude parity), for users
+     * who'd rather confirm each change. Read-only/Plan block edits regardless;
+     * Auto always applies (the user opted out of confirmations).
+     */
+    editApproval: 'auto-apply' | 'preview';
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -259,6 +268,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoCompact: { enabled: true, threshold: 0.8 },
     verifyCommand: '',
     contextCommand: '',
+    editApproval: 'auto-apply',
   },
   pcControl: {
     enabled: false,
@@ -443,6 +453,7 @@ export function sanitizeSettings(
       },
       verifyCommand: asString(ag.verifyCommand, base.agent.verifyCommand),
       contextCommand: asString(ag.contextCommand, base.agent.contextCommand),
+      editApproval: ag.editApproval === 'preview' ? 'preview' : base.agent.editApproval,
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

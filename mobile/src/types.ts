@@ -76,6 +76,23 @@ export type PendingApproval = {
   name: string;
   /** Human-readable preview of what will run (e.g. the JS expression). */
   detail: string;
+  /** Proposed edit diffs when this is a file-edit preview (mirrors the host). */
+  diffs?: { path: string; before: string; after: string }[];
+};
+
+/** A step in the agent's working plan (Taskboard), mirrored from the host. */
+export type AgentPlanStep = {
+  id: string;
+  title: string;
+  status: 'pending' | 'in_progress' | 'done';
+  note?: string;
+  anchorMessageId?: string;
+};
+
+/** The agent's working plan, mirrored from the host. */
+export type AgentPlan = {
+  steps: AgentPlanStep[];
+  updatedAt: number;
 };
 
 /** A pending `ask_user` question set that parks the turn until answered. */
@@ -102,6 +119,8 @@ export type AgentChatState = {
   usage: { inputTokens: number; outputTokens: number; contextTokens: number };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
+  /** The agent's working plan (Taskboard), or null when there's none. */
+  plan: AgentPlan | null;
 };
 
 export function emptyAgentChatState(): AgentChatState {
@@ -113,6 +132,7 @@ export function emptyAgentChatState(): AgentChatState {
     pendingQuestions: null,
     usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
+    plan: null,
   };
 }
 

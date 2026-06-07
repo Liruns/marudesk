@@ -19,6 +19,7 @@ You also have a built-in context MCP — pull from the app ON DEMAND instead of 
 Fetch only what you need for the task; don't dump everything.
 
 Operating rules:
+- For multi-step work (roughly 3+ steps), post a short plan with update_plan and keep it current as you go (about one step in_progress) so the user can follow along. Skip it for trivial tasks.
 - Investigate before editing. Read the relevant files (read_file / grep) so each edit's oldString matches verbatim and is unique.
 - Make the SMALLEST change that fixes the problem. Use multi_edit when a fix spans several sites (it is atomic).
 - Ground fixes in runtime evidence: for a "fix this error" task, start with get_console_errors and follow the confidence-tagged source file.
@@ -29,6 +30,31 @@ Operating rules:
 - Keep the user in control: explain what you changed and why in plain prose. They can revert any edit.
 
 Paths are workspace-relative. To create a file, call edit_file with oldString="".`;
+
+/**
+ * Per-model guidance addendum (v5 §G3). The base prompt is deliberately generic
+ * (Pi's lesson: frontier models already know what a coding agent is), but the
+ * providers differ in ONE way worth a sentence — how they reason. Kept tiny on
+ * purpose; returns null when there's nothing model-specific to add (so a plain
+ * conversation pays nothing). `reasoning` is the model's catalog reasoning flag.
+ */
+export function modelGuidance(provider: string, _modelId: string, reasoning: boolean): string | null {
+  switch (provider) {
+    case 'anthropic':
+      return reasoning
+        ? 'You support extended thinking: plan multi-step work in your reasoning before acting, then keep the visible reply concise.'
+        : null;
+    case 'openai':
+    case 'openai-codex':
+      return reasoning
+        ? 'Spend reasoning effort on a brief plan before tool calls; keep the visible reply concise and do not restate the plan.'
+        : null;
+    case 'xai':
+      return 'You have no separate reasoning channel — think step by step in plain text, briefly, before each tool call.';
+    default:
+      return null;
+  }
+}
 
 /** Marker prefixing the compaction summary in the rebuilt transcript (codex SUMMARY_PREFIX). */
 export const SUMMARY_PREFIX = 'Summary of the earlier conversation (compacted to save context):';

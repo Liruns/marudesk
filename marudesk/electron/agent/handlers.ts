@@ -3,6 +3,7 @@ import { isProviderId } from '../../shared/providers';
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { updateContextCache } from './context-cache';
+import { cancelBackgroundTask } from './background';
 import { parseAbort, parseApprove, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
 import {
@@ -89,6 +90,12 @@ export function registerAgentHandlers(): void {
 
   defineHandler('agent:revert-edit', ([payload]) =>
     revertEdit(nonEmptyStr(obj(payload).editId, 'editId')),
+  );
+
+  // Tray "cancel" on a running background agent (audit H6) — the user-facing
+  // twin of the model's cancel_background_agent tool.
+  defineHandler('agent:cancel-background', ([payload]) =>
+    cancelBackgroundTask(nonEmptyStr(obj(payload).id, 'id')),
   );
 
   defineHandler('agent:snapshot', () => snapshot());

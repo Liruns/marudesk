@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import fsSync from 'node:fs';
@@ -16,6 +17,7 @@ import {
   type PluginStatus,
 } from '../../shared/plugin';
 import { registerMcpServer, unregisterMcpServer } from '../agent/mcp';
+import { satisfiesEngine } from './engine-compat';
 import { buildPluginServer, PluginHost } from './host';
 import { readPluginsConfig, setPluginConfig } from './config';
 import { spawnViaUtilityProcess } from './spawn-electron';
@@ -91,7 +93,25 @@ async function readManifest(dir: string): Promise<PluginManifest | null> {
     permissions,
     ...(m.net && typeof m.net === 'object' ? { net: m.net as PluginManifest['net'] } : {}),
     ...(parsePanel(m.panel) ? { panel: parsePanel(m.panel)! } : {}),
+    ...(parseEngine(m.engine) ? { engine: parseEngine(m.engine)! } : {}),
   };
+}
+
+/** Validate a manifest `engine` block: `{ marudesk?: "<semver range>" }`. */
+function parseEngine(value: unknown): { marudesk?: string } | null {
+  if (!value || typeof value !== 'object') return null;
+  const e = value as { marudesk?: unknown };
+  if (typeof e.marudesk !== 'string' || !e.marudesk.trim()) return null;
+  return { marudesk: e.marudesk.trim() };
+}
+
+/** The running app version, with a non-electron fallback so this stays testable. */
+function appVersion(): string {
+  try {
+    return app.getVersion();
+  } catch {
+    return '0.0.0';
+  }
 }
 
 /** Validate a manifest `panel` block: a string title + a safe folder-relative entry. */
@@ -201,6 +221,18 @@ export class PluginManager {
       permissions: d.manifest.permissions ?? [],
       granted,
     };
+    // Engine compat gate (audit H9): refuse to load a plugin built against an
+    // incompatible host API instead of activating it and hoping for the best.
+    const required = d.manifest.engine?.marudesk;
+    if (required && !satisfiesEngine(appVersion(), required)) {
+      return {
+        ...base,
+        state: 'error',
+        toolNames: [],
+        commandNames: [],
+        error: `requires marudesk ${required} (running ${appVersion()})`,
+      };
+    }
     try {
       const { channel } = this.spawn({ workerEntry: '', pluginDir: d.dir, granted });
       const host = new PluginHost(channel, d.manifest.id);

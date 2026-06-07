@@ -3,11 +3,13 @@ import type {
   AgentAnswers,
   AgentChatState,
   AgentEdit,
+  AgentEditActionResult,
 } from '../../shared/agent';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { requireWorkspace } from '../ipc/define-handler';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
-import { writeFileForEditor } from '../workspace';
+import { readFileSafe, writeFileForEditor } from '../workspace';
+import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
 import { S, emit } from './loop-state.ts';
 
 /**
@@ -45,31 +47,53 @@ export function approveTool(
   return true;
 }
 
-export function acceptEdit(editId: string): boolean {
+export function acceptEdit(editId: string): AgentEditActionResult {
   const edit = S.state.edits.find((e) => e.id === editId);
-  if (!edit || edit.status !== 'applied') return false;
+  if (!edit || edit.status !== 'applied') return { ok: false, reason: 'not-found' };
   edit.status = 'accepted';
   emit();
-  return true;
+  return { ok: true };
 }
 
-export async function revertEdit(editId: string): Promise<boolean> {
+export async function revertEdit(editId: string): Promise<AgentEditActionResult> {
   const edit = S.state.edits.find((e) => e.id === editId);
-  if (!edit || edit.status !== 'applied') return false;
+  if (!edit || edit.status !== 'applied') return { ok: false, reason: 'not-found' };
   let ws: WorkspaceSummary;
   try {
     ws = requireWorkspace().ws;
   } catch {
-    return false;
+    return { ok: false, reason: 'no-workspace' };
   }
+  // Staleness guard — the symmetric twin of the forward edit path's
+  // isStaleForEdit. Only revert when the file on disk still holds exactly what
+  // this edit wrote (`edit.after`). If it changed since (the user saved, a later
+  // turn edited it, the terminal rewrote it), restoring `before` would silently
+  // clobber that newer content, so refuse and let the user resolve it instead.
+  if (!(await isRevertSafe(ws, edit))) return { ok: false, reason: 'stale' };
   try {
     await revertOnDisk(ws, edit);
   } catch {
-    return false;
+    return { ok: false, reason: 'write-failed' };
   }
   edit.status = 'reverted';
   emit();
-  return true;
+  return { ok: true };
+}
+
+/**
+ * Whether `edit` can be reverted without losing post-edit changes: the file on
+ * disk must still match exactly what the edit produced. A create whose file is
+ * already gone counts as safe (nothing to clobber); an edit whose file we can't
+ * read counts as unsafe (we can't prove it's unchanged).
+ */
+async function isRevertSafe(ws: WorkspaceSummary, edit: AgentEdit): Promise<boolean> {
+  let current: string;
+  try {
+    current = await readFileSafe(ws.root, edit.path, MAX_AGENT_FILE_SIZE);
+  } catch {
+    return edit.kind === 'create';
+  }
+  return current === edit.after;
 }
 
 async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void> {

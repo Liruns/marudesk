@@ -19,24 +19,35 @@ export function ApprovalPrompt({
   busy: boolean;
   onDecision: (approved: boolean) => void;
 }) {
+  const isEdit = !!approval.diffs && approval.diffs.length > 0;
   return (
     <div className="approval-panel">
       <div className="approval-panel__header">
         <ShieldCheck size={18} className="approval-panel__icon" />
-        <strong>Approve tool</strong>
-        <code>
-          {approval.name}
-        </code>
+        <strong>{isEdit ? 'Review change' : 'Approve tool'}</strong>
+        <code>{approval.name}</code>
       </div>
-      <pre className="approval-panel__detail">
-        {approval.detail}
-      </pre>
+      {isEdit ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
+          {approval.diffs!.map((d, i) => (
+            <div key={`${d.path}-${i}`}>
+              <code style={{ fontSize: 12, opacity: 0.7 }}>{d.path}</code>
+              <pre className="approval-panel__detail" style={{ margin: '4px 0 0' }}>
+                {d.before ? d.before.split('\n').map((l) => `- ${l}`).join('\n') + '\n' : ''}
+                {d.after.split('\n').map((l) => `+ ${l}`).join('\n')}
+              </pre>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <pre className="approval-panel__detail">{approval.detail}</pre>
+      )}
       <div className="approval-panel__actions">
         <button className="btn btn-danger" style={{ flex: 1 }} disabled={busy} onClick={() => onDecision(false)}>
           <X size={18} /> Deny
         </button>
         <button className="btn btn-primary" style={{ flex: 1 }} disabled={busy} onClick={() => onDecision(true)}>
-          <Check size={18} /> Approve
+          <Check size={18} /> {isEdit ? 'Apply' : 'Approve'}
         </button>
       </div>
     </div>

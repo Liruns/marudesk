@@ -2,6 +2,7 @@ import { app } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { MemoryEntry, MemoryEntryFull } from '../../shared/context';
+import { atomicWriteFile } from '../fs-safe';
 
 /**
  * Persistent memory for the AI Chat (docs/context-mcp-design §4.2) — notes that
@@ -78,7 +79,10 @@ export async function writeMemory(
     if (isNew && existing.length >= MAX_ENTRIES) {
       return { ok: false, name: slug, reason: `memory is full (${MAX_ENTRIES} entries) — delete some first` };
     }
-    await fs.writeFile(filePath(slug), body.slice(0, MAX_BODY), 'utf8');
+    // Atomic write (temp + rename) so a concurrent write_memory, or the user
+    // editing the file at the same time, can't interleave into a half-written
+    // file (audit H8). atomicWriteFile replaces the destination on rename.
+    await atomicWriteFile(filePath(slug), body.slice(0, MAX_BODY));
     return { ok: true, name: slug };
   } catch (err) {
     return { ok: false, name: slug, reason: (err as Error).message };

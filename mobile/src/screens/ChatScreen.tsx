@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { MessageBubble } from '../components/MessageBubble';
 import { ApprovalPrompt } from '../components/ApprovalPrompt';
+import { PlanBoard } from '../components/PlanBoard';
 import { QuestionPrompt } from '../components/QuestionPrompt';
 import { Composer } from '../components/Composer';
 import { ChatHeader } from './chat/ChatHeader';
@@ -81,6 +82,8 @@ export function ChatScreen() {
       </div>
 
       {commandError && <CommandErrorBanner message={commandError} onDismiss={clearCommandError} />}
+
+      {chat.plan && <PlanBoard plan={chat.plan} />}
 
       {chat.pendingApproval && (
         <ApprovalPrompt approval={chat.pendingApproval} busy={actionBusy} onDecision={(ok) => void withBusy(() => approve(ok))()} />

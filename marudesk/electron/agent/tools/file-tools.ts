@@ -60,6 +60,16 @@ export async function readFile(
   // Read the whole file (up to the agent document limit) so the staleness anchor
   // covers content beyond the displayed window — then page the DISPLAY by line.
   const { content, truncated } = await readFileWindow(ctx.ws.root, p);
+  // Binary content sniff (audit H10): the grep extension denylist can't catch a
+  // binary file with a text-ish or absent extension. A NUL byte never appears in
+  // real text, so refuse rather than spilling decoded mojibake into the context.
+  if (content.includes('\u0000')) {
+    return {
+      summary: `read ${p} (binary)`,
+      text: `Refused: "${p}" looks like a binary file (contains NUL bytes). read_file only handles text.`,
+      isError: true,
+    };
+  }
   // Anchor the staleness guard to the full content we read, decoupled from the
   // window shown below: an edit anywhere in the file is then validated correctly.
   try {

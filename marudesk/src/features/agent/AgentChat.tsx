@@ -23,7 +23,7 @@ import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
 import { Transcript } from './chat/Transcript';
-import { ApprovalCard, BackgroundTray, QuestionsCard, ReceiptCard } from './chat/Cards';
+import { ApprovalCard, BackgroundTray, QuestionsCard, ReceiptCard, Taskboard } from './chat/Cards';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
 import { useComposer } from './useComposer';
 
@@ -142,7 +142,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     <div className="flex flex-col h-full min-h-0">
       <ProviderModelBar full={full} />
 
-      <div className="relative flex-1 min-h-0">
+      <div className="relative flex-1 min-h-0 flex">
+       <div className="relative flex-1 min-h-0">
        <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto">
         <div
           className={cn(
@@ -164,6 +165,15 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           )}
 
           {receipt ? <ReceiptCard receipt={receipt} /> : null}
+
+          {/* Inline plan: always in the compact drawer; in the full surface only
+              below lg, where the side panel is hidden — so the plan is never lost
+              on a narrow window and never doubled (the aside is hidden lg:flex). */}
+          {chat.plan && chat.plan.steps.length > 0 ? (
+            <div className={full ? 'lg:hidden' : undefined}>
+              <Taskboard plan={chat.plan} />
+            </div>
+          ) : null}
 
           <BackgroundTray tasks={chat.background} />
 
@@ -197,6 +207,16 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           >
             <ChevronDown size={16} />
           </button>
+        ) : null}
+       </div>
+
+        {/* In the full surface the plan rides in a right-side "Mission Control"
+            panel so it stays visible while the transcript scrolls (v5 §G2). The
+            compact drawer keeps it inline (collapsible) below. */}
+        {full && chat.plan && chat.plan.steps.length > 0 ? (
+          <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-l border-subtle p-3 lg:flex">
+            <Taskboard plan={chat.plan} />
+          </aside>
         ) : null}
       </div>
 

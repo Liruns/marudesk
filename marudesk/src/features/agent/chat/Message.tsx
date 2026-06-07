@@ -118,7 +118,7 @@ export const MessageView = memo(function MessageView({
   if (message.role === 'user') {
     const images = message.parts.filter((p) => p.type === 'image');
     return (
-      <div className="self-end max-w-[88%]">
+      <div id={`agent-msg-${message.id}`} className="self-end max-w-[88%]">
         <div className="rounded-lg bg-accent-subtle/30 border border-accent/20 px-3.5 py-2.5">
           <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
             {textOf(message)}
@@ -150,7 +150,7 @@ export const MessageView = memo(function MessageView({
   // we suppress the empty text part's caret so there's only one.
   const reasoningStreaming = streaming && hasReasoning && answerText.trim().length === 0;
   return (
-    <div className="group/msg relative flex flex-col gap-2.5">
+    <div id={`agent-msg-${message.id}`} className="group/msg relative flex flex-col gap-2.5">
       {/* Copy the assistant's prose — appears on hover, hidden mid-stream. */}
       {!streaming && answerText.trim() ? (
         <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">
@@ -194,6 +194,9 @@ export const MessageView = memo(function MessageView({
         // Compaction dividers are handled by the early return above; nothing
         // else renders them inline.
         if (part.type !== 'tool') return null;
+        // The plan tool's state lives in the Taskboard (a dedicated surface), so
+        // don't also render a redundant tool card per update_plan call.
+        if (part.call.name === 'update_plan') return null;
         // Tool cards: hidden in Summary, auto-expanded in Verbose. Generated
         // media (images/videos) renders inline regardless of verbosity so a
         // "make me an image" turn always shows the result, not just a file path.

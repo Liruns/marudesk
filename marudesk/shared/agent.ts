@@ -138,6 +138,21 @@ export type AgentEdit = {
   timestamp: number;
 };
 
+/**
+ * Result of an accept/revert on an applied edit. `reason` distinguishes a
+ * *refused* revert from a generic failure so the UI can explain why nothing
+ * happened instead of silently no-op'ing:
+ * - `stale`: the file changed since the edit landed — reverting would clobber
+ *   newer content, so it's skipped (symmetry with the forward edit guard).
+ * - `not-found`: the edit id isn't an applied edit (already resolved / unknown).
+ * - `no-workspace`: no workspace is open to write into.
+ * - `write-failed`: the disk write/unlink itself failed.
+ */
+export type AgentEditActionResult = {
+  ok: boolean;
+  reason?: 'stale' | 'not-found' | 'no-workspace' | 'write-failed';
+};
+
 /** A pending tool that needs explicit user approval before it runs (eval_js, nav). */
 export type PendingApproval = {
   turnId: string;
@@ -145,6 +160,12 @@ export type PendingApproval = {
   name: string;
   /** Human-readable preview of what will run (e.g. the JS expression). */
   detail: string;
+  /**
+   * For an edit_file/multi_edit parked under the "preview" edit-approval setting
+   * (v5 §G1): the proposed per-op changes, so the approval card can show the diff
+   * BEFORE anything is written. Absent for non-edit approvals.
+   */
+  diffs?: { path: string; before: string; after: string }[];
 };
 
 /** A pending `ask_user` question set that parks the turn until answered. */
@@ -199,6 +220,36 @@ export type AgentChatState = {
    * via collect_background_agent and the user cancels via the tray.
    */
   background: BackgroundTask[];
+  /**
+   * The agent's working plan for multi-step tasks (v5 §G2), maintained by the
+   * model via the `update_plan` tool and rendered as a Taskboard. null when the
+   * conversation has no active plan. A projection, not user-editable.
+   */
+  plan: AgentPlan | null;
+};
+
+/** A step's lifecycle in the agent's task plan (Taskboard). */
+export type AgentPlanStepStatus = 'pending' | 'in_progress' | 'done';
+
+/** One step in the agent's working plan. */
+export type AgentPlanStep = {
+  id: string;
+  title: string;
+  status: AgentPlanStepStatus;
+  /** Optional one-line detail or result for the step. */
+  note?: string;
+  /**
+   * The transcript message the agent was at when this step became active, so the
+   * Taskboard can jump there (v5 §G2). Set once on the first in_progress/done
+   * transition and preserved across plan updates.
+   */
+  anchorMessageId?: string;
+};
+
+/** The agent's working plan — the full ordered step list + last-update time. */
+export type AgentPlan = {
+  steps: AgentPlanStep[];
+  updatedAt: number;
 };
 
 /** Lifecycle of a detached background agent. */
@@ -238,6 +289,7 @@ export function emptyAgentChatState(): AgentChatState {
     activeSessionId: null,
     endNote: null,
     background: [],
+    plan: null,
   };
 }
 

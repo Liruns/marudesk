@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { Field, Section, Segmented } from './SettingsControls';
+import { MemorySettings } from './MemorySettings';
 import { useSettingsStore } from './store';
 import { useOnOffOptions } from './useLocalizedSettingsOptions';
 
@@ -155,6 +156,8 @@ export function DataCategory() {
           </button>
         </Field>
       </Section>
+
+      <MemorySettings />
 
       <Section>
         <Field

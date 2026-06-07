@@ -36,6 +36,15 @@ type BackgroundEntry = {
 /** Cap on concurrently active (running) background agents per conversation (§8). */
 const MAX_ACTIVE_BACKGROUND = 4;
 
+/**
+ * Cap on retained TERMINAL (done/error/cancelled) tasks per conversation (audit
+ * H6). Without this the registry grew unbounded — terminal tasks were only ever
+ * removed on reset/resume — so a long-lived chat that spawns many background
+ * agents leaked them all. Running tasks are never evicted; the oldest finished
+ * ones drop once we're over the cap.
+ */
+const MAX_TERMINAL_BACKGROUND = 20;
+
 const registry = new Map<string, BackgroundEntry>();
 
 let testRunner: SubagentRunner | null = null;
@@ -177,6 +186,23 @@ export function cancelBackgroundTool(input: unknown): ToolResult {
 }
 
 /**
+ * User-initiated cancel from the tray (audit H6) — the desktop counterpart to
+ * the model's cancel_background_agent tool, so a runaway detached agent can be
+ * stopped from the UI. Returns true if a running task was aborted.
+ */
+export function cancelBackgroundTask(id: string): boolean {
+  const conversationId = S.conversationId ?? '';
+  const entry = [...registry.values()].find(
+    (e) => e.conversationId === conversationId && e.task.id === id,
+  );
+  if (!entry || entry.task.status !== 'running') return false;
+  markTerminal(entry.task, 'cancelled', 'cancelled by user');
+  entry.controller.abort();
+  syncIntoState();
+  return true;
+}
+
+/**
  * Abort + drop every background agent owned by a conversation. Called from
  * reset()/resumeSession() so detached work never bleeds into the next chat.
  */
@@ -216,11 +242,22 @@ function markTerminal(task: BackgroundTask, status: 'error' | 'cancelled', error
 
 function syncIntoState(): void {
   const conversationId = S.conversationId ?? '';
+  evictTerminalTasks(conversationId);
   S.state.background = [...registry.values()]
     .filter((e) => e.conversationId === conversationId)
     .map((e) => e.task)
     .sort((a, b) => a.startedAt - b.startedAt);
   emit();
+}
+
+/** Drop the oldest terminal tasks beyond MAX_TERMINAL_BACKGROUND (audit H6). */
+function evictTerminalTasks(conversationId: string): void {
+  const terminal = [...registry.entries()]
+    .filter(([, e]) => e.conversationId === conversationId && e.task.status !== 'running')
+    .sort((a, b) => (a[1].task.finishedAt ?? 0) - (b[1].task.finishedAt ?? 0));
+  for (let i = 0; i < terminal.length - MAX_TERMINAL_BACKGROUND; i++) {
+    registry.delete(terminal[i][0]);
+  }
 }
 
 function readId(input: unknown): string {
