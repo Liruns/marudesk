@@ -153,6 +153,9 @@ export const CHANNELS = {
   // Local data store management — Settings → Data & Storage reads stats, clears
   // saved sessions, and reveals the data folder (docs/data-storage-design).
   storage: ['storage:stats', 'storage:clear-sessions', 'storage:reveal'],
+  // Memory controls — Settings → Data lets the user view/edit/delete the agent's
+  // remembered notes (v5 §G5).
+  memory: ['memory:list', 'memory:read', 'memory:write', 'memory:delete'],
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],
