@@ -103,7 +103,12 @@ export default defineConfig({
               // is externalized as a node: builtin automatically. ssh2 (remote
               // SSH workspace roots) is CommonJS with optional native bindings —
               // keep it external so its dynamic requires resolve at runtime.
-              external: ['electron', 'node-pty', 'ssh2'],
+              // electron-updater (Windows auto-update, electron/updater.ts) is the
+              // same category as ssh2 — CommonJS with lazy/dynamic requires
+              // (builder-util-runtime, js-yaml) that don't survive single-file
+              // bundling — so keep it external too. electron-builder ships it in the
+              // packaged node_modules automatically as a production dependency.
+              external: ['electron', 'node-pty', 'ssh2', 'electron-updater'],
               output: {
                 // Force a single-file main bundle (no code splitting). In lib
                 // mode rolldown still splits a bundled dep's dynamic `import()`

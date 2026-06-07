@@ -23,6 +23,7 @@ import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
 import { registerStorageHandlers } from './storage-handlers';
 import { registerAppInfoHandlers } from './app-info';
+import { registerAutoUpdater } from './updater';
 import { closeDb } from './db';
 import {
   initExternalMcp,
@@ -263,6 +264,9 @@ void app.whenReady().then(() => {
   registerAgentHandlers();
   registerStorageHandlers();
   registerAppInfoHandlers();
+  // Windows in-app auto-update: registers its IPC handlers always and, on a
+  // packaged Windows build, checks for a new release at launch (electron/updater.ts).
+  registerAutoUpdater(getMainWindow);
   registerMcpHandlers();
   registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);

@@ -4,6 +4,7 @@ import type { AgentChatState } from './agent';
 import type { NavState, TabsSnapshot } from './browser';
 import type { DownloadEntry } from './downloads';
 import type { AppSettings } from './settings';
+import type { UpdateStatus } from './app-info';
 import type { PairingRequestInfo, RelayStatus, ServerStatus } from './remote';
 import type { TerminalDataEvent, TerminalExitEvent } from './terminal';
 import type { WorkspaceSnapshot } from './workspace';
@@ -106,6 +107,10 @@ export interface EventPayloadMap {
   'server:pairing-request': PairingRequestInfo;
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
+  // Windows in-app auto-update (electron-updater, electron/updater.ts): the live
+  // updater state, pushed as it checks / downloads / finishes so the About panel
+  // can show progress + a "restart to install" button without polling.
+  'app:update-status-changed': UpdateStatus;
   'terminal:data': TerminalDataEvent;
   'terminal:exit': TerminalExitEvent;
   // App-level zoom intent forwarded from main's host before-input-event, which
@@ -152,6 +157,7 @@ export const EVENT_CHANNELS = [
   'server:pairing-request',
   'window:maximize-state',
   'settings:changed',
+  'app:update-status-changed',
   'terminal:data',
   'terminal:exit',
   'app:ui-zoom',

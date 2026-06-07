@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, GitBranch, RefreshCw, RotateCcw } from 'lucide-react';
+import {
+  Download,
+  ExternalLink,
+  GitBranch,
+  RefreshCw,
+  RotateCcw,
+} from 'lucide-react';
 import type {
   AppInfo,
   UpdateCheckResult,
   UpdateCheckUnavailableReason,
+  UpdateStatus,
 } from '../../../shared/app-info';
 import type { TranslationKey } from '../../i18n/messages';
 import { useI18n } from '../../i18n/useI18n';
@@ -31,6 +38,11 @@ export function AboutCategory() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
   const [checking, setChecking] = useState(false);
+  // Live state of the Windows in-app auto-updater (electron/updater.ts). Stays
+  // `disabled` on dev / non-Windows; drives the download-progress + restart UI.
+  const [autoStatus, setAutoStatus] = useState<UpdateStatus>({
+    kind: 'disabled',
+  });
 
   useEffect(() => {
     let alive = true;
@@ -44,6 +56,25 @@ export function AboutCategory() {
       });
     return () => {
       alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    // Pull the current state on mount (covers a download that finished before
+    // this panel opened), then track live changes.
+    void window.marudesk
+      .invoke('app:update-status')
+      .then((status) => {
+        if (alive) setAutoStatus(status);
+      })
+      .catch(() => {});
+    const off = window.marudesk.on('app:update-status-changed', (status) => {
+      setAutoStatus(status);
+    });
+    return () => {
+      alive = false;
+      off();
     };
   }, []);
 
@@ -92,6 +123,17 @@ export function AboutCategory() {
           ? t(unavailableMessageKey(updateCheck.reason))
           : t('settings.about.updates.idle');
 
+  // The in-app auto-updater (Windows) takes precedence over the manual-check hint
+  // once it is actively downloading or has staged an update.
+  const autoHint =
+    autoStatus.kind === 'downloading'
+      ? `${t('settings.about.updates.auto.downloading')} (${autoStatus.percent}%)`
+      : autoStatus.kind === 'downloaded'
+        ? `${t('settings.about.updates.auto.downloaded.before')}${autoStatus.version}${t('settings.about.updates.auto.downloaded.after')}`
+        : autoStatus.kind === 'error'
+          ? t('settings.about.updates.auto.error')
+          : null;
+
   return (
     <Section>
       <Field label={t('settings.about.version')}>
@@ -129,8 +171,27 @@ export function AboutCategory() {
           {t('settings.about.github.button')}
         </button>
       </Field>
-      <Field label={t('settings.about.updates.label')} hint={updateHint}>
+      <Field
+        label={t('settings.about.updates.label')}
+        hint={autoHint ?? updateHint}
+      >
         <div className="flex items-center gap-2">
+          {autoStatus.kind === 'downloaded' ? (
+            <button
+              type="button"
+              onClick={() =>
+                void window.marudesk.invoke('app:quit-and-install')
+              }
+              className={cn(
+                'inline-flex items-center gap-1.5 h-8 px-3 rounded-md',
+                'text-body-sm text-fg-primary bg-accent',
+                'hover:bg-accent-hover transition-colors duration-fast',
+              )}
+            >
+              <Download size={14} />
+              {t('settings.about.updates.auto.restart')}
+            </button>
+          ) : null}
           {updateCheck?.kind === 'available' ? (
             <button
               type="button"

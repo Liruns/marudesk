@@ -634,6 +634,12 @@ export const EN_MESSAGES = {
   'settings.about.reset.hint': 'Restore every setting on this screen to its default.',
   'settings.about.runtime': 'Runtime',
   'settings.about.security': 'Security',
+  'settings.about.updates.auto.downloaded.after':
+    ' has been downloaded and is ready to install.',
+  'settings.about.updates.auto.downloaded.before': 'Version ',
+  'settings.about.updates.auto.downloading': 'Downloading update',
+  'settings.about.updates.auto.error': 'Auto-update failed',
+  'settings.about.updates.auto.restart': 'Restart & install',
   'settings.about.updates.available.after': ' is available on GitHub Releases.',
   'settings.about.updates.available.before': 'Version ',
   'settings.about.updates.button.check': 'Check',

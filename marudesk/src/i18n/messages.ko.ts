@@ -631,6 +631,12 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.about.reset.hint': '이 화면의 모든 설정을 기본값으로 되돌립니다.',
   'settings.about.runtime': '런타임',
   'settings.about.security': '보안',
+  'settings.about.updates.auto.downloaded.after':
+    ' 버전을 내려받았습니다. 설치할 준비가 되었습니다.',
+  'settings.about.updates.auto.downloaded.before': '',
+  'settings.about.updates.auto.downloading': '업데이트 다운로드 중',
+  'settings.about.updates.auto.error': '자동 업데이트 실패',
+  'settings.about.updates.auto.restart': '재시작하여 설치',
   'settings.about.updates.available.after': ' 버전이 GitHub Releases에 있습니다.',
   'settings.about.updates.available.before': '',
   'settings.about.updates.button.check': '확인',

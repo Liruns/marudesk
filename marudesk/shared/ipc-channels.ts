@@ -219,6 +219,11 @@ export const CHANNELS = {
     'app:open-github',
     'app:open-releases',
     'app:check-for-updates',
+    // Windows in-app auto-update (electron-updater, electron/updater.ts). `status`
+    // pulls the current updater state on mount; `quit-and-install` restarts into
+    // the already-downloaded update. Live changes push on `app:update-status-changed`.
+    'app:update-status',
+    'app:quit-and-install',
   ],
   window: [
     'window:minimize',

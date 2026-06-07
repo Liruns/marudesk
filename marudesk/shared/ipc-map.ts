@@ -3,7 +3,7 @@
  * so the `window.marudesk.invoke` map — the bulk of the file — lives on its
  * own. ipc.ts re-exports it and keeps the channel lists + completeness guards.
  */
-import type { AppInfo, UpdateCheckResult } from './app-info';
+import type { AppInfo, UpdateCheckResult, UpdateStatus } from './app-info';
 import type { ProfileMeta, ProfilesState } from './profiles';
 import type {
   AgentAnswers,
@@ -609,6 +609,8 @@ export interface IpcMap {
   'app:open-github': { args: []; result: void };
   'app:open-releases': { args: []; result: void };
   'app:check-for-updates': { args: []; result: UpdateCheckResult };
+  'app:update-status': { args: []; result: UpdateStatus };
+  'app:quit-and-install': { args: []; result: void };
 
   // ui — renderer-owned layout persisted to main JSON (opaque payload).
   'ui:get-layout': { args: []; result: unknown };

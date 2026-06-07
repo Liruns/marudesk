@@ -1,7 +1,7 @@
 {
   "name": "marudesk",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "dist-electron/main.mjs",
   "scripts": {
@@ -10,6 +10,7 @@
     "package": "npm run build && electron-builder",
     "package:mac": "npm run build && electron-builder --mac dmg",
     "package:win": "npm run build && electron-builder --win nsis",
+    "publish:win": "npm run build && electron-builder --win nsis --publish always",
     "lint": "eslint .",
     "rebuild:native": "electron-builder install-app-deps",
     "preview": "vite preview",
@@ -49,6 +50,13 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Liruns",
+        "repo": "marudesk"
+      }
+    ],
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -105,6 +113,7 @@
     "@xterm/xterm": "^6.0.0",
     "ai": "^6.0.193",
     "dompurify": "^3.4.7",
+    "electron-updater": "^6.3.9",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.16.0",
     "marked": "^15.0.12",

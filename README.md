@@ -131,6 +131,23 @@ npm run build            # type-check + bundle
 npm run package:win      # or: npm run package:mac
 ```
 
+### Release with auto-update (Windows)
+
+The Windows build auto-updates in place via `electron-updater`: on launch it
+checks the GitHub Releases feed, downloads a newer NSIS package in the background,
+and offers a "restart & install" action in **Settings → About** (it also installs
+on the next quit). For this to work, each release must carry the update metadata
+(`latest.yml` + the installer and its `.blockmap`), so publish with:
+
+```bash
+cd marudesk
+GH_TOKEN=<token> npm run publish:win   # builds + uploads the release to GitHub
+```
+
+The feed is configured by `build.publish` in `marudesk/package.json`
+(`Liruns/marudesk`). macOS keeps the manual check (it opens the releases page),
+since in-app installs there require Apple code signing + notarization.
+
 ## Development and verification
 
 Run the checks for the package you changed:
