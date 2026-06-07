@@ -238,6 +238,12 @@ export type AgentPlanStep = {
   status: AgentPlanStepStatus;
   /** Optional one-line detail or result for the step. */
   note?: string;
+  /**
+   * The transcript message the agent was at when this step became active, so the
+   * Taskboard can jump there (v5 §G2). Set once on the first in_progress/done
+   * transition and preserved across plan updates.
+   */
+  anchorMessageId?: string;
 };
 
 /** The agent's working plan — the full ordered step list + last-update time. */

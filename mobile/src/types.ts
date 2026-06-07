@@ -86,6 +86,7 @@ export type AgentPlanStep = {
   title: string;
   status: 'pending' | 'in_progress' | 'done';
   note?: string;
+  anchorMessageId?: string;
 };
 
 /** The agent's working plan, mirrored from the host. */
