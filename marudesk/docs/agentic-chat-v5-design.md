@@ -86,6 +86,12 @@
 
 ## 3. 5개 격차와 설계
 
+> ✅ **상태: G1~G5 전부 구현 완료(2026-06-07).** 커밋: G1(opt-in 적용 전 diff 프리뷰 —
+> `agent.editApproval` + ApprovalCard diff), G2(풍부형 Taskboard — `update_plan` 도구 + 패널 +
+> 세션 영속), G3(모델별 프롬프트 가이던스), G4(실패 복구 힌트), G5(메모리 컨트롤 UI). 각 단계
+> typecheck+build+lint+관련 harness 그린. 구현 결과 일부 설계와 다른 점: G1은 별도 모드가 아니라
+> 설정 플래그로 착지(§8 열린 결정대로), diff는 dry-run 없이 도구 입력(oldString→newString)에서 직접 도출.
+
 우선순위순. 각 격차마다 *현재 → 목표 → 마이그레이션*.
 
 ### G1 (P0). 적용 전 diff 프리뷰 — "Plan→Validate→Execute" 2페이즈
@@ -366,5 +372,7 @@ hatchworks "Safe failure & recovery"(위험↑ → 결정론 강등 + "막혔어
   데이터 손실급 → G1보다 선행). 감사 verdict: revert/세션-영속/렌더러-무음실패 = 최우선 부채,
   서브·백그라운드 비용블라인드+누수+취소불가 = 차순위.
 - **2026-06-07:** §H 하드닝 **H1~H10 전부 구현·검증·커밋 완료.** 다음 = §3 신규 격차(G) 착수.
+- **2026-06-07:** §3 신규 격차 **G1~G5 전부 구현·검증·커밋 완료.** v5 라운드 종료 — H1~H10 + G1~G5
+  모두 착지. G1은 별도 모드 대신 `agent.editApproval` 설정 플래그로 결정(§8 열린 결정 해소).
 </content>
 </invoke>
