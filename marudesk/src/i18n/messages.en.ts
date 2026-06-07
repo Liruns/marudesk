@@ -449,6 +449,10 @@ export const EN_MESSAGES = {
   'agent.chat.toast.noChanges.title': 'No changes yet',
   'agent.chat.toast.nothingToCopy.description': 'This conversation is empty.',
   'agent.chat.toast.nothingToCopy.title': 'Nothing to copy',
+  'agent.chat.toast.revertFailed.description': 'The change could not be reverted.',
+  'agent.chat.toast.revertFailed.stale':
+    'This file changed since the edit — revert was skipped to avoid losing newer content.',
+  'agent.chat.toast.revertFailed.title': 'Could not revert',
   'agent.chat.toast.unknownError': 'unknown error',
   'agent.chat.tool.consoleErrors': 'Console errors',
   'agent.chat.tool.consoleOutput': 'Console output',

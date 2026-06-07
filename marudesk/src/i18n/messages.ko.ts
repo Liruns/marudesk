@@ -448,6 +448,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.toast.noChanges.title': '아직 변경사항 없음',
   'agent.chat.toast.nothingToCopy.description': '이 대화는 비어 있습니다.',
   'agent.chat.toast.nothingToCopy.title': '복사할 내용 없음',
+  'agent.chat.toast.revertFailed.description': '변경을 되돌릴 수 없습니다.',
+  'agent.chat.toast.revertFailed.stale':
+    '편집 이후 파일이 바뀌어, 새 내용 손실을 막기 위해 되돌리기를 건너뛰었습니다.',
+  'agent.chat.toast.revertFailed.title': '되돌릴 수 없음',
   'agent.chat.toast.unknownError': '알 수 없는 오류',
   'agent.chat.tool.consoleErrors': '콘솔 오류',
   'agent.chat.tool.consoleOutput': '콘솔 출력',

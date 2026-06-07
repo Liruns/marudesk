@@ -1,5 +1,5 @@
 import type { ModelMessage } from 'ai';
-import type { AgentMessage } from './agent';
+import type { AgentEdit, AgentMessage } from './agent';
 
 /**
  * Shared types for the built-in **Context MCP** (docs/context-mcp-design.md). The
@@ -88,6 +88,13 @@ export type SessionRecord = SessionSummary & {
    * sessions saved before this field existed (those resume as read-only history).
    */
   transcript?: ModelMessage[];
+  /**
+   * Edits this conversation applied, with their before/after content and status,
+   * so a resumed (or restarted) session restores the Changes view and keeps
+   * accept/revert working — those files are still modified on disk. Absent on
+   * sessions saved before this field existed (they resume with no Changes view).
+   */
+  edits?: AgentEdit[];
 };
 
 /* ── memory (persistent notes the AI can read/write) ────────────────────── */

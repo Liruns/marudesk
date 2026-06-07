@@ -8,6 +8,7 @@ import type { ProfileMeta, ProfilesState } from './profiles';
 import type {
   AgentAnswers,
   AgentChatState,
+  AgentEditActionResult,
   AgentSendInput,
   AgentSendResult,
 } from './agent';
@@ -482,8 +483,8 @@ export interface IpcMap {
     result: boolean;
   };
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
-  'agent:accept-edit': { args: [payload: { editId: string }]; result: boolean };
-  'agent:revert-edit': { args: [payload: { editId: string }]; result: boolean };
+  'agent:accept-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
+  'agent:revert-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
   // Pull the current chat state (initial render / re-mount).
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).

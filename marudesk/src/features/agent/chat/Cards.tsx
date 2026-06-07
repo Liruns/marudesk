@@ -13,6 +13,7 @@ import {
 import { Badge, Button, DiffBlock } from '../../../components/ui';
 import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
+import { toast } from '../../../lib/toast';
 import type {
   AgentEdit,
   BackgroundTask,
@@ -25,6 +26,17 @@ import { toDiffLines, diffStats } from '../diff';
 import { formatChangedFiles, formatRuntimeChecks, type Receipt } from './format';
 
 /* ── edits (P2: accept / revert) ────────────────────────────────────────── */
+
+/** Surface a refused/failed revert instead of a silent no-op (audit H3). */
+function toastRevertFailure(t: ReturnType<typeof useI18n>['t'], stale: boolean): void {
+  toast({
+    title: t('agent.chat.toast.revertFailed.title'),
+    description: t(
+      stale ? 'agent.chat.toast.revertFailed.stale' : 'agent.chat.toast.revertFailed.description',
+    ),
+    variant: 'error',
+  });
+}
 
 export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[] }) {
   const { locale, t } = useI18n();
@@ -79,7 +91,13 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
             </button>
             <button
               type="button"
-              onClick={() => applied.forEach((e) => void revertEdit(e.id))}
+              onClick={async () => {
+                const results = await Promise.all(applied.map((e) => revertEdit(e.id)));
+                const failed = results.filter((r) => !r.ok);
+                if (failed.length > 0) {
+                  toastRevertFailure(t, failed.some((r) => r.reason === 'stale'));
+                }
+              }}
               className="flex items-center gap-1 text-fg-tertiary hover:text-error transition-colors duration-fast"
               title={t('agent.chat.revertAllTitle')}
             >
@@ -147,7 +165,10 @@ function EditCard({
             </button>
             <button
               type="button"
-              onClick={() => void revertEdit(edit.id)}
+              onClick={async () => {
+                const res = await revertEdit(edit.id);
+                if (!res.ok) toastRevertFailure(t, res.reason === 'stale');
+              }}
               className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-error transition-colors duration-fast"
               title={t('agent.chat.revertTitle')}
             >

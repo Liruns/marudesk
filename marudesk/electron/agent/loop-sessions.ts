@@ -49,6 +49,9 @@ export async function persistSession(): Promise<void> {
     // Persist the provider-neutral S.transcript too, so a resumed session keeps
     // full context (display messages can't reconstruct tool_use/result pairing).
     transcript: [...S.transcript],
+    // Persist edits (before/after + status) so resume/restart restores the
+    // Changes view and accept/revert keep working — the files are still on disk.
+    edits: S.state.edits.map((e) => ({ ...e })),
   };
   await saveSession(record);
 }
@@ -86,11 +89,12 @@ export function reset(): boolean {
 /**
  * Load a saved session as the active conversation (v3 §5-C). Refuses while a turn
  * is in flight. The current conversation was already persisted on its last
- * finish(), so replacing state here loses nothing; unresolved (applied) edits are
- * kept exactly as reset() does, since those files are still modified on disk.
- * Restores the provider-neutral S.transcript when present (sessions saved before
- * that field resume as read-only history — messages render, but the model has no
- * prior context to continue from).
+ * finish(), so replacing state here loses nothing — including its edits, which
+ * went into that record and are recoverable by resuming it again.
+ * Restores the resumed session's OWN edits from the record (so its Changes view
+ * and accept/revert survive resume/restart), plus the provider-neutral
+ * S.transcript when present (sessions saved before these fields resume as
+ * read-only history — messages render, but the model has no prior context).
  */
 export async function resumeSession(id: string): Promise<boolean> {
   if (busy()) return false;
@@ -99,7 +103,6 @@ export async function resumeSession(id: string): Promise<boolean> {
   // Abort the leaving conversation's background agents (a detached child process
   // can't be restored on resume, so the resumed chat starts with none).
   cancelBackgroundForConversation(S.conversationId);
-  const keptEdits = S.state.edits.filter((e) => e.status === 'applied');
   S.sessionAllowedTools.clear();
   // Forget the prior conversation's tracked reads — same as reset(). A file read
   // in the chat we're leaving must not gate (or wrongly clear staleness on) an
@@ -108,7 +111,9 @@ export async function resumeSession(id: string): Promise<boolean> {
   clearNestedInstructionClaims();
   S.activeModes = [];
   S.state = emptyAgentChatState();
-  S.state.edits = keptEdits;
+  // Restore this session's own edits (kept as the leaving chat's were saved on
+  // its finish()). Clone so mutating status later can't bleed into the record.
+  S.state.edits = record.edits ? record.edits.map((e) => ({ ...e })) : [];
   S.state.messages = record.messages ?? [];
   S.state.usage = record.usage
     ? {

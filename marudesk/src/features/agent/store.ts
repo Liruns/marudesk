@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import type { AgentAnswers, AgentChatState, AgentImageInput } from '../../../shared/agent';
+import type {
+  AgentAnswers,
+  AgentChatState,
+  AgentEditActionResult,
+  AgentImageInput,
+} from '../../../shared/agent';
 import { emptyAgentChatState } from '../../../shared/agent';
 import type { SessionSummary } from '../../../shared/context';
 import { toMessage } from '../../lib/toMessage';
@@ -94,8 +99,8 @@ type AgentActions = {
   abort: () => Promise<void>;
   answer: (callId: string, answers: AgentAnswers) => Promise<void>;
   approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
-  acceptEdit: (editId: string) => Promise<void>;
-  revertEdit: (editId: string) => Promise<void>;
+  acceptEdit: (editId: string) => Promise<AgentEditActionResult>;
+  revertEdit: (editId: string) => Promise<AgentEditActionResult>;
   resetChat: () => Promise<void>;
   /**
    * Summarize the transcript for the model to free context while keeping the
@@ -279,17 +284,19 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   acceptEdit: async (editId) => {
     try {
-      await window.marudesk.invoke('agent:accept-edit', { editId });
+      return await window.marudesk.invoke('agent:accept-edit', { editId });
     } catch {
-      // ignore
+      return { ok: false };
     }
   },
 
+  // Returns the result so the caller can surface a refused/failed revert (a
+  // silent no-op is what the audit flagged — e.g. a stale-file refusal).
   revertEdit: async (editId) => {
     try {
-      await window.marudesk.invoke('agent:revert-edit', { editId });
+      return await window.marudesk.invoke('agent:revert-edit', { editId });
     } catch {
-      // ignore
+      return { ok: false };
     }
   },
 

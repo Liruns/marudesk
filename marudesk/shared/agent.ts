@@ -138,6 +138,21 @@ export type AgentEdit = {
   timestamp: number;
 };
 
+/**
+ * Result of an accept/revert on an applied edit. `reason` distinguishes a
+ * *refused* revert from a generic failure so the UI can explain why nothing
+ * happened instead of silently no-op'ing:
+ * - `stale`: the file changed since the edit landed — reverting would clobber
+ *   newer content, so it's skipped (symmetry with the forward edit guard).
+ * - `not-found`: the edit id isn't an applied edit (already resolved / unknown).
+ * - `no-workspace`: no workspace is open to write into.
+ * - `write-failed`: the disk write/unlink itself failed.
+ */
+export type AgentEditActionResult = {
+  ok: boolean;
+  reason?: 'stale' | 'not-found' | 'no-workspace' | 'write-failed';
+};
+
 /** A pending tool that needs explicit user approval before it runs (eval_js, nav). */
 export type PendingApproval = {
   turnId: string;
