@@ -99,6 +99,37 @@ export function setWorkspaceSplitRatio(
   return walk(root);
 }
 
+/**
+ * Coerce persisted JSON back into a layout tree, dropping leaves whose workspace
+ * no longer exists (collapsing a split to its surviving child). Returns null when
+ * nothing valid remains, so the caller falls back to a fresh single-pane layout.
+ */
+export function sanitizeWorkspaceLayout(
+  value: unknown,
+  isValidWorkspace: (id: WorkspaceId) => boolean,
+): WorkspaceLayoutNode | null {
+  const walk = (node: unknown): WorkspaceLayoutNode | null => {
+    if (!node || typeof node !== 'object') return null;
+    const o = node as Record<string, unknown>;
+    if (o.type === 'leaf') {
+      if (typeof o.id !== 'string' || typeof o.workspaceId !== 'string') return null;
+      if (!isValidWorkspace(o.workspaceId)) return null;
+      return { type: 'leaf', id: o.id, workspaceId: o.workspaceId };
+    }
+    if (o.type === 'split') {
+      if (typeof o.id !== 'string') return null;
+      const dir: WorkspaceSplitDir = o.dir === 'col' ? 'col' : 'row';
+      const ratio = clampWorkspaceRatio(typeof o.ratio === 'number' ? o.ratio : 0.5);
+      const a = walk(o.a);
+      const b = walk(o.b);
+      if (a && b) return { type: 'split', id: o.id, dir, ratio, a, b };
+      return a ?? b; // one side gone — collapse to the survivor
+    }
+    return null;
+  };
+  return walk(value);
+}
+
 export function removeWorkspaceLeaf(
   root: WorkspaceLayoutNode,
   leafId: WorkspacePaneId,

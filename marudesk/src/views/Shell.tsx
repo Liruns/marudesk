@@ -20,6 +20,7 @@ import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
 import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
+import { Tour } from '../features/tour/Tour';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
 import type { EventPayload } from '../../shared/ipc';
@@ -60,6 +61,16 @@ function runShortcut(p: EventPayload<'app:tab-shortcut'>): void {
   }
   if (p.type === 'pane-maximize') {
     useGridStore.getState().maximizeFocused();
+    return;
+  }
+  if (p.type === 'close') {
+    // Ctrl/Cmd+W forwarded from a focused web view. Mirror the chrome-focused
+    // path: close the active tab (with the dirty-discard prompt), never the app.
+    const cst = useTabsStore.getState();
+    const active = cst.activeTabId;
+    if (!active) return;
+    const tab = cst.tabs.find((t) => t.id === active);
+    if (confirmCloseTab(tab)) void cst.closeTab(active);
     return;
   }
   const st = useTabsStore.getState();
@@ -322,6 +333,7 @@ export function Shell() {
       </div>
       <StatusBar />
       <ToastHost />
+      <Tour />
       {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}
       {tabPalette ? <TabPalette onClose={() => setTabPalette(false)} /> : null}
     </div>

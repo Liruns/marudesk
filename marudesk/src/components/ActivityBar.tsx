@@ -68,6 +68,7 @@ export function ActivityBar({
   return (
     <nav
       aria-label={t('activity.barLabel')}
+      data-tour="activity-bar"
       className="chrome-rail w-12 shrink-0 flex flex-col items-center py-2 gap-1 border-r"
     >
       <ActivityButton

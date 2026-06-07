@@ -3,6 +3,7 @@ export {
   getCurrentWorkspace,
   getWorkspaceSnapshot,
   registerWorkspaceHandlers,
+  restoreWorkspaces,
 } from './workspace-registry';
 export {
   readFileForEditor,

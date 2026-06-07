@@ -31,11 +31,12 @@ import {
 } from './layout';
 import { NameDialog } from './NameDialog';
 import { SshRootDialog } from './SshRootDialog';
-import { useWorkspaceDeckStore } from './store';
+import { startLayoutPersistence, useWorkspaceDeckStore } from './store';
 import { PeekExplorer } from './WorkspaceStage.parts';
 
 type DeckDialog =
   | { mode: 'create' }
+  | { mode: 'create-ssh' }
   | { mode: 'rename'; workspace: WorkspaceRecord };
 
 export function WorkspaceStage() {
@@ -47,6 +48,8 @@ export function WorkspaceStage() {
 
   useEffect(() => {
     void refresh();
+    // Restore the saved deck split arrangement and keep persisting changes.
+    void startLayoutPersistence();
   }, [refresh]);
 
   useEffect(() => {
@@ -86,6 +89,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
   const [menu, setMenu] = useState<{ workspace: WorkspaceRecord; x: number; y: number } | null>(
     null,
   );
+  const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null);
   const [dialog, setDialog] = useState<DeckDialog | null>(null);
 
   const openMenu = (event: ReactMouseEvent, workspace: WorkspaceRecord) => {
@@ -120,6 +124,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
   return (
     <nav
       aria-label="Workspace rail"
+      data-tour="workspace-rail"
       className="chrome-rail w-12 shrink-0 border-r flex flex-col items-center py-2 gap-1"
     >
       {workspaces.map((workspace) => {
@@ -151,7 +156,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
         type="button"
         aria-label="New workspace"
         title="New workspace"
-        onClick={() => setDialog({ mode: 'create' })}
+        onClick={(event) => setCreateMenu({ x: event.clientX, y: event.clientY })}
         className={cn(
           'size-8 rounded-md border border-dashed border-subtle flex items-center justify-center',
           'text-fg-tertiary hover:text-fg-primary hover:border-default transition-colors duration-fast',
@@ -168,6 +173,25 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
           onClose={() => setMenu(null)}
         />
       ) : null}
+      {createMenu ? (
+        <ContextMenu
+          x={createMenu.x}
+          y={createMenu.y}
+          items={[
+            {
+              label: 'New workspace (folder)…',
+              icon: <FolderPlus size={14} />,
+              onSelect: () => setDialog({ mode: 'create' }),
+            },
+            {
+              label: 'New workspace (SSH folder)…',
+              icon: <Server size={14} />,
+              onSelect: () => setDialog({ mode: 'create-ssh' }),
+            },
+          ]}
+          onClose={() => setCreateMenu(null)}
+        />
+      ) : null}
       {dialog?.mode === 'create' ? (
         <NameDialog
           title="New workspace"
@@ -177,6 +201,9 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
           onSubmit={(name) => void createWorkspace(name, [])}
           onClose={() => setDialog(null)}
         />
+      ) : null}
+      {dialog?.mode === 'create-ssh' ? (
+        <SshRootDialog onClose={() => setDialog(null)} />
       ) : null}
       {dialog?.mode === 'rename' ? (
         <NameDialog
@@ -249,7 +276,6 @@ function WorkspacePane({
   const splitFocusedPane = useWorkspaceDeckStore((s) => s.splitFocusedPane);
   const closePane = useWorkspaceDeckStore((s) => s.closePane);
   const [peekOpen, setPeekOpen] = useState(false);
-  const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const focused = focusedPaneId === paneId;
   const paneCount = layout ? workspaceLeaves(layout).length : 1;
 
@@ -272,16 +298,40 @@ function WorkspacePane({
       }}
     >
       <header className="chrome-header h-10 shrink-0 flex items-center gap-2">
-        <div className="min-w-[128px] max-w-[220px] pl-3 flex items-center gap-2">
-          <span className="size-6 rounded-md bg-surface-2 border border-subtle flex items-center justify-center text-fg-tertiary">
-            <PanelLeft size={14} />
+        <div className="min-w-[140px] max-w-[230px] pl-2.5 flex items-center gap-2.5">
+          {/* Workspace identity avatar — same initials as the rail so a pane is
+              recognizable at a glance; falls back to the panel icon for System. */}
+          <span
+            className={cn(
+              'size-7 shrink-0 rounded-md border flex items-center justify-center text-caption font-semibold',
+              focused
+                ? 'border-accent/60 bg-accent-subtle text-accent'
+                : 'border-subtle bg-surface-2 text-fg-secondary',
+            )}
+          >
+            {record ? workspaceInitials(record.name) : <PanelLeft size={14} className="text-fg-tertiary" />}
           </span>
           <div className="min-w-0">
             <div className="truncate text-caption font-medium text-fg-primary">
               {record?.name ?? 'System'}
             </div>
-            <div className="truncate text-caption text-fg-tertiary tabular-nums">
-              {record ? `${record.roots.length} roots` : 'No folder roots'}
+            <div className="flex items-center gap-2 text-caption text-fg-tertiary tabular-nums">
+              {record ? (
+                <>
+                  <span className="inline-flex items-center gap-1" title={`${record.roots.length} folder root(s)`}>
+                    <FolderTree size={11} aria-hidden />
+                    {record.roots.length}
+                  </span>
+                  {record.roots.some((r) => r.connection?.kind === 'ssh') ? (
+                    <span className="inline-flex items-center gap-1 text-accent" title="Includes an SSH folder">
+                      <Server size={11} aria-hidden />
+                      SSH
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                'No folder roots'
+              )}
             </div>
           </div>
         </div>
@@ -290,11 +340,6 @@ function WorkspacePane({
           {record ? (
             <PaneButton label="Add folder to workspace" onClick={() => void addRoot(record.id)}>
               <FolderPlus size={15} />
-            </PaneButton>
-          ) : null}
-          {record ? (
-            <PaneButton label="Add SSH folder" onClick={() => setSshDialogOpen(true)}>
-              <Server size={15} />
             </PaneButton>
           ) : null}
           {record ? (
@@ -325,12 +370,6 @@ function WorkspacePane({
         <PeekExplorer
           record={record}
           onClose={() => setPeekOpen(false)}
-        />
-      ) : null}
-      {sshDialogOpen && record ? (
-        <SshRootDialog
-          workspaceId={record.id}
-          onClose={() => setSshDialogOpen(false)}
         />
       ) : null}
     </section>

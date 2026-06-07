@@ -175,13 +175,13 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: SPAWN_SUBAGENT,
-    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The child may inspect workspace/live context with non-mutating tools, cannot edit or run gated actions, and returns a final report to the parent. Use for parallel research, second opinions, and splitting analysis work.',
+    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The child may inspect workspace/live context and search the web (web_search, fetch_url) with non-mutating tools, cannot edit or run other gated actions, and returns a final report to the parent. Use for parallel research, second opinions, and splitting analysis work.',
     inputSchema: {
       type: 'object',
       properties: {
         task: strProp('Self-contained instructions for the child agent.'),
-        provider: strProp('Optional provider id; defaults to the parent turn provider.'),
-        model: strProp('Optional model id; defaults to the parent turn model.'),
+        provider: strProp('Optional provider id. Omit (or leave unset) to inherit the parent turn provider — that is the normal choice.'),
+        model: strProp('Optional model id. Omit (or leave unset) to inherit the parent turn model — that is the normal choice.'),
         label: strProp('Optional short label for the child result card.'),
         maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
       },

@@ -4,6 +4,7 @@
  * own. ipc.ts re-exports it and keeps the channel lists + completeness guards.
  */
 import type { AppInfo, UpdateCheckResult } from './app-info';
+import type { ProfileMeta, ProfilesState } from './profiles';
 import type {
   AgentAnswers,
   AgentChatState,
@@ -335,6 +336,19 @@ export interface IpcMap {
     ];
     result: WorkspaceRecord;
   };
+  // Create a NEW workspace seeded with an SSH folder as its first root (the
+  // "New workspace → SSH folder" flow). Indexed before it's returned.
+  'workspaces:create-ssh': {
+    args: [
+      payload: {
+        connectionId: string;
+        remotePath: string;
+        name?: string;
+        workspaceName?: string;
+      },
+    ];
+    result: WorkspaceRecord;
+  };
 
   // ssh (remote connections — electron/ssh/*). `add`/`test` carry credentials
   // inbound; only the sanitized SshConnectionInfo ever comes back.
@@ -595,6 +609,17 @@ export interface IpcMap {
   'app:open-github': { args: []; result: void };
   'app:open-releases': { args: []; result: void };
   'app:check-for-updates': { args: []; result: UpdateCheckResult };
+
+  // ui — renderer-owned layout persisted to main JSON (opaque payload).
+  'ui:get-layout': { args: []; result: unknown };
+  'ui:set-layout': { args: [layout: unknown]; result: void };
+
+  // profiles — isolated data sets; switch relaunches the app.
+  'profiles:list': { args: []; result: ProfilesState };
+  'profiles:create': { args: [name: string]; result: ProfileMeta };
+  'profiles:rename': { args: [payload: { id: string; name: string }]; result: ProfilesState };
+  'profiles:delete': { args: [id: string]; result: ProfilesState };
+  'profiles:switch': { args: [id: string]; result: void };
 
   // window
   'window:minimize': { args: []; result: boolean };

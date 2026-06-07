@@ -121,6 +121,7 @@ export interface EventPayloadMap {
   'app:tab-shortcut':
     | { type: 'cycle'; dir: 1 | -1 }
     | { type: 'jump'; digit: number }
+    | { type: 'close' }
     | { type: 'pane-cycle'; dir: 1 | -1 }
     | { type: 'pane-maximize' };
 }

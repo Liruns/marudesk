@@ -74,6 +74,7 @@ export const CHANNELS = {
     'workspaces:save-as',
     'workspaces:rank',
     'workspaces:add-ssh-root',
+    'workspaces:create-ssh',
   ],
   // Remote SSH connections (electron/ssh/*). Manage configured hosts and probe
   // them; credentials cross inbound only and never come back to the renderer.
@@ -175,6 +176,19 @@ export const CHANNELS = {
     'plugins:open-folder',
   ],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
+  // Renderer-owned UI layout (workspace deck split tree) persisted to a main JSON
+  // file so the split arrangement survives a restart. Payload is opaque to main;
+  // the renderer sanitizes/reconciles it against the live workspaces on load.
+  ui: ['ui:get-layout', 'ui:set-layout'],
+  // App profiles (isolated data sets). Switching relaunches the app pointed at
+  // the profile's data dir (shared/profiles.ts, electron/profile-store.ts).
+  profiles: [
+    'profiles:list',
+    'profiles:create',
+    'profiles:rename',
+    'profiles:delete',
+    'profiles:switch',
+  ],
   // Cloud relay (Bridge Model B §B2): log the PC's cloud account in/out and read
   // the sanitized status (logged-in account + connected-as-host). Tokens never
   // cross IPC — only `{account|null, connected}` does. Auto-connect is driven by

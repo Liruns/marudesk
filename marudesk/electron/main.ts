@@ -1,4 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
+// Redirect userData to the active profile BEFORE any persistence module loads.
+import './profile-init';
+import { registerProfileHandlers } from './profile-store';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { maybeOpenEmbeddedDebugPort } from './agent/embedded-browser';
@@ -7,7 +10,7 @@ import {
   mountBrowserView,
   registerBrowserHandlers,
 } from './browser';
-import { getCurrentWorkspace, registerWorkspaceHandlers } from './workspace';
+import { getCurrentWorkspace, registerWorkspaceHandlers, restoreWorkspaces } from './workspace';
 import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
@@ -38,6 +41,9 @@ import { setContextCacheListener } from './agent/context-cache';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
+import { loadWindowState, trackWindowState } from './window-state';
+import { closeSplash, showSplash } from './splash';
+import { registerUiLayoutHandlers } from './ui-layout';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
@@ -101,9 +107,13 @@ function applyHostContentSecurityPolicy(): void {
 }
 
 async function createMainWindow(): Promise<BrowserWindow> {
+  const windowState = loadWindowState();
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: windowState.width,
+    height: windowState.height,
+    ...(windowState.x !== undefined && windowState.y !== undefined
+      ? { x: windowState.x, y: windowState.y }
+      : {}),
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: '#08090A',
@@ -137,9 +147,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
   win.on('leave-full-screen', pushMaximizeState);
 
   win.once('ready-to-show', () => {
+    if (windowState.maximized) win.maximize();
     win.show();
+    closeSplash();
     pushMaximizeState();
   });
+  // Persist size/position/maximized across restarts.
+  trackWindowState(win);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     openExternalUrl(url);
@@ -223,6 +237,9 @@ maybeOpenEmbeddedDebugPort();
 registerPluginScheme();
 
 void app.whenReady().then(() => {
+  // Show the splash immediately so there's feedback while handlers register and
+  // the renderer loads; closed on the main window's ready-to-show.
+  showSplash();
   applyHostContentSecurityPolicy();
   // Serve plugin panel files over plugin:// (path-scoped + strict CSP, see protocol.ts).
   registerPluginProtocol();
@@ -231,6 +248,9 @@ void app.whenReady().then(() => {
   setWorkspaceProvider(getCurrentWorkspace);
   registerBrowserHandlers({ getMainWindow });
   registerWorkspaceHandlers({ getMainWindow });
+  // Rebuild persisted workspaces from disk (fire-and-forget — re-indexes local
+  // roots, then pushes state once the renderer is listening).
+  void restoreWorkspaces();
   registerWorkspaceMutateHandlers();
   registerSshHandlers();
   registerGitHandlers();
@@ -246,6 +266,8 @@ void app.whenReady().then(() => {
   registerMcpHandlers();
   registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);
+  registerUiLayoutHandlers();
+  registerProfileHandlers();
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the
   // renderer so Settings reflects it without polling. Sanitized — never tokens.

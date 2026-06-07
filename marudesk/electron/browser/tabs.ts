@@ -390,6 +390,15 @@ export function activateTab(id: string): boolean {
   setActiveTabId(id);
   // Show the web view; feature tabs render in the React stage instead.
   showTab(rec);
+  // Feature tabs (editor/terminal/settings/…) render in the React host. After
+  // hiding the previous web view, keyboard focus can stay stranded on that now-
+  // hidden WebContentsView, so the editor/terminal receives no input ("can't
+  // type in the file I opened"). Route focus back to the host webContents so the
+  // React surface — and Monaco's own editor.focus() — actually get the keyboard.
+  if (!rec.view) {
+    const h = getHost();
+    if (h && !h.isDestroyed()) h.webContents.focus();
+  }
   pushState();
   // Re-assert this tab's error count so the badge reconciles on every switch
   // (and recovers if the host renderer remounted and lost its in-memory map).
@@ -456,7 +465,10 @@ function activateFallbackAfterClosing(closed: TabRecord): void {
     activateTab(sameWorkspace.id);
     return;
   }
-  createAndActivateTab('home', undefined, { workspaceId: closed.workspaceId });
+  // No tab remains in this workspace: allow the empty state (the renderer shows a
+  // dedicated empty-stage screen) instead of forcing a fresh home tab. activeTabId
+  // was already cleared by closeTab; just refresh so the pane re-renders empty.
+  pushState();
 }
 
 /** Reopen the most recently closed tab (web page / saved editor file). */

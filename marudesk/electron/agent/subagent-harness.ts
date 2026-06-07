@@ -47,6 +47,16 @@ check('spawn_subagent forwards the bounded task', capturedRequest?.task === 'ins
 const badProvider = await runSubagentTool({ task: 'x', provider: 'not-a-provider' }, ctx);
 check('spawn_subagent rejects unknown providers', badProvider.isError === true);
 check('spawn_subagent reports invalid provider text', badProvider.text.includes('unknown provider'));
+
+capturedRequests.length = 0;
+setSubagentRunnerForTests(async (request) => {
+  capturedRequests.push(request);
+  return { summary: 'ok', text: 'child report ok' };
+});
+const defaulted = await runSubagentTool({ task: 'y', provider: 'default', model: 'default' }, ctx);
+check('spawn_subagent treats "default" provider as inherit', defaulted.isError !== true);
+check('"default" provider inherits the parent provider', capturedRequests[0]?.provider === 'ollama');
+check('"default" model inherits the parent model', capturedRequests[0]?.model === 'qwen2.5-coder');
 setSubagentRunnerForTests(null);
 
 console.log(`\nsubagent harness: ${passed} assertions passed`);

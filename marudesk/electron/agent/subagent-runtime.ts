@@ -84,6 +84,16 @@ export async function runChildAgent(
   );
 }
 
+/**
+ * Gated tools a child agent may still use without per-call approval: read-only
+ * web research (web_search, fetch_url). They make no workspace/page mutations,
+ * and the parent turn the user already approved covers them — so a research
+ * subagent can actually reach the web instead of punting back to the parent.
+ * Every other gated tool (eval_js, click, cookies, …) stays blocked, because a
+ * child can't surface an approval prompt to the user.
+ */
+const CHILD_WEB_RESEARCH_TOOLS = new Set(['web_search', 'fetch_url']);
+
 function childToolDefs() {
   const excluded = new Set<string>([
     ASK_USER,
@@ -93,7 +103,10 @@ function childToolDefs() {
     CANCEL_BACKGROUND_AGENT,
   ]);
   return listMcpTools().filter(
-    (tool) => !excluded.has(tool.name) && tool.write !== true && tool.gated !== true,
+    (tool) =>
+      !excluded.has(tool.name) &&
+      tool.write !== true &&
+      (tool.gated !== true || CHILD_WEB_RESEARCH_TOOLS.has(tool.name)),
   );
 }
 
