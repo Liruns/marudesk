@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react';
 import { useI18n } from '../i18n/useI18n';
 import { WindowControls } from './WindowControls';
+import { ProfileSwitcher } from '../features/workspaces/ProfileSwitcher';
 import logoUrl from '../assets/logo-mark.png';
 
 /**
@@ -58,6 +59,11 @@ export function TitleBar() {
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}
+      {/* Profile switcher — the app-level data set (separate from the workspace
+          rail below, which switches projects within a profile). */}
+      <div className="flex items-center pl-2">
+        <ProfileSwitcher />
+      </div>
       <div className="drag-region flex-1 min-w-0" aria-hidden />
       <WindowControls />
     </div>

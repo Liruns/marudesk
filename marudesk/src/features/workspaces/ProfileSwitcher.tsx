@@ -1,4 +1,4 @@
-import { Check, Pencil, Plus, Trash2, UserRound } from 'lucide-react';
+import { Check, ChevronDown, Pencil, Plus, Trash2, UserRound } from 'lucide-react';
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { DEFAULT_PROFILE_ID, type ProfilesState } from '../../../shared/profiles';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
@@ -25,7 +25,7 @@ export function ProfileSwitcher() {
 
   const openMenu = (event: ReactMouseEvent): void => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setMenu({ x: rect.right + 4, y: rect.top });
+    setMenu({ x: rect.left, y: rect.bottom + 4 });
   };
 
   const items = (): MenuItem[] => {
@@ -72,13 +72,14 @@ export function ProfileSwitcher() {
       <button
         type="button"
         aria-label={`Profile: ${active?.name ?? 'Default'}`}
-        title={`Profile: ${active?.name ?? 'Default'}`}
+        title={`Profile: ${active?.name ?? 'Default'} — switch or manage profiles`}
         onClick={openMenu}
-        className="size-8 rounded-full border border-subtle bg-surface-2 text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 flex items-center justify-center transition-colors duration-fast"
+        className="no-drag self-center inline-flex items-center gap-1.5 h-7 rounded-md border border-subtle bg-surface-2 pl-2 pr-1.5 text-caption text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 transition-colors duration-fast"
       >
-        <UserRound size={16} aria-hidden />
+        <UserRound size={14} aria-hidden />
+        <span className="max-w-[140px] truncate font-medium">{active?.name ?? 'Default'}</span>
+        <ChevronDown size={13} aria-hidden className="text-fg-tertiary" />
       </button>
-      <div className="w-6 h-px bg-subtle my-1" aria-hidden />
 
       {menu ? (
         <ContextMenu
