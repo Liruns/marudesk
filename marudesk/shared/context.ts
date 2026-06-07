@@ -1,5 +1,5 @@
 import type { ModelMessage } from 'ai';
-import type { AgentEdit, AgentMessage } from './agent';
+import type { AgentEdit, AgentMessage, AgentPlan } from './agent';
 
 /**
  * Shared types for the built-in **Context MCP** (docs/context-mcp-design.md). The
@@ -95,6 +95,8 @@ export type SessionRecord = SessionSummary & {
    * sessions saved before this field existed (they resume with no Changes view).
    */
   edits?: AgentEdit[];
+  /** The agent's working plan (Taskboard), so a resumed session keeps it. */
+  plan?: AgentPlan | null;
 };
 
 /* ── memory (persistent notes the AI can read/write) ────────────────────── */

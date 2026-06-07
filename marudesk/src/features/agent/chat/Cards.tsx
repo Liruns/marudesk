@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   ChevronsDownUp,
   ChevronsUpDown,
+  Circle,
+  CircleDot,
   Loader2,
   RotateCcw,
   Sparkles,
@@ -16,6 +18,8 @@ import { cn } from '../../../lib/cn';
 import { toast } from '../../../lib/toast';
 import type {
   AgentEdit,
+  AgentPlan,
+  AgentPlanStepStatus,
   BackgroundTask,
   BackgroundStatus,
   PendingApproval,
@@ -294,6 +298,70 @@ export function QuestionsCard({ pending }: { pending: PendingQuestions }) {
       <Button variant="primary" size="sm" onClick={submit}>
         {t('agent.chat.sendAnswer')}
       </Button>
+    </div>
+  );
+}
+
+/* ── plan / taskboard (v5 §G2) ───────────────────────────────────────────── */
+
+const PLAN_STATUS_ICON: Record<AgentPlanStepStatus, typeof Circle> = {
+  pending: Circle,
+  in_progress: CircleDot,
+  done: CheckCircle2,
+};
+
+/**
+ * The agent's working plan, rendered as a compact Taskboard (v5 §G2). A read-only
+ * projection of `chat.plan`, maintained by the model via the update_plan tool:
+ * an ordered step list with status icons + a progress bar so the user can follow
+ * multi-step work. Renders nothing when there's no active plan.
+ */
+export function Taskboard({ plan }: { readonly plan: AgentPlan | null }) {
+  const { t } = useI18n();
+  if (!plan || plan.steps.length === 0) return null;
+  const done = plan.steps.filter((s) => s.status === 'done').length;
+  const pct = Math.round((done / plan.steps.length) * 100);
+  return (
+    <div className="flex flex-col gap-1.5 rounded border border-subtle bg-surface-2 p-2.5">
+      <div className="flex items-center gap-2 text-caption uppercase tracking-wider text-fg-tertiary">
+        <span>{t('agent.chat.plan.title')}</span>
+        <span className="ml-auto tabular-nums">
+          {done}/{plan.steps.length}
+        </span>
+      </div>
+      <div className="h-1 w-full overflow-hidden rounded bg-surface-3">
+        <div className="h-full bg-accent transition-all duration-fast" style={{ width: `${pct}%` }} />
+      </div>
+      <ol className="flex flex-col gap-1">
+        {plan.steps.map((step) => {
+          const Icon = PLAN_STATUS_ICON[step.status];
+          return (
+            <li key={step.id} className="flex items-start gap-2 text-body-sm">
+              <Icon
+                size={13}
+                className={cn(
+                  'mt-0.5 shrink-0',
+                  step.status === 'done' && 'text-success',
+                  step.status === 'in_progress' && 'text-accent',
+                  step.status === 'pending' && 'text-fg-tertiary',
+                )}
+              />
+              <div className="min-w-0">
+                <span
+                  className={cn(
+                    step.status === 'done' ? 'text-fg-tertiary line-through' : 'text-fg-primary',
+                  )}
+                >
+                  {step.title}
+                </span>
+                {step.note ? (
+                  <div className="truncate text-caption text-fg-tertiary">{step.note}</div>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

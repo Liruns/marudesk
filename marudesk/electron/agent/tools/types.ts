@@ -90,6 +90,8 @@ export const SPAWN_SUBAGENT = 'spawn_subagent';
 export const SPAWN_BACKGROUND_AGENT = 'spawn_background_agent';
 export const COLLECT_BACKGROUND_AGENT = 'collect_background_agent';
 export const CANCEL_BACKGROUND_AGENT = 'cancel_background_agent';
+/** Loop-intercepted plan tool: maintains the Taskboard plan (v5 §G2). */
+export const UPDATE_PLAN = 'update_plan';
 
 /* ── MCP descriptor layer (docs/context-mcp-design §1.1) ─────────────────── */
 

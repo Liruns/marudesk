@@ -4,6 +4,7 @@ import {
   SPAWN_BACKGROUND_AGENT,
   COLLECT_BACKGROUND_AGENT,
   CANCEL_BACKGROUND_AGENT,
+  UPDATE_PLAN,
   GATED_TOOLS,
   type McpGroup,
   type McpTool,
@@ -120,5 +121,11 @@ export const COLLECT_BACKGROUND_AGENT_DEF: McpToolDef = {
 };
 export const CANCEL_BACKGROUND_AGENT_DEF: McpToolDef = {
   ...TOOL_SCHEMAS.find((s) => s.name === CANCEL_BACKGROUND_AGENT)!,
+  group: 'agent',
+};
+
+/** update_plan is loop-intercepted; a plain state update, ungated, not a write. */
+export const UPDATE_PLAN_DEF: McpToolDef = {
+  ...TOOL_SCHEMAS.find((s) => s.name === UPDATE_PLAN)!,
   group: 'agent',
 };

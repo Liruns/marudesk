@@ -4,6 +4,7 @@ import {
   SPAWN_BACKGROUND_AGENT,
   COLLECT_BACKGROUND_AGENT,
   CANCEL_BACKGROUND_AGENT,
+  UPDATE_PLAN,
   type ToolSchema,
 } from './types';
 
@@ -223,6 +224,32 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       type: 'object',
       properties: { id: strProp('The background task id to cancel.') },
       required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: UPDATE_PLAN,
+    description:
+      'Maintain a visible task plan for multi-step work (roughly 3+ steps). Call it once to post your plan, then call again to update step statuses as you go — keep about one step in_progress at a time. Each call REPLACES the whole plan with the steps you pass. Optional for simple tasks; skip it for trivial ones.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          description: 'The full ordered list of steps (replaces any previous plan).',
+          items: {
+            type: 'object',
+            properties: {
+              title: strProp('Short imperative description of the step.'),
+              status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: 'Step status.' },
+              note: strProp('Optional one-line detail or result.'),
+            },
+            required: ['title', 'status'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['steps'],
       additionalProperties: false,
     },
   },

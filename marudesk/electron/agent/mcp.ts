@@ -6,6 +6,7 @@ import {
   SPAWN_BACKGROUND_AGENT_DEF,
   COLLECT_BACKGROUND_AGENT_DEF,
   CANCEL_BACKGROUND_AGENT_DEF,
+  UPDATE_PLAN_DEF,
   type McpTool,
   type McpToolDef,
   type ToolContext,
@@ -103,6 +104,7 @@ export function listMcpTools(): McpToolDef[] {
     SPAWN_BACKGROUND_AGENT_DEF,
     COLLECT_BACKGROUND_AGENT_DEF,
     CANCEL_BACKGROUND_AGENT_DEF,
+    UPDATE_PLAN_DEF,
     ASK_USER_DEF,
   ];
 }
@@ -114,6 +116,7 @@ export function getMcpToolDef(name: string): McpToolDef | undefined {
   if (name === SPAWN_BACKGROUND_AGENT_DEF.name) return SPAWN_BACKGROUND_AGENT_DEF;
   if (name === COLLECT_BACKGROUND_AGENT_DEF.name) return COLLECT_BACKGROUND_AGENT_DEF;
   if (name === CANCEL_BACKGROUND_AGENT_DEF.name) return CANCEL_BACKGROUND_AGENT_DEF;
+  if (name === UPDATE_PLAN_DEF.name) return UPDATE_PLAN_DEF;
   return index().get(name);
 }
 

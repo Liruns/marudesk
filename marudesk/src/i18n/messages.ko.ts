@@ -390,6 +390,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.jumpToLatest': '최신으로 이동',
   'agent.chat.noApiKeyAfter': ' API 키가 없습니다.',
   'agent.chat.noApiKeyBefore': '',
+  'agent.chat.plan.title': '계획',
   'agent.chat.promptAria': '에이전트 프롬프트',
   'agent.chat.promptPlaceholder': '에이전트에게 묻기 - 명령은 /, 파일은 @... (Enter로 전송)',
   'agent.chat.queuedPrompt': '대기 중 - 이번 턴이 끝나면 전송:',

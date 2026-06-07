@@ -214,6 +214,30 @@ export type AgentChatState = {
    * via collect_background_agent and the user cancels via the tray.
    */
   background: BackgroundTask[];
+  /**
+   * The agent's working plan for multi-step tasks (v5 §G2), maintained by the
+   * model via the `update_plan` tool and rendered as a Taskboard. null when the
+   * conversation has no active plan. A projection, not user-editable.
+   */
+  plan: AgentPlan | null;
+};
+
+/** A step's lifecycle in the agent's task plan (Taskboard). */
+export type AgentPlanStepStatus = 'pending' | 'in_progress' | 'done';
+
+/** One step in the agent's working plan. */
+export type AgentPlanStep = {
+  id: string;
+  title: string;
+  status: AgentPlanStepStatus;
+  /** Optional one-line detail or result for the step. */
+  note?: string;
+};
+
+/** The agent's working plan — the full ordered step list + last-update time. */
+export type AgentPlan = {
+  steps: AgentPlanStep[];
+  updatedAt: number;
 };
 
 /** Lifecycle of a detached background agent. */
@@ -253,6 +277,7 @@ export function emptyAgentChatState(): AgentChatState {
     activeSessionId: null,
     endNote: null,
     background: [],
+    plan: null,
   };
 }
 

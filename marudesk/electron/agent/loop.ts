@@ -27,6 +27,7 @@ import {
   SPAWN_BACKGROUND_AGENT,
   COLLECT_BACKGROUND_AGENT,
   CANCEL_BACKGROUND_AGENT,
+  UPDATE_PLAN,
   describeToolInput,
   type ToolContext,
   type ToolResult,
@@ -43,6 +44,7 @@ import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import { resolveProviderAuth } from './resolve-auth';
 import { runSubagentTool } from './subagent';
+import { updatePlanTool } from './plan';
 import {
   startBackgroundAgentTool,
   collectBackgroundTool,
@@ -596,6 +598,7 @@ async function dispatchTool(name: string, input: unknown, ctx: ToolContext): Pro
   if (name === SPAWN_BACKGROUND_AGENT) return startBackgroundAgentTool(input, ctx);
   if (name === COLLECT_BACKGROUND_AGENT) return collectBackgroundTool(input);
   if (name === CANCEL_BACKGROUND_AGENT) return cancelBackgroundTool(input);
+  if (name === UPDATE_PLAN) return updatePlanTool(input);
   return callMcpTool(name, input, ctx);
 }
 

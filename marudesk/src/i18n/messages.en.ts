@@ -391,6 +391,7 @@ export const EN_MESSAGES = {
   'agent.chat.jumpToLatest': 'Jump to latest',
   'agent.chat.noApiKeyAfter': '.',
   'agent.chat.noApiKeyBefore': 'No API key for ',
+  'agent.chat.plan.title': 'Plan',
   'agent.chat.promptAria': 'Agent prompt',
   'agent.chat.promptPlaceholder': 'Ask the agent - / for commands, @ for files... (Enter to send)',
   'agent.chat.queuedPrompt': 'Queued - sends when this turn ends:',

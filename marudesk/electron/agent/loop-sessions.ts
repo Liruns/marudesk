@@ -52,6 +52,8 @@ export async function persistSession(): Promise<void> {
     // Persist edits (before/after + status) so resume/restart restores the
     // Changes view and accept/revert keep working — the files are still on disk.
     edits: S.state.edits.map((e) => ({ ...e })),
+    // Persist the working plan (Taskboard) so a resumed session keeps it.
+    plan: S.state.plan,
   };
   await saveSession(record);
 }
@@ -114,6 +116,7 @@ export async function resumeSession(id: string): Promise<boolean> {
   // Restore this session's own edits (kept as the leaving chat's were saved on
   // its finish()). Clone so mutating status later can't bleed into the record.
   S.state.edits = record.edits ? record.edits.map((e) => ({ ...e })) : [];
+  S.state.plan = record.plan ?? null;
   S.state.messages = record.messages ?? [];
   S.state.usage = record.usage
     ? {
