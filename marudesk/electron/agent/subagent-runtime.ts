@@ -7,7 +7,15 @@ import { buildModel, aiTools, humanizeModelError } from './model';
 import { callMcpTool, listMcpTools } from './mcp';
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import { resolveProviderAuth } from './resolve-auth';
-import { ASK_USER, SPAWN_SUBAGENT, type ToolContext, type ToolResult } from './tools/types';
+import {
+  ASK_USER,
+  SPAWN_SUBAGENT,
+  SPAWN_BACKGROUND_AGENT,
+  COLLECT_BACKGROUND_AGENT,
+  CANCEL_BACKGROUND_AGENT,
+  type ToolContext,
+  type ToolResult,
+} from './tools/types';
 import { childPrompt, subagentFailure, subagentSuccess, SUBAGENT_SYSTEM } from './subagent-format';
 import type { ChildToolCall, ChildToolResultPart, SubagentRunRequest } from './subagent-types';
 
@@ -87,10 +95,16 @@ export async function runChildAgent(
 const CHILD_WEB_RESEARCH_TOOLS = new Set(['web_search', 'fetch_url']);
 
 function childToolDefs() {
+  const excluded = new Set<string>([
+    ASK_USER,
+    SPAWN_SUBAGENT,
+    SPAWN_BACKGROUND_AGENT,
+    COLLECT_BACKGROUND_AGENT,
+    CANCEL_BACKGROUND_AGENT,
+  ]);
   return listMcpTools().filter(
     (tool) =>
-      tool.name !== ASK_USER &&
-      tool.name !== SPAWN_SUBAGENT &&
+      !excluded.has(tool.name) &&
       tool.write !== true &&
       (tool.gated !== true || CHILD_WEB_RESEARCH_TOOLS.has(tool.name)),
   );

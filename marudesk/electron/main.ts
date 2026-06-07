@@ -4,6 +4,7 @@ import './profile-init';
 import { registerProfileHandlers } from './profile-store';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { maybeOpenEmbeddedDebugPort } from './agent/embedded-browser';
 import {
   disposeBrowserView,
   mountBrowserView,
@@ -34,6 +35,9 @@ import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol
 import { registerModelsHandlers } from './models';
 import { getSettings, registerSettingsHandlers } from './settings';
 import { registerHistoryHandlers } from './history';
+import { registerDiagnosticsHandlers } from './diagnostics/handlers';
+import { syncFromContext as syncLspFromContext, disposeAllLsp } from './lsp/manager';
+import { setContextCacheListener } from './agent/context-cache';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
 import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
@@ -222,6 +226,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return win;
 }
 
+// Open Chromium's remote-debugging endpoint (loopback only) so chrome-devtools-mcp
+// can attach to marudesk's embedded browser tabs instead of launching a separate
+// local Chrome. Boot-only (the switch has no runtime API) and gated on the
+// browser-control preset being enabled — see electron/agent/embedded-browser.ts.
+maybeOpenEmbeddedDebugPort();
+
 // Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
 // sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
 registerPluginScheme();
@@ -289,6 +299,13 @@ void app.whenReady().then(() => {
     },
   });
   registerHistoryHandlers();
+  registerDiagnosticsHandlers({ getMainWindow });
+  // Drive LSP document sync from the editor mirror: when the renderer pushes its
+  // open buffers (context:sync), reconcile language servers + open documents for
+  // the active workspace root. Inert until a server is configured in languages.json.
+  setContextCacheListener((payload) =>
+    syncLspFromContext(getCurrentWorkspace()?.root ?? null, payload.editors),
+  );
   registerTerminalHandlers({
     getMainWindow,
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,
@@ -333,6 +350,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   disposeAllTerminals();
+  // Tear down every language server so no spawned LSP process lingers past exit.
+  disposeAllLsp();
   // Stop the bridge server so its loopback port is released and no SSE
   // connection lingers past app exit.
   void stopServer();

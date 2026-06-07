@@ -17,9 +17,20 @@ import {
  */
 
 let cache: ContextSyncPayload = emptyContextSync();
+let listener: ((payload: ContextSyncPayload) => void) | null = null;
+
+/**
+ * Observe context-mirror updates. The LSP manager (electron/lsp) subscribes to
+ * drive document sync (didOpen/didChange/didClose) from the open editor buffers —
+ * main already receives them here, so no new renderer path is needed.
+ */
+export function setContextCacheListener(fn: ((payload: ContextSyncPayload) => void) | null): void {
+  listener = fn;
+}
 
 export function updateContextCache(payload: ContextSyncPayload): void {
   cache = payload;
+  listener?.(payload);
 }
 
 export function getContextCache(): ContextSyncPayload {

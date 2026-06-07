@@ -12,6 +12,7 @@ import type {
   AgentSendResult,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
+import type { DiagnosticsState } from './diagnostics';
 import type {
   ContextSyncPayload,
   SessionSearchHit,
@@ -412,6 +413,15 @@ export interface IpcMap {
   'history:query': { args: [query: string]; result: HistoryEntry[] };
   'history:recent': { args: []; result: HistoryEntry[] };
 
+  // diagnostics (workspace language support, Tier 1 — electron/diagnostics/*).
+  // `run` runs the open project's own checker and parses its output; `get` pulls
+  // the cached state. Live updates push on the `diagnostics:update` event.
+  'diagnostics:run': { args: []; result: DiagnosticsState };
+  'diagnostics:get': { args: []; result: DiagnosticsState };
+  // Ensure + return the path to the user's languages.json (external checker
+  // recipes), seeding a template on first open. Hand-edited, like mcp config.
+  'diagnostics:open-config': { args: []; result: { path: string } };
+
   // secrets / providers
   'secrets:list-providers': { args: []; result: ProviderStatus[] };
   'secrets:set-provider-key': {
@@ -521,6 +531,14 @@ export interface IpcMap {
     result: McpServerStatus[];
   };
   'mcp:open-config': { args: []; result: { path: string } };
+  // Whether the chrome-devtools (browser-control) preset is wired to marudesk's
+  // embedded Chromium, and whether the remote-debugging port we attach to was opened
+  // this launch. `required && !portOpen` → the user just enabled it and must restart
+  // for it to drive the embedded browser (see electron/agent/embedded-browser.ts).
+  'mcp:embedded-browser-status': {
+    args: [];
+    result: { portOpen: boolean; required: boolean };
+  };
 
   // plugins — Settings → Plugins + composer slash commands. set-enabled returns
   // the fresh statuses so the panel reprojects without a follow-up fetch.

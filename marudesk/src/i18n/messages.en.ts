@@ -775,6 +775,10 @@ export const EN_MESSAGES = {
   'settings.mcp.reload': 'Reload',
   'settings.mcp.presets.label': 'Add a server',
   'settings.mcp.presets.added': 'Already added',
+  'settings.mcp.embedded.restart':
+    'Chrome DevTools is set to control marudesk’s built-in browser tabs. Restart marudesk to apply — until then it can’t attach to the embedded browser.',
+  'settings.mcp.embedded.active':
+    'Chrome DevTools controls marudesk’s built-in browser tabs (attached over CDP — no separate Chrome window).',
   'settings.mcp.status.connecting': 'Connecting',
   'settings.mcp.status.reconnecting': 'Reconnecting',
   'settings.mcp.status.disabled': 'Disabled',

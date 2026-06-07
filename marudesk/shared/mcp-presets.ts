@@ -4,16 +4,30 @@ import type { McpServerConfig } from './mcp';
  * Curated external-MCP presets (docs/context-mcp-design §9). A preset is a known,
  * popular server the user can add with one click instead of hand-writing the
  * `mcp-servers.json` entry. The headline one is **browser control**: like Codex
- * Desktop's "Chrome MCP", Google's `chrome-devtools-mcp` drives a real Chrome — full
- * cursor control, navigation, screenshots, DOM inspection — as a separate process,
- * so it works through marudesk's existing external-MCP connector without touching the
- * app's own CDP allowlist.
+ * Desktop's "Chrome MCP", Google's `chrome-devtools-mcp` gives the agent full
+ * navigation, clicking, typing, screenshots, and DOM/network inspection. We point it
+ * at marudesk's OWN embedded browser tabs (the WebContentsView in electron/browser/
+ * tabs.ts) by passing `--browser-url=<loopback>` ({@link EMBEDDED_CHROMIUM_DEBUG_URL}):
+ * it attaches over CDP to the remote-debugging port marudesk opens (electron/main.ts,
+ * gated on this preset being enabled) instead of launching a separate local Chrome.
+ * Because that switch can only be set before app-ready, adding the preset takes effect
+ * on the next launch.
  *
  * Presets are added **untrusted + enabled**: tools are gated (approved per call) by
  * default since a browser controller is side-effecting; the user can mark the server
  * `trust: true` later by hand-editing the config. Shared so the renderer (Settings)
  * and the main process agree on the exact `id`/command without a round-trip.
  */
+
+/**
+ * Loopback port marudesk opens Chromium's remote-debugging endpoint on. The switch
+ * is set in electron/main.ts BEFORE app-ready (it has no runtime API) and ONLY when
+ * the browser-control preset below is configured + enabled, so a packaged build never
+ * exposes the embedded tabs over CDP unless the user opted in. Bound to 127.0.0.1.
+ */
+export const EMBEDDED_CHROMIUM_DEBUG_PORT = 9333;
+/** The full loopback URL chrome-devtools-mcp connects to via `--browser-url`. */
+export const EMBEDDED_CHROMIUM_DEBUG_URL = `http://127.0.0.1:${EMBEDDED_CHROMIUM_DEBUG_PORT}`;
 
 export type McpServerPreset = {
   /** The config id that will be written (also the tool namespace `<id>__<tool>`). */
@@ -33,12 +47,12 @@ export const MCP_PRESETS: readonly McpServerPreset[] = [
     id: 'chrome-devtools',
     label: 'Chrome DevTools — browser control',
     description:
-      'Drive a real Chrome browser (navigate, click, type, screenshot, inspect DOM/network) via Google’s chrome-devtools-mcp. Runs as a separate process.',
+      'Drive marudesk’s embedded browser tabs (navigate, click, type, screenshot, inspect DOM/network) via Google’s chrome-devtools-mcp, attached over CDP. Takes effect after the next app launch.',
     docsUrl: 'https://github.com/ChromeDevTools/chrome-devtools-mcp',
     config: {
       id: 'chrome-devtools',
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest'],
+      args: ['-y', 'chrome-devtools-mcp@latest', `--browser-url=${EMBEDDED_CHROMIUM_DEBUG_URL}`],
       enabled: true,
     },
   },

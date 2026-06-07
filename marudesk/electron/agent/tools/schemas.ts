@@ -1,4 +1,11 @@
-import { ASK_USER, SPAWN_SUBAGENT, type ToolSchema } from './types';
+import {
+  ASK_USER,
+  SPAWN_SUBAGENT,
+  SPAWN_BACKGROUND_AGENT,
+  COLLECT_BACKGROUND_AGENT,
+  CANCEL_BACKGROUND_AGENT,
+  type ToolSchema,
+} from './types';
 
 /**
  * JSON-Schema (Anthropic `input_schema`) for every built-in tool, including the
@@ -65,6 +72,40 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         },
       },
       required: ['edits'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'run_command',
+    description:
+      "Run a shell command in the workspace root and return its combined stdout+stderr and exit status. Requires user approval each call. Use this to run the PROJECT'S OWN checks — type-check, lint, build, tests (e.g. `npm run typecheck`, `tsc --noEmit`, `eslint .`, `cargo check`, `go build ./...`, `pytest`). It uses the project's real config, so the diagnostics are trustworthy — prefer it over guessing whether code compiles. The command must terminate on its own: long-running servers will hit the timeout, so keep it to finite checks/builds. Mutating commands (installs, codegen) are fine but run real code, hence the approval.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: strProp('Shell command to run, e.g. "npm run typecheck".'),
+        timeoutMs: intProp('Max run time in ms (default 120000, min 1000, max 600000).'),
+      },
+      required: ['command'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'run_diagnostics',
+    description:
+      "Run the PROJECT'S OWN checker (type-check/lint) now and return the parsed errors + warnings as file:line findings. Requires user approval (it executes the project's tooling). This also refreshes the shared cache — the user's Problems indicator and in-editor squiggles update from this call — so prefer it over a bare run_command when you want structured diagnostics that the user sees too. Optionally filter the returned list to one file with `path`.",
+    inputSchema: {
+      type: 'object',
+      properties: { path: strProp('Optional workspace-relative path to filter findings to.') },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'read_diagnostics',
+    description:
+      "Read the latest CACHED compiler/linter diagnostics (errors + warnings) for the workspace, as produced by the PROJECT'S OWN checker and parsed into file:line findings — the same results shown in the Problems indicator. Read-only: it does NOT run anything. If nothing is cached yet, use run_diagnostics first. Optionally filter to one file with `path`.",
+    inputSchema: {
+      type: 'object',
+      properties: { path: strProp('Optional workspace-relative path to filter findings to.') },
       additionalProperties: false,
     },
   },
@@ -145,6 +186,43 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
       },
       required: ['task'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: SPAWN_BACKGROUND_AGENT,
+    description:
+      'Delegate a self-contained, READ-ONLY subtask to a DETACHED background agent (optionally on a different provider/model). Returns IMMEDIATELY with a task id; the agent keeps running after this turn ends. Use for long research fan-out or fire-and-forget investigation you will read later with collect_background_agent. The background agent has read-only tools only — it cannot edit files, run gated actions, or spawn further agents.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: strProp('Self-contained instructions for the background agent.'),
+        provider: strProp('Optional provider id; defaults to the parent turn provider.'),
+        model: strProp('Optional model id; defaults to the parent turn model.'),
+        label: strProp('Optional short label for the background tray entry.'),
+        maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
+      },
+      required: ['task'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: COLLECT_BACKGROUND_AGENT,
+    description:
+      'Fetch the status and (when finished) final report of background agents started this conversation. Pass an id to collect one, or omit to list them all. Reading a finished agent marks it collected.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: strProp('Optional task id; omit to list all background agents.') },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: CANCEL_BACKGROUND_AGENT,
+    description: 'Cancel a running background agent by id. No-op if it already finished.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: strProp('The background task id to cancel.') },
+      required: ['id'],
       additionalProperties: false,
     },
   },

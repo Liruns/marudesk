@@ -7,6 +7,7 @@ import { useGridStore } from '../features/tabs/grid';
 import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
 import { useWebPageStore } from '../features/browser/store';
 import { useTabEvents } from '../features/tabs/useTabEvents';
+import { useDiagnosticsEvents } from '../features/diagnostics/useDiagnosticsEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
 import { useDevtoolsEvents } from '../features/devtools/useDevtoolsEvents';
 import { ExplorerPanel } from '../features/workspace/ExplorerPanel';
@@ -98,6 +99,8 @@ function runShortcut(p: EventPayload<'app:tab-shortcut'>): void {
 export function Shell() {
   useTabEvents();
   useDevtoolsEvents();
+  // Bridge checker diagnostics (Problems indicator + Monaco squiggles).
+  useDiagnosticsEvents();
   // Mirror editor buffers + explorer state to main for the built-in context MCP.
   useContextSync();
   // The left rail shows one panel at a time (VSCode-style): toggling a view

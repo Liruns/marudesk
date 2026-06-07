@@ -23,7 +23,7 @@ import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
 import { Transcript } from './chat/Transcript';
-import { ApprovalCard, QuestionsCard, ReceiptCard } from './chat/Cards';
+import { ApprovalCard, BackgroundTray, QuestionsCard, ReceiptCard } from './chat/Cards';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
 import { useComposer } from './useComposer';
 
@@ -164,6 +164,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           )}
 
           {receipt ? <ReceiptCard receipt={receipt} /> : null}
+
+          <BackgroundTray tasks={chat.background} />
 
           {chat.pendingApproval ? <ApprovalCard approval={chat.pendingApproval} /> : null}
           {chat.pendingQuestions ? <QuestionsCard pending={chat.pendingQuestions} /> : null}

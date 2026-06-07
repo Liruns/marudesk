@@ -72,6 +72,8 @@ export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Pro
 export const GATED_TOOLS = new Set([
   'generate_image',
   'generate_video',
+  'run_command',
+  'run_diagnostics',
   'eval_js',
   'click',
   'fill',
@@ -84,6 +86,10 @@ export const GATED_TOOLS = new Set([
 /** `ask_user` is intercepted by the loop (it parks the turn), never executed here. */
 export const ASK_USER = 'ask_user';
 export const SPAWN_SUBAGENT = 'spawn_subagent';
+/** Loop-intercepted background-agent meta-tools (docs/background-agent-design.md). */
+export const SPAWN_BACKGROUND_AGENT = 'spawn_background_agent';
+export const COLLECT_BACKGROUND_AGENT = 'collect_background_agent';
+export const CANCEL_BACKGROUND_AGENT = 'cancel_background_agent';
 
 /* ── MCP descriptor layer (docs/context-mcp-design §1.1) ─────────────────── */
 

@@ -237,9 +237,14 @@ export type Receipt = {
  * edits are covered by the Changes review, and plain Q&A needs no receipt.
  */
 export function buildReceipt(messages: AgentMessage[]): Receipt | null {
+  // Scope to the finished turn only: count from the last user prompt onward, so
+  // the receipt reflects *this* turn's runtime probes rather than accumulating
+  // every CDP check across the whole session.
+  const lastUser = messages.map((m) => m.role).lastIndexOf('user');
+  const turn = lastUser === -1 ? messages : messages.slice(lastUser);
   let runtime = 0;
   let verdict: Receipt['verdict'] = null;
-  for (const m of messages) {
+  for (const m of turn) {
     for (const part of m.parts) {
       if (part.type !== 'tool') continue;
       if (TOOL_META[part.call.name]?.runtime) runtime++;

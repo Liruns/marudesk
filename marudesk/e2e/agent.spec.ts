@@ -105,6 +105,7 @@ test('agent: file changes render after the turn that produced them', async () =>
       error: null,
       activeSessionId: null,
       endNote: null,
+      background: [],
     };
 
     await app.evaluate(({ BrowserWindow }, payload: AgentChatState) => {
@@ -457,6 +458,7 @@ function chatStateWithAssistantText(text: string): AgentChatState {
     error: null,
     activeSessionId: null,
     endNote: null,
+    background: [],
   };
 }
 

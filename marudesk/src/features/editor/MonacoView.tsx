@@ -6,6 +6,7 @@ import {
   monacoThemeFor,
 } from './monaco-setup';
 import { useEditorStore, type RevealRequest } from './store';
+import { ensureDiagnosticMarkers } from '../diagnostics/markers';
 import type { EditorStatus } from './EditorView';
 import { resolveTheme, subscribeAppearance } from '../settings/store';
 import { fontStack } from '../../../shared/fonts';
@@ -56,6 +57,8 @@ export function MonacoView({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    // Project checker diagnostics onto the editor as markers (idempotent).
+    ensureDiagnosticMarkers();
     const editor = monaco.editor.create(host, EDITOR_OPTIONS);
     editorRef.current = editor;
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
