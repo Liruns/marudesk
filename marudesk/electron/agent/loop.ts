@@ -297,6 +297,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
   // the primary). `pickNextFallback` walks the configured chain and returns the
   // first *connected* candidate (resolving its creds), or null when spent.
   const triedModels = new Set<string>([`${opts.provider}::${opts.model}`]);
+
+  // Recovery bookkeeping (v5 §G4): consecutive failures per tool name within this
+  // turn, reset on that tool's next success. When a tool keeps failing we append a
+  // recovery hint to its model-facing result so the agent stops blindly repeating
+  // the same call and instead re-reads state, changes approach, or asks the user.
+  const toolFailures = new Map<string, number>();
   const pickNextFallback = async (): Promise<ActiveTurnModel | null> => {
     for (const ref of opts.fallbacks) {
       const key = `${ref.provider}::${ref.model}`;
@@ -551,6 +557,16 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // this tool entered (§B2 on-demand). Appended to the MODEL-facing result
       // only — the UI card (call.resultText) stays focused on the tool output.
       let modelText = out.text;
+      // Recovery hint (§G4): track consecutive per-tool failures and nudge the
+      // agent out of a retry loop. Appended to the model-facing text only.
+      if (out.isError) {
+        const n = (toolFailures.get(call.name) ?? 0) + 1;
+        toolFailures.set(call.name, n);
+        const hint = recoveryHint(call.name, n);
+        if (hint) modelText = `${modelText}\n\n${hint}`;
+      } else {
+        toolFailures.delete(call.name);
+      }
       if (!out.isError && opts.ws && out.touchedPaths?.length) {
         const reminders: string[] = [];
         for (const rel of out.touchedPaths) {
@@ -624,6 +640,20 @@ async function dispatchToolBounded(
     if (timer) clearTimeout(timer);
     if (onAbort) ctx.signal.removeEventListener('abort', onAbort);
   }
+}
+
+/**
+ * Recovery nudge for a tool that keeps failing in the same turn (§G4). Escalates:
+ * a 2nd consecutive failure says "stop repeating, re-read / change approach"; a
+ * 3rd+ says "this approach is stuck — solve it differently or ask the user".
+ * Returns null on the first failure (a single error needs no nudge).
+ */
+function recoveryHint(name: string, consecutiveFailures: number): string | null {
+  if (consecutiveFailures <= 1) return null;
+  if (consecutiveFailures === 2) {
+    return `[recovery] ${name} has now failed twice in a row. Do not repeat the same call — re-read the relevant file/state (it may have changed) or take a different approach.`;
+  }
+  return `[recovery] ${name} has failed ${consecutiveFailures} times in a row. Stop retrying this approach: either solve the problem a fundamentally different way, or call ask_user to get the user's help instead of guessing.`;
 }
 
 async function handleAskUser(
