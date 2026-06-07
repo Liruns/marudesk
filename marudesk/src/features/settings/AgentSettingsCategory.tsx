@@ -38,6 +38,13 @@ export function AgentCategory() {
     { value: 'off', label: t('settings.agent.option.off') },
     { value: 'on', label: t('settings.agent.option.on') },
   ] as const;
+  const editApprovalOptions = [
+    { value: 'auto-apply', label: t('settings.agent.editApproval.autoApply') },
+    { value: 'preview', label: t('settings.agent.editApproval.preview') },
+  ] as const satisfies readonly {
+    readonly value: 'auto-apply' | 'preview';
+    readonly label: string;
+  }[];
   const autoCompactThresholdOptions = [
     { value: '0.7', label: '70%' },
     { value: '0.8', label: '80%' },
@@ -58,6 +65,16 @@ export function AgentCategory() {
           value={agent.approvalMode}
           options={approvalModeOptions}
           onChange={(approvalMode) => void update({ agent: { approvalMode } })}
+        />
+      </Field>
+      <Field
+        label={t('settings.agent.editApproval.label')}
+        hint={t('settings.agent.editApproval.hint')}
+      >
+        <Segmented
+          value={agent.editApproval}
+          options={editApprovalOptions}
+          onChange={(editApproval) => void update({ agent: { editApproval } })}
         />
       </Field>
       <Field

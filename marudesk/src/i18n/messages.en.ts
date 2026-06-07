@@ -590,6 +590,11 @@ export const EN_MESSAGES = {
   'settings.agent.autoCompact.hint':
     'When the conversation fills past the threshold of the model context window, automatically summarize the earlier turns to free space. Your visible history stays, and the most recent turns are kept verbatim.',
   'settings.agent.autoCompact.label': 'Auto-compact',
+  'settings.agent.editApproval.autoApply': 'Auto-apply',
+  'settings.agent.editApproval.hint':
+    'Auto-apply writes edits straight to disk (revert from the chat). Preview asks you to confirm each edit, showing the diff first, in Ask mode.',
+  'settings.agent.editApproval.label': 'File edits',
+  'settings.agent.editApproval.preview': 'Preview first',
   'settings.agent.autoCompactThreshold.hint':
     'How full the context window may get before auto-compaction kicks in.',
   'settings.agent.autoCompactThreshold.label': 'Auto-compact at',

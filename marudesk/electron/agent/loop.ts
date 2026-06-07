@@ -505,12 +505,20 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // explicit approval — unless the mode is `auto` or the bridge is in
       // unattended mode, which auto-approve, or the user already chose "Allow
       // always" for this tool this conversation. (§B4)
-      if (
-        isGatedTool(call.name) &&
-        opts.approvalMode !== 'auto' &&
+      //
+      // Edit preview (§G1): when the user set editApproval='preview', also park
+      // file edits (edit_file/multi_edit) in Ask mode so they can confirm the
+      // proposed diff BEFORE it's written. read-only/plan already blocked above;
+      // Auto and unattended keep applying straight through (no one to confirm).
+      const editPreview =
         !opts.unattended &&
-        !S.sessionAllowedTools.has(call.name)
-      ) {
+        opts.approvalMode === 'ask' &&
+        getSettingsSync().agent.editApproval === 'preview' &&
+        isWriteTool(call.name) &&
+        !isGatedTool(call.name);
+      const gatedApproval =
+        isGatedTool(call.name) && opts.approvalMode !== 'auto' && !opts.unattended;
+      if ((gatedApproval || editPreview) && !S.sessionAllowedTools.has(call.name)) {
         call.state = 'awaiting_approval';
         S.state.status = 'waiting_for_user';
         S.state.pendingApproval = {
@@ -518,6 +526,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
           callId: call.id,
           name: call.name,
           detail: describeToolInput(call.name, call.input),
+          ...(editPreview ? { diffs: editDiffs(call.input) } : {}),
         };
         emit();
         const decision = await waitForApproval();
@@ -657,6 +666,27 @@ function recoveryHint(name: string, consecutiveFailures: number): string | null 
     return `[recovery] ${name} has now failed twice in a row. Do not repeat the same call — re-read the relevant file/state (it may have changed) or take a different approach.`;
   }
   return `[recovery] ${name} has failed ${consecutiveFailures} times in a row. Stop retrying this approach: either solve the problem a fundamentally different way, or call ask_user to get the user's help instead of guessing.`;
+}
+
+/**
+ * Derive the proposed per-op diffs from an edit_file/multi_edit call input, for
+ * the §G1 preview approval card. before = oldString, after = newString (the
+ * change the agent is about to write); nothing is read from disk here.
+ */
+function editDiffs(input: unknown): { path: string; before: string; after: string }[] {
+  const o = (input ?? {}) as Record<string, unknown>;
+  const ops = Array.isArray(o.edits) ? o.edits : [o];
+  return ops.flatMap((raw) => {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    if (typeof r.path !== 'string') return [];
+    return [
+      {
+        path: r.path,
+        before: typeof r.oldString === 'string' ? r.oldString : '',
+        after: typeof r.newString === 'string' ? r.newString : '',
+      },
+    ];
+  });
 }
 
 async function handleAskUser(

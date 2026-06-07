@@ -230,9 +230,21 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
           {t('agent.chat.approveAfter')}
         </span>
       </div>
-      <pre className="m-0 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded bg-surface-page px-2 py-1.5">
-        {approval.detail}
-      </pre>
+      {approval.diffs && approval.diffs.length > 0 ? (
+        <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+          {approval.diffs.map((d, i) => (
+            <DiffBlock
+              key={`${d.path}-${i}`}
+              filePath={d.path}
+              lines={toDiffLines(d.before || null, d.after)}
+            />
+          ))}
+        </div>
+      ) : (
+        <pre className="m-0 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded bg-surface-page px-2 py-1.5">
+          {approval.detail}
+        </pre>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" size="sm" onClick={() => void approve(approval.callId, true)}>
           {t('agent.chat.approve')}

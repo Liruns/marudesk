@@ -589,6 +589,11 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '대화가 모델 컨텍스트 창의 임계치를 넘으면 이전 턴을 자동으로 요약해 공간을 확보합니다. 화면의 기록은 그대로 남고, 가장 최근 턴은 원문으로 유지됩니다.',
   'settings.agent.autoCompact.label': '자동 압축',
   'settings.agent.autoCompactThreshold.hint': '자동 압축이 시작되는 컨텍스트 창 사용 비율입니다.',
+  'settings.agent.editApproval.autoApply': '바로 적용',
+  'settings.agent.editApproval.hint':
+    '바로 적용은 편집을 디스크에 즉시 씁니다(채팅에서 되돌리기). 미리보기는 Ask 모드에서 diff를 먼저 보여주고 각 편집을 확인받습니다.',
+  'settings.agent.editApproval.label': '파일 편집',
+  'settings.agent.editApproval.preview': '미리보기 먼저',
   'settings.agent.autoCompactThreshold.label': '자동 압축 임계치',
   'settings.agent.fallback.addModel': '모델 추가',
   'settings.agent.fallback.empty':

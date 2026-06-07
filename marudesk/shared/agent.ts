@@ -160,6 +160,12 @@ export type PendingApproval = {
   name: string;
   /** Human-readable preview of what will run (e.g. the JS expression). */
   detail: string;
+  /**
+   * For an edit_file/multi_edit parked under the "preview" edit-approval setting
+   * (v5 §G1): the proposed per-op changes, so the approval card can show the diff
+   * BEFORE anything is written. Absent for non-edit approvals.
+   */
+  diffs?: { path: string; before: string; after: string }[];
 };
 
 /** A pending `ask_user` question set that parks the turn until answered. */
