@@ -142,7 +142,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     <div className="flex flex-col h-full min-h-0">
       <ProviderModelBar full={full} />
 
-      <div className="relative flex-1 min-h-0">
+      <div className="relative flex-1 min-h-0 flex">
+       <div className="relative flex-1 min-h-0">
        <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto">
         <div
           className={cn(
@@ -165,7 +166,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
           {receipt ? <ReceiptCard receipt={receipt} /> : null}
 
-          <Taskboard plan={chat.plan} />
+          {!full ? <Taskboard plan={chat.plan} /> : null}
 
           <BackgroundTray tasks={chat.background} />
 
@@ -199,6 +200,16 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           >
             <ChevronDown size={16} />
           </button>
+        ) : null}
+       </div>
+
+        {/* In the full surface the plan rides in a right-side "Mission Control"
+            panel so it stays visible while the transcript scrolls (v5 §G2). The
+            compact drawer keeps it inline (collapsible) below. */}
+        {full && chat.plan && chat.plan.steps.length > 0 ? (
+          <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-l border-subtle p-3">
+            <Taskboard plan={chat.plan} />
+          </aside>
         ) : null}
       </div>
 
