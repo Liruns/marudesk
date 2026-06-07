@@ -194,6 +194,9 @@ export const MessageView = memo(function MessageView({
         // Compaction dividers are handled by the early return above; nothing
         // else renders them inline.
         if (part.type !== 'tool') return null;
+        // The plan tool's state lives in the Taskboard (a dedicated surface), so
+        // don't also render a redundant tool card per update_plan call.
+        if (part.call.name === 'update_plan') return null;
         // Tool cards: hidden in Summary, auto-expanded in Verbose. Generated
         // media (images/videos) renders inline regardless of verbosity so a
         // "make me an image" turn always shows the result, not just a file path.

@@ -4,6 +4,8 @@ import {
   Ban,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
   Circle,
@@ -220,14 +222,21 @@ export function ReceiptCard({ receipt }: { receipt: Receipt }) {
 export function ApprovalCard({ approval }: { approval: PendingApproval }) {
   const { t } = useI18n();
   const approve = useAgentStore((s) => s.approve);
+  const isEdit = !!approval.diffs && approval.diffs.length > 0;
   return (
     <div className="rounded border border-warning/40 bg-warning-subtle/30 p-2.5 flex flex-col gap-2.5">
       <div className="flex items-start gap-2 text-body-sm text-fg-primary">
         <AlertCircle size={14} className="mt-0.5 shrink-0 text-warning" />
         <span className="min-w-0">
-          {t('agent.chat.approveBefore')}{' '}
-          <span className="font-mono break-all">{approval.name}</span>
-          {t('agent.chat.approveAfter')}
+          {isEdit ? (
+            t('agent.chat.reviewEdit')
+          ) : (
+            <>
+              {t('agent.chat.approveBefore')}{' '}
+              <span className="font-mono break-all">{approval.name}</span>
+              {t('agent.chat.approveAfter')}
+            </>
+          )}
         </span>
       </div>
       {approval.diffs && approval.diffs.length > 0 ? (
@@ -247,7 +256,7 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
       )}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" size="sm" onClick={() => void approve(approval.callId, true)}>
-          {t('agent.chat.approve')}
+          {isEdit ? t('agent.chat.apply') : t('agent.chat.approve')}
         </Button>
         <Button
           variant="secondary"
@@ -330,50 +339,59 @@ const PLAN_STATUS_ICON: Record<AgentPlanStepStatus, typeof Circle> = {
  */
 export function Taskboard({ plan }: { readonly plan: AgentPlan | null }) {
   const { t } = useI18n();
+  const [open, setOpen] = useState(true);
   if (!plan || plan.steps.length === 0) return null;
   const done = plan.steps.filter((s) => s.status === 'done').length;
   const pct = Math.round((done / plan.steps.length) * 100);
   return (
     <div className="flex flex-col gap-1.5 rounded border border-subtle bg-surface-2 p-2.5">
-      <div className="flex items-center gap-2 text-caption uppercase tracking-wider text-fg-tertiary">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 text-caption uppercase tracking-wider text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
         <span>{t('agent.chat.plan.title')}</span>
         <span className="ml-auto tabular-nums">
           {done}/{plan.steps.length}
         </span>
-      </div>
+      </button>
       <div className="h-1 w-full overflow-hidden rounded bg-surface-3">
         <div className="h-full bg-accent transition-all duration-fast" style={{ width: `${pct}%` }} />
       </div>
-      <ol className="flex flex-col gap-1">
-        {plan.steps.map((step) => {
-          const Icon = PLAN_STATUS_ICON[step.status];
-          return (
-            <li key={step.id} className="flex items-start gap-2 text-body-sm">
-              <Icon
-                size={13}
-                className={cn(
-                  'mt-0.5 shrink-0',
-                  step.status === 'done' && 'text-success',
-                  step.status === 'in_progress' && 'text-accent',
-                  step.status === 'pending' && 'text-fg-tertiary',
-                )}
-              />
-              <div className="min-w-0">
-                <span
+      {open ? (
+        <ol className="flex flex-col gap-1">
+          {plan.steps.map((step) => {
+            const Icon = PLAN_STATUS_ICON[step.status];
+            return (
+              <li key={step.id} className="flex items-start gap-2 text-body-sm">
+                <Icon
+                  size={13}
                   className={cn(
-                    step.status === 'done' ? 'text-fg-tertiary line-through' : 'text-fg-primary',
+                    'mt-0.5 shrink-0',
+                    step.status === 'done' && 'text-success',
+                    step.status === 'in_progress' && 'text-accent',
+                    step.status === 'pending' && 'text-fg-tertiary',
                   )}
-                >
-                  {step.title}
-                </span>
-                {step.note ? (
-                  <div className="truncate text-caption text-fg-tertiary">{step.note}</div>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+                />
+                <div className="min-w-0">
+                  <span
+                    className={cn(
+                      step.status === 'done' ? 'text-fg-tertiary line-through' : 'text-fg-primary',
+                    )}
+                  >
+                    {step.title}
+                  </span>
+                  {step.note ? (
+                    <div className="truncate text-caption text-fg-tertiary">{step.note}</div>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
     </div>
   );
 }
