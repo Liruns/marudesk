@@ -341,6 +341,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.approveAfter': ' 승인?',
   'agent.chat.approveBefore': '',
   'agent.chat.attachFiles': '파일 첨부',
+  'agent.chat.background.cancelTitle': '이 백그라운드 에이전트 취소',
   'agent.chat.attachPhotos': '사진 첨부',
   'agent.chat.attachedAlt': '첨부됨',
   'agent.chat.attachmentAlt': '첨부 파일',

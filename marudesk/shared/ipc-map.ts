@@ -485,6 +485,8 @@ export interface IpcMap {
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
   'agent:accept-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
   'agent:revert-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
+  // User-initiated cancel of a running background agent from the tray (audit H6).
+  'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
   // Pull the current chat state (initial render / re-mount).
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).

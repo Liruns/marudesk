@@ -342,6 +342,7 @@ export const EN_MESSAGES = {
   'agent.chat.approveAfter': '?',
   'agent.chat.approveBefore': 'Approve',
   'agent.chat.attachFiles': 'Attach files',
+  'agent.chat.background.cancelTitle': 'Cancel this background agent',
   'agent.chat.attachPhotos': 'Attach photos',
   'agent.chat.attachedAlt': 'attached',
   'agent.chat.attachmentAlt': 'attachment',

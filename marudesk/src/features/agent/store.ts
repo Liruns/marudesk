@@ -101,6 +101,7 @@ type AgentActions = {
   approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
   acceptEdit: (editId: string) => Promise<AgentEditActionResult>;
   revertEdit: (editId: string) => Promise<AgentEditActionResult>;
+  cancelBackground: (id: string) => Promise<void>;
   resetChat: () => Promise<void>;
   /**
    * Summarize the transcript for the model to free context while keeping the
@@ -297,6 +298,14 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       return await window.marudesk.invoke('agent:revert-edit', { editId });
     } catch {
       return { ok: false };
+    }
+  },
+
+  cancelBackground: async (id) => {
+    try {
+      await window.marudesk.invoke('agent:cancel-background', { id });
+    } catch {
+      // ignore — the next snapshot reflects the real state
     }
   },
 

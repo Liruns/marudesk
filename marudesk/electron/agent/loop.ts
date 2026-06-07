@@ -87,6 +87,13 @@ export { testProviderConnection } from './loop-helpers.ts';
 const MAX_STEPS = 24;
 
 /**
+ * Wall-clock backstop for a single tool call (audit H4). Generous enough to not
+ * cut off a legitimate slow tool or a multi-step subagent, but bounds a tool
+ * that hangs and ignores the abort signal so it can't wedge the turn forever.
+ */
+const TOOL_WALL_CLOCK_MS = 15 * 60_000;
+
+/**
  * Fraction of the conversation (by character weight) kept VERBATIM as the tail
  * when compacting. Only the older head is summarized; recent turns survive intact
  * so the model keeps full fidelity on what it's actively working on (cursor /
@@ -530,7 +537,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         call.summary = describeToolInput(call.name, call.input);
       }
       emit();
-      const out = await dispatchTool(call.name, call.input, ctx);
+      const out = await dispatchToolBounded(call.name, call.input, ctx);
       call.state = out.isError ? 'error' : 'ok';
       call.summary = out.summary;
       call.resultText = out.text;
@@ -572,6 +579,49 @@ async function dispatchTool(name: string, input: unknown, ctx: ToolContext): Pro
   if (name === COLLECT_BACKGROUND_AGENT) return collectBackgroundTool(input);
   if (name === CANCEL_BACKGROUND_AGENT) return cancelBackgroundTool(input);
   return callMcpTool(name, input, ctx);
+}
+
+/**
+ * Wall-clock + abort backstop around {@link dispatchTool} (audit H4). Almost
+ * every tool honors `ctx.signal` (run_command kills its child, streamText
+ * cancels), but a misbehaving one — a custom/external MCP tool, a subagent that
+ * ignores the signal — could otherwise run past a user Stop and wedge the turn,
+ * since the loop only re-checks `signal.aborted` AFTER the await returns. We race
+ * the dispatch against the abort signal and a generous wall-clock so the loop
+ * always regains control: the abandoned operation may keep running detached, but
+ * its result is discarded and the loop's post-tool abort check ends the turn.
+ */
+async function dispatchToolBounded(
+  name: string,
+  input: unknown,
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  if (ctx.signal.aborted) return { summary: 'aborted', text: `${name} aborted`, isError: true };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      dispatchTool(name, input, ctx),
+      new Promise<ToolResult>((resolve) => {
+        onAbort = () => resolve({ summary: 'aborted', text: `${name} aborted`, isError: true });
+        ctx.signal.addEventListener('abort', onAbort, { once: true });
+      }),
+      new Promise<ToolResult>((resolve) => {
+        timer = setTimeout(
+          () =>
+            resolve({
+              summary: 'timed out',
+              text: `${name} exceeded the ${Math.round(TOOL_WALL_CLOCK_MS / 60_000)}-minute tool time limit and was abandoned`,
+              isError: true,
+            }),
+          TOOL_WALL_CLOCK_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onAbort) ctx.signal.removeEventListener('abort', onAbort);
+  }
 }
 
 async function handleAskUser(
