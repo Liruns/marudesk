@@ -166,7 +166,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
           {receipt ? <ReceiptCard receipt={receipt} /> : null}
 
-          {!full ? <Taskboard plan={chat.plan} /> : null}
+          {/* Inline plan: always in the compact drawer; in the full surface only
+              below lg, where the side panel is hidden — so the plan is never lost
+              on a narrow window and never doubled (the aside is hidden lg:flex). */}
+          {chat.plan && chat.plan.steps.length > 0 ? (
+            <div className={full ? 'lg:hidden' : undefined}>
+              <Taskboard plan={chat.plan} />
+            </div>
+          ) : null}
 
           <BackgroundTray tasks={chat.background} />
 
@@ -207,7 +214,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             panel so it stays visible while the transcript scrolls (v5 §G2). The
             compact drawer keeps it inline (collapsible) below. */}
         {full && chat.plan && chat.plan.steps.length > 0 ? (
-          <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-l border-subtle p-3">
+          <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-l border-subtle p-3 lg:flex">
             <Taskboard plan={chat.plan} />
           </aside>
         ) : null}

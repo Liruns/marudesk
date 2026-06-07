@@ -4,6 +4,7 @@ import {
   startBackgroundAgentTool,
   collectBackgroundTool,
   cancelBackgroundTool,
+  cancelBackgroundTask,
   cancelBackgroundForConversation,
   setBackgroundRunnerForTests,
   whenBackgroundSettled,
@@ -119,6 +120,34 @@ cancelBackgroundForConversation('session-bg-test');
 check('reset-style teardown empties the projection', S.state.background.length === 0);
 const listAfter = collectBackgroundTool({});
 check('collect after teardown reports none', listAfter.text.includes('No background agents'));
+
+/* ── user cancel from the tray (H6) ───────────────────────────────────── */
+S.conversationId = 'session-cancel';
+setBackgroundRunnerForTests(() => new Promise(() => {})); // never settles on its own
+const spawn3 = startBackgroundAgentTool({ task: 'cancel me', label: 'C' }, ctx);
+const id3 = ackId(spawn3.text);
+check('cancelBackgroundTask cancels a running task', cancelBackgroundTask(id3) === true);
+check(
+  'user-cancelled task is projected cancelled',
+  S.state.background.find((t) => t.id === id3)?.status === 'cancelled',
+);
+check('cancelBackgroundTask on an unknown id returns false', cancelBackgroundTask('bg-nope') === false);
+cancelBackgroundForConversation('session-cancel');
+
+/* ── terminal-task eviction (H6) ──────────────────────────────────────── */
+S.conversationId = 'session-evict';
+setBackgroundRunnerForTests(() => Promise.resolve({ summary: 'ok', text: 'ok' }));
+const evIds: string[] = [];
+for (let i = 0; i < 22; i += 1) {
+  const s = startBackgroundAgentTool({ task: `t${i}`, label: `T${i}` }, ctx);
+  const eid = ackId(s.text);
+  evIds.push(eid);
+  await whenBackgroundSettled(eid);
+}
+check('terminal tasks are capped by eviction', S.state.background.length <= 20);
+check('the oldest terminal task is evicted', !S.state.background.some((t) => t.id === evIds[0]));
+check('the newest terminal task is retained', S.state.background.some((t) => t.id === evIds[21]));
+cancelBackgroundForConversation('session-evict');
 
 setBackgroundRunnerForTests(null);
 S.conversationId = null;
