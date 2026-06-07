@@ -34,7 +34,13 @@
 | 백그라운드 에이전트 | 🟡 Phase 1(detached + 트레이) | [background-agent 설계](./background-agent-design.md) |
 
 **결론: 코어는 끝났다.** 그래서 이 문서는 "에이전트로 만들기"가 아니라, 레퍼런스엔 있는데
-우리에겐 약하거나 없는 **5개 격차**를 닫는다. (이미 설계/구현된 것은 다시 계획하지 않는다 — 비-목표 §7.)
+우리에겐 약하거나 없는 **5개 격차**(§3)를 닫는다. (이미 설계/구현된 것은 다시 계획하지 않는다 — 비-목표 §7.)
+
+> ⚠️ **단, "있음 ≠ 잘 됨".** 2026-06-07 4-클러스터 코드 심층 감사(루프 / 컨텍스트·메모리·MCP /
+> 서브·백그라운드·플러그인 / UI·승인·패치) 결과, 코어는 의외로 견고했으나 *구현은 됐지만 부실/버그*인
+> 지점이 다수 드러났다 — 일부는 **데이터 손실급**. 이건 위 표의 ✅를 무효화하지 않되, 새 기능(§3)에
+> 앞서 **하드닝(§H)**으로 먼저 닫아야 할 빚이다. 특히 §H1~H3(revert/세션 영속성)은 G1(사전 diff)과
+> 직접 얽히므로 G1보다 먼저다.
 
 ---
 
@@ -177,6 +183,79 @@ hatchworks "Safe failure & recovery"(위험↑ → 결정론 강등 + "막혔어
 
 ---
 
+## H. 하드닝 — "있지만 부실/버그" (코드 감사 2026-06-07)
+
+> 4-클러스터 심층 감사가 찾은 *실제* 결함. file:line은 감사 시점 기준(shift 가능, 구현 시 재확인).
+> 우선순위는 **데이터 손실 > 안전/누수 > 정확성 > 위생**. **H1~H3는 §3의 G1보다 먼저 닫는다.**
+
+### H1 (P0, 데이터 손실). revert가 edit 이후 변경을 무검사 덮어쓰기
+- **증상:** `revertEdit`이 `edit.before`를 **무조건** 디스크에 씀([loop-turn-actions.ts:76](../electron/agent/loop-turn-actions.ts#L76)).
+  edit 적용 후 사용자/후속 턴이 그 파일을 고쳤어도 staleness 체크 없이 덮어 → **변경 소실**.
+  forward edit 경로는 [file-tools.ts `isStaleForEdit`](../electron/agent/tools/file-tools.ts)로 막는데 revert만 비대칭으로 무방비.
+- **수정:** revert도 동일 해시 가드 경유. 현재 != `edit.after`면 거부하고 "파일이 바뀌었습니다 — 수동 확인" 안내.
+
+### H2 (P0, 상태 불일치). edits가 세션에 영속되지 않음
+- **증상:** `SessionRecord`가 messages/transcript/usage만 저장하고 **`edits`를 안 담음**([loop-sessions.ts:39-52](../electron/agent/loop-sessions.ts#L39)).
+  resume/재시작 시 디스크는 수정된 채인데 Changes 섹션·revert가 **통째로 사라짐**. resume의 `keptEdits`는
+  *떠나는* 대화 것이라 재개 세션 본인의 과거 edit은 복원 불가.
+- **수정:** `SessionRecord`에 `edits`(경로+before/after+status) 직렬화 + resume 시 복원. accept/revert가 재시작을 견디게.
+
+### H3 (P1, 무음 실패). 렌더러 store가 모든 IPC 실패를 삼킴
+- **증상:** [store.ts](../src/features/agent/store.ts)의 accept/revert/abort/answer 액션이 전부 `catch {}` —
+  실패한 revert(예: 파일 삭제됨)가 버튼만 먹통, 사용자에게 무신호([store.ts:288](../src/features/agent/store.ts#L288)).
+- **수정:** 하드 실패는 토스트로 표면화(상태는 다음 `agent:event` 스냅샷이 보정하더라도 실패는 알린다).
+
+### H4 (P1, 안전/멈춤). dispatchTool 경계에 abort/timeout 없음
+- **증상:** 루프가 `await dispatchTool` 후에야 `signal.aborted` 재확인([loop.ts:533](../electron/agent/loop.ts#L533)).
+  `run_command`는 signal을 지키지만, `ctx.signal`을 무시하는 subagent/외부 MCP 툴은 끝까지 돌아 **사용자 Stop이 안 먹음**.
+- **수정:** dispatcher 레벨 wall-clock 타임아웃 + signal 레이스. (G4 실패 복구와 합류.)
+
+### H5 (P1, 비용 블라인드). 서브·백그라운드 자식 비용이 부모에 안 잡힘
+- **증상:** 자식 토큰/비용이 부모 usage에 **롤업 안 됨** + 자식 reasoning 델타가 통째로 버려짐
+  ([subagent-runtime.ts:60,146](../electron/agent/subagent-runtime.ts#L60)). 비용 상한도 없어 fan-out이 무한정 소진 가능.
+- **수정:** 자식 `usage`를 부모 게이지에 합산 + 누적 토큰 상한(background는 [§8 background-agent 설계](./background-agent-design.md) 연기 항목).
+
+### H6 (P1, 누수+제어불가). 백그라운드 registry 미-eviction + UI 취소 없음
+- **증상:** 완료(done/error/cancelled) 태스크가 registry에서 **영영 안 비워짐**(reset/resume에서만 삭제)
+  ([background.ts:196](../electron/agent/background.ts#L196)) → 장수 대화에서 무한 증가. 트레이는 읽기전용,
+  **실행 중 취소 버튼 없음** → 폭주/고비용 detached 에이전트를 사용자가 멈출 수 없음([Cards.tsx BackgroundTray](../src/features/agent/chat/Cards.tsx)).
+- **수정:** terminal 태스크 LRU eviction + `BackgroundTray`에 취소/dismiss 버튼(별도 IPC).
+
+### H7 (P2, 컨텍스트 누락). nested 지시 주입이 core 도구만 트리거
+- **증상:** `claimNestedInstructions`가 `out.touchedPaths` 기반인데 `read_workspace_file`/`read_editor`/
+  `list_workspace_files` 등 context-executor 읽기는 `touchedPaths`를 안 세움([loop.ts:545](../electron/agent/loop.ts#L545))
+  → 그 경로로 하위 디렉터리 진입 시 해당 `AGENTS.md`가 **조용히 누락**.
+- **수정:** context-executor 읽기도 `touchedPaths` 채우기.
+
+### H8 (P2, 데이터 손실). 메모리 동시쓰기/슬러그 충돌
+- **증상:** `write_memory`가 non-atomic write([memory-store.ts:81](../electron/agent/memory-store.ts#L81)) →
+  동시/사용자 편집과 인터리브 가능. `"My Notes"`와 `"my-notes!"`가 같은 슬러그 → **무경고 덮어쓰기**([memory-store.ts:23](../electron/agent/memory-store.ts#L23)).
+- **수정:** temp-rename atomic write + 슬러그 충돌 시 충돌 경고/접미사.
+
+### H9 (P2, 보안). 플러그인 guardedFetch DNS 리바인딩 + engine 호환 미검사
+- **증상:** `guardedFetch`가 `dns.lookup`으로 IP 검증 후 `fetch`가 **독립 재해석** → 검증 IP 미-pin,
+  악성 DNS가 lookup엔 public/실제엔 private/metadata 반환 가능([permissions.ts:142](../electron/plugins/permissions.ts#L142)).
+  + `PluginManifest.engine`이 타입만 있고 `readManifest`가 안 읽음 → 비호환 플러그인도 로드([manager.ts:61](../electron/plugins/manager.ts#L61)).
+- **수정:** 검증된 IP로 fetch pin(혹은 resolve된 IP 직결+Host 헤더), activation 시 engine semver 체크.
+
+### H10 (P2, 위생). binary 감지·시크릿 스크럽 폭 + write-tool 분류 드리프트
+- read_file binary 감지가 확장자뿐 → NUL-byte 스니핑 추가([file-tools.ts:29](../electron/agent/tools/file-tools.ts#L29)).
+- 시크릿 스크럽이 provider별 패턴뿐 → 자유부유 고엔트로피 토큰 통과([scrub.ts:37](../shared/scrub.ts#L37)). 엔트로피 fallback 검토(파일 차단이 1차 방어라 영향 제한적).
+- read-only 차단이 `write` 플래그 + `eval_js` 리터럴명 키잉([loop.ts:468](../electron/agent/loop.ts#L468)) + `WRITE_TOOL_NAMES`([registry.ts](../electron/agent/registry.ts)) vs per-descriptor `write:true` **이중 출처** → 드리프트 위험. 단일 출처로 통합 + `sideEffect` 플래그.
+
+### H — 단계 매핑
+| 단계 | 항목 | 우선 | G와의 연계 |
+|------|------|------|-----------|
+| H1 | revert staleness 가드 | P0 | G1 앞 |
+| H2 | edits 세션 영속 | P0 | G1 앞 |
+| H3 | store 실패 표면화 | P1 | G1과 함께 |
+| H4 | dispatchTool abort/timeout | P1 | **G4와 합류** |
+| H5 | 자식 비용 롤업 | P1 | G2 Taskboard 관찰성과 연계 |
+| H6 | background eviction+취소 UI | P1 | G2 UI와 함께 |
+| H7~H10 | 컨텍스트/메모리/보안/위생 | P2 | 독립 |
+
+---
+
 ## 4. UI/UX 방향 — "대화가 아니라 워크스페이스"
 
 데스크탑 멀티패널 = OpenCode "Mission Control" 방향이 최적. 다행히 관찰성 UI의 절반은 이미 있다
@@ -228,7 +307,11 @@ hatchworks "Safe failure & recovery"(위험↑ → 결정론 강등 + "막혔어
 | **G4** | 실패 복구 | 재시도 + 사람 인계 | G2 plan step blocked와 연계 |
 | **G5** | 메모리 UI | Settings 패널 | 도구 백엔드 재사용 |
 
-병행: G3·G5는 G1/G2와 독립. G4는 G2(plan step 상태) 뒤가 자연스럽다.
+**순서 주의:** §H 하드닝의 H1·H2(revert/세션 영속성, 둘 다 P0 데이터 손실)는 **G1보다 먼저** 닫는다 —
+사전 diff(G1)를 얹기 전에 "되돌리기/재개가 데이터를 잃지 않는다"가 전제이기 때문. 권장 전체 순서:
+**H1·H2 → G1 → H3 → G2(+H5·H6) → G3 → G4(+H4) → G5 → H7~H10.**
+
+병행: G3·G5는 G1/G2와 독립. G4는 G2(plan step 상태) 뒤가 자연스럽고 H4와 합류.
 각 단계 후 `npm run typecheck` + `npm run build`, UI 변경은 실제 surface 수동 점검(AGENTS.md 검증 규칙).
 
 ---
@@ -273,5 +356,9 @@ hatchworks "Safe failure & recovery"(위험↑ → 결정론 강등 + "막혔어
   현실 점검 = "이미 에이전트". 자동압축·서브에이전트·백그라운드는 이미 있음/설계됨 확인 → 재계획 제외.
 - **2026-06-07:** 진짜 격차 5개 확정(G1 사전 diff / G2 풍부형 Taskboard / G3 모델별 프롬프트 /
   G4 실패 복구 / G5 메모리 UI). Plan 철학 = **풍부형(Taskboard)**, 진행 = **설계 먼저** 결정.
+- **2026-06-07:** "있음 ≠ 잘 됨" 검증 — 4-클러스터 코드 심층 감사 수행. 코어(루프/압축/패치엔진/MCP/
+  게이팅/마크다운 보안)는 SOLID 확인. *구현됐지만 부실/버그* 10건을 §H 하드닝으로 채록(H1·H2는
+  데이터 손실급 → G1보다 선행). 감사 verdict: revert/세션-영속/렌더러-무음실패 = 최우선 부채,
+  서브·백그라운드 비용블라인드+누수+취소불가 = 차순위.
 </content>
 </invoke>
