@@ -88,9 +88,14 @@ v5에서 코어 격차(G1 사전 diff · G2 Taskboard · G3 모델별 프롬프�
 - **증상:** [shared/patch.ts:132-147](../shared/patch.ts#L132)가 `indexOf(op.oldString)` 정확매칭만.
   공백/들여쓰기/CRLF 한 글자 차이 → "oldString not found"로 **전체 실패**. self-heal은 line-numbered
   현재내용을 돌려주고([file-tools.ts:257-270](../electron/agent/tools/file-tools.ts#L257)) 모델이 수동 재craft.
-- **수정(=G, oh-my-pi Hashline):** content-hash anchor 매칭 + stale anchor 거부 + 공백 정규화 fuzzy
-  fallback. ast-grep 구조 매칭은 2차. `patch.ts`/`executors.ts` 자기완결 변경.
-- **검증:** 들여쓰기/CRLF/trailing-blank 케이스 harness + "실패율 before/after" 측정.
+- **수정(=G, oh-my-pi Hashline — 하이브리드, 열린결정 4):** **B 주축 + A 폴백**.
+  - **B(주축):** 읽기뷰가 줄 단위 **해시 앵커**를 emit → 모델이 verbatim 복제 대신 앵커로 편집 →
+    해시로 정확 적용(토큰↓·애매함 제거). stale 앵커 거부.
+  - **A(폴백):** 앵커 없음/stale/약한 모델이면 hard-fail 대신 **공백·CRLF 정규화 + fuzzy 매칭**으로
+    바닥 보장(애매하면 거부, 오매칭 방지). ast-grep 구조 매칭은 2차.
+  - **착수:** 단계 3에서 **A 폴백 먼저**(전 모델 즉시 실패 감소) → B(해시뷰+앵커) 얹어 천장.
+  - `patch.ts`/`file-tools.ts`(읽기뷰 해시)/`executors.ts` 변경. B는 프롬프트에 앵커 포맷 1줄.
+- **검증:** 들여쓰기/CRLF/trailing-blank harness + **edit 실패율 before/after** + (B) **출력 토큰 절감** 측정.
 
 ### W2 (P0, stub). 플러그인 설치/관리 UI 전무
 - **증상:** [PluginPanel.tsx](../src/features/plugins/PluginPanel.tsx)는 *이미 설정된* 플러그인 패널만
@@ -235,7 +240,7 @@ v5에서 코어 격차(G1 사전 diff · G2 Taskboard · G3 모델별 프롬프�
 |------|------|------|------|------|
 | **1** | U1 diff inline 코멘트 | hunk 코멘트 → 에이전트 반영 | 中 | 코멘트→반영 1왕복으로 수정 완료 |
 | **2** | U2 브라우저 요소 코멘트 | 요소 지목 → 에이전트(*USP*) | 中 | inspect 요소 코멘트→패치→reload 검증 동선 |
-| **3** | W1 Hashline | edit 신뢰성(엔진) | 中, 자기완결 | edit 실패율 before/after 측정·감소 |
+| **3** | W1 Hashline (B 주축+A 폴백) | edit 신뢰성(엔진) | 中 | A 폴백: 전 모델 edit 실패율↓ / B: 출력 토큰↓ |
 | **4** | W3 메모리 FTS+eviction | 세션 FTS 재활용 | 小~中 | 본문 키워드로 메모리 즉시 검색; 캡 도달 무중단 |
 | **5** | W5/U4 에러복구 카드 | retry/제안 affordance | 中 | 실패 카드에서 1클릭 재시도/수정지시 |
 | **6** | W7/U10 승인 입도 | semi-auto + 영속 allow/deny | 中 | 다음 세션에서 재질문 없음; 읽기자동/쓰기확인 |
@@ -310,12 +315,17 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 1. ~~W vs 차별점 비중~~ → **차별점 U1/U2 먼저**(결정 A').
 2. ~~병렬 thread 착수 시점~~ → **v6 포함**, 단계 12에서 쪼갬(결정 A·C).
 3. ~~U1/U2 우선순위~~ → **단계 1~2로 상향**(결정 A').
+4. ~~Hashline 도입 방식~~ → **하이브리드(B 주축 + A 폴백)**. 근거: 진짜 비용은 (1) edit 실패 재시도
+   루프, (2) `oldString` verbatim 복제 토큰. A(너그러운 매칭)는 (1)만 완화하고 (2)는 남김 + fuzzy
+   오매칭 꼬리위험. B(모델이 해시 앵커 참조)는 둘 다 공격(토큰↓·애매함 제거)하나 *읽기뷰가 해시를
+   emit → 모델이 앵커 참조 → 해시 적용* 풀루프여야 하고 **모델 의존적**(로컬/약한 모델은 앵커 헛짚음,
+   [roadmap P3](./roadmap.md)). → **B를 주축, A를 폴백**으로 layer: capable 모델은 앵커로 B의 천장,
+   앵커 없음/stale이면 hard-fail 대신 A 너그러운 매칭으로 바닥 보장. 착수는 단계 3에서 **A 폴백 먼저**
+   깔아 전 모델 즉시 실패 감소 → 그 위에 B(해시뷰+앵커) 얹어 천장. 끝 상태는 하이브리드 1개.
 5. ~~아티팩트 보안 범위~~ → **plugin:// 샌드박스 그대로 + tool/fs/http grant 0 + postMessage에 특권도구
    미노출**(§S.1). 아티팩트는 표시 전용, 망/도구 접근 없음.
 
-**남은 결정(구현 전 확정):**
-4. **Hashline 도입 방식(W1, 단계 3):** patch.ts에 fuzzy/hash 레이어를 *추가*할지, 도구 스키마(oldString)에
-   hash anchor 필드를 더해 모델이 anchor를 주게 할지. → 후자가 정석이나 프롬프트/스키마 변경 동반.
+**남은 결정:** 없음 — 구현 착수 가능.
 
 ---
 
@@ -349,6 +359,8 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
   (connect-src none)·CDP allowlist(Page.navigate 차단)·scrub·fs-safe 경계 **전부 견고 확인**(H9 등 사실).
   §S 신설: 신규 surface 위협→요건 매핑. P0 = U2(브라우저 DOM=untrusted 인젝션)·G4/U6(아티팩트 grant 0)·
   G3(automations 게이팅 풀바이패스 → 도구 allowlist+worktree 격리). 열린결정 5(아티팩트 보안) 해소.
-  남은 결정 = Hashline 도입 방식(구현 전 확정).
+- **2026-06-07:** 열린결정 4(Hashline 도입 방식) → **하이브리드(B 해시앵커 주축 + A 너그러운 매칭
+  폴백)** 확정. 근거 = 근본 비용은 실패 재시도 루프 + verbatim 복제 토큰 둘 다이고, B만이 둘 다 공격하나
+  모델 의존적이라 A를 바닥으로 깐다. 단계 3은 A 폴백 먼저 → B 얹기. **남은 열린 결정 없음 — 구현 착수 가능.**
 </content>
 </invoke>
