@@ -513,20 +513,20 @@ browser differentiator and reuses shipped assets.
   `--force`/`reset --hard` — so nothing is destroyed. Verified on a real repo in
   the worktree harness.
 
-> **Every roadmap item across §3.1–§3.12 is now shipped.** The Supervisor rail
-> (§3.5) landed as a ContextDrawer tab (cross-thread status + persistent approval
-> card + the page-action log); the spec lifecycle (§3.10) and the floating in-page
-> stage toolbar (§3.2) are in. What remains are genuinely larger follow-on
-> *subsystems*, not roadmap items: per-lane dev-server/browser/PR/CI orchestration
-> on top of the §3.8 board, and a richer spec → tasks → review state machine.
+> **Every roadmap item across §3.1–§3.12 is now shipped**, plus the first follow-on
+> increments: per-lane **merge + discard** on the §3.8 lanes board (practical
+> agent-lane management — `git:worktree-merge-lane` reusing mergeWorktree), and a
+> spec **status lifecycle** (draft → active → review → done) on §3.10. What still
+> remains are genuinely larger *subsystems*, not roadmap items: per-lane dev-server
+> / browser / PR / CI orchestration on top of the lanes board.
 >
-> **Verified:** full Playwright e2e **123/123** (timeline + filter + edit
-> provenance, receipt snapshot, worktree lanes + discard, icon stroke, agent tool
-> catalog, spec CRUD, Supervisor/Specs drawer tabs, stage-toolbar toggle, and the
-> full workflow save→replay→DOM-effect loop), renderer + main unit tests **59**
-> (timeline/edit/workflow row-builders, tool-group toggles, stage-toolbar script),
-> and the git-worktree harness **41 assertions** (incl. the checkpoint "nothing is
-> lost" guarantee).
+> **Verified:** full Playwright e2e **124/124** (timeline + filter + edit
+> provenance, receipt snapshot, worktree lanes + merge + discard, icon stroke,
+> agent tool catalog, spec CRUD + status, Supervisor/Specs drawer tabs,
+> stage-toolbar toggle, and the full workflow save→replay→DOM-effect loop),
+> renderer + main unit tests **59** (timeline/edit/workflow row-builders,
+> tool-group toggles, stage-toolbar script), and the git-worktree harness **41
+> assertions** (incl. the checkpoint "nothing is lost" guarantee).
 
 ---
 
