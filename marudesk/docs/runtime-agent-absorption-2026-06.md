@@ -437,8 +437,10 @@ browser differentiator and reuses shipped assets.
   agent" + source ranking + evidence copy; captures surface in the composer). The
   real gap was a pick being **invisible behind a collapsed drawer** — closed by a
   reveal-on-pick nonce (`useComposerStore.revealCaptures` → Shell opens the drawer
-  on the Captures tab). A floating in-page stage toolbar remains *later* (would
-  need its own injected bridge for marginal gain over the Captures flow).
+  on the Captures tab). The floating in-page stage toolbar is now **SHIPPED
+  (2026-06-08)** too — an injected pill (toggle from the browser menu) whose
+  "Send element to agent" button starts the picker via the always-present inspect
+  preload bridge (`startInspect` → `inspect:start`).
 - **N3. Runtime evidence timeline, read-only (§3.3 MVP). — SHIPPED (2026-06-08).**
   A new DevTools **Timeline** panel merges console errors + network failures on a
   single wall-clock axis (newest first), each row jumping to its panel.
@@ -459,11 +461,11 @@ browser differentiator and reuses shipped assets.
   eval/query_dom/reload_and_verify merged onto the same wall-clock axis as console
   + network, with an All/Problems/Actions filter. Done renderer-only — tool calls
   already carry name/input/state + `message.timestamp` in agent state.
-- **X2. Network "Triage this" (§3.4). — ALREADY SHIPPED.** *Review finding:* the
-  Network detail pane already has one-click agent triage
-  (`network-utils.ts buildNetworkFixPrompt` + `askAgent`), mirroring console "Fix
-  this". Now also reachable from the timeline (below). Element→agent fix-loop
-  remains later.
+- **X2. Network "Triage this" + element→agent fix-loop (§3.4). — SHIPPED
+  (2026-06-08).** The Network detail / timeline already triaged failed requests;
+  now the element capture card also has a **"Fix this"** action that sends the
+  element to the agent with explicit fix instructions (root-cause → fix → reload
+  + verify) — the element analog of the console/network fix loop.
 - **X3. Runtime-aware checkpoints (§3.6)** layered on the v6 message-checkpoint
   work: source snapshot + re-navigate marker.
 - **X4. Browser action preview-via-highlight on gated actions (§3.12 MVP).
@@ -472,13 +474,17 @@ browser differentiator and reuses shipped assets.
   `clearActionPreview` in `highlight.ts`, wired at the loop's approval gate).
 - **X4b. Evidence timeline actionability. — SHIPPED (2026-06-08).** Timeline rows
   run the existing fix (console) / triage (network) loops, not just navigation.
-- **X5. Timeline ↔ edit provenance (§3.9 addition)** once unified diff lands.
+- **X5. Timeline ↔ edit provenance (§3.9) — SHIPPED (2026-06-08).** The agent's
+  file edits now appear as rows on the Timeline, on the same wall-clock axis as
+  the console/network/page-action evidence that prompted them; clicking an edit
+  row opens the file. Renderer-only (edits already carry path + timestamp).
 
 ### Later — 2-3 months
-- **L1. Agent-lane / worktree board (§3.8) — MVP SHIPPED (2026-06-08):** the Source
+- **L1. Agent-lane / worktree board (§3.8) — SHIPPED (2026-06-08):** the Source
   Control panel lists every worktree of the active repo + change counts
-  (`git:worktree-list`, `WorktreeLanes.tsx`). Per-lane dev server / browser / PR /
-  CI remain the larger follow-on.
+  (`git:worktree-list`, `WorktreeLanes.tsx`) and discards stale agent lanes inline
+  (`git:worktree-remove`, refuses main / non-agent trees). Per-lane dev server /
+  browser / PR / CI orchestration remains the larger follow-on.
 - **L2. Session Receipt — running-app snapshot — SHIPPED (2026-06-08):** the
   ReceiptCard captures the live page on demand (`browser:capture-page-data`),
   kept out of the snapshot/persistence.
@@ -486,7 +492,9 @@ browser differentiator and reuses shipped assets.
   **SHIPPED (2026-06-08)**; cached browser workflows **SHIPPED (2026-06-08)** —
   save the chat's page actions to `.marudesk/workflows/*.json` and replay them
   model-free via the existing executors (Timeline "Save as workflow" + a saved-
-  workflows replay/delete list). Spec lifecycle remains.
+  workflows replay/delete list). Spec lifecycle **SHIPPED (2026-06-08)** — a Specs
+  ContextDrawer tab backed by `.marudesk/specs/*.json` (title + markdown body +
+  checkable task list), with "Send to agent" to hand a spec over as a turn.
 - **L4. Cached browser workflows (§3.12 later); element inspector source-candidate
   jump (§3.7 later) — SHIPPED (2026-06-08):** ranked source rows on the element
   capture card open the file in the editor.
@@ -505,29 +513,20 @@ browser differentiator and reuses shipped assets.
   `--force`/`reset --hard` — so nothing is destroyed. Verified on a real repo in
   the worktree harness.
 
-> **Verified:** full Playwright e2e **120/120** (incl. timeline + its filter,
-> receipt snapshot, worktree lanes, icon stroke, agent tool catalog, and the full
-> workflow save→replay→DOM-effect loop), renderer unit tests **55** (timeline
-> row-builders, workflow-step extraction, tool-group toggles), and the
-> git-worktree harness **41 assertions** (incl. the checkpoint "nothing is lost"
-> guarantee).
+> **Every roadmap item across §3.1–§3.12 is now shipped.** The Supervisor rail
+> (§3.5) landed as a ContextDrawer tab (cross-thread status + persistent approval
+> card + the page-action log); the spec lifecycle (§3.10) and the floating in-page
+> stage toolbar (§3.2) are in. What remains are genuinely larger follow-on
+> *subsystems*, not roadmap items: per-lane dev-server/browser/PR/CI orchestration
+> on top of the §3.8 board, and a richer spec → tasks → review state machine.
 >
-> **Still open (genuinely-new, larger subsystems):**
-> - *Spec lifecycle (§3.10 remainder)* — a structured spec → tasks → review flow;
->   steering files + cached workflows already shipped.
-> - *Floating in-page stage toolbar (§3.2 later)* and *element→agent fix-loop
->   (§3.4 later)* — marginal over the shipped Captures flow + console/network
->   fix loops; each needs its own injected bridge.
-> - *Timeline ↔ edit provenance (§3.9 / X5)* — gated on the unified-diff work.
->
-> **Reviewed and deliberately NOT built (redundant or needs its own design):**
-> - *Standalone Supervisor rail (§3.5)* — redundant. `ThreadBar.tsx` shows every
->   thread's status/busy and `AgentChat` renders plan/approvals/usage; the
->   page-action log it wanted now lives on the Timeline (X1 above).
-> - *Per-lane dev-server / browser / PR / CI Mission Control (§3.8)* — each is a
->   real subsystem, not a safe quick slice. The read-only lanes board (L1) is the
->   sensible MVP; "open lane as workspace" was rejected as it would clutter the
->   workspace with throwaway agent trees.
+> **Verified:** full Playwright e2e **123/123** (timeline + filter + edit
+> provenance, receipt snapshot, worktree lanes + discard, icon stroke, agent tool
+> catalog, spec CRUD, Supervisor/Specs drawer tabs, stage-toolbar toggle, and the
+> full workflow save→replay→DOM-effect loop), renderer + main unit tests **59**
+> (timeline/edit/workflow row-builders, tool-group toggles, stage-toolbar script),
+> and the git-worktree harness **41 assertions** (incl. the checkpoint "nothing is
+> lost" guarantee).
 
 ---
 
