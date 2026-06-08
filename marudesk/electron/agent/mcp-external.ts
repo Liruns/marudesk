@@ -670,11 +670,19 @@ async function refreshServerTools(id: string): Promise<void> {
 /** The connector factory shape — injectable so the harness can drive reconnects. */
 type ConnectFn = (c: McpServerConfig) => Promise<{ client: McpClientLike }>;
 
-/** Up to this many backoff retries after an unexpected drop before giving up. */
+/** Fast exponential-backoff retries right after a drop (transient blips). */
 const MAX_RECONNECT_ATTEMPTS = 5;
 /** First retry delay; doubles each attempt, capped at {@link RECONNECT_CAP_MS}. */
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
+/**
+ * After the fast burst, keep trying on a slow fixed interval (circuit-breaker
+ * recovery, v6 §W6) so a longer outage — a server restart, VPN drop, laptop
+ * sleep — heals on its own instead of staying dead until a manual Reload.
+ */
+const IDLE_RETRY_MS = 60_000;
+const MAX_IDLE_RETRIES = 10;
+const MAX_TOTAL_ATTEMPTS = MAX_RECONNECT_ATTEMPTS + MAX_IDLE_RETRIES;
 
 /** Pending reconnect timers, keyed by config id (with the data to retry). */
 type ReconnectEntry = { handle: unknown; config: McpServerConfig; connect: ConnectFn; attempt: number };
@@ -719,18 +727,24 @@ function cancelReconnect(id: string): void {
 }
 
 /**
- * Schedule reconnect attempt N. After {@link MAX_RECONNECT_ATTEMPTS} we give up and
- * leave the server in `error` (so the UI shows it failed and the user can Reload).
+ * Schedule reconnect attempt N. Attempts 1..{@link MAX_RECONNECT_ATTEMPTS} use fast
+ * exponential backoff; after that we don't give up immediately but fall back to a
+ * slow fixed-interval "idle" retry (v6 §W6) so a longer outage can still recover on
+ * its own. Only after {@link MAX_TOTAL_ATTEMPTS} do we mark `error` (the UI shows
+ * it failed and the user can Reload).
  */
 function beginReconnect(config: McpServerConfig, connect: ConnectFn, attempt: number): void {
-  if (attempt > MAX_RECONNECT_ATTEMPTS) {
-    console.error(`[mcp] server "${config.id}" gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts`);
+  if (attempt > MAX_TOTAL_ATTEMPTS) {
+    console.error(`[mcp] server "${config.id}" gave up reconnecting after ${MAX_TOTAL_ATTEMPTS} attempts`);
     setStatus(config, 'error', 0, { error: 'connection closed' });
     return;
   }
-  const delay = backoffMs(attempt);
+  const idle = attempt > MAX_RECONNECT_ATTEMPTS;
+  const delay = idle ? IDLE_RETRY_MS : backoffMs(attempt);
   setStatus(config, 'reconnecting', 0, {
-    error: `reconnecting (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
+    error: idle
+      ? `reconnecting (periodic retry ${attempt - MAX_RECONNECT_ATTEMPTS}/${MAX_IDLE_RETRIES})`
+      : `reconnecting (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
   });
   const handle = scheduleReconnect(() => runReconnect(config, connect, attempt), delay);
   reconnects.set(config.id, { handle, config, connect, attempt });
