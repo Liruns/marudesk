@@ -9,6 +9,7 @@ import {
   TextField,
 } from './SettingsControls';
 import { FallbackChain } from './FallbackChain';
+import { DelegateModelField } from './DelegateModelField';
 import { useSettingsStore } from './store';
 
 export function AgentCategory() {
@@ -167,6 +168,15 @@ export function AgentCategory() {
           />
         </div>
       ) : null}
+      <Field
+        label={t('settings.agent.delegateModel.label')}
+        hint={t('settings.agent.delegateModel.hint')}
+      >
+        <DelegateModelField
+          value={agent.subagentModel}
+          onChange={(subagentModel) => void update({ agent: { subagentModel } })}
+        />
+      </Field>
       <Field
         label={t('settings.agent.autoCompact.label')}
         hint={t('settings.agent.autoCompact.hint')}

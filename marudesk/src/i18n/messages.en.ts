@@ -637,6 +637,10 @@ export const EN_MESSAGES = {
   'settings.agent.denyTools.hint':
     'Tool names the agent may never run, in any mode (e.g. run_command, eval_js). One per line.',
   'settings.agent.denyTools.label': 'Never-run tools',
+  'settings.agent.delegateModel.hint':
+    'Model that spawned subagents and background agents use by default — pick a cheaper/faster one for delegated subtasks. Inherit uses the conversation model.',
+  'settings.agent.delegateModel.inherit': 'Inherit current model',
+  'settings.agent.delegateModel.label': 'Delegate (subagent) model',
   'settings.agent.fallback.hint':
     'When your selected model is rate-limited or errors out, retry on the next connected model below instead of failing. Tried top-to-bottom; your selected model is always first.',
   'settings.agent.fallback.label': 'Model fallback',

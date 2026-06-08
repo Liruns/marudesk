@@ -160,6 +160,13 @@ export type AppSettings = {
      * Reviewable/revocable in Settings → Agent. A deny entry always wins over this.
      */
     alwaysAllowTools: string[];
+    /**
+     * Delegate model for role routing (v6 §G5/U7). When set, spawned subagents and
+     * background agents default to THIS model instead of inheriting the parent's —
+     * route delegated subtasks to a cheaper/faster model to cut cost. The model can
+     * still override per-call; null = inherit the parent model (default, no change).
+     */
+    subagentModel: ModelRef | null;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -283,6 +290,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     editApproval: 'auto-apply',
     denyTools: [],
     alwaysAllowTools: [],
+    subagentModel: null,
   },
   pcControl: {
     enabled: false,
@@ -369,6 +377,15 @@ const MAX_FALLBACK_MODELS = 20;
  * fields non-empty strings, capped. A non-array falls back; an all-invalid array
  * yields []; an empty array is honored (the user cleared the chain).
  */
+function asModelRefOrNull(value: unknown, fallback: ModelRef | null): ModelRef | null {
+  if (value === null) return null;
+  if (value === undefined) return fallback;
+  const r = asRecord(value);
+  const provider = typeof r.provider === 'string' ? r.provider.trim() : '';
+  const model = typeof r.model === 'string' ? r.model.trim() : '';
+  return provider && model ? { provider, model } : fallback;
+}
+
 function asModelRefArray(value: unknown, fallback: ModelRef[]): ModelRef[] {
   if (!Array.isArray(value)) return fallback;
   const out: ModelRef[] = [];
@@ -470,6 +487,7 @@ export function sanitizeSettings(
       editApproval: ag.editApproval === 'preview' ? 'preview' : base.agent.editApproval,
       denyTools: asStringArray(ag.denyTools, base.agent.denyTools),
       alwaysAllowTools: asStringArray(ag.alwaysAllowTools, base.agent.alwaysAllowTools),
+      subagentModel: asModelRefOrNull(ag.subagentModel, base.agent.subagentModel),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

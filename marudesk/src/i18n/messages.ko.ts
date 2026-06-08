@@ -633,6 +633,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.agent.denyTools.hint':
     '에이전트가 어떤 모드에서도 절대 실행하지 않을 도구 이름(예: run_command, eval_js). 한 줄에 하나.',
   'settings.agent.denyTools.label': '절대 실행하지 않을 도구',
+  'settings.agent.delegateModel.hint':
+    '생성된 subagent와 백그라운드 에이전트가 기본으로 쓸 모델 — 위임 작업에는 더 싸고 빠른 모델을 고르세요. 상속은 대화 모델을 사용합니다.',
+  'settings.agent.delegateModel.inherit': '현재 모델 상속',
+  'settings.agent.delegateModel.label': '위임(subagent) 모델',
   'settings.agent.fallback.hint':
     '선택한 모델이 속도 제한에 걸리거나 오류가 나면 실패하지 않고 아래 연결된 모델을 순서대로 다시 시도합니다. 선택한 모델은 항상 첫 번째입니다.',
   'settings.agent.fallback.label': '모델 대체',
