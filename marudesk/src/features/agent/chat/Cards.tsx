@@ -10,6 +10,7 @@ import {
   ChevronsUpDown,
   Circle,
   CircleDot,
+  Camera,
   Loader2,
   MessageSquare,
   RotateCcw,
@@ -255,21 +256,60 @@ function EditCard({
 
 export function ReceiptCard({ receipt }: { receipt: Receipt }) {
   const { locale, t } = useI18n();
+  // Running-app snapshot (benchmark Top8): captured on demand so a base64 image
+  // never enters the agent snapshot / session persistence. null = not captured;
+  // '' = captured but no web view to grab.
+  const [shot, setShot] = useState<string | null>(null);
+  const [shooting, setShooting] = useState(false);
+  const capture = async () => {
+    setShooting(true);
+    try {
+      const res = await window.marudesk.invoke('browser:capture-page-data');
+      setShot(res ? res.dataUrl : '');
+    } catch {
+      setShot('');
+    } finally {
+      setShooting(false);
+    }
+  };
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 p-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-      <span className="flex items-center gap-2 text-body-sm text-fg-primary">
-        <span className="flex size-5 items-center justify-center rounded-pill bg-success-subtle shrink-0">
-          <Check size={12} className="text-success" />
+    <div className="rounded-lg border border-subtle bg-surface-1 p-3 flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span className="flex items-center gap-2 text-body-sm text-fg-primary">
+          <span className="flex size-5 items-center justify-center rounded-pill bg-success-subtle shrink-0">
+            <Check size={12} className="text-success" />
+          </span>
+          <span className="font-medium">{t('agent.chat.status.done')}</span>
         </span>
-        <span className="font-medium">{t('agent.chat.status.done')}</span>
-      </span>
-      {receipt.verdict ? (
-        <Badge variant={receipt.verdict.variant}>{t(receipt.verdict.labelKey)}</Badge>
-      ) : null}
-      {receipt.runtime > 0 ? (
-        <span className="flex items-center gap-1 text-caption text-fg-tertiary tabular-nums">
-          <span className="size-1.5 rounded-pill bg-accent shrink-0" aria-hidden />
-          {formatRuntimeChecks(locale, receipt.runtime)}
+        {receipt.verdict ? (
+          <Badge variant={receipt.verdict.variant}>{t(receipt.verdict.labelKey)}</Badge>
+        ) : null}
+        {receipt.runtime > 0 ? (
+          <span className="flex items-center gap-1 text-caption text-fg-tertiary tabular-nums">
+            <span className="size-1.5 rounded-pill bg-accent shrink-0" aria-hidden />
+            {formatRuntimeChecks(locale, receipt.runtime)}
+          </span>
+        ) : null}
+        <span className="flex-1" aria-hidden />
+        <button
+          type="button"
+          onClick={() => void capture()}
+          disabled={shooting}
+          title={t('agent.chat.receipt.snapshotTitle')}
+          className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-accent transition-colors duration-fast disabled:opacity-50"
+        >
+          <Camera size={12} /> {t('agent.chat.receipt.snapshot')}
+        </button>
+      </div>
+      {shot ? (
+        <img
+          src={shot}
+          alt={t('agent.chat.receipt.snapshotAlt')}
+          className="w-full rounded border border-subtle"
+        />
+      ) : shot === '' ? (
+        <span className="text-caption text-fg-tertiary">
+          {t('agent.chat.receipt.snapshotNone')}
         </span>
       ) : null}
     </div>

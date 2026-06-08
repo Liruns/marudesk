@@ -20,6 +20,7 @@ export const CHANNELS = {
     'browser:zoom',
     'browser:set-audio-muted',
     'browser:capture-page',
+    'browser:capture-page-data',
     'browser:downloads-list',
     'browser:download-action',
     'browser:downloads-clear',

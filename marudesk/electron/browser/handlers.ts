@@ -181,6 +181,14 @@ export function registerBrowserHandlers(deps: {
     return true;
   });
 
+  defineHandler('browser:capture-page-data', async () => {
+    const active = getActive();
+    if (!active || !active.view) return null;
+    const image = await active.view.webContents.capturePage();
+    if (image.isEmpty()) return null;
+    return { dataUrl: image.toDataURL() };
+  });
+
   defineHandler('browser:downloads-list', () => getDownloads());
 
   defineHandler('browser:download-action', ([payload]) => {

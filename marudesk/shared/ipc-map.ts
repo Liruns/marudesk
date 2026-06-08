@@ -146,6 +146,9 @@ export interface IpcMap {
   // Capture the active page to a PNG on the clipboard. Returns false when there's
   // no active web view to capture.
   'browser:capture-page': { args: []; result: boolean };
+  // Capture the active web view as a PNG data URL (for the session receipt's
+  // running-app snapshot), or null when there's no web view / capture is empty.
+  'browser:capture-page-data': { args: []; result: { dataUrl: string } | null };
   // Download manager. The live list is also pushed on the browser:downloads
   // event whenever it changes; this invoke is the pull for an initial render.
   'browser:downloads-list': { args: []; result: DownloadEntry[] };
