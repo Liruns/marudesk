@@ -10,6 +10,8 @@ import { AgentChat } from '../agent/AgentChat';
 import { SessionList } from '../agent/SessionList';
 import { openAgentTab } from '../agent/store';
 import { CaptureCard } from './CaptureCard';
+import { SupervisorRail } from './SupervisorRail';
+import { SpecsPanel } from './SpecsPanel';
 
 type Props = {
   open: boolean;
@@ -166,10 +168,20 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             label={t('context.tabs.captures')}
             count={captures.length}
           />
+          <TabButton
+            active={tab === 'supervisor'}
+            onClick={() => setTab('supervisor')}
+            label={t('context.tabs.supervisor')}
+          />
+          <TabButton active={tab === 'specs'} onClick={() => setTab('specs')} label={t('context.tabs.specs')} />
         </nav>
 
         {tab === 'agent' ? (
           <AgentChat />
+        ) : tab === 'supervisor' ? (
+          <SupervisorRail />
+        ) : tab === 'specs' ? (
+          <SpecsPanel />
         ) : (
           <>
             <div className="chrome-header shrink-0 flex items-center justify-between px-4 py-2">

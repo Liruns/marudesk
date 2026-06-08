@@ -9,7 +9,7 @@ import type { Capture } from '../../../shared/capture';
  * so there's a single, model-first AI surface instead of two divergent ones.
  */
 
-type ComposerTab = 'agent' | 'captures';
+type ComposerTab = 'agent' | 'captures' | 'supervisor' | 'specs';
 
 type ComposerState = {
   tab: ComposerTab;
