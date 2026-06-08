@@ -50,7 +50,10 @@ function normalizeUrl(raw: string): string {
 }
 
 function startDevServer(lanePath: string, command: string): LaneDevStartResult {
-  if (procs.has(lanePath)) return { ok: false, reason: 'already-running' };
+  // Key the map by the resolved path so start/stop/open match regardless of
+  // symlink/normalization differences in the path the caller passes.
+  const key = path.resolve(lanePath);
+  if (procs.has(key)) return { ok: false, reason: 'already-running' };
   const shell = resolveShell(undefined, getSettingsSync().terminal.defaultShell);
   const pty = spawn(shell, commandArgs(shell, command), {
     name: 'xterm-256color',
@@ -64,7 +67,7 @@ function startDevServer(lanePath: string, command: string): LaneDevStartResult {
     output: '',
     state: { path: lanePath, status: 'starting', url: null, exitCode: null },
   };
-  procs.set(lanePath, rec);
+  procs.set(key, rec);
   push();
 
   pty.onData((data) => {
@@ -88,14 +91,14 @@ function startDevServer(lanePath: string, command: string): LaneDevStartResult {
     rec.state.status = 'exited';
     rec.state.exitCode = exitCode;
     push();
-    procs.delete(lanePath);
+    procs.delete(key);
     push();
   });
   return { ok: true };
 }
 
 function stopDevServer(lanePath: string): boolean {
-  const rec = procs.get(lanePath);
+  const rec = procs.get(path.resolve(lanePath));
   if (!rec) return false;
   try {
     rec.pty.kill();
@@ -145,7 +148,7 @@ export function registerLaneDevHandlers(deps: { getMainWindow: () => BrowserWind
 
   defineHandler('lanes-dev:open', ([payload]) => {
     const target = str(obj(payload).path, 'path');
-    const rec = procs.get(target);
+    const rec = procs.get(path.resolve(target));
     if (!rec || !rec.state.url) return false;
     createAndActivateTab('web', rec.state.url);
     return true;

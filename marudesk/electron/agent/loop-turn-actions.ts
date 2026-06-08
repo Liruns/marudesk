@@ -171,6 +171,17 @@ export async function restoreTurnPage(turnId: string): Promise<{ navigated: bool
  */
 const turnCheckpoint = new Map<string, { root: string; sha: string | null }>();
 
+/**
+ * Drop the per-turn runtime markers (start URL + checkpoint snapshot). Called by
+ * reset() on a new chat so these session-lived maps don't grow unbounded across
+ * conversations. Turn ids are unique, so this only reclaims memory — the live
+ * chat's edits keep their own per-edit revert.
+ */
+export function clearTurnRuntimeState(): void {
+  turnStartUrl.clear();
+  turnCheckpoint.clear();
+}
+
 /** `root` is the agent's effective working root (the worktree when isolated). */
 export async function recordTurnCheckpoint(turnId: string, root: string): Promise<void> {
   const sha = await createCheckpoint(root);
