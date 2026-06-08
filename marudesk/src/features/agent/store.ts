@@ -125,6 +125,8 @@ type AgentActions = {
   acceptEdit: (editId: string) => Promise<AgentEditActionResult>;
   revertEdit: (editId: string) => Promise<AgentEditActionResult>;
   cancelBackground: (id: string) => Promise<void>;
+  /** Steerable plan (v6 §U5): toggle a step's status or remove it. */
+  editPlanStep: (id: string, op: { status?: string; remove?: boolean }) => Promise<void>;
   resetChat: () => Promise<void>;
   /**
    * Summarize the transcript for the model to free context while keeping the
@@ -343,6 +345,14 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       await window.marudesk.invoke('agent:cancel-background', { id });
     } catch {
       // ignore — the next snapshot reflects the real state
+    }
+  },
+
+  editPlanStep: async (id, op) => {
+    try {
+      await window.marudesk.invoke('agent:edit-plan-step', { id, ...op });
+    } catch {
+      // ignore — the next agent:event snapshot reflects the real plan state
     }
   },
 

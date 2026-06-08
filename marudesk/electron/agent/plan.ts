@@ -21,6 +21,41 @@ function slugId(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'step';
 }
 
+/**
+ * User-driven plan edit (v6 §U5 — steerable plan). Toggle a step's status or
+ * remove it, so the plan isn't purely model-owned: the user can check off a step
+ * they finished or drop one that's irrelevant. Mutates {@link S.state.plan} in
+ * place and emits; the model's next `update_plan` still replaces the whole plan
+ * (by stable id, so a status the user set survives until the model revises it).
+ * Returns false when the plan/step is gone or the request is a no-op.
+ */
+export function editPlanStep(
+  id: string,
+  op: { status?: AgentPlanStepStatus; remove?: boolean },
+): boolean {
+  const plan = S.state.plan;
+  if (!plan) return false;
+  let steps = plan.steps;
+  if (op.remove) {
+    const next = steps.filter((s) => s.id !== id);
+    if (next.length === steps.length) return false;
+    steps = next;
+  } else if (op.status && STATUSES.includes(op.status)) {
+    let found = false;
+    steps = steps.map((s) => {
+      if (s.id !== id) return s;
+      found = true;
+      return { ...s, status: op.status! };
+    });
+    if (!found) return false;
+  } else {
+    return false;
+  }
+  S.state.plan = steps.length > 0 ? { steps, updatedAt: Date.now() } : null;
+  emit();
+  return true;
+}
+
 export function updatePlanTool(input: unknown): ToolResult {
   const o = (input ?? {}) as { steps?: unknown };
   if (!Array.isArray(o.steps)) {
