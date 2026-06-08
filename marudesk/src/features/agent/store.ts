@@ -18,6 +18,7 @@ import {
   mergeFileAttachments,
   type PendingFileAttachment,
 } from './chat/attachments';
+import { useDiffCommentsStore } from './chat/diffComments';
 
 /**
  * Renderer projection of the agentic AI Chat (docs/agentic-chat-design.md §8).
@@ -96,6 +97,21 @@ type AgentActions = {
   /** Pull the current state on mount (catches up after the panel was unmounted). */
   hydrate: () => Promise<void>;
   send: () => Promise<void>;
+  /**
+   * Resolve the selected provider/model/key, attach the selected captures + active
+   * web tab, and fire one `agent:send`. Shared by {@link send} and feedback flows
+   * (e.g. diff inline comments, v6 §U1) so they don't duplicate the wiring. Does
+   * not touch the composer draft/history — callers own that.
+   */
+  dispatchPrompt: (
+    prompt: string,
+    images?: AgentImageInput[],
+  ) => Promise<{ ok: boolean; reason?: string }>;
+  /**
+   * Send a ready-made prompt as a turn (used by diff-comment feedback). No-ops with
+   * a `busy` reason while a turn is in flight; surfaces a hard failure as localError.
+   */
+  submitPrompt: (prompt: string) => Promise<{ ok: boolean; reason?: string }>;
   abort: () => Promise<void>;
   answer: (callId: string, answers: AgentAnswers) => Promise<void>;
   approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
@@ -206,6 +222,22 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       return;
     }
 
+    // Record the prompt for up/down recall (dedupe consecutive repeats, cap len).
+    const history = [...get().promptHistory.filter((h) => h !== text), text].slice(-HISTORY_CAP);
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch {
+      // ignore — in-memory history still updates
+    }
+    const fileContext = formatAttachedFilesForPrompt(pendingFiles);
+    const prompt = fileContext ? `${text}\n\n${fileContext}` : text;
+    set({ localError: null, draft: '', pendingImages: [], pendingFiles: [], promptHistory: history });
+    const res = await get().dispatchPrompt(prompt, pendingImages.length > 0 ? pendingImages : undefined);
+    // Restore the draft + images so the user can retry without re-attaching.
+    if (!res.ok) set({ localError: res.reason ?? null, draft: text, pendingImages, pendingFiles });
+  },
+
+  dispatchPrompt: async (prompt, images) => {
     const providers = useProvidersStore.getState();
     const provider = providers.selectedProvider;
     const model = providers.selectedModel;
@@ -218,39 +250,36 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     // friendly "open a folder" message in main, while browser/page tools and a
     // plain conversation work without one.
     if (!hasKey) {
-      set({ localError: `No API key configured for ${provider}. Add one in Settings.` });
-      return;
+      return { ok: false, reason: `No API key configured for ${provider}. Add one in Settings.` };
     }
 
     const web = useWebPageStore.getState();
     const captures = web.captures
       .filter((c) => web.selectedCaptureIds.has(c.id))
       .map(toPayload);
-
-    // Record the prompt for up/down recall (dedupe consecutive repeats, cap len).
-    const history = [...get().promptHistory.filter((h) => h !== text), text].slice(-HISTORY_CAP);
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-    } catch {
-      // ignore — in-memory history still updates
-    }
-    const fileContext = formatAttachedFilesForPrompt(pendingFiles);
-    const prompt = fileContext ? `${text}\n\n${fileContext}` : text;
-    set({ localError: null, draft: '', pendingImages: [], pendingFiles: [], promptHistory: history });
     try {
       const res = await window.marudesk.invoke('agent:send', {
         provider,
         model,
         prompt,
         captures,
-        images: pendingImages.length > 0 ? pendingImages : undefined,
+        images: images && images.length > 0 ? images : undefined,
         tabId: activeWebTabId(),
       });
-      // Restore the draft + images so the user can retry without re-attaching.
-      if (!res.ok) set({ localError: res.reason, draft: text, pendingImages, pendingFiles });
+      return res.ok ? { ok: true } : { ok: false, reason: res.reason };
     } catch (err) {
-      set({ localError: toMessage(err), draft: text, pendingImages, pendingFiles });
+      return { ok: false, reason: toMessage(err) };
     }
+  },
+
+  submitPrompt: async (prompt) => {
+    const { status } = get().chat;
+    if (status === 'thinking' || status === 'working' || status === 'waiting_for_user') {
+      return { ok: false, reason: 'busy' };
+    }
+    const res = await get().dispatchPrompt(prompt);
+    if (!res.ok && res.reason) set({ localError: res.reason });
+    return res;
   },
 
   abort: async () => {
@@ -312,6 +341,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   resetChat: async () => {
     try {
       await window.marudesk.invoke('agent:reset');
+      useDiffCommentsStore.getState().clearAll();
       set({ localError: null });
       // The conversation just cleared was persisted on its last finish() — refresh
       // the list so it shows up immediately in the history.
@@ -342,6 +372,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     try {
       const ok = await window.marudesk.invoke('agent:resume-session', { id });
       if (ok) {
+        useDiffCommentsStore.getState().clearAll();
         set({ localError: null });
         await get().hydrate();
       }

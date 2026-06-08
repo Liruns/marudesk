@@ -11,6 +11,7 @@ import {
   Circle,
   CircleDot,
   Loader2,
+  MessageSquare,
   RotateCcw,
   Sparkles,
 } from 'lucide-react';
@@ -30,6 +31,11 @@ import type {
 import { useAgentStore } from '../store';
 import { toDiffLines, diffStats } from '../diff';
 import { formatChangedFiles, formatRuntimeChecks, type Receipt } from './format';
+import {
+  useDiffCommentsStore,
+  countDiffComments,
+  composeDiffCommentsPrompt,
+} from './diffComments';
 
 /* ── edits (P2: accept / revert) ────────────────────────────────────────── */
 
@@ -48,6 +54,27 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
   const { locale, t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
+  const submitPrompt = useAgentStore((s) => s.submitPrompt);
+  const busy = useAgentStore(
+    (s) =>
+      s.chat.status === 'thinking' ||
+      s.chat.status === 'working' ||
+      s.chat.status === 'waiting_for_user',
+  );
+  // Inline review comments the user has staged on these diffs (v6 §U1). When any
+  // exist, the header shows a "Send N comments" action that composes them into one
+  // feedback turn for the agent, then clears them.
+  const commentsByEdit = useDiffCommentsStore((s) => s.byEdit);
+  const clearComments = useDiffCommentsStore((s) => s.clearAll);
+  const commentCount = countDiffComments(commentsByEdit);
+  const sendComments = async () => {
+    const prompt = composeDiffCommentsPrompt(edits, commentsByEdit, t);
+    const res = await submitPrompt(prompt);
+    if (res.ok) clearComments();
+    else if (res.reason && res.reason !== 'busy') {
+      toast({ title: t('agent.chat.comments.sendFailed'), description: res.reason, variant: 'error' });
+    }
+  };
   // Which file diffs are expanded. "Expand all" fills it; per-file toggles flip
   // a single id. Kept here (not per card) so the bulk control can drive them.
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
@@ -85,6 +112,17 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
         <span className="tabular-nums text-success">+{totals.added}</span>
         <span className="tabular-nums text-error">−{totals.removed}</span>
         <span className="flex-1" aria-hidden />
+        {commentCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => void sendComments()}
+            disabled={busy}
+            className="flex items-center gap-1 text-accent hover:text-accent-hover transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed"
+            title={t('agent.chat.comments.sendTitle')}
+          >
+            <MessageSquare size={12} /> {t('agent.chat.comments.send')} ({commentCount})
+          </button>
+        ) : null}
         {applied.length > 0 ? (
           <>
             <button
@@ -145,7 +183,10 @@ function EditCard({
   const { t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
+  const comments = useDiffCommentsStore((s) => s.byEdit[edit.id]);
+  const setComment = useDiffCommentsStore((s) => s.setComment);
   const lines = open ? toDiffLines(edit.before, edit.after) : [];
+  const commentCount = comments ? Object.keys(comments).length : 0;
 
   return (
     <div className="rounded border border-subtle bg-surface-1">
@@ -159,6 +200,14 @@ function EditCard({
         >
           {edit.path}
         </button>
+        {commentCount > 0 ? (
+          <span
+            className="flex items-center gap-0.5 text-caption text-accent shrink-0"
+            title={t('agent.chat.comments.count')}
+          >
+            <MessageSquare size={11} /> {commentCount}
+          </span>
+        ) : null}
         {edit.status === 'applied' ? (
           <div className="flex items-center gap-1">
             <button
@@ -187,7 +236,15 @@ function EditCard({
           </Badge>
         )}
       </div>
-      {open ? <DiffBlock filePath={edit.path} lines={lines} className="rounded-none border-0 border-t border-subtle" /> : null}
+      {open ? (
+        <DiffBlock
+          filePath={edit.path}
+          lines={lines}
+          className="rounded-none border-0 border-t border-subtle"
+          comments={comments}
+          onCommentChange={(lineIndex, text) => setComment(edit.id, lineIndex, text)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -354,6 +354,12 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.badge.stillPresent': '아직 있음',
   'agent.chat.cancelQueued': '대기 중인 메시지 취소',
   'agent.chat.collapseDiffs': '모든 diff 접기',
+  'agent.chat.comments.count': '이 변경에 대한 인라인 코멘트',
+  'agent.chat.comments.promptHeader':
+    '변경사항에 대한 인라인 리뷰 코멘트입니다. 각 항목을 반영해 수정해주세요:',
+  'agent.chat.comments.send': '코멘트 전송',
+  'agent.chat.comments.sendFailed': '코멘트를 전송하지 못했습니다',
+  'agent.chat.comments.sendTitle': '이 인라인 코멘트를 에이전트에 전송',
   'agent.chat.context.approvalMode': '승인 모드',
   'agent.chat.context.contextWindow': '컨텍스트 창',
   'agent.chat.context.filesEdited': '수정된 파일',

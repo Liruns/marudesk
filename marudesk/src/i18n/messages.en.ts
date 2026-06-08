@@ -355,6 +355,12 @@ export const EN_MESSAGES = {
   'agent.chat.badge.stillPresent': 'still present',
   'agent.chat.cancelQueued': 'Cancel queued message',
   'agent.chat.collapseDiffs': 'Collapse all diffs',
+  'agent.chat.comments.count': 'Inline comments on this change',
+  'agent.chat.comments.promptHeader':
+    'Here are inline review comments on your changes. Please address each one:',
+  'agent.chat.comments.send': 'Send comments',
+  'agent.chat.comments.sendFailed': 'Could not send comments',
+  'agent.chat.comments.sendTitle': 'Send these inline comments to the agent',
   'agent.chat.context.approvalMode': 'Approval mode',
   'agent.chat.context.contextWindow': 'Context window',
   'agent.chat.context.filesEdited': 'Files edited',
