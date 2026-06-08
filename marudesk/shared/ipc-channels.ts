@@ -128,6 +128,9 @@ export const CHANNELS = {
     'automations:set-enabled',
     'automations:run-now',
   ],
+  // Cached browser workflows (§3.10): saved page-action sequences, replayed
+  // without the model.
+  workflows: ['workflows:list', 'workflows:save', 'workflows:delete', 'workflows:run'],
   // Workspace content search (electron/search.ts). Prefers ripgrep, falls back
   // to a Node walk reusing the workspace IGNORE_DIRS + binary/size skips.
   search: ['search:content'],

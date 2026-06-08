@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Play, Save, Trash2 } from 'lucide-react';
 import { Badge } from '../../../components/ui';
 import { cn } from '../../../lib/cn';
+import { toast } from '../../../lib/toast';
+import type { Workflow } from '../../../../shared/workflows';
 import { askAgent, useAgentStore } from '../../agent/store';
 import { useDevtoolsStore } from '../store';
-import { buildAgentRows, buildProblemRows, type Row } from './evidence-rows';
+import { buildAgentRows, buildProblemRows, buildWorkflowSteps, type Row } from './evidence-rows';
 import { buildNetworkFixPrompt } from './network-utils';
 
 /**
@@ -53,12 +56,67 @@ export function EvidenceTimeline() {
   const captureConsoleError = useDevtoolsStore((s) => s.captureConsoleError);
   const messages = useAgentStore((s) => s.chat.messages);
   const [filter, setFilter] = useState<SourceFilter>('all');
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
 
   const rows = useMemo(() => {
     const problems = filter === 'actions' ? [] : buildProblemRows(entries, network);
     const actions = filter === 'problems' ? [] : buildAgentRows(messages);
     return [...problems, ...actions].sort((a, b) => b.t - a.t);
   }, [entries, network, messages, filter]);
+
+  // Replayable steps from this chat's page actions, and the saved workflows
+  // (§3.10): save the current sequence, then replay it later without the model.
+  const steps = useMemo(() => buildWorkflowSteps(messages), [messages]);
+  const refreshWorkflows = useCallback(() => {
+    void window.marudesk
+      .invoke('workflows:list')
+      .then(setWorkflows)
+      .catch(() => setWorkflows([]));
+  }, []);
+  useEffect(() => refreshWorkflows(), [refreshWorkflows]);
+
+  const saveWorkflow = async () => {
+    const name = window.prompt('Name this workflow', `Workflow ${workflows.length + 1}`)?.trim();
+    if (!name) return;
+    try {
+      await window.marudesk.invoke('workflows:save', { name, steps });
+      refreshWorkflows();
+      toast({ title: 'Workflow saved', description: `${steps.length} steps`, variant: 'success' });
+    } catch {
+      toast({ title: 'Could not save workflow', variant: 'error' });
+    }
+  };
+
+  const runWorkflow = async (wf: Workflow) => {
+    try {
+      const res = await window.marudesk.invoke('workflows:run', { id: wf.id });
+      if (res.ok) {
+        const failed = res.results.filter((r) => !r.ok && !r.skipped).length;
+        toast({
+          title: failed === 0 ? `Replayed “${wf.name}”` : `“${wf.name}” finished with ${failed} error(s)`,
+          description: `${res.results.length} steps`,
+          variant: failed === 0 ? 'success' : 'error',
+        });
+      } else {
+        toast({
+          title: 'Could not replay',
+          description: res.reason === 'no-web-tab' ? 'Open a web page first.' : res.reason,
+          variant: 'error',
+        });
+      }
+    } catch {
+      toast({ title: 'Could not replay workflow', variant: 'error' });
+    }
+  };
+
+  const deleteWorkflow = async (wf: Workflow) => {
+    try {
+      await window.marudesk.invoke('workflows:delete', { id: wf.id });
+      refreshWorkflows();
+    } catch {
+      // best-effort
+    }
+  };
 
   // Hand a row into the existing fix/triage loop: console → stage the error +
   // ask (same as Console "Fix this"); network → ask with the request identity
@@ -95,6 +153,16 @@ export function EvidenceTimeline() {
           ))}
         </span>
         <span className="flex-1" aria-hidden />
+        {steps.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => void saveWorkflow()}
+            title="Save these page actions as a replayable workflow"
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-accent hover:bg-accent-subtle transition-colors duration-fast"
+          >
+            <Save size={12} /> Save as workflow
+          </button>
+        ) : null}
         <span className="tabular-nums">{rows.length}</span>
       </div>
       {rows.length === 0 ? (
@@ -145,6 +213,44 @@ export function EvidenceTimeline() {
           ))}
         </ul>
       )}
+      {workflows.length > 0 ? (
+        <div className="shrink-0 border-t border-subtle">
+          <div className="flex h-7 items-center px-3 text-caption uppercase tracking-wide text-fg-tertiary">
+            Saved workflows
+          </div>
+          <ul className="max-h-40 overflow-y-auto pb-1">
+            {workflows.map((wf) => (
+              <li
+                key={wf.id}
+                className="group flex items-center gap-2 px-3 py-1 text-body-sm"
+              >
+                <span className="min-w-0 flex-1 truncate text-fg-secondary" title={wf.startUrl ?? ''}>
+                  {wf.name}
+                </span>
+                <span className="shrink-0 text-caption tabular-nums text-fg-tertiary">
+                  {wf.steps.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void runWorkflow(wf)}
+                  title="Replay this workflow on the live page"
+                  className="shrink-0 rounded p-1 text-accent opacity-0 transition-opacity duration-fast hover:bg-accent-subtle group-hover:opacity-100 focus-visible:opacity-100"
+                >
+                  <Play size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteWorkflow(wf)}
+                  title="Delete this workflow"
+                  className="shrink-0 rounded p-1 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-error-subtle hover:text-error group-hover:opacity-100 focus-visible:opacity-100"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

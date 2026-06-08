@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage, ToolCall } from '../../../../shared/agent';
 import type { ConsoleEntry, NetworkEntry } from '../types';
-import { buildAgentRows, buildProblemRows } from './evidence-rows';
+import { buildAgentRows, buildProblemRows, buildWorkflowSteps } from './evidence-rows';
 
 /**
  * Page-action timeline rows (docs/runtime-agent-absorption-2026-06.md §3.3/§3.5).
@@ -53,6 +53,22 @@ describe('buildAgentRows', () => {
       { id: 'm', role: 'assistant', timestamp: 1, parts: [{ type: 'text', text: 'hi' }] },
     ];
     expect(buildAgentRows(messages)).toEqual([]);
+  });
+});
+
+describe('buildWorkflowSteps', () => {
+  it('extracts successful page-mutating steps in order, skipping the rest', () => {
+    const messages: AgentMessage[] = [
+      tool({ id: '1', name: 'click', input: { selector: '#a' } }),
+      tool({ id: '2', name: 'query_dom', input: { selector: '#x' } }), // read-only → skip
+      tool({ id: '3', name: 'fill', input: { selector: '#b', value: 'hi' } }),
+      tool({ id: '4', name: 'click', input: { selector: '#fail' }, state: 'error' }), // failed → skip
+      tool({ id: '5', name: 'read_file', input: { path: 'a' } }), // not a page action → skip
+    ];
+    expect(buildWorkflowSteps(messages)).toEqual([
+      { tool: 'click', input: { selector: '#a' } },
+      { tool: 'fill', input: { selector: '#b', value: 'hi' } },
+    ]);
   });
 });
 

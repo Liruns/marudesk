@@ -40,6 +40,7 @@ import type {
   WorktreeMergeResult,
 } from './worktree';
 import type { Automation, AutomationInput, AutomationRun } from './automations';
+import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
 import type {
   BrowserNativeMenuItem,
   TabKind,
@@ -428,6 +429,12 @@ export interface IpcMap {
   'automations:delete': { args: [payload: { id: string }]; result: { ok: boolean } };
   'automations:set-enabled': { args: [payload: { id: string; enabled: boolean }]; result: Automation | null };
   'automations:run-now': { args: [payload: { id: string }]; result: AutomationRun | null };
+
+  // cached browser workflows (§3.10 — saved page-action sequences, model-free replay)
+  'workflows:list': { args: []; result: Workflow[] };
+  'workflows:save': { args: [payload: { name: string; steps: WorkflowStep[] }]; result: Workflow };
+  'workflows:delete': { args: [payload: { id: string }]; result: boolean };
+  'workflows:run': { args: [payload: { id: string }]; result: WorkflowRunResult };
 
   // search (content search — electron/search.ts)
   'search:content': {

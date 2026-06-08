@@ -27,6 +27,7 @@ import { registerSecretsHandlers } from './secrets';
 import { registerOAuthHandlers } from './oauth/handlers';
 import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
+import { registerWorkflowHandlers } from './workflows/handlers';
 import { registerStorageHandlers } from './storage-handlers';
 import { registerAppInfoHandlers } from './app-info';
 import { registerAutoUpdater } from './updater';
@@ -287,6 +288,7 @@ void app.whenReady().then(() => {
   registerModelsHandlers();
   registerCustomProviderHandlers();
   registerAgentHandlers();
+  registerWorkflowHandlers();
   registerStorageHandlers();
   registerAppInfoHandlers();
   // Windows in-app auto-update: registers its IPC handlers always and, on a

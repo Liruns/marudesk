@@ -1,4 +1,5 @@
 import type { AgentMessage, ToolCall } from '../../../../shared/agent';
+import { isWorkflowStepTool, type WorkflowStep } from '../../../../shared/workflows';
 import type { ConsoleEntry, NetworkEntry } from '../types';
 
 /**
@@ -114,6 +115,27 @@ export function buildProblemRows(entries: ConsoleEntry[], network: NetworkEntry[
     });
   }
   return rows;
+}
+
+/**
+ * Extract the replayable page-action steps from the transcript, in order — the
+ * successful page-mutating tool calls (click/fill/press_key/scroll). Read-only
+ * tools (query_dom/eval_js) and failed calls are skipped. Backs "Save as
+ * workflow" (§3.10).
+ */
+export function buildWorkflowSteps(messages: readonly AgentMessage[]): WorkflowStep[] {
+  const steps: WorkflowStep[] = [];
+  for (const m of messages) {
+    for (const part of m.parts) {
+      if (part.type !== 'tool') continue;
+      const call = part.call;
+      if (call.state !== 'ok' || !isWorkflowStepTool(call.name)) continue;
+      const input =
+        call.input && typeof call.input === 'object' ? (call.input as Record<string, unknown>) : {};
+      steps.push({ tool: call.name, input });
+    }
+  }
+  return steps;
 }
 
 /** Derive page-action rows from the chat transcript's browser/runtime tool calls. */
