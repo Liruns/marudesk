@@ -10,8 +10,10 @@
     "package": "npm run build && electron-builder",
     "package:mac": "npm run build && electron-builder --mac dmg",
     "package:win": "npm run build && electron-builder --win nsis",
+    "package:linux": "npm run build && electron-builder --linux",
     "publish:win": "npm run build && electron-builder --win nsis --publish always",
     "publish:mac": "npm run build && electron-builder --mac dmg --publish always",
+    "publish:linux": "npm run build && electron-builder --linux --publish always",
     "lint": "eslint .",
     "rebuild:native": "electron-builder install-app-deps",
     "preview": "vite preview",
@@ -101,6 +103,25 @@
       "allowToChangeInstallationDirectory": true,
       "include": "build/installer.nsh",
       "createDesktopShortcut": false
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "synopsis": "Code-aware desktop agent with a browser stage, editor, and terminal.",
+      "maintainer": "Liruns <duct1235@gmail.com>"
     }
   },
   "dependencies": {

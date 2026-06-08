@@ -128,16 +128,17 @@ Open **Settings → AI Providers** and either paste an API key or sign in with a
 ```bash
 cd marudesk
 npm run build            # type-check + bundle
-npm run package:win      # or: npm run package:mac
+npm run package:win      # or: npm run package:mac / npm run package:linux
 ```
 
 ### Cut a release (CI)
 
 Releases are built and published by the **Release** GitHub Actions workflow
 (`.github/workflows/release.yml`). Pushing a `v*` tag builds marudesk on native
-runners for each target — macOS arm64 (`macos-14`), macOS x64 (`macos-13`), and
-Windows x64 — and uploads the installers (`dmg` for macOS, NSIS `exe` for
-Windows) to the GitHub release that matches `marudesk/package.json` version:
+runners for each target — macOS arm64 (`macos-14`), macOS x64 (`macos-13`),
+Windows x64 (`windows-latest`), and Linux x64 (`ubuntu-latest`) — and uploads
+the installers (`dmg` for macOS, NSIS `exe` for Windows, `AppImage` + `deb` for
+Linux) to the GitHub release that matches `marudesk/package.json` version:
 
 ```bash
 # bump marudesk/package.json version first, commit, then:
@@ -147,8 +148,8 @@ git push origin v0.2.0
 
 A manual `workflow_dispatch` run builds the same matrix without publishing, so
 you can smoke-test packaging. To build/publish from your own machine instead,
-use `npm run publish:win` or `npm run publish:mac` (`GH_TOKEN` required), or
-`npm run package:win` / `npm run package:mac` for a local-only build.
+use `npm run publish:win` / `publish:mac` / `publish:linux` (`GH_TOKEN`
+required), or `npm run package:*` for a local-only build.
 
 ### Auto-update (Windows)
 
@@ -160,10 +161,10 @@ on the next quit). For this to work, each release must carry the update metadata
 `npm run publish:win`) produce automatically.
 
 The feed is configured by `build.publish` in `marudesk/package.json`
-(`Liruns/marudesk`). macOS keeps the manual check (it opens the releases page):
-the Mac `dmg` is currently unsigned (download-and-run), and in-app installs
-there require Apple code signing + notarization before auto-update can be turned
-on for macOS.
+(`Liruns/marudesk`). macOS and Linux keep the manual check (it opens the
+releases page): the Mac `dmg` is currently unsigned (download-and-run, requires
+Apple code signing + notarization before auto-update can be enabled), and the
+Linux `AppImage`/`deb` are download-and-run for now.
 
 ## Development and verification
 

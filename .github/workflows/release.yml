@@ -9,9 +9,10 @@ name: Release
 # A manual run (workflow_dispatch) builds the same matrix but does NOT publish,
 # so you can smoke-test packaging without cutting a release.
 #
-# Mac note: the app is currently unsigned (build.mac.hardenedRuntime=false), so
-# the dmg is download-and-run. In-app auto-update stays Windows-only until the
-# Mac build is code-signed/notarized (see electron/updater.ts).
+# Targets: macOS dmg (arm64 + x64), Windows NSIS (x64), Linux AppImage + deb
+# (x64). In-app auto-update stays Windows-only for now (see electron/updater.ts);
+# the macOS dmg is unsigned/download-and-run and the Linux artifacts are
+# download-and-run too.
 
 on:
   push:
@@ -42,6 +43,9 @@ jobs:
           - label: Windows (x64)
             os: windows-latest
             args: --win nsis --x64
+          - label: Linux (x64)
+            os: ubuntu-latest
+            args: --linux --x64
     defaults:
       run:
         working-directory: marudesk
