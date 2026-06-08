@@ -169,42 +169,39 @@ already owned by another doc are kept tight with a cross-reference; the
 browser-differentiated, net-new ones are fuller. Priority tags: **P0** (Now),
 **P1** (Next), **P2** (Later).
 
-### 3.1 Page highlights — **P0** · net-new · refs: Vessel, stagewise, BrowserOS
+### 3.1 Page highlights — **P0 · SHIPPED (2026-06-08)** · refs: Vessel, stagewise, BrowserOS
 
-- **User story.** "When the agent reads, clicks, or is about to edit a node, I
-  see it light up on the live page, so I can follow and trust what it's doing."
-- **UI placement.** Overlay on the Stage (the `web` tab viewport), above the
-  page, below MaruDesk chrome. A small legend chip (read/act/target) in the
-  StatusBar.
-- **State model.** `RuntimeHighlight { tabId; callId; nodeSelector | backendNodeId;
-  kind: 'read'|'act'|'target'|'error'; label; ttlMs }`, a short-lived list keyed
-  by tabId in a new `features/stage-overlay` store; cleared on navigation and on
-  tool-call completion.
-- **Main-process support.** Extend the shipped inspect overlay
-  (`electron/inspect-overlay.ts`, `electron/browser/inspect.ts`,
-  `electron/inspect-preload.ts`) to accept *agent-driven* highlight requests (not
-  just user pick); resolve a node via CDP `DOM.getBoxModel` / `Overlay.highlightNode`
-  (already in the allowlist surface, `electron/browser/cdp.ts` `isAllowedCdpMethod`).
-  Emit highlight events from the tool executors for browser tools (`read_page`,
-  `query_dom`, `click`, `eval_js` when it resolves a node).
-- **Renderer components.** Extend the existing
-  `src/features/browser/BrowserStageOverlays.tsx` (today's user-pick inspect
-  overlay) to render agent-driven highlight boxes + labels; StatusBar legend chip;
-  subscribe via `useIpcListener`.
-- **IPC/contracts.** Event `stage:highlight` `{ tabId, highlights: RuntimeHighlight[] }`
-  in `shared/ipc.ts` (`EVENT_CHANNELS`); reuse CDP path, no new fs/CDP surface.
-- **Tests.** `harness:*` for the overlay resolver (selector→box); e2e: fake
-  driver issues a `query_dom`, assert a `stage:highlight` event fires and clears
-  on navigate.
-- **Risks.** Overlay z-order vs. page content; box drift on scroll/resize (debounce
-  + recompute on `Page` scroll events); single-CDP-client contention if Chrome
-  DevTools is open (degrade silently, per roadmap §10 known limitation).
-- **MVP.** Highlight on `read_page`/`query_dom`/`click` with a 2.5s TTL, cleared on
-  nav. No animation beyond a 120ms fade (`--motion-fast`).
-- **Later.** Persistent "this is the node the current error maps to" pin;
-  multi-node highlight for a query result set; highlight replay along the timeline.
+- **User story.** "When the agent reads, clicks, or fills a node, I see it light
+  up on the live page, so I can follow and trust what it's doing."
+- **UI placement.** Drawn *inside* the page over the resolved element (a labeled
+  accent box). **Review correction:** the web view is a native `WebContentsView`
+  composited above the renderer, so a renderer overlay (`BrowserStageOverlays.tsx`)
+  would render *under* the page — highlights must be injected, the same technique
+  as the inspect picker.
+- **State model.** None persisted — each highlight is a transient in-page node that
+  self-removes after a 2s TTL; a navigation drops it with the old document.
+- **Main-process support.** `electron/agent/tools/highlight.ts` — a self-contained,
+  injection-safe page function run fire-and-forget through the existing allowlisted
+  `Runtime.evaluate` (`shared-helpers.ts` `evaluate` path). The five page-acting
+  tools (`query_dom`, `click`, `fill`, `press_key`, `scroll`) call
+  `highlightInPage(rec, selector, label)`.
+- **Renderer components.** None — the box is page DOM, not React.
+- **IPC/contracts.** None new — reuses the allowlisted `Runtime.evaluate`.
+- **Tests.** typecheck + build + lint + `harness:mcp` (149/149) green; real-UI
+  smoke pending a display (run `npm run dev`, drive a `click`/`query_dom`).
+- **Risks.** A subsequent `read_page`/`query_dom` within the TTL could include the
+  `[data-marudesk-agent-highlight]` node (self-clears; low). Viewport coords don't
+  track scroll (short TTL; acceptable). Chrome-DevTools CDP contention degrades
+  silently.
+- **Later.** Highlight gated browser actions *before* execution (§3.12 preview);
+  error→node pin; multi-node query-result highlight; replay along the timeline.
 
-### 3.2 Element → agent (stage capture) — **P0** · extends shipped · refs: stagewise, Onlook
+### 3.2 Element → agent (stage capture) — **P0 · SHIPPED (2026-06-08)** · refs: stagewise, Onlook
+
+> Shipped as reveal-on-pick: a stage pick switches to the Captures tab and opens
+> the drawer (`useComposerStore.revealCaptures` → `Shell`), so the existing
+> capture card / focused "Send to agent" / source ranking are immediately
+> actionable. The floating in-page toolbar below remains *later*.
 
 - **User story.** "I click an element on the running page and say *fix this* or
   *explain this* — the agent gets the element, its surroundings, and a best-effort
@@ -234,7 +231,14 @@ browser-differentiated, net-new ones are fuller. Priority tags: **P0** (Now),
 - **Later.** "Fix this element" closed loop (edit → reload → re-pick → verify the
   visual/behavioral change), mirroring the console loop.
 
-### 3.3 Runtime evidence timeline — **P0→P1** · net-new · refs: Vessel (workflow tracking), Stagehand
+### 3.3 Runtime evidence timeline — **P0 · MVP SHIPPED (2026-06-08)** · refs: Vessel (workflow tracking), Stagehand
+
+> Shipped MVP: a read-only DevTools **Timeline** panel
+> (`src/features/devtools/panels/EvidenceTimeline.tsx`) merging console
+> errors/exceptions/warnings + failed/4xx/5xx network requests on one wall-clock
+> axis (network `wallTime` now captured at `requestWillBeSent`), each row jumping
+> to its panel. Navigation / agent-action / reload-verify rows + the main-side
+> merger remain *later* (below).
 
 - **User story.** "I see a single chronological stream of what happened to the
   running app — navigations, console errors, failed requests, agent page-actions,
@@ -416,15 +420,28 @@ Compass (roadmap §1): dogfood + portfolio, not moat. Sequence biases to the
 browser differentiator and reuses shipped assets.
 
 ### Now — 1-2 weeks
-- **N1. Page highlights MVP (§3.1).** Agent browser-tool call → overlay highlight
-  on the Stage, cleared on nav. Reuses `inspect-overlay.ts` + CDP. Highest
-  visible-differentiation per unit effort.
-- **N2. Element → agent stage affordance (§3.2).** Floating inspect toolbar →
-  "Ask about this / Add to context" using the existing `Capture` union. No new
-  IPC.
-- **N3. Runtime evidence timeline, read-only (§3.3 MVP).** Project the already-
-  captured console errors + navigations + network failures into the Evidence dock
-  with jump-to-evidence.
+- **N1. Page highlights MVP (§3.1). — SHIPPED (2026-06-08).** `query_dom`,
+  `click`, `fill`, `press_key`, and `scroll` draw a transient labeled box over the
+  resolved selector. *Review correction:* highlights are **injected into the page**
+  (`electron/agent/tools/highlight.ts`, fire-and-forget via the existing
+  `Runtime.evaluate` path), not rendered in `BrowserStageOverlays.tsx` — the web
+  view is a native `WebContentsView` composited above the renderer, so a renderer
+  overlay would sit *under* it (the same reason the inspect picker injects). No new
+  IPC, no CDP allowlist change.
+- **N2. Element → agent (§3.2). — SHIPPED (2026-06-08).** *Review finding:* the
+  pipeline was ~90% built (`ElementCaptureCard` has comment + focused "Send to
+  agent" + source ranking + evidence copy; captures surface in the composer). The
+  real gap was a pick being **invisible behind a collapsed drawer** — closed by a
+  reveal-on-pick nonce (`useComposerStore.revealCaptures` → Shell opens the drawer
+  on the Captures tab). A floating in-page stage toolbar remains *later* (would
+  need its own injected bridge for marginal gain over the Captures flow).
+- **N3. Runtime evidence timeline, read-only (§3.3 MVP). — SHIPPED (2026-06-08).**
+  A new DevTools **Timeline** panel merges console errors + network failures on a
+  single wall-clock axis (newest first), each row jumping to its panel.
+  *Review correction:* network needed a wall-clock field — `requestWillBeSent`'s
+  `wallTime` is now captured (the monotonic `startTime` isn't comparable with the
+  console's wall-clock `timestamp`). Renderer-only projection; navigation /
+  agent-action / reload-verify rows remain the later main-side merger.
 - **N4. Confirm the design-benchmark Sprint-1 polish is landed** (custom
   scrollbar, `--ring` focus, Lucide stroke 1.5, small-text tracking). Tokens for
   these already exist (`tokens.css` `--ring`, `--scrollbar-*`); verify global CSS
