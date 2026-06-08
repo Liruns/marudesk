@@ -26,7 +26,7 @@ test('timeline: surfaces a console error + a failed request with actions', async
     // Select the Timeline panel — opening it enables Runtime/Log/Network so both
     // console errors and request failures are captured.
     await dock.getByRole('button', { name: 'Timeline', exact: true }).click();
-    await expect(dock.getByText('Runtime evidence')).toBeVisible();
+    await expect(dock.getByText('Runtime evidence', { exact: true })).toBeVisible();
 
     // Navigate to a page that logs an error and fires a request that 500s.
     await page.evaluate((url) => window.marudesk.invoke('browser:navigate', url), fixture.url);
@@ -38,6 +38,13 @@ test('timeline: surfaces a console error + a failed request with actions', async
     // Failed-request row (500) + its Triage action.
     await expect(dock.getByText('/api/boom')).toBeVisible();
     await expect(dock.getByRole('button', { name: 'Triage' }).first()).toBeVisible();
+
+    // Source filter: "Actions" hides the problem rows (no agent ran in this test,
+    // so the agent page-action log is empty); "Problems" brings them back.
+    await dock.getByRole('button', { name: 'Actions', exact: true }).click();
+    await expect(dock.getByText('No agent page actions on this page yet.')).toBeVisible();
+    await dock.getByRole('button', { name: 'Problems', exact: true }).click();
+    await expect(dock.getByText('marudesk-e2e-timeline')).toBeVisible();
   } finally {
     await fixture.close();
     await app.close();
