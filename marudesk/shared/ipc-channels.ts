@@ -111,6 +111,20 @@ export const CHANNELS = {
     'git:fetch',
     'git:pull',
     'git:push',
+    // Worktree isolation (Stage 12-B): run the agent in an isolated git worktree.
+    'git:worktree-status',
+    'git:worktree-enter',
+    'git:worktree-merge',
+    'git:worktree-discard',
+  ],
+  // Automations (Stage 12-C): saved prompts that run on a schedule.
+  automations: [
+    'automations:list',
+    'automations:create',
+    'automations:update',
+    'automations:delete',
+    'automations:set-enabled',
+    'automations:run-now',
   ],
   // Workspace content search (electron/search.ts). Prefers ripgrep, falls back
   // to a Node walk reusing the workspace IGNORE_DIRS + binary/size skips.
@@ -150,6 +164,11 @@ export const CHANNELS = {
     'agent:search-sessions',
     'agent:resume-session',
     'agent:delete-session',
+    // Thread switching (Stage 12-B-2): hold + switch between concurrent chats.
+    'agent:list-threads',
+    'agent:new-thread',
+    'agent:switch-thread',
+    'agent:close-thread',
   ],
   // Local data store management — Settings → Data & Storage reads stats, clears
   // saved sessions, and reveals the data folder (docs/data-storage-design).

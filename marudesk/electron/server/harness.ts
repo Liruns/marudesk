@@ -57,6 +57,12 @@ function buildDeps(): {
       reset(): boolean {
         return true;
       },
+      editPlanStep(): boolean {
+        return true;
+      },
+      setApprovalMode(): boolean {
+        return true;
+      },
     },
     subscribe(cb): () => void {
       subs.add(cb);

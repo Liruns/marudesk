@@ -208,9 +208,19 @@ function buildStubAgent(): {
   agent: AgentApi;
   subscribe: (cb: (s: AgentChatState) => void) => () => void;
   emit: (s: AgentChatState) => void;
-  calls: { startTurn: AgentSendInput[]; reset: number };
+  calls: {
+    startTurn: AgentSendInput[];
+    reset: number;
+    editPlanStep: { id: string; status?: string; remove?: boolean }[];
+    setApprovalMode: string[];
+  };
 } {
-  const calls = { startTurn: [] as AgentSendInput[], reset: 0 };
+  const calls = {
+    startTurn: [] as AgentSendInput[],
+    reset: 0,
+    editPlanStep: [] as { id: string; status?: string; remove?: boolean }[],
+    setApprovalMode: [] as string[],
+  };
   const state: AgentChatState = { ...emptyAgentChatState(), status: 'idle' };
   const subs = new Set<(s: AgentChatState) => void>();
   const agent: AgentApi = {
@@ -224,6 +234,14 @@ function buildStubAgent(): {
     snapshot: () => state,
     reset: () => {
       calls.reset += 1;
+      return true;
+    },
+    editPlanStep: (id, op) => {
+      calls.editPlanStep.push({ id, status: op.status, remove: op.remove });
+      return true;
+    },
+    setApprovalMode: (mode) => {
+      calls.setApprovalMode.push(mode);
       return true;
     },
   };
@@ -363,6 +381,38 @@ async function main(): Promise<void> {
     const resetAck = await resetAckP;
     check('reset command → {k:ack, ok:true}', resetAck.k === 'ack' && resetAck.ok === true);
     check('reset dispatched to the stubbed loop.reset', stub.calls.reset === 1);
+
+    // ── U5: edit-plan-step dispatches with parser-validated args ────────────
+    const planAckP = mock.next((m) => m.k === 'ack' && m.cid === 'cid-plan');
+    mock.send({ k: 'cmd', cid: 'cid-plan', cmd: 'edit-plan-step', args: { id: 'step-2', status: 'done' } });
+    const planAck = await planAckP;
+    check('edit-plan-step command → {k:ack, ok:true}', planAck.k === 'ack' && planAck.ok === true);
+    check(
+      'edit-plan-step dispatched to the loop with validated id+status',
+      stub.calls.editPlanStep.length === 1 &&
+        stub.calls.editPlanStep[0]!.id === 'step-2' &&
+        stub.calls.editPlanStep[0]!.status === 'done',
+    );
+
+    // ── U10: set-approval-mode dispatches; an invalid mode is acked ok:false ─
+    const modeAckP = mock.next((m) => m.k === 'ack' && m.cid === 'cid-mode');
+    mock.send({ k: 'cmd', cid: 'cid-mode', cmd: 'set-approval-mode', args: { mode: 'auto' } });
+    const modeAck = await modeAckP;
+    check('set-approval-mode command → {k:ack, ok:true}', modeAck.k === 'ack' && modeAck.ok === true);
+    check(
+      'set-approval-mode dispatched to the loop with the validated mode',
+      stub.calls.setApprovalMode.length === 1 && stub.calls.setApprovalMode[0] === 'auto',
+    );
+    const badModeAckP = mock.next((m) => m.k === 'ack' && m.cid === 'cid-badmode');
+    mock.send({ k: 'cmd', cid: 'cid-badmode', cmd: 'set-approval-mode', args: { mode: 'nope' } });
+    const badModeAck = await badModeAckP;
+    check(
+      'an invalid approval mode → {k:ack, ok:false, error} (validation, not a crash)',
+      badModeAck.k === 'ack' &&
+        badModeAck.ok === false &&
+        typeof (badModeAck as { error?: string }).error === 'string',
+    );
+    check('the rejected set-approval-mode did NOT reach the loop', stub.calls.setApprovalMode.length === 1);
 
     console.log(`\nrelay-bridge harness: ${passed} assertions passed`);
   } finally {

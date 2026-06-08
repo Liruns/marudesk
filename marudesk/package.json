@@ -25,6 +25,9 @@
     "harness:search": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/search-core.harness.ts",
     "harness:ssh-config": "node --experimental-strip-types electron/ssh/config-discovery.harness.ts",
     "harness:patch-match": "node --experimental-strip-types electron/patch-match.harness.ts",
+    "harness:worktree": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/git-worktree.harness.ts",
+    "harness:worktree-iso": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/worktree-isolation.harness.ts",
+    "harness:automations": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/automations/automations.harness.ts",
     "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts",
     "harness:prompt-injection": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/prompt-injection-harness.ts",
     "harness:agent-attachments": "node --experimental-strip-types electron/agent/attachment-harness.ts",
@@ -37,6 +40,7 @@
     "harness:subagent": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/subagent-harness.ts",
     "harness:background": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/background-harness.ts",
     "harness:plan": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/plan-harness.ts",
+    "harness:threads": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/thread-registry.harness.ts",
     "harness:agent-turn-edits": "node --experimental-strip-types electron/agent/turn-edits-harness.ts",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest"

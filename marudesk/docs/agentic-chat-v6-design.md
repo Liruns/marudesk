@@ -391,6 +391,49 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 - **단계 12 — worktree → 병렬 thread → automations**: 세션→동시 thread 재설계 + git worktree 격리 +
   스케줄러. 대형 아키텍처(멀티 PR). worktree(기반)→thread(승격)→automations 순서로 쪼개야 하며,
   automations는 §S.1대로 worktree 격리 + per-automation 도구 allowlist가 전제(무인=auto 게이팅 우회).
+  - **12-A 착지(엔진):** `electron/git-worktree.ts` — 로컬 git repo에 `marudesk/agent/*` 브랜치 worktree를
+    add/list/remove, pending 변경 요약, base 브랜치로 머지(충돌 시 abort+worktree 보존, --force 금지)
+    / discard. Source Control과 동일한 `runGit` 하드닝(argv-only·SSH 거부·C 로케일) 재사용. 실제 임시
+    repo 대상 `harness:worktree` 24개 통과.
+  - **12-B-1 착지(격리 배선):** `electron/worktree-isolation.ts` — 워크스페이스 root별 격리 상태(영속) +
+    생애주기(enter/merge/discard) + `effectiveAgentRoot(root)`. 에이전트 실행 경로(loop `startTurn`의 ws
+    + `revertEdit`)가 활성 시 worktree로 라우팅 → 파일 편집·run_command·diagnostics가 격리 브랜치에서
+    동작(에디터/UI는 main 유지, 챗 diff로 검토 후 병합). off면 no-op(동작 변화 0). IPC
+    `git:worktree-{status,enter,merge,discard}` + Source Control 패널 컨트롤. `harness:worktree-iso`
+    20개(순수 직렬화 + 임시 repo 생애주기 + 영속 + stale 복구).
+  - **12-C 착지(automations):** `electron/automations/*` + `shared/automations.ts` — 저장 프롬프트 +
+    스케줄(interval/daily/weekly, raw cron 없음) → 주기 tick이 due 자동화를 **분리된 읽기 전용 에이전트**로
+    실행(§S.1: 무인이라 승인 불가 → background와 동일한 read-only·non-gated 툴셋 + per-automation
+    allowTools로 추가 축소, run_command/eval_js 불가). 스토어(CRUD/영속) + 스케줄러(find-due→run→record,
+    in-flight 중복 방지) + Settings UI. `harness:automations` 30개(스케줄 수학·직렬화·CRUD·due·스케줄러).
+    쓰기 가능 automations(worktree 격리 + 통합 승인 큐 전제)는 후속.
+  - **12-B-2 착지(per-thread 격리):** worktree 격리를 (thread, repo root)별로 일반화 —
+    `worktree-isolation.ts`가 active 대화 id(주입된 accessor)로 키잉, 각 thread가 자기 worktree를 가져
+    같은 repo의 동시 thread가 독립 격리(충돌 없음). 대화별 영속이라 resume 시 격리 복원. effectiveAgentRoot
+    시그니처 불변(내부에서 thread 해소) → loop/revert 변경 없음. `harness:worktree-iso` 28개(per-thread
+    독립 격리/discard 격리 포함).
+  - **12-B-2 착지(thread 레지스트리):** 싱글턴 `S`를 thread 레지스트리로 승격 — `export let S`가 활성
+    컨테이너를 가리키는 ESM 라이브 바인딩(switch는 idle일 때만 → turn 중 컨테이너 스왑 불가, 기존 동작
+    바이트 보존). new/switch/close/list thread + mid-turn 가드. IPC `agent:{list,new,switch,close}-thread`
+    + `agent:threads` 이벤트 + `ThreadBar` 렌더러(탭 전환/생성/닫기). `harness:threads` 18개. 기존
+    background/subagent/bridge 하니스 전부 통과(= S 전환이 단일-thread 동작 보존 확인).
+  - **12-B-2 착지(진짜 동시 실행):** `runLoop`을 캡처한 thread 컨테이너로 파라미터화(turn 시작 시 `const
+    S = opts.container` + `emit`/finish/parking/handleAskUser/recordEdits/compaction/persistSession를
+    컨테이너 단위로). switch의 busy 가드 제거(turn은 컨테이너 바인딩이라 실행 중 전환 안전) → 여러
+    thread가 **동시에** 턴을 굴림. emit은 active=전체 chat / 비active=switcher 요약만(보던 chat 안
+    뺏김). 턴 제어(approve/respond/abort)는 turnId로 **전 thread 라우팅**(parked 턴이 비active thread에
+    있어도 전환해 승인 가능). 대화-변이 메타툴(update_plan/background/subagent)은 `ctx.thread`로 자기
+    thread 타겟(plan 손상 방지). **불변식: 단일 thread면 컨테이너=active S라 동작 바이트 동일** →
+    subagent/background/server/relay-bridge/pair/webrtc/worktree/automations/plan 하니스 전부 통과 +
+    thread 하니스 23(동시 turn-control 라우팅 포함). 앱 검증(`npm run dev`)으로 동시 실행 UX 확인 권장.
+  - **리뷰 수정(코드리뷰 패스):** runVerifyNote가 전역 S 대신 턴 컨테이너 사용, background syncIntoState가
+    소유 thread별 투영, mergeWorktree 충돌 감지가 stdout 포함, worktreeChanges가 rename(R) 레코드 정상
+    파싱, commitWorktree `-c commit.gpgsign=false`, 스케줄러 더블파이어 레이스(running 삭제를 recordRun
+    뒤로), run-now가 스케줄 시계 안 밀게. (worktree 30 / automations 32로 회귀 테스트 추가.)
+  - **알려진 한계(추적):** 격리 활성 시 grep/list_files가 worktree로 재색인되지 않아 메인 fork 시점의
+    인덱스를 사용(에이전트가 worktree에 새로 만든 파일은 list/grep에 미표시) — read/edit는 경로로 동작하므로
+    영향 제한적. out-of-band `git worktree remove` 시 effectiveAgentRoot가 재시작 전까지 stale. accept/
+    revert·reset/resume은 active thread 기준 동작(보고 있는 thread). 모두 후속 라운드 정리 대상.
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.

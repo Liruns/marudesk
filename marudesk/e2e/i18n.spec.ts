@@ -272,7 +272,9 @@ test('localizes data and remote settings after switching to Korean', async () =>
     await expect(page.getByText('AI 채팅 세션 저장', { exact: true })).toBeVisible();
     await expect(page.getByText('시작할 때 탭 복원', { exact: true })).toBeVisible();
     await expect(page.getByText('세션 저장소', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: '새로고침' })).toBeVisible();
+    // Both the Data-storage and the Memory sections have a "새로고침" (Refresh)
+    // button under this category, so scope to the first like "폴더 열기" below.
+    await expect(page.getByRole('button', { name: '새로고침' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: '폴더 열기' }).first()).toBeVisible();
 
     // When: the user opens Remote access.

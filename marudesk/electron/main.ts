@@ -15,6 +15,12 @@ import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
 import { registerGitHandlers } from './git';
+import { configureWorktreeIsolation } from './worktree-isolation';
+import { activeConversationId } from './agent/loop-state';
+import { configureAutomationStore } from './automations/store';
+import { startScheduler } from './automations/scheduler';
+import { createAutomationRunner } from './automations/run';
+import { registerAutomationHandlers } from './automations/handlers';
 import { registerSearchHandlers } from './search';
 import { registerPatchHandlers } from './patch';
 import { registerSecretsHandlers } from './secrets';
@@ -258,6 +264,22 @@ void app.whenReady().then(() => {
   registerWorkspaceMutateHandlers();
   registerSshHandlers();
   registerGitHandlers();
+  // Worktree isolation (Stage 12-B): restore any in-progress isolated worktree
+  // and point new ones under userData. Fire-and-forget — the agent's
+  // effectiveAgentRoot is a no-op until a worktree is active.
+  void configureWorktreeIsolation({
+    stateFile: path.join(app.getPath('userData'), 'worktree-isolation.json'),
+    worktreesDir: path.join(app.getPath('userData'), 'worktrees'),
+    // Stage 12-B-2: scope isolation to the active conversation thread.
+    getActiveThreadId: activeConversationId,
+  });
+  // Automations (Stage 12-C): load saved scheduled prompts, register IPC, and
+  // start the periodic tick that runs due ones as detached read-only agents.
+  const automationRunner = createAutomationRunner(getCurrentWorkspace);
+  void configureAutomationStore(path.join(app.getPath('userData'), 'automations.json')).then(() => {
+    startScheduler(automationRunner);
+  });
+  registerAutomationHandlers(automationRunner);
   registerSearchHandlers();
   registerPatchHandlers();
   registerSecretsHandlers();

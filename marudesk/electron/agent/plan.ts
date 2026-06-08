@@ -1,6 +1,6 @@
 import type { AgentPlanStep, AgentPlanStepStatus } from '../../shared/agent';
-import { S, emit } from './loop-state';
-import type { ToolResult } from './tools/types';
+import { S, emit, emitContainer } from './loop-state';
+import type { ToolContext, ToolResult } from './tools/types';
 
 /**
  * `update_plan` — loop-intercepted (v5 §G2). The model posts/updates its working
@@ -56,7 +56,10 @@ export function editPlanStep(
   return true;
 }
 
-export function updatePlanTool(input: unknown): ToolResult {
+export function updatePlanTool(input: unknown, ctx?: ToolContext): ToolResult {
+  // Write to the TURN's thread (Stage 12-B-2) so a non-active thread's plan
+  // update doesn't clobber the active thread's Taskboard; fall back to active.
+  const T = ctx?.thread ?? S;
   const o = (input ?? {}) as { steps?: unknown };
   if (!Array.isArray(o.steps)) {
     return { summary: 'update_plan failed', text: 'update_plan requires a "steps" array.', isError: true };
@@ -64,8 +67,8 @@ export function updatePlanTool(input: unknown): ToolResult {
   // Preserve per-step anchors across updates by stable id. The anchor records the
   // transcript message the agent was at when a step first became active, so the
   // Taskboard can jump there; once set it persists even as statuses change.
-  const prevById = new Map((S.state.plan?.steps ?? []).map((s) => [s.id, s]));
-  const lastMessageId = S.state.messages[S.state.messages.length - 1]?.id;
+  const prevById = new Map((T.state.plan?.steps ?? []).map((s) => [s.id, s]));
+  const lastMessageId = T.state.messages[T.state.messages.length - 1]?.id;
   const seen = new Set<string>();
   const steps: AgentPlanStep[] = o.steps.slice(0, MAX_PLAN_STEPS).flatMap((raw) => {
     if (!raw || typeof raw !== 'object') return [];
@@ -96,8 +99,8 @@ export function updatePlanTool(input: unknown): ToolResult {
   if (steps.length === 0) {
     return { summary: 'update_plan failed', text: 'No valid steps provided.', isError: true };
   }
-  S.state.plan = { steps, updatedAt: Date.now() };
-  emit();
+  T.state.plan = { steps, updatedAt: Date.now() };
+  emitContainer(T);
   const done = steps.filter((s) => s.status === 'done').length;
   return { summary: `plan: ${done}/${steps.length} done`, text: `Plan updated (${steps.length} steps, ${done} done).` };
 }

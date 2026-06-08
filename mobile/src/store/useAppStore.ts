@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import type { AgentChatState, RelayAccount } from '../types';
+import type {
+  AgentApprovalMode,
+  AgentChatState,
+  AgentPlanStepStatus,
+  RelayAccount,
+} from '../types';
 import { emptyAgentChatState } from '../types';
 import { createTransport } from '../transport';
 import { DirectTransport } from '../transport/DirectTransport';
@@ -72,6 +77,10 @@ type AppState = {
   approve: (approved: boolean) => Promise<void>;
   respond: (answers: Record<string, string>) => Promise<void>;
   resetChat: () => Promise<void>;
+  /** U5: steer the PC-owned plan — cycle a step's status or remove it. */
+  editPlanStep: (id: string, op: { status?: AgentPlanStepStatus; remove?: boolean }) => Promise<void>;
+  /** U10: flip the PC's approval mode (applies on the next turn). */
+  setApprovalMode: (mode: AgentApprovalMode) => Promise<void>;
 };
 
 /**
@@ -321,6 +330,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   async resetChat() {
     if (!transport) return;
     await runCommand(set, () => transport!.send('reset', {}));
+  },
+
+  async editPlanStep(id, op) {
+    if (!transport) return;
+    // The host echoes the updated plan in the next snapshot; no optimistic patch.
+    await runCommand(set, () => transport!.send('edit-plan-step', { id, ...op }));
+  },
+
+  async setApprovalMode(mode) {
+    const t = ensureTransport(set);
+    await runCommand(set, () => t.send('set-approval-mode', { mode }));
   },
 }));
 

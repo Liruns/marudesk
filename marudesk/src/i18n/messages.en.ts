@@ -278,6 +278,17 @@ export const EN_MESSAGES = {
   'git.toast.fetch': 'Fetch',
   'git.toast.pull': 'Pull',
   'git.toast.push': 'Push',
+  'git.worktree.title': 'Agent isolation',
+  'git.worktree.runIsolated': 'Run isolated',
+  'git.worktree.runIsolatedHint':
+    'Run the agent in a dedicated git worktree on its own branch; review its changes here, then merge them back or discard.',
+  'git.worktree.active': 'Isolated',
+  'git.worktree.merge': 'Merge back',
+  'git.worktree.discard': 'Discard',
+  'git.worktree.busy': 'Working…',
+  'git.worktree.noChanges': 'No changes yet',
+  'git.worktree.mergeFailed': 'Could not merge',
+  'git.worktree.conflict': 'Merge conflict — resolve it in the worktree, then retry.',
   'appearance.accent.description':
     'Re-skins the whole app - buttons, links, active states and focus rings.',
   'appearance.accent.label': 'Accent',
@@ -603,6 +614,22 @@ export const EN_MESSAGES = {
   'settings.category.plugins.blurb':
     'User plugins that run in an isolated sandbox and can add agent tools and slash commands.',
   'settings.category.plugins.label': 'Plugins',
+  'settings.category.automations.label': 'Automations',
+  'settings.category.automations.blurb':
+    'Saved prompts that run on a schedule as a detached read-only agent.',
+  'settings.automations.hint':
+    'Each automation runs its prompt on its interval as a background read-only agent (no approvals, no edits). Results show below.',
+  'settings.automations.loading': 'Loading…',
+  'settings.automations.empty': 'No automations yet.',
+  'settings.automations.never': 'never run',
+  'settings.automations.ok': 'last run ok',
+  'settings.automations.failed': 'last run failed',
+  'settings.automations.runNow': 'Run now',
+  'settings.automations.delete': 'Delete automation',
+  'settings.automations.namePlaceholder': 'Automation name',
+  'settings.automations.promptPlaceholder': 'Prompt to run each time…',
+  'settings.automations.everyMinutes': 'every (min)',
+  'settings.automations.create': 'Add',
   'settings.category.providers.blurb':
     'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.',
   'settings.category.providers.label': 'AI Providers',

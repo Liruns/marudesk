@@ -78,7 +78,9 @@ export async function readFile(
     // A path that won't resolve can't be edited either — skip tracking.
   }
 
-  const view = pageLines(content, { offset: input.offset, limit: input.limit, truncated });
+  // Emit per-line hash anchors (v6 §W1 B-layer) so an edit can target a line by
+  // its stable hash instead of copying it verbatim.
+  const view = pageLines(content, { offset: input.offset, limit: input.limit, truncated, anchors: true });
   return {
     summary: `read ${p}${view.ranged ? ` (lines ${view.firstLine}-${view.lastLine})` : ''}`,
     text: view.text,
@@ -206,19 +208,41 @@ export async function grep(
   };
 }
 
-function isOp(v: unknown): v is { path: string; oldString: string; newString: string } {
+/** One edit op as the model supplies it — verbatim oldString and/or B-layer anchor. */
+type EditOp = {
+  path: string;
+  oldString: string;
+  newString: string;
+  anchor?: string;
+  endAnchor?: string;
+};
+
+function isOp(v: unknown): v is EditOp {
   if (!v || typeof v !== 'object') return false;
   const o = v as Record<string, unknown>;
   return (
     typeof o.path === 'string' &&
     o.path.length > 0 &&
     typeof o.oldString === 'string' &&
-    typeof o.newString === 'string'
+    typeof o.newString === 'string' &&
+    (o.anchor === undefined || typeof o.anchor === 'string') &&
+    (o.endAnchor === undefined || typeof o.endAnchor === 'string')
   );
 }
 
+/** Pick only the patch-op fields from a validated edit op (drops any extras). */
+function toPatchOp(op: EditOp): EditOp {
+  return {
+    path: op.path,
+    oldString: op.oldString,
+    newString: op.newString,
+    ...(op.anchor ? { anchor: op.anchor } : {}),
+    ...(op.endAnchor ? { endAnchor: op.endAnchor } : {}),
+  };
+}
+
 async function applyEdits(
-  ops: { path: string; oldString: string; newString: string }[],
+  ops: EditOp[],
   ctx: ToolContext,
   label: string,
 ): Promise<ToolResult> {
@@ -241,7 +265,8 @@ async function applyEdits(
   // validated correctly. Skip creates (oldString === '') and unresolvable/missing
   // paths — applyPatch emits the precise error for those.
   for (const op of ops) {
-    if (op.oldString.length === 0) continue;
+    // Creates (no oldString and no anchor) have nothing to clobber — skip them.
+    if (op.oldString.length === 0 && !op.anchor) continue;
     let abs: string;
     try {
       abs = resolveWorkspacePath(ctx.ws.root, op.path).abs;
@@ -260,17 +285,18 @@ async function applyEdits(
       // re-anchor the tracker to it — so the agent can redo the edit against the
       // fresh text in the same turn (the retry then passes this guard). The echo
       // is windowed (a large file can't be dumped) but the anchor is the full read.
+      // It carries fresh hash anchors so an anchored retry can re-target by hash.
       recordRead(abs, current);
-      const view = pageLines(current);
+      const view = pageLines(current, { anchors: true });
       return {
         summary: `${label} blocked (stale)`,
-        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered, prefixes not part of the file) — redo your edit against it:\n\n${view.text}`,
+        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered with per-line anchors; the "N <hash>" prefix before the tab is not part of the file) — redo your edit against it:\n\n${view.text}`,
         isError: true,
       };
     }
   }
 
-  const res = await applyPatch(ctx.ws, ops);
+  const res = await applyPatch(ctx.ws, ops.map(toPatchOp));
   if (!res.ok) {
     const why = res.errors.map((e) => `${e.path}: ${e.reason}`).join('; ');
     return { summary: `${label} failed`, text: `edit failed — ${why}`, isError: true };
@@ -296,18 +322,18 @@ async function applyEdits(
 }
 
 export async function editFile(
-  input: { path?: unknown; oldString?: unknown; newString?: unknown },
+  input: { path?: unknown; oldString?: unknown; newString?: unknown; anchor?: unknown; endAnchor?: unknown },
   ctx: ToolContext,
 ): Promise<ToolResult> {
   if (!isOp(input)) {
-    throw new Error('edit_file requires "path", "oldString", "newString" (oldString="" creates a new file)');
+    throw new Error('edit_file requires "path", "oldString", "newString" (oldString="" creates a new file; or pass an "anchor" line hash)');
   }
-  return applyEdits([{ path: input.path, oldString: input.oldString, newString: input.newString }], ctx, `edit ${input.path}`);
+  return applyEdits([toPatchOp(input)], ctx, `edit ${input.path}`);
 }
 
 export async function multiEdit(input: { edits?: unknown }, ctx: ToolContext): Promise<ToolResult> {
   if (!Array.isArray(input.edits) || input.edits.length === 0 || !input.edits.every(isOp)) {
     throw new Error('multi_edit requires a non-empty "edits" array of {path, oldString, newString}');
   }
-  return applyEdits(input.edits as { path: string; oldString: string; newString: string }[], ctx, `multi_edit ${input.edits.length} ops`);
+  return applyEdits(input.edits.map(toPatchOp), ctx, `multi_edit ${input.edits.length} ops`);
 }

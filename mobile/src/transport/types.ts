@@ -1,4 +1,10 @@
-import type { AgentChatState, AgentAnswers, AgentSendInput } from '../types';
+import type {
+  AgentChatState,
+  AgentAnswers,
+  AgentApprovalMode,
+  AgentPlanStepStatus,
+  AgentSendInput,
+} from '../types';
 
 /**
  * The single seam between the mobile UI and "where the agent lives".
@@ -34,7 +40,15 @@ export type TransportStatusInfo = {
 };
 
 /** The agent commands the phone can drive (mirror marudesk shared/remote.ts RelayCommandName). */
-export type TransportCommand = 'send' | 'abort' | 'respond' | 'approve' | 'reset' | 'snapshot';
+export type TransportCommand =
+  | 'send'
+  | 'abort'
+  | 'respond'
+  | 'approve'
+  | 'reset'
+  | 'snapshot'
+  | 'edit-plan-step'
+  | 'set-approval-mode';
 
 /** Strongly-typed args per command (the union the UI passes to {@link Transport.send}). */
 export type TransportCommandArgs = {
@@ -44,6 +58,10 @@ export type TransportCommandArgs = {
   approve: { turnId: string; callId: string; approved: boolean };
   reset: Record<string, never>;
   snapshot: Record<string, never>;
+  // U5: steer the PC-owned plan — cycle a step's status or remove it.
+  'edit-plan-step': { id: string; status?: AgentPlanStepStatus; remove?: boolean };
+  // U10: flip the PC's approval mode (applies on the next turn).
+  'set-approval-mode': { mode: AgentApprovalMode };
 };
 
 export type Unsubscribe = () => void;

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { locatePatch } from '../shared/patch.ts';
+import { lineAnchor, locateAnchorLine } from './agent/line-anchor.ts';
 
 /**
- * Harness for the v6 §W1 "A" layer: locatePatch's exact match + whitespace/CRLF/
- * blank-tolerant fuzzy fallback (and its ambiguity-refusal safety). Pure, so it
- * runs standalone via `npm run harness:patch-match`.
+ * Harness for the v6 §W1 edit matcher: the "A" layer (locatePatch's exact match +
+ * whitespace/CRLF/blank-tolerant fuzzy fallback, with ambiguity refusal) AND the
+ * "B" layer (per-line hash anchors: lineAnchor + locateAnchorLine's unique-line
+ * resolution and stale/ambiguous rejection). Pure, so it runs standalone via
+ * `npm run harness:patch-match`.
  */
 
 let passed = 0;
@@ -82,6 +85,71 @@ const file = 'const a = 1;\nconst b = 2;\nconst c = 3;\n';
   const ambig = 'foo\n  bar\nbaz\nfoo\n   bar\nqux\n';
   const m = locatePatch(ambig, 'foo\nbar');
   check('fuzzy: ambiguous normalized block is refused', !m.ok && m.reason === 'ambiguous');
+}
+
+/* ── hash anchors (B layer) ─────────────────────────────────────────────── */
+
+/** Apply an anchored single-line/range edit the way patch.ts does. */
+function appliedByAnchor(
+  content: string,
+  anchor: string,
+  newString: string,
+  endAnchor?: string,
+): string | null {
+  const start = locateAnchorLine(content, anchor);
+  if (!start.ok) return null;
+  let end = start.end;
+  if (endAnchor) {
+    const e = locateAnchorLine(content, endAnchor);
+    if (!e.ok) return null;
+    end = e.end;
+  }
+  return content.slice(0, start.start) + newString + content.slice(end);
+}
+
+{
+  const a = lineAnchor('const b = 2;');
+  const m = locateAnchorLine(file, a);
+  check('anchor: a line hash resolves to its unique line span', m.ok);
+  check(
+    'anchor: replacing by hash swaps only that line',
+    appliedByAnchor(file, a, 'const b = 20;') === 'const a = 1;\nconst b = 20;\nconst c = 3;\n',
+  );
+}
+
+{
+  // CRLF tolerance: the anchor is computed with the trailing \r stripped, so the
+  // SAME hash a model saw from an LF read resolves a CRLF line — and the byte span
+  // covers the line content without the line ending (preserved on splice).
+  const crlf = 'one\r\ntwo\r\nthree\r\n';
+  const a = lineAnchor('two');
+  check('anchor: CRLF line resolves by the CR-stripped hash', locateAnchorLine(crlf, a).ok);
+  check(
+    'anchor: CRLF replacement preserves the line ending',
+    appliedByAnchor(crlf, a, 'TWO') === 'one\r\nTWO\r\nthree\r\n',
+  );
+}
+
+{
+  // Range edit: anchor..endAnchor spans the inclusive block of lines.
+  const block = 'h1\nh2\nh3\nh4\n';
+  const out = appliedByAnchor(block, lineAnchor('h2'), 'X\nY', lineAnchor('h3'));
+  check('anchor: endAnchor spans the inclusive line range', out === 'h1\nX\nY\nh4\n');
+}
+
+{
+  // Stale anchor: the line changed since the read, so its old hash no longer
+  // resolves → not-found (the matcher's stale-anchor rejection).
+  const m = locateAnchorLine(file, lineAnchor('const b = 999;'));
+  check('anchor: a hash for a since-changed line is not-found (stale)', !m.ok && m.reason === 'not-found');
+}
+
+{
+  // Two identical lines share a hash → ambiguous, so an anchor can't silently
+  // target the wrong one (the caller falls back to oldString / endAnchor).
+  const dup = 'x();\ny();\nx();\n';
+  const m = locateAnchorLine(dup, lineAnchor('x();'));
+  check('anchor: a hash matching two identical lines is ambiguous', !m.ok && m.reason === 'ambiguous');
 }
 
 console.log(`\n${passed} checks passed`);

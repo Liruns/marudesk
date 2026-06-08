@@ -3,8 +3,10 @@ import type { RelayStatus } from '../../shared/remote';
 import {
   abortTurn,
   approveTool,
+  editPlanStep,
   reset,
   respond,
+  setApprovalMode,
   snapshot,
   startTurn,
   subscribeAgentEvents,
@@ -38,7 +40,16 @@ import { startRelayClient, type RelayClient } from './relay-client';
  * message, and connection errors are swallowed by the relay-client's reconnect.
  */
 
-const AGENT: AgentApi = { startTurn, abortTurn, respond, approveTool, snapshot, reset };
+const AGENT: AgentApi = {
+  startTurn,
+  abortTurn,
+  respond,
+  approveTool,
+  snapshot,
+  reset,
+  editPlanStep,
+  setApprovalMode,
+};
 
 let client: RelayClient | null = null;
 /** The relay URL the live client was started against (so a URL change reconnects). */

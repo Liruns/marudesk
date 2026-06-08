@@ -15,6 +15,12 @@ import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, bool, obj, str } from './ipc/validate';
 import { readFileSafe } from './workspace';
 import { parseBranchHeaders, parseStatus, summarize } from './git-parse';
+import {
+  discardIsolation,
+  enterIsolation,
+  isolationStatus,
+  mergeIsolation,
+} from './worktree-isolation';
 
 /**
  * Workspace Source Control (VSCode-style). Every command runs against the open
@@ -71,6 +77,18 @@ async function git(
  * reopening Source Control recovers without restarting marudesk.
  */
 let gitInstalled: GitAvailability | null = null;
+/**
+ * Shared git runner for sibling main-process modules (e.g. git-worktree.ts) so
+ * worktree commands inherit the SAME hardening as Source Control: argv-only (no
+ * shell), the SSH-root guard, the locale/lock/credential env, and the buffer cap.
+ */
+export function runGit(
+  root: string,
+  args: string[],
+  timeout = FAST_TIMEOUT,
+): Promise<{ stdout: string; stderr: string }> {
+  return git(root, args, timeout);
+}
 async function checkGitAvailable(): Promise<GitAvailability> {
   if (gitInstalled) return gitInstalled;
   try {
@@ -377,4 +395,14 @@ export function registerGitHandlers(): void {
   defineHandler('git:fetch', () => remote(requireWorkspace().root, 'fetch'));
   defineHandler('git:pull', () => remote(requireWorkspace().root, 'pull'));
   defineHandler('git:push', () => remote(requireWorkspace().root, 'push'));
+
+  // Worktree isolation (Stage 12-B): drive the agent's isolated worktree for the
+  // active workspace. The lifecycle/state lives in worktree-isolation.ts.
+  defineHandler('git:worktree-status', () => isolationStatus(requireWorkspace().root));
+  defineHandler('git:worktree-enter', () => enterIsolation(requireWorkspace().root));
+  defineHandler('git:worktree-merge', () => mergeIsolation(requireWorkspace().root));
+  defineHandler('git:worktree-discard', async () => {
+    await discardIsolation(requireWorkspace().root);
+    return { ok: true } as const;
+  });
 }

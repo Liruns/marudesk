@@ -19,6 +19,7 @@ import {
   UsageMeter,
 } from './chat/Controls';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
+import { ThreadBar } from './ThreadBar';
 import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
@@ -147,6 +148,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {full ? <ThreadBar /> : null}
       <ProviderModelBar full={full} />
 
       <div className="relative flex-1 min-h-0 flex">

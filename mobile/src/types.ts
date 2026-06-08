@@ -80,11 +80,17 @@ export type PendingApproval = {
   diffs?: { path: string; before: string; after: string }[];
 };
 
+/** A plan step's lifecycle status (mirrors the host AgentPlanStepStatus). */
+export type AgentPlanStepStatus = 'pending' | 'in_progress' | 'done';
+
+/** How much the agent may do without asking (mirrors the host AgentApprovalMode). */
+export type AgentApprovalMode = 'read-only' | 'ask' | 'auto' | 'plan';
+
 /** A step in the agent's working plan (Taskboard), mirrored from the host. */
 export type AgentPlanStep = {
   id: string;
   title: string;
-  status: 'pending' | 'in_progress' | 'done';
+  status: AgentPlanStepStatus;
   note?: string;
   anchorMessageId?: string;
 };
@@ -121,6 +127,8 @@ export type AgentChatState = {
   error: string | null;
   /** The agent's working plan (Taskboard), or null when there's none. */
   plan: AgentPlan | null;
+  /** The current approval mode, mirrored from the host (U10 — phone can steer it). */
+  approvalMode: AgentApprovalMode;
 };
 
 export function emptyAgentChatState(): AgentChatState {
@@ -133,6 +141,7 @@ export function emptyAgentChatState(): AgentChatState {
     usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
     plan: null,
+    approvalMode: 'ask',
   };
 }
 

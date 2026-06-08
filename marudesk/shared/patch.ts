@@ -2,6 +2,22 @@ export type PatchOp = {
   path: string;
   oldString: string;
   newString: string;
+  /**
+   * Optional hash anchor (v6 §W1 "B" layer): a read-view per-line content hash
+   * that locates the line to edit instead of a verbatim `oldString`. When set,
+   * the matcher resolves the span by the line's UNIQUE hash (token-cheap, no
+   * ambiguity) and a hash that no longer matches is rejected as a stale anchor —
+   * the file changed since it was read. `oldString` may be empty when an anchor
+   * is supplied. Purely additive: an op without an anchor uses the A-layer
+   * `oldString` path unchanged.
+   */
+  anchor?: string;
+  /**
+   * Optional end anchor: extends an anchored edit to span from {@link anchor}'s
+   * line through this line (inclusive), for multi-line replacements. Single-line
+   * edits omit it.
+   */
+  endAnchor?: string;
 };
 
 export type PatchOpPreview =
@@ -71,7 +87,10 @@ export function isPatchOp(value: unknown): value is PatchOp {
     typeof v.path === 'string' &&
     v.path.length > 0 &&
     typeof v.oldString === 'string' &&
-    typeof v.newString === 'string'
+    typeof v.newString === 'string' &&
+    // Optional anchors, when present, must be strings (v6 §W1 B-layer).
+    (v.anchor === undefined || typeof v.anchor === 'string') &&
+    (v.endAnchor === undefined || typeof v.endAnchor === 'string')
   );
 }
 

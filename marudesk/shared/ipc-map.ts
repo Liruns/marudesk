@@ -11,6 +11,7 @@ import type {
   AgentEditActionResult,
   AgentSendInput,
   AgentSendResult,
+  ThreadSummary,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { DiagnosticsState } from './diagnostics';
@@ -31,6 +32,8 @@ import type {
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
+import type { WorktreeIsolationStatus, WorktreeMergeResult } from './worktree';
+import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type {
   BrowserNativeMenuItem,
   TabKind,
@@ -401,6 +404,19 @@ export interface IpcMap {
   'git:fetch': { args: []; result: GitRemoteResult };
   'git:pull': { args: []; result: GitRemoteResult };
   'git:push': { args: []; result: GitRemoteResult };
+  // Worktree isolation (Stage 12-B): run the agent in an isolated worktree.
+  'git:worktree-status': { args: []; result: WorktreeIsolationStatus };
+  'git:worktree-enter': { args: []; result: WorktreeIsolationStatus };
+  'git:worktree-merge': { args: []; result: WorktreeMergeResult };
+  'git:worktree-discard': { args: []; result: { ok: true } };
+
+  // automations (Stage 12-C — scheduled saved-prompt agent runs)
+  'automations:list': { args: []; result: Automation[] };
+  'automations:create': { args: [input: AutomationInput]; result: Automation };
+  'automations:update': { args: [payload: { id: string; input: AutomationInput }]; result: Automation | null };
+  'automations:delete': { args: [payload: { id: string }]; result: { ok: boolean } };
+  'automations:set-enabled': { args: [payload: { id: string; enabled: boolean }]; result: Automation | null };
+  'automations:run-now': { args: [payload: { id: string }]; result: AutomationRun | null };
 
   // search (content search — electron/search.ts)
   'search:content': {
@@ -512,6 +528,11 @@ export interface IpcMap {
   };
   'agent:resume-session': { args: [payload: { id: string }]; result: boolean };
   'agent:delete-session': { args: [payload: { id: string }]; result: boolean };
+  // threads (Stage 12-B-2 — concurrent conversation switching)
+  'agent:list-threads': { args: []; result: ThreadSummary[] };
+  'agent:new-thread': { args: []; result: ThreadSummary[] };
+  'agent:switch-thread': { args: [payload: { id: string }]; result: ThreadSummary[] };
+  'agent:close-thread': { args: [payload: { id: string }]; result: ThreadSummary[] };
 
   // storage (Data & Storage settings panel): read store stats (backend +
   // session count + bytes), clear all saved sessions, and reveal the userData

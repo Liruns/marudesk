@@ -22,6 +22,7 @@ export type SettingsCategory =
   | 'agent'
   | 'mcp'
   | 'plugins'
+  | 'automations'
   | 'devtools'
   | 'remote'
   | 'data'

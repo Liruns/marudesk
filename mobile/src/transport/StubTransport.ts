@@ -75,8 +75,31 @@ export class StubTransport extends BaseTransport implements Transport {
       case 'snapshot':
         this.pushState();
         break;
+      case 'edit-plan-step':
+        this.editPlanStep(args as TransportCommandArgs['edit-plan-step']);
+        break;
+      case 'set-approval-mode':
+        // U10: the host persists this and mirrors it back in the snapshot; the
+        // fake just reflects it immediately so the toggle is demoable.
+        this.patch({ approvalMode: (args as TransportCommandArgs['set-approval-mode']).mode });
+        break;
     }
     return Promise.resolve();
+  }
+
+  /** U5: cycle a fake plan step's status or remove it (mirrors host editPlanStep). */
+  private editPlanStep(op: TransportCommandArgs['edit-plan-step']): void {
+    const plan = this.state.plan;
+    if (!plan) return;
+    let steps = plan.steps;
+    if (op.remove) {
+      steps = steps.filter((s) => s.id !== op.id);
+    } else if (op.status) {
+      steps = steps.map((s) => (s.id === op.id ? { ...s, status: op.status! } : s));
+    } else {
+      return;
+    }
+    this.patch({ plan: steps.length > 0 ? { steps, updatedAt: Date.now() } : null });
   }
 
   /* ── scripted turn ─────────────────────────────────────────────────────── */
@@ -122,7 +145,8 @@ export class StubTransport extends BaseTransport implements Transport {
       }, 800 + i * 280);
     });
 
-    // 3) Add a running tool-call card.
+    // 3) Add a running tool-call card + seed a Taskboard plan (so U5 step
+    //    edit/remove is demoable against the stub).
     this.schedule(() => {
       const tool: ToolCall = {
         id: `${turnId}-tool-1`,
@@ -131,7 +155,17 @@ export class StubTransport extends BaseTransport implements Transport {
         state: 'running',
         summary: 'read_console(level=error)',
       };
-      this.patch({ status: 'working' });
+      this.patch({
+        status: 'working',
+        plan: {
+          steps: [
+            { id: `${turnId}-p1`, title: 'Inspect console + network', status: 'done' },
+            { id: `${turnId}-p2`, title: 'Guard the null cart item', status: 'in_progress' },
+            { id: `${turnId}-p3`, title: 'Reload and re-check', status: 'pending' },
+          ],
+          updatedAt: Date.now(),
+        },
+      });
       this.appendToolToAssistant(assistantId, turnId, tool);
     }, 1750);
 

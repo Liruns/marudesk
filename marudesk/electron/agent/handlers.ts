@@ -1,26 +1,29 @@
 import type { ContextSyncPayload, EditorMirror, ExplorerMirror } from '../../shared/context';
-import type { AgentPlanStepStatus } from '../../shared/agent';
 import { isProviderId } from '../../shared/providers';
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { updateContextCache } from './context-cache';
 import { cancelBackgroundTask } from './background';
 import { editPlanStep } from './plan';
-import { parseAbort, parseApprove, parseRespond, parseSendInput } from './parse';
+import { parseAbort, parseApprove, parseEditPlanStep, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
 import {
   abortTurn,
   acceptEdit,
   approveTool,
+  closeThread,
   compactConversation,
   deleteSavedSession,
   listSavedSessions,
+  listThreads,
+  newThread,
   reset,
   respond,
   resumeSession,
   revertEdit,
   snapshot,
   startTurn,
+  switchThread,
   testProviderConnection,
 } from './loop';
 
@@ -101,12 +104,10 @@ export function registerAgentHandlers(): void {
   );
 
   // Steerable plan (v6 §U5): the user toggles a step's status or removes it.
+  // Shares parseEditPlanStep with the bridge path so IPC + relay validate alike.
   defineHandler('agent:edit-plan-step', ([payload]) => {
-    const p = obj(payload);
-    return editPlanStep(nonEmptyStr(p.id, 'id'), {
-      status: typeof p.status === 'string' ? (p.status as AgentPlanStepStatus) : undefined,
-      remove: p.remove === true,
-    });
+    const { id, status, remove } = parseEditPlanStep(payload);
+    return editPlanStep(id, { status, remove });
   });
 
   defineHandler('agent:snapshot', () => snapshot());
@@ -135,6 +136,24 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:delete-session', ([payload]) =>
     deleteSavedSession(nonEmptyStr(obj(payload).id, 'id')),
   );
+
+  // Thread switching (Stage 12-B-2): hold several conversations and switch the
+  // active one. new/switch/close return the refreshed thread list; switching also
+  // emits the target thread's state so the chat re-renders. Switching is refused
+  // mid-turn (loop.switchThread guards busy), so the list comes back unchanged.
+  defineHandler('agent:list-threads', () => listThreads());
+  defineHandler('agent:new-thread', () => {
+    switchThread(newThread());
+    return listThreads();
+  });
+  defineHandler('agent:switch-thread', ([payload]) => {
+    switchThread(nonEmptyStr(obj(payload).id, 'id'));
+    return listThreads();
+  });
+  defineHandler('agent:close-thread', ([payload]) => {
+    closeThread(nonEmptyStr(obj(payload).id, 'id'));
+    return listThreads();
+  });
 
   // Built-in context MCP mirror: cache the renderer's latest editor/explorer
   // snapshot so the read_editor / read_explorer tools can read it (main can't

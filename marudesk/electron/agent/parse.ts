@@ -1,7 +1,18 @@
-import type { AgentImageInput, AgentAnswers, AgentSendInput } from '../../shared/agent';
+import type {
+  AgentImageInput,
+  AgentAnswers,
+  AgentPlanStepStatus,
+  AgentSendInput,
+} from '../../shared/agent';
+import type { AgentApprovalMode } from '../../shared/settings';
 import { isCapturePayload, type CapturePayload } from '../../shared/composer';
 import { isProviderId } from '../../shared/providers';
 import { arr, nonEmptyStr, obj, optStr } from '../ipc/validate';
+
+/** The valid plan-step statuses (mirror {@link AgentPlanStepStatus}). */
+const PLAN_STEP_STATUSES: readonly AgentPlanStepStatus[] = ['pending', 'in_progress', 'done'];
+/** The valid approval modes (mirror {@link AgentApprovalMode}). */
+const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
 
 /** Upper bounds on attached images (untrusted: also arrives over the relay). */
 const MAX_IMAGES = 8;
@@ -84,6 +95,36 @@ export function parseRespond(payload: unknown): {
     callId: nonEmptyStr(o.callId, 'callId'),
     answers: parseAnswers(o.answers),
   };
+}
+
+/**
+ * `agent:edit-plan-step` / `POST /agent/edit-plan-step` body (U5 mobile parity).
+ * Either cycles a step to a new `status` or removes it (`remove: true`); an
+ * unknown status is dropped so a malformed remote payload becomes a loop no-op.
+ */
+export function parseEditPlanStep(payload: unknown): {
+  id: string;
+  status?: AgentPlanStepStatus;
+  remove?: boolean;
+} {
+  const o = obj(payload);
+  const status =
+    typeof o.status === 'string' && (PLAN_STEP_STATUSES as readonly string[]).includes(o.status)
+      ? (o.status as AgentPlanStepStatus)
+      : undefined;
+  return { id: nonEmptyStr(o.id, 'id'), status, remove: o.remove === true };
+}
+
+/**
+ * `POST /agent/set-approval-mode` body (U10 mobile parity) → a validated approval
+ * mode. An unknown mode throws so the bridge returns a tidy `{ ok:false, error }`.
+ */
+export function parseSetApprovalMode(payload: unknown): { mode: AgentApprovalMode } {
+  const o = obj(payload);
+  if (typeof o.mode !== 'string' || !(APPROVAL_MODES as readonly string[]).includes(o.mode)) {
+    throw new Error('mode must be one of read-only, ask, auto, plan');
+  }
+  return { mode: o.mode as AgentApprovalMode };
 }
 
 /** `agent:approve-tool` / `POST /agent/approve` body (missing `approved` → false). */

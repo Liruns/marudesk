@@ -277,6 +277,17 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.toast.fetch': '가져오기',
   'git.toast.pull': 'Pull',
   'git.toast.push': 'Push',
+  'git.worktree.title': '에이전트 격리',
+  'git.worktree.runIsolated': '격리 실행',
+  'git.worktree.runIsolatedHint':
+    '에이전트를 전용 git worktree(별도 브랜치)에서 실행합니다. 변경 사항을 여기서 검토한 뒤 병합하거나 버립니다.',
+  'git.worktree.active': '격리됨',
+  'git.worktree.merge': '병합',
+  'git.worktree.discard': '버리기',
+  'git.worktree.busy': '처리 중…',
+  'git.worktree.noChanges': '아직 변경 없음',
+  'git.worktree.mergeFailed': '병합하지 못했습니다',
+  'git.worktree.conflict': '병합 충돌 — worktree에서 해결한 뒤 다시 시도하세요.',
   'appearance.accent.description':
     '버튼, 링크, 활성 상태, 포커스 링까지 앱 전체 색상을 바꿉니다.',
   'appearance.accent.label': '강조색',
@@ -600,6 +611,22 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.category.plugins.blurb':
     '격리된 샌드박스에서 실행되어 에이전트 도구와 슬래시 커맨드를 추가하는 사용자 플러그인.',
   'settings.category.plugins.label': '플러그인',
+  'settings.category.automations.label': '자동화',
+  'settings.category.automations.blurb':
+    '저장한 프롬프트를 일정에 따라 분리된 읽기 전용 에이전트로 실행합니다.',
+  'settings.automations.hint':
+    '각 자동화는 설정한 주기마다 프롬프트를 백그라운드 읽기 전용 에이전트로 실행합니다(승인·편집 없음). 결과는 아래에 표시됩니다.',
+  'settings.automations.loading': '불러오는 중…',
+  'settings.automations.empty': '아직 자동화가 없습니다.',
+  'settings.automations.never': '실행 안 됨',
+  'settings.automations.ok': '최근 실행 성공',
+  'settings.automations.failed': '최근 실행 실패',
+  'settings.automations.runNow': '지금 실행',
+  'settings.automations.delete': '자동화 삭제',
+  'settings.automations.namePlaceholder': '자동화 이름',
+  'settings.automations.promptPlaceholder': '매번 실행할 프롬프트…',
+  'settings.automations.everyMinutes': '주기(분)',
+  'settings.automations.create': '추가',
   'settings.category.providers.blurb':
     '제공자 API 키와 사용자 지정 OpenAI 호환 엔드포인트. 모델은 채팅에서 선택하세요.',
   'settings.category.providers.label': 'AI 제공자',

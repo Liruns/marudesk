@@ -1,5 +1,6 @@
 import type { CapturePayload } from './composer';
 import type { ProviderId } from './providers';
+import type { AgentApprovalMode } from './settings';
 
 /**
  * The agentic AI Chat contract (docs/agentic-chat-design.md). main owns the
@@ -82,6 +83,15 @@ export type ToolCall = {
    * inline in a sandboxed frame. See {@link AgentArtifact}.
    */
   artifact?: AgentArtifact;
+  /**
+   * Live partial output of a long-running child tool (W4/U3 subagent streaming):
+   * the spawn_subagent card shows the child's in-progress text + a running tool
+   * trace WHILE it works, instead of staying blank until the single result card.
+   * Both are cleared when the call settles ({@link resultText} supersedes them).
+   */
+  streamedText?: string;
+  /** Live tool-trace lines from a running child tool (paired with {@link streamedText}). */
+  streamedTraces?: string[];
 };
 
 export type AgentTextPart = { type: 'text'; text: string };
@@ -244,6 +254,13 @@ export type AgentChatState = {
    * conversation has no active plan. A projection, not user-editable.
    */
   plan: AgentPlan | null;
+  /**
+   * The current approval mode (a setting, not loop-owned) projected into the
+   * state at the emit boundary so thin clients can reflect AND steer it (U10
+   * mobile parity). The desktop renderer reads the setting store directly and
+   * ignores this; the phone has no settings store, so it relies on this mirror.
+   */
+  approvalMode: AgentApprovalMode;
 };
 
 /** A step's lifecycle in the agent's task plan (Taskboard). */
@@ -294,6 +311,21 @@ export type BackgroundTask = {
   collected: boolean;
 };
 
+/**
+ * One open conversation thread as the renderer's thread switcher sees it (Stage
+ * 12-B-2). The user can hold several threads and switch between them; the active
+ * one drives the main chat. A projection of the main-process thread registry.
+ */
+export type ThreadSummary = {
+  id: string;
+  title: string;
+  status: AgentStatus;
+  active: boolean;
+  /** True while this thread has a turn in flight. */
+  busy: boolean;
+  messageCount: number;
+};
+
 export function emptyAgentChatState(): AgentChatState {
   return {
     turnId: null,
@@ -308,6 +340,7 @@ export function emptyAgentChatState(): AgentChatState {
     endNote: null,
     background: [],
     plan: null,
+    approvalMode: 'ask',
   };
 }
 

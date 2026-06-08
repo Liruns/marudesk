@@ -50,6 +50,8 @@ function buildStubAgent(): {
     approveTool: () => true,
     snapshot: () => state,
     reset: () => true,
+    editPlanStep: () => true,
+    setApprovalMode: () => true,
   };
   return {
     agent,

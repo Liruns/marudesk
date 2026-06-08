@@ -78,7 +78,15 @@ export type RemoteEvent = { type: 'snapshot'; state: AgentChatState };
  */
 
 /** The agent commands a client may drive over the relay (mirror the M4 REST verbs). */
-export type RelayCommandName = 'send' | 'abort' | 'respond' | 'approve' | 'reset' | 'snapshot';
+export type RelayCommandName =
+  | 'send'
+  | 'abort'
+  | 'respond'
+  | 'approve'
+  | 'reset'
+  | 'snapshot'
+  | 'edit-plan-step'
+  | 'set-approval-mode';
 
 export const RELAY_COMMANDS: readonly RelayCommandName[] = [
   'send',
@@ -87,6 +95,9 @@ export const RELAY_COMMANDS: readonly RelayCommandName[] = [
   'approve',
   'reset',
   'snapshot',
+  // U5/U10 mobile parity: steer the PC-owned plan + flip the approval mode.
+  'edit-plan-step',
+  'set-approval-mode',
 ];
 
 /**

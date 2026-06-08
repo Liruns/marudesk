@@ -37,6 +37,8 @@ const POST_PATH: Record<Exclude<TransportCommand, 'snapshot'>, string> = {
   respond: '/agent/respond',
   approve: '/agent/approve',
   reset: '/agent/reset',
+  'edit-plan-step': '/agent/edit-plan-step',
+  'set-approval-mode': '/agent/set-approval-mode',
 };
 
 const RECONNECT_MS = 2500;

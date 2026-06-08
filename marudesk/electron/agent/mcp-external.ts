@@ -200,6 +200,13 @@ export type ExternalServerOptions = {
    * (those are hidden) and redundant when `trusted` (everything is already un-gated).
    */
   autoApproveTools?: readonly string[];
+  /**
+   * Tool names (un-namespaced) to KEEP gated even when {@link trusted} — the per-tool
+   * deny twin of {@link autoApproveTools}. A tool listed here always wins over
+   * `trusted`/`autoApproveTools`, so a broadly-trusted server can still confirm a few
+   * high-impact tools per call. Only meaningful when `trusted`.
+   */
+  confirmTools?: readonly string[];
 };
 
 /**
@@ -238,15 +245,18 @@ export function buildExternalServer(
   const prefix = `${id}__`;
   const hidden = new Set(opts.disabledTools ?? []);
   const autoApprove = new Set(opts.autoApproveTools ?? []);
+  const confirm = new Set(opts.confirmTools ?? []);
   const trustedAll = opts.trusted === true;
   const wrapped: McpTool[] = tools
     .filter((t) => typeof t.name === 'string' && t.name.length > 0 && !hidden.has(t.name))
     .map((t) => {
       const toolName = t.name;
       const namespaced = `${prefix}${toolName}`;
-      // A whole-server `trust` un-gates everything; otherwise a per-tool allow-list
-      // can un-gate individual tools on an untrusted server.
-      const gated = !trustedAll && !autoApprove.has(toolName);
+      // Gating precedence: a per-tool `confirmTools` deny always wins (keeps the tool
+      // gated even on a trusted server); otherwise a whole-server `trust` un-gates
+      // everything, and on an untrusted server a per-tool allow-list can un-gate
+      // individual tools.
+      const gated = confirm.has(toolName) || (!trustedAll && !autoApprove.has(toolName));
       const write = annotatedAsWrite(t.annotations);
       // Prefer the spec `title` (or annotations.title) for a friendlier label.
       const title = t.title ?? t.annotations?.title;
@@ -588,6 +598,7 @@ function optsFromConfig(config: McpServerConfig): ExternalServerOptions {
     trusted: config.trust === true,
     disabledTools: config.disabledTools,
     autoApproveTools: config.autoApproveTools,
+    confirmTools: config.confirmTools,
   };
 }
 
