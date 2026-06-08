@@ -165,8 +165,8 @@ async function main(): Promise<void> {
         { id: 'remote', transport: 'http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
         // http inferred from a url + no command.
         { id: 'inferred', url: 'https://api.example.com/v1/mcp' },
-        // sse transport with trust + disabledTools + autoApproveTools.
-        { id: 'sse1', transport: 'sse', url: 'http://localhost:9000/sse', trust: true, disabledTools: ['danger', '  '], autoApproveTools: ['safe', '  '] },
+        // sse transport with trust + disabledTools + autoApproveTools + confirmTools.
+        { id: 'sse1', transport: 'sse', url: 'http://localhost:9000/sse', trust: true, disabledTools: ['danger', '  '], autoApproveTools: ['safe', '  '], confirmTools: ['deploy', '  '] },
         // invalid: http transport but a non-http url → dropped.
         { id: 'bad-url', transport: 'http', url: 'ftp://nope' },
         // invalid: neither command nor url → dropped.
@@ -189,6 +189,10 @@ async function main(): Promise<void> {
     check(
       'sanitize: autoApproveTools trimmed + blanks dropped',
       JSON.stringify(byId.get('sse1')?.autoApproveTools) === JSON.stringify(['safe']),
+    );
+    check(
+      'sanitize: confirmTools trimmed + blanks dropped',
+      JSON.stringify(byId.get('sse1')?.confirmTools) === JSON.stringify(['deploy']),
     );
     check('sanitize: non-http url for http transport is dropped', !byId.has('bad-url'));
     check('sanitize: entry with neither command nor url is dropped', !byId.has('empty'));
@@ -307,6 +311,30 @@ async function main(): Promise<void> {
     const byName = new Map(server.tools.map((t) => [t.name, t] as const));
     check('autoApprove: an allow-listed tool is un-gated', byName.get('aa__safe')?.gated === false);
     check('autoApprove: a non-listed tool on the same server stays gated', byName.get('aa__risky')?.gated === true);
+  }
+
+  /* ── unit: per-tool confirmTools keeps gating ON even for a trusted server ── */
+  {
+    const { client } = makeMockClient();
+    const server = buildExternalServer('ct', client, [
+      { name: 'read', inputSchema: { type: 'object', properties: {} } },
+      { name: 'deploy', inputSchema: { type: 'object', properties: {} } },
+    ], { trusted: true, confirmTools: ['deploy'] });
+    const byName = new Map(server.tools.map((t) => [t.name, t] as const));
+    check('confirmTools: a confirm-listed tool stays gated despite trust', byName.get('ct__deploy')?.gated === true);
+    check('confirmTools: other tools on the trusted server stay un-gated', byName.get('ct__read')?.gated === false);
+  }
+
+  /* ── unit: confirmTools wins over autoApproveTools (deny beats allow) ──────── */
+  {
+    const { client } = makeMockClient();
+    const server = buildExternalServer('cw', client, [
+      { name: 'tool', inputSchema: { type: 'object', properties: {} } },
+    ], { autoApproveTools: ['tool'], confirmTools: ['tool'] });
+    check(
+      'confirmTools: a tool both auto-approved and confirm-listed stays gated',
+      server.tools[0]?.gated === true,
+    );
   }
 
   /* ── integration: status carries transport / target / trusted / tools ────── */

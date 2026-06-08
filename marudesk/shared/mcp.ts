@@ -46,6 +46,16 @@ type McpServerBase = {
    * there). Default: none.
    */
   autoApproveTools?: string[];
+  /**
+   * Tool names (the server's own, un-namespaced) to KEEP gated (per-call approval)
+   * even when the whole server is `trust`ed — the per-tool *deny* twin of
+   * {@link autoApproveTools}. Use this to trust a server broadly but still confirm a
+   * couple of high-impact tools (e.g. a `delete`/`deploy`) on every call. Only
+   * meaningful when `trust: true` (an untrusted server already gates everything); a
+   * tool listed here always wins over `trust`. Listed tools still must not be in
+   * {@link disabledTools} (those are hidden entirely). Default: none.
+   */
+  confirmTools?: string[];
 };
 
 /** A local server spawned over stdio (Claude-Desktop-style). */
@@ -150,6 +160,8 @@ export const MAX_MCP_SERVERS = 50;
 const MAX_DISABLED_TOOLS = 200;
 /** Max number of `autoApproveTools` entries honored per server (defense against a huge hand-edit). */
 const MAX_AUTO_APPROVE_TOOLS = 200;
+/** Max number of `confirmTools` entries honored per server (defense against a huge hand-edit). */
+const MAX_CONFIRM_TOOLS = 200;
 
 /** Whether a string is a syntactically valid http(s) URL. */
 function isHttpUrl(value: string): boolean {
@@ -214,12 +226,14 @@ export function sanitizeMcpConfig(input: unknown): McpServersFile {
     const trust = r.trust === true;
     const disabledTools = parseStringList(r.disabledTools, MAX_DISABLED_TOOLS);
     const autoApproveTools = parseStringList(r.autoApproveTools, MAX_AUTO_APPROVE_TOOLS);
+    const confirmTools = parseStringList(r.confirmTools, MAX_CONFIRM_TOOLS);
     const common = {
       id,
       enabled,
       ...(trust ? { trust: true as const } : {}),
       ...(disabledTools ? { disabledTools } : {}),
       ...(autoApproveTools ? { autoApproveTools } : {}),
+      ...(confirmTools ? { confirmTools } : {}),
     };
 
     if (wantsHttp) {
