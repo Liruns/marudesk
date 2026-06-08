@@ -426,6 +426,14 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
     thread 타겟(plan 손상 방지). **불변식: 단일 thread면 컨테이너=active S라 동작 바이트 동일** →
     subagent/background/server/relay-bridge/pair/webrtc/worktree/automations/plan 하니스 전부 통과 +
     thread 하니스 23(동시 turn-control 라우팅 포함). 앱 검증(`npm run dev`)으로 동시 실행 UX 확인 권장.
+  - **리뷰 수정(코드리뷰 패스):** runVerifyNote가 전역 S 대신 턴 컨테이너 사용, background syncIntoState가
+    소유 thread별 투영, mergeWorktree 충돌 감지가 stdout 포함, worktreeChanges가 rename(R) 레코드 정상
+    파싱, commitWorktree `-c commit.gpgsign=false`, 스케줄러 더블파이어 레이스(running 삭제를 recordRun
+    뒤로), run-now가 스케줄 시계 안 밀게. (worktree 30 / automations 32로 회귀 테스트 추가.)
+  - **알려진 한계(추적):** 격리 활성 시 grep/list_files가 worktree로 재색인되지 않아 메인 fork 시점의
+    인덱스를 사용(에이전트가 worktree에 새로 만든 파일은 list/grep에 미표시) — read/edit는 경로로 동작하므로
+    영향 제한적. out-of-band `git worktree remove` 시 effectiveAgentRoot가 재시작 전까지 stale. accept/
+    revert·reset/resume은 active thread 기준 동작(보고 있는 thread). 모두 후속 라운드 정리 대상.
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.

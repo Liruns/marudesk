@@ -33,20 +33,25 @@ export async function runDueAutomations(
     due.map(async (automation) => {
       running.add(automation.id);
       started.push(automation.id);
-      let run: AutomationRun;
       try {
-        run = await runOne(automation);
-      } catch (err) {
-        run = {
-          startedAt: now,
-          finishedAt: Date.now(),
-          status: 'error',
-          summary: (err as Error).message,
-        };
+        let run: AutomationRun;
+        try {
+          run = await runOne(automation);
+        } catch (err) {
+          run = {
+            startedAt: now,
+            finishedAt: Date.now(),
+            status: 'error',
+            summary: (err as Error).message,
+          };
+        }
+        // Advance nextRunAt (in recordRun) BEFORE leaving the in-flight set, so a
+        // tick landing between the run finishing and the schedule advancing can't
+        // re-select a still-past-due automation and double-fire it.
+        await recordRun(automation.id, run, Date.now());
       } finally {
         running.delete(automation.id);
       }
-      await recordRun(automation.id, run, Date.now());
     }),
   );
   return started;
@@ -69,7 +74,9 @@ export async function runAutomationNow(
   } finally {
     running.delete(automation.id);
   }
-  await recordRun(automation.id, run, Date.now());
+  // advanceSchedule=false: a manual run records the outcome but doesn't delay the
+  // next scheduled fire.
+  await recordRun(automation.id, run, Date.now(), false);
   return run;
 }
 

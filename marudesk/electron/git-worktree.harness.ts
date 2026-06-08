@@ -112,6 +112,28 @@ async function main(): Promise<void> {
     const refused = await mergeWorktree(base, wtPath, 'main', 'x');
     check('safety: merge refuses a non-agent branch', refused.ok === false && refused.reason === 'error');
 
+    /* ── rename: worktreeChanges parses the R record's NEW path (not "xt") ─── */
+    const wt3 = path.join(mkdtempSync(path.join(tmpdir(), 'wt-tree3-')), 'agent');
+    const branch3 = agentBranchName(1700000000002);
+    await createWorktree(base, wt3, branch3);
+    await git(wt3, ['mv', 'app.txt', 'renamed.txt']);
+    const renChanges = await worktreeChanges(wt3);
+    check('rename: the NEW path is reported (porcelain R record parsed)', renChanges.files.includes('renamed.txt'));
+    check('rename: the mangled "xt" old-path slice is NOT present', !renChanges.files.includes('xt'));
+    check('rename: counted as a single change', renChanges.count === 1);
+
+    /* ── conflict: a real content conflict is classified as `conflict` ─────── */
+    // Base and the worktree both change the same line → git merge conflicts.
+    await git(wt3, ['reset', '--hard']); // drop the uncommitted rename from above
+    writeFileSync(path.join(base, 'app.txt'), 'line one\nBASE-EDIT\n');
+    await git(base, ['commit', '-am', 'base edits the same line']);
+    writeFileSync(path.join(wt3, 'app.txt'), 'line one\nWORKTREE-EDIT\n');
+    const conflict = await mergeWorktree(base, wt3, branch3, 'agent edit conflicting line');
+    check('conflict: a content conflict is classified conflict (not generic error)', conflict.ok === false && conflict.reason === 'conflict');
+    check('conflict: the worktree is preserved for resolution', existsSync(wt3));
+    check('conflict: base was restored (merge aborted, no conflict markers committed)', readFileSync(path.join(base, 'app.txt'), 'utf8') === 'line one\nBASE-EDIT\n');
+    rmSync(path.dirname(wt3), { recursive: true, force: true });
+
     console.log(`\ngit-worktree harness: ${passed} assertions passed`);
   } finally {
     rmSync(base, { recursive: true, force: true });

@@ -473,7 +473,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // Post-edit verify hook: if this turn changed files and a verify command is
       // configured, run it and fold the result into this assistant message (UI +
       // model context) before completing.
-      const note = await runVerifyNote(opts.turnId, opts.ws);
+      const note = await runVerifyNote(S, opts.turnId, opts.ws);
       if (note) {
         assistantMsg.parts.push({ type: 'text', text: note });
         assistantContent.push({ type: 'text', text: note });

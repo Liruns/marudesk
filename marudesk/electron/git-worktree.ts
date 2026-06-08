@@ -121,10 +121,18 @@ export async function removeWorktree(
 export async function worktreeChanges(worktreePath: string): Promise<WorktreeChanges> {
   const { stdout } = await runGit(worktreePath, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
   const records = stdout.split('\0').filter((r) => r.length > 0);
-  // Porcelain entries are "XY <path>"; a rename carries the old path as its own
-  // trailing record, harmless to count as one more changed path in the sample.
-  const files = records.map((r) => r.slice(3)).filter(Boolean);
-  return { count: records.length, files: files.slice(0, MAX_CHANGE_SAMPLE) };
+  // Each entry is "XY <path>"; a rename/copy (R/C) emits a SECOND bare record with
+  // the original path ("R  <new>\0<old>"), which must be consumed — not parsed as
+  // its own change (it has no "XY " prefix, so slice(3) would mangle it).
+  const files: string[] = [];
+  let count = 0;
+  for (let i = 0; i < records.length; i += 1) {
+    const status = records[i].slice(0, 2);
+    files.push(records[i].slice(3));
+    count += 1;
+    if (status[0] === 'R' || status[0] === 'C') i += 1; // skip the trailing source path
+  }
+  return { count, files: files.slice(0, MAX_CHANGE_SAMPLE) };
 }
 
 /**
@@ -139,7 +147,10 @@ export async function commitWorktree(
   const { count } = await worktreeChanges(worktreePath);
   if (count === 0) return { committed: false };
   await runGit(worktreePath, ['add', '-A']);
-  await runGit(worktreePath, ['commit', '-m', message.trim() || 'agent worktree changes']);
+  // `-c commit.gpgsign=false`: this is an internal, throwaway agent commit; a repo
+  // with signing on would otherwise try to sign non-interactively (no TTY for a
+  // passphrase) and fail or hang the merge-back.
+  await runGit(worktreePath, ['-c', 'commit.gpgsign=false', 'commit', '-m', message.trim() || 'agent worktree changes']);
   return { committed: true };
 }
 
@@ -191,7 +202,10 @@ export async function mergeWorktree(
     await runGit(repoRoot, ['branch', '-D', branch]).catch(() => undefined);
     return { ok: true, merged: true, summary };
   } catch (err) {
-    const detail = ((err as { stderr?: string; message?: string }).stderr || (err as Error).message || '').trim();
+    // `git merge` reports a content conflict on STDOUT ("CONFLICT…/Automatic merge
+    // failed"), not stderr — fold both in so the conflict path is detected.
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    const detail = `${e.stdout ?? ''}\n${e.stderr ?? ''}`.trim() || (e.message ?? '').trim();
     // Abort a half-applied merge so the base tree is restored; keep the worktree.
     await runGit(repoRoot, ['merge', '--abort']).catch(() => undefined);
     const conflict = /conflict|would be overwritten|not something we can merge|local changes/i.test(detail);

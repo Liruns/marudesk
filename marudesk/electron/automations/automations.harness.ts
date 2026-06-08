@@ -124,9 +124,12 @@ async function main(): Promise<void> {
     const again = await runDueAutomations(dueNow, okRunner);
     check('scheduler: no longer due right after running', again.length === 0);
 
-    // run-now bypasses the schedule.
+    // run-now bypasses the schedule AND must not shift the next scheduled fire.
+    const beforeNext = listAutomations()[0]!.nextRunAt;
     const manual = await runAutomationNow(listAutomations()[0]!, okRunner);
     check('run-now: executes immediately', manual.status === 'done' && runs.length === 2);
+    check('run-now: records the outcome (lastRun set)', listAutomations()[0]!.lastRun?.status === 'done');
+    check('run-now: does NOT advance the schedule clock', listAutomations()[0]!.nextRunAt === beforeNext);
 
     // a throwing runner is recorded as an error, not a crash.
     const errNow = T0 + 10 ** 10;

@@ -186,13 +186,20 @@ export async function deleteAutomation(id: string): Promise<boolean> {
  * Record a completed run + advance the schedule. Called by the scheduler after a
  * run settles. Pure of execution — just state + persistence.
  */
-export async function recordRun(id: string, run: AutomationRun, now = Date.now()): Promise<void> {
+export async function recordRun(
+  id: string,
+  run: AutomationRun,
+  now = Date.now(),
+  advanceSchedule = true,
+): Promise<void> {
   const cur = automations.get(id);
   if (!cur) return;
   automations.set(id, {
     ...cur,
     lastRunAt: run.finishedAt,
-    nextRunAt: cur.enabled ? nextRun(cur.schedule, now) : null,
+    // A manual "Run now" records the outcome but must NOT push back the schedule
+    // clock (advanceSchedule=false), so the next scheduled fire is unchanged.
+    nextRunAt: advanceSchedule ? (cur.enabled ? nextRun(cur.schedule, now) : null) : cur.nextRunAt,
     lastRun: { ...run, summary: run.summary.slice(0, MAX_RUN_SUMMARY) },
   });
   await persist();

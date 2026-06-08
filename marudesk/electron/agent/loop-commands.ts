@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { scrubText } from '../../shared/scrub';
 import { getSettingsSync } from '../settings';
-import { S, emit } from './loop-state.ts';
+import { emitContainer, type ThreadContainer } from './loop-state.ts';
 
 /**
  * The user-configured per-turn shell hooks (Settings → Agent): the context
@@ -56,13 +56,18 @@ export async function runContextHook(ws: WorkspaceSummary | null): Promise<strin
  * made no edits. The command is user-configured (trusted, opt-in); it runs in the
  * workspace root with a hard timeout.
  */
-export async function runVerifyNote(turnId: string, ws: WorkspaceSummary | null): Promise<string | null> {
+export async function runVerifyNote(
+  S: ThreadContainer,
+  turnId: string,
+  ws: WorkspaceSummary | null,
+): Promise<string | null> {
   const cmd = getSettingsSync().agent.verifyCommand.trim();
   if (!cmd || !ws) return null;
-  // Only verify when this turn actually changed files on disk.
+  // Only verify when THIS turn (on its thread) actually changed files on disk —
+  // route by the turn's container, not the globally-active one (Stage 12-B-2).
   if (!S.state.edits.some((e) => e.turnId === turnId)) return null;
   S.state.status = 'working';
-  emit();
+  emitContainer(S);
   let passed = false;
   let detail: string;
   try {

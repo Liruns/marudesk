@@ -1,6 +1,6 @@
 import { scrubText } from '../../shared/scrub';
 import type { BackgroundTask } from '../../shared/agent';
-import { S, emit, uid } from './loop-state';
+import { S, uid, containers, emitContainer } from './loop-state';
 import { parseSubagentRequest, recordSubagentInput, SubagentInputError } from './subagent-request';
 import { runChildAgent } from './subagent-runtime';
 import type { SubagentRunner } from './subagent-types';
@@ -243,13 +243,20 @@ function markTerminal(task: BackgroundTask, status: 'error' | 'cancelled', error
 }
 
 function syncIntoState(): void {
-  const conversationId = S.conversationId ?? '';
-  evictTerminalTasks(conversationId);
-  S.state.background = [...registry.values()]
-    .filter((e) => e.conversationId === conversationId)
-    .map((e) => e.task)
-    .sort((a, b) => a.startedAt - b.startedAt);
-  emit();
+  // Project the registry into EACH owning thread container by conversationId
+  // (Stage 12-B-2), so a background agent spawned on a NON-active thread still
+  // updates its own tray + summary — not just the active conversation's.
+  const convIds = new Set<string>();
+  for (const e of registry.values()) convIds.add(e.conversationId);
+  for (const convId of convIds) evictTerminalTasks(convId);
+  for (const c of containers()) {
+    const convId = c.conversationId ?? '';
+    c.state.background = [...registry.values()]
+      .filter((e) => e.conversationId === convId)
+      .map((e) => e.task)
+      .sort((a, b) => a.startedAt - b.startedAt);
+    emitContainer(c);
+  }
 }
 
 /** Drop the oldest terminal tasks beyond MAX_TERMINAL_BACKGROUND (audit H6). */
