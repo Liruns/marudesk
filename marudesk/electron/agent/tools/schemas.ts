@@ -22,7 +22,7 @@ const boolProp = (desc: string) => ({ type: 'boolean', description: desc });
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'read_file',
-    description: 'Read a UTF-8 workspace file (relative path). Output is line-numbered ("N\\t<text>") for reference only — those number+tab prefixes are NOT part of the file. Large files are paged: read the next chunk with offset set to the line after the last one shown (the footer tells you when there is more). Read before editing: your oldString must match the file text exactly (without the prefixes), and an edit to a file that changed since you read it is refused until you re-read it.',
+    description: 'Read a UTF-8 workspace file (relative path). Output is line-numbered WITH a per-line hash anchor: each line is "N <hash>\\t<text>", and everything before the tab (the number and the hash) is NOT part of the file. Large files are paged: read the next chunk with offset set to the line after the last one shown (the footer tells you when there is more). To edit, either copy the verbatim text after the tab as oldString, OR pass that line\'s <hash> as edit_file\'s "anchor" (token-cheap, unambiguous). An edit to a file that changed since you read it is refused — re-read it for fresh anchors.',
     inputSchema: { type: 'object', properties: { path: strProp('Workspace-relative path.'), offset: intProp('1-based line number to start reading from (default 1).'), limit: intProp('Maximum lines to return (default 1500).') }, required: ['path'], additionalProperties: false },
   },
   {
@@ -48,17 +48,23 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'edit_file',
-    description: 'Apply ONE string-replace edit. oldString must be a unique verbatim substring of the current file; set oldString="" to create a new file with newString as its contents. Atomic.',
+    description: 'Apply ONE replace edit, two ways: (1) verbatim — oldString is a unique substring of the current file; set oldString="" to create a new file with newString as its contents. (2) anchored — pass "anchor" (a line\'s <hash> from read_file) to replace that whole line with newString (token-cheap, unambiguous); add "endAnchor" to replace the span of lines from anchor through endAnchor. With an anchor, oldString may be "". A stale anchor (the line changed since you read it) is refused — re-read for fresh anchors. Atomic.',
     inputSchema: {
       type: 'object',
-      properties: { path: strProp('Workspace-relative path.'), oldString: strProp('Unique substring to replace (or "" to create).'), newString: strProp('Replacement (or full contents for a new file).') },
+      properties: {
+        path: strProp('Workspace-relative path.'),
+        oldString: strProp('Unique verbatim substring to replace (or "" to create, or "" when using anchor).'),
+        newString: strProp('Replacement (or full contents for a new file).'),
+        anchor: strProp('Optional line <hash> from read_file: replace that line (instead of oldString).'),
+        endAnchor: strProp('Optional line <hash>: with anchor, replace the span of lines from anchor through this line (inclusive).'),
+      },
       required: ['path', 'oldString', 'newString'],
       additionalProperties: false,
     },
   },
   {
     name: 'multi_edit',
-    description: 'Apply several string-replace edits across one or more files atomically (all-or-nothing). Prefer this when a fix spans multiple sites.',
+    description: 'Apply several replace edits across one or more files atomically (all-or-nothing). Each edit is verbatim (oldString) or anchored (anchor / endAnchor line hashes from read_file) — same rules as edit_file. Prefer this when a fix spans multiple sites.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -66,7 +72,13 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           type: 'array',
           items: {
             type: 'object',
-            properties: { path: strProp('Workspace-relative path.'), oldString: strProp('Unique substring (or "" to create).'), newString: strProp('Replacement.') },
+            properties: {
+              path: strProp('Workspace-relative path.'),
+              oldString: strProp('Unique substring (or "" to create, or "" when using anchor).'),
+              newString: strProp('Replacement.'),
+              anchor: strProp('Optional line <hash> from read_file: replace that line.'),
+              endAnchor: strProp('Optional line <hash>: span from anchor through this line (inclusive).'),
+            },
             required: ['path', 'oldString', 'newString'],
             additionalProperties: false,
           },

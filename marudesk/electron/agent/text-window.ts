@@ -2,9 +2,10 @@
  * Line-addressable paging for the agent's file/document tools (read_file,
  * read_workspace_file, the stale-edit echo). Centralised so the windowing,
  * per-line clip, and continuation footer stay identical across every tool that
- * shows file text. Pure string helpers — no fs/electron — so they're trivial to
- * reuse and test.
+ * shows file text.
  */
+
+import { lineAnchor } from './line-anchor';
 
 /** Default lines returned per read; large files page with `offset`. */
 export const MAX_READ_LINES = 1_500;
@@ -41,10 +42,15 @@ export type PagedView = {
  * `content` is itself a prefix of a larger file so the footer says so. Always
  * shows at least the first requested line, and appends a footer telling the
  * model how to read the next chunk.
+ *
+ * With `anchors`, each line's prefix becomes `N <hash>\t` (the v6 §W1 B-layer):
+ * a short, stable per-line content hash the model can reference in an edit's
+ * `anchor` instead of copying the line verbatim. The `\t` stays the prefix↔text
+ * delimiter, so a model that already strips the prefix is unaffected.
  */
 export function pageLines(
   content: string,
-  opts: { offset?: unknown; limit?: unknown; truncated?: boolean } = {},
+  opts: { offset?: unknown; limit?: unknown; truncated?: boolean; anchors?: boolean } = {},
 ): PagedView {
   if (content.length === 0 && !opts.truncated) {
     return { text: '(empty file)', ranged: false, firstLine: 1, lastLine: 0 };
@@ -59,7 +65,11 @@ export function pageLines(
   let used = 0;
   let lastShown = start - 1;
   for (let i = start; i <= end; i++) {
-    const rendered = `${String(i).padStart(width, ' ')}\t${clipLine(lines[i - 1])}`;
+    const line = lines[i - 1];
+    const prefix = opts.anchors
+      ? `${String(i).padStart(width, ' ')} ${lineAnchor(line)}\t`
+      : `${String(i).padStart(width, ' ')}\t`;
+    const rendered = `${prefix}${clipLine(line)}`;
     if (i > start && used + rendered.length + 1 > MAX_WINDOW_BYTES) break;
     parts.push(rendered);
     used += rendered.length + 1;
