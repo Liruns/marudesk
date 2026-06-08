@@ -1,4 +1,4 @@
-import type { TabRecord } from '../../browser/state';
+import { getTab, type TabRecord } from '../../browser/state';
 import { sendCdp } from '../../browser/cdp';
 
 /**
@@ -17,6 +17,14 @@ import { sendCdp } from '../../browser/cdp';
  */
 
 const HIGHLIGHT_TTL = 2_000;
+// A preview drawn while a gated action waits for approval persists until the
+// decision clears it (see clearActionPreview); the long TTL is only a backstop
+// so a dropped clear can't leave a box on the page forever.
+const PREVIEW_TTL = 60_000;
+
+// Gated interaction tools that resolve a single selector — the ones worth
+// previewing on the page before the user approves them.
+const PREVIEWABLE = new Set(['click', 'fill', 'press_key', 'scroll']);
 
 // Self-contained page function: selector + label arrive as JSON-encoded data,
 // never spliced as code (same injection-safety contract as the runtime tools).
@@ -60,18 +68,62 @@ const HIGHLIGHT_FN = String.raw`function (selector, label, ttl) {
   }
 }`;
 
+// Removes any highlight nodes left in the page (the preview, before its TTL).
+const CLEAR_FN = String.raw`function () {
+  try {
+    var ns = document.querySelectorAll('[data-marudesk-agent-highlight]');
+    for (var i = 0; i < ns.length; i++) ns[i].remove();
+  } catch (e) {}
+}`;
+
 /**
  * Draw a transient highlight over `selector` in the tab's live page. No-op for an
  * empty selector or a tab without a view; failures are swallowed so the calling
  * tool's own result is never affected.
  */
-export function highlightInPage(rec: TabRecord, selector: string, label: string): void {
+export function highlightInPage(
+  rec: TabRecord,
+  selector: string,
+  label: string,
+  ttl: number = HIGHLIGHT_TTL,
+): void {
   if (!selector || !rec.view) return;
-  const expr = `(${HIGHLIGHT_FN})(${JSON.stringify(selector)}, ${JSON.stringify(label)}, ${HIGHLIGHT_TTL})`;
+  const expr = `(${HIGHLIGHT_FN})(${JSON.stringify(selector)}, ${JSON.stringify(label)}, ${ttl})`;
   void sendCdp(rec, 'Runtime.evaluate', {
     expression: expr,
     returnByValue: true,
     awaitPromise: false,
     timeout: 1_500,
+  }).catch(() => undefined);
+}
+
+/**
+ * Preview a gated interaction tool on the page while it waits for approval, so
+ * the user can see the exact target before deciding (Stagehand-style preview).
+ * Persists until {@link clearActionPreview} runs on the decision. No-op for
+ * non-previewable tools, a selectorless input, or a non-web tab.
+ */
+export function previewGatedAction(tabId: string | undefined, name: string, input: unknown): void {
+  if (!tabId || !PREVIEWABLE.has(name)) return;
+  const sel =
+    input && typeof input === 'object'
+      ? (input as { selector?: unknown }).selector
+      : undefined;
+  if (typeof sel !== 'string' || !sel) return;
+  const rec = getTab(tabId);
+  if (!rec || rec.kind !== 'web' || !rec.view) return;
+  highlightInPage(rec, sel, name === 'press_key' ? 'press' : name, PREVIEW_TTL);
+}
+
+/** Clear a gated-action preview (called once the approval decision is made). */
+export function clearActionPreview(tabId: string | undefined): void {
+  if (!tabId) return;
+  const rec = getTab(tabId);
+  if (!rec || rec.kind !== 'web' || !rec.view) return;
+  void sendCdp(rec, 'Runtime.evaluate', {
+    expression: `(${CLEAR_FN})()`,
+    returnByValue: true,
+    awaitPromise: false,
+    timeout: 1_000,
   }).catch(() => undefined);
 }

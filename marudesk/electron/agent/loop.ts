@@ -30,6 +30,8 @@ import {
   CANCEL_BACKGROUND_AGENT,
   UPDATE_PLAN,
   describeToolInput,
+  previewGatedAction,
+  clearActionPreview,
   type ToolContext,
   type ToolResult,
 } from './tools';
@@ -575,8 +577,13 @@ async function runLoop(opts: RunOpts): Promise<void> {
           detail: describeToolInput(call.name, call.input),
           ...(editPreview ? { diffs: editDiffs(call.input) } : {}),
         };
+        // Preview a gated browser action on the live page while it waits, so the
+        // user sees the exact target before approving (Stagehand-style). Cleared
+        // on the decision; the executor redraws its own highlight if approved.
+        previewGatedAction(ctx.tabId, call.name, call.input);
         emit();
         const decision = await waitForApproval(S);
+        clearActionPreview(ctx.tabId);
         S.approvalResolver = null;
         S.state.pendingApproval = null;
         if (opts.signal.aborted) {
