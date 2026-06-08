@@ -13,6 +13,8 @@ import { readFileSafe, writeFileForEditor } from '../workspace';
 import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
 import { patchSettings } from '../settings';
 import { effectiveAgentRoot } from '../worktree-isolation';
+import { getActive, getTab } from '../browser/state';
+import { navigateActive } from '../browser/navigation';
 import { S, emit, containerForTurn } from './loop-state.ts';
 
 /**
@@ -125,6 +127,38 @@ async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void
 
 export function snapshot(): AgentChatState {
   return S.state;
+}
+
+/**
+ * Runtime marker for turn-level rollback: the live web tab's URL at the moment a
+ * turn started, keyed by turnId. Module-scoped (session-lived, not persisted) so
+ * it never bloats the snapshot or the bridge. Recorded by the loop at turn start.
+ */
+const turnStartUrl = new Map<string, string>();
+
+export function recordTurnStartUrl(turnId: string, tabId: string | undefined): void {
+  if (!tabId) return;
+  const url = getTab(tabId)?.view?.webContents.getURL();
+  if (url) turnStartUrl.set(turnId, url);
+}
+
+/**
+ * Re-navigate the active web tab back to where it was when `turnId` started —
+ * the runtime half of a turn-level "restore" (the edit half is the existing
+ * Revert all). No-op unless the agent actually moved the page during the turn, so
+ * a plain code revert doesn't surprise the user by navigating.
+ */
+export async function restoreTurnPage(turnId: string): Promise<{ navigated: boolean }> {
+  const url = turnStartUrl.get(turnId);
+  if (!url) return { navigated: false };
+  const current = getActive()?.view?.webContents.getURL();
+  if (!current || current === url) return { navigated: false };
+  try {
+    await navigateActive(url);
+    return { navigated: true };
+  } catch {
+    return { navigated: false };
+  }
 }
 
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];

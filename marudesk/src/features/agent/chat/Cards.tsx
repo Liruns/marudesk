@@ -55,6 +55,7 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
   const { locale, t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
+  const restoreTurnPage = useAgentStore((s) => s.restoreTurnPage);
   const submitPrompt = useAgentStore((s) => s.submitPrompt);
   const busy = useAgentBusy();
   // Inline review comments the user has staged on these diffs (v6 §U1). When any
@@ -137,6 +138,11 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
                 if (failed.length > 0) {
                   toastRevertFailure(t, failed.some((r) => r.reason === 'stale'));
                 }
+                // Runtime-aware rollback: also restore the page to where the turn
+                // started (no-op unless the agent navigated it). All edits in this
+                // card share a turn.
+                const turnId = applied[0]?.turnId;
+                if (turnId) void restoreTurnPage(turnId);
               }}
               className="flex items-center gap-1 text-fg-tertiary hover:text-error transition-colors duration-fast"
               title={t('agent.chat.revertAllTitle')}

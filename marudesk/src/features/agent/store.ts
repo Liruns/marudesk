@@ -124,6 +124,7 @@ type AgentActions = {
   approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
   acceptEdit: (editId: string) => Promise<AgentEditActionResult>;
   revertEdit: (editId: string) => Promise<AgentEditActionResult>;
+  restoreTurnPage: (turnId: string) => Promise<void>;
   cancelBackground: (id: string) => Promise<void>;
   /** Steerable plan (v6 §U5): toggle a step's status or remove it. */
   editPlanStep: (id: string, op: { status?: string; remove?: boolean }) => Promise<void>;
@@ -337,6 +338,17 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       return await window.marudesk.invoke('agent:revert-edit', { editId });
     } catch {
       return { ok: false };
+    }
+  },
+
+  // Runtime half of a turn-level rollback: re-navigate the web tab to where it
+  // was when the turn started (no-op unless the agent moved the page). Paired
+  // with Revert all in the changes card. Best-effort — never throws.
+  restoreTurnPage: async (turnId) => {
+    try {
+      await window.marudesk.invoke('agent:restore-turn-page', { turnId });
+    } catch {
+      // best-effort
     }
   },
 

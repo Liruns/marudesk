@@ -80,9 +80,11 @@ export {
   approveTool,
   acceptEdit,
   revertEdit,
+  restoreTurnPage,
   snapshot,
   setApprovalMode,
 } from './loop-turn-actions.ts';
+import { recordTurnStartUrl } from './loop-turn-actions.ts';
 export { editPlanStep } from './plan.ts';
 import {
   buildUserText,
@@ -927,6 +929,8 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     S.controller = new AbortController();
     S.activeTabId = input.tabId;
     S.state.turnId = turnId;
+    // Runtime marker for turn-level rollback (restore the page on Revert all).
+    recordTurnStartUrl(turnId, input.tabId);
     S.state.status = 'thinking';
     S.state.error = null;
     S.state.endNote = null;

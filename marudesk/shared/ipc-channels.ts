@@ -155,6 +155,7 @@ export const CHANNELS = {
     'agent:approve-tool',
     'agent:accept-edit',
     'agent:revert-edit',
+    'agent:restore-turn-page',
     'agent:cancel-background',
     'agent:edit-plan-step',
     'agent:snapshot',

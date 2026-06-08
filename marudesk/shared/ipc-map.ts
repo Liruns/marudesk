@@ -503,6 +503,10 @@ export interface IpcMap {
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
   'agent:accept-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
   'agent:revert-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
+  // Restore the live page to where it was when a turn started (runtime-aware
+  // rollback): re-navigate the web tab to the turn's start URL if the agent moved
+  // it. Pairs with "Revert all" (which restores the turn's file edits).
+  'agent:restore-turn-page': { args: [payload: { turnId: string }]; result: { navigated: boolean } };
   // User-initiated cancel of a running background agent from the tray (audit H6).
   'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
   // Steerable plan (v6 §U5): user toggles a step's status or removes it.
