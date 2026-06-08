@@ -362,5 +362,30 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 - **2026-06-07:** 열린결정 4(Hashline 도입 방식) → **하이브리드(B 해시앵커 주축 + A 너그러운 매칭
   폴백)** 확정. 근거 = 근본 비용은 실패 재시도 루프 + verbatim 복제 토큰 둘 다이고, B만이 둘 다 공격하나
   모델 의존적이라 A를 바닥으로 깐다. 단계 3은 A 폴백 먼저 → B 얹기. **남은 열린 결정 없음 — 구현 착수 가능.**
+
+---
+
+## 구현 진행 (2026-06-07)
+
+| 단계 | 항목 | 상태 | 커밋 |
+|---|---|---|---|
+| 1 | U1 diff inline 코멘트 | ✅ | `e6e5ea8` |
+| 2 | U2 브라우저 요소 코멘트 (+§S.1 untrusted scrub) | ✅ | `435df99` |
+| 3 | W1 Hashline **A-레이어**(너그러운 매칭) + harness 10케이스 | ✅ | `bed5d24` |
+| 4 | W3 메모리 FTS 검색 + 자동 eviction | ✅ | `35cbba2` |
+| 5 | W5/U4 에러복구 카드 | ✅ | `7b8ed98` |
+| 6 | W7/U10 영속 allow + per-tool deny | ✅ | `dc901db` |
+| 7 | W8 /review 병렬 reviewer P0~P3 | ✅ | `50ff8e3` |
+| 8 | U5 steerable plan(step 토글/삭제) | ✅ | `d94eb28` |
+
+**검증:** 각 단계 typecheck+build+lint 그린(무관한 기존 `Tour.tsx` lint 에러만 잔존), W1은
+`harness:patch-match` 통과. 원격 환경 Electron 실행 불가 → **UI 수동 점검 미실시**(로컬 `npm run dev` 권장).
+
+**남은 작업 (대형 — 각각 별도 집중 라운드 권장):**
+- **W1 B-레이어**: 읽기뷰 해시앵커 + 모델 앵커 참조(하이브리드 천장). A 폴백은 착지.
+- **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime 변경). **U9**: compaction 원문 펼쳐보기.
+- **단계 9**: 플러그인/MCP 관리 UI. **단계 10**: 모델 역할 라우팅. **단계 11**: 인터랙티브 아티팩트
+  (plugin:// iframe 재사용, §S.1 grant 0). **단계 12**: worktree→병렬 thread→automations.
+- **모바일 패리티**: U5 step-edit / U10 승인 토글(relay 커맨드 추가 필요).
 </content>
 </invoke>
