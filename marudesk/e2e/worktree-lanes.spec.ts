@@ -45,6 +45,24 @@ test('worktree lanes: lists every worktree of the active repo', async () => {
     expect(lanes.some((l) => l.branch === 'marudesk/agent/1')).toBe(true);
     // Each lane carries a numeric change count (clean repo → 0).
     expect(lanes.every((l) => typeof l.changes === 'number')).toBe(true);
+
+    // Cleanup (§3.8): removing the main worktree is refused...
+    const main = lanes.find((l) => l.isMain)!;
+    const refused = await page.evaluate(
+      (p) => window.marudesk.invoke('git:worktree-remove', { path: p }),
+      main.path,
+    );
+    expect(refused.ok).toBe(false);
+
+    // ...but a stale agent lane discards, dropping the board back to the main tree.
+    const agent = lanes.find((l) => l.branch === 'marudesk/agent/1')!;
+    const removed = await page.evaluate(
+      (p) => window.marudesk.invoke('git:worktree-remove', { path: p }),
+      agent.path,
+    );
+    expect(removed.ok).toBe(true);
+    const after = await page.evaluate(() => window.marudesk.invoke('git:worktree-list'));
+    expect(after.some((l) => l.branch === 'marudesk/agent/1')).toBe(false);
   } finally {
     await app.close();
     fs.rmSync(repo, { recursive: true, force: true });

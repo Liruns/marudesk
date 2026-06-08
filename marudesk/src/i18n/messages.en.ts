@@ -287,6 +287,9 @@ export const EN_MESSAGES = {
   'git.worktrees.title': 'Worktrees',
   'git.worktrees.main': 'main',
   'git.worktrees.changes': 'Uncommitted changes',
+  'git.worktrees.discard': 'Discard this agent worktree',
+  'git.worktrees.discardConfirm': 'Discard this agent worktree and delete its branch? Uncommitted work in it is lost.',
+  'git.worktrees.discardFailed': 'Could not discard the worktree',
   'git.worktree.runIsolated': 'Run isolated',
   'git.worktree.runIsolatedHint':
     'Run the agent in a dedicated git worktree on its own branch; review its changes here, then merge them back or discard.',

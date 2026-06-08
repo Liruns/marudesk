@@ -21,8 +21,9 @@ import {
   isolationStatus,
   mergeIsolation,
 } from './worktree-isolation';
-import { isGitRepo, listWorktrees, worktreeChanges } from './git-worktree';
-import type { WorktreeLane } from '../shared/worktree';
+import { discardWorktree, isGitRepo, listWorktrees, worktreeChanges } from './git-worktree';
+import { isAgentWorktreeBranch, type WorktreeLane } from '../shared/worktree';
+import path from 'node:path';
 
 /**
  * Workspace Source Control (VSCode-style). Every command runs against the open
@@ -422,5 +423,27 @@ export function registerGitHandlers(): void {
       lanes.push({ ...wt, changes });
     }
     return lanes;
+  });
+
+  // Lanes board cleanup (§3.8): discard a stale AGENT worktree (force-remove its
+  // tree + delete its branch). Refuses the main worktree and any non-agent branch,
+  // so it can only ever sweep marudesk/agent/* lanes — never the user's own trees.
+  defineHandler('git:worktree-remove', async ([payload]) => {
+    const target = str(obj(payload).path, 'path');
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return { ok: false, reason: 'no-repo' } as const;
+    const trees = await listWorktrees(root);
+    const wt = trees.find((w) => path.resolve(w.path) === path.resolve(target));
+    if (!wt) return { ok: false, reason: 'not-found' } as const;
+    if (wt.isMain) return { ok: false, reason: 'is-main' } as const;
+    if (!wt.branch || !isAgentWorktreeBranch(wt.branch)) {
+      return { ok: false, reason: 'not-agent' } as const;
+    }
+    try {
+      await discardWorktree(root, wt.path, wt.branch);
+      return { ok: true } as const;
+    } catch (err) {
+      return { ok: false, reason: 'error', message: (err as Error).message } as const;
+    }
   });
 }

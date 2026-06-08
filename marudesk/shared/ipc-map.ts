@@ -421,6 +421,13 @@ export interface IpcMap {
   'git:worktree-discard': { args: []; result: { ok: true } };
   // Lanes board: every worktree of the active repo + its pending-change count.
   'git:worktree-list': { args: []; result: WorktreeLane[] };
+  // Lanes board cleanup: discard a stale agent worktree (refuses main / non-agent).
+  'git:worktree-remove': {
+    args: [payload: { path: string }];
+    result:
+      | { ok: true }
+      | { ok: false; reason: 'no-repo' | 'not-found' | 'is-main' | 'not-agent' | 'error'; message?: string };
+  };
 
   // automations (Stage 12-C — scheduled saved-prompt agent runs)
   'automations:list': { args: []; result: Automation[] };

@@ -286,6 +286,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.worktrees.title': '워크트리',
   'git.worktrees.main': 'main',
   'git.worktrees.changes': '커밋되지 않은 변경',
+  'git.worktrees.discard': '이 에이전트 워크트리 폐기',
+  'git.worktrees.discardConfirm': '이 에이전트 워크트리를 폐기하고 브랜치를 삭제할까요? 커밋되지 않은 작업은 사라집니다.',
+  'git.worktrees.discardFailed': '워크트리를 폐기할 수 없습니다',
   'git.worktree.runIsolated': '격리 실행',
   'git.worktree.runIsolatedHint':
     '에이전트를 전용 git worktree(별도 브랜치)에서 실행합니다. 변경 사항을 여기서 검토한 뒤 병합하거나 버립니다.',
