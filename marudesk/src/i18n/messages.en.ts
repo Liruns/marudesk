@@ -65,6 +65,7 @@ export const EN_MESSAGES = {
   'devtools.panel.console': 'Console',
   'devtools.panel.elements': 'Elements',
   'devtools.panel.network': 'Network',
+  'devtools.panel.timeline': 'Timeline',
   'devtools.panel.rendering': 'Rendering',
   'devtools.reconnect': 'Reconnect',
   'devtools.resizeDrawer': 'Resize drawer',

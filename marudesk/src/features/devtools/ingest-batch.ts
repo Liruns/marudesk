@@ -275,6 +275,8 @@ export function applyIngestBatch(
                 method: req.method,
                 resourceType: pAny.type as string | undefined,
                 startTime: pAny.timestamp as number,
+                wallTime:
+                  typeof pAny.wallTime === 'number' ? pAny.wallTime * 1000 : undefined,
                 requestHeaders: req.headers,
                 requestPostData: requestPostData?.text,
                 requestPostDataTruncated: requestPostData?.truncated,

@@ -208,6 +208,12 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         if (get().documentId === null) await get().refreshDocument();
       } else if (panel === 'console') {
         await get()._ensureDomains(['Runtime', 'Log']);
+      } else if (panel === 'timeline') {
+        // The runtime evidence timeline reads console errors + network failures,
+        // so it needs both domains live (Network included, despite its flood
+        // cost, or the timeline would silently miss request failures).
+        await get()._ensureDomains(['Runtime', 'Log', 'Network']);
+        await get()._applyNetworkConditions();
       } else if (panel === 'network') {
         // Lazy: Network is the flood-prone domain (main already drops
         // dataReceived). Only enabled when the user opens this panel.

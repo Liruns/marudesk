@@ -64,6 +64,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'devtools.panel.console': 'Console',
   'devtools.panel.elements': 'Elements',
   'devtools.panel.network': 'Network',
+  'devtools.panel.timeline': 'Timeline',
   'devtools.panel.rendering': 'Rendering',
   'devtools.reconnect': '다시 연결',
   'devtools.resizeDrawer': 'drawer 크기 조정',

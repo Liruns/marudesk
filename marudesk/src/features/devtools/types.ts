@@ -218,6 +218,13 @@ export type NetworkEntry = {
   fromCache?: boolean;
   /** CDP monotonic timestamps (seconds). */
   startTime: number;
+  /**
+   * Wall-clock send time in epoch ms (from `requestWillBeSent.wallTime`, seconds
+   * → ms). The monotonic `startTime` has an arbitrary origin, so this is the only
+   * field comparable with the console's wall-clock `timestamp` — used to order
+   * the runtime evidence timeline across sources.
+   */
+  wallTime?: number;
   endTime?: number;
   encodedDataLength?: number;
   failed?: boolean;

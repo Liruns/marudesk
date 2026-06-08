@@ -34,6 +34,7 @@ const PANEL_LABEL_KEYS: Record<DevtoolsPanel, TranslationKey> = {
   application: 'devtools.panel.application',
   console: 'devtools.panel.console',
   elements: 'devtools.panel.elements',
+  timeline: 'devtools.panel.timeline',
   network: 'devtools.panel.network',
   rendering: 'devtools.panel.rendering',
 };
