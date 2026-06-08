@@ -322,6 +322,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.worktrees.devOpen': '이 레인의 dev URL을 탭으로 열기',
   'git.worktrees.devNoCommand': '먼저 에이전트 설정에서 레인 dev 명령을 지정하세요',
   'git.worktrees.devFailed': 'dev 서버를 시작할 수 없습니다',
+  'git.worktrees.openPr': '이 레인을 푸시하고 GitHub PR 페이지 열기',
+  'git.worktrees.prNotPushed': 'PR 페이지를 열었지만 푸시에 실패했습니다 — 브랜치를 수동으로 푸시하세요',
+  'git.worktrees.prNoRemote': '이 저장소에 GitHub origin 리모트가 없습니다',
+  'git.worktrees.prFailed': '이 레인의 PR을 열 수 없습니다',
   'git.worktree.runIsolated': '격리 실행',
   'git.worktree.runIsolatedHint':
     '에이전트를 전용 git worktree(별도 브랜치)에서 실행합니다. 변경 사항을 여기서 검토한 뒤 병합하거나 버립니다.',

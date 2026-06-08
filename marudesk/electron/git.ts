@@ -23,6 +23,8 @@ import {
 } from './worktree-isolation';
 import { discardWorktree, isGitRepo, listWorktrees, mergeWorktree, worktreeChanges } from './git-worktree';
 import { isAgentWorktreeBranch, type WorktreeLane } from '../shared/worktree';
+import { buildCompareUrl } from '../shared/github-url';
+import { createAndActivateTab } from './browser/tabs';
 import path from 'node:path';
 
 /**
@@ -461,5 +463,41 @@ export function registerGitHandlers(): void {
       return { ok: false, reason: 'error', message: 'not a mergeable lane' } as const;
     }
     return mergeWorktree(root, wt.path, wt.branch, `Merge ${wt.branch}`);
+  });
+
+  // Lanes board (§3.8): push an agent lane's branch and open its GitHub
+  // compare/create-PR page in a tab. No in-app GitHub API — just git push + the
+  // web URL — so it works with whatever auth git already has. Push is best-effort
+  // (offline / no perms still opens the page); a non-GitHub remote is reported.
+  defineHandler('git:worktree-open-pr', async ([payload]) => {
+    const target = str(obj(payload).path, 'path');
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return { ok: false, reason: 'no-repo' } as const;
+    const trees = await listWorktrees(root);
+    const wt = trees.find((w) => path.resolve(w.path) === path.resolve(target));
+    if (!wt || wt.isMain || !wt.branch) return { ok: false, reason: 'not-a-lane' } as const;
+    let remoteUrl: string;
+    try {
+      remoteUrl = (await runGit(root, ['remote', 'get-url', 'origin'])).stdout.trim();
+    } catch {
+      return { ok: false, reason: 'no-remote' } as const;
+    }
+    let base = 'main';
+    try {
+      base = (await runGit(root, ['symbolic-ref', '--short', 'HEAD'])).stdout.trim() || 'main';
+    } catch {
+      // detached base; fall back to 'main'
+    }
+    const url = buildCompareUrl(remoteUrl, base, wt.branch);
+    if (!url) return { ok: false, reason: 'not-github' } as const;
+    let pushed = false;
+    try {
+      await runGit(root, ['push', '-u', 'origin', wt.branch], 60_000);
+      pushed = true;
+    } catch {
+      // best-effort: still open the page so the user can push/PR manually
+    }
+    createAndActivateTab('web', url);
+    return { ok: true, url, pushed } as const;
   });
 }

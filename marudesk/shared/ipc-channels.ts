@@ -121,6 +121,7 @@ export const CHANNELS = {
     'git:worktree-list',
     'git:worktree-remove',
     'git:worktree-merge-lane',
+    'git:worktree-open-pr',
   ],
   // Automations (Stage 12-C): saved prompts that run on a schedule.
   automations: [

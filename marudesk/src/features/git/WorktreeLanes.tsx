@@ -5,6 +5,7 @@ import {
   ExternalLink,
   GitBranch,
   GitMerge,
+  GitPullRequest,
   Loader2,
   Play,
   Square,
@@ -59,6 +60,20 @@ export function WorktreeLanes() {
   };
   const stopDev = (lane: WorktreeLane) => void window.marudesk.invoke('lanes-dev:stop', { path: lane.path });
   const openDev = (lane: WorktreeLane) => void window.marudesk.invoke('lanes-dev:open', { path: lane.path });
+
+  const openPr = async (lane: WorktreeLane) => {
+    const res = await window.marudesk.invoke('git:worktree-open-pr', { path: lane.path });
+    if (res.ok) {
+      if (!res.pushed) toast({ title: t('git.worktrees.prNotPushed'), variant: 'error' });
+    } else {
+      toast({
+        title: res.reason === 'no-remote' || res.reason === 'not-github'
+          ? t('git.worktrees.prNoRemote')
+          : t('git.worktrees.prFailed'),
+        variant: 'error',
+      });
+    }
+  };
 
   const refresh = useCallback(() => {
     void window.marudesk
@@ -169,6 +184,14 @@ export function WorktreeLanes() {
               })()}
               {!lane.isMain && lane.branch && isAgentWorktreeBranch(lane.branch) ? (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => void openPr(lane)}
+                    title={t('git.worktrees.openPr')}
+                    className="shrink-0 rounded p-0.5 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-accent-subtle hover:text-accent group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <GitPullRequest size={12} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => void merge(lane)}

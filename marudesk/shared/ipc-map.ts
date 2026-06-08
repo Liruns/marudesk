@@ -434,6 +434,13 @@ export interface IpcMap {
   };
   // Lanes board: merge an agent lane back into the base branch (then clean up).
   'git:worktree-merge-lane': { args: [payload: { path: string }]; result: WorktreeMergeResult };
+  // Lanes board: push an agent lane + open its GitHub compare/create-PR page.
+  'git:worktree-open-pr': {
+    args: [payload: { path: string }];
+    result:
+      | { ok: true; url: string; pushed: boolean }
+      | { ok: false; reason: 'no-repo' | 'not-a-lane' | 'no-remote' | 'not-github' };
+  };
 
   // automations (Stage 12-C — scheduled saved-prompt agent runs)
   'automations:list': { args: []; result: Automation[] };

@@ -323,6 +323,10 @@ export const EN_MESSAGES = {
   'git.worktrees.devOpen': 'Open this lane’s dev URL in a tab',
   'git.worktrees.devNoCommand': 'Set a lane dev command in Agent settings first',
   'git.worktrees.devFailed': 'Could not start the dev server',
+  'git.worktrees.openPr': 'Push this lane and open its GitHub PR page',
+  'git.worktrees.prNotPushed': 'Opened the PR page, but the push failed — push the branch manually',
+  'git.worktrees.prNoRemote': 'No GitHub origin remote on this repo',
+  'git.worktrees.prFailed': 'Could not open a PR for this lane',
   'git.worktree.runIsolated': 'Run isolated',
   'git.worktree.runIsolatedHint':
     'Run the agent in a dedicated git worktree on its own branch; review its changes here, then merge them back or discard.',
