@@ -173,7 +173,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             />
           )}
 
-          {receipt ? <ReceiptCard receipt={receipt} /> : null}
+          {receipt ? <ReceiptCard receipt={receipt} turnId={chat.turnId} /> : null}
 
           {/* Inline plan: always in the compact drawer; in the full surface only
               below lg, where the side panel is hidden — so the plan is never lost

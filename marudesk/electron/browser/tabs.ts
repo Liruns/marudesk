@@ -36,6 +36,7 @@ import {
 } from './cdp';
 import { buildWebContextMenu } from './context-menu';
 import { reapplyInspectOverlay } from './inspect';
+import { reapplyStageToolbar } from './stage-toolbar';
 import { clearFavicon, updateFavicon } from './favicon';
 import { handleFoundInPage } from './find';
 import { reapplyZoom } from './zoom';
@@ -223,9 +224,10 @@ export function createTab(
     handleFoundInPage(rec, result);
   });
 
-  // Re-apply inspect overlay after the page navigates if inspect is on.
+  // Re-apply inspect overlay + stage toolbar after the page navigates.
   view.webContents.on('did-finish-load', () => {
     reapplyInspectOverlay(rec);
+    reapplyStageToolbar(rec);
   });
 
   // Browser-style right-click menu. Without this handler the embedded view

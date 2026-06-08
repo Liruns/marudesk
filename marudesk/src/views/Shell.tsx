@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityBar } from '../components/ActivityBar';
 import { StatusBar } from '../components/StatusBar';
 import { TitleBar } from '../components/TitleBar';
@@ -18,6 +18,7 @@ import { TabPalette } from '../features/tabs/TabPalette';
 import { useSearchStore } from '../features/search/store';
 import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
+import { useComposerStore } from '../features/composer/store';
 import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
 import { Tour } from '../features/tour/Tour';
@@ -113,6 +114,17 @@ export function Shell() {
   // Toggle a left-rail view: clicking the active view collapses the rail.
   const toggleLeft = (panel: Exclude<LeftPanel, null>) =>
     setLeftPanel((cur) => (cur === panel ? null : panel));
+
+  // Open the context drawer when a stage element pick asks for it (the composer
+  // store bumps a nonce). Skip the initial mount so we don't force it open on
+  // first paint; a counter means a repeat pick re-opens a drawer the user closed.
+  const drawerOpenNonce = useComposerStore((s) => s.drawerOpenNonce);
+  const drawerNonceSeen = useRef(drawerOpenNonce);
+  useEffect(() => {
+    if (drawerOpenNonce === drawerNonceSeen.current) return;
+    drawerNonceSeen.current = drawerOpenNonce;
+    setDrawerOpen(true);
+  }, [drawerOpenNonce]);
 
   // Keyboard shortcuts while the React chrome has focus. The mirror case — the
   // embedded web page having focus — is handled in the main process'

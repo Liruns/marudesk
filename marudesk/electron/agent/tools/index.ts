@@ -27,6 +27,7 @@ export {
   UPDATE_PLAN,
 } from './types';
 export { executeTool, describeToolInput } from './executors';
+export { previewGatedAction, clearActionPreview } from './highlight';
 export { TOOL_SCHEMAS } from './schemas';
 export {
   BUILTIN_TOOLS,

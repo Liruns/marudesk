@@ -12,7 +12,11 @@ import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { readFileSafe, writeFileForEditor } from '../workspace';
 import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
 import { patchSettings } from '../settings';
+import type { CheckpointRestore } from '../../shared/worktree';
 import { effectiveAgentRoot } from '../worktree-isolation';
+import { createCheckpoint, restoreCheckpoint } from '../git-worktree';
+import { getActive, getTab } from '../browser/state';
+import { navigateActive } from '../browser/navigation';
 import { S, emit, containerForTurn } from './loop-state.ts';
 
 /**
@@ -125,6 +129,74 @@ async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void
 
 export function snapshot(): AgentChatState {
   return S.state;
+}
+
+/**
+ * Runtime marker for turn-level rollback: the live web tab's URL at the moment a
+ * turn started, keyed by turnId. Module-scoped (session-lived, not persisted) so
+ * it never bloats the snapshot or the bridge. Recorded by the loop at turn start.
+ */
+const turnStartUrl = new Map<string, string>();
+
+export function recordTurnStartUrl(turnId: string, tabId: string | undefined): void {
+  if (!tabId) return;
+  const url = getTab(tabId)?.view?.webContents.getURL();
+  if (url) turnStartUrl.set(turnId, url);
+}
+
+/**
+ * Re-navigate the active web tab back to where it was when `turnId` started —
+ * the runtime half of a turn-level "restore" (the edit half is the existing
+ * Revert all). No-op unless the agent actually moved the page during the turn, so
+ * a plain code revert doesn't surprise the user by navigating.
+ */
+export async function restoreTurnPage(turnId: string): Promise<{ navigated: boolean }> {
+  const url = turnStartUrl.get(turnId);
+  if (!url) return { navigated: false };
+  const current = getActive()?.view?.webContents.getURL();
+  if (!current || current === url) return { navigated: false };
+  try {
+    await navigateActive(url);
+    return { navigated: true };
+  } catch {
+    return { navigated: false };
+  }
+}
+
+/**
+ * Turn checkpoint (§3.6): a non-destructive snapshot of the agent's working tree
+ * at turn start, keyed by turnId. Module-scoped (session-lived) like the URL
+ * marker. Unlike the edits list, this also captures changes the agent made via
+ * the terminal, so restore can roll the WHOLE tree back to the turn's start.
+ */
+const turnCheckpoint = new Map<string, { root: string; sha: string | null }>();
+
+/**
+ * Drop the per-turn runtime markers (start URL + checkpoint snapshot). Called by
+ * reset() on a new chat so these session-lived maps don't grow unbounded across
+ * conversations. Turn ids are unique, so this only reclaims memory — the live
+ * chat's edits keep their own per-edit revert.
+ */
+export function clearTurnRuntimeState(): void {
+  turnStartUrl.clear();
+  turnCheckpoint.clear();
+}
+
+/** `root` is the agent's effective working root (the worktree when isolated). */
+export async function recordTurnCheckpoint(turnId: string, root: string): Promise<void> {
+  const sha = await createCheckpoint(root);
+  turnCheckpoint.set(turnId, { root, sha });
+}
+
+/**
+ * Roll the working tree back to a turn's checkpoint. Safe by construction —
+ * current work is parked on the stash stack before the snapshot is re-applied
+ * (see restoreCheckpoint), so nothing is ever destroyed.
+ */
+export async function restoreTurnCheckpoint(turnId: string): Promise<CheckpointRestore> {
+  const cp = turnCheckpoint.get(turnId);
+  if (!cp) return { ok: false, reason: 'none' };
+  return restoreCheckpoint(cp.root, cp.sha);
 }
 
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];

@@ -326,6 +326,19 @@ export type ThreadSummary = {
   messageCount: number;
 };
 
+/**
+ * One built-in agent tool as the Settings "tool groups" UI sees it (§3.11) — a
+ * renderer-visible projection of the main-process registry so the page-acting
+ * tools can be shown and gated by group. `group` is the registry's McpGroup
+ * (kept as a string to avoid leaking the electron-side type into shared).
+ */
+export type AgentToolInfo = {
+  name: string;
+  group: string;
+  gated: boolean;
+  requiresWeb: boolean;
+};
+
 export function emptyAgentChatState(): AgentChatState {
   return {
     turnId: null,

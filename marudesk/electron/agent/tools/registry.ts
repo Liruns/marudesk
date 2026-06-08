@@ -1,3 +1,4 @@
+import type { AgentToolInfo } from '../../../shared/agent';
 import {
   ASK_USER,
   SPAWN_SUBAGENT,
@@ -93,6 +94,21 @@ export const BUILTIN_TOOLS: McpTool[] = [
   ];
   }),
 ];
+
+/**
+ * Renderer-visible projection of the built-in tools for the Settings tool-groups
+ * UI (§3.11): name + group + gated/requiresWeb flags, so the user can see and
+ * gate the page-acting tools by group (the gate itself is the existing
+ * `agent.denyTools`). External MCP/plugin tools are managed in their own panels.
+ */
+export function builtinToolInfo(): AgentToolInfo[] {
+  return BUILTIN_TOOLS.map((t) => ({
+    name: t.name,
+    group: t.group,
+    gated: t.gated ?? false,
+    requiresWeb: t.requiresWeb ?? false,
+  }));
+}
 
 /** The ask_user definition (listed to the model; execution is loop-intercepted). */
 export const ASK_USER_DEF: McpToolDef = {

@@ -26,6 +26,12 @@ import { expandInstructionImports } from './instruction-imports';
 // Claude-side candidates.
 const INSTRUCTION_CANDIDATES = ['AGENTS.override.md', 'AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'];
 const LOCAL_INSTRUCTION = 'CLAUDE.local.md';
+// Standing, always-on project guidance the user version-controls, Kiro-style:
+// every `.md` under <root>/.marudesk/steering/ is folded in (alongside, and the
+// same as, AGENTS.md). Bounded so a large steering folder can't blow the prompt.
+const STEERING_DIR = path.join('.marudesk', 'steering');
+const MAX_STEERING_FILES = 20;
+const MAX_STEERING_BYTES = 16_000;
 const GLOBAL_USER_CANDIDATES = [
   path.join(os.homedir(), '.claude', 'CLAUDE.md'),
   path.join(os.homedir(), '.codex', 'AGENTS.md'),
@@ -49,6 +55,38 @@ function clip(body: string): { text: string; truncated: string } {
 }
 
 /**
+ * Every `.md` under `<root>/.marudesk/steering/`, name-sorted and each prefixed
+ * with its path, as one block — or '' when the folder is absent/empty. Bounded
+ * by file count and total bytes; `@import` tokens resolve against the workspace
+ * root like the other instruction files. Returned without its own framing so the
+ * caller's instruction wrapper (and the loop's trust footer) governs it.
+ */
+async function loadSteeringFiles(root: string): Promise<string> {
+  const dir = path.join(root, STEERING_DIR);
+  let names: string[];
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    names = entries
+      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.md'))
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return ''; // no steering folder
+  }
+  if (names.length === 0) return '';
+  const blocks: string[] = [];
+  let total = 0;
+  for (const name of names.slice(0, MAX_STEERING_FILES)) {
+    const content = await readExpanded(path.join(dir, name), root);
+    if (!content) continue;
+    blocks.push(`(${STEERING_DIR}/${name})\n${content}`);
+    total += content.length;
+    if (total >= MAX_STEERING_BYTES) break;
+  }
+  return blocks.join('\n\n');
+}
+
+/**
  * The workspace instruction block (repo conventions), or '' when there is no
  * workspace / no instruction file. Combines the first-match root file with
  * CLAUDE.local.md when present.
@@ -67,11 +105,13 @@ export async function loadWorkspaceInstructions(ws: { root: string } | null): Pr
     }
   }
   const localContent = await readExpanded(path.join(ws.root, LOCAL_INSTRUCTION), ws.root);
+  const steeringContent = await loadSteeringFiles(ws.root);
 
-  if (!mainContent && !localContent) return '';
+  if (!mainContent && !localContent && !steeringContent) return '';
   const parts: string[] = [];
   if (mainContent) parts.push(`(${mainName})\n${mainContent}`);
   if (localContent) parts.push(`(${LOCAL_INSTRUCTION}, personal / gitignored)\n${localContent}`);
+  if (steeringContent) parts.push(steeringContent);
 
   const { text, truncated } = clip(parts.join('\n\n'));
   // Untrusted-ish input: a cloned repo controls these files. Frame them as the

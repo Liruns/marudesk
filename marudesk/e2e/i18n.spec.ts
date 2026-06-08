@@ -239,8 +239,13 @@ test('localizes AI agent settings after switching to Korean', async () => {
     await expect(page.getByText('사용자 지정 지침', { exact: true })).toBeVisible();
     await expect(page.getByText('절대 수정하지 않을 경로', { exact: true })).toBeVisible();
 
-    // When: the user enables model fallback.
-    await page.getByRole('radio', { name: '켬' }).first().click();
+    // When: the user enables model fallback. Scope to the fallback row by its
+    // label — other on/off toggles (e.g. the runtime tool groups) share "켬".
+    await page
+      .locator('div.justify-between', { hasText: '모델 대체' })
+      .getByRole('radio', { name: '켬' })
+      .first()
+      .click();
 
     // Then: fallback-chain helper text and actions are localized.
     await expect(page.getByText('모델 대체', { exact: true })).toBeVisible();

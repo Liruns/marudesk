@@ -8,6 +8,7 @@ import { getErrors, getNetwork } from '../../browser/state';
 import { sendCdp, enableNetworkCapture } from '../../browser/cdp';
 import type { ToolContext, ToolResult } from './types';
 import { requireTab, tabOrigin, evaluate } from './shared-helpers.ts';
+import { highlightInPage } from './highlight.ts';
 
 /**
  * Runtime observation tools backed by the live page (CDP): console errors,
@@ -79,6 +80,8 @@ export async function queryDom(input: { selector?: unknown }, ctx: ToolContext):
   const rec = requireTab(ctx);
   const selector = typeof input.selector === 'string' ? input.selector : '';
   if (!selector) throw new Error('query_dom requires "selector"');
+  // Show the user what the agent is inspecting (best-effort, fire-and-forget).
+  highlightInPage(rec, selector, 'query_dom');
   // Fixed, injection-safe expression: the selector is JSON-encoded data, not
   // code. Read-only — returns outerHTML + a few computed styles for the match.
   const expr = `(() => {

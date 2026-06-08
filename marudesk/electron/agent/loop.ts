@@ -30,6 +30,8 @@ import {
   CANCEL_BACKGROUND_AGENT,
   UPDATE_PLAN,
   describeToolInput,
+  previewGatedAction,
+  clearActionPreview,
   type ToolContext,
   type ToolResult,
 } from './tools';
@@ -78,9 +80,12 @@ export {
   approveTool,
   acceptEdit,
   revertEdit,
+  restoreTurnPage,
+  restoreTurnCheckpoint,
   snapshot,
   setApprovalMode,
 } from './loop-turn-actions.ts';
+import { recordTurnStartUrl, recordTurnCheckpoint } from './loop-turn-actions.ts';
 export { editPlanStep } from './plan.ts';
 import {
   buildUserText,
@@ -575,8 +580,13 @@ async function runLoop(opts: RunOpts): Promise<void> {
           detail: describeToolInput(call.name, call.input),
           ...(editPreview ? { diffs: editDiffs(call.input) } : {}),
         };
+        // Preview a gated browser action on the live page while it waits, so the
+        // user sees the exact target before approving (Stagehand-style). Cleared
+        // on the decision; the executor redraws its own highlight if approved.
+        previewGatedAction(ctx.tabId, call.name, call.input);
         emit();
         const decision = await waitForApproval(S);
+        clearActionPreview(ctx.tabId);
         S.approvalResolver = null;
         S.state.pendingApproval = null;
         if (opts.signal.aborted) {
@@ -920,6 +930,8 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     S.controller = new AbortController();
     S.activeTabId = input.tabId;
     S.state.turnId = turnId;
+    // Runtime marker for turn-level rollback (restore the page on Revert all).
+    recordTurnStartUrl(turnId, input.tabId);
     S.state.status = 'thinking';
     S.state.error = null;
     S.state.endNote = null;
@@ -989,6 +1001,11 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // configured effort and is a no-op for non-reasoning models.
     const reasoningEffort =
       modelReasoning && modeRaisesThinking(S.activeModes) ? 'high' : agentSettings.reasoningEffort;
+    // Snapshot the working tree before the agent touches it (§3.6), so the whole
+    // turn — including any terminal-driven changes — can be rolled back as a unit.
+    // Awaited so the snapshot precedes the first edit; best-effort (never blocks).
+    // ws.root is already the effective agent root (worktree when isolated).
+    if (ws) await recordTurnCheckpoint(turnId, ws.root).catch(() => undefined);
     void runLoop({
       auth,
       container: S,

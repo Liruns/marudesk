@@ -10,12 +10,14 @@ import {
 } from './SettingsControls';
 import { FallbackChain } from './FallbackChain';
 import { DelegateModelField } from './DelegateModelField';
+import { AgentToolGroups } from './AgentToolGroups';
 import { useSettingsStore } from './store';
 
 export function AgentCategory() {
   const { t } = useI18n();
   const agent = useSettingsStore((s) => s.settings.agent);
   const pcControl = useSettingsStore((s) => s.settings.pcControl);
+  const lanes = useSettingsStore((s) => s.settings.lanes);
   const update = useSettingsStore((s) => s.update);
   const approvalModeOptions = [
     { value: 'plan', label: t('settings.agent.approval.plan') },
@@ -107,6 +109,12 @@ export function AgentCategory() {
         />
       </Field>
       <Field
+        label={t('settings.agent.toolGroups.label')}
+        hint={t('settings.agent.toolGroups.hint')}
+      >
+        <AgentToolGroups />
+      </Field>
+      <Field
         label={t('settings.agent.denyTools.label')}
         hint={t('settings.agent.denyTools.hint')}
       >
@@ -144,6 +152,16 @@ export function AgentCategory() {
           value={agent.contextCommand}
           placeholder="git status -sb"
           onCommit={(contextCommand) => void update({ agent: { contextCommand } })}
+        />
+      </Field>
+      <Field
+        label={t('settings.lanes.devCommand.label')}
+        hint={t('settings.lanes.devCommand.hint')}
+      >
+        <TextField
+          value={lanes.devCommand}
+          placeholder="npm run dev"
+          onCommit={(devCommand) => void update({ lanes: { devCommand } })}
         />
       </Field>
       <Field

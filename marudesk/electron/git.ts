@@ -21,6 +21,11 @@ import {
   isolationStatus,
   mergeIsolation,
 } from './worktree-isolation';
+import { discardWorktree, isGitRepo, listWorktrees, mergeWorktree, worktreeChanges } from './git-worktree';
+import { isAgentWorktreeBranch, type WorktreeLane } from '../shared/worktree';
+import { buildCompareUrl } from '../shared/github-url';
+import { createAndActivateTab } from './browser/tabs';
+import path from 'node:path';
 
 /**
  * Workspace Source Control (VSCode-style). Every command runs against the open
@@ -404,5 +409,95 @@ export function registerGitHandlers(): void {
   defineHandler('git:worktree-discard', async () => {
     await discardIsolation(requireWorkspace().root);
     return { ok: true } as const;
+  });
+
+  // Lanes board: list every worktree of the active repo with its pending-change
+  // count (bounded). Empty for a non-git / remote root.
+  defineHandler('git:worktree-list', async () => {
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return [];
+    const trees = await listWorktrees(root);
+    const lanes: WorktreeLane[] = [];
+    for (const wt of trees.slice(0, 20)) {
+      const changes = await worktreeChanges(wt.path)
+        .then((c) => c.count)
+        .catch(() => 0);
+      lanes.push({ ...wt, changes });
+    }
+    return lanes;
+  });
+
+  // Lanes board cleanup (§3.8): discard a stale AGENT worktree (force-remove its
+  // tree + delete its branch). Refuses the main worktree and any non-agent branch,
+  // so it can only ever sweep marudesk/agent/* lanes — never the user's own trees.
+  defineHandler('git:worktree-remove', async ([payload]) => {
+    const target = str(obj(payload).path, 'path');
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return { ok: false, reason: 'no-repo' } as const;
+    const trees = await listWorktrees(root);
+    const wt = trees.find((w) => path.resolve(w.path) === path.resolve(target));
+    if (!wt) return { ok: false, reason: 'not-found' } as const;
+    if (wt.isMain) return { ok: false, reason: 'is-main' } as const;
+    if (!wt.branch || !isAgentWorktreeBranch(wt.branch)) {
+      return { ok: false, reason: 'not-agent' } as const;
+    }
+    try {
+      await discardWorktree(root, wt.path, wt.branch);
+      return { ok: true } as const;
+    } catch (err) {
+      return { ok: false, reason: 'error', message: (err as Error).message } as const;
+    }
+  });
+
+  // Lanes board (§3.8): merge an agent lane's branch back into the base branch,
+  // then clean the lane up. Reuses mergeWorktree (commits the lane, --no-ff, never
+  // --force; a conflict is reported and the lane is left intact). Refuses main /
+  // non-agent worktrees, same as remove.
+  defineHandler('git:worktree-merge-lane', async ([payload]) => {
+    const target = str(obj(payload).path, 'path');
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return { ok: false, reason: 'error', message: 'not a git repo' } as const;
+    const trees = await listWorktrees(root);
+    const wt = trees.find((w) => path.resolve(w.path) === path.resolve(target));
+    if (!wt || wt.isMain || !wt.branch) {
+      return { ok: false, reason: 'error', message: 'not a mergeable lane' } as const;
+    }
+    return mergeWorktree(root, wt.path, wt.branch, `Merge ${wt.branch}`);
+  });
+
+  // Lanes board (§3.8): push an agent lane's branch and open its GitHub
+  // compare/create-PR page in a tab. No in-app GitHub API — just git push + the
+  // web URL — so it works with whatever auth git already has. Push is best-effort
+  // (offline / no perms still opens the page); a non-GitHub remote is reported.
+  defineHandler('git:worktree-open-pr', async ([payload]) => {
+    const target = str(obj(payload).path, 'path');
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return { ok: false, reason: 'no-repo' } as const;
+    const trees = await listWorktrees(root);
+    const wt = trees.find((w) => path.resolve(w.path) === path.resolve(target));
+    if (!wt || wt.isMain || !wt.branch) return { ok: false, reason: 'not-a-lane' } as const;
+    let remoteUrl: string;
+    try {
+      remoteUrl = (await runGit(root, ['remote', 'get-url', 'origin'])).stdout.trim();
+    } catch {
+      return { ok: false, reason: 'no-remote' } as const;
+    }
+    let base = 'main';
+    try {
+      base = (await runGit(root, ['symbolic-ref', '--short', 'HEAD'])).stdout.trim() || 'main';
+    } catch {
+      // detached base; fall back to 'main'
+    }
+    const url = buildCompareUrl(remoteUrl, base, wt.branch);
+    if (!url) return { ok: false, reason: 'not-github' } as const;
+    let pushed = false;
+    try {
+      await runGit(root, ['push', '-u', 'origin', wt.branch], 60_000);
+      pushed = true;
+    } catch {
+      // best-effort: still open the page so the user can push/PR manually
+    }
+    createAndActivateTab('web', url);
+    return { ok: true, url, pushed } as const;
   });
 }

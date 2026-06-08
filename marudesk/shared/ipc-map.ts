@@ -11,6 +11,7 @@ import type {
   AgentEditActionResult,
   AgentSendInput,
   AgentSendResult,
+  AgentToolInfo,
   ThreadSummary,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
@@ -32,8 +33,16 @@ import type {
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
-import type { WorktreeIsolationStatus, WorktreeMergeResult } from './worktree';
+import type {
+  CheckpointRestore,
+  WorktreeIsolationStatus,
+  WorktreeLane,
+  WorktreeMergeResult,
+} from './worktree';
 import type { Automation, AutomationInput, AutomationRun } from './automations';
+import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
+import type { Spec, SpecInput } from './specs';
+import type { LaneDevState, LaneDevStartResult } from './lanes';
 import type {
   BrowserNativeMenuItem,
   TabKind,
@@ -146,6 +155,11 @@ export interface IpcMap {
   // Capture the active page to a PNG on the clipboard. Returns false when there's
   // no active web view to capture.
   'browser:capture-page': { args: []; result: boolean };
+  // Capture the active web view as a PNG data URL (for the session receipt's
+  // running-app snapshot), or null when there's no web view / capture is empty.
+  'browser:capture-page-data': { args: []; result: { dataUrl: string } | null };
+  // Floating in-page stage toolbar (§3.2): toggle on/off, returns the new state.
+  'browser:stage-toolbar': { args: [on: boolean]; result: boolean };
   // Download manager. The live list is also pushed on the browser:downloads
   // event whenever it changes; this invoke is the pull for an initial render.
   'browser:downloads-list': { args: []; result: DownloadEntry[] };
@@ -409,6 +423,24 @@ export interface IpcMap {
   'git:worktree-enter': { args: []; result: WorktreeIsolationStatus };
   'git:worktree-merge': { args: []; result: WorktreeMergeResult };
   'git:worktree-discard': { args: []; result: { ok: true } };
+  // Lanes board: every worktree of the active repo + its pending-change count.
+  'git:worktree-list': { args: []; result: WorktreeLane[] };
+  // Lanes board cleanup: discard a stale agent worktree (refuses main / non-agent).
+  'git:worktree-remove': {
+    args: [payload: { path: string }];
+    result:
+      | { ok: true }
+      | { ok: false; reason: 'no-repo' | 'not-found' | 'is-main' | 'not-agent' | 'error'; message?: string };
+  };
+  // Lanes board: merge an agent lane back into the base branch (then clean up).
+  'git:worktree-merge-lane': { args: [payload: { path: string }]; result: WorktreeMergeResult };
+  // Lanes board: push an agent lane + open its GitHub compare/create-PR page.
+  'git:worktree-open-pr': {
+    args: [payload: { path: string }];
+    result:
+      | { ok: true; url: string; pushed: boolean }
+      | { ok: false; reason: 'no-repo' | 'not-a-lane' | 'no-remote' | 'not-github' };
+  };
 
   // automations (Stage 12-C — scheduled saved-prompt agent runs)
   'automations:list': { args: []; result: Automation[] };
@@ -417,6 +449,23 @@ export interface IpcMap {
   'automations:delete': { args: [payload: { id: string }]; result: { ok: boolean } };
   'automations:set-enabled': { args: [payload: { id: string; enabled: boolean }]; result: Automation | null };
   'automations:run-now': { args: [payload: { id: string }]; result: AutomationRun | null };
+
+  // cached browser workflows (§3.10 — saved page-action sequences, model-free replay)
+  'workflows:list': { args: []; result: Workflow[] };
+  'workflows:save': { args: [payload: { name: string; steps: WorkflowStep[] }]; result: Workflow };
+  'workflows:delete': { args: [payload: { id: string }]; result: boolean };
+  'workflows:run': { args: [payload: { id: string }]; result: WorkflowRunResult };
+
+  // spec lifecycle (§3.10 — per-workspace spec docs + task lists)
+  'specs:list': { args: []; result: Spec[] };
+  'specs:save': { args: [input: SpecInput]; result: Spec };
+  'specs:delete': { args: [payload: { id: string }]; result: boolean };
+
+  // per-lane dev server (§3.8 Mission Control)
+  'lanes-dev:list': { args: []; result: LaneDevState[] };
+  'lanes-dev:start': { args: [payload: { path: string }]; result: LaneDevStartResult };
+  'lanes-dev:stop': { args: [payload: { path: string }]; result: boolean };
+  'lanes-dev:open': { args: [payload: { path: string }]; result: boolean };
 
   // search (content search — electron/search.ts)
   'search:content': {
@@ -503,6 +552,16 @@ export interface IpcMap {
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
   'agent:accept-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
   'agent:revert-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
+  // Restore the live page to where it was when a turn started (runtime-aware
+  // rollback): re-navigate the web tab to the turn's start URL if the agent moved
+  // it. Pairs with "Revert all" (which restores the turn's file edits).
+  'agent:restore-turn-page': { args: [payload: { turnId: string }]; result: { navigated: boolean } };
+  // Roll the whole working tree back to a turn's start (§3.6 checkpoint). Safe:
+  // current work is parked on the git stash stack first, never destroyed.
+  'agent:restore-checkpoint': { args: [payload: { turnId: string }]; result: CheckpointRestore };
+  // Built-in tool catalog for the Settings tool-groups UI (§3.11), grouped + gated
+  // in the renderer via agent.denyTools.
+  'agent:list-tools': { args: []; result: AgentToolInfo[] };
   // User-initiated cancel of a running background agent from the tray (audit H6).
   'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
   // Steerable plan (v6 §U5): user toggles a step's status or removes it.

@@ -150,6 +150,7 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
       | 'terminal'
       | 'devtools'
       | 'browser'
+      | 'lanes'
       | 'agent'
       | 'pcControl'
       | 'server'
@@ -165,6 +166,7 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
     terminal: section('terminal'),
     devtools: section('devtools'),
     browser: section('browser'),
+    lanes: section('lanes'),
     agent: section('agent'),
     pcControl: section('pcControl'),
     server: section('server'),

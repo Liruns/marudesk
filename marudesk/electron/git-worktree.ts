@@ -4,6 +4,7 @@ import { isSshRootKey } from '../shared/ssh';
 import {
   AGENT_WORKTREE_BRANCH_PREFIX,
   isAgentWorktreeBranch,
+  type CheckpointRestore,
   type WorktreeChanges,
   type WorktreeInfo,
   type WorktreeMergeResult,
@@ -215,6 +216,68 @@ export async function mergeWorktree(
       message: detail || 'merge failed',
     };
   }
+}
+
+/**
+ * Snapshot the working tree's pending modifications NON-DESTRUCTIVELY, returning
+ * the stash commit sha (or null when the tree is clean / not a repo). Backs the
+ * turn checkpoint (§3.6): `git stash create` builds a stash commit WITHOUT
+ * touching the working tree or the stash stack, so taking it never disturbs the
+ * agent's run. Captures tracked changes only (git's stash-create limitation);
+ * untracked files at checkpoint time aren't snapshotted, but restore parks them
+ * safely (see {@link restoreCheckpoint}) rather than dropping them.
+ */
+export async function createCheckpoint(root: string): Promise<string | null> {
+  try {
+    // `stash create` writes a (throwaway) commit object; `-c commit.gpgsign=false`
+    // keeps it from trying to sign non-interactively in a signing-enabled repo.
+    const { stdout } = await runGit(root, [
+      '-c', 'commit.gpgsign=false',
+      'stash', 'create', 'marudesk checkpoint',
+    ]);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Restore the working tree to a checkpoint WITHOUT losing current work: the
+ * current state (tracked + untracked) is first parked on the stash stack
+ * (recoverable via `git stash list`), then the snapshot is re-applied. A null
+ * `sha` means the tree was clean at checkpoint time, so restoring is just the
+ * park step. NEVER uses --force / reset --hard, so nothing is destroyed: on a
+ * failed apply the user's work is still on the stack.
+ */
+export async function restoreCheckpoint(root: string, sha: string | null): Promise<CheckpointRestore> {
+  if (!(await isGitRepo(root))) return { ok: false, reason: 'no-repo' };
+  // 1) Park current work safely on the stash stack. A clean tree makes
+  // `stash push` exit non-zero ("No local changes to save"); that's not an error.
+  let stashedCurrent = false;
+  try {
+    await runGit(root, [
+      '-c', 'commit.gpgsign=false',
+      'stash', 'push', '-u', '-m', 'marudesk: before checkpoint restore',
+    ]);
+    stashedCurrent = true;
+  } catch {
+    // A clean tree makes `stash push` exit non-zero ("No local changes to save");
+    // nothing was parked, so stashedCurrent stays false.
+  }
+  // 2) Re-apply the snapshot onto the now-clean tree (skip when it was clean).
+  if (sha) {
+    try {
+      await runGit(root, ['stash', 'apply', sha]);
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      return {
+        ok: false,
+        reason: 'apply-failed',
+        message: (e.stderr || e.stdout || e.message || '').trim() || undefined,
+      };
+    }
+  }
+  return { ok: true, stashedCurrent };
 }
 
 /**

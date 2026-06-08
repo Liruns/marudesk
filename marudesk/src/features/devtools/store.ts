@@ -49,6 +49,7 @@ export type DockSide = 'right' | 'bottom';
 export type DevtoolsPanel =
   | 'elements'
   | 'console'
+  | 'timeline'
   | 'network'
   | 'application'
   | 'rendering';

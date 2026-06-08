@@ -7,6 +7,7 @@ import { cancelBackgroundTask } from './background';
 import { editPlanStep } from './plan';
 import { parseAbort, parseApprove, parseEditPlanStep, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
+import { builtinToolInfo } from './tools/registry';
 import {
   abortTurn,
   acceptEdit,
@@ -19,6 +20,8 @@ import {
   newThread,
   reset,
   respond,
+  restoreTurnCheckpoint,
+  restoreTurnPage,
   resumeSession,
   revertEdit,
   snapshot,
@@ -96,6 +99,18 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:revert-edit', ([payload]) =>
     revertEdit(nonEmptyStr(obj(payload).editId, 'editId')),
   );
+
+  defineHandler('agent:restore-turn-page', ([payload]) =>
+    restoreTurnPage(nonEmptyStr(obj(payload).turnId, 'turnId')),
+  );
+
+  defineHandler('agent:restore-checkpoint', ([payload]) =>
+    restoreTurnCheckpoint(nonEmptyStr(obj(payload).turnId, 'turnId')),
+  );
+
+  // Built-in tool catalog for the Settings tool-groups UI (§3.11). Read-only;
+  // gating is applied via the existing agent.denyTools setting.
+  defineHandler('agent:list-tools', () => builtinToolInfo());
 
   // Tray "cancel" on a running background agent (audit H6) — the user-facing
   // twin of the model's cancel_background_agent tool.

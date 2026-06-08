@@ -26,6 +26,7 @@ import { toggleChromeDevtools } from './devtools';
 import { attachCdp, detachCdp, sendCdp } from './cdp';
 import { closeDevtoolsWindow, openDevtoolsWindow } from './devtools-window';
 import { exitInspect, setInspectMode } from './inspect';
+import { applyStageToolbar, setStageToolbarEnabled } from './stage-toolbar';
 import { findInActive, stopFindInActive } from './find';
 import { zoomActive } from './zoom';
 import {
@@ -92,6 +93,16 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:set-inspect-mode', async ([on]) => {
     await setInspectMode(bool(on, 'on'));
     pushState();
+  });
+
+  // Floating in-page stage toolbar (§3.2): toggle it on/off; re-injects on
+  // navigation (tabs.ts did-finish-load) while enabled. Returns the new state.
+  defineHandler('browser:stage-toolbar', ([on]) => {
+    const v = bool(on, 'on');
+    setStageToolbarEnabled(v);
+    const rec = getActive();
+    if (rec && rec.view) applyStageToolbar(rec, v);
+    return v;
   });
 
   defineHandler('browser:set-visible', ([visible]) => {
@@ -179,6 +190,14 @@ export function registerBrowserHandlers(deps: {
     if (image.isEmpty()) return false;
     clipboard.writeImage(image);
     return true;
+  });
+
+  defineHandler('browser:capture-page-data', async () => {
+    const active = getActive();
+    if (!active || !active.view) return null;
+    const image = await active.view.webContents.capturePage();
+    if (image.isEmpty()) return null;
+    return { dataUrl: image.toDataURL() };
   });
 
   defineHandler('browser:downloads-list', () => getDownloads());
@@ -365,5 +384,12 @@ export function registerBrowserHandlers(deps: {
     if (!rec || !rec.view) return;
     await exitInspect(rec);
     deps.getMainWindow()?.webContents.send('browser:inspect-exit');
+  });
+
+  // Floating stage toolbar (§3.2) asked to start the picker from in-page.
+  ipcMain.on('inspect:start', (event) => {
+    const rec = findTabByWebContentsId(event.sender.id);
+    if (!rec || !rec.view) return;
+    void setInspectMode(true);
   });
 }

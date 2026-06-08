@@ -1,6 +1,7 @@
 import { CHANNELS } from './ipc-channels.ts';
 import type { Capture } from './capture';
 import type { AgentChatState, ThreadSummary } from './agent';
+import type { LaneDevState } from './lanes';
 import type { NavState, TabsSnapshot } from './browser';
 import type { DownloadEntry } from './downloads';
 import type { AppSettings } from './settings';
@@ -92,6 +93,8 @@ export interface EventPayloadMap {
   // Open conversation threads (Stage 12-B-2), pushed on every agent emit + on
   // thread create/switch/close so the thread switcher stays live.
   'agent:threads': ThreadSummary[];
+  // Per-lane dev server status (§3.8), pushed on start/url-detect/exit.
+  'lanes:dev-state': LaneDevState[];
   // Workspace deck state, pushed when a legacy or multi-workspace IPC mutation
   // changes the active workspace/root set.
   'workspaces:state': WorkspaceSnapshot;
@@ -154,6 +157,7 @@ export const EVENT_CHANNELS = [
   'devtools:error-count',
   'agent:event',
   'agent:threads',
+  'lanes:dev-state',
   'workspaces:state',
   'diagnostics:update',
   'relay:status-changed',

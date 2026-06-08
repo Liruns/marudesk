@@ -6,6 +6,7 @@ import type { SessionRecord, SessionSummary } from '../../shared/context';
 import { getSettingsSync } from '../settings';
 import { clearReadTracker } from './read-tracker';
 import { clearNestedInstructionClaims } from './nested-instructions';
+import { clearTurnRuntimeState } from './loop-turn-actions.ts';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
 import { S, busy, emit, currentContainer as activeContainer, type ThreadContainer } from './loop-state.ts';
 import { cancelBackgroundForConversation } from './background.ts';
@@ -77,6 +78,9 @@ export function reset(): boolean {
   // Drop lazily-injected directory instruction claims so the next conversation
   // re-injects them on demand.
   clearNestedInstructionClaims();
+  // Per-turn runtime markers (turn start URL + checkpoint snapshot) are
+  // conversation-scoped and session-lived; drop them so they don't accumulate.
+  clearTurnRuntimeState();
   // Sticky keyword modes are conversation-scoped — drop them with the chat.
   S.activeModes = [];
   // "Allow always" choices are conversation-scoped — drop them with the chat.

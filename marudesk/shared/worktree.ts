@@ -39,6 +39,24 @@ export type WorktreeChanges = {
   files: string[];
 };
 
+/** One worktree plus its pending-change count, for the Source Control lanes board. */
+export type WorktreeLane = WorktreeInfo & {
+  /** Number of uncommitted changes in this worktree (0 when clean). */
+  changes: number;
+};
+
+/**
+ * Outcome of restoring a turn checkpoint (§3.6). On success the working tree is
+ * back at the turn's start state and `stashedCurrent` says whether work-in-
+ * progress was parked on the stash stack first (recoverable, never lost). On
+ * failure: `none` = no checkpoint for that turn, `no-repo` = not a git tree,
+ * `apply-failed` = the snapshot couldn't be re-applied (current work is safe on
+ * the stash stack).
+ */
+export type CheckpointRestore =
+  | { ok: true; stashedCurrent: boolean }
+  | { ok: false; reason: 'none' | 'no-repo' | 'apply-failed'; message?: string };
+
 /**
  * Outcome of merging an agent worktree's branch back into the base branch. A
  * clean merge reports `ok` with the short summary; a conflict (or a dirty base)

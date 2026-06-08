@@ -6,12 +6,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   agentBranchName,
+  createCheckpoint,
   createWorktree,
   discardWorktree,
   isGitRepo,
   listWorktrees,
   mergeWorktree,
   parseWorktreeList,
+  restoreCheckpoint,
   worktreeChanges,
 } from './git-worktree.ts';
 import { isAgentWorktreeBranch } from '../shared/worktree.ts';
@@ -133,6 +135,47 @@ async function main(): Promise<void> {
     check('conflict: the worktree is preserved for resolution', existsSync(wt3));
     check('conflict: base was restored (merge aborted, no conflict markers committed)', readFileSync(path.join(base, 'app.txt'), 'utf8') === 'line one\nBASE-EDIT\n');
     rmSync(path.dirname(wt3), { recursive: true, force: true });
+
+    /* ── turn checkpoint: snapshot → diverge → safe restore (§3.6) ─────────── */
+    {
+      // Reset the base repo to a known clean-ish state for the checkpoint test.
+      await git(base, ['reset', '--hard']);
+      const cpFile = path.join(base, 'app.txt');
+      const startContent = readFileSync(cpFile, 'utf8');
+
+      // (a) A dirty tree at checkpoint time is snapshotted; restore brings it back.
+      writeFileSync(cpFile, `${startContent}TURN-START-EDIT\n`);
+      const snapAtStart = readFileSync(cpFile, 'utf8');
+      const sha = await createCheckpoint(base);
+      check('checkpoint: create returns a stash sha for a dirty tree', typeof sha === 'string' && sha!.length > 0);
+      // `stash create` must NOT disturb the working tree.
+      check('checkpoint: create leaves the working tree untouched', readFileSync(cpFile, 'utf8') === snapAtStart);
+
+      // The agent "diverges" the tree further (an edit + a brand-new file).
+      writeFileSync(cpFile, `${startContent}AGENT-OVERWRITE\n`);
+      writeFileSync(path.join(base, 'agent-made.txt'), 'created during the turn\n');
+
+      const restored = await restoreCheckpoint(base, sha);
+      check('checkpoint: restore reports ok', restored.ok === true);
+      check('checkpoint: restore parks current work on the stash', restored.ok === true && restored.stashedCurrent === true);
+      check('checkpoint: tree is back at the checkpoint snapshot', readFileSync(cpFile, 'utf8') === snapAtStart);
+      check('checkpoint: the agent-created file is gone from the tree', !existsSync(path.join(base, 'agent-made.txt')));
+      // Nothing is lost — the diverged state is recoverable on the stash stack.
+      const stashList = await git(base, ['stash', 'list']);
+      check('checkpoint: diverged work is preserved on the stash stack', stashList.includes('before checkpoint restore'));
+      check('checkpoint: the agent-created file lives in the parked stash', (await git(base, ['stash', 'show', '-p', '--include-untracked', 'stash@{0}'])).includes('agent-made.txt'));
+
+      // (b) A clean checkpoint (null sha) restores by parking later changes only.
+      await git(base, ['stash', 'clear']);
+      await git(base, ['reset', '--hard']);
+      const cleanSha = await createCheckpoint(base);
+      check('checkpoint: create returns null for a clean tree', cleanSha === null);
+      writeFileSync(cpFile, `${startContent}AFTER-CLEAN-CHECKPOINT\n`);
+      const restoredClean = await restoreCheckpoint(base, cleanSha);
+      check('checkpoint: clean-checkpoint restore is ok', restoredClean.ok === true);
+      check('checkpoint: clean-checkpoint restore returns the tree to HEAD', readFileSync(cpFile, 'utf8') === startContent);
+      await git(base, ['stash', 'clear']);
+    }
 
     console.log(`\ngit-worktree harness: ${passed} assertions passed`);
   } finally {

@@ -20,6 +20,8 @@ export const CHANNELS = {
     'browser:zoom',
     'browser:set-audio-muted',
     'browser:capture-page',
+    'browser:capture-page-data',
+    'browser:stage-toolbar',
     'browser:downloads-list',
     'browser:download-action',
     'browser:downloads-clear',
@@ -116,6 +118,10 @@ export const CHANNELS = {
     'git:worktree-enter',
     'git:worktree-merge',
     'git:worktree-discard',
+    'git:worktree-list',
+    'git:worktree-remove',
+    'git:worktree-merge-lane',
+    'git:worktree-open-pr',
   ],
   // Automations (Stage 12-C): saved prompts that run on a schedule.
   automations: [
@@ -126,6 +132,14 @@ export const CHANNELS = {
     'automations:set-enabled',
     'automations:run-now',
   ],
+  // Cached browser workflows (§3.10): saved page-action sequences, replayed
+  // without the model.
+  workflows: ['workflows:list', 'workflows:save', 'workflows:delete', 'workflows:run'],
+  // Spec lifecycle (§3.10): per-workspace spec docs + task lists.
+  specs: ['specs:list', 'specs:save', 'specs:delete'],
+  // Per-lane dev server (§3.8 Mission Control): run/stop the dev command in a
+  // worktree lane + open its detected URL.
+  lanes: ['lanes-dev:list', 'lanes-dev:start', 'lanes-dev:stop', 'lanes-dev:open'],
   // Workspace content search (electron/search.ts). Prefers ripgrep, falls back
   // to a Node walk reusing the workspace IGNORE_DIRS + binary/size skips.
   search: ['search:content'],
@@ -155,6 +169,9 @@ export const CHANNELS = {
     'agent:approve-tool',
     'agent:accept-edit',
     'agent:revert-edit',
+    'agent:restore-turn-page',
+    'agent:restore-checkpoint',
+    'agent:list-tools',
     'agent:cancel-background',
     'agent:edit-plan-step',
     'agent:snapshot',
