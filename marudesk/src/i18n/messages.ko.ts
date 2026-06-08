@@ -625,6 +625,12 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.agent.fallback.addModel': '모델 추가',
   'settings.agent.fallback.empty':
     '아직 대체 모델이 없습니다. 아래에서 하나 이상 추가하세요. 선택한 모델이 속도 제한에 걸리면 에이전트가 순서대로 시도합니다.',
+  'settings.agent.alwaysAllow.hint':
+    '"항상 허용"으로 선택한 게이트 도구들 — 세션을 넘어 기억됩니다. 항목을 지우면 다시 묻습니다.',
+  'settings.agent.alwaysAllow.label': '항상 허용된 도구',
+  'settings.agent.denyTools.hint':
+    '에이전트가 어떤 모드에서도 절대 실행하지 않을 도구 이름(예: run_command, eval_js). 한 줄에 하나.',
+  'settings.agent.denyTools.label': '절대 실행하지 않을 도구',
   'settings.agent.fallback.hint':
     '선택한 모델이 속도 제한에 걸리거나 오류가 나면 실패하지 않고 아래 연결된 모델을 순서대로 다시 시도합니다. 선택한 모델은 항상 첫 번째입니다.',
   'settings.agent.fallback.label': '모델 대체',

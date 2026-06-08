@@ -12,7 +12,7 @@ import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { MODELS } from '../../shared/providers';
 import { CLAUDE_CODE_SYSTEM_PREFIX } from '../oauth/config';
-import { getSettingsSync } from '../settings';
+import { getSettingsSync, patchSettings } from '../settings';
 import type { AgentApprovalMode, ModelRef, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
 import { setNetworkCapture } from '../browser/state';
@@ -476,6 +476,24 @@ async function runLoop(opts: RunOpts): Promise<void> {
         continue;
       }
 
+      // Per-tool deny list (v6 §W7): a tool the user banned is blocked in EVERY
+      // mode (even auto) — the tool-level twin of denyGlobs. Checked before any
+      // approval path so it can't be auto-approved or "allow always"-ed.
+      if (getSettingsSync().agent.denyTools.includes(call.name)) {
+        call.state = 'denied';
+        call.resultText = 'Blocked: deny list.';
+        emit();
+        toolResultParts.push(
+          toolResult(
+            call.id,
+            call.name,
+            `Blocked: "${call.name}" is on the user's tool deny list (Settings → Agent). Use a different approach.`,
+            true,
+          ),
+        );
+        continue;
+      }
+
       // Read-only and plan modes: refuse mutations + code execution outright
       // (don't even prompt). Reads still run; sensitive read tools below still
       // ask. Plan mode additionally steers the model toward a plan via the
@@ -518,7 +536,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
         !isGatedTool(call.name);
       const gatedApproval =
         isGatedTool(call.name) && opts.approvalMode !== 'auto' && !opts.unattended;
-      if ((gatedApproval || editPreview) && !S.sessionAllowedTools.has(call.name)) {
+      // "Allow always" is honored from both this conversation's in-memory set and
+      // the persisted cross-session list (v6 §W7/U10).
+      const preApproved =
+        S.sessionAllowedTools.has(call.name) ||
+        getSettingsSync().agent.alwaysAllowTools.includes(call.name);
+      if ((gatedApproval || editPreview) && !preApproved) {
         call.state = 'awaiting_approval';
         S.state.status = 'waiting_for_user';
         S.state.pendingApproval = {
@@ -537,8 +560,19 @@ async function runLoop(opts: RunOpts): Promise<void> {
           toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
           continue;
         }
-        // "Allow always": remember this tool so later calls skip the prompt.
-        if (decision.approved && decision.always) S.sessionAllowedTools.add(call.name);
+        // "Allow always": skip the prompt for later calls — this conversation
+        // (in-memory) AND future ones (persisted, v6 §W7/U10; revocable in
+        // Settings → Agent). Editor-preview parks aren't gated tools, so persist
+        // only genuine gated tools.
+        if (decision.approved && decision.always) {
+          S.sessionAllowedTools.add(call.name);
+          if (isGatedTool(call.name)) {
+            const cur = getSettingsSync().agent.alwaysAllowTools;
+            if (!cur.includes(call.name)) {
+              void patchSettings({ agent: { alwaysAllowTools: [...cur, call.name] } });
+            }
+          }
+        }
         if (!decision.approved) {
           call.state = 'denied';
           call.resultText = 'Denied by the user.';

@@ -148,6 +148,18 @@ export type AppSettings = {
      * Auto always applies (the user opted out of confirmations).
      */
     editApproval: 'auto-apply' | 'preview';
+    /**
+     * Per-tool deny list (v6 §W7) — gated tools the agent may never run, blocked
+     * outright in EVERY mode (the tool-level twin of {@link denyGlobs} for files).
+     * e.g. `run_command`, `eval_js`. Manageable in Settings → Agent. Empty = none.
+     */
+    denyTools: string[];
+    /**
+     * Tools the user chose "Allow always" for, persisted across sessions (v6
+     * §W7/U10) so a trusted gated tool isn't re-prompted in every new conversation.
+     * Reviewable/revocable in Settings → Agent. A deny entry always wins over this.
+     */
+    alwaysAllowTools: string[];
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -269,6 +281,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     verifyCommand: '',
     contextCommand: '',
     editApproval: 'auto-apply',
+    denyTools: [],
+    alwaysAllowTools: [],
   },
   pcControl: {
     enabled: false,
@@ -454,6 +468,8 @@ export function sanitizeSettings(
       verifyCommand: asString(ag.verifyCommand, base.agent.verifyCommand),
       contextCommand: asString(ag.contextCommand, base.agent.contextCommand),
       editApproval: ag.editApproval === 'preview' ? 'preview' : base.agent.editApproval,
+      denyTools: asStringArray(ag.denyTools, base.agent.denyTools),
+      alwaysAllowTools: asStringArray(ag.alwaysAllowTools, base.agent.alwaysAllowTools),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

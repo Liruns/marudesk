@@ -83,9 +83,29 @@ export function getSettingsSync(): AppSettings {
   return cache ?? structuredClone(DEFAULT_SETTINGS);
 }
 
+/** Broadcast captured at handler registration so main-side writers can notify renderers. */
+let broadcastFn: ((settings: AppSettings) => void) | null = null;
+
+/**
+ * Merge a partial over the current settings, persist, and broadcast — the
+ * main-process twin of the `settings:set` IPC, for code that needs to write a
+ * setting itself (e.g. the agent loop persisting a per-tool "Allow always",
+ * v6 §W7). Goes through the same sanitize + atomic-write + broadcast path so the
+ * renderer's settings store stays in sync.
+ */
+export async function patchSettings(partial: unknown): Promise<AppSettings> {
+  const current = await load();
+  const next = sanitizeSettings(mergeDeep(current, partial), current);
+  await persist(next);
+  broadcastFn?.(next);
+  return next;
+}
+
 export function registerSettingsHandlers(deps: {
   broadcast: (settings: AppSettings) => void;
 }): void {
+  broadcastFn = deps.broadcast;
+
   defineHandler('settings:get', () => load());
 
   defineHandler('settings:set', async ([partial]) => {

@@ -629,6 +629,12 @@ export const EN_MESSAGES = {
   'settings.agent.fallback.addModel': 'Add model',
   'settings.agent.fallback.empty':
     'No fallback models yet - add one or more below. The agent tries them in order when your selected model is rate-limited.',
+  'settings.agent.alwaysAllow.hint':
+    'Gated tools you chose "Allow always" for, remembered across sessions. Remove one to be asked again.',
+  'settings.agent.alwaysAllow.label': 'Always-allowed tools',
+  'settings.agent.denyTools.hint':
+    'Tool names the agent may never run, in any mode (e.g. run_command, eval_js). One per line.',
+  'settings.agent.denyTools.label': 'Never-run tools',
   'settings.agent.fallback.hint':
     'When your selected model is rate-limited or errors out, retry on the next connected model below instead of failing. Tried top-to-bottom; your selected model is always first.',
   'settings.agent.fallback.label': 'Model fallback',
