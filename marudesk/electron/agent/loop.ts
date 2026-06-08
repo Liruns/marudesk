@@ -595,6 +595,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       call.summary = out.summary;
       call.resultText = out.text;
       if (out.media?.length) call.media = out.media;
+      if (out.artifact) call.artifact = out.artifact;
       if (out.isError) call.error = out.text;
       recordEdits(opts.turnId, out.edits);
       emit();

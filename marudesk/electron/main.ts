@@ -94,7 +94,10 @@ function applyHostContentSecurityPolicy(): void {
     // Plugin UI panels load in a sandboxed <iframe> from the privileged plugin://
     // scheme (docs/plugin-runtime-design §8.5); allow embedding it (the iframe's
     // OWN document gets a strict, no-network CSP from the protocol handler).
-    'frame-src plugin:',
+    // `'self'` additionally permits the chat's interactive artifacts, which render
+    // as sandboxed `srcdoc` (about:srcdoc) iframes with their own no-network CSP
+    // and an opaque origin (v6 §G4/U6).
+    "frame-src 'self' plugin:",
   ];
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

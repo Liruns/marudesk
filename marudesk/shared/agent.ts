@@ -45,6 +45,19 @@ export type ToolMediaArtifact = {
   mediaType: string;
 };
 
+/**
+ * An interactive HTML artifact a tool produced (`create_artifact`, v6 §G4/U6),
+ * rendered inline in a SANDBOXED, network-isolated iframe — Claude-Artifacts-style
+ * charts/forms/dashboards. The HTML is self-contained (inline CSS/JS); it has no
+ * network access and no bridge to tools/files/the app (§S.1: display only).
+ */
+export type AgentArtifact = {
+  /** Short title for the artifact card header. */
+  title: string;
+  /** Self-contained HTML; rendered with a strict CSP in an opaque-origin frame. */
+  html: string;
+};
+
 /** One model-requested tool call plus its execution state (UI tool card). */
 export type ToolCall = {
   /** Provider tool_use id (correlates the result back). */
@@ -64,6 +77,11 @@ export type ToolCall = {
    * {@link ToolMediaArtifact}.
    */
   media?: ToolMediaArtifact[];
+  /**
+   * An interactive HTML artifact this call produced (`create_artifact`), rendered
+   * inline in a sandboxed frame. See {@link AgentArtifact}.
+   */
+  artifact?: AgentArtifact;
 };
 
 export type AgentTextPart = { type: 'text'; text: string };

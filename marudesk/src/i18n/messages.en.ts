@@ -350,6 +350,8 @@ export const EN_MESSAGES = {
   'agent.chat.attachFiles': 'Attach files',
   'agent.chat.background.cancelTitle': 'Cancel this background agent',
   'agent.chat.attachPhotos': 'Attach photos',
+  'agent.chat.artifact.preview': 'Preview',
+  'agent.chat.artifact.source': 'Source',
   'agent.chat.attachedAlt': 'attached',
   'agent.chat.attachmentAlt': 'attachment',
   'agent.chat.media.loading': 'Loading media…',
