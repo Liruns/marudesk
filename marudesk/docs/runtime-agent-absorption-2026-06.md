@@ -388,8 +388,12 @@ browser-differentiated, net-new ones are fuller. Priority tags: **P0** (Now),
   Plan is benchmark Top6. **Kiro-specific net-new:** a versioned **spec
   lifecycle** (`requirements → design → tasks`) and **steering files** as
   workspace artifacts.
-- **MVP.** `.marudesk/steering/*.md` (project-scoped, always-on agent guidance) +
-  `.marudesk/workflows/*.md` slash invocation (benchmark §E, Windsurf).
+- **MVP.** `.marudesk/steering/*.md` (project-scoped, always-on agent guidance)
+  **— SHIPPED (2026-06-08):** every `.md` under `<root>/.marudesk/steering/` is
+  name-sorted, bounded (20 files / 16k chars), `@import`-expanded, and folded into
+  the workspace instruction block (`electron/agent/instructions.ts`
+  `loadSteeringFiles`). Still to do: `.marudesk/workflows/*.md` slash invocation
+  (benchmark §E, Windsurf).
 - **Later.** Full spec lifecycle objects (open/review/annotate/archive) reusing
   the Artifacts surface (v6 §D, plugin iframe runtime).
 
@@ -466,15 +470,22 @@ browser differentiator and reuses shipped assets.
 - **X5. Timeline ↔ edit provenance (§3.9 addition)** once unified diff lands.
 
 ### Later — 2-3 months
-- **L1. Agent-lane / worktree Mission Control (§3.8)** with per-lane dev server +
-  browser tab + PR/CI; folds in subagent/background trays. Coordinated with v6 §C.
-- **L2. Session Receipt — runtime enrichment.** A `ReceiptCard` already exists
-  (`features/agent/chat/Cards.tsx`); add the CDP differentiator (benchmark Top8):
-  a Stage screenshot + a timeline digest, exported via `evidence-pack.ts`.
-- **L3. Steering files + workflows, then spec lifecycle (§3.10).**
-- **L4. Cached browser workflows (§3.12 later)** and visual element inspector
-  source-candidate jump (§3.7 later).
+- **L1. Agent-lane / worktree Mission Control (§3.8).** *Deferred — large new
+  surface; build as a focused, GUI-verified change.*
+- **L2. Session Receipt — runtime enrichment.** *Deferred — touches the turn loop
+  + state + persistence + a CDP screenshot allowlist; needs GUI verification.*
+- **L3. Steering files + workflows, then spec lifecycle (§3.10).** Steering files
+  **SHIPPED (2026-06-08)**; workflows + spec lifecycle remain.
+- **L4. Cached browser workflows (§3.12 later); element inspector source-candidate
+  jump (§3.7 later) — SHIPPED (2026-06-08):** ranked source rows on the element
+  capture card open the file in the editor.
 - **L5. MCP/plugin install UX (§3.11)** if not already shipped via v6 W2.
+
+> **Deliberately not landed blind (no GUI in this environment):** runtime-aware
+> checkpoints (§3.6 — mutates the user's git working tree), the lanes dashboard
+> (§3.8), the session-receipt screenshot (§L2), and a standalone Supervisor rail
+> (§3.5 — largely redundant with what `AgentChat` already renders: status, plan,
+> approvals, usage). These warrant focused changes verified against the real UI.
 
 ---
 
