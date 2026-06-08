@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
 import { test, expect } from '@playwright/test';
 import { launchApp } from './helpers/app';
 
