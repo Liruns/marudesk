@@ -377,15 +377,23 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 | 6 | W7/U10 영속 allow + per-tool deny | ✅ | `dc901db` |
 | 7 | W8 /review 병렬 reviewer P0~P3 | ✅ | `50ff8e3` |
 | 8 | U5 steerable plan(step 토글/삭제) | ✅ | `d94eb28` |
+| 10 | G5/U7 위임(subagent) 모델 라우팅 | ✅ | `3c51d90` |
+| 9 | W6 MCP circuit-breaker 주기적 재연결 | ✅ | `3cac1d8` |
+| U9 | compaction 펼쳐보기 | ✅ 기존충족 | (CompactionDivider 이미 expandable + 원문은 스크롤백 유지) |
+| 9-UI | 플러그인/MCP 관리 UI | ✅ 기존충족 | (PluginsSettings/McpServersSettings 이미 완비 — 감사 과장) |
 
-**검증:** 각 단계 typecheck+build+lint 그린(무관한 기존 `Tour.tsx` lint 에러만 잔존), W1은
-`harness:patch-match` 통과. 원격 환경 Electron 실행 불가 → **UI 수동 점검 미실시**(로컬 `npm run dev` 권장).
+**검증:** 각 단계 typecheck+build+lint 그린(무관한 기존 `Tour.tsx` lint 에러만 잔존). W1은
+`harness:patch-match` 10/10, W6은 `harness:mcp` 145개 통과. 원격 환경 Electron 실행 불가 →
+**UI 수동 점검 미실시**(로컬 `npm run dev` 권장).
 
-**남은 작업 (대형 — 각각 별도 집중 라운드 권장):**
-- **W1 B-레이어**: 읽기뷰 해시앵커 + 모델 앵커 참조(하이브리드 천장). A 폴백은 착지.
-- **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime 변경). **U9**: compaction 원문 펼쳐보기.
-- **단계 9**: 플러그인/MCP 관리 UI. **단계 10**: 모델 역할 라우팅. **단계 11**: 인터랙티브 아티팩트
-  (plugin:// iframe 재사용, §S.1 grant 0). **단계 12**: worktree→병렬 thread→automations.
-- **모바일 패리티**: U5 step-edit / U10 승인 토글(relay 커맨드 추가 필요).
+**남은 작업 (대형 — 각각 별도 집중 라운드 필요):**
+- **단계 11 — 인터랙티브 아티팩트**: plugin:// iframe 재사용 + 새 artifact part 타입 + §S.1 grant-0.
+  보안 surface 커서 전용 라운드.
+- **단계 12 — worktree → 병렬 thread → automations**: 세션→동시 thread 재설계 + git worktree 격리 +
+  스케줄러. 대형 아키텍처(멀티 PR).
+- **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
+- **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
+- **W6 잔여**: trusted MCP 서버 per-tool 게이팅.
+- **모바일 패리티**: U5 step-edit / U10 승인 토글(relay 커맨드 추가).
 </content>
 </invoke>
