@@ -34,6 +34,7 @@ import {
 } from './SourceControlPanel.parts';
 import { DiffViewer } from './DiffViewer';
 import { WorktreeIsolationBar } from './WorktreeIsolationBar';
+import { WorktreeLanes } from './WorktreeLanes';
 import { useEditorStore } from '../editor/store';
 
 type Props = {
@@ -274,6 +275,9 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
 
             {/* Agent worktree isolation (Stage 12-B) — only for a local git repo. */}
             <WorktreeIsolationBar />
+
+            {/* Worktree lanes board — every worktree of the repo (§3.8). */}
+            <WorktreeLanes />
 
             {/* commit box */}
             <div className="shrink-0 p-2 border-b border-subtle">

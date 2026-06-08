@@ -280,6 +280,9 @@ export const EN_MESSAGES = {
   'git.toast.pull': 'Pull',
   'git.toast.push': 'Push',
   'git.worktree.title': 'Agent isolation',
+  'git.worktrees.title': 'Worktrees',
+  'git.worktrees.main': 'main',
+  'git.worktrees.changes': 'Uncommitted changes',
   'git.worktree.runIsolated': 'Run isolated',
   'git.worktree.runIsolatedHint':
     'Run the agent in a dedicated git worktree on its own branch; review its changes here, then merge them back or discard.',

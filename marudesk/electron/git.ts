@@ -21,6 +21,8 @@ import {
   isolationStatus,
   mergeIsolation,
 } from './worktree-isolation';
+import { isGitRepo, listWorktrees, worktreeChanges } from './git-worktree';
+import type { WorktreeLane } from '../shared/worktree';
 
 /**
  * Workspace Source Control (VSCode-style). Every command runs against the open
@@ -404,5 +406,21 @@ export function registerGitHandlers(): void {
   defineHandler('git:worktree-discard', async () => {
     await discardIsolation(requireWorkspace().root);
     return { ok: true } as const;
+  });
+
+  // Lanes board: list every worktree of the active repo with its pending-change
+  // count (bounded). Empty for a non-git / remote root.
+  defineHandler('git:worktree-list', async () => {
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return [];
+    const trees = await listWorktrees(root);
+    const lanes: WorktreeLane[] = [];
+    for (const wt of trees.slice(0, 20)) {
+      const changes = await worktreeChanges(wt.path)
+        .then((c) => c.count)
+        .catch(() => 0);
+      lanes.push({ ...wt, changes });
+    }
+    return lanes;
   });
 }

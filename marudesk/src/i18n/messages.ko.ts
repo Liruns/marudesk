@@ -279,6 +279,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.toast.pull': 'Pull',
   'git.toast.push': 'Push',
   'git.worktree.title': '에이전트 격리',
+  'git.worktrees.title': '워크트리',
+  'git.worktrees.main': 'main',
+  'git.worktrees.changes': '커밋되지 않은 변경',
   'git.worktree.runIsolated': '격리 실행',
   'git.worktree.runIsolatedHint':
     '에이전트를 전용 git worktree(별도 브랜치)에서 실행합니다. 변경 사항을 여기서 검토한 뒤 병합하거나 버립니다.',

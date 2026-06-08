@@ -39,6 +39,12 @@ export type WorktreeChanges = {
   files: string[];
 };
 
+/** One worktree plus its pending-change count, for the Source Control lanes board. */
+export type WorktreeLane = WorktreeInfo & {
+  /** Number of uncommitted changes in this worktree (0 when clean). */
+  changes: number;
+};
+
 /**
  * Outcome of merging an agent worktree's branch back into the base branch. A
  * clean merge reports `ok` with the short summary; a conflict (or a dirty base)

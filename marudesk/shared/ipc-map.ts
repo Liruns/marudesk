@@ -32,7 +32,7 @@ import type {
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
-import type { WorktreeIsolationStatus, WorktreeMergeResult } from './worktree';
+import type { WorktreeIsolationStatus, WorktreeLane, WorktreeMergeResult } from './worktree';
 import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type {
   BrowserNativeMenuItem,
@@ -412,6 +412,8 @@ export interface IpcMap {
   'git:worktree-enter': { args: []; result: WorktreeIsolationStatus };
   'git:worktree-merge': { args: []; result: WorktreeMergeResult };
   'git:worktree-discard': { args: []; result: { ok: true } };
+  // Lanes board: every worktree of the active repo + its pending-change count.
+  'git:worktree-list': { args: []; result: WorktreeLane[] };
 
   // automations (Stage 12-C — scheduled saved-prompt agent runs)
   'automations:list': { args: []; result: Automation[] };
