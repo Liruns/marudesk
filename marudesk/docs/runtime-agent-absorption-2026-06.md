@@ -484,14 +484,26 @@ browser differentiator and reuses shipped assets.
   capture card open the file in the editor.
 - **L5. MCP/plugin install UX (§3.11)** if not already shipped via v6 W2.
 
-> **Verified with Playwright (xvfb):** full e2e suite **117/117**, plus dedicated
-> specs for the timeline, receipt snapshot, and worktree lanes.
+- **L6. Turn checkpoints (§3.6) — SHIPPED (2026-06-08):** every turn snapshots the
+  agent's working tree (`git stash create` — non-destructive) and the session
+  receipt offers "Restore checkpoint" to roll the WHOLE tree back, capturing even
+  terminal-driven changes the edits list misses. Safe by construction — current
+  work is parked on the stash stack before the snapshot is re-applied, never
+  `--force`/`reset --hard` — so nothing is destroyed. Verified on a real repo in
+  the worktree harness.
+
+> **Verified:** full Playwright e2e **117/117** (incl. timeline, receipt snapshot,
+> worktree lanes), and the git-worktree harness **41 assertions** (incl. the
+> checkpoint "nothing is lost" guarantee).
 >
-> **Still open (genuinely-new, larger):** a standalone Supervisor rail (§3.5 —
-> mostly redundant with what `AgentChat` already renders: status, plan, approvals,
-> usage); full git-stash checkpoints beyond the shipped per-edit revert +
-> turn-page restore (§3.6); and the per-lane dev-server/browser/PR/CI Mission
-> Control (§3.8). These warrant focused, separately-reviewed changes.
+> **Reviewed and deliberately NOT built (redundant or a larger subsystem):**
+> - *Standalone Supervisor rail (§3.5)* — redundant. `ThreadBar.tsx` already shows
+>   every thread's status/busy (fed by `agent:threads`), and `AgentChat` already
+>   renders plan, approvals, and usage. A separate rail would only duplicate them.
+> - *Per-lane dev-server / browser / PR / CI Mission Control (§3.8)* — each is a
+>   real subsystem, not a safe quick slice. The read-only lanes board (L1) is the
+>   sensible MVP; "open lane as workspace" was rejected as it would clutter the
+>   workspace with throwaway agent trees. The full board warrants its own design.
 
 ---
 
