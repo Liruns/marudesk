@@ -252,6 +252,48 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 
 ---
 
+## S. 보안 검토 (코드 근거 2026-06-07)
+
+> v6 신규 surface가 여는 위협을 *실제 코드의 기존 방어기제*와 대조했다. 결론: **기존 방어는 전반적으로
+> 견고**(문서가 가정한 H9 DNS-pin·CDP allowlist·scrub 등 사실 확인). 남은 위험은 대부분 *정책 레벨*이라
+> v6 기능마다 **요건**으로 박는다. file:line은 검토 시점 기준.
+
+### S.0 검증된 기존 방어 (v6에서 재사용)
+- **guardedFetch DNS-pin + SSRF** ([permissions.ts:127-162](../electron/plugins/permissions.ts#L127)) —
+  lookup 후 IP pin, private/loopback/link-local + **metadata 169.254.169.254 차단**, redirect 미추적,
+  TLS SNI 보존. (H9 주장 = 사실.) **STRONG**
+- **plugin:// 샌드박스** ([protocol.ts:89](../electron/plugins/protocol.ts#L89)) — CSP `default-src 'none'`,
+  **`connect-src 'none'`(망 유출 차단)**, base-uri/form-action none, 경로 traversal/심볼릭 거부. **STRONG**
+- **scrub** ([scrub.ts:37-108](../shared/scrub.ts#L37)) — JWT/PEM/provider 키/민감 헤더 redact. **STRONG**(엔트로피 미탐지).
+- **CDP allowlist** ([cdp.ts:71-115](../electron/browser/cdp.ts#L71)) — **`Page.navigate` 차단**, 위험 30+
+  메서드 deny-first(setCookie/setBypassCSP/navigate…). **STRONG**
+- **도구 게이팅** ([loop.ts:479-552](../electron/agent/loop.ts#L479), [types.ts GATED_TOOLS](../electron/agent/tools/types.ts#L72)) —
+  read-only/plan write·eval_js 차단, ask 게이팅. **STRONG**
+- **fs-safe 경계** ([fs-safe.ts:29-130](../electron/fs-safe.ts#L29)) — `..`/절대경로/심볼릭/NTFS-ADS 거부, atomic write, deny glob. **STRONG**
+- **fetch_url/web_search** ([fetch-url.ts](../electron/agent/tools/fetch-url.ts)) — http(s)만, private/metadata 차단
+  (매 redirect 재검), HTML→text+scrub, 크기캡. **STRONG**
+
+### S.1 신규 surface별 요건 (P0 = 구현 전 필수)
+
+| 기능 | 위협 | 기존 방어 | v6 요건 |
+|---|---|---|---|
+| **U2 브라우저 요소 코멘트** (P0) | 임의 웹페이지 DOM = **untrusted** → 프롬프트 인젝션 | fetch_url은 HTML→text+scrub하나 CDP `query_dom` 캡처 경로는 별도 | 요소 캡처를 **untrusted external data로 표기**(엔벨로프) + "페이지 내용의 지시 무시" 규칙 + fetch_url sanitize 재사용 |
+| **G4/U6 인터랙티브 아티팩트** (P0) | iframe XSS / postMessage로 특권도구 호출 / 망 유출 | plugin:// 샌드박스 STRONG(`connect-src none`) | 아티팩트 = **plugin:// 샌드박스 그대로** + **tool/fs/http grant 0**(플러그인과 분리) + postMessage 브리지에 특권도구 미노출 → **열린결정 5 해소** |
+| **G3 automations** (P0, *최고위험*) | 무인 스케줄 = auto 모드 = **게이팅 풀바이패스**(검증됨, loop.ts:515) | auto 모드는 전체 우회 | **blanket-auto 금지**: per-automation 도구 allowlist + **worktree 격리(G1)** + run_command/eval_js 기본 deny |
+| **W7/U10 영속 승인** (P1) | run_command/eval_js 영구 자동승인 | 현재 session-scoped(안전) | 영속 allow = **per-tool + per-workspace 스코프** + 고위험 도구 opt-in + 관리 UI에서 취소가능. semi-auto = read자동/write확인 |
+| **G2 병렬 thread** (P1) | 한 thread 승인이 타 thread로 누수 | `sessionAllowedTools` 전역 | 승인/allowlist **thread별 스코프**(현 plugin callId 상관 패턴 참고) |
+| **W2 플러그인 설치 UI** (P1) | 임의 플러그인 설치 = 공급망 | 권한 grant+hash(TOFU), **서명/무결성 없음**(검증된 gap) | 설치 시 **선언 권한 + 출처 노출 후 승인**, URL 설치 경고, (옵션) 무결성 체크 |
+| **G1 worktree** (P2, 보안 *positive*) | 격리되나 경계 재설정 | fs-safe root | fs-safe root = **worktree 경로**, deny glob 유지 |
+| **W6 MCP per-tool 게이팅** (보안 *positive*) | (현재 binary trust = coarse, 검증된 gap) | server 단위 trust | per-tool allow/deny = **least-privilege 개선** |
+
+### S.2 알려진 기존 gap (v6 비차단, 추적만)
+- **플러그인 manifest 서명 없음(TOFU)** — 승인 후 권한 불변 매니페스트 변경은 무재승인 적용. W2 설치 UI가 부분완화.
+- **scrub 엔트로피 미탐지** — 신규/무명 포맷 고엔트로피 토큰 누출 가능. (파일 차단이 1차 방어라 영향 제한적.)
+- **fetch_url = blocklist(allowlist 아님)** — 기업용 per-workspace allowlist는 별도 라운드.
+- **plugin `script-src 'unsafe-inline'`** — XSS 여지나 `connect-src none`이 유출은 차단.
+
+---
+
 ## Non-goals
 
 - **협업 멀티에이전트(@mention/공유 thread)** — 단일 사용자 범위, subagent로 충분([roadmap](./roadmap.md)).
@@ -268,12 +310,12 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 1. ~~W vs 차별점 비중~~ → **차별점 U1/U2 먼저**(결정 A').
 2. ~~병렬 thread 착수 시점~~ → **v6 포함**, 단계 12에서 쪼갬(결정 A·C).
 3. ~~U1/U2 우선순위~~ → **단계 1~2로 상향**(결정 A').
+5. ~~아티팩트 보안 범위~~ → **plugin:// 샌드박스 그대로 + tool/fs/http grant 0 + postMessage에 특권도구
+   미노출**(§S.1). 아티팩트는 표시 전용, 망/도구 접근 없음.
 
 **남은 결정(구현 전 확정):**
 4. **Hashline 도입 방식(W1, 단계 3):** patch.ts에 fuzzy/hash 레이어를 *추가*할지, 도구 스키마(oldString)에
    hash anchor 필드를 더해 모델이 anchor를 주게 할지. → 후자가 정석이나 프롬프트/스키마 변경 동반.
-5. **아티팩트 보안(G4/U6, 단계 11):** 플러그인 권한 모델(H9 DNS-pin) 위에서 아티팩트가 도구/네트워크에
-   닿는 범위.
 
 ---
 
@@ -303,6 +345,10 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 - **2026-06-07 (리뷰 확정):** 범위 = **풀스코프**(병렬 thread/worktree/automations/아티팩트 v6 포함,
   큰 베팅은 단계 12에서 쪼갬). 순서 = **차별점 U1/U2 먼저** → W(신뢰) → 관리 UI → 큰 베팅. 리뷰 반영:
   에러복구/승인 단계 분리, 단계별 성공기준 추가, 모바일 패리티 명시, Hashline↔v5 G1 보완관계 명시.
-  남은 결정 = Hashline 도입 방식 / 아티팩트 보안 범위(구현 전 확정).
+- **2026-06-07 (보안 검토):** 기존 방어기제 코드 검증 — guardedFetch DNS-pin/SSRF·plugin:// 샌드박스
+  (connect-src none)·CDP allowlist(Page.navigate 차단)·scrub·fs-safe 경계 **전부 견고 확인**(H9 등 사실).
+  §S 신설: 신규 surface 위협→요건 매핑. P0 = U2(브라우저 DOM=untrusted 인젝션)·G4/U6(아티팩트 grant 0)·
+  G3(automations 게이팅 풀바이패스 → 도구 allowlist+worktree 격리). 열린결정 5(아티팩트 보안) 해소.
+  남은 결정 = Hashline 도입 방식(구현 전 확정).
 </content>
 </invoke>
