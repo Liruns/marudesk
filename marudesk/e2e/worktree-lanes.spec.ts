@@ -11,22 +11,21 @@ import { launchApp } from './helpers/app';
  * git:worktree-list. We verify the IPC end-to-end: a repo with a second worktree
  * reports both, the main one flagged, each carrying a change count.
  */
+function initRepo(repo: string): (args: string[], cwd?: string) => void {
+  const git = (args: string[], cwd: string = repo) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 't@t']);
+  git(['config', 'user.name', 't']);
+  git(['config', 'commit.gpgsign', 'false']);
+  git(['commit', '--allow-empty', '-m', 'init']);
+  return git;
+}
+
 test('worktree lanes: lists every worktree of the active repo', async () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-lanes-'));
   const linked = `${repo}-wt`;
-  const git = (args: string[], cwd: string) =>
-    execFileSync('git', args, { cwd, stdio: 'ignore' });
-  git(['init', '-b', 'main'], repo);
-  git(
-    [
-      '-c', 'user.email=t@t',
-      '-c', 'user.name=t',
-      '-c', 'commit.gpgsign=false',
-      'commit', '--allow-empty', '-m', 'init',
-    ],
-    repo,
-  );
-  git(['worktree', 'add', '-b', 'marudesk/agent/1', linked], repo);
+  const git = initRepo(repo);
+  git(['worktree', 'add', '-b', 'marudesk/agent/1', linked]);
 
   const { app, page } = await launchApp();
   try {
@@ -63,6 +62,39 @@ test('worktree lanes: lists every worktree of the active repo', async () => {
     expect(removed.ok).toBe(true);
     const after = await page.evaluate(() => window.marudesk.invoke('git:worktree-list'));
     expect(after.some((l) => l.branch === 'marudesk/agent/1')).toBe(false);
+  } finally {
+    await app.close();
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(linked, { recursive: true, force: true });
+  }
+});
+
+test('worktree lanes: merge-lane lands the work on the base branch + cleans up', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-lanes-m-'));
+  const linked = `${repo}-wt`;
+  const git = initRepo(repo);
+  git(['worktree', 'add', '-b', 'marudesk/agent/2', linked]);
+  // Make a change inside the lane (left uncommitted — mergeWorktree commits it).
+  fs.writeFileSync(path.join(linked, 'from-lane.txt'), 'agent work\n');
+
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(
+      (root) => window.marudesk.invoke('workspaces:create', { name: 'R', roots: [{ name: 'R', path: root }] }),
+      repo,
+    );
+    const lanes = await page.evaluate(() => window.marudesk.invoke('git:worktree-list'));
+    const lane = lanes.find((l) => l.branch === 'marudesk/agent/2')!;
+
+    const res = await page.evaluate(
+      (p) => window.marudesk.invoke('git:worktree-merge-lane', { path: p }),
+      lane.path,
+    );
+    expect(res.ok).toBe(true);
+    // The lane's file landed on the main worktree, and the lane is gone.
+    expect(fs.existsSync(path.join(repo, 'from-lane.txt'))).toBe(true);
+    const after = await page.evaluate(() => window.marudesk.invoke('git:worktree-list'));
+    expect(after.some((l) => l.branch === 'marudesk/agent/2')).toBe(false);
   } finally {
     await app.close();
     fs.rmSync(repo, { recursive: true, force: true });

@@ -431,6 +431,8 @@ export interface IpcMap {
       | { ok: true }
       | { ok: false; reason: 'no-repo' | 'not-found' | 'is-main' | 'not-agent' | 'error'; message?: string };
   };
+  // Lanes board: merge an agent lane back into the base branch (then clean up).
+  'git:worktree-merge-lane': { args: [payload: { path: string }]; result: WorktreeMergeResult };
 
   // automations (Stage 12-C — scheduled saved-prompt agent runs)
   'automations:list': { args: []; result: Automation[] };

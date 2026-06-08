@@ -308,6 +308,11 @@ export const EN_MESSAGES = {
   'git.worktrees.discard': 'Discard this agent worktree',
   'git.worktrees.discardConfirm': 'Discard this agent worktree and delete its branch? Uncommitted work in it is lost.',
   'git.worktrees.discardFailed': 'Could not discard the worktree',
+  'git.worktrees.merge': 'Merge this lane into the base branch',
+  'git.worktrees.mergeConfirm': 'Commit and merge this agent lane into the current branch, then clean it up?',
+  'git.worktrees.mergeOk': 'Lane merged',
+  'git.worktrees.mergeConflict': 'Merge conflict — the lane was kept for you to resolve',
+  'git.worktrees.mergeFailed': 'Could not merge the lane',
   'git.worktree.runIsolated': 'Run isolated',
   'git.worktree.runIsolatedHint':
     'Run the agent in a dedicated git worktree on its own branch; review its changes here, then merge them back or discard.',

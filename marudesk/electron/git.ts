@@ -21,7 +21,7 @@ import {
   isolationStatus,
   mergeIsolation,
 } from './worktree-isolation';
-import { discardWorktree, isGitRepo, listWorktrees, worktreeChanges } from './git-worktree';
+import { discardWorktree, isGitRepo, listWorktrees, mergeWorktree, worktreeChanges } from './git-worktree';
 import { isAgentWorktreeBranch, type WorktreeLane } from '../shared/worktree';
 import path from 'node:path';
 
@@ -445,5 +445,21 @@ export function registerGitHandlers(): void {
     } catch (err) {
       return { ok: false, reason: 'error', message: (err as Error).message } as const;
     }
+  });
+
+  // Lanes board (§3.8): merge an agent lane's branch back into the base branch,
+  // then clean the lane up. Reuses mergeWorktree (commits the lane, --no-ff, never
+  // --force; a conflict is reported and the lane is left intact). Refuses main /
+  // non-agent worktrees, same as remove.
+  defineHandler('git:worktree-merge-lane', async ([payload]) => {
+    const target = str(obj(payload).path, 'path');
+    const root = requireWorkspace().root;
+    if (!(await isGitRepo(root))) return { ok: false, reason: 'error', message: 'not a git repo' } as const;
+    const trees = await listWorktrees(root);
+    const wt = trees.find((w) => path.resolve(w.path) === path.resolve(target));
+    if (!wt || wt.isMain || !wt.branch) {
+      return { ok: false, reason: 'error', message: 'not a mergeable lane' } as const;
+    }
+    return mergeWorktree(root, wt.path, wt.branch, `Merge ${wt.branch}`);
   });
 }

@@ -307,6 +307,11 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.worktrees.discard': '이 에이전트 워크트리 폐기',
   'git.worktrees.discardConfirm': '이 에이전트 워크트리를 폐기하고 브랜치를 삭제할까요? 커밋되지 않은 작업은 사라집니다.',
   'git.worktrees.discardFailed': '워크트리를 폐기할 수 없습니다',
+  'git.worktrees.merge': '이 레인을 기준 브랜치로 머지',
+  'git.worktrees.mergeConfirm': '이 에이전트 레인을 커밋해 현재 브랜치로 머지하고 정리할까요?',
+  'git.worktrees.mergeOk': '레인 머지됨',
+  'git.worktrees.mergeConflict': '머지 충돌 — 해결할 수 있도록 레인을 남겨두었습니다',
+  'git.worktrees.mergeFailed': '레인을 머지할 수 없습니다',
   'git.worktree.runIsolated': '격리 실행',
   'git.worktree.runIsolatedHint':
     '에이전트를 전용 git worktree(별도 브랜치)에서 실행합니다. 변경 사항을 여기서 검토한 뒤 병합하거나 버립니다.',

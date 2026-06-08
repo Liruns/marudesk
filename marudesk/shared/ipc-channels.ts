@@ -120,6 +120,7 @@ export const CHANNELS = {
     'git:worktree-discard',
     'git:worktree-list',
     'git:worktree-remove',
+    'git:worktree-merge-lane',
   ],
   // Automations (Stage 12-C): saved prompts that run on a schedule.
   automations: [

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, GitBranch, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitBranch, GitMerge, Trash2 } from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
 import { toast } from '../../lib/toast';
 import { isAgentWorktreeBranch, type WorktreeLane } from '../../../shared/worktree';
@@ -36,6 +36,21 @@ export function WorktreeLanes() {
     const res = await window.marudesk.invoke('git:worktree-remove', { path: lane.path });
     if (res.ok) refresh();
     else toast({ title: t('git.worktrees.discardFailed'), variant: 'error' });
+  };
+
+  const merge = async (lane: WorktreeLane) => {
+    if (!window.confirm(`${t('git.worktrees.mergeConfirm')}\n\n${lane.branch ?? lane.path}`)) return;
+    const res = await window.marudesk.invoke('git:worktree-merge-lane', { path: lane.path });
+    if (res.ok) {
+      refresh();
+      toast({ title: t('git.worktrees.mergeOk'), description: lane.branch ?? undefined, variant: 'success' });
+    } else {
+      toast({
+        title: res.reason === 'conflict' ? t('git.worktrees.mergeConflict') : t('git.worktrees.mergeFailed'),
+        description: res.message,
+        variant: 'error',
+      });
+    }
   };
 
   // A single (main) worktree is the common case and not worth a board.
@@ -76,14 +91,24 @@ export function WorktreeLanes() {
                 </span>
               ) : null}
               {!lane.isMain && lane.branch && isAgentWorktreeBranch(lane.branch) ? (
-                <button
-                  type="button"
-                  onClick={() => void discard(lane)}
-                  title={t('git.worktrees.discard')}
-                  className="shrink-0 rounded p-0.5 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-error-subtle hover:text-error group-hover:opacity-100 focus-visible:opacity-100"
-                >
-                  <Trash2 size={12} />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void merge(lane)}
+                    title={t('git.worktrees.merge')}
+                    className="shrink-0 rounded p-0.5 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-accent-subtle hover:text-accent group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <GitMerge size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void discard(lane)}
+                    title={t('git.worktrees.discard')}
+                    className="shrink-0 rounded p-0.5 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-error-subtle hover:text-error group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </>
               ) : null}
             </li>
           ))}
