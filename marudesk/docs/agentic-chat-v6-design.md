@@ -391,6 +391,11 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 - **단계 12 — worktree → 병렬 thread → automations**: 세션→동시 thread 재설계 + git worktree 격리 +
   스케줄러. 대형 아키텍처(멀티 PR). worktree(기반)→thread(승격)→automations 순서로 쪼개야 하며,
   automations는 §S.1대로 worktree 격리 + per-automation 도구 allowlist가 전제(무인=auto 게이팅 우회).
+  - **12-A 착지(엔진):** `electron/git-worktree.ts` — 로컬 git repo에 `marudesk/agent/*` 브랜치 worktree를
+    add/list/remove, pending 변경 요약, base 브랜치로 머지(충돌 시 abort+worktree 보존, --force 금지)
+    / discard. Source Control과 동일한 `runGit` 하드닝(argv-only·SSH 거부·C 로케일) 재사용. 실제 임시
+    repo 대상 `harness:worktree` 24개 통과. **다음(12-B): 활성 root를 worktree로 스왑(에디터/에이전트/
+    git 패널 일관) + 영속/UI를 thread 모델과 함께(앱 검증 필요).**
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.
