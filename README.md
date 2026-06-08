@@ -128,25 +128,43 @@ Open **Settings → AI Providers** and either paste an API key or sign in with a
 ```bash
 cd marudesk
 npm run build            # type-check + bundle
-npm run package:win      # or: npm run package:mac
+npm run package:win      # or: npm run package:mac / npm run package:linux
 ```
 
-### Release with auto-update (Windows)
+### Cut a release (CI)
+
+Releases are built and published by the **Release** GitHub Actions workflow
+(`.github/workflows/release.yml`). Pushing a `v*` tag builds marudesk on native
+runners for each target — macOS arm64 (`macos-14`), macOS x64 (`macos-13`),
+Windows x64 (`windows-latest`), and Linux x64 (`ubuntu-latest`) — and uploads
+the installers (`dmg` for macOS, NSIS `exe` for Windows, `AppImage` + `deb` for
+Linux) to the GitHub release that matches `marudesk/package.json` version:
+
+```bash
+# bump marudesk/package.json version first, commit, then:
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+A manual `workflow_dispatch` run builds the same matrix without publishing, so
+you can smoke-test packaging. To build/publish from your own machine instead,
+use `npm run publish:win` / `publish:mac` / `publish:linux` (`GH_TOKEN`
+required), or `npm run package:*` for a local-only build.
+
+### Auto-update (Windows)
 
 The Windows build auto-updates in place via `electron-updater`: on launch it
 checks the GitHub Releases feed, downloads a newer NSIS package in the background,
 and offers a "restart & install" action in **Settings → About** (it also installs
 on the next quit). For this to work, each release must carry the update metadata
-(`latest.yml` + the installer and its `.blockmap`), so publish with:
-
-```bash
-cd marudesk
-GH_TOKEN=<token> npm run publish:win   # builds + uploads the release to GitHub
-```
+(`latest.yml` + the installer and its `.blockmap`), which the CI workflow (and
+`npm run publish:win`) produce automatically.
 
 The feed is configured by `build.publish` in `marudesk/package.json`
-(`Liruns/marudesk`). macOS keeps the manual check (it opens the releases page),
-since in-app installs there require Apple code signing + notarization.
+(`Liruns/marudesk`). macOS and Linux keep the manual check (it opens the
+releases page): the Mac `dmg` is currently unsigned (download-and-run, requires
+Apple code signing + notarization before auto-update can be enabled), and the
+Linux `AppImage`/`deb` are download-and-run for now.
 
 ## Development and verification
 
