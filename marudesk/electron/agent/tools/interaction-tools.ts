@@ -2,6 +2,7 @@ import { scrubText } from '../../../shared/scrub';
 import { clipText as clip } from '../../../shared/text-clip';
 import type { ToolContext, ToolResult } from './types';
 import { requireTab, evaluate } from './shared-helpers.ts';
+import { highlightInPage } from './highlight.ts';
 
 /**
  * Interaction tools (click / fill / press_key / scroll) — the "agent drives the
@@ -17,6 +18,9 @@ export async function click(input: { selector?: unknown }, ctx: ToolContext): Pr
   const rec = requireTab(ctx);
   const selector = typeof input.selector === 'string' ? input.selector : '';
   if (!selector) throw new Error('click requires "selector"');
+  // Highlight before the click so the box is drawn while the element still exists
+  // (a click may remove/navigate it). Best-effort, fire-and-forget.
+  highlightInPage(rec, selector, 'click');
   const expr = `(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
     if (!el) return { ok: false };
@@ -38,6 +42,7 @@ export async function fill(
   const rec = requireTab(ctx);
   const selector = typeof input.selector === 'string' ? input.selector : '';
   if (!selector) throw new Error('fill requires "selector"');
+  highlightInPage(rec, selector, 'fill');
   const value = typeof input.value === 'string' ? input.value : '';
   // React (and other controlled inputs) ignore a plain `el.value =` because they
   // track value via the prototype setter; call the NATIVE setter then dispatch
@@ -83,6 +88,7 @@ export async function pressKey(
   const key = typeof input.key === 'string' ? input.key : '';
   if (!key) throw new Error('press_key requires "key" (e.g. "Enter", "Escape", "Tab", "ArrowDown")');
   const selector = typeof input.selector === 'string' ? input.selector : '';
+  if (selector) highlightInPage(rec, selector, `press ${key}`);
   // Dispatch a synthetic keydown+keyup on the target (selector element, focused
   // first) or the active element. Good enough for standard key handlers
   // (Enter/Escape/Tab/arrows); not a full trusted-event key press.
@@ -114,6 +120,7 @@ export async function scroll(
   const rec = requireTab(ctx);
   const selector = typeof input.selector === 'string' ? input.selector : '';
   const direction = input.direction === 'up' ? 'up' : 'down';
+  if (selector) highlightInPage(rec, selector, 'scroll');
   // Selector → smooth-scroll it into view; otherwise scroll the window a screenful.
   const expr = selector
     ? `(() => {
