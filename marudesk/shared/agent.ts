@@ -83,6 +83,15 @@ export type ToolCall = {
    * inline in a sandboxed frame. See {@link AgentArtifact}.
    */
   artifact?: AgentArtifact;
+  /**
+   * Live partial output of a long-running child tool (W4/U3 subagent streaming):
+   * the spawn_subagent card shows the child's in-progress text + a running tool
+   * trace WHILE it works, instead of staying blank until the single result card.
+   * Both are cleared when the call settles ({@link resultText} supersedes them).
+   */
+  streamedText?: string;
+  /** Live tool-trace lines from a running child tool (paired with {@link streamedText}). */
+  streamedTraces?: string[];
 };
 
 export type AgentTextPart = { type: 'text'; text: string };

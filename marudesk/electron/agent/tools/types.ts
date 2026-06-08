@@ -36,7 +36,21 @@ export type ToolContext = {
    * no extra deny rules (the read-side SECRET_FILE guard still applies).
    */
   denyGlobs?: string[];
+  /**
+   * Live-progress sink for a long-running child tool (W4/U3). The loop sets this
+   * per spawn_subagent call so the child's partial text + tool trace surface on
+   * the running card; other tools/dispatches leave it undefined.
+   */
+  onSubagentProgress?: SubagentProgressSink;
 };
+
+/** Partial child output pushed to the parent's running card (W4/U3). */
+export type SubagentProgressSink = (progress: {
+  /** The child's current streamed text (latest step). */
+  readonly text: string;
+  /** Cumulative child tool-trace lines so far. */
+  readonly traces: readonly string[];
+}) => void;
 
 export type ToolResult = {
   /** One-line card header, e.g. "edit src/App.tsx". */

@@ -592,7 +592,24 @@ async function runLoop(opts: RunOpts): Promise<void> {
         call.summary = describeToolInput(call.name, call.input);
       }
       emit();
-      const out = await dispatchToolBounded(call.name, call.input, ctx);
+      // W4/U3: a foreground subagent blocks this turn, so stream its partial text +
+      // tool trace onto THIS running card (the child mutates `call` via the sink and
+      // re-emits). Other tools dispatch with the plain ctx. Cleared on settle.
+      const dispatchCtx: ToolContext =
+        call.name === SPAWN_SUBAGENT
+          ? {
+              ...ctx,
+              onSubagentProgress: ({ text, traces }) => {
+                call.streamedText = text;
+                call.streamedTraces = [...traces];
+                emit();
+              },
+            }
+          : ctx;
+      const out = await dispatchToolBounded(call.name, call.input, dispatchCtx);
+      // The final result card supersedes the live stream — drop the partials.
+      call.streamedText = undefined;
+      call.streamedTraces = undefined;
       call.state = out.isError ? 'error' : 'ok';
       call.summary = out.summary;
       call.resultText = out.text;

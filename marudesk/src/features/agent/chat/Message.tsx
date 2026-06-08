@@ -321,7 +321,6 @@ const ToolCardView = memo(function ToolCardView({
 }) {
   const { t } = useI18n();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const open = userOpen ?? !!defaultOpen;
   const meta = TOOL_META[call.name];
   const Icon = meta?.icon ?? Wrench;
   const label = meta ? t(meta.labelKey) : call.name;
@@ -332,7 +331,12 @@ const ToolCardView = memo(function ToolCardView({
         ? sourceConfidence(call.resultText)
         : null;
   const expr = call.name === 'eval_js' ? stringField(call.input, 'expression') : '';
-  const hasBody = !!call.resultText || !!expr;
+  // W4/U3: a running child tool streams partial text + a tool trace onto its card.
+  const hasLive = !!call.streamedText || (call.streamedTraces?.length ?? 0) > 0;
+  const hasBody = !!call.resultText || !!expr || hasLive;
+  // Auto-expand while the live stream is flowing so progress is visible, until the
+  // user manually toggles the card.
+  const open = userOpen ?? (!!defaultOpen || hasLive);
   const running = call.state === 'running' || call.state === 'awaiting_approval';
   const hue = toolTimelineHue(call.name);
 
@@ -373,6 +377,24 @@ const ToolCardView = memo(function ToolCardView({
             <pre className="m-0 mt-1.5 rounded bg-surface-page px-2 py-1.5 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
               {expr}
             </pre>
+          ) : null}
+          {hasLive ? (
+            <div className="mt-1.5 flex flex-col gap-1">
+              {call.streamedText ? (
+                <pre className="m-0 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-40 overflow-y-auto leading-relaxed opacity-90">
+                  {call.streamedText}
+                </pre>
+              ) : null}
+              {call.streamedTraces && call.streamedTraces.length > 0 ? (
+                <ul className="m-0 list-none p-0 flex flex-col gap-0.5">
+                  {call.streamedTraces.map((trace, i) => (
+                    <li key={i} className="text-fg-tertiary/70 truncate font-mono text-caption">
+                      · {trace}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           ) : null}
           {call.resultText ? (
             <div className="group/out relative">

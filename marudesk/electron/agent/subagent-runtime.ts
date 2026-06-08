@@ -13,6 +13,7 @@ import {
   SPAWN_BACKGROUND_AGENT,
   COLLECT_BACKGROUND_AGENT,
   CANCEL_BACKGROUND_AGENT,
+  type SubagentProgressSink,
   type ToolContext,
   type ToolResult,
 } from './tools/types';
@@ -31,6 +32,7 @@ export async function runChildAgent(
   request: SubagentRunRequest,
   ctx: ToolContext,
   onUsage?: ChildUsageSink,
+  onProgress?: SubagentProgressSink,
 ): Promise<ToolResult> {
   const resolved = await resolveProviderAuth(request.provider);
   if (!resolved.ok) return subagentFailure(request, resolved.reason);
@@ -64,6 +66,8 @@ export async function runChildAgent(
         modelReasoning,
         signal: ctx.signal,
         effort,
+        // Stream the child's text live to the parent card as it arrives (W4/U3).
+        onText: onProgress ? (live) => onProgress({ text: live, traces }) : undefined,
       });
       if (text.trim()) finalText = text.trim();
       if (inputTokens || outputTokens) {
@@ -78,6 +82,8 @@ export async function runChildAgent(
       for (const call of calls) {
         const out = await callMcpTool(call.name, call.input, childCtx);
         traces.push(`${call.name}: ${out.summary}${out.isError ? ' (error)' : ''}`);
+        // Surface each child tool call on the parent card as it completes (W4/U3).
+        onProgress?.({ text: finalText, traces });
         toolResults.push(toolResult(call, out.text, out.isError));
       }
       transcript.push({ role: 'tool', content: toolResults });
@@ -129,6 +135,8 @@ async function childStep(params: {
   readonly modelReasoning: boolean;
   readonly signal: AbortSignal;
   readonly effort: ReturnType<typeof getSettingsSync>['agent']['reasoningEffort'];
+  /** Called with the accumulated step text on each delta, for live streaming (W4/U3). */
+  readonly onText?: (text: string) => void;
 }): Promise<{
   readonly text: string;
   readonly calls: readonly ChildToolCall[];
@@ -154,7 +162,10 @@ async function childStep(params: {
     abortSignal: params.signal,
   });
   for await (const part of res.fullStream) {
-    if (part.type === 'text-delta') text += part.text;
+    if (part.type === 'text-delta') {
+      text += part.text;
+      params.onText?.(text);
+    }
   }
   const toolCalls = await res.toolCalls;
   const usage = await res.usage;

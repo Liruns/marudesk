@@ -57,6 +57,25 @@ const defaulted = await runSubagentTool({ task: 'y', provider: 'default', model:
 check('spawn_subagent treats "default" provider as inherit', defaulted.isError !== true);
 check('"default" provider inherits the parent provider', capturedRequests[0]?.provider === 'ollama');
 check('"default" model inherits the parent model', capturedRequests[0]?.model === 'qwen2.5-coder');
+
+// W4/U3: the loop's per-call live-progress sink (ctx.onSubagentProgress) must reach
+// the child runtime, which pushes partial text + tool trace onto the parent card.
+const progressEvents: { text: string; traces: readonly string[] }[] = [];
+const liveCtx: ToolContext = {
+  ...ctx,
+  onSubagentProgress: (p) => progressEvents.push(p),
+};
+setSubagentRunnerForTests(async (_request, runnerCtx) => {
+  // Stand in for runChildAgent: emit one streamed chunk through the forwarded sink.
+  runnerCtx.onSubagentProgress?.({ text: 'partial child output…', traces: ['read_file: ok'] });
+  return { summary: 'ok', text: 'child report ok' };
+});
+await runSubagentTool({ task: 'stream', label: 'Streamer' }, liveCtx);
+check('onSubagentProgress is forwarded from the loop ctx to the child runtime', progressEvents.length === 1);
+check(
+  'the streamed progress carries the child text + tool trace',
+  progressEvents[0]?.text === 'partial child output…' && progressEvents[0]?.traces[0] === 'read_file: ok',
+);
 setSubagentRunnerForTests(null);
 
 console.log(`\nsubagent harness: ${passed} assertions passed`);
