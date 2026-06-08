@@ -685,6 +685,13 @@ export const EN_MESSAGES = {
   'settings.agent.denyTools.hint':
     'Tool names the agent may never run, in any mode (e.g. run_command, eval_js). One per line.',
   'settings.agent.denyTools.label': 'Never-run tools',
+  'settings.agent.toolGroups.label': 'Runtime tool groups',
+  'settings.agent.toolGroups.hint':
+    'See and gate the agent’s page- and system-acting tools by group. Turning a group off adds its tools to the never-run list below.',
+  'settings.agent.toolGroups.browser': 'Browser / page interaction',
+  'settings.agent.toolGroups.devtools': 'DevTools (console & network)',
+  'settings.agent.toolGroups.terminal': 'Terminal & diagnostics',
+  'settings.agent.toolGroups.web': 'Web search & fetch',
   'settings.agent.delegateModel.hint':
     'Model that spawned subagents and background agents use by default — pick a cheaper/faster one for delegated subtasks. Inherit uses the conversation model.',
   'settings.agent.delegateModel.inherit': 'Inherit current model',

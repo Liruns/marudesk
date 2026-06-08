@@ -10,6 +10,7 @@ import {
 } from './SettingsControls';
 import { FallbackChain } from './FallbackChain';
 import { DelegateModelField } from './DelegateModelField';
+import { AgentToolGroups } from './AgentToolGroups';
 import { useSettingsStore } from './store';
 
 export function AgentCategory() {
@@ -105,6 +106,12 @@ export function AgentCategory() {
           value={agent.denyGlobs}
           onCommit={(denyGlobs) => void update({ agent: { denyGlobs } })}
         />
+      </Field>
+      <Field
+        label={t('settings.agent.toolGroups.label')}
+        hint={t('settings.agent.toolGroups.hint')}
+      >
+        <AgentToolGroups />
       </Field>
       <Field
         label={t('settings.agent.denyTools.label')}

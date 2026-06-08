@@ -159,6 +159,7 @@ export const CHANNELS = {
     'agent:revert-edit',
     'agent:restore-turn-page',
     'agent:restore-checkpoint',
+    'agent:list-tools',
     'agent:cancel-background',
     'agent:edit-plan-step',
     'agent:snapshot',

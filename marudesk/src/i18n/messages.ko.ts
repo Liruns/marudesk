@@ -681,6 +681,13 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.agent.denyTools.hint':
     '에이전트가 어떤 모드에서도 절대 실행하지 않을 도구 이름(예: run_command, eval_js). 한 줄에 하나.',
   'settings.agent.denyTools.label': '절대 실행하지 않을 도구',
+  'settings.agent.toolGroups.label': '런타임 도구 그룹',
+  'settings.agent.toolGroups.hint':
+    '에이전트의 페이지·시스템 조작 도구를 그룹 단위로 확인하고 차단합니다. 그룹을 끄면 해당 도구가 아래 “절대 실행하지 않을 도구” 목록에 추가됩니다.',
+  'settings.agent.toolGroups.browser': '브라우저 / 페이지 조작',
+  'settings.agent.toolGroups.devtools': 'DevTools (콘솔 & 네트워크)',
+  'settings.agent.toolGroups.terminal': '터미널 & 진단',
+  'settings.agent.toolGroups.web': '웹 검색 & 가져오기',
   'settings.agent.delegateModel.hint':
     '생성된 subagent와 백그라운드 에이전트가 기본으로 쓸 모델 — 위임 작업에는 더 싸고 빠른 모델을 고르세요. 상속은 대화 모델을 사용합니다.',
   'settings.agent.delegateModel.inherit': '현재 모델 상속',

@@ -11,6 +11,7 @@ import type {
   AgentEditActionResult,
   AgentSendInput,
   AgentSendResult,
+  AgentToolInfo,
   ThreadSummary,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
@@ -520,6 +521,9 @@ export interface IpcMap {
   // Roll the whole working tree back to a turn's start (§3.6 checkpoint). Safe:
   // current work is parked on the git stash stack first, never destroyed.
   'agent:restore-checkpoint': { args: [payload: { turnId: string }]; result: CheckpointRestore };
+  // Built-in tool catalog for the Settings tool-groups UI (§3.11), grouped + gated
+  // in the renderer via agent.denyTools.
+  'agent:list-tools': { args: []; result: AgentToolInfo[] };
   // User-initiated cancel of a running background agent from the tray (audit H6).
   'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
   // Steerable plan (v6 §U5): user toggles a step's status or removes it.
