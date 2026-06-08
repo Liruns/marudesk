@@ -1126,6 +1126,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'browser.inspect.hint': '검사 - 요소를 클릭하고 Esc로 종료',
   'browser.menu.button': '브라우저 메뉴',
   'browser.menu.copyScreenshot': '스크린샷 복사',
+  'browser.menu.stageToolbarOn': '페이지 내 에이전트 툴바 표시',
+  'browser.menu.stageToolbarOff': '페이지 내 에이전트 툴바 숨김',
   'browser.menu.copyUrl': '현재 URL 복사',
   'browser.menu.downloads': '다운로드',
   'browser.menu.duplicateTab': '탭 복제',

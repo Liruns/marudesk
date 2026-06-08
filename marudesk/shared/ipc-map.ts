@@ -157,6 +157,8 @@ export interface IpcMap {
   // Capture the active web view as a PNG data URL (for the session receipt's
   // running-app snapshot), or null when there's no web view / capture is empty.
   'browser:capture-page-data': { args: []; result: { dataUrl: string } | null };
+  // Floating in-page stage toolbar (§3.2): toggle on/off, returns the new state.
+  'browser:stage-toolbar': { args: [on: boolean]; result: boolean };
   // Download manager. The live list is also pushed on the browser:downloads
   // event whenever it changes; this invoke is the pull for an initial render.
   'browser:downloads-list': { args: []; result: DownloadEntry[] };

@@ -1151,6 +1151,8 @@ export const EN_MESSAGES = {
   'browser.inspect.hint': 'Inspect - click an element, Esc to exit',
   'browser.menu.button': 'Browser menu',
   'browser.menu.copyScreenshot': 'Copy screenshot',
+  'browser.menu.stageToolbarOn': 'Show in-page agent toolbar',
+  'browser.menu.stageToolbarOff': 'Hide in-page agent toolbar',
   'browser.menu.copyUrl': 'Copy current URL',
   'browser.menu.downloads': 'Downloads',
   'browser.menu.duplicateTab': 'Duplicate tab',

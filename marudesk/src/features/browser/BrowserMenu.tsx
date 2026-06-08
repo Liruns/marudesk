@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { History, MoreVertical } from 'lucide-react';
 import type { BrowserNativeMenuItem } from '../../../shared/browser';
 import type { HistoryEntry } from '../../../shared/history';
@@ -66,6 +67,7 @@ export function BrowserMenu() {
   const hasUrl = currentUrl.length > 0 || nav.url.length > 0;
   const url = currentUrl || nav.url;
   const zoomPct = Math.round(nav.zoomFactor * 100);
+  const [stageToolbar, setStageToolbar] = useState(false);
 
   const copyUrl = async (): Promise<void> => {
     if (!url) return;
@@ -120,6 +122,11 @@ export function BrowserMenu() {
     },
     { id: 'copy-url', label: t('browser.menu.copyUrl'), enabled: !!url },
     { id: 'copy-screenshot', label: t('browser.menu.copyScreenshot'), enabled: hasUrl },
+    {
+      id: 'stage-toolbar',
+      label: t(stageToolbar ? 'browser.menu.stageToolbarOff' : 'browser.menu.stageToolbarOn'),
+      enabled: hasUrl,
+    },
     ...(nav.audible || nav.audioMuted
       ? [
           {
@@ -179,6 +186,12 @@ export function BrowserMenu() {
         return;
       case 'copy-screenshot':
         void screenshot();
+        return;
+      case 'stage-toolbar':
+        void window.marudesk
+          .invoke('browser:stage-toolbar', !stageToolbar)
+          .then(setStageToolbar)
+          .catch(() => {});
         return;
       case 'toggle-audio':
         void window.marudesk.invoke('browser:set-audio-muted', !nav.audioMuted);

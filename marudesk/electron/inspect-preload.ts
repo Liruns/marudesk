@@ -7,4 +7,8 @@ contextBridge.exposeInMainWorld('__marudeskBridge', {
   exit() {
     ipcRenderer.send('inspect:exit');
   },
+  // Floating stage toolbar (§3.2): start the element picker from inside the page.
+  startInspect() {
+    ipcRenderer.send('inspect:start');
+  },
 });

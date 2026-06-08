@@ -17,6 +17,7 @@ import { loadWorkflow } from './store';
  */
 
 const STEP_DELAY_MS = 150;
+const RETRY_DELAY_MS = 400;
 const NAV_SETTLE_MS = 600;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -54,12 +55,20 @@ export async function runWorkflow(id: string): Promise<WorkflowRunResult> {
       results.push({ tool: step.tool, ok: false, detail: 'unknown tool' });
       continue;
     }
-    try {
-      const out = await exec(step.input, ctx);
-      results.push({ tool: step.tool, ok: !out.isError, detail: out.summary });
-    } catch (err) {
-      results.push({ tool: step.tool, ok: false, detail: (err as Error).message });
+    // Run the step; if it fails (e.g. the target element hasn't rendered yet),
+    // wait briefly and retry once — replay shouldn't be brittle to page timing.
+    let result: WorkflowStepResult | null = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const out = await exec(step.input, ctx);
+        result = { tool: step.tool, ok: !out.isError, detail: out.summary };
+      } catch (err) {
+        result = { tool: step.tool, ok: false, detail: (err as Error).message };
+      }
+      if (result.ok) break;
+      if (attempt === 0) await sleep(RETRY_DELAY_MS);
     }
+    results.push(result!);
     await sleep(STEP_DELAY_MS);
   }
   return { ok: true, results };
