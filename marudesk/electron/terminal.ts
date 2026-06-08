@@ -169,7 +169,7 @@ function whichShell(cmd: string): string | null {
  * shell instead of failing the whole terminal. The configured shell is still the
  * user's own choice — same trust model as VSCode's `terminal.integrated.shell`.
  */
-function resolveShell(override: string | undefined, settingsShell: string): string {
+export function resolveShell(override: string | undefined, settingsShell: string): string {
   const candidates: string[] = [];
   const add = (value: string | undefined | null): void => {
     if (value && value.trim() && !isShellSentinel(value)) candidates.push(value.trim());
@@ -221,7 +221,7 @@ function resolveCwd(root: string | null): string {
   return os.homedir();
 }
 
-function inheritedEnv(): Record<string, string> {
+export function inheritedEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v === 'string' && !SENSITIVE_ENV.test(k)) env[k] = v;

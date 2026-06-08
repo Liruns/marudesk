@@ -1,16 +1,29 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, GitBranch, GitMerge, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  GitBranch,
+  GitMerge,
+  Loader2,
+  Play,
+  Square,
+  Trash2,
+} from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
+import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
+import type { LaneDevState } from '../../../shared/lanes';
 import { isAgentWorktreeBranch, type WorktreeLane } from '../../../shared/worktree';
 
 /**
- * Worktree lanes board (docs/runtime-agent-absorption-2026-06.md §3.8) — lists
- * every git worktree of the active repo with its pending-change count, shown in
- * the Source Control panel beside the single-worktree isolation bar. Stale agent
- * lanes (marudesk/agent/*) can be discarded inline; the main tree and any
- * non-agent worktree are never removable here (the backend refuses them too).
- * Per-lane dev server / browser / PR / CI remain the larger follow-on.
+ * Worktree lanes board (docs/runtime-agent-absorption-2026-06.md §3.8 Mission
+ * Control) — lists every git worktree of the active repo with its pending-change
+ * count, shown beside the single-worktree isolation bar. Each lane can:
+ *   - run/stop its dev server (`settings.lanes.devCommand` in the lane's dir) and
+ *     open the detected localhost URL in a browser tab, and
+ *   - (agent lanes only) merge back into the base branch or be discarded.
+ * Per-lane PR/CI orchestration remains the larger follow-on.
  */
 function laneLabel(lane: WorktreeLane): string {
   if (lane.branch) return lane.branch;
@@ -21,7 +34,31 @@ function laneLabel(lane: WorktreeLane): string {
 export function WorktreeLanes() {
   const { t } = useI18n();
   const [lanes, setLanes] = useState<WorktreeLane[] | null>(null);
+  const [dev, setDev] = useState<Record<string, LaneDevState>>({});
   const [open, setOpen] = useState(false);
+
+  // Live per-lane dev-server state, keyed by worktree path.
+  useEffect(() => {
+    const apply = (states: LaneDevState[]) =>
+      setDev(Object.fromEntries(states.map((s) => [s.path, s])));
+    void window.marudesk.invoke('lanes-dev:list').then(apply).catch(() => {});
+    return window.marudesk.on('lanes:dev-state', apply);
+  }, []);
+
+  const startDev = async (lane: WorktreeLane) => {
+    const res = await window.marudesk.invoke('lanes-dev:start', { path: lane.path });
+    if (!res.ok) {
+      toast({
+        title:
+          res.reason === 'no-command'
+            ? t('git.worktrees.devNoCommand')
+            : t('git.worktrees.devFailed'),
+        variant: 'error',
+      });
+    }
+  };
+  const stopDev = (lane: WorktreeLane) => void window.marudesk.invoke('lanes-dev:stop', { path: lane.path });
+  const openDev = (lane: WorktreeLane) => void window.marudesk.invoke('lanes-dev:open', { path: lane.path });
 
   const refresh = useCallback(() => {
     void window.marudesk
@@ -90,6 +127,46 @@ export function WorktreeLanes() {
                   {lane.changes}
                 </span>
               ) : null}
+              {(() => {
+                const d = dev[lane.path];
+                const running = d && (d.status === 'running' || d.status === 'starting');
+                return (
+                  <>
+                    {running && d.url ? (
+                      <button
+                        type="button"
+                        onClick={() => openDev(lane)}
+                        title={t('git.worktrees.devOpen')}
+                        className="shrink-0 rounded p-0.5 text-accent hover:bg-accent-subtle"
+                      >
+                        <ExternalLink size={12} />
+                      </button>
+                    ) : null}
+                    {running ? (
+                      <button
+                        type="button"
+                        onClick={() => stopDev(lane)}
+                        title={t('git.worktrees.devStop')}
+                        className={cn(
+                          'shrink-0 rounded p-0.5',
+                          d.status === 'starting' ? 'text-fg-tertiary' : 'text-success hover:bg-error-subtle hover:text-error',
+                        )}
+                      >
+                        {d.status === 'starting' ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void startDev(lane)}
+                        title={t('git.worktrees.devStart')}
+                        className="shrink-0 rounded p-0.5 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-accent-subtle hover:text-accent group-hover:opacity-100 focus-visible:opacity-100"
+                      >
+                        <Play size={12} />
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
               {!lane.isMain && lane.branch && isAgentWorktreeBranch(lane.branch) ? (
                 <>
                   <button

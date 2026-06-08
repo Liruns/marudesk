@@ -29,6 +29,7 @@ import { registerCustomProviderHandlers } from './custom-providers';
 import { registerAgentHandlers } from './agent/handlers';
 import { registerWorkflowHandlers } from './workflows/handlers';
 import { registerSpecHandlers } from './specs/handlers';
+import { disposeAllLaneDevServers, registerLaneDevHandlers } from './lanes-dev';
 import { registerStorageHandlers } from './storage-handlers';
 import { registerAppInfoHandlers } from './app-info';
 import { registerAutoUpdater } from './updater';
@@ -291,6 +292,7 @@ void app.whenReady().then(() => {
   registerAgentHandlers();
   registerWorkflowHandlers();
   registerSpecHandlers();
+  registerLaneDevHandlers({ getMainWindow });
   registerStorageHandlers();
   registerAppInfoHandlers();
   // Windows in-app auto-update: registers its IPC handlers always and, on a
@@ -376,6 +378,7 @@ void app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   disposeAllTerminals();
+  disposeAllLaneDevServers();
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -383,6 +386,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   disposeAllTerminals();
+  disposeAllLaneDevServers();
   // Tear down every language server so no spawned LSP process lingers past exit.
   disposeAllLsp();
   // Stop the bridge server so its loopback port is released and no SSE

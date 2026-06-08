@@ -318,6 +318,11 @@ export const EN_MESSAGES = {
   'git.worktrees.mergeOk': 'Lane merged',
   'git.worktrees.mergeConflict': 'Merge conflict — the lane was kept for you to resolve',
   'git.worktrees.mergeFailed': 'Could not merge the lane',
+  'git.worktrees.devStart': 'Start this lane’s dev server',
+  'git.worktrees.devStop': 'Stop this lane’s dev server',
+  'git.worktrees.devOpen': 'Open this lane’s dev URL in a tab',
+  'git.worktrees.devNoCommand': 'Set a lane dev command in Agent settings first',
+  'git.worktrees.devFailed': 'Could not start the dev server',
   'git.worktree.runIsolated': 'Run isolated',
   'git.worktree.runIsolatedHint':
     'Run the agent in a dedicated git worktree on its own branch; review its changes here, then merge them back or discard.',
@@ -765,6 +770,9 @@ export const EN_MESSAGES = {
   'settings.agent.verifyCommand.label': 'Post-edit verify command',
   'settings.agent.contextCommand.hint':
     'Runs in the workspace at the start of every turn; its output is added to that turn’s context for the model (not shown in the chat). Leave blank to disable. Example: git status -sb.',
+  'settings.lanes.devCommand.label': 'Lane dev command',
+  'settings.lanes.devCommand.hint':
+    'Command the lanes board runs inside each worktree to start its dev server (e.g. npm run dev). Empty disables the per-lane dev control.',
   'settings.agent.contextCommand.label': 'Per-turn context command',
   'settings.about.hardened': 'Hardened',
   'settings.about.github.button': 'Open GitHub',

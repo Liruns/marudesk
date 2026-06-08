@@ -317,6 +317,11 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.worktrees.mergeOk': '레인 머지됨',
   'git.worktrees.mergeConflict': '머지 충돌 — 해결할 수 있도록 레인을 남겨두었습니다',
   'git.worktrees.mergeFailed': '레인을 머지할 수 없습니다',
+  'git.worktrees.devStart': '이 레인의 dev 서버 시작',
+  'git.worktrees.devStop': '이 레인의 dev 서버 중지',
+  'git.worktrees.devOpen': '이 레인의 dev URL을 탭으로 열기',
+  'git.worktrees.devNoCommand': '먼저 에이전트 설정에서 레인 dev 명령을 지정하세요',
+  'git.worktrees.devFailed': 'dev 서버를 시작할 수 없습니다',
   'git.worktree.runIsolated': '격리 실행',
   'git.worktree.runIsolatedHint':
     '에이전트를 전용 git worktree(별도 브랜치)에서 실행합니다. 변경 사항을 여기서 검토한 뒤 병합하거나 버립니다.',
@@ -761,6 +766,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.agent.verifyCommand.label': '수정 후 검증 명령',
   'settings.agent.contextCommand.hint':
     '매 턴 시작 시 워크스페이스에서 실행할 명령입니다. 출력이 그 턴의 모델 컨텍스트에 추가됩니다(채팅에는 표시되지 않음). 비워두면 비활성화됩니다. 예: git status -sb.',
+  'settings.lanes.devCommand.label': '레인 dev 명령',
+  'settings.lanes.devCommand.hint':
+    '레인 보드가 각 워크트리에서 dev 서버를 시작할 때 실행하는 명령 (예: npm run dev). 비우면 레인별 dev 제어가 비활성화됩니다.',
   'settings.agent.contextCommand.label': '턴별 컨텍스트 명령',
   'settings.about.hardened': '강화됨',
   'settings.about.github.button': 'GitHub 열기',

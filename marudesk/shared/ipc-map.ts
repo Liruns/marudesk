@@ -42,6 +42,7 @@ import type {
 import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
 import type { Spec, SpecInput } from './specs';
+import type { LaneDevState, LaneDevStartResult } from './lanes';
 import type {
   BrowserNativeMenuItem,
   TabKind,
@@ -452,6 +453,12 @@ export interface IpcMap {
   'specs:list': { args: []; result: Spec[] };
   'specs:save': { args: [input: SpecInput]; result: Spec };
   'specs:delete': { args: [payload: { id: string }]; result: boolean };
+
+  // per-lane dev server (§3.8 Mission Control)
+  'lanes-dev:list': { args: []; result: LaneDevState[] };
+  'lanes-dev:start': { args: [payload: { path: string }]; result: LaneDevStartResult };
+  'lanes-dev:stop': { args: [payload: { path: string }]; result: boolean };
+  'lanes-dev:open': { args: [payload: { path: string }]; result: boolean };
 
   // search (content search — electron/search.ts)
   'search:content': {

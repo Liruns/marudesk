@@ -85,6 +85,13 @@ export type AppSettings = {
     /** Address-bar search provider for non-URL input. */
     searchEngine: SearchEngine;
   };
+  lanes: {
+    /**
+     * Command started per worktree lane's directory by the lanes board's dev
+     * server control (§3.8 Mission Control), e.g. `npm run dev`. Empty = off.
+     */
+    devCommand: string;
+  };
   agent: {
     /** How much the AI agent may do without asking — see {@link AgentApprovalMode}. */
     approvalMode: AgentApprovalMode;
@@ -241,6 +248,7 @@ export type SettingsPatch = {
   terminal?: Partial<AppSettings['terminal']>;
   devtools?: Partial<AppSettings['devtools']>;
   browser?: Partial<AppSettings['browser']>;
+  lanes?: Partial<AppSettings['lanes']>;
   agent?: Partial<AppSettings['agent']>;
   pcControl?: Partial<AppSettings['pcControl']>;
   server?: Partial<AppSettings['server']>;
@@ -269,6 +277,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   browser: {
     searchEngine: 'google',
+  },
+  lanes: {
+    devCommand: '',
   },
   agent: {
     approvalMode: 'ask',
@@ -414,6 +425,7 @@ export function sanitizeSettings(
   const t = asRecord(root.terminal);
   const d = asRecord(root.devtools);
   const b = asRecord(root.browser);
+  const ln = asRecord(root.lanes);
   const ag = asRecord(root.agent);
   const pc = asRecord(root.pcControl);
   const sv = asRecord(root.server);
@@ -463,6 +475,9 @@ export function sanitizeSettings(
         SEARCH_ENGINES,
         base.browser.searchEngine,
       ),
+    },
+    lanes: {
+      devCommand: asString(ln.devCommand, base.lanes.devCommand),
     },
     agent: {
       approvalMode: asEnum(ag.approvalMode, APPROVAL_MODES, base.agent.approvalMode),
