@@ -23,7 +23,14 @@ import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
 import { Transcript } from './chat/Transcript';
-import { ApprovalCard, BackgroundTray, QuestionsCard, ReceiptCard, Taskboard } from './chat/Cards';
+import {
+  ApprovalCard,
+  BackgroundTray,
+  ErrorRecoveryCard,
+  QuestionsCard,
+  ReceiptCard,
+  Taskboard,
+} from './chat/Cards';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
 import { useComposer } from './useComposer';
 
@@ -187,11 +194,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
           ) : null}
 
-          {chat.error ? (
-            <div className="rounded border border-subtle bg-error-subtle/40 px-3 py-2 text-body-sm text-fg-secondary break-words">
-              {chat.error}
-            </div>
-          ) : null}
+          {chat.error ? <ErrorRecoveryCard error={chat.error} /> : null}
         </div>
        </div>
 
