@@ -9,6 +9,7 @@ import {
   type SshConnectionInfo,
   type SshConnectionInput,
 } from '../../shared/ssh';
+import { toMessage } from '../../shared/to-message';
 import {
   discoverLocalSshConfigConnections,
   type DiscoveredSshConfigConnection,
@@ -83,7 +84,7 @@ async function buildConnectConfig(
         privateKey = await fs.readFile(auth.privateKeyPath);
       } catch (err) {
         throw new Error(
-          `cannot read private key file: ${err instanceof Error ? err.message : String(err)}`,
+          `cannot read private key file: ${toMessage(err)}`,
           { cause: err },
         );
       }

@@ -13,6 +13,7 @@ import {
   type ToolSet,
 } from 'ai';
 import type { ProviderId } from '../../shared/providers';
+import { toMessage } from '../../shared/to-message';
 import { ANTHROPIC_OAUTH_HEADERS, OPENAI_CODEX_BASE_URL, codexHeaders } from '../oauth/config';
 import { chatgptAccountId } from '../oauth/jwt';
 import { codeAssistFetch } from '../oauth/google-code-assist';
@@ -119,7 +120,7 @@ export function humanizeModelError(
     }
     return `${who} request failed${status ? ` (${status})` : ''}: ${err.message}${snippet}`;
   }
-  return err instanceof Error ? err.message : String(err);
+  return toMessage(err);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import type { InvokeChannel, IpcMap } from '../../shared/ipc';
 import type { WorkspaceSummary } from '../../shared/workspace';
+import { toMessage } from '../../shared/to-message';
 
 /**
  * The single place IPC invoke handlers are registered. {@link defineHandler}:
@@ -43,7 +44,7 @@ export function defineHandler<C extends InvokeChannel>(
     try {
       return await handler(args, event);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toMessage(err);
       // fs-safe and other low-level invariants already namespace with
       // `marudesk:`; only add the channel prefix when the message is bare.
       throw new Error(msg.startsWith('marudesk:') ? msg : `${channel}: ${msg}`, {

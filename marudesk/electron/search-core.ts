@@ -10,7 +10,8 @@ import type {
  * without booting Electron.
  */
 
-export function escapeRegExp(s: string): string {
+/** Escape a string for literal use inside a RegExp (internal helper). */
+function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 

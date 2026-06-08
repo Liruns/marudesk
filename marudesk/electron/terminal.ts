@@ -10,6 +10,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getSettings } from './settings';
 import { defineHandler } from './ipc/define-handler';
+import { toMessage } from '../shared/to-message';
 import type {
   TerminalCreateOptions,
   TerminalCreated,
@@ -259,7 +260,7 @@ export function registerTerminalHandlers(deps: {
     } catch (err) {
       // Surface a shell-specific message (the resolved path + the cause) instead
       // of node-pty's bare `File not found:` — the renderer shows this verbatim.
-      const cause = err instanceof Error ? err.message : String(err);
+      const cause = toMessage(err);
       throw new Error(`could not start shell "${shell}" (cwd: ${cwd}): ${cause}`, {
         cause: err,
       });

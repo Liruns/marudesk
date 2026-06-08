@@ -8,6 +8,7 @@ import { getValidAccessToken } from '../oauth/flow';
 import { supportsOAuth } from '../oauth/config';
 import { getProviderApiKey } from '../secrets';
 import type { ModelAuth } from './model';
+import { toMessage } from '../../shared/to-message';
 
 export type ResolvedProviderAuth =
   | { ok: true; auth: ModelAuth; baseUrl?: string }
@@ -20,7 +21,7 @@ export async function resolveProviderAuth(
   try {
     apiKey = await getProviderApiKey(provider);
   } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    return { ok: false, reason: toMessage(err) };
   }
   if (isBuiltinProviderId(provider)) {
     let auth: ModelAuth | null = null;
@@ -29,7 +30,7 @@ export async function resolveProviderAuth(
       try {
         accessToken = await getValidAccessToken(provider);
       } catch (err) {
-        if (!apiKey) return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+        if (!apiKey) return { ok: false, reason: toMessage(err) };
       }
       if (accessToken) auth = { mode: 'oauth', accessToken };
     }
