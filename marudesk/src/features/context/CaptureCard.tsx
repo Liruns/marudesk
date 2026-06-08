@@ -9,6 +9,7 @@ import { useWebPageStore } from '../browser/store';
 import { useAgentStore, useAgentBusy, openAgentTab } from '../agent/store';
 import { toPayload } from '../composer/store';
 import { useWorkspaceStore } from '../workspace/store';
+import { useEditorStore } from '../editor/store';
 import { formatEvidencePack } from '../../../shared/evidence-pack';
 import type {
   Capture,
@@ -171,6 +172,7 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   const pending = useWorkspaceStore((s) => s.rankingPending[capture.id]);
   const error = useWorkspaceStore((s) => s.rankingError[capture.id]);
   const rankCapture = useWorkspaceStore((s) => s.rankCapture);
+  const openFile = useEditorStore((s) => s.openFile);
   const submitPrompt = useAgentStore((s) => s.submitPrompt);
   const busy = useAgentBusy();
   const [expanded, setExpanded] = useState(false);
@@ -274,21 +276,22 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
               {t('context.capture.noMatches')}
             </div>
           ) : (
-            <ul className="flex flex-col gap-1">
+            <ul className="flex flex-col gap-0.5">
               {ranking.slice(0, 5).map((f) => (
-                <li
-                  key={f.path}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <span
-                    className="font-mono text-caption text-fg-secondary truncate"
+                <li key={f.path}>
+                  <button
+                    type="button"
+                    onClick={() => void openFile(f.path)}
                     title={f.path}
+                    className="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left transition-colors duration-fast hover:bg-surface-3/60"
                   >
-                    {f.path}
-                  </span>
-                  <span className="text-caption text-fg-tertiary tabular-nums shrink-0">
-                    {f.score}
-                  </span>
+                    <span className="font-mono text-caption text-fg-secondary truncate">
+                      {f.path}
+                    </span>
+                    <span className="text-caption text-fg-tertiary tabular-nums shrink-0">
+                      {f.score}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
