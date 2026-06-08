@@ -48,9 +48,14 @@ export function Tour() {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
 
-  useEffect(() => {
+  // Reset to the first step each time the tour opens. Done during render (the
+  // store-the-previous-prop pattern) rather than in an effect, so there's no
+  // cascading-render round-trip — see react.dev "You Might Not Need an Effect".
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) setIndex(0);
-  }, [open]);
+  }
 
   const step = open ? TOUR_STEPS[index] : undefined;
 

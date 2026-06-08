@@ -38,6 +38,9 @@ export async function launchApp(opts?: {
     args: [
       path.join(MARUDESK_ROOT, 'dist-electron', 'main.mjs'),
       `--user-data-dir=${userDataDir}`,
+      // Chromium's sandbox can't initialize as uid 0 (CI/root containers); it's a
+      // no-op on a normal dev login where the sandbox works.
+      ...(typeof process.getuid === 'function' && process.getuid() === 0 ? ['--no-sandbox'] : []),
     ],
     cwd: MARUDESK_ROOT,
   });

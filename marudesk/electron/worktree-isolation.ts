@@ -134,7 +134,7 @@ export async function configureWorktreeIsolation(opts: {
   stateFile = opts.stateFile;
   worktreesDir = opts.worktreesDir;
   if (opts.getActiveThreadId) getActiveThreadId = opts.getActiveThreadId;
-  let raw: unknown = null;
+  let raw: unknown;
   try {
     raw = JSON.parse(await fs.readFile(opts.stateFile, 'utf8'));
   } catch {
