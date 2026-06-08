@@ -6,8 +6,10 @@ name: Release
 # target platform/arch and publishes the artifacts to a GitHub release that
 # matches the package.json version (electron-builder creates it as a draft).
 #
-# A manual run (workflow_dispatch) builds the same matrix but does NOT publish,
-# so you can smoke-test packaging without cutting a release.
+# A manual run (workflow_dispatch) builds the same matrix. By default it does NOT
+# publish (smoke-test packaging); set the `publish` input to true to have
+# electron-builder create the draft GitHub release (tagged v<version>) and upload
+# the installers — useful when a git tag push is not available.
 #
 # Targets: macOS dmg (arm64 + x64), Windows NSIS (x64), Linux AppImage + deb
 # (x64). In-app auto-update stays Windows-only for now (see electron/updater.ts);
@@ -19,6 +21,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish installers to a draft GitHub release (v<version>)'
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -70,9 +77,9 @@ jobs:
         run: npm run build
 
       - name: Package and publish
-        # Publish only when the workflow was triggered by a version tag; a manual
-        # dispatch builds the matrix without touching a release.
-        run: npx electron-builder ${{ matrix.args }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        # Publish on a version-tag push, or on a manual dispatch with publish=true;
+        # otherwise build the matrix without touching a release.
+        run: npx electron-builder ${{ matrix.args }} --publish ${{ (startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # electron-builder reads GH_TOKEN for GitHub publishing.
