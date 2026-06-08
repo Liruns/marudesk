@@ -1,6 +1,7 @@
 import type { SshAuth, SshConnectionInput, SshDirEntry } from '../../shared/ssh';
 import { defineHandler } from '../ipc/define-handler';
 import { enumOf, nonEmptyStr, num, obj, optStr, str } from '../ipc/validate';
+import { toMessage } from '../../shared/to-message';
 import {
   addConnection,
   ensureSftp,
@@ -52,7 +53,7 @@ export function registerSshHandlers(): void {
       const { homeDir } = await probeConnection(toSshInput(input));
       return { ok: true as const, homeDir };
     } catch (err) {
-      return { ok: false as const, reason: err instanceof Error ? err.message : String(err) };
+      return { ok: false as const, reason: toMessage(err) };
     }
   });
 
@@ -83,7 +84,7 @@ export function registerSshHandlers(): void {
       });
       return { ok: true as const, path: abs, entries: mapped };
     } catch (err) {
-      return { ok: false as const, reason: err instanceof Error ? err.message : String(err) };
+      return { ok: false as const, reason: toMessage(err) };
     }
   });
 }

@@ -1,4 +1,5 @@
 import { scrubText } from '../../shared/scrub';
+import { toMessage } from '../../shared/to-message';
 import type { BackgroundTask } from '../../shared/agent';
 import { S, uid, containers, emitContainer } from './loop-state';
 import { parseSubagentRequest, recordSubagentInput, SubagentInputError } from './subagent-request';
@@ -275,6 +276,6 @@ function readId(input: unknown): string {
 }
 
 function errorResult(err: unknown): ToolResult {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = toMessage(err);
   return { summary: 'background agent failed', text: message, isError: true };
 }

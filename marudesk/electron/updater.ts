@@ -3,6 +3,7 @@ import { app, type BrowserWindow } from 'electron';
 import type { AppUpdater, ProgressInfo, UpdateInfo } from 'electron-updater';
 import type { UpdateStatus } from '../shared/app-info';
 import { defineHandler } from './ipc/define-handler';
+import { toMessage } from '../shared/to-message';
 
 /**
  * Windows in-app auto-update (decision: electron-updater, Windows only, check on
@@ -35,10 +36,6 @@ function setStatus(next: UpdateStatus): void {
   getWindow()?.webContents.send('app:update-status-changed', next);
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 function wireEvents(autoUpdater: AppUpdater): void {
   autoUpdater.on('checking-for-update', () => setStatus({ kind: 'checking' }));
   autoUpdater.on('update-available', (info: UpdateInfo) => {
@@ -61,7 +58,7 @@ function wireEvents(autoUpdater: AppUpdater): void {
     setStatus({ kind: 'downloaded', version: info.version });
   });
   autoUpdater.on('error', (err: Error) =>
-    setStatus({ kind: 'error', message: errorMessage(err) }),
+    setStatus({ kind: 'error', message: toMessage(err) }),
   );
 }
 
@@ -101,6 +98,6 @@ export function registerAutoUpdater(
   // Fire-and-forget: a missing feed / network failure surfaces via the `error`
   // event (and the catch below) and never blocks or crashes startup.
   autoUpdater.checkForUpdates().catch((err: unknown) => {
-    setStatus({ kind: 'error', message: errorMessage(err) });
+    setStatus({ kind: 'error', message: toMessage(err) });
   });
 }

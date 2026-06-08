@@ -1,5 +1,6 @@
 import type { StoreApi } from 'zustand';
 import { toast } from '../../lib/toast';
+import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
 import { cdpSend, cdpTry } from './cdp';
 import { consoleEntryToErrorCapture } from './capture';
@@ -108,7 +109,7 @@ export function createConsoleSlice(set: SetState, get: GetState): ConsoleActions
         get()._pushConsole({
           kind: 'error',
           args: [],
-          text: err instanceof Error ? err.message : String(err),
+          text: toMessage(err),
         });
       }
     },

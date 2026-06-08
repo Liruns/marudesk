@@ -1,8 +1,7 @@
 /**
- * Coerce an unknown thrown value into a display string. Safe for non-Error
- * throws (where `(err as Error).message` would be `undefined`). Use this for any
- * `catch (err)` whose message is surfaced to the user or a store error field.
+ * Renderer-facing re-export of the shared {@link toMessage} helper. The canonical
+ * implementation lives in `shared/to-message.ts` so the main process and renderer
+ * agree on how thrown values become display strings; this keeps the existing
+ * `@/lib/toMessage` import path stable for renderer call sites.
  */
-export function toMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
+export { toMessage } from '../../shared/to-message';

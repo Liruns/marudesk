@@ -7,6 +7,7 @@ import {
 import { defineHandler } from '../ipc/define-handler';
 import { parseNativeMenuItem, parseTabSpec, toBounds } from './handler-parse.ts';
 import { arrayOf, bool, num, obj, str } from '../ipc/validate';
+import { toMessage } from '../../shared/to-message';
 import {
   findTabByWebContentsId,
   getActive,
@@ -276,7 +277,7 @@ export function registerBrowserHandlers(deps: {
     } catch (err) {
       return {
         ok: false as const,
-        error: err instanceof Error ? err.message : String(err),
+        error: toMessage(err),
       };
     }
   });
