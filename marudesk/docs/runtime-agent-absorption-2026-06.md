@@ -513,20 +513,23 @@ browser differentiator and reuses shipped assets.
   `--force`/`reset --hard` — so nothing is destroyed. Verified on a real repo in
   the worktree harness.
 
-> **Every roadmap item across §3.1–§3.12 is now shipped**, plus the first follow-on
-> increments: per-lane **merge + discard** on the §3.8 lanes board (practical
-> agent-lane management — `git:worktree-merge-lane` reusing mergeWorktree), and a
-> spec **status lifecycle** (draft → active → review → done) on §3.10. What still
-> remains are genuinely larger *subsystems*, not roadmap items: per-lane dev-server
-> / browser / PR / CI orchestration on top of the lanes board.
+> **Every roadmap item across §3.1–§3.12 is shipped, and the §3.8 Mission Control
+> subsystem is now substantially built too:** the lanes board does per-lane
+> **merge + discard** (`git:worktree-merge-lane` / `git:worktree-remove`) and runs
+> a per-lane **dev server** — `settings.lanes.devCommand` spawned (node-pty) in the
+> lane's directory, with live status, scraped localhost URL, stop, and open-in-tab
+> (`lanes-dev:*`, pushed on `lanes:dev-state`). Specs gained a draft → active →
+> review → done **status lifecycle**. What remains is per-lane **PR/CI**
+> orchestration, which needs in-app GitHub integration (out of the app's current
+> scope — no `gh`).
 >
-> **Verified:** full Playwright e2e **124/124** (timeline + filter + edit
-> provenance, receipt snapshot, worktree lanes + merge + discard, icon stroke,
-> agent tool catalog, spec CRUD + status, Supervisor/Specs drawer tabs,
-> stage-toolbar toggle, and the full workflow save→replay→DOM-effect loop),
-> renderer + main unit tests **59** (timeline/edit/workflow row-builders,
-> tool-group toggles, stage-toolbar script), and the git-worktree harness **41
-> assertions** (incl. the checkpoint "nothing is lost" guarantee).
+> **Verified:** full Playwright e2e **125/125** (timeline + filter + edit
+> provenance, receipt snapshot, worktree lanes + merge + discard, **per-lane dev
+> server start/url/stop**, icon stroke, agent tool catalog, spec CRUD + status,
+> Supervisor/Specs drawer tabs, stage-toolbar toggle, and the full workflow
+> save→replay→DOM-effect loop), renderer + main unit tests **59**, and the
+> git-worktree harness **41 assertions** (incl. the checkpoint "nothing is lost"
+> guarantee).
 
 ---
 
