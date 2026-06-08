@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireWorkspace } from '../ipc/define-handler';
 import { isSpecStatus, type Spec, type SpecInput, type SpecTask } from '../../shared/specs';
+import { randomId } from '../../shared/id';
 
 /**
  * Per-workspace storage for specs (§3.10) under `.marudesk/specs/*.json`,
@@ -79,7 +80,7 @@ export async function saveSpec(input: SpecInput): Promise<Spec> {
   const dir = dirFor(root);
   await fs.mkdir(dir, { recursive: true });
   const now = Date.now();
-  const id = input.id && ID_RE.test(input.id) ? input.id : `spec-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = input.id && ID_RE.test(input.id) ? input.id : randomId('spec');
   // Preserve createdAt on update.
   let createdAt = now;
   if (input.id) {

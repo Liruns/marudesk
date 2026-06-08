@@ -6,6 +6,7 @@ import {
   type Workflow,
   type WorkflowStep,
 } from '../../shared/workflows';
+import { randomId } from '../../shared/id';
 
 /**
  * Per-workspace storage for cached browser workflows (§3.10) under
@@ -81,7 +82,7 @@ export async function saveWorkflow(input: {
   const root = requireWorkspace().root;
   const dir = dirFor(root);
   await fs.mkdir(dir, { recursive: true });
-  const id = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = randomId('wf');
   const wf: Workflow = {
     id,
     name: input.name.trim().slice(0, 80) || 'Untitled workflow',
