@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Brain, ChevronDown, ChevronRight, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { Brain, ChevronDown, ChevronRight, RefreshCw, Save, Search, Trash2 } from 'lucide-react';
 import type { MemoryEntry } from '../../../shared/context';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
@@ -16,32 +16,44 @@ import { Section } from './SettingsControls';
 export function MemorySettings() {
   const { t } = useI18n();
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
+  const [query, setQuery] = useState('');
   const [openName, setOpenName] = useState<string | null>(null);
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Query-aware load (v6 §W3): full-text search across note bodies when a query is
+  // present, otherwise the full recency-ordered list.
   const refresh = useCallback(async () => {
     try {
-      setEntries(await window.marudesk.invoke('memory:list'));
+      const q = query.trim();
+      setEntries(
+        q
+          ? await window.marudesk.invoke('memory:search', { query: q })
+          : await window.marudesk.invoke('memory:list'),
+      );
     } catch {
       setEntries([]);
     }
-  }, []);
+  }, [query]);
 
+  // Re-runs on mount and whenever the query changes (refresh closes over query).
   useEffect(() => {
     let alive = true;
-    void window.marudesk.invoke('memory:list').then(
-      (e) => {
+    void (async () => {
+      const q = query.trim();
+      try {
+        const e = q
+          ? await window.marudesk.invoke('memory:search', { query: q })
+          : await window.marudesk.invoke('memory:list');
         if (alive) setEntries(e);
-      },
-      () => {
+      } catch {
         if (alive) setEntries([]);
-      },
-    );
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [query]);
 
   const open = useCallback(async (name: string) => {
     if (openName === name) {
@@ -63,7 +75,11 @@ export function MemorySettings() {
     try {
       const res = await window.marudesk.invoke('memory:write', { name, body });
       if (res.ok) {
-        toast({ title: t('settings.memory.saved'), variant: 'success' });
+        toast({
+          title: t('settings.memory.saved'),
+          description: res.evicted && res.evicted.length > 0 ? t('settings.memory.evicted') : undefined,
+          variant: 'success',
+        });
         await refresh();
       } else {
         toast({ title: t('settings.memory.saveFailed'), description: res.reason, variant: 'error' });
@@ -103,8 +119,23 @@ export function MemorySettings() {
         </button>
       </div>
 
+      <div className="relative">
+        <Search
+          size={14}
+          className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-fg-tertiary"
+        />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('settings.memory.searchPlaceholder')}
+          className="h-8 w-full rounded-md bg-surface-2 pl-8 pr-3 text-body-sm text-fg-primary outline-none focus:ring-1 focus:ring-accent"
+        />
+      </div>
+
       {entries.length === 0 ? (
-        <p className="text-body-sm text-fg-tertiary">{t('settings.memory.empty')}</p>
+        <p className="text-body-sm text-fg-tertiary">
+          {query.trim() ? t('settings.memory.noMatches') : t('settings.memory.empty')}
+        </p>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {entries.map((entry) => {

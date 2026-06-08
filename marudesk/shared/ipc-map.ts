@@ -519,10 +519,11 @@ export interface IpcMap {
   // the agent has remembered, edit a note's body, or delete one. Backed by the
   // same memory-store the agent's list/read/write_memory tools use.
   'memory:list': { args: []; result: MemoryEntry[] };
+  'memory:search': { args: [payload: { query: string }]; result: MemoryEntry[] };
   'memory:read': { args: [payload: { name: string }]; result: MemoryEntryFull | null };
   'memory:write': {
     args: [payload: { name: string; body: string }];
-    result: { ok: boolean; name: string; reason?: string };
+    result: { ok: boolean; name: string; reason?: string; evicted?: string[] };
   };
   'memory:delete': { args: [payload: { name: string }]; result: boolean };
 

@@ -155,7 +155,7 @@ export const CHANNELS = {
   storage: ['storage:stats', 'storage:clear-sessions', 'storage:reveal'],
   // Memory controls — Settings → Data lets the user view/edit/delete the agent's
   // remembered notes (v5 §G5).
-  memory: ['memory:list', 'memory:read', 'memory:write', 'memory:delete'],
+  memory: ['memory:list', 'memory:search', 'memory:read', 'memory:write', 'memory:delete'],
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],

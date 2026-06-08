@@ -2,7 +2,13 @@ import { app, shell } from 'electron';
 import { defineHandler } from './ipc/define-handler';
 import { nonEmptyStr, obj } from './ipc/validate';
 import { clearAllSessions, sessionStats } from './agent/sessions-store';
-import { deleteMemory, listMemory, readMemory, writeMemory } from './agent/memory-store';
+import {
+  deleteMemory,
+  listMemory,
+  readMemory,
+  searchMemory,
+  writeMemory,
+} from './agent/memory-store';
 
 /**
  * IPC for the Settings → Data & Storage panel (docs/data-storage-design): report
@@ -25,6 +31,11 @@ export function registerStorageHandlers(): void {
   });
 
   defineHandler('memory:list', () => listMemory());
+
+  defineHandler('memory:search', ([payload]) => {
+    const p = obj(payload);
+    return searchMemory(typeof p.query === 'string' ? p.query : '');
+  });
 
   defineHandler('memory:read', ([payload]) =>
     readMemory(nonEmptyStr(obj(payload).name, 'name')),
