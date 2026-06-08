@@ -1,6 +1,7 @@
 import type { ModelMessage } from 'ai';
 import { coalesced } from '../coalesce';
 import { getHost } from '../browser/state';
+import { getSettingsSync } from '../settings';
 import {
   emptyAgentChatState,
   type AgentAnswers,
@@ -82,6 +83,10 @@ export function subscribeAgentEvents(cb: (state: AgentChatState) => void): () =>
 }
 
 export const emit = coalesced(() => {
+  // Stamp the live approval mode (a setting, not loop state) into the projection
+  // so thin clients reflect it (U10). Cheap in-memory read; the desktop ignores
+  // this field and reads its settings store directly.
+  S.state.approvalMode = getSettingsSync().agent.approvalMode;
   const host = getHost();
   if (host && !host.isDestroyed()) host.webContents.send('agent:event', S.state);
   for (const cb of subscribers) {

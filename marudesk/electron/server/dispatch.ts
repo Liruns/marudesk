@@ -1,11 +1,20 @@
 import type {
   AgentAnswers,
   AgentChatState,
+  AgentPlanStepStatus,
   AgentSendInput,
   AgentSendResult,
 } from '../../shared/agent';
+import type { AgentApprovalMode } from '../../shared/settings';
 import type { RelayCommandName } from '../../shared/remote';
-import { parseAbort, parseApprove, parseRespond, parseSendInput } from '../agent/parse';
+import {
+  parseAbort,
+  parseApprove,
+  parseEditPlanStep,
+  parseRespond,
+  parseSendInput,
+  parseSetApprovalMode,
+} from '../agent/parse';
 
 /**
  * The ONE place an untrusted agent command (from either transport) is validated
@@ -29,6 +38,10 @@ export type AgentApi = {
   approveTool(turnId: string, callId: string, approved: boolean): boolean;
   snapshot(): AgentChatState;
   reset(): boolean;
+  /** U5 mobile parity: cycle a plan step's status or remove it. */
+  editPlanStep(id: string, op: { status?: AgentPlanStepStatus; remove?: boolean }): boolean;
+  /** U10 mobile parity: set + persist the approval mode (applies next turn). */
+  setApprovalMode(mode: AgentApprovalMode): boolean;
 };
 
 /**
@@ -110,6 +123,14 @@ export async function dispatchAgentCommand(
         return { ok: true, result: { ok: agent.reset() } };
       case 'snapshot':
         return { ok: true, result: agent.snapshot() };
+      case 'edit-plan-step': {
+        const { id, status, remove } = parseEditPlanStep(args);
+        return { ok: true, result: { ok: agent.editPlanStep(id, { status, remove }) } };
+      }
+      case 'set-approval-mode': {
+        const { mode } = parseSetApprovalMode(args);
+        return { ok: true, result: { ok: agent.setApprovalMode(mode) } };
+      }
       default: {
         // Exhaustiveness guard: a new RelayCommandName must be handled here.
         const _never: never = cmd;

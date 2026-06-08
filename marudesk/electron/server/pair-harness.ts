@@ -116,6 +116,8 @@ function buildDeps(approve: { mode: 'approve' | 'reject' | 'auto' }): {
       },
       snapshot: () => state,
       reset: () => true,
+      editPlanStep: () => true,
+      setApprovalMode: () => true,
     },
     subscribe: (cb) => {
       subs.add(cb);

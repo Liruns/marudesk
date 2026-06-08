@@ -248,6 +248,8 @@ const REST_COMMANDS: Record<string, RelayCommandName> = {
   '/agent/respond': 'respond',
   '/agent/approve': 'approve',
   '/agent/reset': 'reset',
+  '/agent/edit-plan-step': 'edit-plan-step',
+  '/agent/set-approval-mode': 'set-approval-mode',
 };
 
 /**

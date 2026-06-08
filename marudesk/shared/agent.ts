@@ -1,5 +1,6 @@
 import type { CapturePayload } from './composer';
 import type { ProviderId } from './providers';
+import type { AgentApprovalMode } from './settings';
 
 /**
  * The agentic AI Chat contract (docs/agentic-chat-design.md). main owns the
@@ -244,6 +245,13 @@ export type AgentChatState = {
    * conversation has no active plan. A projection, not user-editable.
    */
   plan: AgentPlan | null;
+  /**
+   * The current approval mode (a setting, not loop-owned) projected into the
+   * state at the emit boundary so thin clients can reflect AND steer it (U10
+   * mobile parity). The desktop renderer reads the setting store directly and
+   * ignores this; the phone has no settings store, so it relies on this mirror.
+   */
+  approvalMode: AgentApprovalMode;
 };
 
 /** A step's lifecycle in the agent's task plan (Taskboard). */
@@ -308,6 +316,7 @@ export function emptyAgentChatState(): AgentChatState {
     endNote: null,
     background: [],
     plan: null,
+    approvalMode: 'ask',
   };
 }
 

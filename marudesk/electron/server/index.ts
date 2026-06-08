@@ -7,8 +7,10 @@ import type { PairingRequestInfo, PairingStartInfo, ServerStatus } from '../../s
 import {
   abortTurn,
   approveTool,
+  editPlanStep,
   reset,
   respond,
+  setApprovalMode,
   snapshot,
   startTurn,
   subscribeAgentEvents,
@@ -136,7 +138,7 @@ export async function startServer(port: number): Promise<void> {
   const deps: RouterDeps = {
     token,
     version: app.getVersion(),
-    agent: { startTurn, abortTurn, respond, approveTool, snapshot, reset },
+    agent: { startTurn, abortTurn, respond, approveTool, snapshot, reset, editPlanStep, setApprovalMode },
     subscribe: subscribeAgentEvents,
     // T2: the per-device E2E auth path + the /pair endpoint (paired phones over
     // LAN/Tailscale). The bearer path stays for the loopback companion.

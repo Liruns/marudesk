@@ -6,10 +6,12 @@ import type {
   AgentEditActionResult,
 } from '../../shared/agent';
 import type { WorkspaceSummary } from '../../shared/workspace';
+import type { AgentApprovalMode } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { readFileSafe, writeFileForEditor } from '../workspace';
 import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
+import { patchSettings } from '../settings';
 import { S, emit } from './loop-state.ts';
 
 /**
@@ -113,4 +115,20 @@ async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void
 
 export function snapshot(): AgentChatState {
   return S.state;
+}
+
+const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
+
+/**
+ * Set the agent approval mode and persist it (U10 mobile parity). Mirrors the
+ * desktop composer toggle, which patches `agent.approvalMode` in settings; the
+ * loop reads `getSettingsSync().agent.approvalMode` at the start of each turn, so
+ * a change applies to the NEXT turn (not a mid-turn one). Exposed on the bridge
+ * AgentApi so a paired phone can flip it remotely; an unknown mode is a no-op
+ * `false`. The patch is serialized through the same writer as the IPC path.
+ */
+export function setApprovalMode(mode: AgentApprovalMode): boolean {
+  if (!APPROVAL_MODES.includes(mode)) return false;
+  void patchSettings({ agent: { approvalMode: mode } });
+  return true;
 }

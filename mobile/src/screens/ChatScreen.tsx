@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { MessageBubble } from '../components/MessageBubble';
 import { ApprovalPrompt } from '../components/ApprovalPrompt';
+import { ApprovalModeToggle } from '../components/ApprovalModeToggle';
 import { PlanBoard } from '../components/PlanBoard';
 import { QuestionPrompt } from '../components/QuestionPrompt';
 import { Composer } from '../components/Composer';
@@ -90,6 +91,12 @@ export function ChatScreen() {
       )}
       {chat.pendingQuestions && (
         <QuestionPrompt pending={chat.pendingQuestions} busy={actionBusy} onSubmit={(a) => void withBusy(() => respond(a))()} />
+      )}
+
+      {connected && (
+        <div style={{ padding: '4px 12px 0', display: 'flex', justifyContent: 'flex-end' }}>
+          <ApprovalModeToggle disabled={actionBusy} />
+        </div>
       )}
 
       <Composer

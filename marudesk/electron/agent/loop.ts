@@ -70,7 +70,9 @@ export {
   acceptEdit,
   revertEdit,
   snapshot,
+  setApprovalMode,
 } from './loop-turn-actions.ts';
+export { editPlanStep } from './plan.ts';
 import {
   buildUserText,
   toolResult,
