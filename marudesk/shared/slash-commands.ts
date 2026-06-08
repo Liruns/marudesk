@@ -63,18 +63,25 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     kind: 'prompt',
     name: 'review',
     aliases: ['r'],
-    description: 'Review the current changes for bugs and risks',
+    description: 'Parallel multi-perspective review of the current changes (P0–P3)',
     argHint: 'optional focus',
     expand: (arg) =>
-      'Act as a careful senior reviewer of the uncommitted changes in this ' +
-      'workspace. Start from the actual diff (git diff plus any untracked files), ' +
-      'and read enough surrounding code to judge each change in context. Look for ' +
-      'correctness bugs, broken edge cases, race conditions, error/' +
-      'null handling gaps, security and data-loss risks, and anything that ' +
-      'contradicts the project conventions. Report concrete findings grouped by ' +
-      'severity (Critical / Major / Minor / Nit), each with the file:line and a ' +
-      'specific fix; call out what looks correct too. If nothing is wrong, say so ' +
-      'plainly. This is review only — do not edit files.' +
+      'Review the uncommitted changes in this workspace as a panel of reviewers. ' +
+      'First establish the scope yourself: get the actual diff (git diff plus any ' +
+      'untracked files) and the list of changed files. Then use spawn_subagent to ' +
+      'run reviewers IN PARALLEL — one per lens, each reading enough surrounding ' +
+      'code to judge in context — covering: (1) correctness & edge cases (logic ' +
+      'bugs, null/error handling, race conditions), (2) security & data-loss risk, ' +
+      '(3) performance & resource use, (4) tests & missing coverage, (5) ' +
+      'conventions, readability & dead code. Give each subagent the changed-file ' +
+      'list and its lens, and have it return findings as structured items. ' +
+      '(If subagents are unavailable, do the passes yourself.)\n\n' +
+      'Then merge and DEDUPE the findings into one report, each item with: a ' +
+      'severity — P0 (blocker / must fix before merge), P1 (major), P2 (minor), ' +
+      'P3 (nit) — the file:line, a confidence (high/med/low), and a concrete fix. ' +
+      'Order P0 first. End with a one-line ship verdict (ship / fix-first / ' +
+      'needs-discussion). Call out what is solid too, and if nothing is wrong say ' +
+      'so plainly. This is review only — do not edit files.' +
       (arg ? ` Pay special attention to: ${arg}.` : ''),
   },
   {
