@@ -40,4 +40,53 @@ export const ipcMain = { handle: noop, on: noop };
 
 export const clipboard = { writeText: noop, readText: () => '' };
 
-export default { app, safeStorage, shell, dialog, ipcMain, clipboard };
+// Browser-layer value-imports reached transitively by the worktree/thread
+// harnesses (context-menu.ts → `Menu`, favicon.ts → `net`, etc.). The harness
+// never drives the UI/network; these just have to resolve so the modules load.
+export const Menu = {
+  buildFromTemplate: () => ({ popup: noop, closePopup: noop }),
+  setApplicationMenu: noop,
+};
+
+export const net = { request: () => ({ on: noop, end: noop, abort: noop }) };
+
+export const protocol = { handle: noop, registerSchemesAsPrivileged: noop };
+
+export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) };
+
+export const session = { defaultSession: { webRequest: { onBeforeRequest: noop } } };
+
+export const contextBridge = { exposeInMainWorld: noop };
+
+export const ipcRenderer = { invoke: async () => undefined, on: noop, send: noop };
+
+export const utilityProcess = { fork: () => ({ on: noop, postMessage: noop, kill: noop }) };
+
+class StubBrowserWindow {}
+export const BrowserWindow = StubBrowserWindow;
+
+class StubWebContentsView {}
+export const WebContentsView = StubWebContentsView;
+
+class StubWebContents {}
+export const WebContents = StubWebContents;
+
+export default {
+  app,
+  safeStorage,
+  shell,
+  dialog,
+  ipcMain,
+  clipboard,
+  Menu,
+  net,
+  protocol,
+  screen,
+  session,
+  contextBridge,
+  ipcRenderer,
+  utilityProcess,
+  BrowserWindow,
+  WebContentsView,
+  WebContents,
+};
