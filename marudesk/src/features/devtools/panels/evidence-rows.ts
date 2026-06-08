@@ -1,4 +1,4 @@
-import type { AgentMessage, ToolCall } from '../../../../shared/agent';
+import type { AgentEdit, AgentMessage, ToolCall } from '../../../../shared/agent';
 import { isWorkflowStepTool, type WorkflowStep } from '../../../../shared/workflows';
 import type { ConsoleEntry, NetworkEntry } from '../types';
 
@@ -23,7 +23,7 @@ const PAGE_ACTION_TOOLS = new Set([
   'reload_and_verify',
 ]);
 
-export type RowSource = 'console' | 'network' | 'agent';
+export type RowSource = 'console' | 'network' | 'agent' | 'edit';
 
 export type Row = {
   id: string;
@@ -136,6 +136,25 @@ export function buildWorkflowSteps(messages: readonly AgentMessage[]): WorkflowS
     }
   }
   return steps;
+}
+
+/**
+ * Edit-provenance rows (§3.9): the agent's file edits placed on the same
+ * wall-clock axis as the runtime evidence, so an edit sits next to the console
+ * error / page action that prompted it. refId is the path so a click can open the
+ * file. Reverted edits read as warnings; applied/accepted as accent.
+ */
+export function buildEditRows(edits: readonly AgentEdit[]): Row[] {
+  return edits.map((e) => ({
+    id: `e:${e.id}`,
+    refId: e.path,
+    source: 'edit',
+    t: e.timestamp,
+    variant: e.status === 'reverted' ? 'warning' : 'accent',
+    label: e.kind === 'create' ? 'create' : 'edit',
+    summary: e.path,
+    actionable: false,
+  }));
 }
 
 /** Derive page-action rows from the chat transcript's browser/runtime tool calls. */

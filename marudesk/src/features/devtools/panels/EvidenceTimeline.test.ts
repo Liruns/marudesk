@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage, ToolCall } from '../../../../shared/agent';
 import type { ConsoleEntry, NetworkEntry } from '../types';
-import { buildAgentRows, buildProblemRows, buildWorkflowSteps } from './evidence-rows';
+import type { AgentEdit } from '../../../../shared/agent';
+import { buildAgentRows, buildEditRows, buildProblemRows, buildWorkflowSteps } from './evidence-rows';
 
 /**
  * Page-action timeline rows (docs/runtime-agent-absorption-2026-06.md §3.3/§3.5).
@@ -69,6 +70,33 @@ describe('buildWorkflowSteps', () => {
       { tool: 'click', input: { selector: '#a' } },
       { tool: 'fill', input: { selector: '#b', value: 'hi' } },
     ]);
+  });
+});
+
+describe('buildEditRows', () => {
+  const edit = (over: Partial<AgentEdit>): AgentEdit => ({
+    id: 'x',
+    turnId: 't',
+    path: 'src/a.ts',
+    kind: 'edit',
+    before: 'a',
+    after: 'b',
+    status: 'applied',
+    timestamp: 500,
+    ...over,
+  });
+  it('maps edits to provenance rows (path as refId, kind as label)', () => {
+    const rows = buildEditRows([
+      edit({ id: '1', path: 'src/a.ts', kind: 'edit' }),
+      edit({ id: '2', path: 'src/new.ts', kind: 'create' }),
+    ]);
+    expect(rows).toMatchObject([
+      { id: 'e:1', source: 'edit', refId: 'src/a.ts', label: 'edit', variant: 'accent' },
+      { id: 'e:2', source: 'edit', refId: 'src/new.ts', label: 'create', variant: 'accent' },
+    ]);
+  });
+  it('marks reverted edits as warnings', () => {
+    expect(buildEditRows([edit({ status: 'reverted' })])[0]!.variant).toBe('warning');
   });
 });
 

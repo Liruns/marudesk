@@ -38,6 +38,10 @@ export const EN_MESSAGES = {
   'context.capture.sendFailed': 'Could not send to agent',
   'context.capture.sendTitle': 'Send this element and your comment to the agent',
   'context.capture.sendToAgent': 'Send to agent',
+  'context.capture.fix': 'Fix this',
+  'context.capture.fixTitle': 'Send this element to the agent with fix instructions',
+  'context.capture.fixPrompt':
+    'Fix the issue with this page element (attached from DevTools with its selector and source candidates). Find the root cause in the source, fix it, then reload and verify the element behaves correctly.',
   'context.capture.stack': 'Stack',
   'context.drawer.clearAll': 'Clear all captures',
   'context.drawer.close': 'Close context panel',

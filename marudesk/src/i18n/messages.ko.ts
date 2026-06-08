@@ -37,6 +37,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'context.capture.sendFailed': '에이전트로 전송하지 못했습니다',
   'context.capture.sendTitle': '이 요소와 코멘트를 에이전트로 전송',
   'context.capture.sendToAgent': '에이전트로 전송',
+  'context.capture.fix': '고치기',
+  'context.capture.fixTitle': '이 요소를 수정 지시와 함께 에이전트로 전송',
+  'context.capture.fixPrompt':
+    '이 페이지 요소의 문제를 고쳐 주세요(DevTools에서 셀렉터와 소스 후보와 함께 첨부됨). 소스에서 근본 원인을 찾아 수정한 뒤, 새로고침해서 요소가 올바르게 동작하는지 확인하세요.',
   'context.capture.stack': '스택',
   'context.drawer.clearAll': '모든 캡처 지우기',
   'context.drawer.close': '컨텍스트 패널 닫기',

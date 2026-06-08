@@ -5,8 +5,15 @@ import { cn } from '../../../lib/cn';
 import { toast } from '../../../lib/toast';
 import type { Workflow } from '../../../../shared/workflows';
 import { askAgent, useAgentStore } from '../../agent/store';
+import { useEditorStore } from '../../editor/store';
 import { useDevtoolsStore } from '../store';
-import { buildAgentRows, buildProblemRows, buildWorkflowSteps, type Row } from './evidence-rows';
+import {
+  buildAgentRows,
+  buildEditRows,
+  buildProblemRows,
+  buildWorkflowSteps,
+  type Row,
+} from './evidence-rows';
 import { buildNetworkFixPrompt } from './network-utils';
 
 /**
@@ -55,14 +62,17 @@ export function EvidenceTimeline() {
   const setPanel = useDevtoolsStore((s) => s.setPanel);
   const captureConsoleError = useDevtoolsStore((s) => s.captureConsoleError);
   const messages = useAgentStore((s) => s.chat.messages);
+  const edits = useAgentStore((s) => s.chat.edits);
+  const openFile = useEditorStore((s) => s.openFile);
   const [filter, setFilter] = useState<SourceFilter>('all');
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
 
   const rows = useMemo(() => {
     const problems = filter === 'actions' ? [] : buildProblemRows(entries, network);
-    const actions = filter === 'problems' ? [] : buildAgentRows(messages);
+    const actions =
+      filter === 'problems' ? [] : [...buildAgentRows(messages), ...buildEditRows(edits)];
     return [...problems, ...actions].sort((a, b) => b.t - a.t);
-  }, [entries, network, messages, filter]);
+  }, [entries, network, messages, edits, filter]);
 
   // Replayable steps from this chat's page actions, and the saved workflows
   // (§3.10): save the current sequence, then replay it later without the model.
@@ -183,9 +193,16 @@ export function EvidenceTimeline() {
               <button
                 type="button"
                 onClick={() => {
-                  if (row.source !== 'agent') setPanel(row.source);
+                  if (row.source === 'console' || row.source === 'network') setPanel(row.source);
+                  else if (row.source === 'edit') void openFile(row.refId);
                 }}
-                title={row.source === 'agent' ? 'Agent page action' : `Jump to ${row.source}`}
+                title={
+                  row.source === 'agent'
+                    ? 'Agent page action'
+                    : row.source === 'edit'
+                      ? `Open ${row.refId}`
+                      : `Jump to ${row.source}`
+                }
                 className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
               >
                 <span className="w-[58px] shrink-0 font-mono text-caption tabular-nums text-fg-tertiary">

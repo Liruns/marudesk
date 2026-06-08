@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, ClipboardCopy, SendHorizontal, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ClipboardCopy, SendHorizontal, Wrench, X } from 'lucide-react';
 import { Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
@@ -198,6 +198,21 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
     }
   };
 
+  // §3.4 element→agent fix-loop: send this element to the agent with explicit
+  // fix instructions (find the root cause in source, fix it, reload + verify) —
+  // the element analog of the console "Fix this". The user's note is appended.
+  const fixWithAgent = async () => {
+    await openAgentTab();
+    const note = (capture.comment ?? '').trim();
+    const base = t('context.capture.fixPrompt');
+    const res = await submitPrompt(note ? `${base}\n\n${note}` : base, {
+      captures: [toPayload(capture)],
+    });
+    if (!res.ok && res.reason && res.reason !== 'busy') {
+      toast({ title: t('context.capture.sendFailed'), description: res.reason, variant: 'error' });
+    }
+  };
+
   return (
     <article
       className={cn(
@@ -244,15 +259,26 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
             placeholder={t('context.capture.commentPlaceholder')}
             className="w-full resize-y rounded bg-surface-page border border-default px-2 py-1.5 text-body-sm text-fg-primary focus:outline-none focus:border-accent"
           />
-          <button
-            type="button"
-            onClick={() => void sendToAgent()}
-            disabled={busy}
-            title={t('context.capture.sendTitle')}
-            className="flex items-center justify-center gap-1.5 h-7 rounded bg-accent px-2 text-caption text-white hover:bg-accent-hover transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <SendHorizontal size={12} /> {t('context.capture.sendToAgent')}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void sendToAgent()}
+              disabled={busy}
+              title={t('context.capture.sendTitle')}
+              className="flex flex-1 items-center justify-center gap-1.5 h-7 rounded bg-accent px-2 text-caption text-white hover:bg-accent-hover transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <SendHorizontal size={12} /> {t('context.capture.sendToAgent')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void fixWithAgent()}
+              disabled={busy}
+              title={t('context.capture.fixTitle')}
+              className="flex items-center justify-center gap-1.5 h-7 rounded border border-default px-2 text-caption text-fg-secondary hover:text-accent hover:border-accent transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Wrench size={12} /> {t('context.capture.fix')}
+            </button>
+          </div>
         </div>
       </div>
 
