@@ -379,6 +379,7 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 | 8 | U5 steerable plan(step 토글/삭제) | ✅ | `d94eb28` |
 | 10 | G5/U7 위임(subagent) 모델 라우팅 | ✅ | `3c51d90` |
 | 9 | W6 MCP circuit-breaker 주기적 재연결 | ✅ | `3cac1d8` |
+| 11 | G4/U6 인터랙티브 아티팩트(sandbox iframe, §S.1 grant-0) | ✅ | `153fbe8` |
 | U9 | compaction 펼쳐보기 | ✅ 기존충족 | (CompactionDivider 이미 expandable + 원문은 스크롤백 유지) |
 | 9-UI | 플러그인/MCP 관리 UI | ✅ 기존충족 | (PluginsSettings/McpServersSettings 이미 완비 — 감사 과장) |
 
@@ -387,10 +388,9 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
 **UI 수동 점검 미실시**(로컬 `npm run dev` 권장).
 
 **남은 작업 (대형 — 각각 별도 집중 라운드 필요):**
-- **단계 11 — 인터랙티브 아티팩트**: plugin:// iframe 재사용 + 새 artifact part 타입 + §S.1 grant-0.
-  보안 surface 커서 전용 라운드.
 - **단계 12 — worktree → 병렬 thread → automations**: 세션→동시 thread 재설계 + git worktree 격리 +
-  스케줄러. 대형 아키텍처(멀티 PR).
+  스케줄러. 대형 아키텍처(멀티 PR). worktree(기반)→thread(승격)→automations 순서로 쪼개야 하며,
+  automations는 §S.1대로 worktree 격리 + per-automation 도구 allowlist가 전제(무인=auto 게이팅 우회).
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.
