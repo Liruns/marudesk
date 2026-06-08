@@ -12,7 +12,9 @@ import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { readFileSafe, writeFileForEditor } from '../workspace';
 import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
 import { patchSettings } from '../settings';
+import type { CheckpointRestore } from '../../shared/worktree';
 import { effectiveAgentRoot } from '../worktree-isolation';
+import { createCheckpoint, restoreCheckpoint } from '../git-worktree';
 import { getActive, getTab } from '../browser/state';
 import { navigateActive } from '../browser/navigation';
 import { S, emit, containerForTurn } from './loop-state.ts';
@@ -159,6 +161,31 @@ export async function restoreTurnPage(turnId: string): Promise<{ navigated: bool
   } catch {
     return { navigated: false };
   }
+}
+
+/**
+ * Turn checkpoint (§3.6): a non-destructive snapshot of the agent's working tree
+ * at turn start, keyed by turnId. Module-scoped (session-lived) like the URL
+ * marker. Unlike the edits list, this also captures changes the agent made via
+ * the terminal, so restore can roll the WHOLE tree back to the turn's start.
+ */
+const turnCheckpoint = new Map<string, { root: string; sha: string | null }>();
+
+/** `root` is the agent's effective working root (the worktree when isolated). */
+export async function recordTurnCheckpoint(turnId: string, root: string): Promise<void> {
+  const sha = await createCheckpoint(root);
+  turnCheckpoint.set(turnId, { root, sha });
+}
+
+/**
+ * Roll the working tree back to a turn's checkpoint. Safe by construction —
+ * current work is parked on the stash stack before the snapshot is re-applied
+ * (see restoreCheckpoint), so nothing is ever destroyed.
+ */
+export async function restoreTurnCheckpoint(turnId: string): Promise<CheckpointRestore> {
+  const cp = turnCheckpoint.get(turnId);
+  if (!cp) return { ok: false, reason: 'none' };
+  return restoreCheckpoint(cp.root, cp.sha);
 }
 
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];

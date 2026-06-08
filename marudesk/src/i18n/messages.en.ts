@@ -478,6 +478,17 @@ export const EN_MESSAGES = {
   'agent.chat.receipt.snapshotTitle': 'Capture the running page as it looks now',
   'agent.chat.receipt.snapshotAlt': 'Snapshot of the running page',
   'agent.chat.receipt.snapshotNone': 'No web page to snapshot.',
+  'agent.chat.receipt.restore': 'Restore checkpoint',
+  'agent.chat.receipt.restoreTitle': 'Roll the working tree back to before this turn',
+  'agent.chat.receipt.restoreConfirm':
+    'Restore the working tree to before this turn? Changes since then are saved to the git stash first, so nothing is lost.',
+  'agent.chat.receipt.restoreOk': 'Restored to the turn checkpoint',
+  'agent.chat.receipt.restoreStashed': 'Your work since then is on the git stash (git stash list).',
+  'agent.chat.receipt.restoreFailed': 'Could not restore the checkpoint',
+  'agent.chat.receipt.restoreNone': 'No checkpoint was recorded for this turn.',
+  'agent.chat.receipt.restoreNoRepo': 'This workspace is not a git repository.',
+  'agent.chat.receipt.restoreApplyFailed':
+    'The snapshot could not be re-applied. Your current work is safe on the git stash.',
   'agent.chat.status.ready': 'Ready',
   'agent.chat.status.stopped': 'Stopped',
   'agent.chat.status.thinking': 'Thinking...',

@@ -476,6 +476,17 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.receipt.snapshotTitle': '실행 중인 페이지를 지금 모습 그대로 캡처',
   'agent.chat.receipt.snapshotAlt': '실행 중인 페이지 스냅샷',
   'agent.chat.receipt.snapshotNone': '스냅샷할 웹 페이지가 없습니다.',
+  'agent.chat.receipt.restore': '체크포인트 복원',
+  'agent.chat.receipt.restoreTitle': '작업 트리를 이 턴 이전 상태로 되돌리기',
+  'agent.chat.receipt.restoreConfirm':
+    '작업 트리를 이 턴 이전으로 복원할까요? 그 이후 변경은 먼저 git stash에 저장되므로 잃지 않습니다.',
+  'agent.chat.receipt.restoreOk': '턴 체크포인트로 복원했습니다',
+  'agent.chat.receipt.restoreStashed': '이후 작업은 git stash에 있습니다 (git stash list).',
+  'agent.chat.receipt.restoreFailed': '체크포인트를 복원할 수 없습니다',
+  'agent.chat.receipt.restoreNone': '이 턴에 대한 체크포인트가 없습니다.',
+  'agent.chat.receipt.restoreNoRepo': '이 워크스페이스는 git 저장소가 아닙니다.',
+  'agent.chat.receipt.restoreApplyFailed':
+    '스냅샷을 다시 적용하지 못했습니다. 현재 작업은 git stash에 안전하게 있습니다.',
   'agent.chat.status.ready': '준비됨',
   'agent.chat.status.stopped': '중지됨',
   'agent.chat.status.thinking': '생각 중...',

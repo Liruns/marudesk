@@ -81,10 +81,11 @@ export {
   acceptEdit,
   revertEdit,
   restoreTurnPage,
+  restoreTurnCheckpoint,
   snapshot,
   setApprovalMode,
 } from './loop-turn-actions.ts';
-import { recordTurnStartUrl } from './loop-turn-actions.ts';
+import { recordTurnStartUrl, recordTurnCheckpoint } from './loop-turn-actions.ts';
 export { editPlanStep } from './plan.ts';
 import {
   buildUserText,
@@ -1000,6 +1001,11 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // configured effort and is a no-op for non-reasoning models.
     const reasoningEffort =
       modelReasoning && modeRaisesThinking(S.activeModes) ? 'high' : agentSettings.reasoningEffort;
+    // Snapshot the working tree before the agent touches it (§3.6), so the whole
+    // turn — including any terminal-driven changes — can be rolled back as a unit.
+    // Awaited so the snapshot precedes the first edit; best-effort (never blocks).
+    // ws.root is already the effective agent root (worktree when isolated).
+    if (ws) await recordTurnCheckpoint(turnId, ws.root).catch(() => undefined);
     void runLoop({
       auth,
       container: S,

@@ -158,6 +158,7 @@ export const CHANNELS = {
     'agent:accept-edit',
     'agent:revert-edit',
     'agent:restore-turn-page',
+    'agent:restore-checkpoint',
     'agent:cancel-background',
     'agent:edit-plan-step',
     'agent:snapshot',

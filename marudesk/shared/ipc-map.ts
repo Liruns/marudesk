@@ -32,7 +32,12 @@ import type {
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
-import type { WorktreeIsolationStatus, WorktreeLane, WorktreeMergeResult } from './worktree';
+import type {
+  CheckpointRestore,
+  WorktreeIsolationStatus,
+  WorktreeLane,
+  WorktreeMergeResult,
+} from './worktree';
 import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type {
   BrowserNativeMenuItem,
@@ -512,6 +517,9 @@ export interface IpcMap {
   // rollback): re-navigate the web tab to the turn's start URL if the agent moved
   // it. Pairs with "Revert all" (which restores the turn's file edits).
   'agent:restore-turn-page': { args: [payload: { turnId: string }]; result: { navigated: boolean } };
+  // Roll the whole working tree back to a turn's start (§3.6 checkpoint). Safe:
+  // current work is parked on the git stash stack first, never destroyed.
+  'agent:restore-checkpoint': { args: [payload: { turnId: string }]; result: CheckpointRestore };
   // User-initiated cancel of a running background agent from the tray (audit H6).
   'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
   // Steerable plan (v6 §U5): user toggles a step's status or removes it.

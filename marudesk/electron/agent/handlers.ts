@@ -19,6 +19,7 @@ import {
   newThread,
   reset,
   respond,
+  restoreTurnCheckpoint,
   restoreTurnPage,
   resumeSession,
   revertEdit,
@@ -100,6 +101,10 @@ export function registerAgentHandlers(): void {
 
   defineHandler('agent:restore-turn-page', ([payload]) =>
     restoreTurnPage(nonEmptyStr(obj(payload).turnId, 'turnId')),
+  );
+
+  defineHandler('agent:restore-checkpoint', ([payload]) =>
+    restoreTurnCheckpoint(nonEmptyStr(obj(payload).turnId, 'turnId')),
   );
 
   // Tray "cancel" on a running background agent (audit H6) — the user-facing

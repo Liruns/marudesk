@@ -8,6 +8,7 @@ import type {
 import { emptyAgentChatState } from '../../../shared/agent';
 import type { CapturePayload } from '../../../shared/composer';
 import type { SessionSummary } from '../../../shared/context';
+import type { CheckpointRestore } from '../../../shared/worktree';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
@@ -125,6 +126,7 @@ type AgentActions = {
   acceptEdit: (editId: string) => Promise<AgentEditActionResult>;
   revertEdit: (editId: string) => Promise<AgentEditActionResult>;
   restoreTurnPage: (turnId: string) => Promise<void>;
+  restoreCheckpoint: (turnId: string) => Promise<CheckpointRestore>;
   cancelBackground: (id: string) => Promise<void>;
   /** Steerable plan (v6 §U5): toggle a step's status or remove it. */
   editPlanStep: (id: string, op: { status?: string; remove?: boolean }) => Promise<void>;
@@ -349,6 +351,17 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       await window.marudesk.invoke('agent:restore-turn-page', { turnId });
     } catch {
       // best-effort
+    }
+  },
+
+  // Roll the whole working tree back to a turn's start (§3.6). Safe: current work
+  // is parked on the git stash stack first. Returns the result so the receipt can
+  // surface a "no checkpoint" / apply-failure outcome.
+  restoreCheckpoint: async (turnId) => {
+    try {
+      return await window.marudesk.invoke('agent:restore-checkpoint', { turnId });
+    } catch {
+      return { ok: false, reason: 'apply-failed' };
     }
   },
 
