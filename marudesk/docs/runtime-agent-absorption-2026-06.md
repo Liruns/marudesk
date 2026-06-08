@@ -483,7 +483,10 @@ browser differentiator and reuses shipped assets.
   ReceiptCard captures the live page on demand (`browser:capture-page-data`),
   kept out of the snapshot/persistence.
 - **L3. Steering files + workflows, then spec lifecycle (§3.10).** Steering files
-  **SHIPPED (2026-06-08)**; workflows + spec lifecycle remain.
+  **SHIPPED (2026-06-08)**; cached browser workflows **SHIPPED (2026-06-08)** —
+  save the chat's page actions to `.marudesk/workflows/*.json` and replay them
+  model-free via the existing executors (Timeline "Save as workflow" + a saved-
+  workflows replay/delete list). Spec lifecycle remains.
 - **L4. Cached browser workflows (§3.12 later); element inspector source-candidate
   jump (§3.7 later) — SHIPPED (2026-06-08):** ranked source rows on the element
   capture card open the file in the editor.
@@ -502,16 +505,16 @@ browser differentiator and reuses shipped assets.
   `--force`/`reset --hard` — so nothing is destroyed. Verified on a real repo in
   the worktree harness.
 
-> **Verified:** full Playwright e2e **118/118** (incl. timeline + its filter,
-> receipt snapshot, worktree lanes, icon stroke, agent tool catalog), renderer
-> unit tests **54** (incl. timeline row-builders + tool-group toggles), and the
+> **Verified:** full Playwright e2e **120/120** (incl. timeline + its filter,
+> receipt snapshot, worktree lanes, icon stroke, agent tool catalog, and the full
+> workflow save→replay→DOM-effect loop), renderer unit tests **55** (timeline
+> row-builders, workflow-step extraction, tool-group toggles), and the
 > git-worktree harness **41 assertions** (incl. the checkpoint "nothing is lost"
 > guarantee).
 >
 > **Still open (genuinely-new, larger subsystems):**
-> - *Cached browser workflows / spec lifecycle (§3.10/§3.12 later)* — "save this
->   action → parameterized, model-free replay under `.marudesk/workflows/`": a
->   record + store + replay engine plus UI. Steering files already shipped.
+> - *Spec lifecycle (§3.10 remainder)* — a structured spec → tasks → review flow;
+>   steering files + cached workflows already shipped.
 > - *Floating in-page stage toolbar (§3.2 later)* and *element→agent fix-loop
 >   (§3.4 later)* — marginal over the shipped Captures flow + console/network
 >   fix loops; each needs its own injected bridge.
