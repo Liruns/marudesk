@@ -13,10 +13,23 @@ type ComposerTab = 'agent' | 'captures';
 
 type ComposerState = {
   tab: ComposerTab;
+  /**
+   * Monotonic counter bumped to ask the shell to open the context drawer — used
+   * when a stage element pick would otherwise be invisible behind a collapsed
+   * drawer. A counter (not a boolean) so a repeat pick re-opens it. Mirrors the
+   * address-bar / find focus nonces in the web-page store.
+   */
+  drawerOpenNonce: number;
 };
 
 type ComposerActions = {
   setTab: (tab: ComposerTab) => void;
+  /**
+   * Reveal a just-captured element: switch to the Captures tab (its action home —
+   * comment, "Send to agent", source ranking) and ask the shell to open the
+   * drawer. The stagewise "select on the page → hand it to the agent" moment.
+   */
+  revealCaptures: () => void;
 };
 
 /** Map a renderer {@link Capture} to the lean payload attached to an agent turn. */
@@ -48,5 +61,8 @@ export function toPayload(capture: Capture): CapturePayload {
 
 export const useComposerStore = create<ComposerState & ComposerActions>((set) => ({
   tab: 'agent',
+  drawerOpenNonce: 0,
   setTab: (tab) => set({ tab }),
+  revealCaptures: () =>
+    set((s) => ({ tab: 'captures', drawerOpenNonce: s.drawerOpenNonce + 1 })),
 }));

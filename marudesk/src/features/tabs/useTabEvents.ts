@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useWebPageStore } from '../browser/store';
 import { useDownloadsStore } from '../browser/downloads';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { useComposerStore } from '../composer/store';
 import { useTabsStore } from './store';
 
 /**
@@ -14,6 +15,9 @@ export function useTabEvents(): void {
   useEffect(() => {
     const offCapture = window.marudesk.on('browser:capture', (capture) => {
       useWebPageStore.getState().addCapture(capture);
+      // A stage pick is a deliberate "act on this element" gesture; surface it so
+      // it isn't lost behind a collapsed drawer or the agent tab.
+      useComposerStore.getState().revealCaptures();
     });
     const offExit = window.marudesk.on('browser:inspect-exit', () => {
       useWebPageStore.setState({ inspectMode: false });
