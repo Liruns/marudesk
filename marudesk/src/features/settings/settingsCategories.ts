@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import {
   Blocks,
   Bot,
+  Clock,
   Code2,
   Database,
   Globe,
@@ -88,6 +89,13 @@ const CATEGORY_DEFINITIONS = [
     blurbKey: 'settings.category.plugins.blurb',
     icon: Blocks,
     keywords: 'plugin extension customize sandbox tool slash command worker 플러그인 확장 커스터마이징 샌드박스 도구',
+  },
+  {
+    id: 'automations',
+    labelKey: 'settings.category.automations.label',
+    blurbKey: 'settings.category.automations.blurb',
+    icon: Clock,
+    keywords: 'automation schedule cron interval daily background prompt recurring 자동화 스케줄 예약 반복 프롬프트',
   },
   {
     id: 'devtools',

@@ -400,8 +400,15 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
     + `revertEdit`)가 활성 시 worktree로 라우팅 → 파일 편집·run_command·diagnostics가 격리 브랜치에서
     동작(에디터/UI는 main 유지, 챗 diff로 검토 후 병합). off면 no-op(동작 변화 0). IPC
     `git:worktree-{status,enter,merge,discard}` + Source Control 패널 컨트롤. `harness:worktree-iso`
-    20개(순수 직렬화 + 임시 repo 생애주기 + 영속 + stale 복구). **다음(12-B-2): thread 승격(세션→동시
-    thread, per-thread 격리/승인) — 렌더러 재설계라 앱 검증 동반.**
+    20개(순수 직렬화 + 임시 repo 생애주기 + 영속 + stale 복구).
+  - **12-C 착지(automations):** `electron/automations/*` + `shared/automations.ts` — 저장 프롬프트 +
+    스케줄(interval/daily/weekly, raw cron 없음) → 주기 tick이 due 자동화를 **분리된 읽기 전용 에이전트**로
+    실행(§S.1: 무인이라 승인 불가 → background와 동일한 read-only·non-gated 툴셋 + per-automation
+    allowTools로 추가 축소, run_command/eval_js 불가). 스토어(CRUD/영속) + 스케줄러(find-due→run→record,
+    in-flight 중복 방지) + Settings UI. `harness:automations` 30개(스케줄 수학·직렬화·CRUD·due·스케줄러).
+    쓰기 가능 automations(worktree 격리 + 통합 승인 큐 전제)는 후속.
+  - **다음(12-B-2): thread 승격(세션→동시 thread, per-thread 격리/승인) — 싱글턴 loop 재설계 + 렌더러라
+    앱 검증 동반.**
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.

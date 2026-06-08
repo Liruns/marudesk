@@ -32,6 +32,7 @@ import type {
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
 import type { WorktreeIsolationStatus, WorktreeMergeResult } from './worktree';
+import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type {
   BrowserNativeMenuItem,
   TabKind,
@@ -407,6 +408,14 @@ export interface IpcMap {
   'git:worktree-enter': { args: []; result: WorktreeIsolationStatus };
   'git:worktree-merge': { args: []; result: WorktreeMergeResult };
   'git:worktree-discard': { args: []; result: { ok: true } };
+
+  // automations (Stage 12-C — scheduled saved-prompt agent runs)
+  'automations:list': { args: []; result: Automation[] };
+  'automations:create': { args: [input: AutomationInput]; result: Automation };
+  'automations:update': { args: [payload: { id: string; input: AutomationInput }]; result: Automation | null };
+  'automations:delete': { args: [payload: { id: string }]; result: { ok: boolean } };
+  'automations:set-enabled': { args: [payload: { id: string; enabled: boolean }]; result: Automation | null };
+  'automations:run-now': { args: [payload: { id: string }]; result: AutomationRun | null };
 
   // search (content search — electron/search.ts)
   'search:content': {

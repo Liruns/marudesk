@@ -117,6 +117,15 @@ export const CHANNELS = {
     'git:worktree-merge',
     'git:worktree-discard',
   ],
+  // Automations (Stage 12-C): saved prompts that run on a schedule.
+  automations: [
+    'automations:list',
+    'automations:create',
+    'automations:update',
+    'automations:delete',
+    'automations:set-enabled',
+    'automations:run-now',
+  ],
   // Workspace content search (electron/search.ts). Prefers ripgrep, falls back
   // to a Node walk reusing the workspace IGNORE_DIRS + binary/size skips.
   search: ['search:content'],
