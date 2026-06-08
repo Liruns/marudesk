@@ -518,10 +518,11 @@ browser differentiator and reuses shipped assets.
 > **merge + discard** (`git:worktree-merge-lane` / `git:worktree-remove`) and runs
 > a per-lane **dev server** — `settings.lanes.devCommand` spawned (node-pty) in the
 > lane's directory, with live status, scraped localhost URL, stop, and open-in-tab
-> (`lanes-dev:*`, pushed on `lanes:dev-state`). Specs gained a draft → active →
-> review → done **status lifecycle**. What remains is per-lane **PR/CI**
-> orchestration, which needs in-app GitHub integration (out of the app's current
-> scope — no `gh`).
+> (`lanes-dev:*`, pushed on `lanes:dev-state`) — and per-lane **Open PR**
+> (`git:worktree-open-pr`: push the branch + open the GitHub compare/create-PR page,
+> no in-app GitHub API). Specs gained a draft → active → review → done **status
+> lifecycle**. The only piece left is live per-lane **CI status**, which needs
+> GitHub API polling (out of the app's current scope — no `gh`).
 >
 > **Verified:** full Playwright e2e **125/125** (timeline + filter + edit
 > provenance, receipt snapshot, worktree lanes + merge + discard, **per-lane dev

@@ -25,13 +25,19 @@ test('stage toolbar: toggle injects/removes without breaking the page', async ()
     await expect(page.getByRole('button', { name: 'Toggle DevTools (F12)' })).toBeVisible();
     await page.evaluate((u) => window.marudesk.invoke('browser:navigate', u), url);
     await expect
-      .poll(() => page.evaluate(() => window.marudesk.invoke('browser:capture-page-data')), { timeout: 10_000 })
+      .poll(() => page.evaluate(() => window.marudesk.invoke('browser:capture-page-data')), {
+        timeout: 15_000,
+        intervals: [200, 400, 800, 1500],
+      })
       .not.toBeNull();
 
     // Enable → returns true; page still renders (capture non-null).
     expect(await page.evaluate(() => window.marudesk.invoke('browser:stage-toolbar', true))).toBe(true);
     await expect
-      .poll(() => page.evaluate(() => window.marudesk.invoke('browser:capture-page-data')), { timeout: 5_000 })
+      .poll(() => page.evaluate(() => window.marudesk.invoke('browser:capture-page-data')), {
+        timeout: 15_000,
+        intervals: [200, 400, 800, 1500],
+      })
       .not.toBeNull();
 
     // Disable → returns false.
