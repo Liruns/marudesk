@@ -2,6 +2,7 @@ import type { WorkspaceSummary } from '../../../shared/workspace';
 import type { AppliedChange } from '../../../shared/patch';
 import type { ProviderId } from '../../../shared/providers';
 import type { ToolMediaArtifact } from '../../../shared/agent';
+import type { ThreadContainer } from '../loop-state';
 
 /**
  * Shared shapes for the agent tool layer (docs/agentic-chat-design.md §4). The
@@ -42,6 +43,14 @@ export type ToolContext = {
    * the running card; other tools/dispatches leave it undefined.
    */
   onSubagentProgress?: SubagentProgressSink;
+  /**
+   * The turn's thread container (Stage 12-B-2 concurrent execution). The loop sets
+   * it so loop-intercepted tools that mutate CONVERSATION state (update_plan,
+   * spawn/collect background agents, the subagent usage rollup) target the running
+   * turn's thread, not the globally-active one. A type-only import (erased at
+   * runtime) so this module stays Electron-free; undefined ⇒ the active thread.
+   */
+  thread?: ThreadContainer;
 };
 
 /** Partial child output pushed to the parent's running card (W4/U3). */

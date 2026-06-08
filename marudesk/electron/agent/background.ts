@@ -74,7 +74,9 @@ export function startBackgroundAgentTool(input: unknown, ctx: ToolContext): Tool
     return { summary: 'spawn_background_agent failed', text: scrubText(message), isError: true };
   }
 
-  const conversationId = S.conversationId ?? '';
+  // Key the task to the TURN's thread (Stage 12-B-2), so a background agent
+  // spawned by a non-active thread belongs to that thread, not the active one.
+  const conversationId = ctx.thread?.conversationId ?? S.conversationId ?? '';
   const active = [...registry.values()].filter(
     (e) => e.conversationId === conversationId && e.task.status === 'running',
   ).length;
@@ -131,9 +133,9 @@ export function startBackgroundAgentTool(input: unknown, ctx: ToolContext): Tool
 }
 
 /** `collect_background_agent` — list all, or fetch one task's status/result. */
-export function collectBackgroundTool(input: unknown): ToolResult {
+export function collectBackgroundTool(input: unknown, ctx?: ToolContext): ToolResult {
   const id = readId(input);
-  const conversationId = S.conversationId ?? '';
+  const conversationId = ctx?.thread?.conversationId ?? S.conversationId ?? '';
   const own = [...registry.values()].filter((e) => e.conversationId === conversationId);
 
   if (!id) {
@@ -168,10 +170,10 @@ export function collectBackgroundTool(input: unknown): ToolResult {
 }
 
 /** `cancel_background_agent` — abort a running task by id. */
-export function cancelBackgroundTool(input: unknown): ToolResult {
+export function cancelBackgroundTool(input: unknown, ctx?: ToolContext): ToolResult {
   const id = readId(input);
   if (!id) return { summary: 'cancel failed', text: 'cancel_background_agent requires an id.', isError: true };
-  const conversationId = S.conversationId ?? '';
+  const conversationId = ctx?.thread?.conversationId ?? S.conversationId ?? '';
   const entry = [...registry.values()].find(
     (e) => e.conversationId === conversationId && e.task.id === id,
   );

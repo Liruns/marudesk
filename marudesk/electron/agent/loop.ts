@@ -53,11 +53,12 @@ import {
 } from './background';
 import { runContextHook, runVerifyNote } from './loop-commands.ts';
 import {
-  S,
-  emit,
+  emitContainer,
+  currentContainer,
+  containerBusy,
   uid,
-  busy,
   type ApprovalDecision,
+  type ThreadContainer,
 } from './loop-state.ts';
 export { subscribeAgentEvents } from './loop-state.ts';
 export {
@@ -92,9 +93,10 @@ export { testProviderConnection } from './loop-helpers.ts';
  * The manual step-driven agent loop (docs/agentic-chat-design.md §5). main owns
  * the authoritative {@link AgentChatState}; each step is one driver round-trip,
  * after which we execute the model's tool calls (parking on approval/ask_user),
- * append results, and re-enter. A single conversation at a time keeps the model
- * vs. S.transcript bookkeeping trivial. State is streamed to the renderer as a
- * coalesced `agent:event` snapshot (the renderer is a pure projection).
+ * append results, and re-enter. Each turn runs on ITS thread container (Stage
+ * 12-B-2), captured at startTurn, so several threads can run concurrently without
+ * clobbering each other; the ACTIVE thread streams to the renderer as a coalesced
+ * `agent:event` snapshot, a background thread only refreshes its switcher summary.
  */
 
 const MAX_STEPS = 24;
@@ -120,7 +122,7 @@ const TOOL_WALL_CLOCK_MS = 15 * 60_000;
 /** One tool result for the S.transcript (AI SDK tool-message content shape). */
 
 
-function recordEdits(turnId: string, changes: AppliedChange[] | undefined): void {
+function recordEdits(S: ThreadContainer, turnId: string, changes: AppliedChange[] | undefined): void {
   if (!changes) return;
   for (const c of changes) {
     S.state.edits.push({
@@ -144,14 +146,14 @@ function recordEdits(turnId: string, changes: AppliedChange[] | undefined): void
 // a late agent:approve-tool / agent:respond can't resolve the wrong parked
 // promise. The turnId+callId guards in approveTool/respond are the primary gate;
 // this is belt-and-suspenders for the resolver lifecycle.
-function waitForApproval(): Promise<ApprovalDecision> {
+function waitForApproval(S: ThreadContainer): Promise<ApprovalDecision> {
   S.approvalResolver?.({ approved: false, always: false });
   return new Promise((resolve) => {
     S.approvalResolver = resolve;
   });
 }
 
-function waitForAnswers(): Promise<AgentAnswers> {
+function waitForAnswers(S: ThreadContainer): Promise<AgentAnswers> {
   S.answersResolver?.({});
   return new Promise((resolve) => {
     S.answersResolver = resolve;
@@ -162,6 +164,8 @@ function waitForAnswers(): Promise<AgentAnswers> {
 
 type RunOpts = {
   auth: ModelAuth;
+  /** The thread container this turn runs on (Stage 12-B-2 concurrent execution). */
+  container: ThreadContainer;
   /** Custom endpoints (custom:<id>) carry their resolved baseURL; undefined for built-ins. */
   baseUrl?: string;
   model: string;
@@ -214,6 +218,14 @@ type ActiveTurnModel = {
 };
 
 async function runLoop(opts: RunOpts): Promise<void> {
+  // Stage 12-B-2 concurrent execution: this turn runs on ITS captured thread
+  // container, not the globally-active one. Shadowing `S` + `emit` here routes
+  // every `S.x` / `emit()` in the body to this thread, so two turns can run at
+  // once without clobbering each other (and a non-active turn refreshes only its
+  // switcher summary). For a single thread this container IS the active one, so
+  // the behavior is identical to before.
+  const S = opts.container;
+  const emit = (): void => emitContainer(S);
   const ctx: ToolContext = {
     ws: opts.ws,
     tabId: opts.tabId,
@@ -221,6 +233,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     denyGlobs: opts.denyGlobs,
     provider: opts.provider,
     model: opts.model,
+    thread: S,
   };
   const tools = aiTools(listMcpTools());
   // Fold instruction files + runtime grounding into the system prompt (Track B
@@ -337,7 +350,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
   };
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    if (opts.signal.aborted) return finish('completed', 'Stopped');
+    if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
     S.state.status = 'thinking';
 
     // Create the assistant message up front so streamed text deltas render live
@@ -404,7 +417,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         const i = S.state.messages.indexOf(assistantMsg);
         if (i !== -1) S.state.messages.splice(i, 1);
       }
-      if (opts.signal.aborted) return finish('completed', 'Stopped');
+      if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
       // Provider exhausted (429) or a transient server error (5xx): fall over to
       // the next configured model and retry THIS step. The S.transcript is
       // provider-neutral, so only the per-provider scaffolding swaps; once we
@@ -423,6 +436,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         }
       }
       return finish(
+        S,
         'failed',
         undefined,
         humanizeModelError(err, current.provider, current.modelId),
@@ -465,7 +479,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         assistantContent.push({ type: 'text', text: note });
         emit();
       }
-      return finish('completed');
+      return finish(S, 'completed');
     }
 
     // Execute each tool call; collect one tool_result per call (S.transcript stays valid).
@@ -481,7 +495,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
       // ask_user: park the turn, surface the questions, resume with answers.
       if (call.name === ASK_USER) {
-        const answered = await handleAskUser(opts.turnId, call, opts.signal);
+        const answered = await handleAskUser(S, opts.turnId, call, opts.signal);
         toolResultParts.push(toolResult(call.id, call.name, answered.content, answered.isError));
         continue;
       }
@@ -562,7 +576,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
           ...(editPreview ? { diffs: editDiffs(call.input) } : {}),
         };
         emit();
-        const decision = await waitForApproval();
+        const decision = await waitForApproval(S);
         S.approvalResolver = null;
         S.state.pendingApproval = null;
         if (opts.signal.aborted) {
@@ -624,7 +638,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       if (out.media?.length) call.media = out.media;
       if (out.artifact) call.artifact = out.artifact;
       if (out.isError) call.error = out.text;
-      recordEdits(opts.turnId, out.edits);
+      recordEdits(S, opts.turnId, out.edits);
       emit();
       // Lazily inject not-yet-seen per-directory instruction files for any path
       // this tool entered (§B2 on-demand). Appended to the MODEL-facing result
@@ -652,10 +666,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
     }
 
     S.transcript.push({ role: 'tool', content: toolResultParts });
-    if (opts.signal.aborted) return finish('completed', 'Stopped');
+    if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
   }
 
-  finish('completed', 'Stopped at the step limit — ask me to continue');
+  finish(S, 'completed', 'Stopped at the step limit — ask me to continue');
 }
 
 /**
@@ -667,9 +681,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
 async function dispatchTool(name: string, input: unknown, ctx: ToolContext): Promise<ToolResult> {
   if (name === SPAWN_SUBAGENT) return runSubagentTool(input, ctx);
   if (name === SPAWN_BACKGROUND_AGENT) return startBackgroundAgentTool(input, ctx);
-  if (name === COLLECT_BACKGROUND_AGENT) return collectBackgroundTool(input);
-  if (name === CANCEL_BACKGROUND_AGENT) return cancelBackgroundTool(input);
-  if (name === UPDATE_PLAN) return updatePlanTool(input);
+  if (name === COLLECT_BACKGROUND_AGENT) return collectBackgroundTool(input, ctx);
+  if (name === CANCEL_BACKGROUND_AGENT) return cancelBackgroundTool(input, ctx);
+  if (name === UPDATE_PLAN) return updatePlanTool(input, ctx);
   return callMcpTool(name, input, ctx);
 }
 
@@ -752,6 +766,7 @@ function editDiffs(input: unknown): { path: string; before: string; after: strin
 }
 
 async function handleAskUser(
+  S: ThreadContainer,
   turnId: string,
   call: ToolCall,
   signal: AbortSignal,
@@ -773,8 +788,8 @@ async function handleAskUser(
   call.summary = `asked ${questions.length} question${questions.length === 1 ? '' : 's'}`;
   S.state.status = 'waiting_for_user';
   S.state.pendingQuestions = { turnId, callId: call.id, questions };
-  emit();
-  const answers = await waitForAnswers();
+  emitContainer(S);
+  const answers = await waitForAnswers(S);
   S.answersResolver = null;
   S.state.pendingQuestions = null;
   // Aborted while parked: record the call as aborted, not answered, so a resumed
@@ -785,14 +800,14 @@ async function handleAskUser(
   }
   call.state = 'ok';
   S.state.status = 'working';
-  emit();
+  emitContainer(S);
   const text = questions
     .map((q) => `Q: ${q.question}\nA: ${answers[q.id] ?? '(no answer)'}`)
     .join('\n\n');
   return { content: text || 'The user provided no answers.' };
 }
 
-function finish(status: AgentChatState['status'], note?: string, error?: string): void {
+function finish(S: ThreadContainer, status: AgentChatState['status'], note?: string, error?: string): void {
   // An early-end note (user Stop / step limit / dropped connection) shows as an
   // interrupt LABEL, not a fake assistant message in the S.transcript (v3 polish).
   S.state.endNote = note ?? null;
@@ -813,27 +828,27 @@ function finish(status: AgentChatState['status'], note?: string, error?: string)
     S.activeTabId = undefined;
   }
   S.controller = null;
-  emit();
+  emitContainer(S);
   // Persist the conversation (best-effort) — each turn's end updates the same
   // session record. Emit AGAIN once it's on disk so the renderer refreshes its
   // sessions list only after the write lands; that fixes a list/write race that
   // kept a brand-new conversation out of the history until the next New chat.
   if (S.conversationId && S.state.messages.length > 0) {
-    void persistSession()
-      .then(() => emit())
+    void persistSession(S)
+      .then(() => emitContainer(S))
       .catch(() => {});
   }
   // Auto-compaction (claude-code / cursor parity): once a turn completes cleanly,
   // compact in the background if the context has grown past the configured
   // threshold. Skipped on interrupts and failures (those carry a note/error) so
   // we never compact a half-finished turn.
-  if (status === 'completed' && note === undefined && error === undefined && shouldAutoCompact()) {
-    void compactConversation().catch(() => {});
+  if (status === 'completed' && note === undefined && error === undefined && shouldAutoCompact(S)) {
+    void compactConversation(undefined, S).catch(() => {});
   }
 }
 
 /** True when auto-compaction is enabled and the live context is over threshold. */
-function shouldAutoCompact(): boolean {
+function shouldAutoCompact(S: ThreadContainer): boolean {
   const cfg = getSettingsSync().agent.autoCompact;
   if (!cfg.enabled) return false;
   const ctx = S.state.usage.contextTokens;
@@ -856,10 +871,15 @@ function shouldAutoCompact(): boolean {
  * tiny generateText against the provider's default model.
  */
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
+  // Bind this turn to the ACTIVE thread's container now (Stage 12-B-2). Capturing
+  // it up front means the turn sets up + runs on the thread the user sent to even
+  // if they switch away during the async auth resolve below. `busy()` checks the
+  // active thread — a turn already running on ANOTHER thread doesn't block this.
+  const S = currentContainer();
   // `S.starting` closes the window between this check and `S.state.status` going
   // busy (there's an auth-resolution await before we set it), so two
   // near-simultaneous sends can't both set up a turn and clobber `S.controller`.
-  if (busy() || S.starting) return { ok: false, reason: 'a turn is already in progress' };
+  if (containerBusy(S) || S.starting) return { ok: false, reason: 'a turn is already in progress' };
   S.starting = true;
   try {
     if (!input.prompt || input.prompt.trim().length === 0) {
@@ -934,7 +954,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     });
     // Show the user's message immediately, before the (possibly slow) context
     // hook runs below.
-    emit();
+    emitContainer(S);
     // Per-turn context hook (UserPromptSubmit parity): run the user's command and
     // fold its output into the MODEL-facing text only — the chat keeps showing the
     // original message. Best-effort; default off (no-op when unset).
@@ -971,6 +991,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       modelReasoning && modeRaisesThinking(S.activeModes) ? 'high' : agentSettings.reasoningEffort;
     void runLoop({
       auth,
+      container: S,
       baseUrl,
       model: input.model,
       provider: input.provider,
@@ -991,9 +1012,9 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       // A user Stop surfaces here as an abort, not a real failure — label it
       // ('Stopped') rather than showing an error banner.
       if (S.controller?.signal.aborted || (err as Error)?.name === 'AbortError') {
-        finish('completed', 'Stopped');
+        finish(S, 'completed', 'Stopped');
       } else {
-        finish('failed', undefined, (err as Error).message);
+        finish(S, 'failed', undefined, (err as Error).message);
       }
     });
 

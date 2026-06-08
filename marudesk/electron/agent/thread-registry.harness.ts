@@ -11,6 +11,7 @@ import {
   MAIN_THREAD,
   __resetThreadsForTests,
 } from './loop-state.ts';
+import { abortTurn, approveTool, respond } from './loop-turn-actions.ts';
 
 /**
  * Harness for the Stage 12-B-2 thread registry: new/switch/close + the mid-turn
@@ -47,12 +48,16 @@ function main(): void {
   check('list reflects the active thread title + message count', listThreads().find((t) => t.id === t2)?.title === 'Refactor the parser');
   check('list reflects message count', listThreads().find((t) => t.id === t2)?.messageCount === 1);
 
-  // Mid-turn switch guard: a busy thread can't be switched away from.
+  // Stage 12-B-2 concurrency: switching is allowed WHILE a thread is busy (turns
+  // are container-bound, so the running thread keeps going in the background).
   S.state.status = 'working';
   check('busy() is true while working', busy() === true);
-  check('switchThread is refused while the current thread is busy', switchThread(MAIN_THREAD) === false && activeThreadId() === t2);
+  check('switchThread works even while the current thread is busy', switchThread(MAIN_THREAD) === true && activeThreadId() === MAIN_THREAD);
+  check('the switched-away thread is still busy in the list', listThreads().find((t) => t.id === t2)?.busy === true);
+  // Reset t2 to idle so the later close assertions are clean.
+  switchThread(t2);
   S.state.status = 'idle';
-  check('switch works again once idle', switchThread(MAIN_THREAD) === true && activeThreadId() === MAIN_THREAD);
+  switchThread(MAIN_THREAD);
 
   // Close handling.
   check('cannot close the last/only when one remains? (two exist) close inactive', closeThread(t2) === true && listThreads().length === 1);
@@ -75,6 +80,35 @@ function main(): void {
   // emit() must be safe with no renderer host.
   emit();
   check('emit() is a no-op without a host (no throw)', true);
+
+  // ── concurrent turn-control routing (Stage 12-B-2) ──────────────────────
+  __resetThreadsForTests();
+  // The MAIN (soon non-active) thread parks an approval for 'turnA'.
+  let aApproved: boolean | null = null;
+  S.state.turnId = 'turnA';
+  S.state.pendingApproval = { turnId: 'turnA', callId: 'cA', name: 'eval_js', detail: '' };
+  S.approvalResolver = (d) => {
+    aApproved = d.approved;
+  };
+  // A SECOND thread (becomes active) parks an ask_user for 'turnB'.
+  const tb = newThread();
+  switchThread(tb);
+  let bAnswered: Record<string, string> | null = null;
+  S.state.turnId = 'turnB';
+  S.state.pendingQuestions = { turnId: 'turnB', callId: 'cB', questions: [{ id: 'q', question: '?' }] };
+  S.answersResolver = (a) => {
+    bAnswered = a;
+  };
+  // Approve turnA — must route to the NON-active main thread by turnId.
+  check('approveTool routes to a parked NON-active thread by turnId', approveTool('turnA', 'cA', true) === true && aApproved === true);
+  // Respond to turnB (the active thread).
+  check('respond routes by turnId', respond('turnB', 'cB', { q: 'yes' }) === true && (bAnswered as Record<string, string> | null)?.q === 'yes');
+  check('approve/respond reject an unknown turnId', approveTool('nope', 'x', true) === false && respond('nope', 'x', {}) === false);
+  // abort routes by turnId across threads too.
+  S.controller = new AbortController();
+  const bCtrl = S.controller;
+  check('abortTurn routes by turnId + aborts that thread', abortTurn('turnB') === true && bCtrl.signal.aborted === true);
+  check('abortTurn for an unknown turnId is rejected', abortTurn('nope') === false);
 
   console.log(`\nthread-registry harness: ${passed} assertions passed`);
 }

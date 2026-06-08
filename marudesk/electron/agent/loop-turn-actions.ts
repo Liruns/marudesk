@@ -13,28 +13,32 @@ import { readFileSafe, writeFileForEditor } from '../workspace';
 import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
 import { patchSettings } from '../settings';
 import { effectiveAgentRoot } from '../worktree-isolation';
-import { S, emit } from './loop-state.ts';
+import { S, emit, containerForTurn } from './loop-state.ts';
 
 /**
  * Turn-control public API (handlers.ts surface): abort the running turn, answer
  * an ask_user / approve a gated tool (settling the parked resolver), and
- * accept/revert an applied edit. Operate on the shared {@link S} container;
- * extracted from loop.ts.
+ * accept/revert an applied edit. Turn-control actions route by turnId across ALL
+ * threads (Stage 12-B-2 concurrent execution) — the parked turn may live in a
+ * non-active thread if the user switched away — while accept/revert act on the
+ * active thread's edits (the chat the user is looking at).
  */
 
 export function abortTurn(turnId: string): boolean {
-  if (S.state.turnId !== turnId || !S.controller) return false;
-  S.controller.abort();
+  const c = containerForTurn(turnId);
+  if (!c || !c.controller) return false;
+  c.controller.abort();
   // Unblock a parked turn so the loop can observe the abort and bail cleanly.
-  S.approvalResolver?.({ approved: false, always: false });
-  S.answersResolver?.({});
+  c.approvalResolver?.({ approved: false, always: false });
+  c.answersResolver?.({});
   return true;
 }
 
 export function respond(turnId: string, callId: string, answers: AgentAnswers): boolean {
-  if (S.state.pendingQuestions?.turnId !== turnId || S.state.pendingQuestions?.callId !== callId) return false;
-  if (!S.answersResolver) return false;
-  S.answersResolver(answers ?? {});
+  const c = containerForTurn(turnId);
+  if (!c || c.state.pendingQuestions?.turnId !== turnId || c.state.pendingQuestions?.callId !== callId) return false;
+  if (!c.answersResolver) return false;
+  c.answersResolver(answers ?? {});
   return true;
 }
 
@@ -44,9 +48,10 @@ export function approveTool(
   approved: boolean,
   always = false,
 ): boolean {
-  if (S.state.pendingApproval?.turnId !== turnId || S.state.pendingApproval?.callId !== callId) return false;
-  if (!S.approvalResolver) return false;
-  S.approvalResolver({ approved, always });
+  const c = containerForTurn(turnId);
+  if (!c || c.state.pendingApproval?.turnId !== turnId || c.state.pendingApproval?.callId !== callId) return false;
+  if (!c.approvalResolver) return false;
+  c.approvalResolver({ approved, always });
   return true;
 }
 

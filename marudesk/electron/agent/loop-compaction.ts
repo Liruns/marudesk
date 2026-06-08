@@ -5,7 +5,13 @@ import { buildModel, humanizeModelError } from './model';
 import { resolveProviderAuth } from './resolve-auth';
 import { SUMMARY_PREFIX, COMPACT_INSTRUCTION } from './prompts.ts';
 import { serializeForCompaction, splitForTailPreservation, messageChars } from './compaction-utils.ts';
-import { S, busy, emit, uid } from './loop-state.ts';
+import {
+  containerBusy,
+  emitContainer,
+  uid,
+  currentContainer as activeContainer,
+  type ThreadContainer,
+} from './loop-state.ts';
 import { persistSession } from './loop-sessions.ts';
 
 /**
@@ -16,8 +22,13 @@ import { persistSession } from './loop-sessions.ts';
  */
 const COMPACTION_TAIL_FRACTION = 0.3;
 
-export async function compactConversation(focus?: string): Promise<{ ok: boolean; reason?: string }> {
-  if (busy() || S.starting) return { ok: false, reason: 'a turn is already in progress' };
+export async function compactConversation(
+  focus?: string,
+  S: ThreadContainer = activeContainer(),
+): Promise<{ ok: boolean; reason?: string }> {
+  // Guard the TARGET container (the active one for /compact, or a just-finished
+  // turn's container for auto-compact) — both busy + the per-container starting flag.
+  if (containerBusy(S) || S.starting) return { ok: false, reason: 'a turn is already in progress' };
   if (!S.conversationProvider || !S.conversationModel || !isProviderId(S.conversationProvider)) {
     return { ok: false, reason: 'nothing to compact yet' };
   }
@@ -84,8 +95,8 @@ export async function compactConversation(focus?: string): Promise<{ ok: boolean
     };
     S.state.error = null;
     S.state.endNote = null;
-    emit();
-    if (S.conversationId) void persistSession().then(() => emit()).catch(() => {});
+    emitContainer(S);
+    if (S.conversationId) void persistSession(S).then(() => emitContainer(S)).catch(() => {});
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: humanizeModelError(err, provider, model) };

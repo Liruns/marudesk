@@ -107,6 +107,36 @@ export function busy(): boolean {
   return isBusy(S);
 }
 
+/* ── concurrent-turn plumbing (Stage 12-B-2) ──────────────────────────────── */
+
+/** The current ACTIVE thread container (what a fresh turn binds to). */
+export function currentContainer(): ThreadContainer {
+  return S;
+}
+
+/** Every open thread container — for routing a turn-control action by turnId. */
+export function containers(): ThreadContainer[] {
+  return [...threads.values()];
+}
+
+/** Whether a specific container has a turn in flight. */
+export function containerBusy(c: ThreadContainer): boolean {
+  return isBusy(c);
+}
+
+/**
+ * Find the container that owns a given turn, by its live turnId. A turn runs on a
+ * captured container even after the user switches threads, so turn-control
+ * actions (approve/respond/abort) must route by turnId across ALL threads, not
+ * the global active one.
+ */
+export function containerForTurn(turnId: string): ThreadContainer | null {
+  for (const c of threads.values()) {
+    if (c.state.turnId === turnId) return c;
+  }
+  return null;
+}
+
 /* ── thread registry (Stage 12-B-2) ──────────────────────────────────────── */
 
 /** The active thread's id. */
@@ -135,16 +165,15 @@ export function newThread(): string {
 }
 
 /**
- * Switch the active thread. Refuses while the CURRENT thread is mid-turn — the
- * running loop mutates `S` by reference, so swapping the container then would
- * corrupt it. (Only one thread executes at a time; concurrent foreground
- * execution is a later step.) Returns false if the id is unknown or busy.
+ * Switch the active thread. Now that turns are bound to a captured container
+ * (Stage 12-B-2 concurrent execution), switching is safe even while another
+ * thread runs — the running turn keeps mutating its own container. Returns false
+ * only if the id is unknown.
  */
 export function switchThread(id: string): boolean {
   if (id === activeId) return true;
   const target = threads.get(id);
   if (!target) return false;
-  if (busy()) return false;
   activeId = id;
   S = target;
   emit();
@@ -222,8 +251,20 @@ export const emit = coalesced(() => {
   }
 });
 
-/** Push just the thread list (structure changed: new/switch/close), not the state. */
-export function emitThreads(): void {
+/** Coalesced push of just the thread list (summaries), for non-active activity. */
+export const emitThreads = coalesced(() => {
   const host = getHost();
   if (host && !host.isDestroyed()) host.webContents.send('agent:threads', listThreads());
+});
+
+/**
+ * Emit for a specific turn's container (Stage 12-B-2). The ACTIVE thread gets the
+ * full `agent:event` (it drives the visible chat); a background thread only
+ * refreshes its summary in the switcher — so a non-active turn never hijacks the
+ * chat the user is looking at. For a single thread, `c` is always active, so this
+ * is exactly the old `emit()`.
+ */
+export function emitContainer(c: ThreadContainer): void {
+  if (c === S) emit();
+  else emitThreads();
 }

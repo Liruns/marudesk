@@ -33,12 +33,15 @@ export async function runSubagentTool(
   // onSubagentProgress (W4/U3) is the loop's per-call live sink, set only for
   // foreground spawn_subagent; it streams the child's partial text + tool trace to
   // the running card. Absent for background agents (their card is the tray).
+  // Roll the child's spend into the TURN's thread (Stage 12-B-2), not the active
+  // one, so a subagent on a background thread doesn't perturb the visible gauge.
+  const T = ctx.thread ?? S;
   return runChildAgent(
     request,
     ctx,
     ({ inputTokens, outputTokens }) => {
-      S.state.usage.inputTokens += inputTokens;
-      S.state.usage.outputTokens += outputTokens;
+      T.state.usage.inputTokens += inputTokens;
+      T.state.usage.outputTokens += outputTokens;
     },
     ctx.onSubagentProgress,
   );

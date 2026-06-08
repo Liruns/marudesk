@@ -7,7 +7,7 @@ import { getSettingsSync } from '../settings';
 import { clearReadTracker } from './read-tracker';
 import { clearNestedInstructionClaims } from './nested-instructions';
 import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
-import { S, busy, emit } from './loop-state.ts';
+import { S, busy, emit, currentContainer as activeContainer, type ThreadContainer } from './loop-state.ts';
 import { cancelBackgroundForConversation } from './background.ts';
 
 /**
@@ -31,7 +31,7 @@ function snapshotMessagesForSave(): AgentMessage[] {
   }));
 }
 
-export async function persistSession(): Promise<void> {
+export async function persistSession(S: ThreadContainer = activeContainer()): Promise<void> {
   if (!S.conversationId) return;
   // Respect the Data & Storage toggle: when session saving is off, conversations
   // stay in-memory only (no S.transcript written, nothing added to history).
