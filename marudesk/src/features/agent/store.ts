@@ -6,6 +6,7 @@ import type {
   AgentImageInput,
 } from '../../../shared/agent';
 import { emptyAgentChatState } from '../../../shared/agent';
+import type { CapturePayload } from '../../../shared/composer';
 import type { SessionSummary } from '../../../shared/context';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
@@ -98,20 +99,26 @@ type AgentActions = {
   hydrate: () => Promise<void>;
   send: () => Promise<void>;
   /**
-   * Resolve the selected provider/model/key, attach the selected captures + active
-   * web tab, and fire one `agent:send`. Shared by {@link send} and feedback flows
-   * (e.g. diff inline comments, v6 §U1) so they don't duplicate the wiring. Does
-   * not touch the composer draft/history — callers own that.
+   * Resolve the selected provider/model/key, attach context (the selected captures
+   * by default, or an explicit `captures` override) + active web tab, and fire one
+   * `agent:send`. Shared by {@link send} and feedback flows (diff inline comments
+   * §U1, element comments §U2) so they don't duplicate the wiring. Does not touch
+   * the composer draft/history — callers own that.
    */
   dispatchPrompt: (
     prompt: string,
-    images?: AgentImageInput[],
+    opts?: { images?: AgentImageInput[]; captures?: CapturePayload[] },
   ) => Promise<{ ok: boolean; reason?: string }>;
   /**
-   * Send a ready-made prompt as a turn (used by diff-comment feedback). No-ops with
-   * a `busy` reason while a turn is in flight; surfaces a hard failure as localError.
+   * Send a ready-made prompt as a turn (diff-comment / element-comment feedback).
+   * Pass `captures` to attach a specific capture instead of the selected cart.
+   * No-ops with a `busy` reason while a turn is in flight; surfaces a hard failure
+   * as localError.
    */
-  submitPrompt: (prompt: string) => Promise<{ ok: boolean; reason?: string }>;
+  submitPrompt: (
+    prompt: string,
+    opts?: { captures?: CapturePayload[] },
+  ) => Promise<{ ok: boolean; reason?: string }>;
   abort: () => Promise<void>;
   answer: (callId: string, answers: AgentAnswers) => Promise<void>;
   approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
@@ -232,12 +239,12 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     const fileContext = formatAttachedFilesForPrompt(pendingFiles);
     const prompt = fileContext ? `${text}\n\n${fileContext}` : text;
     set({ localError: null, draft: '', pendingImages: [], pendingFiles: [], promptHistory: history });
-    const res = await get().dispatchPrompt(prompt, pendingImages.length > 0 ? pendingImages : undefined);
+    const res = await get().dispatchPrompt(prompt, { images: pendingImages });
     // Restore the draft + images so the user can retry without re-attaching.
     if (!res.ok) set({ localError: res.reason ?? null, draft: text, pendingImages, pendingFiles });
   },
 
-  dispatchPrompt: async (prompt, images) => {
+  dispatchPrompt: async (prompt, opts) => {
     const providers = useProvidersStore.getState();
     const provider = providers.selectedProvider;
     const model = providers.selectedModel;
@@ -254,9 +261,10 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     }
 
     const web = useWebPageStore.getState();
-    const captures = web.captures
-      .filter((c) => web.selectedCaptureIds.has(c.id))
-      .map(toPayload);
+    const captures =
+      opts?.captures ??
+      web.captures.filter((c) => web.selectedCaptureIds.has(c.id)).map(toPayload);
+    const images = opts?.images;
     try {
       const res = await window.marudesk.invoke('agent:send', {
         provider,
@@ -272,12 +280,12 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     }
   },
 
-  submitPrompt: async (prompt) => {
+  submitPrompt: async (prompt, opts) => {
     const { status } = get().chat;
     if (status === 'thinking' || status === 'working' || status === 'waiting_for_user') {
       return { ok: false, reason: 'busy' };
     }
-    const res = await get().dispatchPrompt(prompt);
+    const res = await get().dispatchPrompt(prompt, { captures: opts?.captures });
     if (!res.ok && res.reason) set({ localError: res.reason });
     return res;
   },

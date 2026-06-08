@@ -13,6 +13,12 @@ type CaptureBase = {
   timestamp: number;
   /** The page URL the capture was taken on (origin used for source mapping). */
   url: string;
+  /**
+   * An optional note the user attached to this capture (v6 §U2). Sent to the agent
+   * as the request when the capture is shared directly ("comment on this element →
+   * agent"). The user's own text — the page-derived fields stay untrusted.
+   */
+  comment?: string;
 };
 
 /**

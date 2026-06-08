@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, ClipboardCopy, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ClipboardCopy, SendHorizontal, X } from 'lucide-react';
 import { Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
+import { useAgentStore, openAgentTab } from '../agent/store';
+import { toPayload } from '../composer/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { formatEvidencePack } from '../../../shared/evidence-pack';
 import type {
@@ -163,11 +165,19 @@ function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) 
 function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   const { t } = useI18n();
   const selected = useWebPageStore((s) => s.selectedCaptureIds.has(capture.id));
+  const setCaptureComment = useWebPageStore((s) => s.setCaptureComment);
   const summary = useWorkspaceStore((s) => s.summary);
   const ranking = useWorkspaceStore((s) => s.ranking[capture.id]);
   const pending = useWorkspaceStore((s) => s.rankingPending[capture.id]);
   const error = useWorkspaceStore((s) => s.rankingError[capture.id]);
   const rankCapture = useWorkspaceStore((s) => s.rankCapture);
+  const submitPrompt = useAgentStore((s) => s.submitPrompt);
+  const busy = useAgentStore(
+    (s) =>
+      s.chat.status === 'thinking' ||
+      s.chat.status === 'working' ||
+      s.chat.status === 'waiting_for_user',
+  );
   const [expanded, setExpanded] = useState(false);
 
   const onToggle = () => {
@@ -175,6 +185,19 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
     setExpanded(next);
     if (next && summary && ranking === undefined && !pending) {
       void rankCapture(capture);
+    }
+  };
+
+  // v6 §U2: send this element (with the user's note) straight to the agent as a
+  // focused turn — only this capture rides along, regardless of the cart selection.
+  const sendToAgent = async () => {
+    await openAgentTab();
+    const note = (capture.comment ?? '').trim();
+    const res = await submitPrompt(note || t('context.capture.defaultPrompt'), {
+      captures: [toPayload(capture)],
+    });
+    if (!res.ok && res.reason && res.reason !== 'busy') {
+      toast({ title: t('context.capture.sendFailed'), description: res.reason, variant: 'error' });
     }
   };
 
@@ -210,6 +233,30 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
             {capture.text}
           </div>
         ) : null}
+        <div className="flex flex-col gap-1.5">
+          <textarea
+            value={capture.comment ?? ''}
+            onChange={(e) => setCaptureComment(capture.id, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                if (!busy) void sendToAgent();
+              }
+            }}
+            rows={2}
+            placeholder={t('context.capture.commentPlaceholder')}
+            className="w-full resize-y rounded bg-surface-page border border-default px-2 py-1.5 text-body-sm text-fg-primary focus:outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={() => void sendToAgent()}
+            disabled={busy}
+            title={t('context.capture.sendTitle')}
+            className="flex items-center justify-center gap-1.5 h-7 rounded bg-accent px-2 text-caption text-white hover:bg-accent-hover transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <SendHorizontal size={12} /> {t('context.capture.sendToAgent')}
+          </button>
+        </div>
       </div>
 
       {expanded ? (

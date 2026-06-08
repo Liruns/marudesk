@@ -42,6 +42,8 @@ type WebPageActions = {
   setInspect: (on: boolean) => Promise<void>;
   addCapture: (capture: Capture) => void;
   removeCapture: (id: string) => void;
+  /** Set (or clear) the user's note on a capture (v6 §U2). */
+  setCaptureComment: (id: string, comment: string) => void;
   clearCaptures: () => void;
   toggleCaptureSelected: (id: string) => void;
   setAllSelected: (selected: boolean) => void;
@@ -168,6 +170,16 @@ export const useWebPageStore = create<WebPageState & WebPageActions>(
         return {
           captures: state.captures.filter((c) => c.id !== id),
           selectedCaptureIds,
+        };
+      }),
+
+    setCaptureComment: (id, comment) =>
+      set((state) => {
+        const trimmed = comment.trim();
+        return {
+          captures: state.captures.map((c) =>
+            c.id === id ? { ...c, comment: trimmed ? trimmed : undefined } : c,
+          ),
         };
       }),
 
