@@ -450,11 +450,19 @@ browser differentiator and reuses shipped assets.
 ### Next — 3-6 weeks
 - **X1. Supervisor rail mode of `ContextDrawer` (§3.5)** with persistent approval
   badges (benchmark Top4) and the page-action log fed by N3.
-- **X2. Network "Triage this" + element-to-agent fix path (§3.4).** Extends the
-  shipped console loop boundary; scrub required.
+- **X2. Network "Triage this" (§3.4). — ALREADY SHIPPED.** *Review finding:* the
+  Network detail pane already has one-click agent triage
+  (`network-utils.ts buildNetworkFixPrompt` + `askAgent`), mirroring console "Fix
+  this". Now also reachable from the timeline (below). Element→agent fix-loop
+  remains later.
 - **X3. Runtime-aware checkpoints (§3.6)** layered on the v6 message-checkpoint
   work: source snapshot + re-navigate marker.
-- **X4. Browser action preview-via-highlight on gated actions (§3.12 MVP).**
+- **X4. Browser action preview-via-highlight on gated actions (§3.12 MVP).
+  — SHIPPED (2026-06-08).** Gated click/fill/press_key/scroll highlight their
+  target on the page while parked for approval (`previewGatedAction` /
+  `clearActionPreview` in `highlight.ts`, wired at the loop's approval gate).
+- **X4b. Evidence timeline actionability. — SHIPPED (2026-06-08).** Timeline rows
+  run the existing fix (console) / triage (network) loops, not just navigation.
 - **X5. Timeline ↔ edit provenance (§3.9 addition)** once unified diff lands.
 
 ### Later — 2-3 months
