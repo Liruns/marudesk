@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import type { ModelRef } from '../../../shared/settings';
 import { useI18n } from '../../i18n/useI18n';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
-import { useProvidersStore } from '../providers/store';
+import { useConnectedToolModels } from './useConnectedModels';
 
 /**
  * Single optional model picker for the delegate (subagent) model (v6 §G5/U7).
@@ -19,22 +19,10 @@ export function DelegateModelField({
   readonly onChange: (value: ModelRef | null) => void;
 }) {
   const { t } = useI18n();
-  const models = useProvidersStore((s) => s.models);
-  const providerStatus = useProvidersStore((s) => s.providerStatus);
-  const statusChecked = useProvidersStore((s) => s.statusChecked);
-  const refreshProviderStatus = useProvidersStore((s) => s.refreshProviderStatus);
+  const { models, toolModels } = useConnectedToolModels();
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    if (!statusChecked) void refreshProviderStatus();
-  }, [statusChecked, refreshProviderStatus]);
-
-  const isConnected = (provider: string) => {
-    if (provider.startsWith('custom:')) return true;
-    const status = providerStatus.find((c) => c.id === provider);
-    return !!status?.hasKey || !!status?.oauth;
-  };
-  const candidates = models.filter((m) => m.tools !== false && isConnected(m.provider));
+  const candidates = toolModels;
   const current = value
     ? models.find((m) => m.provider === value.provider && m.id === value.model)
     : undefined;

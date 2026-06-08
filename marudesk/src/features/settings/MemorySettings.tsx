@@ -38,22 +38,10 @@ export function MemorySettings() {
 
   // Re-runs on mount and whenever the query changes (refresh closes over query).
   useEffect(() => {
-    let alive = true;
     void (async () => {
-      const q = query.trim();
-      try {
-        const e = q
-          ? await window.marudesk.invoke('memory:search', { query: q })
-          : await window.marudesk.invoke('memory:list');
-        if (alive) setEntries(e);
-      } catch {
-        if (alive) setEntries([]);
-      }
+      await refresh();
     })();
-    return () => {
-      alive = false;
-    };
-  }, [query]);
+  }, [refresh]);
 
   const open = useCallback(async (name: string) => {
     if (openName === name) {

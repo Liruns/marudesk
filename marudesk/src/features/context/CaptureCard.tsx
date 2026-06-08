@@ -6,7 +6,7 @@ import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
-import { useAgentStore, openAgentTab } from '../agent/store';
+import { useAgentStore, useAgentBusy, openAgentTab } from '../agent/store';
 import { toPayload } from '../composer/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { formatEvidencePack } from '../../../shared/evidence-pack';
@@ -172,12 +172,7 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   const error = useWorkspaceStore((s) => s.rankingError[capture.id]);
   const rankCapture = useWorkspaceStore((s) => s.rankCapture);
   const submitPrompt = useAgentStore((s) => s.submitPrompt);
-  const busy = useAgentStore(
-    (s) =>
-      s.chat.status === 'thinking' ||
-      s.chat.status === 'working' ||
-      s.chat.status === 'waiting_for_user',
-  );
+  const busy = useAgentBusy();
   const [expanded, setExpanded] = useState(false);
 
   const onToggle = () => {

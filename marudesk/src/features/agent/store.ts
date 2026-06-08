@@ -410,6 +410,19 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 }));
 
 /**
+ * Whether a turn is in flight — model thinking, tools running, or parked on an
+ * approval/question. Shared selector so the composer, changes/recovery cards, and
+ * capture cards agree on "busy" instead of each re-deriving the status set.
+ */
+export const useAgentBusy = (): boolean =>
+  useAgentStore(
+    (s) =>
+      s.chat.status === 'thinking' ||
+      s.chat.status === 'working' ||
+      s.chat.status === 'waiting_for_user',
+  );
+
+/**
  * Open (or focus) the singleton full-surface AI Chat tab (v3 §5-B). The drawer
  * companion and this tab project the same single conversation, so this never
  * forks state — it just gives the chat a roomier home.

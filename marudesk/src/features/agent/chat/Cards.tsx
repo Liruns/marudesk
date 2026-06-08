@@ -29,7 +29,7 @@ import type {
   PendingApproval,
   PendingQuestions,
 } from '../../../../shared/agent';
-import { useAgentStore } from '../store';
+import { useAgentStore, useAgentBusy } from '../store';
 import { toDiffLines, diffStats } from '../diff';
 import { formatChangedFiles, formatRuntimeChecks, type Receipt } from './format';
 import {
@@ -56,12 +56,7 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
   const submitPrompt = useAgentStore((s) => s.submitPrompt);
-  const busy = useAgentStore(
-    (s) =>
-      s.chat.status === 'thinking' ||
-      s.chat.status === 'working' ||
-      s.chat.status === 'waiting_for_user',
-  );
+  const busy = useAgentBusy();
   // Inline review comments the user has staged on these diffs (v6 §U1). When any
   // exist, the header shows a "Send N comments" action that composes them into one
   // feedback turn for the agent, then clears them.
@@ -412,12 +407,7 @@ function recoverySuggestion(error: string): RecoveryKey {
 export function ErrorRecoveryCard({ error }: { error: string }) {
   const { t } = useI18n();
   const submitPrompt = useAgentStore((s) => s.submitPrompt);
-  const busy = useAgentStore(
-    (s) =>
-      s.chat.status === 'thinking' ||
-      s.chat.status === 'working' ||
-      s.chat.status === 'waiting_for_user',
-  );
+  const busy = useAgentBusy();
   const [guidance, setGuidance] = useState('');
   const [expanded, setExpanded] = useState(false);
   const long = error.length > 200;
