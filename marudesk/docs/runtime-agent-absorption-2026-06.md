@@ -470,10 +470,13 @@ browser differentiator and reuses shipped assets.
 - **X5. Timeline ↔ edit provenance (§3.9 addition)** once unified diff lands.
 
 ### Later — 2-3 months
-- **L1. Agent-lane / worktree Mission Control (§3.8).** *Deferred — large new
-  surface; build as a focused, GUI-verified change.*
-- **L2. Session Receipt — runtime enrichment.** *Deferred — touches the turn loop
-  + state + persistence + a CDP screenshot allowlist; needs GUI verification.*
+- **L1. Agent-lane / worktree board (§3.8) — MVP SHIPPED (2026-06-08):** the Source
+  Control panel lists every worktree of the active repo + change counts
+  (`git:worktree-list`, `WorktreeLanes.tsx`). Per-lane dev server / browser / PR /
+  CI remain the larger follow-on.
+- **L2. Session Receipt — running-app snapshot — SHIPPED (2026-06-08):** the
+  ReceiptCard captures the live page on demand (`browser:capture-page-data`),
+  kept out of the snapshot/persistence.
 - **L3. Steering files + workflows, then spec lifecycle (§3.10).** Steering files
   **SHIPPED (2026-06-08)**; workflows + spec lifecycle remain.
 - **L4. Cached browser workflows (§3.12 later); element inspector source-candidate
@@ -481,11 +484,14 @@ browser differentiator and reuses shipped assets.
   capture card open the file in the editor.
 - **L5. MCP/plugin install UX (§3.11)** if not already shipped via v6 W2.
 
-> **Deliberately not landed blind (no GUI in this environment):** runtime-aware
-> checkpoints (§3.6 — mutates the user's git working tree), the lanes dashboard
-> (§3.8), the session-receipt screenshot (§L2), and a standalone Supervisor rail
-> (§3.5 — largely redundant with what `AgentChat` already renders: status, plan,
-> approvals, usage). These warrant focused changes verified against the real UI.
+> **Verified with Playwright (xvfb):** full e2e suite **117/117**, plus dedicated
+> specs for the timeline, receipt snapshot, and worktree lanes.
+>
+> **Still open (genuinely-new, larger):** a standalone Supervisor rail (§3.5 —
+> mostly redundant with what `AgentChat` already renders: status, plan, approvals,
+> usage); full git-stash checkpoints beyond the shipped per-edit revert +
+> turn-page restore (§3.6); and the per-lane dev-server/browser/PR/CI Mission
+> Control (§3.8). These warrant focused, separately-reviewed changes.
 
 ---
 
