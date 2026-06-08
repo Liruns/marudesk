@@ -394,8 +394,14 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
   - **12-A 착지(엔진):** `electron/git-worktree.ts` — 로컬 git repo에 `marudesk/agent/*` 브랜치 worktree를
     add/list/remove, pending 변경 요약, base 브랜치로 머지(충돌 시 abort+worktree 보존, --force 금지)
     / discard. Source Control과 동일한 `runGit` 하드닝(argv-only·SSH 거부·C 로케일) 재사용. 실제 임시
-    repo 대상 `harness:worktree` 24개 통과. **다음(12-B): 활성 root를 worktree로 스왑(에디터/에이전트/
-    git 패널 일관) + 영속/UI를 thread 모델과 함께(앱 검증 필요).**
+    repo 대상 `harness:worktree` 24개 통과.
+  - **12-B-1 착지(격리 배선):** `electron/worktree-isolation.ts` — 워크스페이스 root별 격리 상태(영속) +
+    생애주기(enter/merge/discard) + `effectiveAgentRoot(root)`. 에이전트 실행 경로(loop `startTurn`의 ws
+    + `revertEdit`)가 활성 시 worktree로 라우팅 → 파일 편집·run_command·diagnostics가 격리 브랜치에서
+    동작(에디터/UI는 main 유지, 챗 diff로 검토 후 병합). off면 no-op(동작 변화 0). IPC
+    `git:worktree-{status,enter,merge,discard}` + Source Control 패널 컨트롤. `harness:worktree-iso`
+    20개(순수 직렬화 + 임시 repo 생애주기 + 영속 + stale 복구). **다음(12-B-2): thread 승격(세션→동시
+    thread, per-thread 격리/승인) — 렌더러 재설계라 앱 검증 동반.**
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.

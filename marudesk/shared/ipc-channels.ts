@@ -111,6 +111,11 @@ export const CHANNELS = {
     'git:fetch',
     'git:pull',
     'git:push',
+    // Worktree isolation (Stage 12-B): run the agent in an isolated git worktree.
+    'git:worktree-status',
+    'git:worktree-enter',
+    'git:worktree-merge',
+    'git:worktree-discard',
   ],
   // Workspace content search (electron/search.ts). Prefers ripgrep, falls back
   // to a Node walk reusing the workspace IGNORE_DIRS + binary/size skips.

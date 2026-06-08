@@ -278,6 +278,17 @@ export const EN_MESSAGES = {
   'git.toast.fetch': 'Fetch',
   'git.toast.pull': 'Pull',
   'git.toast.push': 'Push',
+  'git.worktree.title': 'Agent isolation',
+  'git.worktree.runIsolated': 'Run isolated',
+  'git.worktree.runIsolatedHint':
+    'Run the agent in a dedicated git worktree on its own branch; review its changes here, then merge them back or discard.',
+  'git.worktree.active': 'Isolated',
+  'git.worktree.merge': 'Merge back',
+  'git.worktree.discard': 'Discard',
+  'git.worktree.busy': 'Working…',
+  'git.worktree.noChanges': 'No changes yet',
+  'git.worktree.mergeFailed': 'Could not merge',
+  'git.worktree.conflict': 'Merge conflict — resolve it in the worktree, then retry.',
   'appearance.accent.description':
     'Re-skins the whole app - buttons, links, active states and focus rings.',
   'appearance.accent.label': 'Accent',

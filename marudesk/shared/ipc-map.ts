@@ -31,6 +31,7 @@ import type {
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
+import type { WorktreeIsolationStatus, WorktreeMergeResult } from './worktree';
 import type {
   BrowserNativeMenuItem,
   TabKind,
@@ -401,6 +402,11 @@ export interface IpcMap {
   'git:fetch': { args: []; result: GitRemoteResult };
   'git:pull': { args: []; result: GitRemoteResult };
   'git:push': { args: []; result: GitRemoteResult };
+  // Worktree isolation (Stage 12-B): run the agent in an isolated worktree.
+  'git:worktree-status': { args: []; result: WorktreeIsolationStatus };
+  'git:worktree-enter': { args: []; result: WorktreeIsolationStatus };
+  'git:worktree-merge': { args: []; result: WorktreeMergeResult };
+  'git:worktree-discard': { args: []; result: { ok: true } };
 
   // search (content search — electron/search.ts)
   'search:content': {

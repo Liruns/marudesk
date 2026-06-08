@@ -15,6 +15,12 @@ import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, bool, obj, str } from './ipc/validate';
 import { readFileSafe } from './workspace';
 import { parseBranchHeaders, parseStatus, summarize } from './git-parse';
+import {
+  discardIsolation,
+  enterIsolation,
+  isolationStatus,
+  mergeIsolation,
+} from './worktree-isolation';
 
 /**
  * Workspace Source Control (VSCode-style). Every command runs against the open
@@ -389,4 +395,14 @@ export function registerGitHandlers(): void {
   defineHandler('git:fetch', () => remote(requireWorkspace().root, 'fetch'));
   defineHandler('git:pull', () => remote(requireWorkspace().root, 'pull'));
   defineHandler('git:push', () => remote(requireWorkspace().root, 'push'));
+
+  // Worktree isolation (Stage 12-B): drive the agent's isolated worktree for the
+  // active workspace. The lifecycle/state lives in worktree-isolation.ts.
+  defineHandler('git:worktree-status', () => isolationStatus(requireWorkspace().root));
+  defineHandler('git:worktree-enter', () => enterIsolation(requireWorkspace().root));
+  defineHandler('git:worktree-merge', () => mergeIsolation(requireWorkspace().root));
+  defineHandler('git:worktree-discard', async () => {
+    await discardIsolation(requireWorkspace().root);
+    return { ok: true } as const;
+  });
 }

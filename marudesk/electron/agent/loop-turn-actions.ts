@@ -12,6 +12,7 @@ import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { readFileSafe, writeFileForEditor } from '../workspace';
 import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
 import { patchSettings } from '../settings';
+import { effectiveAgentRoot } from '../worktree-isolation';
 import { S, emit } from './loop-state.ts';
 
 /**
@@ -63,6 +64,10 @@ export async function revertEdit(editId: string): Promise<AgentEditActionResult>
   let ws: WorkspaceSummary;
   try {
     ws = requireWorkspace().ws;
+    // Mirror the loop's worktree-isolation routing: when active, the agent wrote
+    // this edit in the worktree, so revert must restore it there (not in main).
+    const eff = effectiveAgentRoot(ws.root);
+    if (eff !== ws.root) ws = { ...ws, root: eff };
   } catch {
     return { ok: false, reason: 'no-workspace' };
   }

@@ -33,6 +33,7 @@ import {
   Section,
 } from './SourceControlPanel.parts';
 import { DiffViewer } from './DiffViewer';
+import { WorktreeIsolationBar } from './WorktreeIsolationBar';
 import { useEditorStore } from '../editor/store';
 
 type Props = {
@@ -270,6 +271,9 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                 <Upload size={13} />
               </IconButton>
             </div>
+
+            {/* Agent worktree isolation (Stage 12-B) — only for a local git repo. */}
+            <WorktreeIsolationBar />
 
             {/* commit box */}
             <div className="shrink-0 p-2 border-b border-subtle">

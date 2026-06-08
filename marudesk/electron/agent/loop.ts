@@ -15,6 +15,7 @@ import { CLAUDE_CODE_SYSTEM_PREFIX } from '../oauth/config';
 import { getSettingsSync, patchSettings } from '../settings';
 import type { AgentApprovalMode, ModelRef, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
+import { effectiveAgentRoot } from '../worktree-isolation';
 import { setNetworkCapture } from '../browser/state';
 import { streamText } from 'ai';
 import { buildModel, aiTools, humanizeModelError, isFailoverError, type ModelAuth } from './model';
@@ -864,6 +865,12 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     let ws: WorkspaceSummary | null = null;
     try {
       ws = requireWorkspace().ws;
+      // Worktree isolation (Stage 12-B): when active for this repo, the agent
+      // operates on the isolated worktree — its file edits, run_command, and
+      // diagnostics all run there. Off ⇒ effectiveAgentRoot returns the same
+      // root, so this is a no-op. The editor/UI keep the main root.
+      const eff = effectiveAgentRoot(ws.root);
+      if (eff !== ws.root) ws = { ...ws, root: eff };
     } catch {
       ws = null;
     }

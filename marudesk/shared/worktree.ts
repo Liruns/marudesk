@@ -48,3 +48,18 @@ export type WorktreeChanges = {
 export type WorktreeMergeResult =
   | { ok: true; merged: boolean; summary: string }
   | { ok: false; reason: 'conflict' | 'error'; message: string };
+
+/**
+ * Worktree-isolation status for one workspace root, surfaced to the renderer
+ * (Stage 12-B). `eligible` is whether the root is a local git repo that COULD be
+ * isolated; when `active`, it also carries the agent branch + pending changes.
+ */
+export type WorktreeIsolationStatus =
+  | { active: false; eligible: boolean }
+  | {
+      active: true;
+      eligible: true;
+      branch: string;
+      worktreePath: string;
+      changes: WorktreeChanges;
+    };

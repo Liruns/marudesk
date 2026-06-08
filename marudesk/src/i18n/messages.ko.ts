@@ -277,6 +277,17 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.toast.fetch': '가져오기',
   'git.toast.pull': 'Pull',
   'git.toast.push': 'Push',
+  'git.worktree.title': '에이전트 격리',
+  'git.worktree.runIsolated': '격리 실행',
+  'git.worktree.runIsolatedHint':
+    '에이전트를 전용 git worktree(별도 브랜치)에서 실행합니다. 변경 사항을 여기서 검토한 뒤 병합하거나 버립니다.',
+  'git.worktree.active': '격리됨',
+  'git.worktree.merge': '병합',
+  'git.worktree.discard': '버리기',
+  'git.worktree.busy': '처리 중…',
+  'git.worktree.noChanges': '아직 변경 없음',
+  'git.worktree.mergeFailed': '병합하지 못했습니다',
+  'git.worktree.conflict': '병합 충돌 — worktree에서 해결한 뒤 다시 시도하세요.',
   'appearance.accent.description':
     '버튼, 링크, 활성 상태, 포커스 링까지 앱 전체 색상을 바꿉니다.',
   'appearance.accent.label': '강조색',

@@ -15,6 +15,7 @@ import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
 import { registerGitHandlers } from './git';
+import { configureWorktreeIsolation } from './worktree-isolation';
 import { registerSearchHandlers } from './search';
 import { registerPatchHandlers } from './patch';
 import { registerSecretsHandlers } from './secrets';
@@ -258,6 +259,13 @@ void app.whenReady().then(() => {
   registerWorkspaceMutateHandlers();
   registerSshHandlers();
   registerGitHandlers();
+  // Worktree isolation (Stage 12-B): restore any in-progress isolated worktree
+  // and point new ones under userData. Fire-and-forget — the agent's
+  // effectiveAgentRoot is a no-op until a worktree is active.
+  void configureWorktreeIsolation({
+    stateFile: path.join(app.getPath('userData'), 'worktree-isolation.json'),
+    worktreesDir: path.join(app.getPath('userData'), 'worktrees'),
+  });
   registerSearchHandlers();
   registerPatchHandlers();
   registerSecretsHandlers();
