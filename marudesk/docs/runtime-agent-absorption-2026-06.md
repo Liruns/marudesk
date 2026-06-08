@@ -446,14 +446,19 @@ browser differentiator and reuses shipped assets.
   `wallTime` is now captured (the monotonic `startTime` isn't comparable with the
   console's wall-clock `timestamp`). Renderer-only projection; navigation /
   agent-action / reload-verify rows remain the later main-side merger.
-- **N4. Confirm the design-benchmark Sprint-1 polish is landed** (custom
-  scrollbar, `--ring` focus, Lucide stroke 1.5, small-text tracking). Tokens for
-  these already exist (`tokens.css` `--ring`, `--scrollbar-*`); verify global CSS
-  applies them, fill gaps. Half-day.
+- **N4. Design-benchmark Sprint-1 polish — SHIPPED (2026-06-08).** Custom
+  scrollbar, `--ring` focus-visible, and positive small-text tracking were already
+  applied (`index.css` / `tokens.css` / tailwind `fontSize`); the remaining gap —
+  global Lucide stroke 1.5 — is now set via `<LucideProvider strokeWidth={1.5}>`
+  at the React root (verified on a real rendered icon).
 
 ### Next — 3-6 weeks
-- **X1. Supervisor rail mode of `ContextDrawer` (§3.5)** with persistent approval
-  badges (benchmark Top4) and the page-action log fed by N3.
+- **X1. Page-action log (§3.5) — SHIPPED (2026-06-08).** Rather than a separate
+  Supervisor rail (redundant with `ThreadBar` + `AgentChat`), the agent's live-page
+  actions now appear as a third source on the **Timeline** (N3): click/fill/scroll/
+  eval/query_dom/reload_and_verify merged onto the same wall-clock axis as console
+  + network, with an All/Problems/Actions filter. Done renderer-only — tool calls
+  already carry name/input/state + `message.timestamp` in agent state.
 - **X2. Network "Triage this" (§3.4). — ALREADY SHIPPED.** *Review finding:* the
   Network detail pane already has one-click agent triage
   (`network-utils.ts buildNetworkFixPrompt` + `askAgent`), mirroring console "Fix
@@ -482,7 +487,12 @@ browser differentiator and reuses shipped assets.
 - **L4. Cached browser workflows (§3.12 later); element inspector source-candidate
   jump (§3.7 later) — SHIPPED (2026-06-08):** ranked source rows on the element
   capture card open the file in the editor.
-- **L5. MCP/plugin install UX (§3.11)** if not already shipped via v6 W2.
+- **L5. Runtime/browser tools as a toggleable group (§3.11) — SHIPPED
+  (2026-06-08):** Agent settings now lists the page/system-acting tool groups
+  (browser/devtools/terminal/web) with their tool names + an on/off switch that
+  gates the group via the existing `agent.denyTools` deny list (new
+  `agent:list-tools` IPC). The broader MCP/plugin install/manage panel remains v6
+  W2's surface.
 
 - **L6. Turn checkpoints (§3.6) — SHIPPED (2026-06-08):** every turn snapshots the
   agent's working tree (`git stash create` — non-destructive) and the session
@@ -492,18 +502,29 @@ browser differentiator and reuses shipped assets.
   `--force`/`reset --hard` — so nothing is destroyed. Verified on a real repo in
   the worktree harness.
 
-> **Verified:** full Playwright e2e **117/117** (incl. timeline, receipt snapshot,
-> worktree lanes), and the git-worktree harness **41 assertions** (incl. the
-> checkpoint "nothing is lost" guarantee).
+> **Verified:** full Playwright e2e **118/118** (incl. timeline + its filter,
+> receipt snapshot, worktree lanes, icon stroke, agent tool catalog), renderer
+> unit tests **54** (incl. timeline row-builders + tool-group toggles), and the
+> git-worktree harness **41 assertions** (incl. the checkpoint "nothing is lost"
+> guarantee).
 >
-> **Reviewed and deliberately NOT built (redundant or a larger subsystem):**
-> - *Standalone Supervisor rail (§3.5)* — redundant. `ThreadBar.tsx` already shows
->   every thread's status/busy (fed by `agent:threads`), and `AgentChat` already
->   renders plan, approvals, and usage. A separate rail would only duplicate them.
+> **Still open (genuinely-new, larger subsystems):**
+> - *Cached browser workflows / spec lifecycle (§3.10/§3.12 later)* — "save this
+>   action → parameterized, model-free replay under `.marudesk/workflows/`": a
+>   record + store + replay engine plus UI. Steering files already shipped.
+> - *Floating in-page stage toolbar (§3.2 later)* and *element→agent fix-loop
+>   (§3.4 later)* — marginal over the shipped Captures flow + console/network
+>   fix loops; each needs its own injected bridge.
+> - *Timeline ↔ edit provenance (§3.9 / X5)* — gated on the unified-diff work.
+>
+> **Reviewed and deliberately NOT built (redundant or needs its own design):**
+> - *Standalone Supervisor rail (§3.5)* — redundant. `ThreadBar.tsx` shows every
+>   thread's status/busy and `AgentChat` renders plan/approvals/usage; the
+>   page-action log it wanted now lives on the Timeline (X1 above).
 > - *Per-lane dev-server / browser / PR / CI Mission Control (§3.8)* — each is a
 >   real subsystem, not a safe quick slice. The read-only lanes board (L1) is the
 >   sensible MVP; "open lane as workspace" was rejected as it would clutter the
->   workspace with throwaway agent trees. The full board warrants its own design.
+>   workspace with throwaway agent trees.
 
 ---
 
