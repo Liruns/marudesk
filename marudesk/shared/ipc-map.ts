@@ -41,6 +41,7 @@ import type {
 } from './worktree';
 import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
+import type { Spec, SpecInput } from './specs';
 import type {
   BrowserNativeMenuItem,
   TabKind,
@@ -442,6 +443,11 @@ export interface IpcMap {
   'workflows:save': { args: [payload: { name: string; steps: WorkflowStep[] }]; result: Workflow };
   'workflows:delete': { args: [payload: { id: string }]; result: boolean };
   'workflows:run': { args: [payload: { id: string }]; result: WorkflowRunResult };
+
+  // spec lifecycle (§3.10 — per-workspace spec docs + task lists)
+  'specs:list': { args: []; result: Spec[] };
+  'specs:save': { args: [input: SpecInput]; result: Spec };
+  'specs:delete': { args: [payload: { id: string }]; result: boolean };
 
   // search (content search — electron/search.ts)
   'search:content': {
