@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, Plus, SendHorizontal, Square, Trash2, X } from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
+import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { openAgentTab, useAgentStore } from '../agent/store';
-import type { Spec, SpecTask } from '../../../shared/specs';
+import { SPEC_STATUSES, type Spec, type SpecStatus, type SpecTask } from '../../../shared/specs';
 
 /**
  * Spec lifecycle panel (§3.10): per-workspace specs (title + markdown body +
@@ -13,6 +14,18 @@ import type { Spec, SpecTask } from '../../../shared/specs';
  */
 function taskProgress(tasks: SpecTask[]): string {
   return `${tasks.filter((t) => t.done).length}/${tasks.length}`;
+}
+
+const STATUS_CLASS: Record<SpecStatus, string> = {
+  draft: 'bg-surface-3 text-fg-tertiary',
+  active: 'bg-accent-subtle text-accent',
+  review: 'bg-warning-subtle text-warning',
+  done: 'bg-success-subtle text-success',
+};
+
+/** Advance the spec through draft → active → review → done → draft. */
+function nextStatus(s: SpecStatus): SpecStatus {
+  return SPEC_STATUSES[(SPEC_STATUSES.indexOf(s) + 1) % SPEC_STATUSES.length];
 }
 
 export function SpecsPanel() {
@@ -34,6 +47,7 @@ export function SpecsPanel() {
       id: spec.id,
       title: spec.title,
       body: spec.body,
+      status: spec.status,
       tasks: spec.tasks,
     });
     setSpecs((cur) => (cur ?? []).map((s) => (s.id === saved.id ? saved : s)));
@@ -106,6 +120,14 @@ export function SpecsPanel() {
                     {taskProgress(spec.tasks)}
                   </span>
                 ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => void persist({ ...spec, status: nextStatus(spec.status) })}
+                title={t('specs.statusTitle')}
+                className={cn('shrink-0 rounded-pill px-1.5 text-caption font-medium', STATUS_CLASS[spec.status])}
+              >
+                {t(`specs.status.${spec.status}`)}
               </button>
               <button
                 type="button"

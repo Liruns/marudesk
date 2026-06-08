@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { requireWorkspace } from '../ipc/define-handler';
-import type { Spec, SpecInput, SpecTask } from '../../shared/specs';
+import { isSpecStatus, type Spec, type SpecInput, type SpecTask } from '../../shared/specs';
 
 /**
  * Per-workspace storage for specs (§3.10) under `.marudesk/specs/*.json`,
@@ -45,6 +45,7 @@ function parseSpec(raw: unknown): Spec | null {
     id: r.id,
     title: typeof r.title === 'string' ? r.title.slice(0, 200) : 'Untitled spec',
     body: typeof r.body === 'string' ? r.body.slice(0, MAX_BODY) : '',
+    status: isSpecStatus(r.status) ? r.status : 'draft',
     tasks: sanitizeTasks(r.tasks),
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0,
     updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : 0,
@@ -89,6 +90,7 @@ export async function saveSpec(input: SpecInput): Promise<Spec> {
     id,
     title: input.title.trim().slice(0, 200) || 'Untitled spec',
     body: typeof input.body === 'string' ? input.body.slice(0, MAX_BODY) : '',
+    status: isSpecStatus(input.status) ? input.status : 'draft',
     tasks: sanitizeTasks(input.tasks),
     createdAt,
     updatedAt: now,

@@ -34,6 +34,7 @@ test('specs: create, update, and delete round-trip', async () => {
     );
     expect(created.id).toMatch(/^spec-/);
     expect(created.tasks).toHaveLength(2);
+    expect(created.status).toBe('draft');
 
     const list = await page.evaluate(() => window.marudesk.invoke('specs:list'));
     expect(list.map((s) => s.id)).toContain(created.id);
@@ -45,6 +46,7 @@ test('specs: create, update, and delete round-trip', async () => {
           id: spec.id,
           title: 'Login flow v2',
           body: spec.body,
+          status: 'review',
           tasks: spec.tasks.map((t) => ({ ...t, done: true })),
         }),
       created,
@@ -52,6 +54,7 @@ test('specs: create, update, and delete round-trip', async () => {
     expect(updated.id).toBe(created.id);
     expect(updated.createdAt).toBe(created.createdAt);
     expect(updated.title).toBe('Login flow v2');
+    expect(updated.status).toBe('review');
     expect(updated.tasks.every((t) => t.done)).toBe(true);
 
     // The file really exists on disk under .marudesk/specs.

@@ -1,6 +1,6 @@
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
-import type { SpecInput, SpecTask } from '../../shared/specs';
+import { isSpecStatus, type SpecInput, type SpecTask } from '../../shared/specs';
 import { deleteSpec, listSpecs, saveSpec } from './store';
 
 /**
@@ -31,6 +31,7 @@ function parseInput(payload: unknown): SpecInput {
     id: typeof p.id === 'string' ? p.id : undefined,
     title: nonEmptyStr(p.title, 'title'),
     body: typeof p.body === 'string' ? p.body : '',
+    status: isSpecStatus(p.status) ? p.status : undefined,
     tasks: parseTasks(p.tasks),
   };
 }
