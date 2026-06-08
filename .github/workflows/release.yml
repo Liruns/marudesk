@@ -1,0 +1,74 @@
+name: Release
+
+# Build and publish marudesk desktop installers.
+#
+# Pushing a version tag (e.g. v0.2.0) builds the app on native runners for each
+# target platform/arch and publishes the artifacts to a GitHub release that
+# matches the package.json version (electron-builder creates it as a draft).
+#
+# A manual run (workflow_dispatch) builds the same matrix but does NOT publish,
+# so you can smoke-test packaging without cutting a release.
+#
+# Mac note: the app is currently unsigned (build.mac.hardenedRuntime=false), so
+# the dmg is download-and-run. In-app auto-update stays Windows-only until the
+# Mac build is code-signed/notarized (see electron/updater.ts).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS (arm64)
+            os: macos-14
+            args: --mac dmg --arm64
+          - label: macOS (x64)
+            os: macos-13
+            args: --mac dmg --x64
+          - label: Windows (x64)
+            os: windows-latest
+            args: --win nsis --x64
+    defaults:
+      run:
+        working-directory: marudesk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: marudesk/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron
+        run: npm run rebuild:native
+
+      - name: Build renderer and main bundles
+        run: npm run build
+
+      - name: Package and publish
+        # Publish only when the workflow was triggered by a version tag; a manual
+        # dispatch builds the matrix without touching a release.
+        run: npx electron-builder ${{ matrix.args }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # electron-builder reads GH_TOKEN for GitHub publishing.
