@@ -311,6 +311,21 @@ export type BackgroundTask = {
   collected: boolean;
 };
 
+/**
+ * One open conversation thread as the renderer's thread switcher sees it (Stage
+ * 12-B-2). The user can hold several threads and switch between them; the active
+ * one drives the main chat. A projection of the main-process thread registry.
+ */
+export type ThreadSummary = {
+  id: string;
+  title: string;
+  status: AgentStatus;
+  active: boolean;
+  /** True while this thread has a turn in flight. */
+  busy: boolean;
+  messageCount: number;
+};
+
 export function emptyAgentChatState(): AgentChatState {
   return {
     turnId: null,

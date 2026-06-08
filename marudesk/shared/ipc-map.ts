@@ -11,6 +11,7 @@ import type {
   AgentEditActionResult,
   AgentSendInput,
   AgentSendResult,
+  ThreadSummary,
 } from './agent';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { DiagnosticsState } from './diagnostics';
@@ -527,6 +528,11 @@ export interface IpcMap {
   };
   'agent:resume-session': { args: [payload: { id: string }]; result: boolean };
   'agent:delete-session': { args: [payload: { id: string }]; result: boolean };
+  // threads (Stage 12-B-2 — concurrent conversation switching)
+  'agent:list-threads': { args: []; result: ThreadSummary[] };
+  'agent:new-thread': { args: []; result: ThreadSummary[] };
+  'agent:switch-thread': { args: [payload: { id: string }]; result: ThreadSummary[] };
+  'agent:close-thread': { args: [payload: { id: string }]; result: ThreadSummary[] };
 
   // storage (Data & Storage settings panel): read store stats (backend +
   // session count + bytes), clear all saved sessions, and reveal the userData

@@ -164,6 +164,11 @@ export const CHANNELS = {
     'agent:search-sessions',
     'agent:resume-session',
     'agent:delete-session',
+    // Thread switching (Stage 12-B-2): hold + switch between concurrent chats.
+    'agent:list-threads',
+    'agent:new-thread',
+    'agent:switch-thread',
+    'agent:close-thread',
   ],
   // Local data store management — Settings → Data & Storage reads stats, clears
   // saved sessions, and reveals the data folder (docs/data-storage-design).

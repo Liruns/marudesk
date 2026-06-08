@@ -11,15 +11,19 @@ import {
   abortTurn,
   acceptEdit,
   approveTool,
+  closeThread,
   compactConversation,
   deleteSavedSession,
   listSavedSessions,
+  listThreads,
+  newThread,
   reset,
   respond,
   resumeSession,
   revertEdit,
   snapshot,
   startTurn,
+  switchThread,
   testProviderConnection,
 } from './loop';
 
@@ -132,6 +136,24 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:delete-session', ([payload]) =>
     deleteSavedSession(nonEmptyStr(obj(payload).id, 'id')),
   );
+
+  // Thread switching (Stage 12-B-2): hold several conversations and switch the
+  // active one. new/switch/close return the refreshed thread list; switching also
+  // emits the target thread's state so the chat re-renders. Switching is refused
+  // mid-turn (loop.switchThread guards busy), so the list comes back unchanged.
+  defineHandler('agent:list-threads', () => listThreads());
+  defineHandler('agent:new-thread', () => {
+    switchThread(newThread());
+    return listThreads();
+  });
+  defineHandler('agent:switch-thread', ([payload]) => {
+    switchThread(nonEmptyStr(obj(payload).id, 'id'));
+    return listThreads();
+  });
+  defineHandler('agent:close-thread', ([payload]) => {
+    closeThread(nonEmptyStr(obj(payload).id, 'id'));
+    return listThreads();
+  });
 
   // Built-in context MCP mirror: cache the renderer's latest editor/explorer
   // snapshot so the read_editor / read_explorer tools can read it (main can't

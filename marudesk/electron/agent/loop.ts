@@ -60,6 +60,13 @@ import {
   type ApprovalDecision,
 } from './loop-state.ts';
 export { subscribeAgentEvents } from './loop-state.ts';
+export {
+  listThreads,
+  newThread,
+  switchThread,
+  closeThread,
+  activeThreadId,
+} from './loop-state.ts';
 import { persistSession } from './loop-sessions.ts';
 export { reset, resumeSession, listSavedSessions, deleteSavedSession } from './loop-sessions.ts';
 import { compactConversation } from './loop-compaction.ts';

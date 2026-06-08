@@ -411,8 +411,14 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
     `worktree-isolation.ts`가 active 대화 id(주입된 accessor)로 키잉, 각 thread가 자기 worktree를 가져
     같은 repo의 동시 thread가 독립 격리(충돌 없음). 대화별 영속이라 resume 시 격리 복원. effectiveAgentRoot
     시그니처 불변(내부에서 thread 해소) → loop/revert 변경 없음. `harness:worktree-iso` 28개(per-thread
-    독립 격리/discard 격리 포함). **남은 12-B-2: foreground loop 동시 실행(싱글턴 S→thread 레지스트리)
-    + 렌더러 동시 thread UI — 싱글턴 loop 재설계라 앱 검증 동반.**
+    독립 격리/discard 격리 포함).
+  - **12-B-2 착지(thread 레지스트리):** 싱글턴 `S`를 thread 레지스트리로 승격 — `export let S`가 활성
+    컨테이너를 가리키는 ESM 라이브 바인딩(switch는 idle일 때만 → turn 중 컨테이너 스왑 불가, 기존 동작
+    바이트 보존). new/switch/close/list thread + mid-turn 가드. IPC `agent:{list,new,switch,close}-thread`
+    + `agent:threads` 이벤트 + `ThreadBar` 렌더러(탭 전환/생성/닫기). `harness:threads` 18개. 기존
+    background/subagent/bridge 하니스 전부 통과(= S 전환이 단일-thread 동작 보존 확인). **남은: 진짜
+    동시 foreground 실행(runLoop를 전역 S 대신 캡처한 컨테이너로 파라미터화) — 현재는 thread당 1턴씩,
+    idle 시 전환. 앱 검증 동반 권장.**
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.
