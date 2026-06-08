@@ -52,6 +52,15 @@ export function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${++S.seq}`;
 }
 
+/**
+ * The active conversation (thread) id, or null when no chat has started. Used to
+ * scope worktree isolation per thread (Stage 12-B-2) without coupling the
+ * isolation module to the loop's S container.
+ */
+export function activeConversationId(): string | null {
+  return S.conversationId;
+}
+
 export function busy(): boolean {
   return (
     S.state.status === 'thinking' ||

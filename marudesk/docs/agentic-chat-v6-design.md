@@ -407,8 +407,12 @@ thread(승격) → automations 순으로 분리하고, 각 분리분이 독립 P
     allowTools로 추가 축소, run_command/eval_js 불가). 스토어(CRUD/영속) + 스케줄러(find-due→run→record,
     in-flight 중복 방지) + Settings UI. `harness:automations` 30개(스케줄 수학·직렬화·CRUD·due·스케줄러).
     쓰기 가능 automations(worktree 격리 + 통합 승인 큐 전제)는 후속.
-  - **다음(12-B-2): thread 승격(세션→동시 thread, per-thread 격리/승인) — 싱글턴 loop 재설계 + 렌더러라
-    앱 검증 동반.**
+  - **12-B-2 착지(per-thread 격리):** worktree 격리를 (thread, repo root)별로 일반화 —
+    `worktree-isolation.ts`가 active 대화 id(주입된 accessor)로 키잉, 각 thread가 자기 worktree를 가져
+    같은 repo의 동시 thread가 독립 격리(충돌 없음). 대화별 영속이라 resume 시 격리 복원. effectiveAgentRoot
+    시그니처 불변(내부에서 thread 해소) → loop/revert 변경 없음. `harness:worktree-iso` 28개(per-thread
+    독립 격리/discard 격리 포함). **남은 12-B-2: foreground loop 동시 실행(싱글턴 S→thread 레지스트리)
+    + 렌더러 동시 thread UI — 싱글턴 loop 재설계라 앱 검증 동반.**
 - **W1 B-레이어**: 읽기뷰 해시앵커(A 폴백은 착지). read_file 출력 포맷 변경이라 회귀 위험 큼 → 신중.
 - **W4/U3**: subagent 라이브 스트리밍(main subagent-runtime → emit 채널).
 - **W6 잔여**: trusted MCP 서버 per-tool 게이팅.

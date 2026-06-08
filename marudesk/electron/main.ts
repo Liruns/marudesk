@@ -16,6 +16,7 @@ import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
 import { registerGitHandlers } from './git';
 import { configureWorktreeIsolation } from './worktree-isolation';
+import { activeConversationId } from './agent/loop-state';
 import { configureAutomationStore } from './automations/store';
 import { startScheduler } from './automations/scheduler';
 import { createAutomationRunner } from './automations/run';
@@ -269,6 +270,8 @@ void app.whenReady().then(() => {
   void configureWorktreeIsolation({
     stateFile: path.join(app.getPath('userData'), 'worktree-isolation.json'),
     worktreesDir: path.join(app.getPath('userData'), 'worktrees'),
+    // Stage 12-B-2: scope isolation to the active conversation thread.
+    getActiveThreadId: activeConversationId,
   });
   // Automations (Stage 12-C): load saved scheduled prompts, register IPC, and
   // start the periodic tick that runs due ones as detached read-only agents.
