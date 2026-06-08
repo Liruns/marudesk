@@ -83,19 +83,50 @@ export function getSettingsSync(): AppSettings {
   return cache ?? structuredClone(DEFAULT_SETTINGS);
 }
 
+/** Broadcast captured at handler registration so main-side writers can notify renderers. */
+let broadcastFn: ((settings: AppSettings) => void) | null = null;
+
+/**
+ * Serializes all writes (settings:set IPC + main-side patchSettings) so concurrent
+ * read-modify-write calls can't clobber each other — each runs after the previous
+ * has persisted (and updated the cache), so it merges onto the latest state.
+ */
+let writeChain: Promise<unknown> = Promise.resolve();
+
+/**
+ * Merge a partial over the current settings, persist, and broadcast — the
+ * main-process twin of the `settings:set` IPC, for code that needs to write a
+ * setting itself (e.g. the agent loop persisting a per-tool "Allow always",
+ * v6 §W7). Goes through the same sanitize + atomic-write + broadcast path, and is
+ * serialized against every other write so a fire-and-forget call can't race.
+ */
+export async function patchSettings(partial: unknown): Promise<AppSettings> {
+  const run = async (): Promise<AppSettings> => {
+    const current = await load();
+    const next = sanitizeSettings(mergeDeep(current, partial), current);
+    await persist(next);
+    broadcastFn?.(next);
+    return next;
+  };
+  const result = writeChain.then(run, run);
+  // Keep the chain alive even if a write rejects (don't wedge later writes).
+  writeChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 export function registerSettingsHandlers(deps: {
   broadcast: (settings: AppSettings) => void;
 }): void {
+  broadcastFn = deps.broadcast;
+
   defineHandler('settings:get', () => load());
 
-  defineHandler('settings:set', async ([partial]) => {
-    const current = await load();
-    // Deep-merge the partial over current and re-validate everything.
-    const next = sanitizeSettings(mergeDeep(current, partial), current);
-    await persist(next);
-    deps.broadcast(next);
-    return next;
-  });
+  // Delegate to patchSettings so the renderer's writes share the same serialized
+  // sanitize + atomic-write + broadcast path as main-side writers.
+  defineHandler('settings:set', ([partial]) => patchSettings(partial));
 
   defineHandler('settings:reset', async () => {
     const next = structuredClone(DEFAULT_SETTINGS);

@@ -1,9 +1,11 @@
 import type { ContextSyncPayload, EditorMirror, ExplorerMirror } from '../../shared/context';
+import type { AgentPlanStepStatus } from '../../shared/agent';
 import { isProviderId } from '../../shared/providers';
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { updateContextCache } from './context-cache';
 import { cancelBackgroundTask } from './background';
+import { editPlanStep } from './plan';
 import { parseAbort, parseApprove, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
 import {
@@ -97,6 +99,15 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:cancel-background', ([payload]) =>
     cancelBackgroundTask(nonEmptyStr(obj(payload).id, 'id')),
   );
+
+  // Steerable plan (v6 §U5): the user toggles a step's status or removes it.
+  defineHandler('agent:edit-plan-step', ([payload]) => {
+    const p = obj(payload);
+    return editPlanStep(nonEmptyStr(p.id, 'id'), {
+      status: typeof p.status === 'string' ? (p.status as AgentPlanStepStatus) : undefined,
+      remove: p.remove === true,
+    });
+  });
 
   defineHandler('agent:snapshot', () => snapshot());
 

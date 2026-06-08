@@ -489,6 +489,11 @@ export interface IpcMap {
   'agent:revert-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
   // User-initiated cancel of a running background agent from the tray (audit H6).
   'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
+  // Steerable plan (v6 §U5): user toggles a step's status or removes it.
+  'agent:edit-plan-step': {
+    args: [payload: { id: string; status?: string; remove?: boolean }];
+    result: boolean;
+  };
   // Pull the current chat state (initial render / re-mount).
   'agent:snapshot': { args: []; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
@@ -519,10 +524,11 @@ export interface IpcMap {
   // the agent has remembered, edit a note's body, or delete one. Backed by the
   // same memory-store the agent's list/read/write_memory tools use.
   'memory:list': { args: []; result: MemoryEntry[] };
+  'memory:search': { args: [payload: { query: string }]; result: MemoryEntry[] };
   'memory:read': { args: [payload: { name: string }]; result: MemoryEntryFull | null };
   'memory:write': {
     args: [payload: { name: string; body: string }];
-    result: { ok: boolean; name: string; reason?: string };
+    result: { ok: boolean; name: string; reason?: string; evicted?: string[] };
   };
   'memory:delete': { args: [payload: { name: string }]; result: boolean };
 

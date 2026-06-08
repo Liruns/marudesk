@@ -148,6 +148,25 @@ export type AppSettings = {
      * Auto always applies (the user opted out of confirmations).
      */
     editApproval: 'auto-apply' | 'preview';
+    /**
+     * Per-tool deny list (v6 §W7) — gated tools the agent may never run, blocked
+     * outright in EVERY mode (the tool-level twin of {@link denyGlobs} for files).
+     * e.g. `run_command`, `eval_js`. Manageable in Settings → Agent. Empty = none.
+     */
+    denyTools: string[];
+    /**
+     * Tools the user chose "Allow always" for, persisted across sessions (v6
+     * §W7/U10) so a trusted gated tool isn't re-prompted in every new conversation.
+     * Reviewable/revocable in Settings → Agent. A deny entry always wins over this.
+     */
+    alwaysAllowTools: string[];
+    /**
+     * Delegate model for role routing (v6 §G5/U7). When set, spawned subagents and
+     * background agents default to THIS model instead of inheriting the parent's —
+     * route delegated subtasks to a cheaper/faster model to cut cost. The model can
+     * still override per-call; null = inherit the parent model (default, no change).
+     */
+    subagentModel: ModelRef | null;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -269,6 +288,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     verifyCommand: '',
     contextCommand: '',
     editApproval: 'auto-apply',
+    denyTools: [],
+    alwaysAllowTools: [],
+    subagentModel: null,
   },
   pcControl: {
     enabled: false,
@@ -355,6 +377,15 @@ const MAX_FALLBACK_MODELS = 20;
  * fields non-empty strings, capped. A non-array falls back; an all-invalid array
  * yields []; an empty array is honored (the user cleared the chain).
  */
+function asModelRefOrNull(value: unknown, fallback: ModelRef | null): ModelRef | null {
+  if (value === null) return null;
+  if (value === undefined) return fallback;
+  const r = asRecord(value);
+  const provider = typeof r.provider === 'string' ? r.provider.trim() : '';
+  const model = typeof r.model === 'string' ? r.model.trim() : '';
+  return provider && model ? { provider, model } : fallback;
+}
+
 function asModelRefArray(value: unknown, fallback: ModelRef[]): ModelRef[] {
   if (!Array.isArray(value)) return fallback;
   const out: ModelRef[] = [];
@@ -454,6 +485,9 @@ export function sanitizeSettings(
       verifyCommand: asString(ag.verifyCommand, base.agent.verifyCommand),
       contextCommand: asString(ag.contextCommand, base.agent.contextCommand),
       editApproval: ag.editApproval === 'preview' ? 'preview' : base.agent.editApproval,
+      denyTools: asStringArray(ag.denyTools, base.agent.denyTools),
+      alwaysAllowTools: asStringArray(ag.alwaysAllowTools, base.agent.alwaysAllowTools),
+      subagentModel: asModelRefOrNull(ag.subagentModel, base.agent.subagentModel),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   isPatchOpArray,
+  locatePatch,
   type AppliedChange,
   type ApplyError,
   type ApplyOutcome,
@@ -129,24 +130,19 @@ async function classifyOp(root: string, op: PatchOp): Promise<PatchOpPreview> {
     return { kind: 'error', path: op.path, reason: (err as Error).message };
   }
 
-  const first = content.indexOf(op.oldString);
-  if (first < 0) {
+  const match = locatePatch(content, op.oldString);
+  if (!match.ok) {
     return {
       kind: 'error',
       path: op.path,
-      reason: 'oldString not found in file',
-    };
-  }
-  const second = content.indexOf(op.oldString, first + op.oldString.length);
-  if (second >= 0) {
-    return {
-      kind: 'error',
-      path: op.path,
-      reason: 'oldString matches multiple locations; must be unique',
+      reason:
+        match.reason === 'ambiguous'
+          ? 'oldString matches multiple locations; must be unique'
+          : 'oldString not found in file',
     };
   }
 
-  const startLine = content.slice(0, first).split('\n').length;
+  const startLine = content.slice(0, match.start).split('\n').length;
 
   return {
     kind: 'edit',
@@ -220,19 +216,19 @@ export async function applyPatch(
         planErrors.push({ path: op.path, reason: (err as Error).message });
         continue;
       }
-      const idx = content.indexOf(op.oldString);
-      const second = content.indexOf(op.oldString, idx + op.oldString.length);
-      if (idx < 0 || second >= 0) {
+      const match = locatePatch(content, op.oldString);
+      if (!match.ok) {
         planErrors.push({
           path: op.path,
-          reason: 'oldString match changed between preview and apply',
+          reason:
+            match.reason === 'ambiguous'
+              ? 'oldString matches multiple locations; must be unique'
+              : 'oldString match changed between preview and apply',
         });
         continue;
       }
       const nextContent =
-        content.slice(0, idx) +
-        op.newString +
-        content.slice(idx + op.oldString.length);
+        content.slice(0, match.start) + op.newString + content.slice(match.end);
       plans.push({
         kind: 'edit',
         op,

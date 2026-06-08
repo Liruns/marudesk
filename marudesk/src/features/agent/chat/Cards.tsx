@@ -11,8 +11,10 @@ import {
   Circle,
   CircleDot,
   Loader2,
+  MessageSquare,
   RotateCcw,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { Badge, Button, DiffBlock } from '../../../components/ui';
 import { useI18n } from '../../../i18n/useI18n';
@@ -27,9 +29,14 @@ import type {
   PendingApproval,
   PendingQuestions,
 } from '../../../../shared/agent';
-import { useAgentStore } from '../store';
+import { useAgentStore, useAgentBusy } from '../store';
 import { toDiffLines, diffStats } from '../diff';
 import { formatChangedFiles, formatRuntimeChecks, type Receipt } from './format';
+import {
+  useDiffCommentsStore,
+  countDiffComments,
+  composeDiffCommentsPrompt,
+} from './diffComments';
 
 /* ── edits (P2: accept / revert) ────────────────────────────────────────── */
 
@@ -48,6 +55,22 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
   const { locale, t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
+  const submitPrompt = useAgentStore((s) => s.submitPrompt);
+  const busy = useAgentBusy();
+  // Inline review comments the user has staged on these diffs (v6 §U1). When any
+  // exist, the header shows a "Send N comments" action that composes them into one
+  // feedback turn for the agent, then clears them.
+  const commentsByEdit = useDiffCommentsStore((s) => s.byEdit);
+  const clearComments = useDiffCommentsStore((s) => s.clearAll);
+  const commentCount = countDiffComments(commentsByEdit);
+  const sendComments = async () => {
+    const prompt = composeDiffCommentsPrompt(edits, commentsByEdit, t);
+    const res = await submitPrompt(prompt);
+    if (res.ok) clearComments();
+    else if (res.reason && res.reason !== 'busy') {
+      toast({ title: t('agent.chat.comments.sendFailed'), description: res.reason, variant: 'error' });
+    }
+  };
   // Which file diffs are expanded. "Expand all" fills it; per-file toggles flip
   // a single id. Kept here (not per card) so the bulk control can drive them.
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
@@ -85,6 +108,17 @@ export function ChangesSection({ edits }: { readonly edits: readonly AgentEdit[]
         <span className="tabular-nums text-success">+{totals.added}</span>
         <span className="tabular-nums text-error">−{totals.removed}</span>
         <span className="flex-1" aria-hidden />
+        {commentCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => void sendComments()}
+            disabled={busy}
+            className="flex items-center gap-1 text-accent hover:text-accent-hover transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed"
+            title={t('agent.chat.comments.sendTitle')}
+          >
+            <MessageSquare size={12} /> {t('agent.chat.comments.send')} ({commentCount})
+          </button>
+        ) : null}
         {applied.length > 0 ? (
           <>
             <button
@@ -145,7 +179,10 @@ function EditCard({
   const { t } = useI18n();
   const acceptEdit = useAgentStore((s) => s.acceptEdit);
   const revertEdit = useAgentStore((s) => s.revertEdit);
+  const comments = useDiffCommentsStore((s) => s.byEdit[edit.id]);
+  const setComment = useDiffCommentsStore((s) => s.setComment);
   const lines = open ? toDiffLines(edit.before, edit.after) : [];
+  const commentCount = comments ? Object.keys(comments).length : 0;
 
   return (
     <div className="rounded border border-subtle bg-surface-1">
@@ -159,6 +196,14 @@ function EditCard({
         >
           {edit.path}
         </button>
+        {commentCount > 0 ? (
+          <span
+            className="flex items-center gap-0.5 text-caption text-accent shrink-0"
+            title={t('agent.chat.comments.count')}
+          >
+            <MessageSquare size={11} /> {commentCount}
+          </span>
+        ) : null}
         {edit.status === 'applied' ? (
           <div className="flex items-center gap-1">
             <button
@@ -187,7 +232,15 @@ function EditCard({
           </Badge>
         )}
       </div>
-      {open ? <DiffBlock filePath={edit.path} lines={lines} className="rounded-none border-0 border-t border-subtle" /> : null}
+      {open ? (
+        <DiffBlock
+          filePath={edit.path}
+          lines={lines}
+          className="rounded-none border-0 border-t border-subtle"
+          comments={comments}
+          onCommentChange={(lineIndex, text) => setComment(edit.id, lineIndex, text)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -323,12 +376,106 @@ export function QuestionsCard({ pending }: { pending: PendingQuestions }) {
   );
 }
 
+/* ── error recovery (v6 §W5/U4) ──────────────────────────────────────────── */
+
+type RecoveryKey =
+  | 'agent.chat.recovery.suggest.apiKey'
+  | 'agent.chat.recovery.suggest.permission'
+  | 'agent.chat.recovery.suggest.notFound'
+  | 'agent.chat.recovery.suggest.timeout'
+  | 'agent.chat.recovery.suggest.rateLimit'
+  | 'agent.chat.recovery.suggest.generic';
+
+/** Map a failure message to a plain-language next step (heuristic, best-effort). */
+function recoverySuggestion(error: string): RecoveryKey {
+  const e = error.toLowerCase();
+  if (/api key|unauthor|\b401\b|invalid.*key/.test(e)) return 'agent.chat.recovery.suggest.apiKey';
+  if (/permission|denied|eacces|blocked|deny glob/.test(e)) return 'agent.chat.recovery.suggest.permission';
+  if (/not found|enoent|no such file|oldstring not found/.test(e)) return 'agent.chat.recovery.suggest.notFound';
+  if (/timeout|timed out/.test(e)) return 'agent.chat.recovery.suggest.timeout';
+  if (/rate limit|\b429\b|quota|overloaded/.test(e)) return 'agent.chat.recovery.suggest.rateLimit';
+  return 'agent.chat.recovery.suggest.generic';
+}
+
+/**
+ * Shown in place of a bare failed-turn error string (v6 §W5/U4): the full error
+ * (expandable), a heuristic next-step hint, and a one-click Retry — optionally
+ * steered by a short instruction — that re-prompts the agent with the failure
+ * context instead of leaving the user to retype everything. Replaces the previous
+ * static, truncated error line.
+ */
+export function ErrorRecoveryCard({ error }: { error: string }) {
+  const { t } = useI18n();
+  const submitPrompt = useAgentStore((s) => s.submitPrompt);
+  const busy = useAgentBusy();
+  const [guidance, setGuidance] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  const long = error.length > 200;
+
+  const retry = async () => {
+    const tail = guidance.trim() || t('agent.chat.recovery.defaultTail');
+    const prompt = `${t('agent.chat.recovery.promptHeader')}\n\n${error}\n\n${tail}`;
+    const res = await submitPrompt(prompt);
+    if (res.ok) setGuidance('');
+    else if (res.reason && res.reason !== 'busy') {
+      toast({ title: t('agent.chat.recovery.retryFailed'), description: res.reason, variant: 'error' });
+    }
+  };
+
+  return (
+    <div className="rounded border border-error/40 bg-error-subtle/40 p-2.5 flex flex-col gap-2">
+      <div className="flex items-start gap-2 text-body-sm text-fg-primary">
+        <AlertCircle size={14} className="mt-0.5 shrink-0 text-error" />
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="break-words">
+            {long && !expanded ? `${error.slice(0, 200)}…` : error}
+          </span>
+          {long ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="self-start text-caption text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
+            >
+              {expanded ? t('agent.chat.recovery.less') : t('agent.chat.recovery.more')}
+            </button>
+          ) : null}
+          <span className="text-caption text-fg-tertiary">{t(recoverySuggestion(error))}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          value={guidance}
+          onChange={(e) => setGuidance(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !busy) {
+              e.preventDefault();
+              void retry();
+            }
+          }}
+          placeholder={t('agent.chat.recovery.guidancePlaceholder')}
+          className="h-7 flex-1 rounded bg-surface-page border border-default px-2 text-body-sm text-fg-primary focus:outline-none focus:border-accent"
+        />
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => void retry()}>
+          <RotateCcw size={12} /> {t('agent.chat.recovery.retry')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /* ── plan / taskboard (v5 §G2) ───────────────────────────────────────────── */
 
 const PLAN_STATUS_ICON: Record<AgentPlanStepStatus, typeof Circle> = {
   pending: Circle,
   in_progress: CircleDot,
   done: CheckCircle2,
+};
+
+/** Click-cycle order for a step's status (v6 §U5 steerable plan). */
+const NEXT_PLAN_STATUS: Record<AgentPlanStepStatus, AgentPlanStepStatus> = {
+  pending: 'in_progress',
+  in_progress: 'done',
+  done: 'pending',
 };
 
 /** Scroll the transcript to the message a plan step is anchored to (§G2/C). The
@@ -347,6 +494,7 @@ function jumpToMessage(messageId: string): void {
  */
 export function Taskboard({ plan }: { readonly plan: AgentPlan | null }) {
   const { t } = useI18n();
+  const editPlanStep = useAgentStore((s) => s.editPlanStep);
   const [open, setOpen] = useState(true);
   if (!plan || plan.steps.length === 0) return null;
   const done = plan.steps.filter((s) => s.status === 'done').length;
@@ -374,38 +522,54 @@ export function Taskboard({ plan }: { readonly plan: AgentPlan | null }) {
             const Icon = PLAN_STATUS_ICON[step.status];
             const jumpable = !!step.anchorMessageId;
             return (
-              <li key={step.id}>
+              <li
+                key={step.id}
+                className="group flex items-start gap-2 rounded px-1 py-0.5 text-body-sm hover:bg-surface-3 transition-colors duration-fast"
+              >
+                {/* Status icon = click to cycle pending → in_progress → done (§U5). */}
                 <button
                   type="button"
-                  disabled={!jumpable}
-                  onClick={() => jumpable && jumpToMessage(step.anchorMessageId!)}
-                  title={jumpable ? t('agent.chat.plan.jump') : undefined}
-                  className={cn(
-                    'flex w-full items-start gap-2 rounded px-1 py-0.5 text-left text-body-sm',
-                    jumpable && 'hover:bg-surface-3 transition-colors duration-fast cursor-pointer',
-                  )}
+                  onClick={() => void editPlanStep(step.id, { status: NEXT_PLAN_STATUS[step.status] })}
+                  title={t('agent.chat.plan.toggle')}
+                  aria-label={t('agent.chat.plan.toggle')}
+                  className="mt-0.5 shrink-0"
                 >
                   <Icon
                     size={13}
                     className={cn(
-                      'mt-0.5 shrink-0',
                       step.status === 'done' && 'text-success',
                       step.status === 'in_progress' && 'text-accent',
                       step.status === 'pending' && 'text-fg-tertiary',
                     )}
                   />
-                  <div className="min-w-0">
-                    <span
-                      className={cn(
-                        step.status === 'done' ? 'text-fg-tertiary line-through' : 'text-fg-primary',
-                      )}
-                    >
-                      {step.title}
-                    </span>
-                    {step.note ? (
-                      <div className="truncate text-caption text-fg-tertiary">{step.note}</div>
-                    ) : null}
-                  </div>
+                </button>
+                {/* Title = jump to where the step was worked on (when anchored). */}
+                <button
+                  type="button"
+                  disabled={!jumpable}
+                  onClick={() => jumpable && jumpToMessage(step.anchorMessageId!)}
+                  title={jumpable ? t('agent.chat.plan.jump') : undefined}
+                  className={cn('min-w-0 flex-1 text-left', jumpable && 'cursor-pointer')}
+                >
+                  <span
+                    className={cn(
+                      step.status === 'done' ? 'text-fg-tertiary line-through' : 'text-fg-primary',
+                    )}
+                  >
+                    {step.title}
+                  </span>
+                  {step.note ? (
+                    <div className="truncate text-caption text-fg-tertiary">{step.note}</div>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void editPlanStep(step.id, { remove: true })}
+                  title={t('agent.chat.plan.remove')}
+                  aria-label={t('agent.chat.plan.remove')}
+                  className="shrink-0 opacity-0 group-hover:opacity-100 text-fg-tertiary hover:text-error transition-all duration-fast"
+                >
+                  <X size={12} />
                 </button>
               </li>
             );

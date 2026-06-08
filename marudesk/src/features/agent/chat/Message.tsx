@@ -27,6 +27,7 @@ import {
   TOOL_META,
 } from './format';
 import { ChatImage, MediaGallery } from './Media';
+import { ArtifactView } from './Artifact';
 
 /* ── messages ───────────────────────────────────────────────────────────── */
 
@@ -201,15 +202,19 @@ export const MessageView = memo(function MessageView({
         // media (images/videos) renders inline regardless of verbosity so a
         // "make me an image" turn always shows the result, not just a file path.
         const media = part.call.media;
+        const artifact = part.call.artifact;
         const card =
           verbosity === 'summary' ? null : (
             <ToolCardView call={part.call} defaultOpen={verbosity === 'verbose'} />
           );
-        if (!media?.length) return card ? <div key={i}>{card}</div> : null;
+        // Generated media and interactive artifacts render inline regardless of
+        // verbosity (the result, not just a tool card / file path).
+        if (!media?.length && !artifact) return card ? <div key={i}>{card}</div> : null;
         return (
           <div key={i} className="flex flex-col gap-2">
             {card}
-            <MediaGallery media={media} />
+            {media?.length ? <MediaGallery media={media} /> : null}
+            {artifact ? <ArtifactView artifact={artifact} /> : null}
           </div>
         );
       })}

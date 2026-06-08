@@ -1,5 +1,6 @@
 import type { ProviderId } from '../../shared/providers';
 import { isProviderId } from '../../shared/providers';
+import { getSettingsSync } from '../settings';
 import type { ToolContext } from './tools/types';
 import {
   DEFAULT_CHILD_STEPS,
@@ -41,11 +42,19 @@ export function parseSubagentRequest(
 ): SubagentRunRequest {
   const task = stringInput(input.task, 'task').trim();
   if (!task) throw new SubagentInputError('spawn_subagent requires a non-empty task.');
-  const provider = providerInput(input.provider, ctx.provider);
+  // Role routing (v6 §G5): when a delegate model is configured, blank/omitted
+  // provider+model inherit IT instead of the parent's model (cheaper subtasks).
+  // The model can still pass an explicit provider/model to override. Falls back to
+  // the parent when the delegate is unset or its provider isn't a known id.
+  const delegate = getSettingsSync().agent.subagentModel;
+  const useDelegate = !!delegate && isProviderId(delegate.provider);
+  const fbProvider = useDelegate ? (delegate!.provider as ProviderId) : ctx.provider;
+  const fbModel = useDelegate ? delegate!.model : ctx.model;
+  const provider = providerInput(input.provider, fbProvider);
   if (!provider) {
     throw new SubagentInputError('spawn_subagent requires provider, or a parent provider context.');
   }
-  const model = modelInput(input.model, ctx.model);
+  const model = modelInput(input.model, fbModel);
   if (!model) throw new SubagentInputError('spawn_subagent requires model, or a parent model context.');
   const label = stringInput(input.label, 'label', task).trim().slice(0, MAX_LABEL_CHARS);
   return {

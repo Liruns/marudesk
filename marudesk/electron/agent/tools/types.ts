@@ -59,6 +59,8 @@ export type ToolResult = {
    * {@link ToolMediaArtifact}.
    */
   media?: ToolMediaArtifact[];
+  /** An interactive HTML artifact produced by this call (create_artifact, §G4/U6). */
+  artifact?: { title: string; html: string };
 };
 
 export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;

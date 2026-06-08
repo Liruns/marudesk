@@ -16,6 +16,7 @@ import { IMAGE_GENERATION_TOOL } from './image-generation';
 import { VIDEO_GENERATION_TOOL } from './video-generation';
 import { WEB_SEARCH_TOOL } from './web-search';
 import { FETCH_URL_TOOL } from './fetch-url';
+import { CREATE_ARTIFACT_TOOL } from './artifact';
 
 /**
  * The MCP descriptor layer (docs/context-mcp-design §1.1) — pairs each tool's
@@ -74,6 +75,7 @@ export const BUILTIN_TOOLS: McpTool[] = [
   VIDEO_GENERATION_TOOL,
   WEB_SEARCH_TOOL,
   FETCH_URL_TOOL,
+  CREATE_ARTIFACT_TOOL,
   ...TOOL_SCHEMAS.flatMap((s) => {
   if (s.name === ASK_USER) return [];
   const exec = EXECUTORS[s.name];

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowDown, ArrowUp, Plus as PlusIcon, X } from 'lucide-react';
 import {
   isProviderId,
@@ -8,7 +8,7 @@ import {
 import type { ModelRef } from '../../../shared/settings';
 import { useI18n } from '../../i18n/useI18n';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
-import { useProvidersStore } from '../providers/store';
+import { useConnectedToolModels } from './useConnectedModels';
 import { STEP_BTN } from './settingsControlStyles';
 
 type FallbackChainProps = {
@@ -18,31 +18,16 @@ type FallbackChainProps = {
 
 export function FallbackChain({ order, onChange }: FallbackChainProps) {
   const { t } = useI18n();
-  const models = useProvidersStore((s) => s.models);
-  const providerStatus = useProvidersStore((s) => s.providerStatus);
-  const statusChecked = useProvidersStore((s) => s.statusChecked);
-  const refreshProviderStatus = useProvidersStore((s) => s.refreshProviderStatus);
+  const { models, toolModels, isConnected } = useConnectedToolModels();
   const [adding, setAdding] = useState(false);
 
-  useEffect(() => {
-    if (!statusChecked) void refreshProviderStatus();
-  }, [statusChecked, refreshProviderStatus]);
-
-  const isConnected = (provider: string) => {
-    if (provider.startsWith('custom:')) return true;
-    const status = providerStatus.find((candidate) => candidate.id === provider);
-    return !!status?.hasKey || !!status?.oauth;
-  };
   const labelFor = (ref: ModelRef) =>
     models.find((model) => model.provider === ref.provider && model.id === ref.model)
       ?.label ?? ref.model;
 
   const inChain = new Set(order.map((ref) => `${ref.provider}:${ref.model}`));
-  const candidates = models.filter(
-    (model) =>
-      model.tools !== false &&
-      isConnected(model.provider) &&
-      !inChain.has(`${model.provider}:${model.id}`),
+  const candidates = toolModels.filter(
+    (model) => !inChain.has(`${model.provider}:${model.id}`),
   );
 
   const move = (index: number, direction: -1 | 1) => {

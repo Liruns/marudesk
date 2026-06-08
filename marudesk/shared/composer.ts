@@ -4,6 +4,8 @@ import type { StackFrameLite } from './runtime-evidence';
 type CapturePayloadBase = {
   id: string;
   url: string;
+  /** Optional user note forwarded with the capture (v6 §U2). */
+  comment?: string;
 };
 
 /** An inspected DOM element forwarded to the LLM context (see {@link Capture}). */
@@ -51,6 +53,7 @@ export function isCapturePayload(value: unknown): value is CapturePayload {
   const v = value as Record<string, unknown>;
   if (typeof v.id !== 'string' || v.id.length === 0) return false;
   if (typeof v.url !== 'string') return false;
+  if (v.comment !== undefined && typeof v.comment !== 'string') return false;
 
   if (v.kind === 'console-error') {
     if (typeof v.message !== 'string') return false;

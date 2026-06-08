@@ -9,6 +9,7 @@ import {
   TextField,
 } from './SettingsControls';
 import { FallbackChain } from './FallbackChain';
+import { DelegateModelField } from './DelegateModelField';
 import { useSettingsStore } from './store';
 
 export function AgentCategory() {
@@ -106,6 +107,26 @@ export function AgentCategory() {
         />
       </Field>
       <Field
+        label={t('settings.agent.denyTools.label')}
+        hint={t('settings.agent.denyTools.hint')}
+      >
+        <GlobsField
+          value={agent.denyTools}
+          onCommit={(denyTools) => void update({ agent: { denyTools } })}
+        />
+      </Field>
+      {agent.alwaysAllowTools.length > 0 ? (
+        <Field
+          label={t('settings.agent.alwaysAllow.label')}
+          hint={t('settings.agent.alwaysAllow.hint')}
+        >
+          <GlobsField
+            value={agent.alwaysAllowTools}
+            onCommit={(alwaysAllowTools) => void update({ agent: { alwaysAllowTools } })}
+          />
+        </Field>
+      ) : null}
+      <Field
         label={t('settings.agent.verifyCommand.label')}
         hint={t('settings.agent.verifyCommand.hint')}
       >
@@ -147,6 +168,15 @@ export function AgentCategory() {
           />
         </div>
       ) : null}
+      <Field
+        label={t('settings.agent.delegateModel.label')}
+        hint={t('settings.agent.delegateModel.hint')}
+      >
+        <DelegateModelField
+          value={agent.subagentModel}
+          onChange={(subagentModel) => void update({ agent: { subagentModel } })}
+        />
+      </Field>
       <Field
         label={t('settings.agent.autoCompact.label')}
         hint={t('settings.agent.autoCompact.hint')}
