@@ -8,6 +8,7 @@ import {
   type AgentChatState,
   type ThreadSummary,
 } from '../../shared/agent';
+import type { WorkspaceId } from '../../shared/workspace';
 
 /** Approval decision from the UI: approved/denied, plus "always for this session". */
 export type ApprovalDecision = { approved: boolean; always: boolean };
@@ -22,6 +23,7 @@ export type ApprovalDecision = { approved: boolean; always: boolean };
  * out from under it. Every module that did `S.state = …` keeps working unchanged.
  */
 export type ThreadContainer = {
+  workspaceId: WorkspaceId | null;
   state: AgentChatState;
   // The provider-neutral running transcript (multi-turn). Kept valid at all times
   // (every tool_use is answered by a tool_result) so a later turn can reuse it.
@@ -50,8 +52,9 @@ export type ThreadContainer = {
   conversationTitle: string;
 };
 
-function makeThreadContainer(): ThreadContainer {
+function makeThreadContainer(workspaceId: WorkspaceId | null = null): ThreadContainer {
   return {
+    workspaceId,
     state: emptyAgentChatState(),
     transcript: [],
     controller: null,
@@ -74,6 +77,7 @@ export const MAIN_THREAD = 'main';
 
 /** The live thread registry (foreground conversations the user can switch between). */
 const threads = new Map<string, ThreadContainer>();
+const activeThreadIdsByWorkspace = new Map<WorkspaceId, string>();
 let activeId: string = MAIN_THREAD;
 
 /** The ACTIVE thread's container. A live binding — see {@link switchThread}. */
@@ -119,6 +123,36 @@ export function containers(): ThreadContainer[] {
   return [...threads.values()];
 }
 
+function activeThreadIdForWorkspace(workspaceId: WorkspaceId): string | null {
+  const active = activeThreadIdsByWorkspace.get(workspaceId);
+  if (active && threads.get(active)?.workspaceId === workspaceId) return active;
+  const first = [...threads.entries()].find(([, c]) => c.workspaceId === workspaceId)?.[0] ?? null;
+  if (first) activeThreadIdsByWorkspace.set(workspaceId, first);
+  return first;
+}
+
+function workspaceThreadIds(): WorkspaceId[] {
+  return [
+    ...new Set(
+      [...threads.values()]
+        .map((container) => container.workspaceId)
+        .filter((workspaceId): workspaceId is WorkspaceId => workspaceId !== null),
+    ),
+  ];
+}
+
+export function containerForWorkspace(workspaceId: WorkspaceId | undefined): ThreadContainer {
+  if (!workspaceId) return S;
+  const active = activeThreadIdForWorkspace(workspaceId);
+  if (active) return threads.get(active)!;
+  const id = uid('thread');
+  const container = makeThreadContainer(workspaceId);
+  threads.set(id, container);
+  activeThreadIdsByWorkspace.set(workspaceId, id);
+  emitThreads();
+  return container;
+}
+
 /** Whether a specific container has a turn in flight. */
 export function containerBusy(c: ThreadContainer): boolean {
   return isBusy(c);
@@ -145,21 +179,25 @@ export function activeThreadId(): string {
 }
 
 /** Every open thread (active first is NOT guaranteed — the UI sorts/marks active). */
-export function listThreads(): ThreadSummary[] {
-  return [...threads.entries()].map(([id, c]) => ({
+export function listThreads(workspaceId?: WorkspaceId): ThreadSummary[] {
+  const activeWorkspaceThreadId = workspaceId ? activeThreadIdForWorkspace(workspaceId) : null;
+  return [...threads.entries()]
+    .filter(([, c]) => (workspaceId ? c.workspaceId === workspaceId : c.workspaceId === null))
+    .map(([id, c]) => ({
     id,
+    ...(c.workspaceId ? { workspaceId: c.workspaceId } : {}),
     title: c.conversationTitle || 'New chat',
     status: c.state.status,
-    active: id === activeId,
+    active: workspaceId ? id === activeWorkspaceThreadId : id === activeId,
     busy: isBusy(c),
     messageCount: c.state.messages.length,
   }));
 }
 
 /** Create a new, empty foreground thread and return its id (does NOT switch to it). */
-export function newThread(): string {
+export function newThread(workspaceId?: WorkspaceId): string {
   const id = uid('thread');
-  threads.set(id, makeThreadContainer());
+  threads.set(id, makeThreadContainer(workspaceId ?? null));
   emitThreads();
   return id;
 }
@@ -170,10 +208,18 @@ export function newThread(): string {
  * thread runs — the running turn keeps mutating its own container. Returns false
  * only if the id is unknown.
  */
-export function switchThread(id: string): boolean {
-  if (id === activeId) return true;
+export function switchThread(id: string, workspaceId?: WorkspaceId): boolean {
   const target = threads.get(id);
   if (!target) return false;
+  if (workspaceId) {
+    if (target.workspaceId !== workspaceId) return false;
+    activeThreadIdsByWorkspace.set(workspaceId, id);
+    emitContainer(target);
+    emitThreads();
+    return true;
+  }
+  if (target.workspaceId !== null) return false;
+  if (id === activeId) return true;
   activeId = id;
   S = target;
   emit();
@@ -185,13 +231,27 @@ export function switchThread(id: string): boolean {
  * Close a thread. Refuses to close the last one. Aborts its turn if running, and
  * switches to another thread when closing the active one.
  */
-export function closeThread(id: string): boolean {
-  if (threads.size <= 1 || !threads.has(id)) return false;
+export function closeThread(id: string, workspaceId?: WorkspaceId): boolean {
+  const scopedThreads = workspaceId
+    ? [...threads.entries()].filter(([, c]) => c.workspaceId === workspaceId)
+    : [...threads.entries()].filter(([, c]) => c.workspaceId === null);
+  if (scopedThreads.length <= 1 || !threads.has(id)) return false;
   const c = threads.get(id)!;
+  if (workspaceId && c.workspaceId !== workspaceId) return false;
+  if (!workspaceId && c.workspaceId !== null) return false;
   if (isBusy(c)) c.controller?.abort();
   threads.delete(id);
-  if (id === activeId) {
-    const next = [...threads.keys()][0];
+  if (workspaceId) {
+    if (activeThreadIdsByWorkspace.get(workspaceId) === id) {
+      const next = scopedThreads.find(([threadId]) => threadId !== id)?.[0] ?? null;
+      if (next) activeThreadIdsByWorkspace.set(workspaceId, next);
+      else activeThreadIdsByWorkspace.delete(workspaceId);
+      const nextContainer = next ? threads.get(next) : null;
+      if (nextContainer) emitContainer(nextContainer);
+    }
+  } else if (id === activeId) {
+    const next = [...threads.entries()].find(([, thread]) => thread.workspaceId === null)?.[0];
+    if (!next) return false;
     activeId = next;
     S = threads.get(next)!;
     emit();
@@ -203,6 +263,7 @@ export function closeThread(id: string): boolean {
 /** Test-only reset of the registry to a single empty main thread. */
 export function __resetThreadsForTests(): void {
   threads.clear();
+  activeThreadIdsByWorkspace.clear();
   seq = 0;
   activeId = MAIN_THREAD;
   S = makeThreadContainer();
@@ -224,6 +285,7 @@ export function resetThreadsForProfileSwitch(): void {
     }
   }
   threads.clear();
+  activeThreadIdsByWorkspace.clear();
   seq = 0;
   activeId = MAIN_THREAD;
   S = makeThreadContainer();
@@ -275,8 +337,25 @@ export const emit = coalesced(() => {
 /** Coalesced push of just the thread list (summaries), for non-active activity. */
 export const emitThreads = coalesced(() => {
   const host = getHost();
-  if (host && !host.isDestroyed()) host.webContents.send('agent:threads', listThreads());
+  if (host && !host.isDestroyed()) {
+    host.webContents.send('agent:threads', listThreads());
+    for (const workspaceId of workspaceThreadIds()) {
+      host.webContents.send('agent:workspace-threads', {
+        workspaceId,
+        threads: listThreads(workspaceId),
+      });
+    }
+  }
 });
+
+function emitWorkspaceContainer(c: ThreadContainer): void {
+  if (!c.workspaceId) return;
+  c.state.approvalMode = getSettingsSync().agent.approvalMode;
+  const host = getHost();
+  if (host && !host.isDestroyed()) {
+    host.webContents.send('agent:workspace-event', { workspaceId: c.workspaceId, state: c.state });
+  }
+}
 
 /**
  * Emit for a specific turn's container (Stage 12-B-2). The ACTIVE thread gets the
@@ -286,6 +365,7 @@ export const emitThreads = coalesced(() => {
  * is exactly the old `emit()`.
  */
 export function emitContainer(c: ThreadContainer): void {
+  emitWorkspaceContainer(c);
   if (c === S) emit();
   else emitThreads();
 }

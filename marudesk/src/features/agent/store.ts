@@ -1,4 +1,6 @@
-import { create } from 'zustand';
+import { createContext, createElement, useContext, type ReactNode } from 'react';
+import { useStore } from 'zustand';
+import { createStore, type StoreApi } from 'zustand/vanilla';
 import type {
   AgentAnswers,
   AgentChatState,
@@ -9,12 +11,14 @@ import { emptyAgentChatState } from '../../../shared/agent';
 import type { CapturePayload } from '../../../shared/composer';
 import type { SessionSummary } from '../../../shared/context';
 import type { CheckpointRestore } from '../../../shared/worktree';
+import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
 import { useGitStore } from '../git/store';
 import { useProvidersStore } from '../providers/store';
 import { useTabsStore } from '../tabs/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import {
   formatAttachedFilesForPrompt,
   mergeFileAttachments,
@@ -41,9 +45,18 @@ const VERBOSITY_KEY = 'marudesk.agent.verbosity';
 const HISTORY_KEY = 'marudesk.agent.promptHistory';
 const HISTORY_CAP = 100;
 
-function loadHistory(): string[] {
+function normalizeAgentWorkspaceId(workspaceId: WorkspaceId | undefined): WorkspaceId | undefined {
+  return workspaceId && workspaceId !== SYSTEM_WORKSPACE_ID ? workspaceId : undefined;
+}
+
+function scopedStorageKey(base: string, workspaceId: WorkspaceId | undefined): string {
+  const scope = normalizeAgentWorkspaceId(workspaceId);
+  return scope ? `${base}.${scope}` : base;
+}
+
+function loadHistory(key: string): string[] {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
@@ -52,9 +65,9 @@ function loadHistory(): string[] {
   }
   return [];
 }
-function loadVerbosity(): TranscriptVerbosity {
+function loadVerbosity(key: string): TranscriptVerbosity {
   try {
-    const v = localStorage.getItem(VERBOSITY_KEY);
+    const v = localStorage.getItem(key);
     if (v === 'summary' || v === 'normal' || v === 'verbose') return v;
   } catch {
     // ignore — fall back to the default
@@ -174,14 +187,35 @@ function maybeRefreshGitForEdits(chat: AgentChatState): void {
   void useGitStore.getState().refresh();
 }
 
-export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
+type AgentStore = AgentState & AgentActions;
+type AgentStoreApi = StoreApi<AgentStore>;
+
+const AgentWorkspaceContext = createContext<WorkspaceId | undefined>(undefined);
+const GLOBAL_AGENT_SCOPE = '__global__';
+const agentStores = new Map<string, AgentStoreApi>();
+
+function scopeKey(workspaceId: WorkspaceId | undefined): string {
+  return normalizeAgentWorkspaceId(workspaceId) ?? GLOBAL_AGENT_SCOPE;
+}
+
+function scopedPayload(workspaceId: WorkspaceId | undefined): { workspaceId?: WorkspaceId } {
+  const scope = normalizeAgentWorkspaceId(workspaceId);
+  return scope ? { workspaceId: scope } : {};
+}
+
+function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
+  const scope = normalizeAgentWorkspaceId(workspaceId);
+  const historyKey = scopedStorageKey(HISTORY_KEY, scope);
+  const verbosityKey = scopedStorageKey(VERBOSITY_KEY, scope);
+
+  return createStore<AgentStore>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
   pendingImages: [],
   pendingFiles: [],
-  promptHistory: loadHistory(),
+  promptHistory: loadHistory(historyKey),
   queuedPrompts: [],
-  verbosity: loadVerbosity(),
+  verbosity: loadVerbosity(verbosityKey),
   localError: null,
   sessions: [],
 
@@ -217,7 +251,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   setVerbosity: (verbosity) => {
     try {
-      localStorage.setItem(VERBOSITY_KEY, verbosity);
+      localStorage.setItem(verbosityKey, verbosity);
     } catch {
       // ignore — the in-memory value still updates
     }
@@ -241,7 +275,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   hydrate: async () => {
     try {
-      const chat = await window.marudesk.invoke('agent:snapshot');
+      const chat = await window.marudesk.invoke('agent:snapshot', scopedPayload(workspaceId));
       set({ chat });
     } catch {
       // best-effort; the next agent:event will populate it
@@ -259,7 +293,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
     // Record the prompt for up/down recall (dedupe consecutive repeats, cap len).
     const history = [...get().promptHistory.filter((h) => h !== text), text].slice(-HISTORY_CAP);
     try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      localStorage.setItem(historyKey, JSON.stringify(history));
     } catch {
       // ignore — in-memory history still updates
     }
@@ -297,6 +331,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
         provider,
         model,
         prompt,
+        ...scopedPayload(scope),
         captures,
         images: images && images.length > 0 ? images : undefined,
         tabId: activeWebTabId(),
@@ -349,7 +384,10 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   acceptEdit: async (editId) => {
     try {
-      return await window.marudesk.invoke('agent:accept-edit', { editId });
+      return await window.marudesk.invoke('agent:accept-edit', {
+        ...scopedPayload(workspaceId),
+        editId,
+      });
     } catch {
       return { ok: false };
     }
@@ -359,7 +397,10 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   // silent no-op is what the audit flagged — e.g. a stale-file refusal).
   revertEdit: async (editId) => {
     try {
-      return await window.marudesk.invoke('agent:revert-edit', { editId });
+      return await window.marudesk.invoke('agent:revert-edit', {
+        ...scopedPayload(workspaceId),
+        editId,
+      });
     } catch {
       return { ok: false };
     }
@@ -405,7 +446,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   resetChat: async () => {
     try {
-      await window.marudesk.invoke('agent:reset');
+      await window.marudesk.invoke('agent:reset', scopedPayload(workspaceId));
       useDiffCommentsStore.getState().clearAll();
       set({ localError: null });
       // The conversation just cleared was persisted on its last finish() — refresh
@@ -418,7 +459,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   compact: async (focus?: string) => {
     try {
-      return await window.marudesk.invoke('agent:compact', focus);
+      return await window.marudesk.invoke('agent:compact', { ...scopedPayload(workspaceId), focus });
     } catch (err) {
       return { ok: false, reason: toMessage(err) };
     }
@@ -426,7 +467,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   loadSessions: async () => {
     try {
-      const sessions = await window.marudesk.invoke('agent:list-sessions');
+      const sessions = await window.marudesk.invoke('agent:list-sessions', scopedPayload(workspaceId));
       set({ sessions });
     } catch {
       // best-effort; keep the prior list
@@ -435,7 +476,10 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   resumeSession: async (id) => {
     try {
-      const ok = await window.marudesk.invoke('agent:resume-session', { id });
+      const ok = await window.marudesk.invoke('agent:resume-session', {
+        ...scopedPayload(workspaceId),
+        id,
+      });
       if (ok) {
         useDiffCommentsStore.getState().clearAll();
         set({ localError: null });
@@ -448,13 +492,63 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
 
   deleteSession: async (id) => {
     try {
-      await window.marudesk.invoke('agent:delete-session', { id });
+      await window.marudesk.invoke('agent:delete-session', { ...scopedPayload(workspaceId), id });
       await get().loadSessions();
     } catch {
       // ignore
     }
   },
-}));
+  }));
+}
+
+export function getAgentStoreForWorkspace(workspaceId: WorkspaceId | undefined): AgentStoreApi {
+  const scope = normalizeAgentWorkspaceId(workspaceId);
+  const key = scopeKey(scope);
+  const existing = agentStores.get(key);
+  if (existing) return existing;
+  const created = createAgentStore(scope);
+  agentStores.set(key, created);
+  return created;
+}
+
+export function AgentScopeProvider({
+  workspaceId,
+  children,
+}: {
+  workspaceId?: WorkspaceId;
+  children?: ReactNode;
+}) {
+  return createElement(
+    AgentWorkspaceContext.Provider,
+    { value: normalizeAgentWorkspaceId(workspaceId) },
+    children,
+  );
+}
+
+export function useAgentWorkspaceId(): WorkspaceId | undefined {
+  return useContext(AgentWorkspaceContext);
+}
+
+type AgentStoreHook = {
+  <T>(selector: (state: AgentStore) => T): T;
+  getState: AgentStoreApi['getState'];
+  setState: AgentStoreApi['setState'];
+  subscribe: AgentStoreApi['subscribe'];
+};
+
+const defaultAgentStore = getAgentStoreForWorkspace(undefined);
+
+export const useAgentStore = Object.assign(
+  <T,>(selector: (state: AgentStore) => T): T => {
+    const workspaceId = useAgentWorkspaceId();
+    return useStore(getAgentStoreForWorkspace(workspaceId), selector);
+  },
+  {
+    getState: defaultAgentStore.getState,
+    setState: defaultAgentStore.setState,
+    subscribe: defaultAgentStore.subscribe,
+  },
+) as AgentStoreHook;
 
 /**
  * Whether a turn is in flight — model thinking, tools running, or parked on an
@@ -470,15 +564,28 @@ export const useAgentBusy = (): boolean =>
   );
 
 /**
- * Open (or focus) the singleton full-surface AI Chat tab (v3 §5-B). The drawer
- * companion and this tab project the same single conversation, so this never
- * forks state — it just gives the chat a roomier home.
+ * Open (or focus) the full-surface AI Chat tab for the target workspace. Other
+ * workspaces keep separate tab/session state.
  */
-export async function openAgentTab(): Promise<void> {
+function resolveAgentWorkspaceId(workspaceId?: WorkspaceId): WorkspaceId | undefined {
+  const requested = normalizeAgentWorkspaceId(workspaceId);
+  if (requested) return requested;
   const tabsState = useTabsStore.getState();
-  const existing = tabsState.tabs.find((t) => t.kind === 'agent');
+  const activeTab = tabsState.tabs.find((t) => t.id === tabsState.activeTabId);
+  return normalizeAgentWorkspaceId(
+    activeTab?.workspaceId ?? useWorkspaceDeckStore.getState().activeWorkspaceId ?? undefined,
+  );
+}
+
+export async function openAgentTab(workspaceId?: WorkspaceId): Promise<void> {
+  const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);
+  const tabsState = useTabsStore.getState();
+  const existing = tabsState.tabs.find(
+    (t) =>
+      t.kind === 'agent' && normalizeAgentWorkspaceId(t.workspaceId) === targetWorkspaceId,
+  );
   if (existing) await tabsState.activateTab(existing.id);
-  else await tabsState.newTab('agent');
+  else await tabsState.newTab('agent', undefined, targetWorkspaceId);
 }
 
 /**
@@ -490,8 +597,9 @@ export async function openAgentTab(): Promise<void> {
  * prompt simply waits in the composer.
  */
 export async function askAgent(prompt: string): Promise<void> {
-  await openAgentTab();
-  const store = useAgentStore.getState();
+  const workspaceId = resolveAgentWorkspaceId();
+  await openAgentTab(workspaceId);
+  const store = getAgentStoreForWorkspace(workspaceId).getState();
   store.setDraft(prompt);
   await store.send();
 }

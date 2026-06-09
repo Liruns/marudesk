@@ -1,6 +1,11 @@
 import { CHANNELS } from './ipc-channels.ts';
 import type { Capture } from './capture';
-import type { AgentChatState, ThreadSummary } from './agent';
+import type {
+  AgentChatState,
+  AgentWorkspaceEvent,
+  AgentWorkspaceThreadsEvent,
+  ThreadSummary,
+} from './agent';
 import type { LaneDevState } from './lanes';
 import type { NavState, TabsSnapshot } from './browser';
 import type { DownloadEntry } from './downloads';
@@ -90,6 +95,8 @@ export interface EventPayloadMap {
   // tick) whenever a turn advances. The renderer replaces its projection
   // wholesale — see docs/agentic-chat-design.md §8.
   'agent:event': AgentChatState;
+  'agent:workspace-event': AgentWorkspaceEvent;
+  'agent:workspace-threads': AgentWorkspaceThreadsEvent;
   // Open conversation threads (Stage 12-B-2), pushed on every agent emit + on
   // thread create/switch/close so the thread switcher stays live.
   'agent:threads': ThreadSummary[];
@@ -156,6 +163,8 @@ export const EVENT_CHANNELS = [
   'devtools:inspect-at',
   'devtools:error-count',
   'agent:event',
+  'agent:workspace-event',
+  'agent:workspace-threads',
   'agent:threads',
   'lanes:dev-state',
   'workspaces:state',

@@ -57,11 +57,13 @@ import { runContextHook, runVerifyNote } from './loop-commands.ts';
 import {
   emitContainer,
   currentContainer,
+  containerForWorkspace,
   containerBusy,
   uid,
   type ApprovalDecision,
   type ThreadContainer,
 } from './loop-state.ts';
+import { getWorkspaceSummary } from '../workspace-registry';
 export { subscribeAgentEvents } from './loop-state.ts';
 export {
   listThreads,
@@ -885,7 +887,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
   // it up front means the turn sets up + runs on the thread the user sent to even
   // if they switch away during the async auth resolve below. `busy()` checks the
   // active thread — a turn already running on ANOTHER thread doesn't block this.
-  const S = currentContainer();
+  const S = input.workspaceId ? containerForWorkspace(input.workspaceId) : currentContainer();
   // `S.starting` closes the window between this check and `S.state.status` going
   // busy (there's an auth-resolution await before we set it), so two
   // near-simultaneous sends can't both set up a turn and clobber `S.controller`.
@@ -901,7 +903,8 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // unlocks the file tools.
     let ws: WorkspaceSummary | null = null;
     try {
-      ws = requireWorkspace().ws;
+      ws = input.workspaceId ? getWorkspaceSummary(input.workspaceId) : requireWorkspace().ws;
+      if (!ws) throw new Error('no workspace is open');
       // Worktree isolation (Stage 12-B): when active for this repo, the agent
       // operates on the isolated worktree — its file edits, run_command, and
       // diagnostics all run there. Off ⇒ effectiveAgentRoot returns the same

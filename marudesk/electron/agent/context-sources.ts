@@ -197,14 +197,14 @@ export const CONTEXT_TOOLS: McpTool[] = [
     group: 'sessions',
     description: 'List previous AI Chat sessions (most recent first) with their id, title, model, and message count. Use to recall earlier conversations.',
     inputSchema: obj({ limit: { type: 'number', description: 'Max sessions (default 20).' } }),
-    exec: (input) => listSessionsTool(input),
+    exec: (input, ctx) => listSessionsTool(input, ctx),
   },
   {
     name: 'read_session',
     group: 'sessions',
     description: 'Read a previous session\'s transcript (flattened to text) by id (from list_sessions). Secret-scrubbed.',
     inputSchema: obj({ id: strProp('Session id from list_sessions.') }, ['id']),
-    exec: (input) => readSessionTool(input),
+    exec: (input, ctx) => readSessionTool(input, ctx),
   },
   {
     name: 'delete_session',
@@ -214,7 +214,7 @@ export const CONTEXT_TOOLS: McpTool[] = [
     description:
       'Delete a saved chat session by id (from list_sessions). Destructive and irreversible — asks for approval. Use to remove a session the user no longer wants kept.',
     inputSchema: obj({ id: strProp('Session id from list_sessions.') }, ['id']),
-    exec: (input) => deleteSessionTool(input),
+    exec: (input, ctx) => deleteSessionTool(input, ctx),
   },
   {
     name: 'list_memory',

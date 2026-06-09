@@ -561,8 +561,14 @@ export interface IpcMap {
     result: boolean;
   };
   // Keep (accept) or restore (revert `before`) one applied edit — roadmap P2.
-  'agent:accept-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
-  'agent:revert-edit': { args: [payload: { editId: string }]; result: AgentEditActionResult };
+  'agent:accept-edit': {
+    args: [payload: { editId: string; workspaceId?: WorkspaceId }];
+    result: AgentEditActionResult;
+  };
+  'agent:revert-edit': {
+    args: [payload: { editId: string; workspaceId?: WorkspaceId }];
+    result: AgentEditActionResult;
+  };
   // Restore the live page to where it was when a turn started (runtime-aware
   // rollback): re-navigate the web tab to the turn's start URL if the agent moved
   // it. Pairs with "Revert all" (which restores the turn's file edits).
@@ -581,28 +587,31 @@ export interface IpcMap {
     result: boolean;
   };
   // Pull the current chat state (initial render / re-mount).
-  'agent:snapshot': { args: []; result: AgentChatState };
+  'agent:snapshot': { args: [payload?: { workspaceId?: WorkspaceId }]; result: AgentChatState };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
-  'agent:reset': { args: []; result: boolean };
+  'agent:reset': { args: [payload?: { workspaceId?: WorkspaceId }]; result: boolean };
   // Compact the conversation: summarize the transcript for the model while
   // keeping the visible scrollback (claude-code / codex `/compact`). An optional
   // `focus` (from `/compact <focus>`) asks the summarizer to preserve specific
   // details. Returns ok, or a reason when there's nothing to compact.
-  'agent:compact': { args: [focus?: string]; result: { ok: boolean; reason?: string } };
+  'agent:compact': {
+    args: [payload?: { focus?: string; workspaceId?: WorkspaceId }];
+    result: { ok: boolean; reason?: string };
+  };
   // Session history (v3 §5-C): list past saved conversations, resume one as the
   // active chat, or delete one. The list backs the sessions UI; resume swaps state.
-  'agent:list-sessions': { args: []; result: SessionSummary[] };
+  'agent:list-sessions': { args: [payload?: { workspaceId?: WorkspaceId }]; result: SessionSummary[] };
   'agent:search-sessions': {
-    args: [payload: { query: string }];
+    args: [payload: { query: string; workspaceId?: WorkspaceId }];
     result: SessionSearchHit[];
   };
-  'agent:resume-session': { args: [payload: { id: string }]; result: boolean };
-  'agent:delete-session': { args: [payload: { id: string }]; result: boolean };
+  'agent:resume-session': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: boolean };
+  'agent:delete-session': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: boolean };
   // threads (Stage 12-B-2 — concurrent conversation switching)
-  'agent:list-threads': { args: []; result: ThreadSummary[] };
-  'agent:new-thread': { args: []; result: ThreadSummary[] };
-  'agent:switch-thread': { args: [payload: { id: string }]; result: ThreadSummary[] };
-  'agent:close-thread': { args: [payload: { id: string }]; result: ThreadSummary[] };
+  'agent:list-threads': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
+  'agent:new-thread': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
+  'agent:switch-thread': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
+  'agent:close-thread': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
 
   // storage (Data & Storage settings panel): read store stats (backend +
   // session count + bytes), clear all saved sessions, and reveal the userData

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import type { SessionRecord } from '../../shared/context';
 import {
   S,
   activeThreadId,
   busy,
   closeThread,
+  containerForWorkspace,
   emit,
   listThreads,
   newThread,
@@ -11,7 +13,15 @@ import {
   MAIN_THREAD,
   __resetThreadsForTests,
 } from './loop-state.ts';
-import { abortTurn, approveTool, respond } from './loop-turn-actions.ts';
+import { deleteSavedSession, listSavedSessions, resumeSession } from './loop-sessions.ts';
+import {
+  deleteSessionTool,
+  listSessionsTool,
+  readSessionTool,
+} from './context-executors.ts';
+import { clearAllSessions, readSession, saveSession } from './sessions-store.ts';
+import { abortTurn, acceptEdit, approveTool, respond, revertEdit } from './loop-turn-actions.ts';
+import type { ToolContext } from './tools/types.ts';
 
 /**
  * Harness for the Stage 12-B-2 thread registry: new/switch/close + the mid-turn
@@ -26,7 +36,26 @@ function check(label: string, cond: boolean): void {
   console.log(`  ok ${passed} - ${label}`);
 }
 
-function main(): void {
+function sessionRecord(id: string, title: string, workspaceId?: string): SessionRecord {
+  const now = Date.now();
+  return {
+    id,
+    ...(workspaceId ? { workspaceId } : {}),
+    title,
+    createdAt: now,
+    updatedAt: now,
+    provider: 'ollama',
+    model: 'qwen-test',
+    messageCount: 0,
+    messages: [],
+    usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
+    transcript: [],
+    edits: [],
+    plan: null,
+  };
+}
+
+async function main(): Promise<void> {
   __resetThreadsForTests();
 
   check('starts with a single main thread, active', listThreads().length === 1 && activeThreadId() === MAIN_THREAD);
@@ -110,7 +139,108 @@ function main(): void {
   check('abortTurn routes by turnId + aborts that thread', abortTurn('turnB') === true && bCtrl.signal.aborted === true);
   check('abortTurn for an unknown turnId is rejected', abortTurn('nope') === false);
 
+  // ── workspace scoping: threads and edit actions ─────────────────────────
+  __resetThreadsForTests();
+  const alphaThread = newThread('alpha');
+  const betaThread = newThread('beta');
+  check('unscoped thread list excludes workspace threads', listThreads().every((t) => !t.workspaceId));
+  check(
+    'workspace thread list includes only that workspace',
+    listThreads('alpha').length === 1 && listThreads('alpha')[0]?.id === alphaThread,
+  );
+  check('workspace switch rejects another workspace thread', switchThread(betaThread, 'alpha') === false);
+  check('workspace close rejects another workspace thread', closeThread(betaThread, 'alpha') === false);
+  check('unscoped switch rejects a workspace thread id', switchThread(alphaThread) === false);
+  check('unscoped close rejects a workspace thread id', closeThread(alphaThread) === false);
+
+  const alphaContainer = containerForWorkspace('alpha');
+  alphaContainer.state.edits.push({
+    id: 'edit-alpha-accept',
+    turnId: 'turn-alpha',
+    path: 'alpha.txt',
+    kind: 'create',
+    before: null,
+    after: 'alpha',
+    status: 'applied',
+    timestamp: 1,
+  });
+  check(
+    'acceptEdit rejects an edit from another workspace',
+    acceptEdit('edit-alpha-accept', 'beta').ok === false &&
+      alphaContainer.state.edits[0]?.status === 'applied',
+  );
+  check(
+    'acceptEdit accepts an edit from the owning workspace',
+    acceptEdit('edit-alpha-accept', 'alpha').ok === true &&
+      alphaContainer.state.edits[0]?.status === 'accepted',
+  );
+  alphaContainer.state.edits.push({
+    id: 'edit-alpha-revert',
+    turnId: 'turn-alpha',
+    path: 'alpha-revert.txt',
+    kind: 'create',
+    before: null,
+    after: 'alpha',
+    status: 'applied',
+    timestamp: 2,
+  });
+  const rejectedRevert = await revertEdit('edit-alpha-revert', 'beta');
+  check(
+    'revertEdit rejects an edit from another workspace before touching disk',
+    rejectedRevert.ok === false &&
+      rejectedRevert.reason === 'not-found' &&
+      alphaContainer.state.edits[1]?.status === 'applied',
+  );
+
+  // ── workspace scoping: saved sessions ───────────────────────────────────
+  await clearAllSessions();
+  await saveSession(sessionRecord('session-alpha', 'Alpha session', 'alpha'));
+  await saveSession(sessionRecord('session-beta', 'Beta session', 'beta'));
+  await saveSession(sessionRecord('session-legacy', 'Legacy session'));
+
+  const betaContainer = containerForWorkspace('beta');
+  check('another workspace cannot delete alpha saved session', (await deleteSavedSession('session-alpha', betaContainer)) === false);
+  check('rejected cross-workspace delete leaves the alpha record intact', (await readSession('session-alpha')) !== null);
+  check('unscoped container cannot resume alpha saved session', (await resumeSession('session-alpha')) === false && S.conversationId !== 'session-alpha');
+  check('owning workspace can resume its saved session', (await resumeSession('session-alpha', alphaContainer)) === true && alphaContainer.conversationId === 'session-alpha');
+  check(
+    'unscoped session list includes only legacy sessions',
+    (await listSavedSessions(null)).map((session) => session.id).join(',') === 'session-legacy',
+  );
+  check(
+    'workspace session list includes only that workspace',
+    (await listSavedSessions('beta')).map((session) => session.id).join(',') === 'session-beta',
+  );
+  const alphaToolCtx: ToolContext = {
+    ws: null,
+    signal: new AbortController().signal,
+    thread: alphaContainer,
+  };
+  const systemToolCtx: ToolContext = {
+    ws: null,
+    signal: new AbortController().signal,
+    thread: S,
+  };
+  const alphaContextList = await listSessionsTool({ limit: 10 }, alphaToolCtx);
+  check(
+    'list_sessions tool includes only the running workspace sessions',
+    alphaContextList.text.includes('session-alpha') && !alphaContextList.text.includes('session-beta'),
+  );
+  const systemContextList = await listSessionsTool({ limit: 10 }, systemToolCtx);
+  check(
+    'list_sessions tool in unscoped chat includes only legacy sessions',
+    systemContextList.text.includes('session-legacy') && !systemContextList.text.includes('session-alpha'),
+  );
+  const crossRead = await readSessionTool({ id: 'session-beta' }, alphaToolCtx);
+  check('read_session tool rejects another workspace session id', crossRead.isError === true);
+  const crossDelete = await deleteSessionTool({ id: 'session-beta' }, alphaToolCtx);
+  check(
+    'delete_session tool rejects another workspace session id and leaves it intact',
+    crossDelete.isError === true && (await readSession('session-beta')) !== null,
+  );
+  await clearAllSessions();
+
   console.log(`\nthread-registry harness: ${passed} assertions passed`);
 }
 
-main();
+await main();

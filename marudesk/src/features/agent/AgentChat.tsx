@@ -5,10 +5,10 @@ import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { findModel } from '../../../shared/providers';
-import type { AgentChatState } from '../../../shared/agent';
+import type { AgentChatState, AgentWorkspaceEvent } from '../../../shared/agent';
 import { useProvidersStore } from '../providers/store';
 import { useWorkspaceStore } from '../workspace/store';
-import { useAgentStore } from './store';
+import { useAgentStore, useAgentWorkspaceId } from './store';
 import { ContextPopover } from './ContextPopover';
 import { buildReceipt, isBusy } from './chat/format';
 import {
@@ -55,6 +55,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const enqueuePrompt = useAgentStore((s) => s.enqueuePrompt);
   const dequeuePrompt = useAgentStore((s) => s.dequeuePrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
+  const workspaceId = useAgentWorkspaceId();
 
   const summary = useWorkspaceStore((s) => s.summary);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
@@ -78,9 +79,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // we catch up on whatever happened while the panel was on another tab.
   useEffect(() => {
     void hydrate();
+    if (workspaceId) {
+      return window.marudesk.on('agent:workspace-event', (event: AgentWorkspaceEvent) => {
+        if (event.workspaceId === workspaceId) ingest(event.state);
+      });
+    }
     const off = window.marudesk.on('agent:event', (s: AgentChatState) => ingest(s));
     return off;
-  }, [hydrate, ingest]);
+  }, [hydrate, ingest, workspaceId]);
 
   useEffect(() => {
     if (!statusChecked) void refreshStatus();
@@ -92,7 +98,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const empty = chat.messages.length === 0 && chat.edits.length === 0;
   // The full-surface `agent` tab centers the conversation in a readable column
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
-  // Same single server-owned state projects into both.
+  // The same workspace-scoped state projects into both.
   const full = variant === 'full';
   // Completion receipt (Antigravity "Walkthrough" parity): a one-line outcome
   // shown when a finished turn actually probed the live app over CDP or ran a

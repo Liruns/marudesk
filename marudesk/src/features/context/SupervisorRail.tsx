@@ -2,34 +2,39 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
-import type { ThreadSummary } from '../../../shared/agent';
-import { useAgentStore } from '../agent/store';
+import type { AgentWorkspaceThreadsEvent, ThreadSummary } from '../../../shared/agent';
+import { useAgentStore, useAgentWorkspaceId } from '../agent/store';
 import { ApprovalCard } from '../agent/chat/Cards';
 import { buildAgentRows } from '../devtools/panels/evidence-rows';
 
 /**
  * Supervisor rail (§3.5): a single-glance overview across all agent threads —
  * each thread's status/busy, a persistent pending-approval card (reused from the
- * chat), and the recent page-action log. Reuses the existing `agent:threads`
- * subscription (like ThreadBar) and the active thread's `agent:event` snapshot,
+ * chat), and the recent page-action log. Reuses the scoped thread subscription
+ * (like ThreadBar) and the active thread's agent snapshot,
  * so it adds a vantage point, not new plumbing.
  */
 const RECENT_LIMIT = 12;
 
 export function SupervisorRail() {
   const { t } = useI18n();
+  const workspaceId = useAgentWorkspaceId();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const pendingApproval = useAgentStore((s) => s.chat.pendingApproval);
   const messages = useAgentStore((s) => s.chat.messages);
 
   useEffect(() => {
-    void window.marudesk.invoke('agent:list-threads').then(setThreads).catch(() => {});
-    const off = window.marudesk.on('agent:threads', (list: ThreadSummary[]) => setThreads(list));
+    void window.marudesk.invoke('agent:list-threads', { workspaceId }).then(setThreads).catch(() => {});
+    const off = workspaceId
+      ? window.marudesk.on('agent:workspace-threads', (event: AgentWorkspaceThreadsEvent) => {
+          if (event.workspaceId === workspaceId) setThreads(event.threads);
+        })
+      : window.marudesk.on('agent:threads', (list: ThreadSummary[]) => setThreads(list));
     return off;
-  }, []);
+  }, [workspaceId]);
 
   const switchTo = (id: string) =>
-    void window.marudesk.invoke('agent:switch-thread', { id }).then(setThreads).catch(() => {});
+    void window.marudesk.invoke('agent:switch-thread', { id, workspaceId }).then(setThreads).catch(() => {});
 
   const recent = useMemo(() => buildAgentRows(messages).sort((a, b) => b.t - a.t).slice(0, RECENT_LIMIT), [messages]);
 

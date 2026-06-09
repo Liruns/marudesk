@@ -7,8 +7,19 @@ import { getSettingsSync } from '../settings';
 import { clearReadTracker } from './read-tracker';
 import { clearNestedInstructionClaims } from './nested-instructions';
 import { clearTurnRuntimeState } from './loop-turn-actions.ts';
-import { deleteSession, listSessions, readSession, saveSession } from './sessions-store';
-import { S, busy, emit, currentContainer as activeContainer, type ThreadContainer } from './loop-state.ts';
+import {
+  deleteSession,
+  listSessions,
+  readSession,
+  saveSession,
+  type SessionWorkspaceFilter,
+} from './sessions-store';
+import {
+  containerBusy,
+  emitContainer,
+  currentContainer as activeContainer,
+  type ThreadContainer,
+} from './loop-state.ts';
 import { cancelBackgroundForConversation } from './background.ts';
 
 /**
@@ -19,7 +30,7 @@ import { cancelBackgroundForConversation } from './background.ts';
  */
 
 /** Clip a tool result before persisting so a session file can't grow unbounded. */
-function snapshotMessagesForSave(): AgentMessage[] {
+function snapshotMessagesForSave(S: ThreadContainer): AgentMessage[] {
   return S.state.messages.map((m) => ({
     ...m,
     parts: m.parts.map((p) => {
@@ -39,13 +50,14 @@ export async function persistSession(S: ThreadContainer = activeContainer()): Pr
   if (!getSettingsSync().storage.persistSessions) return;
   const record: SessionRecord = {
     id: S.conversationId,
+    ...(S.workspaceId ? { workspaceId: S.workspaceId } : {}),
     title: S.conversationTitle || 'Untitled chat',
     createdAt: S.conversationStartedAt || Date.now(),
     updatedAt: Date.now(),
     provider: S.conversationProvider,
     model: S.conversationModel,
     messageCount: S.state.messages.length,
-    messages: snapshotMessagesForSave(),
+    messages: snapshotMessagesForSave(S),
     usage: { ...S.state.usage },
     // Persist the provider-neutral S.transcript too, so a resumed session keeps
     // full context (display messages can't reconstruct tool_use/result pairing).
@@ -59,8 +71,8 @@ export async function persistSession(S: ThreadContainer = activeContainer()): Pr
   await saveSession(record);
 }
 
-export function reset(): boolean {
-  if (busy()) return false;
+export function reset(S: ThreadContainer = activeContainer()): boolean {
+  if (containerBusy(S)) return false;
   // Detached background agents are conversation-scoped — abort + drop the leaving
   // conversation's tasks so they never bleed into the next chat.
   cancelBackgroundForConversation(S.conversationId);
@@ -88,8 +100,12 @@ export function reset(): boolean {
   // The prior conversation was persisted on its last turn's finish(); drop its id
   // so the next turn begins (and saves to) a fresh session.
   S.conversationId = null;
-  emit();
+  emitContainer(S);
   return true;
+}
+
+function sameWorkspace(record: SessionRecord, S: ThreadContainer): boolean {
+  return (record.workspaceId ?? null) === (S.workspaceId ?? null);
 }
 
 /**
@@ -102,10 +118,14 @@ export function reset(): boolean {
  * S.transcript when present (sessions saved before these fields resume as
  * read-only history — messages render, but the model has no prior context).
  */
-export async function resumeSession(id: string): Promise<boolean> {
-  if (busy()) return false;
+export async function resumeSession(
+  id: string,
+  S: ThreadContainer = activeContainer(),
+): Promise<boolean> {
+  if (containerBusy(S)) return false;
   const record = await readSession(id);
   if (!record) return false;
+  if (!sameWorkspace(record, S)) return false;
   // Abort the leaving conversation's background agents (a detached child process
   // can't be restored on resume, so the resumed chat starts with none).
   cancelBackgroundForConversation(S.conversationId);
@@ -138,23 +158,28 @@ export async function resumeSession(id: string): Promise<boolean> {
   S.conversationProvider = record.provider;
   S.conversationModel = record.model;
   S.state.activeSessionId = S.conversationId;
-  emit();
+  emitContainer(S);
   return true;
 }
 
 /** Saved sessions, newest first (summaries only) — backs the sessions UI list. */
-export function listSavedSessions(): Promise<SessionSummary[]> {
-  return listSessions();
+export function listSavedSessions(workspaceId?: SessionWorkspaceFilter): Promise<SessionSummary[]> {
+  return listSessions(workspaceId);
 }
 
 /**
  * Delete a saved session. When it's the live conversation, clear the chat first
  * so the next turn starts fresh; refuses if that conversation is mid-turn.
  */
-export async function deleteSavedSession(id: string): Promise<boolean> {
+export async function deleteSavedSession(
+  id: string,
+  S: ThreadContainer = activeContainer(),
+): Promise<boolean> {
+  const record = await readSession(id);
+  if (!record || !sameWorkspace(record, S)) return false;
   if (S.conversationId === id) {
-    if (busy()) return false;
-    reset();
+    if (containerBusy(S)) return false;
+    reset(S);
   }
   return deleteSession(id);
 }

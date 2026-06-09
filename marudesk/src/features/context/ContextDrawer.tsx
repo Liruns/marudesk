@@ -8,7 +8,8 @@ import { useWebPageStore } from '../browser/store';
 import { useComposerStore } from '../composer/store';
 import { AgentChat } from '../agent/AgentChat';
 import { SessionList } from '../agent/SessionList';
-import { openAgentTab } from '../agent/store';
+import { AgentScopeProvider, openAgentTab } from '../agent/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { CaptureCard } from './CaptureCard';
 import { SupervisorRail } from './SupervisorRail';
 import { SpecsPanel } from './SpecsPanel';
@@ -49,6 +50,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
   const setAllSelected = useWebPageStore((s) => s.setAllSelected);
   const tab = useComposerStore((s) => s.tab);
   const setTab = useComposerStore((s) => s.setTab);
+  const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
   const [showHistory, setShowHistory] = useState(false);
   const [width, setWidth] = useState(readDrawerWidth);
   const [resizing, setResizing] = useState(false);
@@ -137,7 +139,7 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             {tab === 'agent' ? (
               <button
                 type="button"
-                onClick={() => void openAgentTab()}
+                onClick={() => void openAgentTab(activeWorkspaceId ?? undefined)}
                 aria-label={t('context.drawer.openChatTab')}
                 title={t('context.drawer.openChatTab')}
                 className="chrome-icon-button size-6"
@@ -176,99 +178,101 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
           <TabButton active={tab === 'specs'} onClick={() => setTab('specs')} label={t('context.tabs.specs')} />
         </nav>
 
-        {tab === 'agent' ? (
-          <AgentChat />
-        ) : tab === 'supervisor' ? (
-          <SupervisorRail />
-        ) : tab === 'specs' ? (
-          <SpecsPanel />
-        ) : (
-          <>
-            <div className="chrome-header shrink-0 flex items-center justify-between px-4 py-2">
-              <div className="flex items-center gap-2 text-caption text-fg-tertiary tabular-nums">
-                {captures.length > 0 ? (
-                  <>
-                    <Badge variant="neutral">
-                      {selectedCount}/{captures.length}
-                    </Badge>
-                    <span>{t('context.drawer.selected')}</span>
-                  </>
+        <AgentScopeProvider workspaceId={activeWorkspaceId ?? undefined}>
+          {tab === 'agent' ? (
+            <AgentChat />
+          ) : tab === 'supervisor' ? (
+            <SupervisorRail />
+          ) : tab === 'specs' ? (
+            <SpecsPanel />
+          ) : (
+            <>
+              <div className="chrome-header shrink-0 flex items-center justify-between px-4 py-2">
+                <div className="flex items-center gap-2 text-caption text-fg-tertiary tabular-nums">
+                  {captures.length > 0 ? (
+                    <>
+                      <Badge variant="neutral">
+                        {selectedCount}/{captures.length}
+                      </Badge>
+                      <span>{t('context.drawer.selected')}</span>
+                    </>
+                  ) : (
+                    <span>{t('context.drawer.noCaptures')}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  {captures.length > 0 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setAllSelected(!allSelected)}
+                        aria-label={t(
+                          allSelected ? 'context.drawer.deselectAll' : 'context.drawer.selectAll',
+                        )}
+                        className="chrome-icon-button size-6"
+                      >
+                        {allSelected ? (
+                          <CheckSquare size={14} />
+                        ) : (
+                          <Square size={14} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearCaptures}
+                        aria-label={t('context.drawer.clearAll')}
+                        className="chrome-icon-button size-6 hover:text-error hover:bg-error-subtle/30"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto p-3">
+                {captures.length === 0 ? (
+                  <div className="chrome-panel-strong rounded-lg p-4 text-body-sm text-fg-tertiary">
+                    {t('context.drawer.empty')}
+                  </div>
                 ) : (
-                  <span>{t('context.drawer.noCaptures')}</span>
+                  <div className="flex flex-col gap-2">
+                    {captures.map((c) => (
+                      <CaptureCard key={c.id} capture={c} />
+                    ))}
+                  </div>
                 )}
               </div>
-              <div className="flex items-center gap-1">
-                {captures.length > 0 ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setAllSelected(!allSelected)}
-                      aria-label={t(
-                        allSelected ? 'context.drawer.deselectAll' : 'context.drawer.selectAll',
-                      )}
-                      className="chrome-icon-button size-6"
-                    >
-                      {allSelected ? (
-                        <CheckSquare size={14} />
-                      ) : (
-                        <Square size={14} />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearCaptures}
-                      aria-label={t('context.drawer.clearAll')}
-                      className="chrome-icon-button size-6 hover:text-error hover:bg-error-subtle/30"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto p-3">
-              {captures.length === 0 ? (
-                <div className="chrome-panel-strong rounded-lg p-4 text-body-sm text-fg-tertiary">
-                  {t('context.drawer.empty')}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {captures.map((c) => (
-                    <CaptureCard key={c.id} capture={c} />
-                  ))}
-                </div>
+            </>
+          )}
+          {/* History overlay: kept mounted (when on the agent tab) and animated in/
+              out so it slides + fades like the other panels rather than snapping. */}
+          {tab === 'agent' ? (
+            <div
+              aria-hidden={!showHistory}
+              className={cn(
+                'chrome-panel absolute inset-0 z-20 flex flex-col rounded-none border-0',
+                'transition-[opacity,transform] duration-standard',
+                showHistory
+                  ? 'translate-x-0 opacity-100 pointer-events-auto'
+                  : 'translate-x-full opacity-0 pointer-events-none',
               )}
+            >
+              <header className="chrome-header h-10 shrink-0 flex items-center justify-between px-3">
+                <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.history')}</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(false)}
+                  aria-label={t('context.drawer.closeHistory')}
+                  tabIndex={showHistory ? 0 : -1}
+                  className="chrome-icon-button size-6"
+                >
+                  <X size={14} />
+                </button>
+              </header>
+              <SessionList className="flex-1" onPick={() => setShowHistory(false)} />
             </div>
-          </>
-        )}
-        {/* History overlay: kept mounted (when on the agent tab) and animated in/
-            out so it slides + fades like the other panels rather than snapping. */}
-        {tab === 'agent' ? (
-          <div
-            aria-hidden={!showHistory}
-            className={cn(
-              'chrome-panel absolute inset-0 z-20 flex flex-col rounded-none border-0',
-              'transition-[opacity,transform] duration-standard',
-              showHistory
-                ? 'opacity-100 translate-y-0 pointer-events-auto'
-                : 'opacity-0 -translate-y-1.5 pointer-events-none',
-            )}
-          >
-            <header className="chrome-header h-10 shrink-0 flex items-center justify-between px-3">
-              <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.history')}</h2>
-              <button
-                type="button"
-                onClick={() => setShowHistory(false)}
-                aria-label={t('context.drawer.closeHistory')}
-                tabIndex={showHistory ? 0 : -1}
-                className="chrome-icon-button size-6"
-              >
-                <X size={14} />
-              </button>
-            </header>
-            <SessionList className="flex-1" onPick={() => setShowHistory(false)} />
-          </div>
-        ) : null}
+          ) : null}
+        </AgentScopeProvider>
       </div>
     </aside>
   );

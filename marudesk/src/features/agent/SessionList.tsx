@@ -6,7 +6,7 @@ import { cn } from '../../lib/cn';
 import type { I18nContextValue } from '../../i18n/useI18n';
 import { useI18n } from '../../i18n/useI18n';
 import { ProviderGlyph } from '../providers/ProviderGlyph';
-import { useAgentStore } from './store';
+import { useAgentStore, useAgentWorkspaceId } from './store';
 
 /**
  * Saved-session history list (v3 §5-C). A pure projection of the store's
@@ -26,6 +26,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
   const resumeSession = useAgentStore((s) => s.resumeSession);
   const deleteSession = useAgentStore((s) => s.deleteSession);
   const resetChat = useAgentStore((s) => s.resetChat);
+  const workspaceId = useAgentWorkspaceId();
   const [filter, setFilter] = useState('');
   // Backend full-text results (title + transcript) — null while not searching, so
   // the resting list is the store's recent `sessions`.
@@ -52,7 +53,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
           return;
         }
         void window.marudesk
-          .invoke('agent:search-sessions', { query: q })
+          .invoke('agent:search-sessions', { query: q, workspaceId })
           .then((res) => {
             if (!cancelled) setHits(res);
           })
@@ -66,7 +67,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [filter]);
+  }, [filter, workspaceId]);
 
   const searching = hits !== null;
   const visible: SessionSearchHit[] = hits ?? sessions;

@@ -7,6 +7,7 @@ import type {
   SessionSummary,
   StorageStats,
 } from '../../shared/context';
+import type { WorkspaceId } from '../../shared/workspace';
 import { getDb } from '../db';
 
 /**
@@ -33,9 +34,12 @@ const MAX_SESSIONS = 200;
  */
 const FTS_TABLES = ['sessions_fts', 'sessions_fts_trigram'] as const;
 
+export type SessionWorkspaceFilter = WorkspaceId | null | undefined;
+
 function summaryOf(record: SessionRecord): SessionSummary {
   return {
     id: record.id,
+    ...(record.workspaceId ? { workspaceId: record.workspaceId } : {}),
     title: record.title,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -43,6 +47,11 @@ function summaryOf(record: SessionRecord): SessionSummary {
     model: record.model,
     messageCount: record.messageCount,
   };
+}
+
+function matchesWorkspace(record: SessionRecord, workspaceId: SessionWorkspaceFilter): boolean {
+  if (workspaceId === undefined) return true;
+  return (record.workspaceId ?? null) === workspaceId;
 }
 
 /** Flatten a record's transcript into plain text for the full-text index. */
@@ -218,28 +227,54 @@ export async function saveSession(record: SessionRecord): Promise<void> {
 }
 
 /** Recent sessions, newest first (summaries only). */
-export async function listSessions(limit = 30): Promise<SessionSummary[]> {
-  const cap = Math.max(1, Math.min(limit, MAX_SESSIONS));
+export async function listSessions(
+  workspaceIdOrLimit?: SessionWorkspaceFilter | number,
+  limit = 30,
+): Promise<SessionSummary[]> {
+  const workspaceId = typeof workspaceIdOrLimit === 'number' ? undefined : workspaceIdOrLimit;
+  const requestedLimit = typeof workspaceIdOrLimit === 'number' ? workspaceIdOrLimit : limit;
+  const cap = Math.max(1, Math.min(requestedLimit, MAX_SESSIONS));
   const db = getDb();
   if (db) {
     await migrateJsonIntoDb(db);
-    return db
+    const rows = db
       .prepare(
-        `SELECT id, title, createdAt, updatedAt, provider, model, messageCount
-         FROM sessions ORDER BY updatedAt DESC LIMIT ?`,
+        `SELECT record FROM sessions ORDER BY updatedAt DESC LIMIT ?`,
       )
-      .all(cap) as SessionSummary[];
+      .all(MAX_SESSIONS) as { record: string }[];
+    const out: SessionSummary[] = [];
+    for (const row of rows) {
+      try {
+        const record = JSON.parse(row.record) as SessionRecord;
+        if (matchesWorkspace(record, workspaceId)) out.push(summaryOf(record));
+      } catch {
+        // skip malformed persisted records
+      }
+      if (out.length >= cap) break;
+    }
+    return out;
   }
   const rows = await readIndexJson();
   rows.sort((a, b) => b.updatedAt - a.updatedAt);
-  return rows.slice(0, cap);
+  if (workspaceId === undefined) return rows.slice(0, cap);
+  const out: SessionSummary[] = [];
+  for (const row of rows) {
+    const record = await readSessionJson(row.id);
+    if (record && matchesWorkspace(record, workspaceId)) out.push(summaryOf(record));
+    if (out.length >= cap) break;
+  }
+  return out;
 }
 
 /** Full-text search saved sessions (title + transcript), newest match first. */
-export async function searchSessions(query: string, limit = 30): Promise<SessionSearchHit[]> {
+export async function searchSessions(
+  query: string,
+  workspaceId?: SessionWorkspaceFilter,
+  limit = 30,
+): Promise<SessionSearchHit[]> {
   const cap = Math.max(1, Math.min(limit, MAX_SESSIONS));
   const q = query.trim();
-  if (!q) return listSessions(cap);
+  if (!q) return listSessions(workspaceId, cap);
   const db = getDb();
   if (db) {
     await migrateJsonIntoDb(db);
@@ -253,13 +288,25 @@ export async function searchSessions(query: string, limit = 30): Promise<Session
         const rows = db
           .prepare(
             `SELECT s.id, s.title, s.createdAt, s.updatedAt, s.provider, s.model, s.messageCount,
+                    s.record,
                     snippet(${table}, 2, '⟦', '⟧', '…', 12) AS snippet
              FROM ${table} f JOIN sessions s ON s.id = f.id
              WHERE ${table} MATCH ?
              ORDER BY s.updatedAt DESC LIMIT ?`,
           )
-          .all(match, cap) as SessionSearchHit[];
-        for (const r of rows) if (!byId.has(r.id)) byId.set(r.id, r);
+          .all(match, MAX_SESSIONS) as (SessionSearchHit & { record: string })[];
+        for (const r of rows) {
+          try {
+            const record = JSON.parse(r.record) as SessionRecord;
+            if (!matchesWorkspace(record, workspaceId)) continue;
+            if (!byId.has(r.id)) {
+              byId.set(r.id, { ...summaryOf(record), snippet: r.snippet });
+            }
+          } catch {
+            // skip malformed persisted records
+          }
+          if (byId.size >= cap) break;
+        }
       } catch {
         // skip this index for this query
       }
@@ -278,11 +325,12 @@ export async function searchSessions(query: string, limit = 30): Promise<Session
   for (const row of rows) {
     const rec = await readSessionJson(row.id);
     if (!rec) continue;
+    if (!matchesWorkspace(rec, workspaceId)) continue;
     const body = flattenBody(rec);
     const at = body.toLowerCase().indexOf(needle);
     if (at < 0) continue;
     const start = Math.max(0, at - 40);
-    hits.push({ ...row, snippet: `…${body.slice(start, at + needle.length + 40)}…` });
+    hits.push({ ...summaryOf(rec), snippet: `…${body.slice(start, at + needle.length + 40)}…` });
     if (hits.length >= cap) break;
   }
   return hits;

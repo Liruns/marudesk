@@ -1,27 +1,33 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import type { ThreadSummary } from '../../../shared/agent';
+import type { AgentWorkspaceThreadsEvent, ThreadSummary } from '../../../shared/agent';
+import { useAgentWorkspaceId } from './store';
 
 /**
  * Thread switcher (Stage 12-B-2). Tabs for the open conversation threads — click
  * to switch, ✕ to close, + to start a new one. The active thread drives the main
  * chat (switching emits its state). Main owns the registry; this is a projection
- * fed by `agent:threads` (pushed on every emit + on structure changes). Hidden
+ * fed by the scoped thread event stream (pushed on every emit + on structure changes). Hidden
  * until there's more than one thread, so the single-chat case is unchanged.
  */
 export function ThreadBar() {
+  const workspaceId = useAgentWorkspaceId();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void window.marudesk
-      .invoke('agent:list-threads')
+      .invoke('agent:list-threads', { workspaceId })
       .then(setThreads)
       .catch(() => {});
-    const off = window.marudesk.on('agent:threads', (list: ThreadSummary[]) => setThreads(list));
+    const off = workspaceId
+      ? window.marudesk.on('agent:workspace-threads', (event: AgentWorkspaceThreadsEvent) => {
+          if (event.workspaceId === workspaceId) setThreads(event.threads);
+        })
+      : window.marudesk.on('agent:threads', (list: ThreadSummary[]) => setThreads(list));
     return off;
-  }, []);
+  }, [workspaceId]);
 
   const run = async (op: () => Promise<ThreadSummary[]>): Promise<void> => {
     setBusy(true);
@@ -34,9 +40,11 @@ export function ThreadBar() {
     }
   };
 
-  const newThread = () => run(() => window.marudesk.invoke('agent:new-thread'));
-  const switchTo = (id: string) => run(() => window.marudesk.invoke('agent:switch-thread', { id }));
-  const close = (id: string) => run(() => window.marudesk.invoke('agent:close-thread', { id }));
+  const newThread = () => run(() => window.marudesk.invoke('agent:new-thread', { workspaceId }));
+  const switchTo = (id: string) =>
+    run(() => window.marudesk.invoke('agent:switch-thread', { id, workspaceId }));
+  const close = (id: string) =>
+    run(() => window.marudesk.invoke('agent:close-thread', { id, workspaceId }));
 
   // Single-thread case: just the "+" affordance, kept unobtrusive.
   const multi = threads.length > 1;

@@ -61,6 +61,7 @@ export function parseSendInput(payload: unknown): AgentSendInput {
     provider: o.provider,
     model: nonEmptyStr(o.model, 'model'),
     prompt: nonEmptyStr(o.prompt, 'prompt'),
+    workspaceId: optStr(o.workspaceId, 'workspaceId'),
     captures: captures as CapturePayload[],
     images: parseImages(o.images),
     tabId: optStr(o.tabId, 'tabId'),

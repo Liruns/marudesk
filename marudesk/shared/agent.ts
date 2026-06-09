@@ -1,6 +1,7 @@
 import type { CapturePayload } from './composer';
 import type { ProviderId } from './providers';
 import type { AgentApprovalMode } from './settings';
+import type { WorkspaceId } from './workspace';
 
 /**
  * The agentic AI Chat contract (docs/agentic-chat-design.md). main owns the
@@ -318,6 +319,7 @@ export type BackgroundTask = {
  */
 export type ThreadSummary = {
   id: string;
+  workspaceId?: WorkspaceId;
   title: string;
   status: AgentStatus;
   active: boolean;
@@ -363,6 +365,7 @@ export type AgentSendInput = {
   provider: ProviderId;
   model: string;
   prompt: string;
+  workspaceId?: WorkspaceId;
   /** Captures selected in the Captures tab, attached as first-turn context. */
   captures: CapturePayload[];
   /** Images pasted/dropped into the composer, forwarded to vision models. */
@@ -374,6 +377,16 @@ export type AgentSendInput = {
 export type AgentSendResult =
   | { ok: true; turnId: string }
   | { ok: false; reason: string };
+
+export type AgentWorkspaceEvent = {
+  workspaceId: WorkspaceId;
+  state: AgentChatState;
+};
+
+export type AgentWorkspaceThreadsEvent = {
+  workspaceId: WorkspaceId;
+  threads: ThreadSummary[];
+};
 
 /** ask_user answers, keyed by {@link AgentQuestion.id}. */
 export type AgentAnswers = Record<string, string>;
