@@ -43,6 +43,7 @@
     "harness:image-gen": "node --experimental-strip-types electron/agent/image-generation-harness.ts",
     "harness:media-gen": "node --experimental-strip-types electron/agent/image-generation-harness.ts",
     "harness:plugins": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/plugins/plugin-harness.ts",
+    "harness:plugin-lifecycle": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/plugins/plugin-lifecycle-harness.ts",
     "harness:browser-menu": "node --experimental-strip-types electron/browser/native-menu-harness.ts",
     "harness:subagent": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/subagent-harness.ts",
     "harness:background": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/background-harness.ts",

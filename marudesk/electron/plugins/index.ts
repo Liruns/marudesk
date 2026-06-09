@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { PluginCommandSnapshot, PluginStatus } from '../../shared/plugin';
 import { ensurePluginsConfigFile } from './config';
 import { PluginManager } from './manager';
+import type { SpawnWorker } from './transport';
 
 /**
  * Boot glue for the plugin runtime (docs/plugin-runtime-design.md §7 P1) — the
@@ -17,14 +18,23 @@ let manager: PluginManager | null = null;
 let initialized = false;
 let userPluginsDir: string | null = null;
 
+export type InitPluginsDeps = {
+  userDir?: string;
+  spawn?: SpawnWorker;
+};
+
 /** Scan the user/project plugin folders and activate any approved plugins. */
-export async function initPlugins(getWorkspaceRoot: () => string | null): Promise<void> {
+export async function initPlugins(
+  getWorkspaceRoot: () => string | null,
+  deps: InitPluginsDeps = {},
+): Promise<void> {
   if (initialized) return;
   initialized = true;
-  userPluginsDir = path.join(app.getPath('userData'), 'plugins');
+  userPluginsDir = deps.userDir ?? path.join(app.getPath('userData'), 'plugins');
   manager = new PluginManager({
     userDir: userPluginsDir,
     getWorkspaceRoot,
+    ...(deps.spawn ? { spawn: deps.spawn } : {}),
   });
   await ensurePluginsConfigFile();
   await manager.reload();
@@ -50,6 +60,16 @@ export async function setPluginEnabled(id: string, enabled: boolean): Promise<Pl
   return manager ? manager.setEnabled(id, enabled) : [];
 }
 
+/** Install a user-scoped plugin from a chosen folder. */
+export async function installPluginFolder(sourceDir: string): Promise<PluginStatus[]> {
+  return manager ? manager.installFromFolder(sourceDir) : [];
+}
+
+/** Remove one installed user-scoped plugin by id. */
+export async function removePlugin(id: string): Promise<PluginStatus[]> {
+  return manager ? manager.remove(id) : [];
+}
+
 /** Slash commands contributed by active plugins (for the composer menu). */
 export function listPluginCommands(): PluginCommandSnapshot[] {
   return manager ? manager.listCommands() : [];
@@ -63,4 +83,7 @@ export function resolvePluginPanelFile(pluginId: string, relPath: string): strin
 /** Tear down every plugin worker (before-quit). */
 export function shutdownPlugins(): void {
   manager?.dispose();
+  manager = null;
+  initialized = false;
+  userPluginsDir = null;
 }

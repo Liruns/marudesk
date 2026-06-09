@@ -687,8 +687,13 @@ export interface IpcMap {
     args: [payload: { id: string; enabled: boolean }];
     result: PluginStatus[];
   };
+  'plugins:install-folder': { args: []; result: PluginStatus[] };
   'plugins:commands': { args: []; result: PluginCommandSnapshot[] };
   'plugins:open-folder': { args: []; result: { path: string } };
+  'plugins:remove': {
+    args: [payload: { id: string }];
+    result: PluginStatus[];
+  };
 
   // settings
   'settings:get': { args: []; result: AppSettings };

@@ -209,15 +209,17 @@ export const CHANNELS = {
     'mcp:open-config',
     'mcp:embedded-browser-status',
   ],
-  // User plugins running in isolated workers — Settings → Plugins lists/reloads/
-  // toggles them, and the composer reads the slash commands they contribute
-  // (docs/plugin-runtime-design.md §5, §7 P2).
+  // User plugins running in isolated workers — Settings → Plugins lists, reloads,
+  // installs/removes user plugins, toggles approval, opens the install folder, and
+  // the composer reads contributed slash commands (docs/plugin-runtime-design.md).
   plugins: [
     'plugins:list',
     'plugins:reload',
     'plugins:set-enabled',
+    'plugins:install-folder',
     'plugins:commands',
     'plugins:open-folder',
+    'plugins:remove',
   ],
   settings: ['settings:get', 'settings:set', 'settings:reset'],
   // Renderer-owned UI layout (workspace deck split tree) persisted to a main JSON
