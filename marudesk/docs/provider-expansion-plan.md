@@ -170,6 +170,10 @@ OAuth 변경 없음.
 5. **검증**: `npm run typecheck` + e2e(계약/라운드트립) + 신규 flow 헤드리스 단위(device-code 폴링
    상태머신, api-key 교환 파싱) + **실 구독 dogfood**(Copilot/OpenRouter 계정).
 
+> 참고: **키·과금 없는 "무료" provider 노출**(keyless 무료 클라우드 + 무료 티어 큐레이션)은 별도
+> 설계로 분리했다 — [free-provider-design.md](./free-provider-design.md). 이 문서가 다루는 구독 OAuth
+> 흡수와 동기는 같지만(BYOK 마찰 제거), keyless seam과 UI 배지가 중심이라 범위가 다르다.
+
 ## 8. 비목표 (이번 계획 밖)
 
 - **Azure / Amazon Bedrock / Google Vertex / SAP AI Core**: 구독 OAuth가 아니라 클라우드 IAM/SigV4
