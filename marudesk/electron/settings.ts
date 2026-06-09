@@ -18,6 +18,15 @@ import {
 
 let cache: AppSettings | null = null;
 
+/**
+ * Drop the in-memory settings cache so the next {@link getSettings} reload reads
+ * from whatever userData dir is now active — used by the live profile switch
+ * (electron/main.ts) after `app.setPath` repoints userData.
+ */
+export function resetSettingsCacheForProfile(): void {
+  cache = null;
+}
+
 function settingsFile(): string {
   return path.join(app.getPath('userData'), 'settings.json');
 }

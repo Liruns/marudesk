@@ -209,6 +209,27 @@ export function __resetThreadsForTests(): void {
   threads.set(MAIN_THREAD, S);
 }
 
+/**
+ * Reset the agent for a live profile switch: abort any in-flight turns (so no
+ * stray turn keeps writing to the DB after it's repointed) and drop every thread
+ * back to a single empty main thread. The renderer re-subscribes to `agent:event`
+ * after its reload and receives this fresh empty state.
+ */
+export function resetThreadsForProfileSwitch(): void {
+  for (const c of threads.values()) {
+    try {
+      c.controller?.abort();
+    } catch {
+      // best-effort — a switch must not be blocked by a stuck abort
+    }
+  }
+  threads.clear();
+  seq = 0;
+  activeId = MAIN_THREAD;
+  S = makeThreadContainer();
+  threads.set(MAIN_THREAD, S);
+}
+
 /* ── event fan-out (renderer push + in-process subscribers) ─────────────── */
 
 // In-process subscribers to the authoritative state stream. The headless server

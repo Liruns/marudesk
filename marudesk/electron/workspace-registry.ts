@@ -45,6 +45,19 @@ let focusedPaneId: WorkspacePaneId | null = null;
 let workspaceRevision = 0;
 let getMainWindowRef: (() => BrowserWindow | null) | null = null;
 
+/**
+ * Clear the in-memory workspace registry for a live profile switch, so the
+ * follow-up {@link restoreWorkspaces} (which no-ops when records already exist)
+ * rebuilds the deck from the now-active profile's persisted registry instead of
+ * keeping the previous profile's workspaces.
+ */
+export function resetWorkspaceRegistryForProfile(): void {
+  workspaceRecords.clear();
+  currentWorkspace = null;
+  activeWorkspaceId = null;
+  focusedPaneId = null;
+}
+
 /** Write the live registry to disk so workspaces survive a restart. */
 function persistRegistry(): void {
   saveWorkspaceRegistry([...workspaceRecords.values()], activeWorkspaceId);

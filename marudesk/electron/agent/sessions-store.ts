@@ -65,6 +65,15 @@ function flattenBody(record: SessionRecord): string {
 let migratedFromJson = false;
 
 /**
+ * Reset the one-time JSON→SQLite migration guard so the next session read
+ * re-checks the now-active profile's (freshly opened) DB. Used by the live
+ * profile switch after the DB handle is closed + repointed.
+ */
+export function resetSessionsStoreForProfile(): void {
+  migratedFromJson = false;
+}
+
+/**
  * One-time import of any pre-existing JSON sessions into a freshly-created
  * SQLite store, so upgrading users keep their history. Runs once, only when the
  * `sessions` table is empty (a fresh DB) and JSON records exist on disk.

@@ -3,6 +3,7 @@ export {
   getCurrentWorkspace,
   getWorkspaceSnapshot,
   registerWorkspaceHandlers,
+  resetWorkspaceRegistryForProfile,
   restoreWorkspaces,
 } from './workspace-registry';
 export {
