@@ -8,12 +8,33 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Liruns/marudesk/releases/latest"><img src="https://img.shields.io/github/v/release/Liruns/marudesk?sort=semver&label=release&color=5b8def" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-444" alt="Platforms">
+  <a href="https://github.com/Liruns/marudesk/releases"><img src="https://img.shields.io/github/downloads/Liruns/marudesk/total?label=downloads&color=5b8def" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/Electron-42-47848F?logo=electron&logoColor=white" alt="Electron 42">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Liruns/marudesk?color=444" alt="License: MIT"></a>
+</p>
+
+<p align="center">
   <img src="docs/home.png" alt="MaruDesk — the new-tab shell with the activity bar, explorer, and surface cards" width="860">
 </p>
 
 MaruDesk is a desktop application (Electron) for building and debugging web software. Unlike source-only AI coding tools, it embeds a real Chromium browser and speaks the Chrome DevTools Protocol (CDP) in-process, so the agent can read the live DOM, console, and network of the app you are running and act on that runtime evidence — for example, turning a console error into a source fix and confirming the fix by reloading the page.
 
 > Status: in active development — built as a daily driver and portfolio project. See [Project status](#project-status).
+
+## Download
+
+Grab the installer for your platform from the **[latest release →](https://github.com/Liruns/marudesk/releases/latest)**.
+
+| Platform | Installer | Notes |
+|---|---|---|
+| **Windows** | [`marudesk-Setup-0.2.0.exe`](https://github.com/Liruns/marudesk/releases/download/v0.2.0/marudesk-Setup-0.2.0.exe) | Installs and auto-updates in place. |
+| **macOS** · Apple Silicon | [`marudesk-0.2.0-arm64.dmg`](https://github.com/Liruns/marudesk/releases/download/v0.2.0/marudesk-0.2.0-arm64.dmg) | Unsigned — on first launch, right-click → **Open** to pass Gatekeeper. |
+| **macOS** · Intel | [`marudesk-0.2.0.dmg`](https://github.com/Liruns/marudesk/releases/download/v0.2.0/marudesk-0.2.0.dmg) | Unsigned — on first launch, right-click → **Open**. |
+| **Linux** | [`.AppImage`](https://github.com/Liruns/marudesk/releases/download/v0.2.0/marudesk-0.2.0.AppImage) · [`.deb`](https://github.com/Liruns/marudesk/releases/download/v0.2.0/marudesk_0.2.0_amd64.deb) | `chmod +x` the AppImage and run it, or `sudo dpkg -i` the `.deb`. |
+
+Prefer to build from source? See [Getting started](#getting-started).
 
 ## The idea
 
@@ -135,7 +156,7 @@ npm run package:win      # or: npm run package:mac / npm run package:linux
 
 Releases are built and published by the **Release** GitHub Actions workflow
 (`.github/workflows/release.yml`). Pushing a `v*` tag builds marudesk on native
-runners for each target — macOS arm64 (`macos-14`), macOS x64 (`macos-13`),
+runners — macOS arm64 **and** x64 cross-built on Apple Silicon (`macos-14`),
 Windows x64 (`windows-latest`), and Linux x64 (`ubuntu-latest`) — and uploads
 the installers (`dmg` for macOS, NSIS `exe` for Windows, `AppImage` + `deb` for
 Linux) to the GitHub release that matches `marudesk/package.json` version:
