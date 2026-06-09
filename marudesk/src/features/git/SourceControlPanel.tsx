@@ -321,6 +321,9 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                 )}
               >
                 <Check size={14} /> {t('git.action.commit')}
+                {hasStaged && buckets ? (
+                  <span className="tabular-nums opacity-80">({buckets.staged.length})</span>
+                ) : null}
               </button>
             </div>
 
@@ -333,9 +336,10 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
             {/* change sections */}
             <div className="flex-1 min-h-0 overflow-y-auto">
               {buckets && buckets.staged.length === 0 && buckets.changes.length === 0 && buckets.untracked.length === 0 ? (
-                <p className="px-3 py-6 text-center text-body-sm text-fg-tertiary">
-                  {t('git.empty.noChanges')}
-                </p>
+                <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-caption text-fg-tertiary">
+                  <GitCommitHorizontal size={18} className="opacity-30" />
+                  <span>{t('git.empty.noChanges')}</span>
+                </div>
               ) : null}
 
               {buckets && buckets.staged.length > 0 ? (
