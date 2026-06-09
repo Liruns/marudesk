@@ -31,7 +31,10 @@ export function DelegateModelField({
     : t('settings.agent.delegateModel.inherit');
 
   return (
-    <div className="relative">
+    // A fixed width (matching the other settings controls) so the trigger and its
+    // w-full popover get a real size instead of collapsing to content width
+    // inside the Field's shrink-0 control slot.
+    <div className="relative w-[240px] max-w-[40vw]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
