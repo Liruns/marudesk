@@ -41,12 +41,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS (arm64)
+          # Build both macOS arches on the Apple Silicon runner. The build sets
+          # npmRebuild=false and node-pty ships prebuilds (selected at runtime by
+          # node-gyp-build), so there is no native compilation — packaging the x64
+          # dmg cross-arch from arm64 works and avoids the scarce/deprecated Intel
+          # (macos-13) runner queue.
+          - label: macOS (arm64 + x64)
             os: macos-14
-            args: --mac dmg --arm64
-          - label: macOS (x64)
-            os: macos-13
-            args: --mac dmg --x64
+            args: --mac dmg --arm64 --x64
           - label: Windows (x64)
             os: windows-latest
             args: --win nsis --x64
