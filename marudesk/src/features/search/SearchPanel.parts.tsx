@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { SearchFileResult, SearchMatchRange } from '../../../shared/search';
 import { baseName, dirName } from '../git/statusMeta';
@@ -22,13 +22,15 @@ export function FileGroup({
   const dir = dirName(file.path);
   const first = file.matches[0];
   return (
-    <div>
-      <div className="group/file flex items-center h-6 pl-1 pr-2 hover:bg-surface-2">
+    <div className="select-none">
+      {/* File header — sticks to the top of the scroll area so the path stays
+          visible while paging through its matches (VS Code parity). */}
+      <div className="group/file sticky top-0 z-[1] flex h-7 items-center gap-0.5 border-b border-subtle/40 bg-surface-1/95 pl-1 pr-1.5 backdrop-blur-sm hover:bg-surface-2">
         <button
           type="button"
           onClick={onToggle}
           aria-label={collapsed ? t('search.expand') : t('search.collapse')}
-          className="shrink-0 size-5 flex items-center justify-center text-fg-tertiary"
+          className="flex size-5 shrink-0 items-center justify-center rounded text-fg-tertiary transition-colors duration-fast hover:text-fg-primary"
         >
           {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
         </button>
@@ -38,31 +40,43 @@ export function FileGroup({
           title={file.path}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
-          <span className="truncate text-body-sm text-fg-primary">{baseName(file.path)}</span>
-          {dir ? <span className="truncate text-caption text-fg-tertiary">{dir}</span> : null}
+          <FileText size={13} className="shrink-0 text-fg-tertiary/70" />
+          <span className="truncate text-body-sm font-medium text-fg-primary">
+            {baseName(file.path)}
+          </span>
+          {dir ? (
+            <span className="truncate text-caption text-fg-tertiary/80">{dir}</span>
+          ) : null}
         </button>
-        <span className="shrink-0 text-caption text-fg-tertiary tabular-nums">
+        <span className="shrink-0 rounded-pill bg-surface-3 px-1.5 text-[0.6875rem] font-medium tabular-nums text-fg-secondary">
           {file.matches.length}
         </span>
       </div>
-      {!collapsed
-        ? file.matches.map((m, i) => (
+      {!collapsed ? (
+        <div className="relative pb-0.5">
+          {/* Guide line tying a file's matches to its header. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-1 left-[1.15rem] top-0 w-px bg-subtle/70"
+          />
+          {file.matches.map((m, i) => (
             <button
               key={`${m.line}:${m.col}:${i}`}
               type="button"
               onClick={() => onOpenAt(m.line, m.col)}
               title={formatSearchMatchLineTitle(m.line)}
-              className="flex w-full items-baseline gap-2 py-0.5 pl-7 pr-2 text-left hover:bg-surface-2"
+              className="group/match flex w-full items-baseline gap-2.5 rounded-sm py-[3px] pl-7 pr-2 text-left transition-colors duration-fast hover:bg-accent-subtle/40"
             >
-              <span className="shrink-0 text-caption text-fg-tertiary tabular-nums w-8 text-right">
+              <span className="w-9 shrink-0 text-right text-caption tabular-nums text-fg-tertiary/70 group-hover/match:text-fg-secondary">
                 {m.line}
               </span>
-              <span className="truncate font-mono text-caption text-fg-secondary">
+              <span className="truncate font-mono text-caption leading-relaxed text-fg-secondary group-hover/match:text-fg-primary">
                 <Highlight text={m.preview} ranges={m.ranges} />
               </span>
             </button>
-          ))
-        : null}
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -86,7 +100,7 @@ function Highlight({
       out.push(
         <mark
           key={`m${i}`}
-          className="rounded-sm bg-accent-subtle px-px text-accent"
+          className="rounded-[3px] bg-accent/25 px-0.5 font-medium text-fg-primary"
         >
           {text.slice(start, end)}
         </mark>,

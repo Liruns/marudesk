@@ -1297,6 +1297,8 @@ export const EN_MESSAGES = {
   'workspace.action.paste': 'Paste',
   'workspace.action.refresh': 'Refresh',
   'workspace.action.reindex': 'Reindex',
+  'workspace.action.showIgnored': 'Show ignored files',
+  'workspace.action.hideIgnored': 'Hide ignored files',
   'workspace.action.rename': 'Rename',
   'workspace.action.revealInFileExplorer': 'Reveal in File Explorer',
   'workspace.emptyFolder': 'No files in this folder.',

@@ -49,6 +49,7 @@ export const CHANNELS = {
   workspace: [
     'workspace:open',
     'workspace:list',
+    'workspace:list-files',
     'workspace:rank',
     'workspace:read-file',
     'workspace:read-media',

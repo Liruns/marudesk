@@ -1291,6 +1291,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'workspace.action.paste': '붙여넣기',
   'workspace.action.refresh': '새로 고침',
   'workspace.action.reindex': '다시 색인',
+  'workspace.action.showIgnored': '무시된 파일 표시',
+  'workspace.action.hideIgnored': '무시된 파일 숨기기',
   'workspace.action.rename': '이름 바꾸기',
   'workspace.action.revealInFileExplorer': '파일 탐색기에서 보기',
   'workspace.emptyFolder': '이 폴더에는 파일이 없습니다.',

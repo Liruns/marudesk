@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 export async function summarizeWorkspace(root: string): Promise<WorkspaceSummary> {
   if (isSshRootKey(root)) return sshSummarize(root);
   const absRoot = path.resolve(root);
-  const { files, source, truncated } = await listFiles(absRoot);
+  const { files, source, truncated } = await listFiles(absRoot, false);
   files.sort((a, b) => a.path.localeCompare(b.path));
   return {
     root: absRoot,
@@ -24,35 +24,54 @@ export async function summarizeWorkspace(root: string): Promise<WorkspaceSummary
   };
 }
 
-async function listFiles(root: string): Promise<{
+/**
+ * The flat file list for a root, optionally INCLUDING git-ignored (and dotfile)
+ * entries. Used by the Explorer's "show ignored files" toggle — a read-only,
+ * on-demand call that does NOT touch the cached workspace summary, so search /
+ * mentions keep their curated (ignored-excluded) view.
+ */
+export async function listWorkspaceFiles(
+  root: string,
+  includeIgnored: boolean,
+): Promise<FileEntry[]> {
+  if (isSshRootKey(root)) return [];
+  const absRoot = path.resolve(root);
+  const { files } = await listFiles(absRoot, includeIgnored);
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return files;
+}
+
+async function listFiles(
+  root: string,
+  includeIgnored: boolean,
+): Promise<{
   files: FileEntry[];
   source: 'git' | 'walk';
   truncated: boolean;
 }> {
-  const git = await listGitFiles(root);
+  const git = await listGitFiles(root, includeIgnored);
   if (git) return git;
-  return walkFiles(root);
+  return walkFiles(root, includeIgnored);
 }
 
-async function listGitFiles(root: string): Promise<{
+async function listGitFiles(
+  root: string,
+  includeIgnored: boolean,
+): Promise<{
   files: FileEntry[];
   source: 'git';
   truncated: boolean;
 } | null> {
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      [
-        '-C',
-        root,
-        'ls-files',
-        '-z',
-        '--cached',
-        '--others',
-        '--exclude-standard',
-      ],
-      { maxBuffer: 64 * 1024 * 1024, timeout: 10_000 },
-    );
+    // `--exclude-standard` filters out .gitignore'd (and excluded) files. Dropping
+    // it while keeping `--others` surfaces ignored untracked files too — exactly
+    // the "show ignored" view. `.git` itself is never listed by ls-files.
+    const args = ['-C', root, 'ls-files', '-z', '--cached', '--others'];
+    if (!includeIgnored) args.push('--exclude-standard');
+    const { stdout } = await execFileAsync('git', args, {
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 10_000,
+    });
     const rel = stdout.split('\0').filter(Boolean);
     if (rel.length === 0) return null;
     const truncated = rel.length > MAX_FILES;
@@ -75,7 +94,10 @@ async function listGitFiles(root: string): Promise<{
   }
 }
 
-async function walkFiles(root: string): Promise<{
+async function walkFiles(
+  root: string,
+  includeIgnored: boolean,
+): Promise<{
   files: FileEntry[];
   source: 'walk';
   truncated: boolean;
@@ -94,8 +116,12 @@ async function walkFiles(root: string): Promise<{
       const name = entry.name;
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (IGNORE_DIRS.has(name)) continue;
-        if (name.startsWith('.')) continue;
+        // `.git` is always skipped (huge + never useful). With "show ignored" on,
+        // dotfolders and the usual ignore set ARE walked so they become visible;
+        // otherwise they're skipped as before.
+        if (name === '.git') continue;
+        if (!includeIgnored && IGNORE_DIRS.has(name)) continue;
+        if (!includeIgnored && name.startsWith('.')) continue;
         await walk(path.join(dir, name));
       } else if (entry.isFile()) {
         const full = path.join(dir, name);

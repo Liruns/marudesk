@@ -85,6 +85,7 @@ import type {
   CreateKind,
   MutateResult,
   RankedFile,
+  FileEntry,
   ReadFileResult,
   ReadMediaResult,
   SaveAsResult,
@@ -265,6 +266,13 @@ export interface IpcMap {
   // workspace
   'workspace:open': { args: []; result: WorkspaceSummary | null };
   'workspace:list': { args: [root?: string]; result: WorkspaceSummary | null };
+  // Flat file list for a root, optionally INCLUDING git-ignored/dotfile entries
+  // (the Explorer's "show ignored" toggle). Read-only; never mutates the cached
+  // summary, so search/mentions keep their curated view.
+  'workspace:list-files': {
+    args: [payload: { root: string; includeIgnored: boolean }];
+    result: FileEntry[];
+  };
   'workspace:rank': { args: [capture: CaptureInput]; result: RankedFile[] };
   'workspace:read-file': { args: [rel: string]; result: ReadFileResult };
   'workspace:read-media': { args: [rel: string]; result: ReadMediaResult };

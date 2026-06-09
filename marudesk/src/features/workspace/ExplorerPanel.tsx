@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -8,6 +9,8 @@ import {
   ChevronsDownUp,
   ClipboardPaste,
   Copy,
+  Eye,
+  EyeOff,
   ExternalLink,
   File as FileIcon,
   FilePlus,
@@ -26,6 +29,7 @@ import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import type {
+  FileEntry,
   WorkspaceFileRef,
 } from '../../../shared/workspace';
 import { IconButton, WorkspaceRootsBar } from './ExplorerPanel.parts';
@@ -74,6 +78,18 @@ const EXPLORER_WIDTH_KEY = 'marudesk.explorerWidth';
 const EXPLORER_CLOSE_AT = 72;
 const EXPLORER_DRAG_FLOOR = 44;
 
+// "Show ignored files" preference — when on, the tree also lists git-ignored
+// (and dotfile) entries, fetched on demand without disturbing the curated
+// workspace summary used by search/mentions.
+const SHOW_IGNORED_KEY = 'marudesk.explorer.showIgnored';
+function readShowIgnored(): boolean {
+  try {
+    return localStorage.getItem(SHOW_IGNORED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 // SPIKE flag: render the @pierre/trees-backed tree instead of the in-house one.
 // Default off so shipped behavior is unchanged; flip locally to evaluate.
 // See FileTreePierreSpike.tsx / docs/pierre-trees-spike.md.
@@ -118,6 +134,9 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [width, setWidth] = useState(readExplorerWidth);
   const [resizing, setResizing] = useState(false);
+  // "Show ignored files" toggle + the ignored-inclusive listing it fetches.
+  const [showIgnored, setShowIgnored] = useState(readShowIgnored);
+  const [ignoredFiles, setIgnoredFiles] = useState<FileEntry[] | null>(null);
   // Tracks whether we are in the "close zone" during an active drag — used to
   // show the dismiss affordance without touching the persisted width state.
   const [inCloseZone, setInCloseZone] = useState(false);
@@ -166,10 +185,45 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     handle.addEventListener('lostpointercapture', onDone);
   };
 
-  const tree = useMemo(
-    () => (summary ? buildFileTree(summary.files) : []),
-    [summary],
-  );
+  // Fetch the ignored-inclusive listing when the toggle is on (re-fetching when
+  // the active root changes); clear it when off so the tree falls back to the
+  // curated summary.
+  useEffect(() => {
+    const root = summary?.root;
+    if (!showIgnored || !root) {
+      setIgnoredFiles(null);
+      return;
+    }
+    let alive = true;
+    void window.marudesk
+      .invoke('workspace:list-files', { root, includeIgnored: true })
+      .then((files) => {
+        if (alive) setIgnoredFiles(files);
+      })
+      .catch(() => {
+        if (alive) setIgnoredFiles(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [showIgnored, summary?.root]);
+
+  const toggleShowIgnored = () => {
+    setShowIgnored((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(SHOW_IGNORED_KEY, next ? '1' : '0');
+      } catch {
+        // best-effort
+      }
+      return next;
+    });
+  };
+
+  // The list the tree renders: ignored-inclusive when the toggle is on and the
+  // fetch has resolved, otherwise the curated workspace summary.
+  const displayFiles = showIgnored && ignoredFiles !== null ? ignoredFiles : summary?.files ?? [];
+  const tree = useMemo(() => buildFileTree(displayFiles), [displayFiles]);
   const rows = useMemo(
     () => flattenTree(tree, expandedDirs),
     [tree, expandedDirs],
@@ -281,6 +335,13 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                   <RefreshCw size={14} />
                 </IconButton>
                 <IconButton
+                  label={t(showIgnored ? 'workspace.action.hideIgnored' : 'workspace.action.showIgnored')}
+                  onClick={toggleShowIgnored}
+                  active={showIgnored}
+                >
+                  {showIgnored ? <Eye size={14} /> : <EyeOff size={14} />}
+                </IconButton>
+                <IconButton
                   label={t('workspace.action.collapseFolders')}
                   onClick={collapseAll}
                   disabled={expandedDirs.size === 0}
@@ -327,7 +388,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
             >
               {USE_PIERRE_TREE ? (
                 <FileTreePierreSpike
-                  files={summary.files}
+                  files={displayFiles}
                   onOpenFile={(p) => void openFile(workspaceFile(p))}
                 />
               ) : rows.length === 0 && !pendingEdit ? (
