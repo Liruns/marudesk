@@ -33,7 +33,9 @@ export function ProvidersSettings() {
               hasKey={!!providerStatus?.hasKey}
               oauthConnected={!!providerStatus?.oauth}
               expanded={keyProvider === provider.id}
-              onSelect={() => selectKeyProvider(provider.id)}
+              onSelect={() =>
+                selectKeyProvider(keyProvider === provider.id ? null : provider.id)
+              }
             />
           );
         })}

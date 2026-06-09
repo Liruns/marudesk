@@ -30,9 +30,10 @@ export type ComposerDeps = {
   busy: boolean;
   summary: WorkspaceSummary | null;
   promptHistory: string[];
-  queuedPrompt: string | null;
+  queuedPrompts: string[];
   setDraft: (v: string) => void;
-  setQueuedPrompt: (v: string | null) => void;
+  enqueuePrompt: (text: string) => void;
+  dequeuePrompt: () => string | null;
   send: () => Promise<void>;
   resetChat: () => Promise<void>;
   compact: (focus?: string) => Promise<{ ok: boolean; reason?: string }>;
@@ -47,9 +48,10 @@ export function useComposer({
   busy,
   summary,
   promptHistory,
-  queuedPrompt,
+  queuedPrompts,
   setDraft,
-  setQueuedPrompt,
+  enqueuePrompt,
+  dequeuePrompt,
   send,
   resetChat,
   compact,
@@ -298,24 +300,36 @@ export function useComposer({
     const text = draft.trim();
     if (text.length === 0) return;
     if (busy) {
-      setQueuedPrompt(queuedPrompt ? `${queuedPrompt}\n${text}` : text);
+      // Stage it as a separate queued item (no concatenation) — the user can line
+      // up several follow-ups and they fire one-at-a-time as each turn finishes.
+      enqueuePrompt(text);
       setDraft('');
       return;
     }
     submitText(text);
   };
 
-  // Auto-send a queued prompt once the running turn finishes (busy goes false).
-  // The dispatch is deferred to a microtask so it runs after this effect commits
-  // rather than cascading another synchronous render inside the effect body.
+  // Drain the queue one item at a time once the running turn finishes (busy goes
+  // false). The dispatch is deferred to a microtask so it runs after this effect
+  // commits rather than cascading another synchronous render inside the effect
+  // body. `drainGuard` blocks re-entry across the async gap between dispatching a
+  // turn and `busy` actually flipping true (the snapshot round-trip) — otherwise
+  // a queue of N would fire all at once instead of one-per-turn. It resets as
+  // soon as the dispatched turn registers as busy.
+  const drainGuard = useRef(false);
   useEffect(() => {
-    if (busy || !queuedPrompt) return;
-    const text = queuedPrompt;
-    setQueuedPrompt(null);
+    if (busy) {
+      drainGuard.current = false;
+      return;
+    }
+    if (drainGuard.current || queuedPrompts.length === 0) return;
+    const text = dequeuePrompt();
+    if (text === null) return;
+    drainGuard.current = true;
     queueMicrotask(() => submitText(text));
     // submitText closes over stable store actions; rerun only on these two.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busy, queuedPrompt]);
+  }, [busy, queuedPrompts]);
 
   const handlePickSuggestion = (text: string) => {
     setDraft(text);

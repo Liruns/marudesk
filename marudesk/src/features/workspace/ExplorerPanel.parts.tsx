@@ -114,11 +114,14 @@ export function IconButton({
   label,
   onClick,
   disabled = false,
+  active = false,
   children,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  /** Sticky-on state (e.g. a view toggle) — tints the button with the accent. */
+  active?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -127,13 +130,16 @@ export function IconButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
+      aria-pressed={active}
       title={label}
       className={cn(
         'size-6 rounded flex items-center justify-center shrink-0',
         'transition-colors duration-fast',
         disabled
           ? 'text-fg-tertiary/40 cursor-not-allowed'
-          : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
+          : active
+            ? 'bg-accent-subtle text-accent'
+            : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
       )}
     >
       {children}

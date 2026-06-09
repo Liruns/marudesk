@@ -73,8 +73,9 @@ export type ProvidersState = {
   statusChecked: boolean;
   statusError: string | null;
 
-  // API-key editor for built-in providers (Settings → AI Providers).
-  keyProvider: BuiltinProviderId;
+  // API-key editor for built-in providers (Settings → AI Providers). `null` when
+  // no provider card is expanded — clicking the open card again collapses it.
+  keyProvider: BuiltinProviderId | null;
   keyInput: string;
   keyBusy: boolean;
   keyError: string | null;
@@ -97,7 +98,8 @@ type ProvidersActions = {
   toggleFavorite: (key: string) => void;
   refreshProviderStatus: () => Promise<void>;
   refreshModels: (provider: BuiltinProviderId, force?: boolean) => Promise<void>;
-  selectKeyProvider: (id: BuiltinProviderId) => void;
+  /** Expand a provider's key editor, or pass `null` to collapse the open one. */
+  selectKeyProvider: (id: BuiltinProviderId | null) => void;
   setKeyInput: (value: string) => void;
   saveProviderKey: () => Promise<void>;
   clearProviderKey: () => Promise<void>;
@@ -147,7 +149,8 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
   statusChecked: false,
   statusError: null,
 
-  keyProvider: initial.provider && isBuiltinProviderId(initial.provider) ? initial.provider : 'anthropic',
+  // Start collapsed — no card auto-expanded — so the providers list opens tidy.
+  keyProvider: null,
   keyInput: '',
   keyBusy: false,
   keyError: null,
@@ -249,7 +252,7 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
 
   saveProviderKey: async () => {
     const { keyInput, keyBusy, keyProvider } = get();
-    if (keyBusy) return;
+    if (keyBusy || !keyProvider) return;
     const value = keyInput.trim();
     if (value.length === 0) {
       set({ keyError: 'Paste an API key first.' });
@@ -270,7 +273,7 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
 
   clearProviderKey: async () => {
     const { keyBusy, keyProvider } = get();
-    if (keyBusy) return;
+    if (keyBusy || !keyProvider) return;
     set({ keyBusy: true, keyError: null });
     try {
       await window.marudesk.invoke('secrets:clear-provider-key', keyProvider);
@@ -311,7 +314,11 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
 
   testProviderConnection: async (provider) => {
     try {
-      return await window.marudesk.invoke('providers:test-connection', provider);
+      // Test the model the user has actually selected for this provider, when one
+      // is active — otherwise main falls back to the catalog default.
+      const { selectedProvider, selectedModel } = get();
+      const model = selectedProvider === provider ? selectedModel : undefined;
+      return await window.marudesk.invoke('providers:test-connection', provider, model);
     } catch (err) {
       return { ok: false, message: toMessage(err) };
     }

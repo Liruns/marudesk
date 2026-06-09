@@ -8,8 +8,10 @@ type ProfileDialog = { mode: 'create' } | { mode: 'rename'; id: string; name: st
 
 /**
  * Profile switcher at the top of the workspace rail. Lists profiles, switches
- * (which relaunches into that profile's isolated data set), and creates / renames
- * / deletes profiles. Hardcoded English labels match the workspace context menu.
+ * (applied LIVE — the main process repoints userData and reloads the renderer
+ * into that profile's isolated data set, without restarting the app), and creates
+ * / renames / deletes profiles. Hardcoded English labels match the workspace
+ * context menu.
  */
 export function ProfileSwitcher() {
   const [state, setState] = useState<ProfilesState | null>(null);

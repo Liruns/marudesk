@@ -56,6 +56,8 @@ const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const CEREBRAS_BASE_URL = 'https://api.cerebras.ai/v1';
 const MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+const TOGETHER_BASE_URL = 'https://api.together.xyz/v1';
+const FIREWORKS_BASE_URL = 'https://api.fireworks.ai/inference/v1';
 
 /**
  * Known-dead / hallucinated model slugs mapped to guidance. A second line of
@@ -244,6 +246,18 @@ export function buildModel(
       return createOpenAICompatible({
         name: 'deepseek',
         baseURL: DEEPSEEK_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'together':
+      return createOpenAICompatible({
+        name: 'together',
+        baseURL: TOGETHER_BASE_URL,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    case 'fireworks':
+      return createOpenAICompatible({
+        name: 'fireworks',
+        baseURL: FIREWORKS_BASE_URL,
         apiKey: apiKey || undefined,
       })(modelId);
     default: {

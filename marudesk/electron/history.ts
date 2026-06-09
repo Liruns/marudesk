@@ -99,6 +99,22 @@ function frecency(e: HistoryEntry): number {
   return e.visitCount * 1e13 + e.lastVisit;
 }
 
+/**
+ * Flush any pending debounced save to the CURRENT profile's history.json, then
+ * drop the in-memory cache so the next load reads the now-active profile's file.
+ * Used by the live profile switch — call this BEFORE `app.setPath` repoints
+ * userData so the pending write still lands in the old profile.
+ */
+export async function flushAndResetHistoryForProfile(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await persist();
+  }
+  cache = null;
+  loadPromise = null;
+}
+
 /** Record a top-level visit. http(s) only; no-op for internal schemes. */
 export function recordVisit(url: string, title: string): void {
   if (!/^https?:\/\//i.test(url)) return;

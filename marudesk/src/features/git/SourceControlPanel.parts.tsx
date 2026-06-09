@@ -93,16 +93,21 @@ export function Section({
 }) {
   return (
     <div className="group/section">
-      <div className="flex items-center gap-1.5 px-3 pb-0.5 pt-2 text-caption uppercase tracking-wide text-fg-tertiary">
-        <span>{title}</span>
-        <span className="tabular-nums">{count}</span>
+      <div className="flex items-center gap-1.5 px-3 pb-1 pt-2.5">
+        <span className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
+          {title}
+        </span>
+        <span className="rounded-pill bg-surface-2 px-1.5 text-[0.6875rem] font-medium tabular-nums text-fg-secondary">
+          {count}
+        </span>
         <span className="flex-1" aria-hidden />
+        {/* Bulk action stays visible (not hover-gated) so it's discoverable. */}
         <button
           type="button"
           onClick={action.onClick}
           aria-label={action.label}
           title={action.label}
-          className="opacity-0 group-hover/section:opacity-100 size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 transition"
+          className="size-5 rounded flex items-center justify-center text-fg-tertiary/70 hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
         >
           {action.icon}
         </button>
@@ -128,7 +133,19 @@ export function FileRow({
   const badge = statusBadge(change, staged);
   const dir = dirName(change.path);
   return (
-    <div className="group/row flex items-center h-6 pl-3 pr-1.5 hover:bg-surface-2">
+    <div className="group/row flex items-center gap-2 h-7 pl-3 pr-1.5 hover:bg-surface-2">
+      {/* Leading status letter — a colored, fixed-width indicator so the eye can
+          scan the change kind down the left edge. */}
+      <span
+        aria-hidden
+        title={t(badge.titleKey)}
+        className={cn(
+          'w-3.5 shrink-0 text-center text-caption font-semibold tabular-nums',
+          badge.className,
+        )}
+      >
+        {badge.letter}
+      </span>
       <button
         type="button"
         onClick={onOpen}
@@ -136,40 +153,29 @@ export function FileRow({
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
         <span className="truncate text-body-sm text-fg-primary">{baseName(change.path)}</span>
-        {dir ? <span className="truncate text-caption text-fg-tertiary">{dir}</span> : null}
+        {dir ? <span className="truncate text-caption text-fg-tertiary/80">{dir}</span> : null}
       </button>
-      <span className="flex shrink-0 items-center gap-0.5">
-        <span className="opacity-0 group-hover/row:opacity-100 flex items-center gap-0.5 transition-opacity">
-          {actions.map((a) => (
-            <button
-              key={a.label}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                a.onClick();
-              }}
-              aria-label={a.label}
-              title={a.label}
-              className={cn(
-                'size-5 rounded flex items-center justify-center',
-                'hover:bg-surface-3 transition-colors',
-                a.danger ? 'text-fg-tertiary hover:text-error' : 'text-fg-tertiary hover:text-fg-primary',
-              )}
-            >
-              {a.icon}
-            </button>
-          ))}
-        </span>
-        <span
-          aria-hidden
-          title={t(badge.titleKey)}
-          className={cn(
-            'w-4 text-center text-caption font-semibold tabular-nums',
-            badge.className,
-          )}
-        >
-          {badge.letter}
-        </span>
+      {/* Hover-revealed row actions on the right. */}
+      <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+        {actions.map((a) => (
+          <button
+            key={a.label}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              a.onClick();
+            }}
+            aria-label={a.label}
+            title={a.label}
+            className={cn(
+              'size-5 rounded flex items-center justify-center',
+              'hover:bg-surface-3 transition-colors',
+              a.danger ? 'text-fg-tertiary hover:text-error' : 'text-fg-tertiary hover:text-fg-primary',
+            )}
+          >
+            {a.icon}
+          </button>
+        ))}
       </span>
     </div>
   );

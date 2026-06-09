@@ -92,10 +92,15 @@ export function buildUserText(
 
 export async function testProviderConnection(
   provider: AgentSendInput['provider'],
+  preferredModel?: string,
 ): Promise<{ ok: boolean; message: string }> {
   const resolved = await resolveProviderAuth(provider);
   if (!resolved.ok) return { ok: false, message: resolved.reason };
-  const model = isBuiltinProviderId(provider) ? getProvider(provider).defaultModelId : '';
+  // Prefer the model the user actually has selected for this provider (passed
+  // from the renderer) so the test reflects real usage; fall back to the
+  // catalog default when none was supplied.
+  const fallback = isBuiltinProviderId(provider) ? getProvider(provider).defaultModelId : '';
+  const model = preferredModel && preferredModel.trim().length > 0 ? preferredModel.trim() : fallback;
   if (!model) return { ok: false, message: 'No default model to test for this provider.' };
   try {
     const m = buildModel(provider, model, resolved.auth, resolved.baseUrl);

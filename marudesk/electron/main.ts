@@ -1,7 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
 // Redirect userData to the active profile BEFORE any persistence module loads.
 import './profile-init';
-import { registerProfileHandlers } from './profile-store';
+import { persistActiveProfile, profileDir, registerProfileHandlers } from './profile-store';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { maybeOpenEmbeddedDebugPort } from './agent/embedded-browser';
@@ -10,15 +10,21 @@ import {
   mountBrowserView,
   registerBrowserHandlers,
 } from './browser';
-import { getCurrentWorkspace, registerWorkspaceHandlers, restoreWorkspaces } from './workspace';
+import {
+  getCurrentWorkspace,
+  registerWorkspaceHandlers,
+  resetWorkspaceRegistryForProfile,
+  restoreWorkspaces,
+} from './workspace';
 import { setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
 import { registerGitHandlers } from './git';
 import { configureWorktreeIsolation } from './worktree-isolation';
-import { activeConversationId } from './agent/loop-state';
+import { activeConversationId, resetThreadsForProfileSwitch } from './agent/loop-state';
+import { resetSessionsStoreForProfile } from './agent/sessions-store';
 import { configureAutomationStore } from './automations/store';
-import { startScheduler } from './automations/scheduler';
+import { startScheduler, stopScheduler } from './automations/scheduler';
 import { createAutomationRunner } from './automations/run';
 import { registerAutomationHandlers } from './automations/handlers';
 import { registerSearchHandlers } from './search';
@@ -43,8 +49,8 @@ import { initPlugins, shutdownPlugins } from './plugins';
 import { registerPluginHandlers } from './plugins/handlers';
 import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol';
 import { registerModelsHandlers } from './models';
-import { getSettings, registerSettingsHandlers } from './settings';
-import { registerHistoryHandlers } from './history';
+import { getSettings, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
+import { flushAndResetHistoryForProfile, registerHistoryHandlers } from './history';
 import { registerDiagnosticsHandlers } from './diagnostics/handlers';
 import { syncFromContext as syncLspFromContext, disposeAllLsp } from './lsp/manager';
 import { setContextCacheListener } from './agent/context-cache';
@@ -75,6 +81,111 @@ const rendererDevUrl = process.env.VITE_DEV_SERVER_URL;
 
 let mainWindow: BrowserWindow | null = null;
 const getMainWindow = (): BrowserWindow | null => mainWindow;
+
+// The automation runner reads the active workspace lazily, so it's profile-
+// independent: created once and reused for the IPC handlers and every (re)start
+// of the scheduler across live profile switches.
+let automationRunner: ReturnType<typeof createAutomationRunner> | null = null;
+
+/**
+ * (Re)initialize all per-profile runtime — shared by boot and the live profile
+ * switch (applyProfileSwitch). Every step is fire-and-forget and reads the
+ * CURRENT userData dir, so it must run AFTER app.setPath has repointed to the
+ * target profile.
+ */
+function initProfileRuntime(): void {
+  // Rebuild persisted workspaces from the active profile's disk (no-op until the
+  // registry was cleared, which the switch teardown does).
+  void restoreWorkspaces();
+  // Worktree isolation (Stage 12-B): restore any in-progress isolated worktree
+  // and point new ones under the active profile's userData.
+  void configureWorktreeIsolation({
+    stateFile: path.join(app.getPath('userData'), 'worktree-isolation.json'),
+    worktreesDir: path.join(app.getPath('userData'), 'worktrees'),
+    getActiveThreadId: activeConversationId,
+  });
+  // Automations: load the profile's saved schedule and (re)start the tick.
+  void configureAutomationStore(path.join(app.getPath('userData'), 'automations.json')).then(() => {
+    if (automationRunner) startScheduler(automationRunner);
+  });
+  // Warm the settings cache, then reconcile the bridge server + cloud relay with
+  // the new profile's settings.
+  void getSettings().then((settings) => {
+    void syncServerToSettings(settings);
+    void syncRelayToSettings(settings);
+  });
+  // Connect the profile's external (stdio) MCP servers + activate its plugins.
+  void initExternalMcp();
+  void initPlugins(() => getCurrentWorkspace()?.root ?? null);
+}
+
+/**
+ * Tear down the current profile's runtime before a live switch: abort the agent
+ * (so nothing keeps writing mid-swap), flush + dispose disk-backed runtime, stop
+ * background loops/connections, and clear in-memory caches. All best-effort — a
+ * teardown failure must not strand the switch. Runs BEFORE app.setPath, so disk
+ * flushes still land in the OLD profile's directory.
+ */
+async function teardownProfileRuntime(): Promise<void> {
+  const guard = (fn: () => void): void => {
+    try {
+      fn();
+    } catch {
+      // best-effort — a switch must not be blocked by one failing teardown
+    }
+  };
+  // Abort any in-flight agent turn first, then flush the history debounce to disk.
+  guard(resetThreadsForProfileSwitch);
+  await flushAndResetHistoryForProfile().catch(() => undefined);
+  // Dispose runtime (disposeBrowserView also saves the pinned/tab session to disk).
+  guard(disposeBrowserView);
+  guard(disposeAllTerminals);
+  guard(disposeAllLaneDevServers);
+  guard(disposeAllLsp);
+  guard(() => void stopServer());
+  guard(disposeRelay);
+  guard(() => void shutdownExternalMcp());
+  guard(shutdownPlugins);
+  guard(stopScheduler);
+  // Drop in-memory caches so the next read comes from the new profile's dir.
+  guard(resetSettingsCacheForProfile);
+  guard(resetSessionsStoreForProfile);
+  guard(resetWorkspaceRegistryForProfile);
+  // Close the SQLite handle LAST so the next getDb() opens the new profile's DB.
+  guard(closeDb);
+}
+
+/**
+ * Apply a profile switch LIVE — no app restart. Persist the new active id, tear
+ * down the old profile's runtime, repoint userData, re-init, and reload the
+ * renderer (which re-hydrates everything from the new profile). Any failure falls
+ * back to the proven hard restart; profiles.json already records the new id, so
+ * the relaunched app boots into it cleanly.
+ */
+async function applyProfileSwitch(id: string): Promise<void> {
+  let changed = false;
+  try {
+    changed = await persistActiveProfile(id);
+  } catch {
+    return; // couldn't even record the choice — leave the running app untouched
+  }
+  if (!changed) return; // same profile, or an unknown id
+  try {
+    await teardownProfileRuntime();
+    app.setPath('userData', profileDir(id));
+    initProfileRuntime();
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.once('did-finish-load', () => {
+        if (!win.isDestroyed()) mountBrowserView(win);
+      });
+      win.webContents.reload();
+    }
+  } catch {
+    app.relaunch();
+    app.quit();
+  }
+}
 
 function applyHostContentSecurityPolicy(): void {
   const scriptSrc = isDev
@@ -261,27 +372,12 @@ void app.whenReady().then(() => {
   setWorkspaceProvider(getCurrentWorkspace);
   registerBrowserHandlers({ getMainWindow });
   registerWorkspaceHandlers({ getMainWindow });
-  // Rebuild persisted workspaces from disk (fire-and-forget — re-indexes local
-  // roots, then pushes state once the renderer is listening).
-  void restoreWorkspaces();
   registerWorkspaceMutateHandlers();
   registerSshHandlers();
   registerGitHandlers();
-  // Worktree isolation (Stage 12-B): restore any in-progress isolated worktree
-  // and point new ones under userData. Fire-and-forget — the agent's
-  // effectiveAgentRoot is a no-op until a worktree is active.
-  void configureWorktreeIsolation({
-    stateFile: path.join(app.getPath('userData'), 'worktree-isolation.json'),
-    worktreesDir: path.join(app.getPath('userData'), 'worktrees'),
-    // Stage 12-B-2: scope isolation to the active conversation thread.
-    getActiveThreadId: activeConversationId,
-  });
-  // Automations (Stage 12-C): load saved scheduled prompts, register IPC, and
-  // start the periodic tick that runs due ones as detached read-only agents.
-  const automationRunner = createAutomationRunner(getCurrentWorkspace);
-  void configureAutomationStore(path.join(app.getPath('userData'), 'automations.json')).then(() => {
-    startScheduler(automationRunner);
-  });
+  // Automations (Stage 12-C): register the IPC handlers with a profile-independent
+  // runner; the saved schedule + periodic tick are (re)started in initProfileRuntime.
+  automationRunner = createAutomationRunner(getCurrentWorkspace);
   registerAutomationHandlers(automationRunner);
   registerSearchHandlers();
   registerPatchHandlers();
@@ -302,7 +398,8 @@ void app.whenReady().then(() => {
   registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);
   registerUiLayoutHandlers();
-  registerProfileHandlers();
+  // Profile switching is applied live (no app restart) — see applyProfileSwitch.
+  registerProfileHandlers({ applyProfileSwitch });
   registerRelayHandlers();
   // Push live cloud-relay status (connected-as-host / session changes) to the
   // renderer so Settings reflects it without polling. Sanitized — never tokens.
@@ -346,27 +443,12 @@ void app.whenReady().then(() => {
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,
   });
   registerClipboardHandlers();
-  // Warm the settings cache so getSettingsSync() (the address-bar/new-tab search
-  // engine resolver) reflects the persisted choice on the very first navigation,
-  // not just after the renderer's settings:get round-trips. Once loaded, reconcile
-  // the bridge server with the persisted server.enabled/port (off by default, so
-  // this is a no-op unless the user turned it on previously).
-  void getSettings().then((settings) => {
-    void syncServerToSettings(settings);
-    // Connect the cloud-relay host if cloud is enabled AND a session is stored
-    // (off by default → a no-op unless the user logged in + enabled it before).
-    void syncRelayToSettings(settings);
-  });
-  // Connect any user-configured external (stdio) MCP servers (off by default — the
-  // config file ships empty, so this is a no-op until the user adds one). A
-  // per-server spawn/init failure is handled inside the manager and never crashes
-  // the app — see docs/remote-mobile-bridge-design §M3.
-  void initExternalMcp();
-  // Scan the user/project plugin folders and activate any the user has approved
-  // (docs/plugin-runtime-design.md). Off by default — nothing is spawned until a
-  // plugin is enabled + its permissions granted in Settings, and a bad manifest /
-  // failed load is recorded and skipped, never crashing the app.
-  void initPlugins(() => getCurrentWorkspace()?.root ?? null);
+  // Bring up all per-profile runtime: restore workspaces, warm settings (so
+  // getSettingsSync() reflects the persisted choice on the first navigation),
+  // reconcile the bridge server + cloud relay, start automations, and connect
+  // external MCP + plugins. Shared with the live profile switch. Each step is
+  // off-by-default / fire-and-forget and never crashes the app.
+  initProfileRuntime();
   void createMainWindow();
 
   app.on('activate', () => {

@@ -241,14 +241,26 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
             </div>
           </>
         )}
-        {showHistory && tab === 'agent' ? (
-          <div className="chrome-panel absolute inset-0 z-20 flex flex-col rounded-none border-0">
+        {/* History overlay: kept mounted (when on the agent tab) and animated in/
+            out so it slides + fades like the other panels rather than snapping. */}
+        {tab === 'agent' ? (
+          <div
+            aria-hidden={!showHistory}
+            className={cn(
+              'chrome-panel absolute inset-0 z-20 flex flex-col rounded-none border-0',
+              'transition-[opacity,transform] duration-standard',
+              showHistory
+                ? 'opacity-100 translate-y-0 pointer-events-auto'
+                : 'opacity-0 -translate-y-1.5 pointer-events-none',
+            )}
+          >
             <header className="chrome-header h-10 shrink-0 flex items-center justify-between px-3">
               <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.history')}</h2>
               <button
                 type="button"
                 onClick={() => setShowHistory(false)}
                 aria-label={t('context.drawer.closeHistory')}
+                tabIndex={showHistory ? 0 : -1}
                 className="chrome-icon-button size-6"
               >
                 <X size={14} />

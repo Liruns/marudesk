@@ -35,7 +35,7 @@ let marudesk: MarudeskMock;
 
 beforeEach(() => {
   marudesk = mockMarudesk();
-  useAgentStore.setState({ draft: '', chat: emptyAgentChatState(), queuedPrompt: null });
+  useAgentStore.setState({ draft: '', chat: emptyAgentChatState(), queuedPrompts: [] });
   // Skip the provider-status refresh effect so the test doesn't need those IPCs,
   // and pretend the selected provider has a key so `send` reaches the IPC.
   useProvidersStore.setState({ statusChecked: true, hasKeyForSelected: () => true });

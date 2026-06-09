@@ -55,6 +55,14 @@ export const DRIVERS: Record<ProviderId, ProviderDriver> = {
     name: 'DeepSeek',
     modelsUrl: 'https://api.deepseek.com/v1/models',
   }),
+  together: openAiCompatibleDriver({
+    name: 'Together AI',
+    modelsUrl: 'https://api.together.xyz/v1/models',
+  }),
+  fireworks: openAiCompatibleDriver({
+    name: 'Fireworks AI',
+    modelsUrl: 'https://api.fireworks.ai/inference/v1/models',
+  }),
 };
 
 export type { ProviderDriver } from './types';

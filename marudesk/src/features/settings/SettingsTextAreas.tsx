@@ -32,7 +32,7 @@ export function GlobsField({
       onBlur={commit}
       placeholder={'**/.env\n**/secrets/**'}
       className={cn(
-        'w-[240px] max-w-[40vw] rounded-md bg-surface-page border border-default px-3 py-2',
+        'w-[320px] max-w-[40vw] rounded-md bg-surface-page border border-default px-3 py-2',
         'text-body-sm font-mono text-fg-primary placeholder:text-fg-tertiary resize-y',
         'focus:outline-none focus:border-accent transition-colors duration-fast',
       )}

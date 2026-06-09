@@ -15,9 +15,11 @@ import {
 
 /**
  * Profile registry + the boot-time userData redirect. The list lives in the REAL
- * userData root (captured before any redirect); switching a profile rewrites the
- * active id and relaunches the app so every persistence module re-reads from the
- * new profile's directory. See shared/profiles.ts for the model.
+ * userData root (captured before any redirect). Switching a profile rewrites the
+ * active id; the actual swap is applied LIVE by the main process (no restart) —
+ * see electron/main.ts `applyProfileSwitch`, which flushes + tears down the old
+ * profile's runtime, repoints userData, re-inits, and reloads the renderer.
+ * See shared/profiles.ts for the model.
  */
 
 // The real userData root, captured at module load before app.setPath redirects it.
@@ -111,18 +113,23 @@ async function deleteProfile(id: string): Promise<ProfilesState> {
   return next;
 }
 
-async function switchProfile(id: string): Promise<void> {
+/**
+ * Persist a new active-profile id to the root profiles.json (no userData side
+ * effects). Returns true when the active profile actually changed — the caller
+ * (main's applyProfileSwitch) then performs the live runtime swap. Writing the id
+ * first means a fallback hard-restart would still boot into the chosen profile.
+ */
+export async function persistActiveProfile(id: string): Promise<boolean> {
   const state = readSync();
-  if (id === state.activeProfileId || !state.profiles.some((p) => p.id === id)) return;
+  if (id === state.activeProfileId || !state.profiles.some((p) => p.id === id)) return false;
   await writeAtomic({ ...state, activeProfileId: id });
-  // Relaunch so every persistence module re-reads from the new profile dir.
-  // quit() (not exit()) runs before-quit/closed handlers first, so the current
-  // profile's tabs/workspaces/window state are saved before we restart.
-  app.relaunch();
-  app.quit();
+  return true;
 }
 
-export function registerProfileHandlers(): void {
+export function registerProfileHandlers(deps: {
+  /** Apply a profile switch live (flush + teardown + repoint + reload). */
+  applyProfileSwitch: (id: string) => Promise<void>;
+}): void {
   defineHandler('profiles:list', () => listProfiles());
   defineHandler('profiles:create', ([name]) => createProfile(typeof name === 'string' ? name : ''));
   defineHandler('profiles:rename', ([payload]) => {
@@ -130,5 +137,5 @@ export function registerProfileHandlers(): void {
     return renameProfile(str(p.id, 'id'), str(p.name, 'name'));
   });
   defineHandler('profiles:delete', ([id]) => deleteProfile(str(id, 'id')));
-  defineHandler('profiles:switch', ([id]) => switchProfile(str(id, 'id')));
+  defineHandler('profiles:switch', ([id]) => deps.applyProfileSwitch(str(id, 'id')));
 }

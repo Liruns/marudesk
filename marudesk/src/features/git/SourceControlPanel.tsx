@@ -36,6 +36,7 @@ import { DiffViewer } from './DiffViewer';
 import { WorktreeIsolationBar } from './WorktreeIsolationBar';
 import { WorktreeLanes } from './WorktreeLanes';
 import { useEditorStore } from '../editor/store';
+import { useWorkspaceStore } from '../workspace/store';
 
 type Props = {
   open: boolean;
@@ -90,6 +91,10 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   const pull = useGitStore((s) => s.pull);
   const push = useGitStore((s) => s.push);
   const openFile = useEditorStore((s) => s.openFile);
+  // The active workspace root — when it changes (profile/workspace switch), the
+  // main process is now pointed at a different repo, so re-run git status against
+  // it without waiting for the panel to be reopened.
+  const workspaceRoot = useWorkspaceStore((s) => s.summary?.root ?? null);
 
   const [width, setWidth] = useState(readWidth);
   const [resizing, setResizing] = useState(false);
@@ -100,10 +105,11 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   const [branchMenu, setBranchMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Refresh status whenever the panel transitions to open (VSCode refreshes the
-  // SCM view on focus). No file-watching for the MVP — manual + post-op only.
+  // SCM view on focus) OR the active workspace root changes under it (profile /
+  // workspace switch). No file-watching for the MVP — manual + post-op only.
   useEffect(() => {
     if (open) void refresh();
-  }, [open, refresh]);
+  }, [open, refresh, workspaceRoot]);
 
   const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -315,6 +321,9 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                 )}
               >
                 <Check size={14} /> {t('git.action.commit')}
+                {hasStaged && buckets ? (
+                  <span className="tabular-nums opacity-80">({buckets.staged.length})</span>
+                ) : null}
               </button>
             </div>
 
@@ -327,9 +336,10 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
             {/* change sections */}
             <div className="flex-1 min-h-0 overflow-y-auto">
               {buckets && buckets.staged.length === 0 && buckets.changes.length === 0 && buckets.untracked.length === 0 ? (
-                <p className="px-3 py-6 text-center text-body-sm text-fg-tertiary">
-                  {t('git.empty.noChanges')}
-                </p>
+                <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-caption text-fg-tertiary">
+                  <GitCommitHorizontal size={18} className="opacity-30" />
+                  <span>{t('git.empty.noChanges')}</span>
+                </div>
               ) : null}
 
               {buckets && buckets.staged.length > 0 ? (

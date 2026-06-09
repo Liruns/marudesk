@@ -20,7 +20,7 @@ export function NavItem({
       className={cn(
         'chrome-list-row h-8 px-2.5 gap-2 text-body-sm text-left',
         active
-          ? 'bg-accent-subtle/40 text-fg-primary shadow-highlight hover:bg-accent-subtle/40'
+          ? 'bg-accent-subtle text-fg-primary shadow-highlight hover:bg-accent-subtle'
           : 'text-fg-secondary',
       )}
     >

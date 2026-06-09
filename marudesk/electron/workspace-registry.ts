@@ -16,7 +16,7 @@ import {
 import { isSshRootKey, sshRootKey } from '../shared/ssh';
 import { activeRoot } from './workspace-helpers';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
-import { arrayOf, obj, str } from './ipc/validate';
+import { arrayOf, bool, obj, str } from './ipc/validate';
 import { getConnectionInfo } from './ssh/connection-manager';
 import {
   readFileForEditor,
@@ -24,7 +24,7 @@ import {
   saveAsForEditor,
   writeFileForEditor,
 } from './workspace-files';
-import { summarizeWorkspace } from './workspace-index';
+import { listWorkspaceFiles, summarizeWorkspace } from './workspace-index';
 import {
   createId,
   rootToLegacySummary,
@@ -44,6 +44,19 @@ let activeWorkspaceId: WorkspaceId | null = null;
 let focusedPaneId: WorkspacePaneId | null = null;
 let workspaceRevision = 0;
 let getMainWindowRef: (() => BrowserWindow | null) | null = null;
+
+/**
+ * Clear the in-memory workspace registry for a live profile switch, so the
+ * follow-up {@link restoreWorkspaces} (which no-ops when records already exist)
+ * rebuilds the deck from the now-active profile's persisted registry instead of
+ * keeping the previous profile's workspaces.
+ */
+export function resetWorkspaceRegistryForProfile(): void {
+  workspaceRecords.clear();
+  currentWorkspace = null;
+  activeWorkspaceId = null;
+  focusedPaneId = null;
+}
 
 /** Write the live registry to disk so workspaces survive a restart. */
 function persistRegistry(): void {
@@ -334,6 +347,13 @@ export function registerWorkspaceHandlers(deps: {
       return summary;
     }
     return getCurrentWorkspace();
+  });
+
+  // Read-only flat listing (the Explorer's "show ignored" toggle). Does not
+  // upsert into the registry or push state — purely a display-side fetch.
+  defineHandler('workspace:list-files', ([payload]) => {
+    const p = obj(payload);
+    return listWorkspaceFiles(str(p.root, 'root'), bool(p.includeIgnored, 'includeIgnored'));
   });
 
   defineHandler('workspaces:list', () => snapshot());

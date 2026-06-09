@@ -179,8 +179,8 @@ export function registerAgentHandlers(): void {
 
   // Settings "Test connection" — a minimal live request to verify a provider's
   // key/OAuth actually works (OAuth providers have no /models endpoint to probe).
-  defineHandler('providers:test-connection', ([provider]) => {
+  defineHandler('providers:test-connection', ([provider, model]) => {
     if (!isProviderId(provider)) throw new Error('invalid provider');
-    return testProviderConnection(provider);
+    return testProviderConnection(provider, typeof model === 'string' ? model : undefined);
   });
 }
