@@ -12,9 +12,10 @@ import { useAgentStore } from './store';
 import { ContextPopover } from './ContextPopover';
 import { buildReceipt, isBusy } from './chat/format';
 import {
+  ComposerModelButton,
   ContextButton,
   EmptyState,
-  ProviderModelBar,
+  ProviderKeyNudge,
   StatusPill,
   UsageMeter,
 } from './chat/Controls';
@@ -50,8 +51,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const addImages = useAgentStore((s) => s.addImages);
   const addFiles = useAgentStore((s) => s.addFiles);
   const promptHistory = useAgentStore((s) => s.promptHistory);
-  const queuedPrompt = useAgentStore((s) => s.queuedPrompt);
-  const setQueuedPrompt = useAgentStore((s) => s.setQueuedPrompt);
+  const queuedPrompts = useAgentStore((s) => s.queuedPrompts);
+  const enqueuePrompt = useAgentStore((s) => s.enqueuePrompt);
+  const dequeuePrompt = useAgentStore((s) => s.dequeuePrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
 
   const summary = useWorkspaceStore((s) => s.summary);
@@ -135,9 +137,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     busy,
     summary,
     promptHistory,
-    queuedPrompt,
+    queuedPrompts,
     setDraft,
-    setQueuedPrompt,
+    enqueuePrompt,
+    dequeuePrompt,
     send,
     resetChat,
     compact,
@@ -149,7 +152,6 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   return (
     <div className="flex flex-col h-full min-h-0">
       {full ? <ThreadBar /> : null}
-      <ProviderModelBar full={full} />
 
       <div className="relative flex-1 min-h-0 flex">
        <div className="relative flex-1 min-h-0">
@@ -246,6 +248,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           </div>
 
           <ComposerBanners />
+          <ProviderKeyNudge />
 
           {slashInfo ? (
             <SlashInfoCard kind={slashInfo} onClose={() => setSlashInfo(null)} />
@@ -272,7 +275,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
               />
             ) : null}
 
-            <div className="chrome-panel-strong flex flex-col rounded-lg transition-[border-color,box-shadow] duration-fast focus-within:border-accent focus-within:shadow-focus-accent">
+            {/* Composer well — softer, near-borderless at rest so the input,
+                attachments, and action row read as one continuous surface rather
+                than hard-divided sections; the boundary firms up only on focus. */}
+            <div className="flex flex-col rounded-xl border border-subtle/60 bg-surface-2/40 transition-[border-color,background-color,box-shadow] duration-fast focus-within:border-accent/70 focus-within:bg-surface-2/70 focus-within:shadow-focus-accent">
               <AttachmentPreview />
 
               <textarea
@@ -297,13 +303,18 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
                 aria-label={t('agent.chat.promptAria')}
               />
 
-              {/* Action bar: attach on the left, send/stop on the right. */}
+              {/* Action bar: attach + model selector on the left, send/stop on
+                  the right. The model selector lives here (not pinned at the top)
+                  so it's clean and close to the input. */}
               <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
-                <ContextButton
-                  buttonRef={plusButtonRef}
-                  open={contextOpen}
-                  onToggle={() => setContextOpen((v) => !v)}
-                />
+                <div className="flex min-w-0 items-center gap-0.5">
+                  <ContextButton
+                    buttonRef={plusButtonRef}
+                    open={contextOpen}
+                    onToggle={() => setContextOpen((v) => !v)}
+                  />
+                  <ComposerModelButton />
+                </div>
                 {busy ? (
                   <Button variant="secondary" size="sm" leadingIcon={<Square size={13} />} onClick={() => void abort()}>
                     {t('agent.chat.stop')}

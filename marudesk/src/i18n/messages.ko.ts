@@ -469,7 +469,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.plan.toggle': '상태 순환 (대기 → 진행 중 → 완료)',
   'agent.chat.promptAria': '에이전트 프롬프트',
   'agent.chat.promptPlaceholder': '에이전트에게 묻기 - 명령은 /, 파일은 @... (Enter로 전송)',
-  'agent.chat.queuedPrompt': '대기 중 - 이번 턴이 끝나면 전송:',
+  'agent.chat.queuedPrompt': '전송 대기열',
   'agent.chat.recovery.defaultTail': '원인을 진단하고 직전 요청을 다른 방법으로 완료해줘.',
   'agent.chat.recovery.guidancePlaceholder': '선택: 에이전트에게 무엇을 시도할지 알려주세요…',
   'agent.chat.recovery.less': '간단히',

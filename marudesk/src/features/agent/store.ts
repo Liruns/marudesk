@@ -73,8 +73,12 @@ type AgentState = {
   verbosity: TranscriptVerbosity;
   /** Recently sent prompts (newest last) for up/down recall in the composer. */
   promptHistory: string[];
-  /** A prompt typed while a turn was running, auto-sent when the turn finishes. */
-  queuedPrompt: string | null;
+  /**
+   * Prompts staged while a turn was running, sent one-at-a-time (FIFO) as each
+   * turn finishes. A real queue — each Enter pushes a separate item rather than
+   * concatenating into one blob — so the user can line up several follow-ups.
+   */
+  queuedPrompts: string[];
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
   /** Saved sessions (newest first) for the history list — loaded on demand. */
@@ -91,8 +95,12 @@ type AgentActions = {
   removeImage: (index: number) => void;
   /** Remove one pending file by index. */
   removeFile: (index: number) => void;
-  /** Set (or clear) the prompt queued to auto-send when the current turn ends. */
-  setQueuedPrompt: (v: string | null) => void;
+  /** Append a prompt to the send queue (staged while a turn is running). */
+  enqueuePrompt: (text: string) => void;
+  /** Pop the oldest queued prompt (FIFO) and return it, or null when empty. */
+  dequeuePrompt: () => string | null;
+  /** Remove one queued prompt by index (the banner's per-item delete). */
+  removeQueuedPrompt: (index: number) => void;
   setVerbosity: (v: TranscriptVerbosity) => void;
   /** Replace the projection from an `agent:event` snapshot. */
   ingest: (chat: AgentChatState) => void;
@@ -172,7 +180,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   pendingImages: [],
   pendingFiles: [],
   promptHistory: loadHistory(),
-  queuedPrompt: null,
+  queuedPrompts: [],
   verbosity: loadVerbosity(),
   localError: null,
   sessions: [],
@@ -191,7 +199,21 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   removeFile: (index) =>
     set((s) => ({ pendingFiles: s.pendingFiles.filter((_, i) => i !== index) })),
 
-  setQueuedPrompt: (queuedPrompt) => set({ queuedPrompt }),
+  enqueuePrompt: (text) => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    set((s) => ({ queuedPrompts: [...s.queuedPrompts, trimmed] }));
+  },
+
+  dequeuePrompt: () => {
+    const [next, ...rest] = get().queuedPrompts;
+    if (next === undefined) return null;
+    set({ queuedPrompts: rest });
+    return next;
+  },
+
+  removeQueuedPrompt: (index) =>
+    set((s) => ({ queuedPrompts: s.queuedPrompts.filter((_, i) => i !== index) })),
 
   setVerbosity: (verbosity) => {
     try {

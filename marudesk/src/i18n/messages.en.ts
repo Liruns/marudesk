@@ -470,7 +470,7 @@ export const EN_MESSAGES = {
   'agent.chat.plan.toggle': 'Cycle status (pending → in progress → done)',
   'agent.chat.promptAria': 'Agent prompt',
   'agent.chat.promptPlaceholder': 'Ask the agent - / for commands, @ for files... (Enter to send)',
-  'agent.chat.queuedPrompt': 'Queued - sends when this turn ends:',
+  'agent.chat.queuedPrompt': 'Queued to send',
   'agent.chat.recovery.defaultTail':
     'Diagnose the cause and try a different approach to complete my last request.',
   'agent.chat.recovery.guidancePlaceholder': 'Optional: tell the agent what to try…',

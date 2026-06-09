@@ -36,6 +36,7 @@ import { DiffViewer } from './DiffViewer';
 import { WorktreeIsolationBar } from './WorktreeIsolationBar';
 import { WorktreeLanes } from './WorktreeLanes';
 import { useEditorStore } from '../editor/store';
+import { useWorkspaceStore } from '../workspace/store';
 
 type Props = {
   open: boolean;
@@ -90,6 +91,10 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   const pull = useGitStore((s) => s.pull);
   const push = useGitStore((s) => s.push);
   const openFile = useEditorStore((s) => s.openFile);
+  // The active workspace root — when it changes (profile/workspace switch), the
+  // main process is now pointed at a different repo, so re-run git status against
+  // it without waiting for the panel to be reopened.
+  const workspaceRoot = useWorkspaceStore((s) => s.summary?.root ?? null);
 
   const [width, setWidth] = useState(readWidth);
   const [resizing, setResizing] = useState(false);
@@ -100,10 +105,11 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   const [branchMenu, setBranchMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Refresh status whenever the panel transitions to open (VSCode refreshes the
-  // SCM view on focus). No file-watching for the MVP — manual + post-op only.
+  // SCM view on focus) OR the active workspace root changes under it (profile /
+  // workspace switch). No file-watching for the MVP — manual + post-op only.
   useEffect(() => {
     if (open) void refresh();
-  }, [open, refresh]);
+  }, [open, refresh, workspaceRoot]);
 
   const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();

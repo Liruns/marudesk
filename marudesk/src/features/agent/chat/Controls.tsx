@@ -130,29 +130,26 @@ export function UsageMeter() {
   );
 }
 
-/* ── provider / model bar ───────────────────────────────────────────────── */
+/* ── provider / model selector ──────────────────────────────────────────── */
 
 /**
- * Model selector trigger (docs/agentic-chat-v4-design.md §A1): a compact chip
- * showing the current model + context window + key status that opens the
- * command-palette {@link ModelPalette}. The inline "no key" banner nudges to
- * Settings when the active provider has no usable auth.
+ * Compact model selector that lives INSIDE the composer's action bar (not pinned
+ * as a separate cramped strip at the top). A small chip — provider glyph + model
+ * name + a key-status dot — that opens the command-palette {@link ModelPalette}.
+ * Keeping it in the input area keeps the chat header clean and the control close
+ * to where the user is typing. The `/model` command still opens the palette via
+ * a window event, so it stays decoupled from this chip's local open state.
  */
-export function ProviderModelBar({ full }: { full?: boolean }) {
-  const { t } = useI18n();
+export function ComposerModelButton() {
   const models = useProvidersStore((s) => s.models);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
   const selectedModel = useProvidersStore((s) => s.selectedModel);
   const selectedProvider = useProvidersStore((s) => s.selectedProvider);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
-  const statusChecked = useProvidersStore((s) => s.statusChecked);
   const customProviders = useProvidersStore((s) => s.customProviders);
-  const selectKeyProvider = useProvidersStore((s) => s.selectKeyProvider);
 
   const [open, setOpen] = useState(false);
 
-  // The composer's `/model` command opens this palette via a window event, so the
-  // command stays decoupled from the bar's local open state.
   useEffect(() => {
     const onOpen = () => setOpen(true);
     window.addEventListener('marudesk:open-model-palette', onOpen);
@@ -160,59 +157,73 @@ export function ProviderModelBar({ full }: { full?: boolean }) {
   }, []);
 
   const current = findModel(models, selectedModelKey);
-  const hasKey = !!providerStatus.find((s) => s.id === selectedProvider)?.hasKey;
+  const status = providerStatus.find((s) => s.id === selectedProvider);
+  const hasAuth = !!status?.hasKey || !!status?.oauth;
+  const label = current?.label ?? selectedModel;
 
   return (
-    <section className="shrink-0 px-3 py-2 border-b border-subtle">
-      <div className={cn('relative', full && 'mx-auto w-full max-w-3xl')}>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          className="w-full h-8 px-2.5 rounded border border-default hover:border-accent/70 bg-surface-page flex items-center gap-2 text-body-sm text-fg-primary transition-colors duration-fast group"
-        >
-          <ProviderGlyph
-            provider={selectedProvider}
-            label={providerLabel(selectedProvider, customProviders)}
-            size={18}
-          />
-          <span className="truncate flex-1 text-left font-medium text-body-sm">{current?.label ?? selectedModel}</span>
-          {current?.contextWindow ? (
-            <span className="text-[0.6875rem] text-fg-tertiary/70 tabular-nums shrink-0 font-mono">
-              {formatContext(current.contextWindow)}
-            </span>
-          ) : null}
-          <span
-            aria-hidden
-            className={cn('size-1.5 rounded-pill shrink-0', hasKey ? 'bg-accent' : 'bg-fg-tertiary/30')}
-          />
-          <ChevronDown size={12} className="text-fg-tertiary/60 group-hover:text-fg-tertiary shrink-0 transition-colors duration-fast" />
-        </button>
-
-        {!hasKey && statusChecked && isBuiltinProviderId(selectedProvider) ? (
-          <div className="mt-2 flex items-center justify-between gap-2 rounded border border-subtle bg-surface-2 px-2 py-1">
-            <span className="text-caption text-fg-tertiary truncate">
-              {t('agent.chat.noApiKeyBefore')}
-              {providerLabel(selectedProvider, customProviders)}
-              {t('agent.chat.noApiKeyAfter')}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                selectKeyProvider(selectedProvider);
-                void openSettingsTab('providers');
-              }}
-              className="flex items-center gap-1 text-caption text-fg-tertiary hover:text-accent transition-colors duration-fast"
-            >
-              <SettingsIcon size={12} /> {t('activity.settings')}
-            </button>
-          </div>
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={label}
+        className="group flex h-7 min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md px-1.5 text-fg-secondary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+      >
+        <ProviderGlyph
+          provider={selectedProvider}
+          label={providerLabel(selectedProvider, customProviders)}
+          size={15}
+        />
+        <span className="truncate text-caption font-medium">{label}</span>
+        {!hasAuth ? (
+          <span aria-hidden className="size-1.5 shrink-0 rounded-pill bg-warning" />
         ) : null}
-      </div>
-
+        <ChevronDown
+          size={11}
+          className="shrink-0 text-fg-tertiary/60 transition-colors duration-fast group-hover:text-fg-tertiary"
+        />
+      </button>
       {open ? <ModelPalette onClose={() => setOpen(false)} /> : null}
-    </section>
+    </>
+  );
+}
+
+/**
+ * Inline "no API key" nudge for the composer — shown just above the input when
+ * the active provider has no usable auth, linking straight to its Settings card.
+ */
+export function ProviderKeyNudge() {
+  const { t } = useI18n();
+  const selectedProvider = useProvidersStore((s) => s.selectedProvider);
+  const providerStatus = useProvidersStore((s) => s.providerStatus);
+  const statusChecked = useProvidersStore((s) => s.statusChecked);
+  const customProviders = useProvidersStore((s) => s.customProviders);
+  const selectKeyProvider = useProvidersStore((s) => s.selectKeyProvider);
+
+  const status = providerStatus.find((s) => s.id === selectedProvider);
+  const hasAuth = !!status?.hasKey || !!status?.oauth;
+  if (hasAuth || !statusChecked || !isBuiltinProviderId(selectedProvider)) return null;
+
+  return (
+    <div className="flex items-center justify-between gap-2 rounded border border-subtle bg-surface-2 px-2 py-1">
+      <span className="truncate text-caption text-fg-tertiary">
+        {t('agent.chat.noApiKeyBefore')}
+        {providerLabel(selectedProvider, customProviders)}
+        {t('agent.chat.noApiKeyAfter')}
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          selectKeyProvider(selectedProvider);
+          void openSettingsTab('providers');
+        }}
+        className="flex shrink-0 items-center gap-1 text-caption text-fg-tertiary transition-colors duration-fast hover:text-accent"
+      >
+        <SettingsIcon size={12} /> {t('activity.settings')}
+      </button>
+    </div>
   );
 }
 

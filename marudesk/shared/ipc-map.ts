@@ -505,7 +505,10 @@ export interface IpcMap {
   // for the Settings "Test connection" button, especially OAuth providers, which
   // have no /models endpoint to probe. Returns a human-readable ok/error message.
   'providers:test-connection': {
-    args: [provider: ProviderId];
+    // `model` (optional) tests the model the user actually has selected for this
+    // provider instead of the catalog default — so a key scoped to e.g. gpt-4.1
+    // isn't failed by probing gpt-5. Falls back to the default when omitted.
+    args: [provider: ProviderId, model?: string];
     result: { ok: boolean; message: string };
   };
   // Custom OpenAI-compatible endpoints (OpenRouter / LM Studio / vLLM / …). The
