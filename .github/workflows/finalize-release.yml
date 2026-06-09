@@ -1,0 +1,52 @@
+name: Finalize Release
+
+# Set a release's body from a committed notes file and publish it (drop draft).
+#
+# The Release workflow builds installers and uploads them to a DRAFT GitHub
+# release (electron-builder). This workflow fills that draft's notes from
+# docs/releases/<version>.md and flips it to published. It runs in CI where the
+# `gh` CLI and GITHUB_TOKEN (contents: write) are available.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to finalize (e.g. v0.2.0)'
+        type: string
+        default: v0.2.0
+      notes_path:
+        description: 'Path to the release notes markdown file'
+        type: string
+        default: docs/releases/0.2.0.md
+      prerelease:
+        description: 'Mark as a pre-release'
+        type: boolean
+        default: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set notes and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          NOTES_PATH: ${{ inputs.notes_path }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          test -f "$NOTES_PATH" || { echo "Notes file not found: $NOTES_PATH" >&2; exit 1; }
+          gh release edit "$TAG" \
+            --title "${TAG#v}" \
+            --notes-file "$NOTES_PATH" \
+            --draft=false \
+            --latest \
+            --prerelease="$PRERELEASE"
+          echo "Published $TAG"
+          gh release view "$TAG" --json tagName,isDraft,isLatest,assets \
+            --jq '{tag: .tagName, draft: .isDraft, latest: .isLatest, assets: [.assets[].name]}'
