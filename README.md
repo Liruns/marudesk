@@ -208,6 +208,7 @@ npm run harness:relay-bridge  # cloud relay bridge
 npm run harness:mcp           # MCP tools
 npm run harness:plugins       # isolated plugin runtime (worker sandbox + tool RPC)
 npm run harness:plugin-lifecycle  # plugin install / enable / remove lifecycle
+npm run harness:orchestration # agent tree + approval queue projection
 ```
 
 UI work follows `marudesk/DESIGN.md`: dark-first, restrained, token-based colors only (no hard-coded colors), Lucide icons, and calm, precise copy.

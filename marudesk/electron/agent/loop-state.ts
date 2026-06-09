@@ -9,6 +9,8 @@ import {
   type ThreadSummary,
 } from '../../shared/agent';
 import type { WorkspaceId } from '../../shared/workspace';
+import { refreshOrchestrationState } from './orchestration-state.ts';
+import type { OrchestrationThreadEntry } from './orchestration-state.ts';
 
 /** Approval decision from the UI: approved/denied, plus "always for this session". */
 export type ApprovalDecision = { approved: boolean; always: boolean };
@@ -121,6 +123,10 @@ export function currentContainer(): ThreadContainer {
 /** Every open thread container — for routing a turn-control action by turnId. */
 export function containers(): ThreadContainer[] {
   return [...threads.values()];
+}
+
+export function refreshOrchestrationProjection(): void {
+  refreshOrchestrationState(threadProjectionEntries());
 }
 
 function activeThreadIdForWorkspace(workspaceId: WorkspaceId): string | null {
@@ -241,19 +247,34 @@ export function closeThread(id: string, workspaceId?: WorkspaceId): boolean {
   if (!workspaceId && c.workspaceId !== null) return false;
   if (isBusy(c)) c.controller?.abort();
   threads.delete(id);
+  let stateEmitted = false;
   if (workspaceId) {
     if (activeThreadIdsByWorkspace.get(workspaceId) === id) {
       const next = scopedThreads.find(([threadId]) => threadId !== id)?.[0] ?? null;
       if (next) activeThreadIdsByWorkspace.set(workspaceId, next);
       else activeThreadIdsByWorkspace.delete(workspaceId);
       const nextContainer = next ? threads.get(next) : null;
-      if (nextContainer) emitContainer(nextContainer);
+      if (nextContainer) {
+        emitContainer(nextContainer);
+        stateEmitted = true;
+      }
+    } else {
+      const active = activeThreadIdForWorkspace(workspaceId);
+      const activeContainer = active ? threads.get(active) : null;
+      if (activeContainer) {
+        emitContainer(activeContainer);
+        stateEmitted = true;
+      }
     }
   } else if (id === activeId) {
     const next = [...threads.entries()].find(([, thread]) => thread.workspaceId === null)?.[0];
     if (!next) return false;
     activeId = next;
     S = threads.get(next)!;
+    emit();
+    stateEmitted = true;
+  }
+  if (!stateEmitted) {
     emit();
   }
   emitThreads();
@@ -315,6 +336,7 @@ export function subscribeAgentEvents(cb: (state: AgentChatState) => void): () =>
 }
 
 export const emit = coalesced(() => {
+  refreshOrchestrationProjection();
   // Stamp the live approval mode (a setting, not loop state) into the projection
   // so thin clients reflect it (U10). Cheap in-memory read; the desktop ignores
   // this field and reads its settings store directly.
@@ -350,6 +372,7 @@ export const emitThreads = coalesced(() => {
 
 function emitWorkspaceContainer(c: ThreadContainer): void {
   if (!c.workspaceId) return;
+  refreshOrchestrationProjection();
   c.state.approvalMode = getSettingsSync().agent.approvalMode;
   const host = getHost();
   if (host && !host.isDestroyed()) {
@@ -365,7 +388,24 @@ function emitWorkspaceContainer(c: ThreadContainer): void {
  * is exactly the old `emit()`.
  */
 export function emitContainer(c: ThreadContainer): void {
+  refreshOrchestrationProjection();
   emitWorkspaceContainer(c);
   if (c === S) emit();
-  else emitThreads();
+  else {
+    emit();
+    emitThreads();
+  }
+}
+
+function threadProjectionEntries(): OrchestrationThreadEntry[] {
+  return [...threads.entries()].map(([id, container]) => ({
+    id,
+    container,
+    active: isActiveThread(id, container),
+  }));
+}
+
+function isActiveThread(id: string, container: ThreadContainer): boolean {
+  if (container.workspaceId) return activeThreadIdsByWorkspace.get(container.workspaceId) === id;
+  return id === activeId;
 }

@@ -65,6 +65,7 @@ npm run harness:relay-bridge
 npm run harness:mcp
 npm run harness:plugins
 npm run harness:plugin-lifecycle
+npm run harness:orchestration
 npm run harness:search
 npm run harness:prompt-injection
 ```
