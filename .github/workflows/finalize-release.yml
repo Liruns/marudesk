@@ -48,5 +48,5 @@ jobs:
             --latest \
             --prerelease="$PRERELEASE"
           echo "Published $TAG"
-          gh release view "$TAG" --json tagName,isDraft,isLatest,assets \
-            --jq '{tag: .tagName, draft: .isDraft, latest: .isLatest, assets: [.assets[].name]}'
+          gh release view "$TAG" --json tagName,isDraft,isPrerelease,assets \
+            --jq '{tag: .tagName, draft: .isDraft, prerelease: .isPrerelease, assets: [.assets[].name]}'
