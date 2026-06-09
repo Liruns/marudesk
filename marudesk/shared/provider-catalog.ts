@@ -218,6 +218,38 @@ export const PROVIDERS: ProviderDef[] = [
     apiKeyPlaceholder: 'sk-...',
     apiKeyHint: 'platform.deepseek.com → API keys (DEEPSEEK_API_KEY)',
   },
+  {
+    id: 'together',
+    label: 'Together AI',
+    // Together's OpenAI-compatible API at api.together.xyz/v1 (Bearer key). A
+    // large catalog of open models; the live /models fetch refreshes this seed
+    // once a key is set. Default to a stable tool-capable workhorse.
+    models: [
+      { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Llama 3.3 70B Turbo' },
+      { id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
+      { id: 'Qwen/Qwen2.5-Coder-32B-Instruct', label: 'Qwen2.5 Coder 32B' },
+      { id: 'moonshotai/Kimi-K2-Instruct', label: 'Kimi K2 Instruct' },
+    ],
+    defaultModelId: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    apiKeyPlaceholder: '••••••••',
+    apiKeyHint: 'api.together.ai → API Keys (TOGETHER_API_KEY)',
+  },
+  {
+    id: 'fireworks',
+    label: 'Fireworks AI',
+    // Fireworks' OpenAI-compatible API at api.fireworks.ai/inference/v1 (Bearer
+    // key). Model ids are `accounts/fireworks/models/<name>`; the live /models
+    // fetch refreshes this seed once a key is set.
+    models: [
+      { id: 'accounts/fireworks/models/llama-v3p3-70b-instruct', label: 'Llama 3.3 70B' },
+      { id: 'accounts/fireworks/models/deepseek-v3', label: 'DeepSeek V3' },
+      { id: 'accounts/fireworks/models/qwen2p5-coder-32b-instruct', label: 'Qwen2.5 Coder 32B' },
+      { id: 'accounts/fireworks/models/kimi-k2-instruct', label: 'Kimi K2 Instruct' },
+    ],
+    defaultModelId: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
+    apiKeyPlaceholder: 'fw_...',
+    apiKeyHint: 'fireworks.ai → API Keys (FIREWORKS_API_KEY)',
+  },
 ];
 
 export const MODELS: ModelEntry[] = [
@@ -285,4 +317,14 @@ export const MODELS: ModelEntry[] = [
   // DeepSeek (api.deepseek.com) — OpenAI-compatible; -reasoner is the R1 line.
   { key: 'deepseek:deepseek-chat', id: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek', contextWindow: 163_840, tools: true },
   { key: 'deepseek:deepseek-reasoner', id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek', contextWindow: 163_840, tools: true, reasoning: true },
+  // Together AI (api.together.xyz/v1) — OpenAI-compatible open-model gateway.
+  { key: 'together:meta-llama/Llama-3.3-70B-Instruct-Turbo', id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Llama 3.3 70B Turbo', provider: 'together', contextWindow: 131_072, tools: true },
+  { key: 'together:deepseek-ai/DeepSeek-V3', id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3', provider: 'together', contextWindow: 131_072, tools: true },
+  { key: 'together:Qwen/Qwen2.5-Coder-32B-Instruct', id: 'Qwen/Qwen2.5-Coder-32B-Instruct', label: 'Qwen2.5 Coder 32B', provider: 'together', contextWindow: 32_768, tools: true },
+  { key: 'together:moonshotai/Kimi-K2-Instruct', id: 'moonshotai/Kimi-K2-Instruct', label: 'Kimi K2 Instruct', provider: 'together', contextWindow: 131_072, tools: true },
+  // Fireworks AI (api.fireworks.ai/inference/v1) — OpenAI-compatible; `accounts/…` ids.
+  { key: 'fireworks:accounts/fireworks/models/llama-v3p3-70b-instruct', id: 'accounts/fireworks/models/llama-v3p3-70b-instruct', label: 'Llama 3.3 70B', provider: 'fireworks', contextWindow: 131_072, tools: true },
+  { key: 'fireworks:accounts/fireworks/models/deepseek-v3', id: 'accounts/fireworks/models/deepseek-v3', label: 'DeepSeek V3', provider: 'fireworks', contextWindow: 131_072, tools: true },
+  { key: 'fireworks:accounts/fireworks/models/qwen2p5-coder-32b-instruct', id: 'accounts/fireworks/models/qwen2p5-coder-32b-instruct', label: 'Qwen2.5 Coder 32B', provider: 'fireworks', contextWindow: 32_768, tools: true },
+  { key: 'fireworks:accounts/fireworks/models/kimi-k2-instruct', id: 'accounts/fireworks/models/kimi-k2-instruct', label: 'Kimi K2 Instruct', provider: 'fireworks', contextWindow: 131_072, tools: true },
 ];

@@ -27,7 +27,9 @@ export type BuiltinProviderId =
   | 'groq'
   | 'cerebras'
   | 'mistral'
-  | 'deepseek';
+  | 'deepseek'
+  | 'together'
+  | 'fireworks';
 
 /**
  * A provider id: either a built-in, or a user-configured custom OpenAI-compatible
