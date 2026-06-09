@@ -7,7 +7,7 @@ import { HomeView } from '../home/HomeView';
 import { PluginPanel } from '../plugins/PluginPanel';
 import { SettingsView } from '../settings/SettingsView';
 import { TerminalSurface } from './TerminalSurface';
-import type { TabKind } from '../../../shared/browser';
+import type { TabKind, TabState } from '../../../shared/browser';
 
 export type TabKindDef = {
   /** Default display title for a tab of this kind (web derives it from the page). */
@@ -21,7 +21,7 @@ export type TabKindDef = {
    * for the single view — the grid paints web panes onto a measured placeholder
    * instead and never calls this.
    */
-  render: (tabId?: string) => ReactNode;
+  render: (tabId?: string, tab?: TabState) => ReactNode;
 };
 
 /**
@@ -52,7 +52,7 @@ export const tabKinds: Record<TabKind, TabKindDef> = {
   agent: {
     title: 'AI Chat',
     icon: Sparkles,
-    render: () => <AgentTab />,
+    render: (_tabId, tab) => <AgentTab workspaceId={tab?.workspaceId} />,
   },
   plugin: {
     title: 'Plugin',

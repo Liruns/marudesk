@@ -129,6 +129,14 @@ export function getCurrentWorkspace(): WorkspaceSummary | null {
   return summaryForActiveRoot() ?? currentWorkspace;
 }
 
+export function getWorkspaceSummary(workspaceId: WorkspaceId | undefined): WorkspaceSummary | null {
+  if (!workspaceId) return getCurrentWorkspace();
+  const record = workspaceRecords.get(workspaceId);
+  if (!record) return null;
+  const root = activeRoot(record);
+  return root ? rootToLegacySummary(record, root) : null;
+}
+
 export function getActiveWorkspaceId(): WorkspaceId {
   return activeWorkspaceId ?? SYSTEM_WORKSPACE_ID;
 }

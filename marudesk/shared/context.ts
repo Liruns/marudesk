@@ -1,5 +1,6 @@
 import type { ModelMessage } from 'ai';
 import type { AgentEdit, AgentMessage, AgentPlan } from './agent';
+import type { WorkspaceId } from './workspace';
 
 /**
  * Shared types for the built-in **Context MCP** (docs/context-mcp-design.md). The
@@ -51,6 +52,7 @@ export function emptyContextSync(): ContextSyncPayload {
 /** A one-line summary of a saved chat session (the `list_sessions` row shape). */
 export type SessionSummary = {
   id: string;
+  workspaceId?: WorkspaceId;
   /** Derived from the first user message. */
   title: string;
   createdAt: number;

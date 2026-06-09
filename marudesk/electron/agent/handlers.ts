@@ -7,6 +7,7 @@ import { cancelBackgroundTask } from './background';
 import { editPlanStep } from './plan';
 import { parseAbort, parseApprove, parseEditPlanStep, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
+import { containerForWorkspace } from './loop-state.ts';
 import { builtinToolInfo } from './tools/registry';
 import {
   abortTurn,
@@ -29,10 +30,21 @@ import {
   switchThread,
   testProviderConnection,
 } from './loop';
+import type { WorkspaceId } from '../../shared/workspace';
 
 const MAX_MIRRORED_EDITORS = 40;
 const MAX_EDITOR_CONTENT = 24_000;
 const MAX_EXPANDED_DIRS = 500;
+
+function workspaceIdOf(payload: unknown): WorkspaceId | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const value = (payload as Record<string, unknown>).workspaceId;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function uiWorkspaceFilterOf(payload: unknown): WorkspaceId | null {
+  return workspaceIdOf(payload) ?? null;
+}
 
 /** Defensively coerce the renderer's context mirror into the cached shape. */
 function parseContextSync(payload: unknown): ContextSyncPayload {
@@ -93,11 +105,11 @@ export function registerAgentHandlers(): void {
   });
 
   defineHandler('agent:accept-edit', ([payload]) =>
-    acceptEdit(nonEmptyStr(obj(payload).editId, 'editId')),
+    acceptEdit(nonEmptyStr(obj(payload).editId, 'editId'), uiWorkspaceFilterOf(payload)),
   );
 
   defineHandler('agent:revert-edit', ([payload]) =>
-    revertEdit(nonEmptyStr(obj(payload).editId, 'editId')),
+    revertEdit(nonEmptyStr(obj(payload).editId, 'editId'), uiWorkspaceFilterOf(payload)),
   );
 
   defineHandler('agent:restore-turn-page', ([payload]) =>
@@ -125,49 +137,61 @@ export function registerAgentHandlers(): void {
     return editPlanStep(id, { status, remove });
   });
 
-  defineHandler('agent:snapshot', () => snapshot());
+  defineHandler('agent:snapshot', ([payload]) => snapshot(workspaceIdOf(payload)));
 
-  defineHandler('agent:reset', () => reset());
+  defineHandler('agent:reset', ([payload]) => reset(containerForWorkspace(workspaceIdOf(payload))));
 
-  defineHandler('agent:compact', ([focus]) =>
-    compactConversation(typeof focus === 'string' ? focus : undefined),
-  );
+  defineHandler('agent:compact', ([payload]) => {
+    const data = obj(payload ?? {});
+    const focus = typeof data.focus === 'string' ? data.focus : undefined;
+    return compactConversation(focus, containerForWorkspace(workspaceIdOf(payload)));
+  });
 
   // Session history (v3 §5-C): list past conversations, resume one as the active
   // chat, or delete one. list/delete proxy sessions-store; resume swaps loop state.
-  defineHandler('agent:list-sessions', () => listSavedSessions());
+  defineHandler('agent:list-sessions', ([payload]) => listSavedSessions(uiWorkspaceFilterOf(payload)));
 
   // Full-text search over saved sessions (title + transcript). An empty query
   // returns the recent list — the search field's resting state.
   defineHandler('agent:search-sessions', ([payload]) => {
-    const query = obj(payload).query;
-    return searchSessions(typeof query === 'string' ? query : '');
+    const data = obj(payload);
+    return searchSessions(typeof data.query === 'string' ? data.query : '', uiWorkspaceFilterOf(payload));
   });
 
   defineHandler('agent:resume-session', ([payload]) =>
-    resumeSession(nonEmptyStr(obj(payload).id, 'id')),
+    resumeSession(
+      nonEmptyStr(obj(payload).id, 'id'),
+      containerForWorkspace(workspaceIdOf(payload)),
+    ),
   );
 
   defineHandler('agent:delete-session', ([payload]) =>
-    deleteSavedSession(nonEmptyStr(obj(payload).id, 'id')),
+    deleteSavedSession(
+      nonEmptyStr(obj(payload).id, 'id'),
+      containerForWorkspace(workspaceIdOf(payload)),
+    ),
   );
 
   // Thread switching (Stage 12-B-2): hold several conversations and switch the
   // active one. new/switch/close return the refreshed thread list; switching also
   // emits the target thread's state so the chat re-renders. Switching is refused
   // mid-turn (loop.switchThread guards busy), so the list comes back unchanged.
-  defineHandler('agent:list-threads', () => listThreads());
-  defineHandler('agent:new-thread', () => {
-    switchThread(newThread());
-    return listThreads();
+  defineHandler('agent:list-threads', ([payload]) => listThreads(workspaceIdOf(payload)));
+  defineHandler('agent:new-thread', ([payload]) => {
+    const workspaceId = workspaceIdOf(payload);
+    const id = newThread(workspaceId);
+    switchThread(id, workspaceId);
+    return listThreads(workspaceId);
   });
   defineHandler('agent:switch-thread', ([payload]) => {
-    switchThread(nonEmptyStr(obj(payload).id, 'id'));
-    return listThreads();
+    const workspaceId = workspaceIdOf(payload);
+    switchThread(nonEmptyStr(obj(payload).id, 'id'), workspaceId);
+    return listThreads(workspaceId);
   });
   defineHandler('agent:close-thread', ([payload]) => {
-    closeThread(nonEmptyStr(obj(payload).id, 'id'));
-    return listThreads();
+    const workspaceId = workspaceIdOf(payload);
+    closeThread(nonEmptyStr(obj(payload).id, 'id'), workspaceId);
+    return listThreads(workspaceId);
   });
 
   // Built-in context MCP mirror: cache the renderer's latest editor/explorer

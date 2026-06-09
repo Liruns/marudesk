@@ -62,7 +62,7 @@ export function Stage({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
     (!workspaceId || draggedTab?.workspaceId === workspaceId);
   return (
     <div className="flex-1 min-w-0 flex relative">
-      {tabKinds[kind].render(scopedActiveTabId ?? undefined)}
+      {tabKinds[kind].render(scopedActiveTabId ?? undefined, activeTab)}
       {canSeedSplit && draggingTabId ? (
         <SeedDropOverlay draggedTabId={draggingTabId} />
       ) : null}

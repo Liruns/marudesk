@@ -353,7 +353,7 @@ function PaneContent({
   }
   // Feature tabs render their React surface (from the shared tab-kind registry),
   // pinned to this pane's tab id so each pane resolves its own buffer/session.
-  return tabKinds[tab.kind].render(tab.id);
+  return tabKinds[tab.kind].render(tab.id, tab);
 }
 
 function DropHint({ zone }: { zone: DropZone }) {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { History, PanelLeftClose } from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
+import { cn } from '../../lib/cn';
 import { SessionList } from './SessionList';
 
 /**
@@ -13,39 +14,63 @@ export function SessionRail() {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
 
-  if (collapsed) {
-    return (
-      <aside className="flex h-full w-8 shrink-0 flex-col items-center border-r border-subtle bg-surface-1 py-2.5 gap-1">
-        <button
-          type="button"
-          onClick={() => setCollapsed(false)}
-          aria-label={t('agent.sessions.showHistory')}
-          title={t('agent.sessions.history')}
-          className="rounded p-1 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
-        >
-          <History size={14} />
-        </button>
-      </aside>
-    );
-  }
-
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-subtle bg-surface-1">
-      <header className="flex h-9 shrink-0 items-center justify-between border-b border-subtle pl-3 pr-1.5">
-        <span className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-widest text-fg-tertiary/70 select-none">
-          <History size={11} />
-          {t('agent.sessions.history')}
-        </span>
-        <button
-          type="button"
-          onClick={() => setCollapsed(true)}
-          aria-label={t('agent.sessions.hideHistory')}
-          className="rounded p-0.5 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
+    <aside
+      aria-label={t('agent.sessions.history')}
+      aria-expanded={!collapsed}
+      className={cn(
+        'relative flex h-full shrink-0 overflow-hidden border-r border-subtle bg-surface-1',
+        'transition-[width] duration-standard',
+        collapsed ? 'w-8' : 'w-56',
+      )}
+    >
+      <div className="relative h-full w-56 shrink-0">
+        <div
+          aria-hidden={!collapsed}
+          className={cn(
+            'absolute inset-y-0 left-0 flex w-8 flex-col items-center gap-1 py-2.5',
+            'transition-opacity duration-fast',
+            collapsed ? 'opacity-100' : 'pointer-events-none opacity-0',
+          )}
         >
-          <PanelLeftClose size={13} />
-        </button>
-      </header>
-      <SessionList className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            aria-label={t('agent.sessions.showHistory')}
+            title={t('agent.sessions.history')}
+            tabIndex={collapsed ? 0 : -1}
+            className="rounded p-1 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
+          >
+            <History size={14} />
+          </button>
+        </div>
+
+        <div
+          aria-hidden={collapsed}
+          className={cn(
+            'absolute inset-0 flex flex-col',
+            'transition-opacity duration-fast',
+            collapsed ? 'pointer-events-none opacity-0' : 'opacity-100',
+          )}
+        >
+          <header className="flex h-9 shrink-0 items-center justify-between border-b border-subtle pl-3 pr-1.5">
+            <span className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-widest text-fg-tertiary/70 select-none">
+              <History size={11} />
+              {t('agent.sessions.history')}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              aria-label={t('agent.sessions.hideHistory')}
+              tabIndex={collapsed ? -1 : 0}
+              className="rounded p-0.5 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
+            >
+              <PanelLeftClose size={13} />
+            </button>
+          </header>
+          <SessionList className="flex-1" />
+        </div>
+      </div>
     </aside>
   );
 }

@@ -1,7 +1,10 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import { launchApp } from './helpers/app';
 import type { AgentChatState } from '../shared/agent';
+import type { SessionSummary } from '../shared/context';
 
 /**
  * Agentic AI Chat (docs/agentic-chat-design.md). These never call a real LLM —
@@ -266,6 +269,112 @@ test('agent: drawer history overlay opens from the header (§5-C)', async () => 
   }
 });
 
+test('agent: workspace AI Chat tabs keep scoped chat and history', async ({}, testInfo) => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-agent-workspaces-'));
+  const { app, page } = await launchApp();
+  try {
+    const roots = {
+      alpha: await mkWorkspaceRoot(base, 'alpha'),
+      beta: await mkWorkspaceRoot(base, 'beta'),
+    };
+    const workspaces = await page.evaluate(async ({ alpha, beta }) => {
+      const a = await window.marudesk.invoke('workspaces:create', {
+        name: 'Project Alpha',
+        roots: [{ name: 'FE', path: alpha }],
+      });
+      const b = await window.marudesk.invoke('workspaces:create', {
+        name: 'Project Beta',
+        roots: [{ name: 'FE', path: beta }],
+      });
+      const alphaTabId = await window.marudesk.invoke('browser:tabs-new', {
+        kind: 'agent',
+        workspaceId: a.id,
+      });
+      await window.marudesk.invoke('browser:tabs-new', {
+        kind: 'agent',
+        workspaceId: b.id,
+      });
+      await window.marudesk.invoke('browser:tabs-activate', alphaTabId);
+      await window.marudesk.invoke('workspaces:set-active', { workspaceId: a.id });
+      return { alphaId: a.id as string, betaId: b.id as string };
+    }, roots);
+
+    await installWorkspaceSessionStubs(app, workspaces);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('navigation', { name: 'Workspace rail' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Split workspace right' }).first().click();
+    await page.getByRole('button', { name: 'Workspace Project Beta' }).click();
+
+    const alphaPane = page.getByRole('region', { name: 'Project Alpha' });
+    const betaPane = page.getByRole('region', { name: 'Project Beta' });
+    await expect(alphaPane).toBeVisible();
+    await expect(betaPane).toBeVisible();
+
+    await emitAgentWorkspaceState(
+      app,
+      workspaces.alphaId,
+      chatStateWithAssistantText('alpha-only e2e answer'),
+    );
+    await expect(alphaPane.getByText('alpha-only e2e answer')).toBeVisible();
+    await expect(betaPane.getByText('alpha-only e2e answer')).toHaveCount(0);
+
+    await expect(alphaPane.getByText('Alpha saved session')).toBeVisible();
+    await expect(alphaPane.getByText('Beta saved session')).toHaveCount(0);
+    await expect(alphaPane.getByText('Legacy unscoped session')).toHaveCount(0);
+    await expect(betaPane.getByText('Beta saved session')).toBeVisible();
+    await expect(betaPane.getByText('Alpha saved session')).toHaveCount(0);
+    await expect(betaPane.getByText('Legacy unscoped session')).toHaveCount(0);
+
+    await alphaPane.getByLabel('Search chats and messages').fill('alpha');
+    await expect(alphaPane.getByText('Alpha search hit')).toBeVisible();
+    await expect(alphaPane.getByText('Beta search hit')).toHaveCount(0);
+    await betaPane.getByLabel('Search chats and messages').fill('beta');
+    await expect(betaPane.getByText('Beta search hit')).toBeVisible();
+    await expect(betaPane.getByText('Alpha search hit')).toHaveCount(0);
+
+    const unscopedSessions = await page.evaluate(async () => ({
+      list: await window.marudesk.invoke('agent:list-sessions', {}),
+      search: await window.marudesk.invoke('agent:search-sessions', { query: 'legacy' }),
+    }));
+    expect(unscopedSessions.list.map((session) => session.title)).toEqual([
+      'Legacy unscoped session',
+    ]);
+    expect(unscopedSessions.search.map((session) => session.title)).toEqual([
+      'Legacy search hit',
+    ]);
+
+    const requests = await app.evaluate(() => {
+      const g = globalThis as typeof globalThis & {
+        __workspaceSessionRequests?: readonly {
+          channel: string;
+          workspaceId?: string;
+          query?: string;
+        }[];
+      };
+      return g.__workspaceSessionRequests ?? [];
+    });
+    expect(requests).toEqual(
+      expect.arrayContaining([
+        { channel: 'list', workspaceId: workspaces.alphaId },
+        { channel: 'list', workspaceId: workspaces.betaId },
+        { channel: 'search', workspaceId: workspaces.alphaId, query: 'alpha' },
+        { channel: 'search', workspaceId: workspaces.betaId, query: 'beta' },
+        { channel: 'list', workspaceId: undefined },
+        { channel: 'search', workspaceId: undefined, query: 'legacy' },
+      ]),
+    );
+
+    await page.screenshot({
+      path: testInfo.outputPath('workspace-ai-chat-scoped.png'),
+      fullPage: true,
+    });
+  } finally {
+    await app.close();
+    await fs.rm(base, { recursive: true, force: true });
+  }
+});
+
 test('agent: streaming transcript does not re-pin after a small upward scroll', async () => {
   const { app, page } = await launchApp();
   try {
@@ -303,10 +412,11 @@ test('agent: streaming transcript does not re-pin after a small upward scroll', 
   }
 });
 
-test('agent: composer attaches a selected file, sends bounded content, and restores on failure', async ({ browserName }, testInfo) => {
+test('agent: composer attaches a selected file, sends bounded content, and restores on failure', async ({ browserName }) => {
   void browserName;
-  const attachmentPath = testInfo.outputPath('agent-attachment.txt');
-  await fs.writeFile(attachmentPath, 'attached context');
+  const attachmentDir = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-agent-attachment-'));
+  const attachmentPath = path.join(attachmentDir, 'agent-attachment.txt');
+  await fs.writeFile(attachmentPath, 'attached context', 'utf8');
   const { app, page } = await launchApp();
   try {
     await app.evaluate(({ ipcMain }) => {
@@ -351,6 +461,7 @@ test('agent: composer attaches a selected file, sends bounded content, and resto
     await expect(main.getByText('agent-attachment.txt')).toBeHidden();
   } finally {
     await app.close();
+    await fs.rm(attachmentDir, { recursive: true, force: true });
   }
 });
 
@@ -372,16 +483,17 @@ test('agent: composer accepts dropped text files as attachments', async () => {
   }
 });
 
-test('agent: file attachments are count-limited and clipped before sending', async ({ browserName }, testInfo) => {
+test('agent: file attachments are count-limited and clipped before sending', async ({ browserName }) => {
   void browserName;
+  const attachmentDir = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-agent-bounded-'));
   const paths: string[] = [];
   for (let index = 0; index < 10; index += 1) {
-    const filePath = testInfo.outputPath(`bounded-${index}.txt`);
+    const filePath = path.join(attachmentDir, `bounded-${index}.txt`);
     const body =
       index === 0
         ? `${'x'.repeat(24_000)}sentinel-after-limit`
         : `bounded file ${index}`;
-    await fs.writeFile(filePath, body);
+    await fs.writeFile(filePath, body, 'utf8');
     paths.push(filePath);
   }
 
@@ -423,6 +535,7 @@ test('agent: file attachments are count-limited and clipped before sending', asy
     expect(payload.prompt).toContain('clipped');
   } finally {
     await app.close();
+    await fs.rm(attachmentDir, { recursive: true, force: true });
   }
 });
 
@@ -471,6 +584,105 @@ async function emitAgentState(app: ElectronApplication, state: AgentChatState): 
     },
     state,
   );
+}
+
+async function mkWorkspaceRoot(base: string, name: string): Promise<string> {
+  const dir = path.join(base, name);
+  await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'src', 'App.tsx'), `export const n = "${name}";\n`, 'utf8');
+  return dir;
+}
+
+async function emitAgentWorkspaceState(
+  app: ElectronApplication,
+  workspaceId: string,
+  state: AgentChatState,
+): Promise<void> {
+  await app.evaluate(
+    ({ BrowserWindow }, payload) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('Main window not found');
+      win.webContents.send('agent:workspace-event', payload);
+    },
+    { workspaceId, state },
+  );
+}
+
+async function installWorkspaceSessionStubs(
+  app: ElectronApplication,
+  workspaces: { readonly alphaId: string; readonly betaId: string },
+): Promise<void> {
+  await app.evaluate(({ ipcMain }, ids) => {
+    type SessionPayload = { readonly workspaceId?: string; readonly query?: string } | undefined;
+    const now = Date.now();
+    const sessions: readonly SessionSummary[] = [
+      {
+        id: 'session-alpha',
+        workspaceId: ids.alphaId,
+        title: 'Alpha saved session',
+        createdAt: now - 3_000,
+        updatedAt: now - 3_000,
+        provider: 'ollama',
+        model: 'qwen-test',
+        messageCount: 1,
+      },
+      {
+        id: 'session-beta',
+        workspaceId: ids.betaId,
+        title: 'Beta saved session',
+        createdAt: now - 2_000,
+        updatedAt: now - 2_000,
+        provider: 'ollama',
+        model: 'qwen-test',
+        messageCount: 1,
+      },
+      {
+        id: 'session-legacy',
+        title: 'Legacy unscoped session',
+        createdAt: now - 1_000,
+        updatedAt: now - 1_000,
+        provider: 'ollama',
+        model: 'qwen-test',
+        messageCount: 1,
+      },
+    ];
+    const requests: { channel: string; workspaceId?: string; query?: string }[] = [];
+    const g = globalThis as typeof globalThis & {
+      __workspaceSessionRequests?: typeof requests;
+    };
+    g.__workspaceSessionRequests = requests;
+    const workspaceIdOf = (payload: SessionPayload): string | undefined =>
+      payload && typeof payload.workspaceId === 'string' ? payload.workspaceId : undefined;
+    const queryOf = (payload: SessionPayload): string | undefined =>
+      payload && typeof payload.query === 'string' ? payload.query : undefined;
+    const scoped = (workspaceId: string | undefined): readonly SessionSummary[] =>
+      workspaceId
+        ? sessions.filter((session) => session.workspaceId === workspaceId)
+        : sessions.filter((session) => !session.workspaceId);
+
+    ipcMain.removeHandler('agent:list-sessions');
+    ipcMain.handle('agent:list-sessions', (_event, payload: SessionPayload) => {
+      const workspaceId = workspaceIdOf(payload);
+      requests.push({ channel: 'list', workspaceId });
+      return scoped(workspaceId);
+    });
+    ipcMain.removeHandler('agent:search-sessions');
+    ipcMain.handle('agent:search-sessions', (_event, payload: SessionPayload) => {
+      const workspaceId = workspaceIdOf(payload);
+      const query = queryOf(payload);
+      requests.push({ channel: 'search', workspaceId, query });
+      return scoped(workspaceId).map((session) => ({
+        ...session,
+        title:
+          session.workspaceId === ids.alphaId
+            ? 'Alpha search hit'
+            : session.workspaceId === ids.betaId
+              ? 'Beta search hit'
+              : 'Legacy search hit',
+        snippet: query ? `Matched ${query}` : undefined,
+      }));
+    });
+  }, workspaces);
 }
 
 type ScrollMetrics = {

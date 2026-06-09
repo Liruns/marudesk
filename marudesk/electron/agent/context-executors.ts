@@ -16,7 +16,12 @@ import { getRecentTerminalOutput, getTerminalList, getTerminalOutput } from '../
 import { getWorkspaceSnapshot, readFileWindow } from '../workspace';
 import { pageLines } from './text-window';
 import { getEditorMirror, getEditorMirrors, getExplorerMirror } from './context-cache';
-import { deleteSession, listSessions, readSession } from './sessions-store';
+import {
+  deleteSession,
+  listSessions,
+  readSession,
+  type SessionWorkspaceFilter,
+} from './sessions-store';
 import { deleteMemory, listMemory, readMemory, writeMemory } from './memory-store';
 import type { ToolContext, ToolResult } from './tools';
 import { ago, formatTabLine, resolveWebTab, tabUrl } from './context-helpers.ts';
@@ -481,9 +486,20 @@ export async function readExplorer(): Promise<ToolResult> {
 
 /* ── sessions (previous chats) ──────────────────────────────────────────── */
 
-export async function listSessionsTool(input: { limit?: unknown }): Promise<ToolResult> {
+function sessionWorkspaceFilter(ctx: ToolContext): SessionWorkspaceFilter {
+  return ctx.thread?.workspaceId ?? null;
+}
+
+function sessionMatchesContext(rec: SessionRecord, ctx: ToolContext): boolean {
+  return (rec.workspaceId ?? null) === sessionWorkspaceFilter(ctx);
+}
+
+export async function listSessionsTool(
+  input: { limit?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const limit = typeof input.limit === 'number' ? input.limit : 20;
-  const rows = await listSessions(limit);
+  const rows = await listSessions(sessionWorkspaceFilter(ctx), limit);
   if (rows.length === 0) return { summary: 'no past sessions', text: 'There are no saved chat sessions yet.' };
   const lines = rows.map(
     (r) => `- ${r.id} — "${scrubText(r.title)}" (${r.messageCount} msgs, ${r.model}, ${ago(r.updatedAt)})`,
@@ -510,20 +526,26 @@ function flattenSession(rec: SessionRecord): string {
     .join('\n\n');
 }
 
-export async function readSessionTool(input: { id?: unknown }): Promise<ToolResult> {
+export async function readSessionTool(
+  input: { id?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const id = typeof input.id === 'string' ? input.id : '';
   if (!id) throw new Error('read_session requires "id" (from list_sessions)');
   const rec = await readSession(id);
-  if (!rec) return { summary: `read_session ${id}`, text: `no saved session with id ${id}`, isError: true };
+  if (!rec || !sessionMatchesContext(rec, ctx)) return { summary: `read_session ${id}`, text: `no saved session with id ${id}`, isError: true };
   const head = `"${rec.title}" — ${rec.model} (${rec.provider}), ${rec.messageCount} messages, ${ago(rec.createdAt)}`;
   return { summary: `session "${scrubText(rec.title)}"`, text: clip(scrubText(`${head}\n\n${flattenSession(rec)}`)) };
 }
 
-export async function deleteSessionTool(input: { id?: unknown }): Promise<ToolResult> {
+export async function deleteSessionTool(
+  input: { id?: unknown },
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const id = typeof input.id === 'string' ? input.id : '';
   if (!id) throw new Error('delete_session requires "id" (from list_sessions)');
   const rec = await readSession(id);
-  if (!rec) return { summary: `delete_session ${id}`, text: `no saved session with id ${id} (use list_sessions)`, isError: true };
+  if (!rec || !sessionMatchesContext(rec, ctx)) return { summary: `delete_session ${id}`, text: `no saved session with id ${id} (use list_sessions)`, isError: true };
   const ok = await deleteSession(id);
   if (!ok) return { summary: `delete_session ${id} (failed)`, text: `could not delete session ${id}`, isError: true };
   return { summary: `deleted session "${scrubText(rec.title)}"`, text: `Deleted session ${id} ("${scrubText(rec.title)}"). It will no longer appear in list_sessions.` };

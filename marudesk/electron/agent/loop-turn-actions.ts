@@ -17,7 +17,15 @@ import { effectiveAgentRoot } from '../worktree-isolation';
 import { createCheckpoint, restoreCheckpoint } from '../git-worktree';
 import { getActive, getTab } from '../browser/state';
 import { navigateActive } from '../browser/navigation';
-import { S, emit, containerForTurn } from './loop-state.ts';
+import { getWorkspaceSummary } from '../workspace-registry';
+import {
+  emitContainer,
+  containers,
+  containerForTurn,
+  containerForWorkspace,
+  type ThreadContainer,
+} from './loop-state.ts';
+import type { WorkspaceId } from '../../shared/workspace';
 
 /**
  * Turn-control public API (handlers.ts surface): abort the running turn, answer
@@ -59,20 +67,45 @@ export function approveTool(
   return true;
 }
 
-export function acceptEdit(editId: string): AgentEditActionResult {
-  const edit = S.state.edits.find((e) => e.id === editId);
+type WorkspaceFilter = WorkspaceId | null | undefined;
+
+function matchesWorkspace(container: ThreadContainer, workspaceId: WorkspaceFilter): boolean {
+  if (workspaceId === undefined) return true;
+  return (container.workspaceId ?? null) === workspaceId;
+}
+
+function containerForEdit(editId: string, workspaceId: WorkspaceFilter): ThreadContainer | null {
+  return (
+    containers().find(
+      (container) =>
+        matchesWorkspace(container, workspaceId) &&
+        container.state.edits.some((e) => e.id === editId),
+    ) ?? null
+  );
+}
+
+export function acceptEdit(editId: string, workspaceId?: WorkspaceFilter): AgentEditActionResult {
+  const container = containerForEdit(editId, workspaceId);
+  if (!container) return { ok: false, reason: 'not-found' };
+  const edit = container.state.edits.find((e) => e.id === editId);
   if (!edit || edit.status !== 'applied') return { ok: false, reason: 'not-found' };
   edit.status = 'accepted';
-  emit();
+  emitContainer(container);
   return { ok: true };
 }
 
-export async function revertEdit(editId: string): Promise<AgentEditActionResult> {
-  const edit = S.state.edits.find((e) => e.id === editId);
+export async function revertEdit(
+  editId: string,
+  workspaceId?: WorkspaceFilter,
+): Promise<AgentEditActionResult> {
+  const container = containerForEdit(editId, workspaceId);
+  if (!container) return { ok: false, reason: 'not-found' };
+  const edit = container.state.edits.find((e) => e.id === editId);
   if (!edit || edit.status !== 'applied') return { ok: false, reason: 'not-found' };
   let ws: WorkspaceSummary;
   try {
-    ws = requireWorkspace().ws;
+    const scoped = container.workspaceId ? getWorkspaceSummary(container.workspaceId) : null;
+    ws = scoped ?? requireWorkspace().ws;
     // Mirror the loop's worktree-isolation routing: when active, the agent wrote
     // this edit in the worktree, so revert must restore it there (not in main).
     const eff = effectiveAgentRoot(ws.root);
@@ -92,7 +125,7 @@ export async function revertEdit(editId: string): Promise<AgentEditActionResult>
     return { ok: false, reason: 'write-failed' };
   }
   edit.status = 'reverted';
-  emit();
+  emitContainer(container);
   return { ok: true };
 }
 
@@ -127,8 +160,8 @@ async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void
   }
 }
 
-export function snapshot(): AgentChatState {
-  return S.state;
+export function snapshot(workspaceId?: WorkspaceId): AgentChatState {
+  return containerForWorkspace(workspaceId).state;
 }
 
 /**
