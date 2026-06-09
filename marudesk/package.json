@@ -35,6 +35,7 @@
     "harness:worktree-iso": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/worktree-isolation.harness.ts",
     "harness:automations": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/automations/automations.harness.ts",
     "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts",
+    "harness:mcp-config": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-config-harness.ts",
     "harness:prompt-injection": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/prompt-injection-harness.ts",
     "harness:agent-attachments": "node --experimental-strip-types electron/agent/attachment-harness.ts",
     "harness:dev-reload": "node --experimental-strip-types electron/dev-reload-harness.ts",

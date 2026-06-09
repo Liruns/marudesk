@@ -648,6 +648,23 @@ export interface IpcMap {
     args: [payload: { id: string; enabled: boolean }];
     result: McpServerStatus[];
   };
+  'mcp:update-server': {
+    args: [
+      payload: {
+        id: string;
+        enabled?: boolean;
+        trust?: boolean;
+        disabledTools?: string[];
+        autoApproveTools?: string[];
+        confirmTools?: string[];
+      },
+    ];
+    result: McpServerStatus[];
+  };
+  'mcp:remove-server': {
+    args: [payload: { id: string }];
+    result: McpServerStatus[];
+  };
   'mcp:add-preset': {
     args: [payload: { id: string }];
     result: McpServerStatus[];

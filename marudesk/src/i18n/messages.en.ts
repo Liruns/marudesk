@@ -956,6 +956,17 @@ export const EN_MESSAGES = {
   'settings.mcp.status.error': 'Error',
   'settings.mcp.toggle.disable': 'Disable',
   'settings.mcp.toggle.enable': 'Enable',
+  'settings.mcp.trust.badge': 'Trusted',
+  'settings.mcp.trust.label': 'Trust server',
+  'settings.mcp.trust.description':
+    'Run this server without per-call approval except tools listed below.',
+  'settings.mcp.tools.disabled': 'Hidden tools',
+  'settings.mcp.tools.autoApprove': 'Auto-approved tools',
+  'settings.mcp.tools.confirm': 'Always confirm',
+  'settings.mcp.tools.placeholder': 'tool_name',
+  'settings.mcp.save': 'Save',
+  'settings.mcp.remove': 'Remove',
+  'settings.mcp.removeConfirm': 'Remove this MCP server from the config?',
   'settings.mcp.transport.remote': 'remote',
   'settings.mcp.transport.stdio': 'stdio',
   'settings.plugins.description':

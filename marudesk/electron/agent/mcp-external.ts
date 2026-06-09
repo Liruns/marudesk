@@ -178,6 +178,9 @@ function setStatus(
     target: mcpDisplayTarget(config),
     enabled: config.enabled,
     trusted: config.trust === true,
+    disabledTools: config.disabledTools ?? [],
+    autoApproveTools: config.autoApproveTools ?? [],
+    confirmTools: config.confirmTools ?? [],
     state,
     toolCount,
     ...(extra?.tools ? { tools: extra.tools } : {}),
@@ -862,6 +865,7 @@ function configChanged(a: McpServerConfig, b: McpServerConfig): boolean {
   if (a.trust !== b.trust) return true;
   if (JSON.stringify(a.disabledTools ?? []) !== JSON.stringify(b.disabledTools ?? [])) return true;
   if (JSON.stringify(a.autoApproveTools ?? []) !== JSON.stringify(b.autoApproveTools ?? [])) return true;
+  if (JSON.stringify(a.confirmTools ?? []) !== JSON.stringify(b.confirmTools ?? [])) return true;
   if (isHttpMcpConfig(a) && isHttpMcpConfig(b)) {
     return (
       a.url !== b.url ||

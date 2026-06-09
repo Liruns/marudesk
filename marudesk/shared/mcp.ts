@@ -145,6 +145,12 @@ export type McpServerStatus = {
   enabled: boolean;
   /** Whether this server's tools auto-approve (the `trust` flag, after sanitize). */
   trusted: boolean;
+  /** Tool names hidden from the agent for this server. */
+  disabledTools: string[];
+  /** Tool names that auto-approve on an otherwise-untrusted server. */
+  autoApproveTools: string[];
+  /** Tool names that stay gated even when the server is trusted. */
+  confirmTools: string[];
   state: McpConnectionState;
   /** How many tools the server exposed (0 unless connected). */
   toolCount: number;
@@ -183,13 +189,19 @@ function parseStringMap(value: unknown): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** Parse a `string[]` field, dropping non-strings/blanks and bounding the length. */
+/** Parse a `string[]` field, dropping non-strings/blanks, de-duping, and bounding the length. */
 function parseStringList(value: unknown, max: number): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const out = value
-    .filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
-    .map((a) => a.trim())
-    .slice(0, max);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+    if (out.length >= max) break;
+  }
   return out.length > 0 ? out : undefined;
 }
 

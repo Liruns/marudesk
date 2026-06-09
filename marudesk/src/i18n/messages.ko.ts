@@ -951,6 +951,17 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.mcp.status.error': '오류',
   'settings.mcp.toggle.disable': '비활성화',
   'settings.mcp.toggle.enable': '활성화',
+  'settings.mcp.trust.badge': '신뢰됨',
+  'settings.mcp.trust.label': '서버 신뢰',
+  'settings.mcp.trust.description':
+    '아래에 지정한 도구를 제외하고 호출마다 승인 없이 실행합니다.',
+  'settings.mcp.tools.disabled': '숨길 도구',
+  'settings.mcp.tools.autoApprove': '자동 승인 도구',
+  'settings.mcp.tools.confirm': '항상 확인',
+  'settings.mcp.tools.placeholder': 'tool_name',
+  'settings.mcp.save': '저장',
+  'settings.mcp.remove': '삭제',
+  'settings.mcp.removeConfirm': '이 MCP 서버를 설정에서 삭제할까요?',
   'settings.mcp.transport.remote': '원격',
   'settings.mcp.transport.stdio': 'stdio',
   'settings.plugins.description':

@@ -78,6 +78,54 @@ export async function setMcpServerEnabled(id: string, enabled: boolean): Promise
   return writeMcpConfig({ servers });
 }
 
+export type McpServerUpdatePatch = {
+  readonly enabled?: boolean;
+  readonly trust?: boolean;
+  readonly disabledTools?: readonly string[];
+  readonly autoApproveTools?: readonly string[];
+  readonly confirmTools?: readonly string[];
+};
+
+/**
+ * Update editable server settings that do not expose secrets to the renderer.
+ * Unknown ids are a no-op; writes are re-sanitized so blank/duplicate tool names
+ * are cleaned before persistence and empty lists clear the field.
+ */
+export async function updateMcpServer(
+  id: string,
+  patch: McpServerUpdatePatch,
+): Promise<McpServersFile> {
+  const current = await readMcpConfig();
+  let changed = false;
+  const servers: McpServerConfig[] = current.servers.map((s) => {
+    if (s.id !== id) return s;
+    changed = true;
+    return {
+      ...s,
+      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.trust !== undefined ? { trust: patch.trust } : {}),
+      ...(patch.disabledTools !== undefined ? { disabledTools: [...patch.disabledTools] } : {}),
+      ...(patch.autoApproveTools !== undefined
+        ? { autoApproveTools: [...patch.autoApproveTools] }
+        : {}),
+      ...(patch.confirmTools !== undefined ? { confirmTools: [...patch.confirmTools] } : {}),
+    };
+  });
+  if (!changed) return current;
+  return writeMcpConfig({ servers });
+}
+
+/**
+ * Remove a configured server. Unknown ids are a no-op so stale renderer state
+ * cannot accidentally rewrite the config.
+ */
+export async function removeMcpServer(id: string): Promise<McpServersFile> {
+  const current = await readMcpConfig();
+  const servers = current.servers.filter((s) => s.id !== id);
+  if (servers.length === current.servers.length) return current;
+  return writeMcpConfig({ servers });
+}
+
 /**
  * Add a server config (e.g. from a preset) if its id isn't already present, and
  * persist. Returns the resulting config plus whether anything was added — an existing

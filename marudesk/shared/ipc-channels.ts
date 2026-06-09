@@ -203,6 +203,8 @@ export const CHANNELS = {
     'mcp:list-servers',
     'mcp:reload',
     'mcp:set-enabled',
+    'mcp:update-server',
+    'mcp:remove-server',
     'mcp:add-preset',
     'mcp:open-config',
     'mcp:embedded-browser-status',
