@@ -7,6 +7,7 @@ import type { SubagentRunRequest, SubagentRunner } from './subagent-types';
 
 let testRunner: SubagentRunner | null = null;
 
+export { listChildToolDefs } from './subagent-runtime';
 export type { SubagentRunRequest, SubagentRunner } from './subagent-types';
 
 export function setSubagentRunnerForTests(runner: SubagentRunner | null): void {

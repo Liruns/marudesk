@@ -13,9 +13,11 @@ import {
   SPAWN_BACKGROUND_AGENT,
   COLLECT_BACKGROUND_AGENT,
   CANCEL_BACKGROUND_AGENT,
+  UPDATE_PLAN,
   type SubagentProgressSink,
   type ToolContext,
   type ToolResult,
+  type McpToolDef,
 } from './tools/types';
 import { childPrompt, subagentFailure, subagentSuccess, SUBAGENT_SYSTEM } from './subagent-format';
 import type { ChildToolCall, ChildToolResultPart, SubagentRunRequest } from './subagent-types';
@@ -49,7 +51,7 @@ export async function runChildAgent(
     false;
   const effort = getSettingsSync().agent.reasoningEffort;
   const model = buildModel(request.provider, request.model, resolved.auth, resolved.baseUrl);
-  const tools = aiTools(childToolDefs(allowTools));
+  const tools = aiTools(listChildToolDefs(allowTools));
   const transcript: ModelMessage[] = [{ role: 'user', content: childPrompt(request, ctx) }];
   const childCtx: ToolContext = { ...ctx, provider: request.provider, model: request.model };
   const traces: string[] = [];
@@ -110,22 +112,25 @@ export async function runChildAgent(
  * child can't surface an approval prompt to the user.
  */
 const CHILD_WEB_RESEARCH_TOOLS = new Set(['web_search', 'fetch_url']);
+const CHILD_EXCLUDED_TOOL_GROUPS = new Set(['mcp', 'plugin']);
 
-function childToolDefs(allowTools?: readonly string[]) {
+export function listChildToolDefs(allowTools?: readonly string[]): McpToolDef[] {
   const excluded = new Set<string>([
     ASK_USER,
     SPAWN_SUBAGENT,
     SPAWN_BACKGROUND_AGENT,
     COLLECT_BACKGROUND_AGENT,
     CANCEL_BACKGROUND_AGENT,
+    UPDATE_PLAN,
   ]);
   // An optional caller allow-list (Stage 12-C automations) narrows the toolset to
   // a named subset — a non-empty list keeps ONLY those tools (still inside the
-  // read-only/non-gated envelope below, so it can only ever subtract capability).
+  // child-safe read-only envelope below, so it can only ever subtract capability).
   const allow = allowTools && allowTools.length > 0 ? new Set(allowTools) : null;
   return listMcpTools().filter(
     (tool) =>
       !excluded.has(tool.name) &&
+      !CHILD_EXCLUDED_TOOL_GROUPS.has(tool.group) &&
       tool.write !== true &&
       (tool.gated !== true || CHILD_WEB_RESEARCH_TOOLS.has(tool.name)) &&
       (!allow || allow.has(tool.name)),

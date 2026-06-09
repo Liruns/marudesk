@@ -7,6 +7,8 @@ import {
   UPDATE_PLAN,
   type ToolSchema,
 } from './types';
+import { BROWSER_TOOL_SCHEMAS } from './browser-schemas';
+import { boolProp, intProp, strProp } from './schema-helpers';
 
 /**
  * JSON-Schema (Anthropic `input_schema`) for every built-in tool, including the
@@ -14,10 +16,6 @@ import {
  * the model reads, so keep them precise; the MCP descriptor layer (registry.ts)
  * pairs these with executors + metadata.
  */
-
-const strProp = (desc: string) => ({ type: 'string', description: desc });
-const intProp = (desc: string) => ({ type: 'integer', description: desc });
-const boolProp = (desc: string) => ({ type: 'boolean', description: desc });
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
@@ -122,73 +120,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       additionalProperties: false,
     },
   },
-  {
-    name: 'get_console_errors',
-    description: 'Read the live page\'s captured runtime errors (always-on). Each carries a confidence-tagged source file when its stack maps deterministically to a workspace file. Start here for a "fix this error" task.',
-    inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max errors (default 20).' } }, additionalProperties: false },
-  },
-  {
-    name: 'query_dom',
-    description: 'Inspect the live DOM: returns the matched element\'s outerHTML + key computed styles. Read-only.',
-    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector.') }, required: ['selector'], additionalProperties: false },
-  },
-  {
-    name: 'eval_js',
-    description: 'Evaluate a JavaScript expression in the live page and return the result. Powerful — requires user approval each call. Use for runtime probing you cannot get from query_dom/get_console_errors.',
-    inputSchema: { type: 'object', properties: { expression: strProp('JS expression to evaluate.') }, required: ['expression'], additionalProperties: false },
-  },
-  {
-    name: 'click',
-    description: 'Click an element in the active web tab. selector is a CSS selector — use query_dom first to find one. Scrolls the element into view, then clicks. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector of the element to click.') }, required: ['selector'], additionalProperties: false },
-  },
-  {
-    name: 'fill',
-    description: 'Set the value of an input, textarea, or contenteditable in the active web tab (React-compatible — fires input/change so framework state updates). selector is a CSS selector; find one with query_dom first. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { selector: strProp('CSS selector of the field.'), value: strProp('Text to set as the field value.') }, required: ['selector', 'value'], additionalProperties: false },
-  },
-  {
-    name: 'press_key',
-    description: 'Dispatch a key press (keydown+keyup) in the active web tab — e.g. "Enter", "Escape", "Tab", "ArrowDown". Targets the selector element (focused first) or the focused element if no selector. Good for submitting forms / triggering key handlers. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { key: strProp('Key name, e.g. "Enter", "Escape", "Tab", "ArrowDown".'), selector: strProp('Optional CSS selector to focus and target; defaults to the focused element.') }, required: ['key'], additionalProperties: false },
-  },
-  {
-    name: 'scroll',
-    description: 'Scroll the active web tab. With a selector (CSS), smooth-scrolls that element into view; without one, scrolls the window a screenful in the given direction. Requires user approval each call.',
-    inputSchema: { type: 'object', properties: { selector: strProp('Optional CSS selector to scroll into view.'), direction: { type: 'string', enum: ['up', 'down'], description: "Window scroll direction when no selector (default 'down')." } }, additionalProperties: false },
-  },
-  {
-    name: 'read_network',
-    description: 'List recent network responses/failures captured from the live page (lazily enables capture). For TRIAGE: a failing status is often backend/infra, not a frontend bug. Secrets in URLs/headers are scrubbed.',
-    inputSchema: { type: 'object', properties: { urlFilter: strProp('Optional substring to filter URLs.'), max: { type: 'number', description: 'Max rows (default 40).' } }, additionalProperties: false },
-  },
-  {
-    name: 'read_network_body',
-    description: 'Fetch a captured response body by requestId (from read_network). Secrets are scrubbed. Use to inspect a malformed response shape (e.g. "10%" where a number was expected).',
-    inputSchema: { type: 'object', properties: { requestId: strProp('requestId from read_network.') }, required: ['requestId'], additionalProperties: false },
-  },
-  {
-    name: 'reload_and_verify',
-    description: 'Reload the page, wait for it to settle, then re-read the console. REQUIRED after editing to fix a runtime error — pass the error message as errorSignature to confirm it is GONE or STILL PRESENT. This closed loop is how you prove a fix worked.',
-    inputSchema: {
-      type: 'object',
-      properties: { waitMs: { type: 'number', description: 'Settle wait, max 5000 (default 2500).' }, errorSignature: strProp('A substring of the error you expect to be gone.') },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'browser_cookies',
-    description: "Read the live page's cookies (name, value, domain, flags). Read-only; values are secret-scrubbed. Requires user approval. Use to debug auth/session state.",
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    name: 'browser_storage',
-    description: "Read the live page's localStorage and/or sessionStorage entries. Read-only; values are secret-scrubbed. Requires user approval.",
-    inputSchema: { type: 'object', properties: { kind: strProp("'local', 'session', or omit for both.") }, additionalProperties: false },
-  },
+  ...BROWSER_TOOL_SCHEMAS,
   {
     name: SPAWN_SUBAGENT,
-    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The child may inspect workspace/live context and search the web (web_search, fetch_url) with non-mutating tools, cannot edit or run other gated actions, and returns a final report to the parent. Use for parallel research, second opinions, and splitting analysis work.',
+    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The parent turn waits for the child report, so use this for focused second opinions and bounded analysis. For detached fan-out, use spawn_background_agent instead. The child may inspect workspace/live context and search the web (web_search, fetch_url) with non-mutating built-in tools, cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, or run other gated actions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -196,7 +131,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         provider: strProp('Optional provider id. Omit (or leave unset) to inherit the parent turn provider — that is the normal choice.'),
         model: strProp('Optional model id. Omit (or leave unset) to inherit the parent turn model — that is the normal choice.'),
         label: strProp('Optional short label for the child result card.'),
-        maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
+        maxSteps: { type: 'number', description: 'Optional child loop step cap (default 6, max 12).' },
       },
       required: ['task'],
       additionalProperties: false,
@@ -205,7 +140,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: SPAWN_BACKGROUND_AGENT,
     description:
-      'Delegate a self-contained, READ-ONLY subtask to a DETACHED background agent (optionally on a different provider/model). Returns IMMEDIATELY with a task id; the agent keeps running after this turn ends. Use for long research fan-out or fire-and-forget investigation you will read later with collect_background_agent. The background agent has read-only tools only — it cannot edit files, run gated actions, or spawn further agents.',
+      'Delegate a self-contained, READ-ONLY subtask to a DETACHED background agent (optionally on a different provider/model). Returns IMMEDIATELY with a task id; the agent keeps running after this turn ends. Use for long research fan-out or fire-and-forget investigation you will read later with collect_background_agent. The background agent may use read-only built-in tools and web research (web_search, fetch_url), but cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, run other gated actions, or spawn further agents.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -213,7 +148,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         provider: strProp('Optional provider id; defaults to the parent turn provider.'),
         model: strProp('Optional model id; defaults to the parent turn model.'),
         label: strProp('Optional short label for the background tray entry.'),
-        maxSteps: { type: 'number', description: 'Optional child loop step cap (default 4, max 6).' },
+        maxSteps: { type: 'number', description: 'Optional child loop step cap (default 6, max 12).' },
       },
       required: ['task'],
       additionalProperties: false,

@@ -11,12 +11,11 @@ import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 
 /**
- * Where to point users to get the phone companion app. There is no public
- * App Store / Play Store build yet — it's a dev/dogfood build — so this is a
- * deliberate placeholder. Fill it in (docs page, TestFlight, APK release, …)
- * when a real download exists; the guide already renders it as a link.
+ * Where to point users to get the phone companion app. There is no public App
+ * Store / Play Store build yet, so point at the mobile package README instead
+ * of a fake marketplace download.
  */
-const MOBILE_APP_URL = 'https://github.com/marudesk/marudesk#mobile-app'; // TODO: real download/help link once a public build ships
+const MOBILE_APP_URL = 'https://github.com/Liruns/marudesk/blob/master/mobile/README.md';
 
 type Step = { title: string; body: ReactNode };
 
