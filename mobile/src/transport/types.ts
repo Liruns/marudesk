@@ -12,9 +12,9 @@ import type {
  * The phone is a thin client: the entire UI is driven by an {@link AgentChatState}
  * pushed from the transport (`onState`) and a coarse connection {@link TransportStatus}
  * (`onStatus`). The UI sends intent via {@link Transport.send}. Nothing else in the
- * app knows whether that state came from a fake (dev) or a real relay WS — so we can
- * build/demo the whole product against {@link StubTransport} today and swap in
- * `RelayTransport` once the PC-side B2 bridge lands, with zero screen changes.
+ * app knows whether that state came from the dev stub, the relay WebSocket, or a
+ * paired direct PC connection, so screens stay unchanged when the store swaps
+ * transports.
  */
 
 /** Coarse connection lifecycle the UI shows in the status pill / Account screen. */

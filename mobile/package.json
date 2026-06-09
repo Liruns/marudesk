@@ -9,9 +9,11 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "smoke": "npm run smoke:stub && npm run smoke:storage",
+    "smoke": "npm run smoke:stub && npm run smoke:storage && npm run smoke:pairing && npm run smoke:relay",
     "smoke:stub": "node --experimental-strip-types --import ./scripts/ts-register.mjs scripts/stub-smoke.ts",
     "smoke:storage": "node --experimental-strip-types --import ./scripts/ts-register.mjs scripts/storage-smoke.ts",
+    "smoke:pairing": "node --experimental-strip-types --import ./scripts/ts-register.mjs scripts/pairing-smoke.ts",
+    "smoke:relay": "node --experimental-strip-types --import ./scripts/ts-register.mjs scripts/relay-transport-smoke.ts",
     "cap:sync": "cap sync android",
     "cap:add:android": "cap add android",
     "android:build": "npm run build && cap sync android"
