@@ -312,12 +312,20 @@ export function useComposer({
   // Drain the queue one item at a time once the running turn finishes (busy goes
   // false). The dispatch is deferred to a microtask so it runs after this effect
   // commits rather than cascading another synchronous render inside the effect
-  // body. Draining one per turn-end (not the whole queue at once) keeps each
-  // staged message its own turn.
+  // body. `drainGuard` blocks re-entry across the async gap between dispatching a
+  // turn and `busy` actually flipping true (the snapshot round-trip) — otherwise
+  // a queue of N would fire all at once instead of one-per-turn. It resets as
+  // soon as the dispatched turn registers as busy.
+  const drainGuard = useRef(false);
   useEffect(() => {
-    if (busy || queuedPrompts.length === 0) return;
+    if (busy) {
+      drainGuard.current = false;
+      return;
+    }
+    if (drainGuard.current || queuedPrompts.length === 0) return;
     const text = dequeuePrompt();
     if (text === null) return;
+    drainGuard.current = true;
     queueMicrotask(() => submitText(text));
     // submitText closes over stable store actions; rerun only on these two.
     // eslint-disable-next-line react-hooks/exhaustive-deps
