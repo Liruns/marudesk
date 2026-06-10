@@ -270,12 +270,38 @@ async function createMainWindow(): Promise<BrowserWindow> {
   win.on('enter-full-screen', pushMaximizeState);
   win.on('leave-full-screen', pushMaximizeState);
 
-  win.once('ready-to-show', () => {
-    if (windowState.maximized) win.maximize();
-    win.show();
+  // Reveal the window exactly once. `ready-to-show` is preferred (no first-frame
+  // flash) but NEVER relied on: on packaged Windows builds the hidden window's
+  // first compositor frame can be skipped entirely (timing race with the
+  // always-on-top splash shown the same instant the renderer finishes loading),
+  // so `ready-to-show` never fires while show() waits for it — the v0.2.0
+  // infinite-splash deadlock. Calling show() forces the first frame (observed:
+  // `ready-to-show` arrives ~1ms after a forced show), so the deterministic
+  // fallbacks below are safe.
+  let revealed = false;
+  const reveal = (): void => {
+    if (revealed) return;
+    revealed = true;
+    clearTimeout(revealFallback);
+    if (!win.isDestroyed()) {
+      if (windowState.maximized) win.maximize();
+      win.show();
+      pushMaximizeState();
+      // Boot-storm guard: re-assert visibility once. The reveal can race the
+      // splash teardown/focus handoff; if the OS left the window minimized or
+      // not actually visible, restore it — a no-op for a healthy window.
+      setTimeout(() => {
+        if (win.isDestroyed() || (win.isVisible() && !win.isMinimized())) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+      }, 1_000);
+    }
     closeSplash();
-    pushMaximizeState();
-  });
+  };
+  win.once('ready-to-show', reveal);
+  // Hard ceiling: even if the renderer never finishes loading, surface the
+  // window (and drop the splash) instead of spinning forever.
+  const revealFallback = setTimeout(reveal, 10_000);
   // Persist size/position/maximized across restarts.
   trackWindowState(win);
 
@@ -333,11 +359,21 @@ async function createMainWindow(): Promise<BrowserWindow> {
   };
   win.webContents.on('did-finish-load', pinHostZoom);
 
-  if (rendererDevUrl) {
-    await win.loadURL(rendererDevUrl);
-    win.webContents.openDevTools({ mode: 'detach' });
-  } else {
-    await win.loadFile(path.join(__dirname, '../dist/index.html'));
+  try {
+    if (rendererDevUrl) {
+      await win.loadURL(rendererDevUrl);
+      win.webContents.openDevTools({ mode: 'detach' });
+    } else {
+      await win.loadFile(path.join(__dirname, '../dist/index.html'));
+    }
+  } catch (err) {
+    // A failed load must still surface a window (blank beats invisible) — the
+    // finally below reveals; keep the cause in the log for diagnosis.
+    console.error('[main] renderer load failed:', err);
+  } finally {
+    // Deterministic reveal: the load promise resolving means did-finish-load
+    // fired, so the content is ready even if `ready-to-show` never comes.
+    reveal();
   }
   pinHostZoom();
 
@@ -449,7 +485,11 @@ void app.whenReady().then(() => {
   // external MCP + plugins. Shared with the live profile switch. Each step is
   // off-by-default / fire-and-forget and never crashes the app.
   initProfileRuntime();
-  void createMainWindow();
+  void createMainWindow().catch((err: unknown) => {
+    // If window creation itself dies, never strand the user on the splash.
+    console.error('[main] createMainWindow failed:', err);
+    closeSplash();
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
