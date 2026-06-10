@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { AccentSwatches } from './AccentSwatches';
+import { PaletteSwatches } from './PaletteSwatches';
 import { useSettingsStore } from '../settings/store';
 import { LOCALE_OPTIONS } from '../../i18n/messages';
 import { useI18n } from '../../i18n/useI18n';
@@ -50,6 +51,18 @@ export function AppearancePopover({ onClose }: { onClose: () => void }) {
           <AccentSwatches variant="grid" />
           <p className="text-caption text-fg-tertiary leading-relaxed">
             {t('appearance.accent.description')}
+          </p>
+        </div>
+
+        <div className="h-px bg-subtle" aria-hidden />
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-caption uppercase tracking-wider text-fg-tertiary">
+            {t('appearance.palette.label')}
+          </span>
+          <PaletteSwatches variant="grid" />
+          <p className="text-caption text-fg-tertiary leading-relaxed">
+            {t('appearance.palette.description')}
           </p>
         </div>
 

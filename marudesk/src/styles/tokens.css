@@ -146,6 +146,103 @@
   --accent-glow: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%);
 }
 
+/* Theme palettes — full-surface reskins via a [data-palette] attribute on
+   <html> (Settings → Appearance → Theme). Each palette swaps ONLY the surface
+   stack + text scale for BOTH modes; borders, semantics, the AI timeline, and
+   the accent system stay shared, so palette × mode × accent compose freely.
+   The light half is declared with the [data-theme='light'] compound so it wins
+   over the palette's dark half AND the base light block. No attribute (or
+   'default') = the base Linear graphite above. Preview swatch hexes live in
+   src/features/theme/store.ts and must mirror --surface-page / --surface-2. */
+
+/* Midnight — deep blue-black; cool slate text. */
+:root[data-palette='midnight'] {
+  --surface-page: #0A0E1A;
+  --surface-1:    #131A2B;
+  --surface-2:    #1B2336;
+  --surface-3:    #242E45;
+  --text-primary:   #EDF1FA;
+  --text-secondary: #97A1B8;
+  --text-tertiary:  #6B7590;
+  --text-disabled:  #4D5570;
+}
+:root[data-theme='light'][data-palette='midnight'] {
+  --surface-page: #F8FAFE;
+  --surface-1:    #EFF3FA;
+  --surface-2:    #E5EBF5;
+  --surface-3:    #D8E0EE;
+  --text-primary:   #16203A;
+  --text-secondary: #4D5A78;
+  --text-tertiary:  #76829E;
+  --text-disabled:  #A4AEC4;
+}
+
+/* Espresso — warm brown-black; cream light half. */
+:root[data-palette='espresso'] {
+  --surface-page: #120E0C;
+  --surface-1:    #1E1715;
+  --surface-2:    #281F1C;
+  --surface-3:    #332823;
+  --text-primary:   #F5EFEA;
+  --text-secondary: #A39588;
+  --text-tertiary:  #7A6E63;
+  --text-disabled:  #57504A;
+}
+:root[data-theme='light'][data-palette='espresso'] {
+  --surface-page: #FBF7F2;
+  --surface-1:    #F3ECE3;
+  --surface-2:    #EAE0D3;
+  --surface-3:    #DFD2C0;
+  --text-primary:   #2A211B;
+  --text-secondary: #6A5C50;
+  --text-tertiary:  #8F8275;
+  --text-disabled:  #B3A99D;
+}
+
+/* Fjord — nordic slate with a teal undertone. */
+:root[data-palette='fjord'] {
+  --surface-page: #0E1417;
+  --surface-1:    #162024;
+  --surface-2:    #1E2A30;
+  --surface-3:    #28363D;
+  --text-primary:   #ECF2F4;
+  --text-secondary: #8FA4AC;
+  --text-tertiary:  #64787F;
+  --text-disabled:  #485A60;
+}
+:root[data-theme='light'][data-palette='fjord'] {
+  --surface-page: #F6FAFB;
+  --surface-1:    #EAF1F3;
+  --surface-2:    #DDE7EA;
+  --surface-3:    #CCDADF;
+  --text-primary:   #15262C;
+  --text-secondary: #46606A;
+  --text-tertiary:  #71868E;
+  --text-disabled:  #9FB0B6;
+}
+
+/* Paper — warm parchment light half; soft graphite dark half. */
+:root[data-palette='paper'] {
+  --surface-page: #101012;
+  --surface-1:    #1B1B1E;
+  --surface-2:    #242428;
+  --surface-3:    #2E2E33;
+  --text-primary:   #F4F4F2;
+  --text-secondary: #9C9C97;
+  --text-tertiary:  #6F6F6A;
+  --text-disabled:  #4F4F4B;
+}
+:root[data-theme='light'][data-palette='paper'] {
+  --surface-page: #FCFBF8;
+  --surface-1:    #F4F2EC;
+  --surface-2:    #ECE8DF;
+  --surface-3:    #E0DBCF;
+  --text-primary:   #221F1A;
+  --text-secondary: #5A564D;
+  --text-tertiary:  #837E72;
+  --text-disabled:  #ABA69A;
+}
+
 /* Accent presets — reskin the single accent app-wide via a [data-accent]
    attribute on <html>. Every component reads var(--accent)/-hover/-subtle (and
    --ring rides --accent), so one attribute reskins the whole UI in both themes.

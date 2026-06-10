@@ -63,11 +63,16 @@ export function resolveTheme(mode: ThemeMode): 'dark' | 'light' {
 function applyAppearance(s: AppSettings): void {
   const root = document.documentElement;
   root.dataset.theme = resolveTheme(s.appearance.theme);
-  // Cache the mode for the pre-paint guard in index.html (kills theme FOUC on
-  // next launch). This only governs marudesk's own chrome — embedded web views
-  // render in a separate partition and are intentionally unaffected.
+  // Surface palette (tokens.css [data-palette] blocks); 'default' clears the
+  // attribute so the base graphite tokens apply.
+  if (s.appearance.palette === 'default') delete root.dataset.palette;
+  else root.dataset.palette = s.appearance.palette;
+  // Cache mode + palette for the pre-paint guard in index.html (kills theme
+  // FOUC on next launch). This only governs marudesk's own chrome — embedded
+  // web views render in a separate partition and are intentionally unaffected.
   try {
     localStorage.setItem('marudesk.theme', s.appearance.theme);
+    localStorage.setItem('marudesk.theme.palette', s.appearance.palette);
   } catch {
     // localStorage may be unavailable; the guard is best-effort.
   }

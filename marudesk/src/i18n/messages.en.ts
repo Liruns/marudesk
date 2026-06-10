@@ -346,6 +346,11 @@ export const EN_MESSAGES = {
   'appearance.mode.dark': 'Dark',
   'appearance.mode.light': 'Light',
   'appearance.mode.system': 'System',
+  'appearance.palette.label': 'Theme palette',
+  'appearance.palette.description':
+    'Full surface palette - combines with the mode and accent.',
+  'settings.appearance.palette.hint':
+    'Surface palette for the whole app. Mode and accent apply on top.',
   'agent.sessions.daysAgo': 'd ago',
   'agent.sessions.deleteAfter': '',
   'agent.sessions.deleteBefore': 'Delete chat: ',

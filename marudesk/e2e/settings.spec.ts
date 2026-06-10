@@ -29,6 +29,17 @@ test('settings: opens as a tab; theme + zoom apply live', async () => {
       .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
       .toBe('dark');
 
+    // Theme palette flips the documentElement data-palette; Graphite (the
+    // default) clears the attribute back to the base tokens.
+    await page.getByRole('button', { name: 'Midnight' }).click();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.palette))
+      .toBe('midnight');
+    await page.getByRole('button', { name: 'Graphite' }).click();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.palette))
+      .toBeUndefined();
+
     // Interface zoom scales the root font-size (rem anchor).
     await page.getByRole('button', { name: 'Increase Interface zoom' }).click();
     await expect
