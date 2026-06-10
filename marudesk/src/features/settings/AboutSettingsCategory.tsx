@@ -10,12 +10,12 @@ import type {
   AppInfo,
   UpdateCheckResult,
   UpdateCheckUnavailableReason,
-  UpdateStatus,
 } from '../../../shared/app-info';
 import type { TranslationKey } from '../../i18n/messages';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
+import { useUpdateStatus } from '../../hooks/useUpdateStatus';
 import { Field, Section } from './SettingsControls';
 import { useSettingsStore } from './store';
 
@@ -38,11 +38,7 @@ export function AboutCategory() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
   const [checking, setChecking] = useState(false);
-  // Live state of the Windows in-app auto-updater (electron/updater.ts). Stays
-  // `disabled` on dev / non-Windows; drives the download-progress + restart UI.
-  const [autoStatus, setAutoStatus] = useState<UpdateStatus>({
-    kind: 'disabled',
-  });
+  const autoStatus = useUpdateStatus();
 
   useEffect(() => {
     let alive = true;
@@ -56,25 +52,6 @@ export function AboutCategory() {
       });
     return () => {
       alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    // Pull the current state on mount (covers a download that finished before
-    // this panel opened), then track live changes.
-    void window.marudesk
-      .invoke('app:update-status')
-      .then((status) => {
-        if (alive) setAutoStatus(status);
-      })
-      .catch(() => {});
-    const off = window.marudesk.on('app:update-status-changed', (status) => {
-      setAutoStatus(status);
-    });
-    return () => {
-      alive = false;
-      off();
     };
   }, []);
 

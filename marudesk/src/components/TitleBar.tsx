@@ -1,8 +1,71 @@
 import type { MouseEvent } from 'react';
+import { ArrowDownCircle, Download } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
+import { cn } from '../lib/cn';
 import { WindowControls } from './WindowControls';
 import { ProfileSwitcher } from '../features/workspaces/ProfileSwitcher';
+import { useUpdateStatus } from '../hooks/useUpdateStatus';
 import logoUrl from '../assets/logo-mark.png';
+
+function UpdateIndicator() {
+  const status = useUpdateStatus();
+  const { t } = useI18n();
+
+  if (
+    status.kind === 'disabled' ||
+    status.kind === 'idle' ||
+    status.kind === 'checking' ||
+    status.kind === 'not-available' ||
+    status.kind === 'error'
+  )
+    return null;
+
+  if (status.kind === 'downloading') {
+    return (
+      <div
+        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary animate-pulse"
+        title={t('titleBar.update.downloading')}
+      >
+        <ArrowDownCircle size={14} className="text-accent" />
+        <span>{status.percent}%</span>
+      </div>
+    );
+  }
+
+  if (status.kind === 'available') {
+    return (
+      <div
+        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary animate-pulse"
+        title={t('titleBar.update.downloading')}
+      >
+        <ArrowDownCircle size={14} className="text-accent" />
+      </div>
+    );
+  }
+
+  // downloaded — ready to install
+  const install = () => {
+    if (window.confirm(t('titleBar.update.confirm'))) {
+      void window.marudesk.invoke('app:quit-and-install');
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={install}
+      title={t('titleBar.update.ready')}
+      className={cn(
+        'no-drag inline-flex items-center gap-1 h-6 px-2 rounded-md',
+        'text-caption font-medium text-fg-primary bg-accent',
+        'hover:bg-accent-hover transition-colors duration-fast',
+      )}
+    >
+      <Download size={12} />
+      <span>{status.version}</span>
+    </button>
+  );
+}
 
 /**
  * Frameless-window chrome: a single horizontal strip at the very top. The
@@ -23,10 +86,6 @@ export function TitleBar() {
     typeof navigator !== 'undefined' &&
     navigator.userAgent.includes('Macintosh');
 
-  // Double-click empty chrome → maximize/restore, mirroring a native title bar.
-  // Windows/Linux custom frames have no native handler for this; macOS keeps
-  // its own via titleBarStyle, but the IPC path is harmless there too. Ignore
-  // double-clicks on a tab or control so those keep their own behavior.
   const onDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null;
     if (target?.closest('[role="tab"], button, input, [data-no-maximize]')) {
@@ -42,11 +101,6 @@ export function TitleBar() {
       aria-label={t('titleBar.windowChrome')}
       onDoubleClick={onDoubleClick}
     >
-      {/* Logo slot — the glass M brand mark (trimmed asset, so it reads at full
-          size rather than lost in transparent padding). On Windows/Linux it's a
-          48px column aligned with the ActivityBar below (shared right border) so
-          the left edge reads as one rail. On macOS it shifts right to clear the
-          traffic-light buttons. */}
       {isMac ? (
         <div
           className="flex items-center shrink-0"
@@ -59,10 +113,9 @@ export function TitleBar() {
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}
-      {/* Profile switcher — the app-level data set (separate from the workspace
-          rail below, which switches projects within a profile). */}
-      <div className="flex items-center pl-2">
+      <div className="flex items-center gap-1.5 pl-2">
         <ProfileSwitcher />
+        <UpdateIndicator />
       </div>
       <div className="drag-region flex-1 min-w-0" aria-hidden />
       <WindowControls />
