@@ -789,6 +789,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.about.updates.auto.downloading': '업데이트 다운로드 중',
   'settings.about.updates.auto.error': '자동 업데이트 실패',
   'settings.about.updates.auto.restart': '재시작하여 설치',
+  'titleBar.update.confirm':
+    '새 버전이 준비되었습니다. 앱이 재시작됩니다. 계속할까요?',
+  'titleBar.update.downloading': '업데이트 다운로드 중',
+  'titleBar.update.ready': '업데이트 준비 완료 — 클릭하여 설치',
   'settings.about.updates.available.after': ' 버전이 GitHub Releases에 있습니다.',
   'settings.about.updates.available.before': '',
   'settings.about.updates.button.check': '확인',

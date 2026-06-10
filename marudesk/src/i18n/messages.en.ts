@@ -793,6 +793,10 @@ export const EN_MESSAGES = {
   'settings.about.updates.auto.downloading': 'Downloading update',
   'settings.about.updates.auto.error': 'Auto-update failed',
   'settings.about.updates.auto.restart': 'Restart & install',
+  'titleBar.update.confirm':
+    'A new version is ready to install. The app will restart. Continue?',
+  'titleBar.update.downloading': 'Downloading update',
+  'titleBar.update.ready': 'Update ready — click to install',
   'settings.about.updates.available.after': ' is available on GitHub Releases.',
   'settings.about.updates.available.before': 'Version ',
   'settings.about.updates.button.check': 'Check',
