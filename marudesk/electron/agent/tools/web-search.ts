@@ -1,6 +1,8 @@
 import https from 'node:https';
 import { z } from 'zod';
 import { scrubText } from '../../../shared/scrub';
+import { clampNumber } from '../../../shared/coerce';
+import { clipText } from '../../../shared/text-clip';
 import { decodeEntities, stripTags } from './fetch-url';
 import type { McpTool, ToolResult } from './types';
 
@@ -88,10 +90,7 @@ async function webSearch(input: Record<string, unknown>, ctx: { readonly signal:
   const rawQuery = typeof input.query === 'string' ? input.query.trim() : '';
   const query = rawQuery.length > MAX_QUERY_CHARS ? rawQuery.slice(0, MAX_QUERY_CHARS) : rawQuery;
   if (!query) throw new Error('web_search requires "query"');
-  const maxResults =
-    typeof input.maxResults === 'number'
-      ? Math.max(1, Math.min(Math.floor(input.maxResults), MAX_RESULTS))
-      : MAX_RESULTS;
+  const maxResults = clampNumber(input.maxResults, MAX_RESULTS, 1, MAX_RESULTS);
   const url = new URL('https://api.duckduckgo.com/');
   url.searchParams.set('q', query);
   url.searchParams.set('format', 'json');
@@ -117,7 +116,7 @@ async function webSearch(input: Record<string, unknown>, ctx: { readonly signal:
     const displayQuery = scrubText(query);
     return {
       summary: `web_search "${displayQuery}"`,
-      text: hits.length > 0 ? clip(hits.map(formatHit).join('\n\n')) : 'No web search results found.',
+      text: hits.length > 0 ? clipText(hits.map(formatHit).join('\n\n'), MAX_TEXT) : 'No web search results found.',
     };
   } catch (err) {
     if (err instanceof Error) {
@@ -218,10 +217,6 @@ function decodeDuckUrl(href: string): string {
  *  helpers so entity handling stays in one place). */
 function htmlText(fragment: string): string {
   return decodeEntities(stripTags(fragment)).replace(/\s+/g, ' ').trim();
-}
-
-function clip(text: string): string {
-  return text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT)}\n[clipped ${text.length - MAX_TEXT} chars]`;
 }
 
 function getJson(url: URL, signal: AbortSignal): Promise<unknown> {

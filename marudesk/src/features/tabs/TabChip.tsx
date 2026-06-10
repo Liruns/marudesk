@@ -107,11 +107,11 @@ export function TabChip({
             : 'h-8 flex-1 basis-0 min-w-[80px] max-w-[240px] gap-2 pl-3 pr-1.5',
         active
           ? grouped
-            ? 'bg-surface-3 text-fg-primary shadow-highlight'
-            : 'bg-surface-2 bg-surface-gradient text-fg-primary shadow-highlight'
+            ? 'bg-surface-3 text-fg-primary shadow-card'
+            : 'bg-surface-2 bg-surface-gradient text-fg-primary shadow-card'
           : grouped
-            ? 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-3/50'
-            : 'bg-transparent text-fg-secondary hover:text-fg-primary hover:bg-surface-2/50',
+            ? 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/50'
+            : 'bg-transparent text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/60',
         dragging ? 'opacity-40' : '',
       )}
     >
@@ -119,6 +119,12 @@ export function TabChip({
         <span
           aria-hidden
           className="absolute -left-1 top-1 bottom-1 w-0.5 rounded-pill bg-accent"
+        />
+      ) : null}
+      {active && !grouped ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-2 top-0 h-[1.5px] rounded-b-sm bg-accent/80"
         />
       ) : null}
       {pinned ? (

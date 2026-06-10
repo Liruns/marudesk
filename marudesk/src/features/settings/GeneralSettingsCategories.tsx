@@ -9,6 +9,7 @@ import { MONO_FONT_PRESETS, UI_FONT_PRESETS } from '../../../shared/fonts';
 import { LOCALE_OPTIONS } from '../../i18n/messages';
 import { useI18n } from '../../i18n/useI18n';
 import { AccentSwatches } from '../theme/AccentSwatches';
+import { PaletteSwatches } from '../theme/PaletteSwatches';
 import {
   Field,
   FontField,
@@ -57,6 +58,12 @@ export function AppearanceCategory() {
           options={themeOptions}
           onChange={(theme) => void update({ appearance: { theme } })}
         />
+      </Field>
+      <Field
+        label={t('appearance.palette.label')}
+        hint={t('settings.appearance.palette.hint')}
+      >
+        <PaletteSwatches variant="row" />
       </Field>
       <Field
         label={t('appearance.accent.label')}

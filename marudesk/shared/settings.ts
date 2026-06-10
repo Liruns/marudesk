@@ -11,6 +11,15 @@ import { asBool, asEnum, asRecord, asString, clampFraction, clampNumber } from '
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 /**
+ * Full-surface theme palettes — applied as a `[data-palette]` attribute on
+ * <html> (tokens.css owns the actual colors). Orthogonal to BOTH the dark/light
+ * mode and the accent: every palette ships a dark and a light half, so
+ * palette × mode × accent compose freely. 'default' is the base Linear
+ * graphite and clears the attribute.
+ */
+export const THEME_PALETTES = ['default', 'midnight', 'espresso', 'fjord', 'paper'] as const;
+export type ThemePalette = (typeof THEME_PALETTES)[number];
+/**
  * Where the custom browser DevTools opens:
  * - `right` / `bottom`: our own CDP-backed React dock, docked in-window.
  * - `chrome`: the built-in Chromium DevTools in a detached window. Kept as an
@@ -63,6 +72,8 @@ export type AppSettings = {
   appearance: {
     /** dark | light | system (system follows the OS preference at runtime). */
     theme: ThemeMode;
+    /** Named surface palette layered under the mode ('default' = base graphite). */
+    palette: ThemePalette;
     /** Empty string = use the design-token default UI font stack. */
     uiFontFamily: string;
     /** Whole-UI scale, percent (VSCode-style zoom). 100 = design baseline. */
@@ -262,6 +273,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
   appearance: {
     theme: 'dark',
+    palette: 'default',
     uiFontFamily: '',
     uiZoom: 100,
     editorFontFamily: '',
@@ -435,6 +447,7 @@ export function sanitizeSettings(
     version: 1,
     appearance: {
       theme: asEnum(a.theme, THEMES, base.appearance.theme),
+      palette: asEnum(a.palette, THEME_PALETTES, base.appearance.palette),
       uiFontFamily: asString(a.uiFontFamily, base.appearance.uiFontFamily),
       uiZoom: clampNumber(
         a.uiZoom,

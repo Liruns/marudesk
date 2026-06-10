@@ -116,6 +116,13 @@ const MAX_STEPS = 24;
 const TOOL_WALL_CLOCK_MS = 15 * 60_000;
 
 /**
+ * How many foreground subagents from one fan-out run execute at the same time.
+ * A run larger than this proceeds in chunks, so a 10-way spawn can't hammer the
+ * provider with 10 concurrent streams (mirrors MAX_ACTIVE_BACKGROUND's intent).
+ */
+const MAX_PARALLEL_SUBAGENTS = 4;
+
+/**
  * Fraction of the conversation (by character weight) kept VERBATIM as the tail
  * when compacting. Only the older head is summarized; recent turns survive intact
  * so the model keeps full fidelity on what it's actively working on (cursor /
@@ -489,22 +496,24 @@ async function runLoop(opts: RunOpts): Promise<void> {
       return finish(S, 'completed');
     }
 
-    // Execute each tool call; collect one tool_result per call (S.transcript stays valid).
+    // Execute the step's tool calls; collect one tool_result per call (S.transcript stays valid).
     S.state.status = 'working';
     emit();
-    const toolResultParts: ToolResultPartLite[] = [];
-    for (const call of calls) {
+
+    // Pre-flight ONE call: abort/ask_user/deny-list/mode blocks and the approval
+    // park — everything that must stay strictly one-at-a-time (the approval card
+    // and ask_user are single-slot surfaces). Returns the terminal result for a
+    // blocked/denied/answered call, or null when the call is cleared to dispatch.
+    const preflight = async (call: ToolCall): Promise<ToolResultPartLite | null> => {
       if (opts.signal.aborted) {
         call.state = 'aborted';
-        toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
-        continue;
+        return toolResult(call.id, call.name, 'aborted by user', true);
       }
 
       // ask_user: park the turn, surface the questions, resume with answers.
       if (call.name === ASK_USER) {
         const answered = await handleAskUser(S, opts.turnId, call, opts.signal);
-        toolResultParts.push(toolResult(call.id, call.name, answered.content, answered.isError));
-        continue;
+        return toolResult(call.id, call.name, answered.content, answered.isError);
       }
 
       // Per-tool deny list (v6 §W7): a tool the user banned is blocked in EVERY
@@ -514,15 +523,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
         call.state = 'denied';
         call.resultText = 'Blocked: deny list.';
         emit();
-        toolResultParts.push(
-          toolResult(
-            call.id,
-            call.name,
-            `Blocked: "${call.name}" is on the user's tool deny list (Settings → Agent). Use a different approach.`,
-            true,
-          ),
+        return toolResult(
+          call.id,
+          call.name,
+          `Blocked: "${call.name}" is on the user's tool deny list (Settings → Agent). Use a different approach.`,
+          true,
         );
-        continue;
       }
 
       // Read-only and plan modes: refuse mutations + code execution outright
@@ -537,17 +543,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
         call.state = 'denied';
         call.resultText = planning ? 'Blocked: plan mode.' : 'Blocked: read-only mode.';
         emit();
-        toolResultParts.push(
-          toolResult(
-            call.id,
-            call.name,
-            planning
-              ? 'Blocked: plan mode is active — do not edit. Finish researching and present a step-by-step plan; the user will switch to Ask or Auto to execute it.'
-              : 'Blocked: the agent is in read-only mode. Switch to Ask or Auto in Settings → Agent to allow edits and code execution.',
-            true,
-          ),
+        return toolResult(
+          call.id,
+          call.name,
+          planning
+            ? 'Blocked: plan mode is active — do not edit. Finish researching and present a step-by-step plan; the user will switch to Ask or Auto to execute it.'
+            : 'Blocked: the agent is in read-only mode. Switch to Ask or Auto in Settings → Agent to allow edits and code execution.',
+          true,
         );
-        continue;
       }
 
       // Gated tools (eval_js / cookies / storage / terminal output): park for
@@ -593,8 +596,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         S.state.pendingApproval = null;
         if (opts.signal.aborted) {
           call.state = 'aborted';
-          toolResultParts.push(toolResult(call.id, call.name, 'aborted by user', true));
-          continue;
+          return toolResult(call.id, call.name, 'aborted by user', true);
         }
         // "Allow always": skip the prompt for later calls — this conversation
         // (in-memory) AND future ones (persisted, v6 §W7/U10; revocable in
@@ -614,13 +616,18 @@ async function runLoop(opts: RunOpts): Promise<void> {
           call.resultText = 'Denied by the user.';
           S.state.status = 'working';
           emit();
-          toolResultParts.push(toolResult(call.id, call.name, 'The user denied this tool call.', true));
-          continue;
+          return toolResult(call.id, call.name, 'The user denied this tool call.', true);
         }
         S.state.status = 'working';
         emit();
       }
+      return null;
+    };
 
+    // Dispatch a CLEARED call through the bounded executor and fold its result
+    // (recovery hints, nested-instruction reminders). Safe to run concurrently
+    // for foreground subagents — each call streams onto its own card.
+    const dispatchCleared = async (call: ToolCall): Promise<ToolResultPartLite> => {
       call.state = 'running';
       if (call.name === SPAWN_SUBAGENT || call.name === SPAWN_BACKGROUND_AGENT) {
         call.summary = describeToolInput(call.name, call.input);
@@ -674,7 +681,42 @@ async function runLoop(opts: RunOpts): Promise<void> {
         }
         if (reminders.length > 0) modelText = `${out.text}\n\n${reminders.join('\n\n')}`;
       }
-      toolResultParts.push(toolResult(call.id, call.name, modelText, out.isError));
+      return toolResult(call.id, call.name, modelText, out.isError);
+    };
+
+    // Walk the calls in order. A run of CONSECUTIVE spawn_subagent calls is a
+    // fan-out: each child's approval still parks one at a time (the approval
+    // card is single-slot), but the approved children then execute concurrently
+    // (in chunks of MAX_PARALLEL_SUBAGENTS) — so the model can issue several
+    // spawns in one step and get real parallelism. Every other tool keeps the
+    // strict sequential semantics: a later call sees the earlier call's effects.
+    const toolResultParts: ToolResultPartLite[] = [];
+    for (let ci = 0; ci < calls.length; ) {
+      if (calls[ci].name !== SPAWN_SUBAGENT) {
+        const call = calls[ci];
+        ci += 1;
+        const blocked = await preflight(call);
+        toolResultParts.push(blocked ?? (await dispatchCleared(call)));
+        continue;
+      }
+      const run: ToolCall[] = [];
+      while (ci < calls.length && calls[ci].name === SPAWN_SUBAGENT) {
+        run.push(calls[ci]);
+        ci += 1;
+      }
+      const settled = new Map<string, ToolResultPartLite>();
+      const cleared: ToolCall[] = [];
+      for (const call of run) {
+        const blocked = await preflight(call);
+        if (blocked) settled.set(call.id, blocked);
+        else cleared.push(call);
+      }
+      for (let s = 0; s < cleared.length; s += MAX_PARALLEL_SUBAGENTS) {
+        const chunk = cleared.slice(s, s + MAX_PARALLEL_SUBAGENTS);
+        const outs = await Promise.all(chunk.map((call) => dispatchCleared(call)));
+        chunk.forEach((call, k) => settled.set(call.id, outs[k]));
+      }
+      for (const call of run) toolResultParts.push(settled.get(call.id)!);
     }
 
     S.transcript.push({ role: 'tool', content: toolResultParts });

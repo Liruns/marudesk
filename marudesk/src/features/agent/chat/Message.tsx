@@ -120,7 +120,7 @@ export const MessageView = memo(function MessageView({
     const images = message.parts.filter((p) => p.type === 'image');
     return (
       <div id={`agent-msg-${message.id}`} className="self-end max-w-[88%]">
-        <div className="rounded-lg bg-accent-subtle/30 border border-accent/20 px-3.5 py-2.5">
+        <div className="rounded-xl bg-surface-3 border border-strong/40 shadow-card px-3.5 py-2.5">
           <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
             {textOf(message)}
           </p>
@@ -151,7 +151,7 @@ export const MessageView = memo(function MessageView({
   // we suppress the empty text part's caret so there's only one.
   const reasoningStreaming = streaming && hasReasoning && answerText.trim().length === 0;
   return (
-    <div id={`agent-msg-${message.id}`} className="group/msg relative flex flex-col gap-2.5">
+    <div id={`agent-msg-${message.id}`} className="group/msg relative flex flex-col gap-3">
       {/* Copy the assistant's prose — appears on hover, hidden mid-stream. */}
       {!streaming && answerText.trim() ? (
         <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">
@@ -255,38 +255,38 @@ function ThinkingBlock({
   const thinkingElapsed = useElapsedTimer(!!streaming);
   if (!text.trim() && !streaming) return null;
   return (
-    <div className="rounded border border-subtle border-l-2 border-l-ai-thinking bg-surface-1 text-caption">
+    <div className="rounded-lg overflow-hidden border border-subtle/80 border-l-2 border-l-ai-thinking bg-surface-1/60 text-caption shadow-card">
       <button
         type="button"
         onClick={() => setUserOpen(!open)}
         aria-expanded={open}
-        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-2/40 transition-colors duration-fast"
       >
         {streaming ? (
           <Loader2 size={12} className="text-ai-thinking animate-spin shrink-0" />
         ) : (
-          <Brain size={12} className="text-ai-thinking/70 shrink-0" />
+          <Brain size={12} className="text-ai-thinking/60 shrink-0" />
         )}
-        <span className="text-fg-secondary flex-1 font-medium">
+        <span className="text-fg-secondary flex-1 font-medium text-[0.75rem]">
           {streaming ? t('agent.chat.thinking') : t('agent.chat.thought')}
         </span>
         {streaming && thinkingElapsed > 0 ? (
-          <span className="text-ai-thinking/80 tabular-nums text-[10px]">
+          <span className="text-ai-thinking/70 tabular-nums text-[10px] font-medium">
             {formatElapsed(thinkingElapsed)}
           </span>
         ) : !streaming && text.trim() ? (
-          <span className="text-fg-tertiary/60 text-[10px]">
+          <span className="text-fg-tertiary/50 text-[10px] tabular-nums">
             {Math.ceil(text.length / 200)}s
           </span>
         ) : null}
         <ChevronRight
           size={11}
-          className={cn('text-fg-tertiary/60 shrink-0 transition-transform duration-fast', open && 'rotate-90')}
+          className={cn('text-fg-tertiary/40 shrink-0 transition-transform duration-fast', open && 'rotate-90')}
         />
       </button>
       {open ? (
-        <div className="px-2.5 pb-2 pt-0 border-t border-subtle/60">
-          <p className="mt-1.5 text-caption text-fg-tertiary/80 whitespace-pre-wrap break-words leading-relaxed">
+        <div className="px-3 pb-2.5 pt-0 border-t border-subtle/50">
+          <p className="mt-2 text-caption text-fg-tertiary/70 whitespace-pre-wrap break-words leading-relaxed">
             {text}
             {streaming ? <StreamCaret /> : null}
           </p>
@@ -343,7 +343,7 @@ const ToolCardView = memo(function ToolCardView({
   return (
     <div
       className={cn(
-        'rounded border border-subtle bg-surface-1 text-caption',
+        'rounded-lg overflow-hidden border border-subtle/80 bg-surface-1/70 text-caption shadow-card',
         // Left accent spine: AI timeline hue if categorised; accent tint for runtime; plain for others
         hue
           ? cn('border-l-2', TIMELINE_BORDER[hue])
@@ -355,40 +355,40 @@ const ToolCardView = memo(function ToolCardView({
       <button
         type="button"
         onClick={() => setUserOpen(!open)}
-        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-2/40 transition-colors duration-fast"
       >
         <ToolStateIcon state={call.state} />
         <Icon
           size={12}
           className={cn(
             'shrink-0',
-            hue ? TIMELINE_ICON[hue] : meta?.runtime ? 'text-accent' : 'text-fg-tertiary',
+            hue ? TIMELINE_ICON[hue] : meta?.runtime ? 'text-accent' : 'text-fg-tertiary/70',
           )}
         />
         <span className="text-fg-secondary truncate flex-1 text-[0.75rem]">{call.summary ?? label}</span>
         {badge ? <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge> : null}
         {hasBody ? (
-          <ChevronRight size={11} className={cn('text-fg-tertiary/60 shrink-0 transition-transform duration-fast', open && 'rotate-90')} />
+          <ChevronRight size={11} className={cn('text-fg-tertiary/40 shrink-0 transition-transform duration-fast', open && 'rotate-90')} />
         ) : null}
       </button>
       {open && hasBody ? (
-        <div className="flex flex-col gap-1.5 px-2.5 pb-2 pt-0 border-t border-subtle/60">
+        <div className="flex flex-col gap-1.5 px-3 pb-2.5 pt-0 border-t border-subtle/50">
           {expr ? (
-            <pre className="m-0 mt-1.5 rounded bg-surface-page px-2 py-1.5 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+            <pre className="m-0 mt-2 rounded-md bg-surface-page px-2.5 py-2 font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
               {expr}
             </pre>
           ) : null}
           {hasLive ? (
-            <div className="mt-1.5 flex flex-col gap-1">
+            <div className="mt-2 flex flex-col gap-1">
               {call.streamedText ? (
-                <pre className="m-0 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-40 overflow-y-auto leading-relaxed opacity-90">
+                <pre className="m-0 font-mono text-caption text-fg-tertiary/80 whitespace-pre-wrap break-words max-h-40 overflow-y-auto leading-relaxed">
                   {call.streamedText}
                 </pre>
               ) : null}
               {call.streamedTraces && call.streamedTraces.length > 0 ? (
                 <ul className="m-0 list-none p-0 flex flex-col gap-0.5">
                   {call.streamedTraces.map((trace, i) => (
-                    <li key={i} className="text-fg-tertiary/70 truncate font-mono text-caption">
+                    <li key={i} className="text-fg-tertiary/60 truncate font-mono text-caption">
                       · {trace}
                     </li>
                   ))}
@@ -398,10 +398,10 @@ const ToolCardView = memo(function ToolCardView({
           ) : null}
           {call.resultText ? (
             <div className="group/out relative">
-              <div className="absolute top-1 right-1 opacity-0 group-hover/out:opacity-100 transition-opacity duration-fast">
+              <div className="absolute top-1.5 right-1.5 opacity-0 group-hover/out:opacity-100 transition-opacity duration-fast">
                 <CopyButton text={call.resultText} label={t('agent.chat.copyOutput')} />
               </div>
-              <pre className="m-0 mt-1 font-mono text-caption text-fg-tertiary whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
+              <pre className="m-0 mt-1.5 font-mono text-caption text-fg-tertiary/70 whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
                 {call.resultText}
               </pre>
             </div>
@@ -409,7 +409,7 @@ const ToolCardView = memo(function ToolCardView({
         </div>
       ) : null}
       {running ? null : call.error ? (
-        <div className="px-2.5 pb-1.5 text-error text-caption truncate border-t border-subtle/60" title={call.error}>
+        <div className="px-3 pb-2 text-error text-caption truncate border-t border-subtle/50" title={call.error}>
           {call.error}
         </div>
       ) : null}

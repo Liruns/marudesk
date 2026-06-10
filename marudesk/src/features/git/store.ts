@@ -6,7 +6,8 @@ import type {
   GitCommit,
   GitStatus,
 } from '../../../shared/git';
-import { getMessage, parseLocale, type Locale } from '../../i18n/messages';
+import { getMessage } from '../../i18n/messages';
+import { currentLocale } from '../../i18n/locale-storage';
 import { toMessage } from '../../lib/toMessage';
 import { toast } from '../../lib/toast';
 
@@ -171,14 +172,6 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
     await get().refresh();
   },
 }));
-
-function currentLocale(): Locale {
-  try {
-    return parseLocale(localStorage.getItem('marudesk.locale')) ?? 'en';
-  } catch {
-    return 'en';
-  }
-}
 
 /**
  * Run a mutating op with the shared busy flag + error/toast handling, so every

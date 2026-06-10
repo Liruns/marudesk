@@ -1,5 +1,6 @@
 import { scrubText } from '../../../shared/scrub';
-import { getMessage, parseLocale, type Locale, type TranslationKey } from '../../i18n/messages';
+import { getMessage, type TranslationKey } from '../../i18n/messages';
+import { currentLocale } from '../../i18n/locale-storage';
 import type { DevtoolsState, DockSide, RenderingState } from './store';
 
 /**
@@ -8,14 +9,6 @@ import type { DevtoolsState, DockSide, RenderingState } from './store';
  * own module so those don't have to import back from store.ts (which would
  * create a value-level import cycle).
  */
-
-function currentLocale(): Locale {
-  try {
-    return parseLocale(localStorage.getItem('marudesk.locale')) ?? 'en';
-  } catch {
-    return 'en';
-  }
-}
 
 /** Resolve a translation key in the user's current locale. */
 export function msg(key: TranslationKey): string {

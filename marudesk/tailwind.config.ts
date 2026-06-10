@@ -112,6 +112,8 @@ const config: Config = {
         'inset-soft': 'var(--inset-shadow)',
         // Soft accent halo for the primary input's focus state (rides --accent).
         'focus-accent': 'var(--focus-glow)',
+        // Floating menu/popover — richer lift than card, used by ContextMenu.
+        menu: 'var(--shadow-menu)',
       },
       backgroundImage: {
         // Featured-surface gradient + page vignette — layered over a surface

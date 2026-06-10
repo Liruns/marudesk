@@ -391,7 +391,8 @@ export async function clearAllSessions(): Promise<number> {
   }
   try {
     const rows = await readIndexJson();
-    for (const row of rows) await fs.rm(recordPath(row.id), { force: true }).catch(() => {});
+    // Independent per-record deletes — no need to await them one at a time.
+    await Promise.all(rows.map((row) => fs.rm(recordPath(row.id), { force: true }).catch(() => {})));
     await writeIndexJson([]);
     return rows.length;
   } catch {

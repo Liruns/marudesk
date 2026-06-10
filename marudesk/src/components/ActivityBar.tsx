@@ -201,8 +201,8 @@ function ActivityButton({
       className={cn(
         'chrome-icon-button relative size-9 shrink-0',
         active
-          ? 'text-accent bg-accent-subtle/40 shadow-highlight hover:bg-accent-subtle/40 hover:text-accent'
-          : 'text-fg-tertiary',
+          ? 'text-accent bg-accent-subtle/50 shadow-highlight hover:bg-accent-subtle/60 hover:text-accent'
+          : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/70',
         disabled ? 'opacity-40 cursor-not-allowed' : '',
       )}
     >

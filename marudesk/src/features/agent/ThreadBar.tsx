@@ -50,22 +50,24 @@ export function ThreadBar() {
   const multi = threads.length > 1;
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1 border-b border-subtle overflow-x-auto">
+    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-subtle/70 overflow-x-auto scrollbar-none">
       {multi &&
         threads.map((t) => (
           <div
             key={t.id}
             className={cn(
-              'group flex items-center gap-1.5 rounded px-2 py-1 text-caption max-w-44 shrink-0 cursor-pointer',
-              t.active ? 'bg-surface-2 text-fg-primary' : 'text-fg-tertiary hover:bg-surface-1',
+              'group flex items-center gap-1.5 rounded-md px-2 py-1 text-caption max-w-44 shrink-0 cursor-pointer transition-colors duration-fast',
+              t.active
+                ? 'bg-surface-2 text-fg-primary shadow-highlight'
+                : 'text-fg-tertiary hover:bg-surface-1/80 hover:text-fg-secondary',
             )}
             onClick={() => !t.active && void switchTo(t.id)}
             title={t.title}
           >
             {t.busy ? (
-              <Loader2 size={11} className="shrink-0 animate-spin text-accent" />
+              <Loader2 size={10} className="shrink-0 animate-spin text-accent" />
             ) : (
-              <span className={cn('shrink-0 size-1.5 rounded-full', t.active ? 'bg-accent' : 'bg-fg-tertiary/40')} />
+              <span className={cn('shrink-0 size-1.5 rounded-full', t.active ? 'bg-accent' : 'bg-fg-tertiary/30')} />
             )}
             <span className="truncate">{t.title}</span>
             <button
@@ -76,9 +78,9 @@ export function ThreadBar() {
               }}
               disabled={busy || threads.length <= 1}
               aria-label={`Close ${t.title}`}
-              className="shrink-0 opacity-0 group-hover:opacity-100 text-fg-tertiary hover:text-error disabled:opacity-0"
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-fast text-fg-tertiary hover:text-error disabled:opacity-0"
             >
-              <X size={11} />
+              <X size={10} />
             </button>
           </div>
         ))}
@@ -88,7 +90,7 @@ export function ThreadBar() {
         disabled={busy}
         aria-label="New thread"
         title="New thread"
-        className="shrink-0 flex items-center gap-1 rounded px-1.5 py-1 text-caption text-fg-tertiary hover:bg-surface-1 hover:text-fg-primary disabled:opacity-50"
+        className="shrink-0 flex items-center gap-1 rounded-md px-1.5 py-1 text-caption text-fg-tertiary hover:bg-surface-1/80 hover:text-fg-secondary transition-colors duration-fast disabled:opacity-50"
       >
         <Plus size={12} />
         {!multi && <span>New thread</span>}

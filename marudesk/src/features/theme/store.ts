@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ThemePalette } from '../../../shared/settings';
 
 /**
  * App accent theme. marudesk's single violet accent token drives active states,
@@ -16,6 +17,21 @@ export const ACCENTS: { name: AccentName; label: string; swatch: string }[] = [
   { name: 'green', label: 'Green', swatch: '#46B17F' },
   { name: 'amber', label: 'Amber', swatch: '#E0A03A' },
   { name: 'rose', label: 'Rose', swatch: '#E5618B' },
+];
+
+/**
+ * Presentational chips for the theme-palette picker (Settings → Appearance and
+ * the gear popover). The CANONICAL list is THEME_PALETTES in shared/settings.ts
+ * (what main sanitizes); `page`/`card` mirror each palette's --surface-page /
+ * --surface-2 (its dark half; paper previews its light-first half) purely for
+ * the picker chips — the same pattern as ACCENTS.swatch above.
+ */
+export const PALETTES: { name: ThemePalette; label: string; page: string; card: string }[] = [
+  { name: 'default', label: 'Graphite', page: '#08090A', card: '#23252B' },
+  { name: 'midnight', label: 'Midnight', page: '#0A0E1A', card: '#1B2336' },
+  { name: 'espresso', label: 'Espresso', page: '#120E0C', card: '#281F1C' },
+  { name: 'fjord', label: 'Fjord', page: '#0E1417', card: '#1E2A30' },
+  { name: 'paper', label: 'Paper', page: '#FCFBF8', card: '#ECE8DF' },
 ];
 
 const STORAGE_KEY = 'marudesk.theme.accent';

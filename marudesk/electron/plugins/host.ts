@@ -1,4 +1,5 @@
 import { scrubText } from '../../shared/scrub';
+import { clipText } from '../../shared/text-clip';
 import {
   PLUGIN_CALL_TIMEOUT_MS,
   PLUGIN_LOAD_TIMEOUT_MS,
@@ -118,10 +119,7 @@ export class PluginHost implements PluginHostLike {
     const entry = { ctx, edits: [] as AppliedChange[] };
     this.inflight.set(callId, entry);
     try {
-      let text = await this.callWorker(name, callId, input ?? {});
-      if (text.length > PLUGIN_MAX_TOOL_TEXT) {
-        text = `${text.slice(0, PLUGIN_MAX_TOOL_TEXT)}\n…[clipped ${text.length - PLUGIN_MAX_TOOL_TEXT} chars]`;
-      }
+      const text = clipText(await this.callWorker(name, callId, input ?? {}), PLUGIN_MAX_TOOL_TEXT);
       return {
         summary: name,
         text: scrubText(text) || '(no content)',

@@ -345,6 +345,11 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'appearance.mode.dark': '어둡게',
   'appearance.mode.light': '밝게',
   'appearance.mode.system': '시스템',
+  'appearance.palette.label': '테마 팔레트',
+  'appearance.palette.description':
+    '서피스 전체 팔레트를 바꿉니다. 모드·강조색과 조합됩니다.',
+  'settings.appearance.palette.hint':
+    '앱 전체의 서피스 팔레트입니다. 모드와 강조색이 그 위에 적용됩니다.',
   'agent.sessions.daysAgo': '일 전',
   'agent.sessions.deleteAfter': ' 삭제',
   'agent.sessions.deleteBefore': '채팅 삭제: ',

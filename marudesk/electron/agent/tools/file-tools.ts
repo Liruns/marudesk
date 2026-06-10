@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { clampNumber } from '../../../shared/coerce';
 import { globToRegExp } from '../../../shared/glob';
 import { SECRET_FILE_PATTERN as SECRET_FILE } from '../../../shared/secret-files';
 import { clipText as clip } from '../../../shared/text-clip';
@@ -118,10 +119,7 @@ export async function grep(
   const pattern = typeof input.pattern === 'string' ? input.pattern : '';
   if (!pattern) throw new Error('grep requires "pattern"');
   const caseSensitive = input.caseSensitive === true;
-  const max =
-    typeof input.maxResults === 'number'
-      ? Math.max(1, Math.min(Math.floor(input.maxResults), 200))
-      : MAX_GREP_RESULTS;
+  const max = clampNumber(input.maxResults, MAX_GREP_RESULTS, 1, 200);
   const re = typeof input.glob === 'string' && input.glob.trim() ? globToRegExp(input.glob.trim()) : null;
 
   // Build the line matcher: a JS regex when regex=true, else a literal substring.

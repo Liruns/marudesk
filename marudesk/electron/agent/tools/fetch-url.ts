@@ -1,6 +1,8 @@
 import https from 'node:https';
 import http from 'node:http';
 import { scrubText } from '../../../shared/scrub';
+import { clampNumber } from '../../../shared/coerce';
+import { clipText } from '../../../shared/text-clip';
 import type { McpTool, ToolResult } from './types';
 
 /**
@@ -74,8 +76,7 @@ export function isBlockedHost(hostname: string): boolean {
 
 /** Clamp a requested max-chars to a sane bound; default {@link MAX_CHARS}. */
 function clampMaxChars(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return MAX_CHARS;
-  return Math.max(500, Math.min(Math.floor(value), MAX_CHARS));
+  return clampNumber(value, MAX_CHARS, 500, MAX_CHARS);
 }
 
 const ENTITIES: Record<string, string> = {
@@ -132,10 +133,6 @@ export function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, ' ');
 }
 
-function clip(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max)}\n[clipped ${text.length - max} chars]`;
-}
-
 async function fetchUrl(
   input: Record<string, unknown>,
   ctx: { readonly signal: AbortSignal },
@@ -180,7 +177,7 @@ async function fetchUrl(
     const host = scrubText(url.hostname);
     return {
       summary: `fetch_url ${host}`,
-      text: clip(scrubText(text), maxChars),
+      text: clipText(scrubText(text), maxChars),
     };
   } catch (err) {
     return {

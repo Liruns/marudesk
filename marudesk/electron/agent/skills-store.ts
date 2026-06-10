@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { clipText } from '../../shared/text-clip';
 import type { McpTool, ToolContext, ToolResult } from './tools';
 
 /**
@@ -159,7 +160,7 @@ async function skillTool(input: { name?: unknown }, ctx: ToolContext): Promise<T
     return { summary: `skill ${found.name} unreadable`, text: `Could not read skill "${found.name}".`, isError: true };
   }
   const { body } = parseFrontmatter(raw);
-  const clipped = body.length > MAX_SKILL_BODY ? `${body.slice(0, MAX_SKILL_BODY)}\n…[clipped]` : body;
+  const clipped = clipText(body, MAX_SKILL_BODY);
   return {
     summary: `loaded skill "${found.name}"`,
     text: `## Skill: ${found.name}\n(${found.scope} · ${found.file})\n\nFollow these instructions for this task:\n\n${clipped.trim()}`,

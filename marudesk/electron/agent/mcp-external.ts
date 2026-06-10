@@ -15,6 +15,7 @@ import {
   type McpServerConfig,
   type McpServerStatus,
 } from '../../shared/mcp';
+import { toMessage } from '../../shared/to-message';
 import { registerMcpServer, unregisterMcpServer, type McpServer } from './mcp';
 import type { McpTool, ToolResult } from './tools';
 import {
@@ -473,8 +474,7 @@ function errorResult(name: string, err: unknown): ToolResult {
 }
 
 function externalErrorText(name: string, err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return `${name} failed — ${scrubAndClipCapabilityText(message)}`;
+  return `${name} failed — ${scrubAndClipCapabilityText(toMessage(err))}`;
 }
 
 /** A fresh MCP `Client` with marudesk's identity (no special capabilities). */
@@ -601,7 +601,7 @@ export async function connectServer(
     console.log(`[mcp] connected "${config.id}" — ${server.tools.length} tool(s)`);
     return status;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err || 'failed to connect');
+    const message = toMessage(err || 'failed to connect');
     // Don't log the message verbatim (args/env/headers could be sensitive) — id + a
     // scrubbed reason is enough to debug.
     console.error(`[mcp] server "${config.id}" failed to connect: ${scrubAndClipToolMetadataText(message)}`);
@@ -690,7 +690,7 @@ async function refreshServerTools(id: string): Promise<void> {
     entry.status = setConnectedStatus(entry.config, server);
     console.log(`[mcp] "${id}" tool list changed — now ${server.tools.length} tool(s)`);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err || 'failed to refresh tools');
+    const message = toMessage(err || 'failed to refresh tools');
     console.error(`[mcp] "${id}" tool refresh failed: ${scrubAndClipToolMetadataText(message)}`);
   }
 }

@@ -30,43 +30,47 @@ export async function rankFiles(
   pathScored.sort((a, b) => b.pathScore - a.pathScore);
   const candidates = pathScored.slice(0, CONTENT_CANDIDATES);
 
-  const ranked: RankedFile[] = [];
-  for (const c of candidates) {
-    let contentScore = 0;
-    const contentMatches: string[] = [];
-    if (c.entry.size <= MAX_FILE_SIZE) {
-      try {
-        const content = await readFileSafe(root, c.entry.path);
-        const lower = content.toLowerCase();
-        for (const kw of keywords) {
-          const lk = kw.toLowerCase();
-          let count = 0;
-          let from = 0;
-          while (from < lower.length) {
-            const i = lower.indexOf(lk, from);
-            if (i < 0) break;
-            count++;
-            if (count >= 10) break;
-            from = i + lk.length;
+  // Content reads are independent — run them concurrently (bounded by
+  // CONTENT_CANDIDATES) instead of awaiting each file in turn; the ranking is
+  // user-facing latency on every capture.
+  const scored = await Promise.all(
+    candidates.map(async (c): Promise<RankedFile | null> => {
+      let contentScore = 0;
+      const contentMatches: string[] = [];
+      if (c.entry.size <= MAX_FILE_SIZE) {
+        try {
+          const content = await readFileSafe(root, c.entry.path);
+          const lower = content.toLowerCase();
+          for (const kw of keywords) {
+            const lk = kw.toLowerCase();
+            let count = 0;
+            let from = 0;
+            while (from < lower.length) {
+              const i = lower.indexOf(lk, from);
+              if (i < 0) break;
+              count++;
+              if (count >= 10) break;
+              from = i + lk.length;
+            }
+            if (count > 0) {
+              contentScore += Math.min(3 + (count - 1), 10);
+              contentMatches.push(kw);
+            }
           }
-          if (count > 0) {
-            contentScore += Math.min(3 + (count - 1), 10);
-            contentMatches.push(kw);
-          }
+        } catch {
+          // Skip unreadable candidates.
         }
-      } catch {
-        // Skip unreadable candidates.
       }
-    }
-    const total = c.pathScore + contentScore;
-    if (total > 0) {
-      ranked.push({
+      const total = c.pathScore + contentScore;
+      if (total <= 0) return null;
+      return {
         path: c.entry.path,
         score: total,
         matches: Array.from(new Set([...c.matches, ...contentMatches])),
-      });
-    }
-  }
+      };
+    }),
+  );
+  const ranked = scored.filter((r): r is RankedFile => r !== null);
 
   ranked.sort((a, b) => b.score - a.score);
   return ranked.slice(0, TOP_RESULTS);

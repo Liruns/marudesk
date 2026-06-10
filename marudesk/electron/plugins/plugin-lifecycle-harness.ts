@@ -8,6 +8,7 @@ import { app, dialog, ipcMain } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import type { InvokeChannel } from '../../shared/ipc';
 import type { PluginStatus } from '../../shared/plugin';
+import { check, expectReject, passedCount } from '../harness-kit';
 import { readPluginsConfig } from './config';
 import { initPlugins, shutdownPlugins } from './index';
 import { registerPluginHandlers } from './handlers';
@@ -19,24 +20,6 @@ const HELLO_DIR = path.resolve(__dirname, '../../examples/plugins/hello-world');
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unknown> | unknown;
 type AppPathName = Parameters<typeof app.getPath>[0];
-
-let passed = 0;
-
-function check(label: string, condition: boolean): void {
-  assert.ok(condition, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
-
-async function expectReject(label: string, action: () => Promise<unknown>, pattern: RegExp): Promise<void> {
-  let message = '';
-  try {
-    await action();
-  } catch (err) {
-    message = err instanceof Error ? err.message : String(err);
-  }
-  check(label, pattern.test(message));
-}
 
 function statusById(statuses: readonly PluginStatus[], id: string): PluginStatus | undefined {
   return statuses.find((status) => status.id === id);
@@ -161,7 +144,7 @@ async function main(): Promise<void> {
       !existsSync(path.join(userPlugins, 'hello-world')),
     );
 
-    console.log(`\n# plugin lifecycle harness: ${passed} checks passed`);
+    console.log(`\n# plugin lifecycle harness: ${passedCount()} checks passed`);
   } finally {
     shutdownPlugins();
     ipcMain.handle = originalHandle;

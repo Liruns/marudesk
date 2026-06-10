@@ -55,7 +55,36 @@ npm run build
 npm run e2e
 ```
 
-Use targeted harnesses when changing main-process or server behavior:
+## Chat from the terminal
+
+With the app running and Settings → Remote → Local server enabled, the bundled
+CLI drives the same agent over the loopback bridge (streamed replies, tool
+lines, approval/question prompts):
+
+```bash
+npm run chat                                   # interactive REPL
+npm run chat -- --prompt "explain this repo"   # one-shot
+npm run chat -- --provider anthropic --model claude-sonnet-4-6 --prompt "hi"
+```
+
+`--provider/--model` are remembered. The server drops a same-user
+`cli-bridge.json` handshake file under userData while it listens; `--url` /
+`--token` (or `MARUDESK_BRIDGE_URL` / `MARUDESK_BRIDGE_TOKEN`) override it.
+Gated-tool approvals stay pinned to the desktop UI (the L-1 guard); the CLI can
+answer questions and approve edit previews.
+
+## Verification harnesses
+
+Use targeted harnesses when changing main-process or server behavior. To run
+the whole headless-harness suite with one summary, use the runner (it
+auto-discovers every `harness:*` script; `--only <substr>` filters, `--list`
+shows the curation):
+
+```bash
+npm run harness:all
+```
+
+Individual harnesses:
 
 ```bash
 npm run harness:server

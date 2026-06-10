@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FetchFunction } from '@ai-sdk/provider-utils';
+import { sleep } from '../../shared/sleep';
 
 /**
  * Google Code-Assist translator (docs/oauth-providers-design.md §10) — EXPERIMENTAL.
@@ -36,8 +37,6 @@ function caaHeaders(token: string): Record<string, string> {
     'x-activity-request-id': randomUUID(),
   };
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 async function caaCall<T>(token: string, methodColon: string, body: unknown): Promise<T> {
   const resp = await fetch(`${caaBase()}/v1internal:${methodColon}`, {

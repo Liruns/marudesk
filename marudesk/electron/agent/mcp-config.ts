@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { atomicWriteFile } from '../fs-safe';
+import { toMessage } from '../../shared/to-message';
 import {
   sanitizeMcpConfig,
   sanitizeMcpConfigWithDiagnostics,
@@ -20,10 +21,6 @@ type McpConfigReadResult = {
   readonly file: McpServersFile;
   readonly health: McpConfigHealth;
 };
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 function fileErrorCode(err: unknown): string | undefined {
   return err && typeof err === 'object' && 'code' in err
@@ -44,7 +41,7 @@ function health(
 }
 
 export async function readMcpConfigWithDiagnostics(): Promise<McpConfigReadResult> {
-  let raw = '';
+  let raw: string;
   try {
     raw = await fs.readFile(mcpConfigPath(), 'utf8');
   } catch (err) {
@@ -55,7 +52,7 @@ export async function readMcpConfigWithDiagnostics(): Promise<McpConfigReadResul
       {
         severity: 'error',
         code: 'read_error',
-        message: `Could not read MCP config: ${errorMessage(err)}`,
+        message: `Could not read MCP config: ${toMessage(err)}`,
       },
     ];
     return { file: { servers: [] }, health: health(true, diagnostics) };
@@ -70,7 +67,7 @@ export async function readMcpConfigWithDiagnostics(): Promise<McpConfigReadResul
       {
         severity: 'error',
         code: 'parse_error',
-        message: `MCP config JSON is invalid: ${errorMessage(err)}`,
+        message: `MCP config JSON is invalid: ${toMessage(err)}`,
       },
     ];
     return { file: { servers: [] }, health: health(true, diagnostics) };
