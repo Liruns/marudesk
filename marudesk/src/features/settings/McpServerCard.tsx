@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -68,12 +68,37 @@ export function McpServerCard({
     ...autoApproveTools.filter((tool) => confirmSet.has(tool)),
   ]);
 
-  useEffect(() => {
+  // Reset the local drafts whenever the SAVED values change (a save round-trip,
+  // an external update, or switching to another server's card). Done during
+  // render with the previous-values pattern (react.dev "adjusting state when a
+  // prop changes") instead of an effect, so the reset doesn't cost an extra
+  // committed render pass.
+  const [prevSync, setPrevSync] = useState({
+    id: status.id,
+    trusted: status.trusted,
+    disabled: statusDisabled,
+    autoApprove: statusAutoApprove,
+    confirm: statusConfirm,
+  });
+  if (
+    prevSync.id !== status.id ||
+    prevSync.trusted !== status.trusted ||
+    prevSync.disabled !== statusDisabled ||
+    prevSync.autoApprove !== statusAutoApprove ||
+    prevSync.confirm !== statusConfirm
+  ) {
+    setPrevSync({
+      id: status.id,
+      trusted: status.trusted,
+      disabled: statusDisabled,
+      autoApprove: statusAutoApprove,
+      confirm: statusConfirm,
+    });
     setTrusted(status.trusted);
     setDisabledText(statusDisabled);
     setAutoApproveText(statusAutoApprove);
     setConfirmText(statusConfirm);
-  }, [status.id, status.trusted, statusDisabled, statusAutoApprove, statusConfirm]);
+  }
 
   const dirty =
     trusted !== status.trusted ||

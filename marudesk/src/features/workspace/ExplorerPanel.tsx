@@ -135,8 +135,13 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   const [width, setWidth] = useState(readExplorerWidth);
   const [resizing, setResizing] = useState(false);
   // "Show ignored files" toggle + the ignored-inclusive listing it fetches.
+  // The listing is tagged with the root it was fetched for, so a stale list from
+  // another workspace is simply not displayed — no state reset needed.
   const [showIgnored, setShowIgnored] = useState(readShowIgnored);
-  const [ignoredFiles, setIgnoredFiles] = useState<FileEntry[] | null>(null);
+  const [ignoredFiles, setIgnoredFiles] = useState<{
+    root: string;
+    files: FileEntry[];
+  } | null>(null);
   // Tracks whether we are in the "close zone" during an active drag — used to
   // show the dismiss affordance without touching the persisted width state.
   const [inCloseZone, setInCloseZone] = useState(false);
@@ -186,19 +191,16 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   };
 
   // Fetch the ignored-inclusive listing when the toggle is on (re-fetching when
-  // the active root changes); clear it when off so the tree falls back to the
-  // curated summary.
+  // the active root changes). When off, the render below falls back to the
+  // curated summary, so nothing needs clearing here.
   useEffect(() => {
     const root = summary?.root;
-    if (!showIgnored || !root) {
-      setIgnoredFiles(null);
-      return;
-    }
+    if (!showIgnored || !root) return;
     let alive = true;
     void window.marudesk
       .invoke('workspace:list-files', { root, includeIgnored: true })
       .then((files) => {
-        if (alive) setIgnoredFiles(files);
+        if (alive) setIgnoredFiles({ root, files });
       })
       .catch(() => {
         if (alive) setIgnoredFiles(null);
@@ -221,8 +223,14 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
   };
 
   // The list the tree renders: ignored-inclusive when the toggle is on and the
-  // fetch has resolved, otherwise the curated workspace summary.
-  const displayFiles = showIgnored && ignoredFiles !== null ? ignoredFiles : summary?.files ?? [];
+  // fetch for THIS root has resolved, otherwise the curated workspace summary.
+  const displayFiles = useMemo(
+    () =>
+      showIgnored && ignoredFiles && ignoredFiles.root === summary?.root
+        ? ignoredFiles.files
+        : summary?.files ?? [],
+    [showIgnored, ignoredFiles, summary],
+  );
   const tree = useMemo(() => buildFileTree(displayFiles), [displayFiles]);
   const rows = useMemo(
     () => flattenTree(tree, expandedDirs),

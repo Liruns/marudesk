@@ -163,7 +163,7 @@ async function teardownProfileRuntime(): Promise<void> {
  * the relaunched app boots into it cleanly.
  */
 async function applyProfileSwitch(id: string): Promise<void> {
-  let changed = false;
+  let changed: boolean;
   try {
     changed = await persistActiveProfile(id);
   } catch {

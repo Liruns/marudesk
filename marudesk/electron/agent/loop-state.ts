@@ -370,14 +370,28 @@ export const emitThreads = coalesced(() => {
   }
 });
 
+// Per-container coalesced flush of the workspace-scoped event. Cached in a
+// WeakMap so each container's burst (e.g. per-token streaming during a turn)
+// crosses IPC once per tick — the workspace twin of the active-thread `emit` —
+// without keeping closed containers alive.
+const workspaceEventFlushes = new WeakMap<ThreadContainer, () => void>();
+
 function emitWorkspaceContainer(c: ThreadContainer): void {
   if (!c.workspaceId) return;
-  refreshOrchestrationProjection();
-  c.state.approvalMode = getSettingsSync().agent.approvalMode;
-  const host = getHost();
-  if (host && !host.isDestroyed()) {
-    host.webContents.send('agent:workspace-event', { workspaceId: c.workspaceId, state: c.state });
+  let flush = workspaceEventFlushes.get(c);
+  if (!flush) {
+    flush = coalesced(() => {
+      if (!c.workspaceId) return;
+      refreshOrchestrationProjection();
+      c.state.approvalMode = getSettingsSync().agent.approvalMode;
+      const host = getHost();
+      if (host && !host.isDestroyed()) {
+        host.webContents.send('agent:workspace-event', { workspaceId: c.workspaceId, state: c.state });
+      }
+    });
+    workspaceEventFlushes.set(c, flush);
   }
+  flush();
 }
 
 /**
@@ -386,9 +400,13 @@ function emitWorkspaceContainer(c: ThreadContainer): void {
  * refreshes its summary in the switcher — so a non-active turn never hijacks the
  * chat the user is looking at. For a single thread, `c` is always active, so this
  * is exactly the old `emit()`.
+ *
+ * Hot path: this runs on EVERY streamed token delta, so all real work — the
+ * orchestration projection rebuild and the IPC sends — happens inside the
+ * coalesced flushes (once per tick), never synchronously here. Synchronous
+ * readers that need a fresh projection (snapshot()) refresh it themselves.
  */
 export function emitContainer(c: ThreadContainer): void {
-  refreshOrchestrationProjection();
   emitWorkspaceContainer(c);
   if (c === S) emit();
   else {

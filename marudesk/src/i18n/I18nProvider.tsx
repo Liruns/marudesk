@@ -21,12 +21,11 @@ import {
   type Locale,
 } from './messages';
 import { I18nContext, type I18nContextValue } from './useI18n';
-
-const STORAGE_KEY = 'marudesk.locale';
+import { LOCALE_STORAGE_KEY } from './locale-storage';
 
 function detectInitialLocale(): Locale {
   try {
-    const stored = parseLocale(localStorage.getItem(STORAGE_KEY));
+    const stored = parseLocale(localStorage.getItem(LOCALE_STORAGE_KEY));
     if (stored) return stored;
   } catch (error) {
     if (error instanceof DOMException) return 'en';
@@ -42,7 +41,7 @@ export function I18nProvider({ children }: { readonly children: ReactNode }) {
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
     try {
-      localStorage.setItem(STORAGE_KEY, next);
+      localStorage.setItem(LOCALE_STORAGE_KEY, next);
     } catch (error) {
       if (error instanceof DOMException) return;
       throw error;

@@ -8,7 +8,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { Brand } from '../components/Brand';
-import { useAppStore } from '../store/useAppStore';
+import { DEFAULT_RELAY_URL, useAppStore } from '../store/useAppStore';
 import { health, normalizeRelayUrl } from '../auth/relayClient';
 
 export function ConnectScreen() {
@@ -139,7 +139,7 @@ export function ConnectScreen() {
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
-                placeholder="http://127.0.0.1:8788"
+                placeholder={DEFAULT_RELAY_URL}
                 value={url}
                 onChange={(e) => {
                   setUrl(e.target.value);

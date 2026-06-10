@@ -25,6 +25,17 @@ export function OrchestrationTree({
   );
 }
 
+// Module-level so the per-status icon is a stable component reference, never
+// re-created during render.
+const STATUS_ICON: Record<string, typeof Loader2> = {
+  done: CheckCircle2,
+  completed: CheckCircle2,
+  error: XCircle,
+  failed: XCircle,
+  cancelled: CircleDot,
+  idle: CircleDot,
+};
+
 function TreeNode({
   node,
   depth,
@@ -32,7 +43,7 @@ function TreeNode({
   readonly node: AgentRunTreeNode;
   readonly depth: number;
 }) {
-  const Icon = iconForStatus(node.status);
+  const Icon = STATUS_ICON[node.status] ?? Loader2;
   return (
     <li>
       <div
@@ -74,9 +85,3 @@ function TreeNode({
   );
 }
 
-function iconForStatus(status: string): typeof Loader2 {
-  if (status === 'done' || status === 'completed') return CheckCircle2;
-  if (status === 'error' || status === 'failed') return XCircle;
-  if (status === 'cancelled' || status === 'idle') return CircleDot;
-  return Loader2;
-}

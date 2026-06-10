@@ -8,6 +8,7 @@ import { app, dialog, ipcMain } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import type { InvokeChannel } from '../../shared/ipc';
 import type { PluginStatus } from '../../shared/plugin';
+import { toMessage } from '../../shared/to-message';
 import { readPluginsConfig } from './config';
 import { initPlugins, shutdownPlugins } from './index';
 import { registerPluginHandlers } from './handlers';
@@ -33,7 +34,7 @@ async function expectReject(label: string, action: () => Promise<unknown>, patte
   try {
     await action();
   } catch (err) {
-    message = err instanceof Error ? err.message : String(err);
+    message = toMessage(err);
   }
   check(label, pattern.test(message));
 }

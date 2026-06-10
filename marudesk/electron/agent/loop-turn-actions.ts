@@ -23,6 +23,7 @@ import {
   containers,
   containerForTurn,
   containerForWorkspace,
+  refreshOrchestrationProjection,
   type ThreadContainer,
 } from './loop-state.ts';
 import type { WorkspaceId } from '../../shared/workspace';
@@ -161,6 +162,10 @@ async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void
 }
 
 export function snapshot(workspaceId?: WorkspaceId): AgentChatState {
+  // The projection (approvalQueue/orchestration) is normally refreshed inside the
+  // coalesced emit flushes; refresh here so a synchronous reader — the renderer's
+  // initial pull, the bridge's L-1 gated-tool guard — never sees a stale queue.
+  refreshOrchestrationProjection();
   return containerForWorkspace(workspaceId).state;
 }
 

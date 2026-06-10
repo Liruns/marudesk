@@ -5,6 +5,7 @@ import { getActive } from '../browser/state';
 import { navigateActive } from '../browser/navigation';
 import { getCurrentWorkspace } from '../workspace';
 import { getSettingsSync } from '../settings';
+import { sleep } from '../../shared/sleep';
 import { loadWorkflow } from './store';
 
 /**
@@ -19,7 +20,6 @@ import { loadWorkflow } from './store';
 const STEP_DELAY_MS = 150;
 const RETRY_DELAY_MS = 400;
 const NAV_SETTLE_MS = 600;
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export async function runWorkflow(id: string): Promise<WorkflowRunResult> {
   const wf = await loadWorkflow(id);

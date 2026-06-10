@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { UpdateStatus } from '../../shared/app-info';
 
-let listeners = new Set<(s: UpdateStatus) => void>();
+const listeners = new Set<() => void>();
 let current: UpdateStatus = { kind: 'disabled' };
 let subscribed = false;
 
-function subscribe(): void {
+/** Lazily hook the module store up to main's update-status push (once). */
+function connect(): void {
   if (subscribed) return;
   subscribed = true;
   void window.marudesk
@@ -17,18 +18,21 @@ function subscribe(): void {
 
 function broadcast(next: UpdateStatus): void {
   current = next;
-  for (const fn of listeners) fn(next);
+  for (const fn of listeners) fn();
+}
+
+function subscribe(onStoreChange: () => void): () => void {
+  connect();
+  listeners.add(onStoreChange);
+  return () => {
+    listeners.delete(onStoreChange);
+  };
+}
+
+function getSnapshot(): UpdateStatus {
+  return current;
 }
 
 export function useUpdateStatus(): UpdateStatus {
-  const [status, setStatus] = useState<UpdateStatus>(current);
-  useEffect(() => {
-    subscribe();
-    setStatus(current);
-    listeners.add(setStatus);
-    return () => {
-      listeners.delete(setStatus);
-    };
-  }, []);
-  return status;
+  return useSyncExternalStore(subscribe, getSnapshot);
 }

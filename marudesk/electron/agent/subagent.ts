@@ -1,7 +1,8 @@
 import { scrubText } from '../../shared/scrub';
+import { toMessage } from '../../shared/to-message';
 import { S } from './loop-state';
 import type { ToolContext, ToolResult } from './tools/types';
-import { parseSubagentRequest, recordSubagentInput, SubagentInputError } from './subagent-request';
+import { parseSubagentRequest, recordSubagentInput } from './subagent-request';
 import { runChildAgent } from './subagent-runtime';
 import type { SubagentRunRequest, SubagentRunner } from './subagent-types';
 
@@ -49,10 +50,9 @@ export async function runSubagentTool(
 }
 
 function inputErrorResult(err: unknown): ToolResult {
-  const message = err instanceof SubagentInputError || err instanceof Error ? err.message : String(err);
   return {
     summary: 'spawn_subagent failed',
-    text: scrubText(message),
+    text: scrubText(toMessage(err)),
     isError: true,
   };
 }

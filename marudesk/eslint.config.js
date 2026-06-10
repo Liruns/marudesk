@@ -18,5 +18,12 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Playwright fixtures force an object pattern as the first test argument
+      // even when no fixture is used (`async ({}, testInfo) => …`); the option
+      // permits exactly that parameter form while still flagging empty
+      // destructuring statements.
+      'no-empty-pattern': ['error', { allowObjectPatternsAsParameters: true }],
+    },
   },
 ])

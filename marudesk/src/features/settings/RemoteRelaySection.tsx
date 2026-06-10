@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { RelayStatus } from '../../../shared/remote';
+import { DEFAULT_RELAY_URL } from '../../../shared/settings';
 import { Button } from '../../components/ui';
 import { useIpcListener } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
@@ -83,7 +84,7 @@ export function CloudRelaySection() {
       >
         <TextField
           value={server.relayUrl}
-          placeholder="http://127.0.0.1:8788"
+          placeholder={DEFAULT_RELAY_URL}
           onCommit={(relayUrl) => void update({ server: { relayUrl } })}
         />
       </Field>

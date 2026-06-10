@@ -2,7 +2,7 @@ import { scrubText } from '../../shared/scrub';
 import { toMessage } from '../../shared/to-message';
 import type { BackgroundTask } from '../../shared/agent';
 import { S, uid, containers, emitContainer } from './loop-state';
-import { parseSubagentRequest, recordSubagentInput, SubagentInputError } from './subagent-request';
+import { parseSubagentRequest, recordSubagentInput } from './subagent-request';
 import { runChildAgent } from './subagent-runtime';
 import type { SubagentRunner } from './subagent-types';
 import type { ToolContext, ToolResult } from './tools/types';
@@ -71,9 +71,7 @@ export function startBackgroundAgentTool(input: unknown, ctx: ToolContext): Tool
   try {
     request = parseSubagentRequest(recordSubagentInput(input), ctx);
   } catch (err) {
-    const message =
-      err instanceof SubagentInputError || err instanceof Error ? err.message : String(err);
-    return { summary: 'spawn_background_agent failed', text: scrubText(message), isError: true };
+    return { summary: 'spawn_background_agent failed', text: scrubText(toMessage(err)), isError: true };
   }
 
   // Key the task to the TURN's thread (Stage 12-B-2), so a background agent

@@ -25,7 +25,8 @@ export type ConnMode = 'relay' | 'direct';
 /** Which top-level screen is showing. A tiny hand-rolled router (no deps). */
 export type Route = 'connect' | 'login' | 'chat' | 'account';
 
-const DEFAULT_RELAY_URL = 'http://127.0.0.1:8788';
+/** Default relay endpoint shown/used before the user saves one (matches the relay's default port). */
+export const DEFAULT_RELAY_URL = 'http://127.0.0.1:8788';
 
 type AppState = {
   /** Set once we've read persisted tokens/URL from storage at boot. */

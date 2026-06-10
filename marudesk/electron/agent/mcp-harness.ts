@@ -710,7 +710,7 @@ async function main(): Promise<void> {
         disabledTools: ['list_resources', 'read_resource'],
       },
     ], async () => ({ client }));
-    let names = listMcpTools().map((t) => t.name);
+    const names = listMcpTools().map((t) => t.name);
     check('caps policy: disabledTools hides synthesized list_resources', !names.includes('cap_hidden__list_resources'));
     check('caps policy: disabledTools hides synthesized read_resource', !names.includes('cap_hidden__read_resource'));
     await syncExternalMcpServers([], async () => ({ client }));
