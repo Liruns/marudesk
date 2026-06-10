@@ -5,23 +5,9 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>marudesk</title>
-    <!-- Pre-paint theme guard: set data-theme before the bundle loads so a
-         light-theme user never sees a dark first frame. Mirrors the mode the
-         settings store caches in localStorage; falls back to the OS preference. -->
-    <script>
-      try {
-        var m = localStorage.getItem('marudesk.theme');
-        if (
-          m === 'light' ||
-          ((!m || m === 'system') &&
-            window.matchMedia('(prefers-color-scheme: light)').matches)
-        ) {
-          document.documentElement.dataset.theme = 'light';
-        }
-      } catch (e) {
-        /* best-effort */
-      }
-    </script>
+    <!-- Pre-paint theme guard (external so the packaged CSP `script-src 'self'`
+         allows it — an inline script is blocked there; see public/boot-theme.js). -->
+    <script src="/boot-theme.js"></script>
   </head>
   <body>
     <div id="root"></div>
