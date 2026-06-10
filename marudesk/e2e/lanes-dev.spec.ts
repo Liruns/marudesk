@@ -30,7 +30,7 @@ test('lanes dev server: start detects the URL, stop clears it', async () => {
     // A dev command that prints a localhost URL then stays alive.
     await page.evaluate(() =>
       window.marudesk.invoke('settings:set', {
-        lanes: { devCommand: 'echo "Local: http://localhost:4321/" && sleep 30' },
+        lanes: { devCommand: 'echo "Local: http://localhost:4321/"; sleep 30' },
       }),
     );
 

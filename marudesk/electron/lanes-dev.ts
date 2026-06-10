@@ -21,7 +21,7 @@ type LaneProc = { pty: IPty; state: LaneDevState; output: string };
 
 const procs = new Map<string, LaneProc>();
 const OUTPUT_CAP = 16_000;
-const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+(?:\/\S*)?/i;
+const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+(?:\/[!-~]*)?/i;
 
 let listener: ((states: LaneDevState[]) => void) | null = null;
 export function setLaneDevListener(fn: (states: LaneDevState[]) => void): void {
@@ -65,7 +65,7 @@ function startDevServer(lanePath: string, command: string): LaneDevStartResult {
   const rec: LaneProc = {
     pty,
     output: '',
-    state: { path: lanePath, status: 'starting', url: null, exitCode: null },
+    state: { path: path.resolve(lanePath), status: 'starting', url: null, exitCode: null },
   };
   procs.set(key, rec);
   push();
