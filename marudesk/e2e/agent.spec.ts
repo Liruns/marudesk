@@ -103,12 +103,16 @@ test('agent: file changes render after the turn that produced them', async () =>
         },
       ],
       pendingApproval: null,
+      approvalQueue: [],
       pendingQuestions: null,
       usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
       error: null,
       activeSessionId: null,
       endNote: null,
       background: [],
+      orchestration: [],
+      plan: null,
+      approvalMode: 'ask',
     };
 
     await app.evaluate(({ BrowserWindow }, payload: AgentChatState) => {
@@ -566,12 +570,16 @@ function chatStateWithAssistantText(text: string): AgentChatState {
     ],
     edits: [],
     pendingApproval: null,
+    approvalQueue: [],
     pendingQuestions: null,
     usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
     activeSessionId: null,
     endNote: null,
     background: [],
+    orchestration: [],
+    plan: null,
+    approvalMode: 'ask',
   };
 }
 

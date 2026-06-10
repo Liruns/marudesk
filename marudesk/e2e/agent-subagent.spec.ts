@@ -51,12 +51,16 @@ function chatStateWithSubagentTool(): AgentChatState {
     ],
     edits: [],
     pendingApproval: null,
+    approvalQueue: [],
     pendingQuestions: null,
     usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
     activeSessionId: null,
     endNote: null,
     background: [],
+    orchestration: [],
+    plan: null,
+    approvalMode: 'ask',
   };
 }
 
