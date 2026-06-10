@@ -62,6 +62,9 @@ async function main(): Promise<void> {
     // The repo (and its worktrees, which share this config) must not inherit a
     // global commit-signing hook — the throwaway repo has no signing identity.
     await git(base, ['config', 'commit.gpgsign', 'false']);
+    // Content checks below compare exact LF bytes — a global core.autocrlf=true
+    // would CRLF-ify worktree checkouts and break them, so pin it off.
+    await git(base, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(base, 'app.txt'), 'line one\nline two\n');
     await git(base, ['add', '-A']);
     await git(base, ['commit', '-m', 'initial']);

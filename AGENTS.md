@@ -58,7 +58,10 @@ npm run build
 npm run e2e
 ```
 
-Use `npm run harness:*` scripts for targeted Electron/main-process coverage.
+Use `npm run harness:*` scripts for targeted Electron/main-process coverage,
+or `npm run harness:all` to run the whole headless-harness suite with one
+summary (new harnesses go in `electron/harness-kit.ts` helpers and are
+auto-discovered by the runner).
 
 ### mobile
 

@@ -55,7 +55,16 @@ npm run build
 npm run e2e
 ```
 
-Use targeted harnesses when changing main-process or server behavior:
+Use targeted harnesses when changing main-process or server behavior. To run
+the whole headless-harness suite with one summary, use the runner (it
+auto-discovers every `harness:*` script; `--only <substr>` filters, `--list`
+shows the curation):
+
+```bash
+npm run harness:all
+```
+
+Individual harnesses:
 
 ```bash
 npm run harness:server

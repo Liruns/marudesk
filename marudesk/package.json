@@ -24,6 +24,7 @@
     "typecheck": "tsc -b",
     "e2e": "playwright test",
     "test:e2e": "npm run build && playwright test",
+    "harness:all": "node scripts/run-harnesses.mjs",
     "harness:server": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/harness.ts",
     "harness:e2e": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/e2e-harness.ts",
     "harness:pair": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/pair-harness.ts",
