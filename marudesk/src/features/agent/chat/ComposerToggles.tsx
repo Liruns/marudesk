@@ -28,7 +28,7 @@ export function ComposerToggles({
   const updateSettings = useSettingsStore((s) => s.update);
 
   return (
-    <div className="chrome-panel-strong flex items-center gap-px rounded p-0.5 shrink-0">
+    <div className="chrome-panel-strong flex items-center gap-px rounded-lg p-0.5 shrink-0">
       {isReasoningModel ? (
         <>
           <EffortToggle

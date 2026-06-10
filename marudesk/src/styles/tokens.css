@@ -76,6 +76,11 @@
   --scrollbar-thumb:       rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
 
+  /* Menu / popover shadow — richer than the card shadow so floating surfaces
+     lift clearly off the stage without a heavy border doubling. Used by
+     ContextMenu and any dropdown that composites above the content layer. */
+  --shadow-menu: 0 0 0 1px var(--border-default), 0 4px 6px rgba(0,0,0,0.12), 0 12px 32px rgba(0,0,0,0.40), 0 2px 4px rgba(0,0,0,0.08);
+
   /* Depth — the "shadows second" half of the elevation contract (§6).
      The surface scale is intentionally tight (~9% across four steps), so pure
      fills read flat. A 1px inset highlight on the top edge simulates light
@@ -144,6 +149,9 @@
 
   /* Softer bloom on a white canvas so the hero glow stays a hint, not a stain. */
   --accent-glow: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%);
+
+  /* Menu shadow on light surfaces: tighter, less black. */
+  --shadow-menu: 0 0 0 1px var(--border-default), 0 4px 6px rgba(0,0,0,0.06), 0 12px 32px rgba(0,0,0,0.14), 0 2px 4px rgba(0,0,0,0.04);
 }
 
 /* Theme palettes — full-surface reskins via a [data-palette] attribute on

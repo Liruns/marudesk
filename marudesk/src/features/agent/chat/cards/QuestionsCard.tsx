@@ -16,7 +16,7 @@ export function QuestionsCard({ pending }: { pending: PendingQuestions }) {
   const submit = () => void answer(pending.callId, values);
 
   return (
-    <div className="rounded border border-accent/40 bg-accent-subtle/20 p-2.5 flex flex-col gap-2.5">
+    <div className="rounded-lg border border-accent/35 bg-accent-subtle/15 p-3 flex flex-col gap-2.5 shadow-card">
       <div className="flex items-center gap-2 text-body-sm text-fg-primary">
         <Sparkles size={14} className="shrink-0 text-accent" /> {t('agent.chat.needsInput')}
       </div>
@@ -46,7 +46,7 @@ export function QuestionsCard({ pending }: { pending: PendingQuestions }) {
             value={values[q.id] ?? ''}
             onChange={(e) => setValues((v) => ({ ...v, [q.id]: e.target.value }))}
             placeholder={t('agent.chat.answerPlaceholder')}
-            className="h-7 rounded bg-surface-page border border-default px-2 text-body-sm text-fg-primary focus:outline-none focus:border-accent"
+            className="h-7 rounded-md bg-surface-page border border-default px-2 text-body-sm text-fg-primary focus:outline-none focus:border-accent transition-colors duration-fast"
           />
         </div>
       ))}

@@ -52,7 +52,7 @@ export function ErrorRecoveryCard({ error }: { error: string }) {
   };
 
   return (
-    <div className="rounded border border-error/40 bg-error-subtle/40 p-2.5 flex flex-col gap-2">
+    <div className="rounded-lg border border-error/35 bg-error-subtle/30 p-3 flex flex-col gap-2 shadow-card">
       <div className="flex items-start gap-2 text-body-sm text-fg-primary">
         <AlertCircle size={14} className="mt-0.5 shrink-0 text-error" />
         <div className="flex min-w-0 flex-col gap-1">
@@ -82,7 +82,7 @@ export function ErrorRecoveryCard({ error }: { error: string }) {
             }
           }}
           placeholder={t('agent.chat.recovery.guidancePlaceholder')}
-          className="h-7 flex-1 rounded bg-surface-page border border-default px-2 text-body-sm text-fg-primary focus:outline-none focus:border-accent"
+          className="h-7 flex-1 rounded-md bg-surface-page border border-default px-2 text-body-sm text-fg-primary focus:outline-none focus:border-accent transition-colors duration-fast"
         />
         <Button variant="primary" size="sm" disabled={busy} onClick={() => void retry()}>
           <RotateCcw size={12} /> {t('agent.chat.recovery.retry')}

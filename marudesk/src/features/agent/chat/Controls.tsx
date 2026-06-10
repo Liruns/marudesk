@@ -207,7 +207,7 @@ export function ProviderKeyNudge() {
   if (hasAuth || !statusChecked || !isBuiltinProviderId(selectedProvider)) return null;
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded border border-subtle bg-surface-2 px-2 py-1">
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-subtle/80 bg-surface-2/70 px-3 py-1.5 shadow-card">
       <span className="truncate text-caption text-fg-tertiary">
         {t('agent.chat.noApiKeyBefore')}
         {providerLabel(selectedProvider, customProviders)}

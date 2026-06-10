@@ -12,7 +12,7 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
   const approve = useAgentStore((s) => s.approve);
   const isEdit = !!approval.diffs && approval.diffs.length > 0;
   return (
-    <div className="rounded border border-warning/40 bg-warning-subtle/30 p-2.5 flex flex-col gap-2.5">
+    <div className="rounded-lg border border-warning/35 bg-warning-subtle/25 p-3 flex flex-col gap-2.5 shadow-card">
       <div className="flex items-start gap-2 text-body-sm text-fg-primary">
         <AlertCircle size={14} className="mt-0.5 shrink-0 text-warning" />
         <span className="min-w-0">

@@ -67,7 +67,7 @@ export function ReceiptCard({
     }
   };
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 p-3 flex flex-col gap-2">
+    <div className="rounded-xl border border-subtle/80 bg-surface-1/80 p-3 flex flex-col gap-2 shadow-card">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="flex items-center gap-2 text-body-sm text-fg-primary">
           <span className="flex size-5 items-center justify-center rounded-pill bg-success-subtle shrink-0">

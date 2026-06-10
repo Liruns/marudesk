@@ -166,7 +166,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
        <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto">
         <div
           className={cn(
-            'flex flex-col gap-4',
+            'flex flex-col gap-5',
             full ? 'mx-auto w-full max-w-3xl px-5 py-6' : 'px-3 py-4',
             empty && 'min-h-full justify-center',
           )}
@@ -299,7 +299,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             {/* Composer well — softer, near-borderless at rest so the input,
                 attachments, and action row read as one continuous surface rather
                 than hard-divided sections; the boundary firms up only on focus. */}
-            <div className="flex flex-col rounded-xl border border-subtle/60 bg-surface-2/40 transition-[border-color,background-color,box-shadow] duration-fast focus-within:border-accent/70 focus-within:bg-surface-2/70 focus-within:shadow-focus-accent">
+            <div className="flex flex-col rounded-xl border border-default/50 bg-surface-2/60 shadow-card transition-[border-color,background-color,box-shadow] duration-fast focus-within:border-accent/60 focus-within:bg-surface-2 focus-within:shadow-focus-accent">
               <AttachmentPreview />
 
               <textarea

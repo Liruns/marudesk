@@ -114,50 +114,55 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       onKeyDown={onMenuKeyDown}
       style={{ left: pos.x, top: pos.y }}
       className={cn(
-        'chrome-popover fixed z-50 min-w-[200px] py-1 rounded animate-scale-in',
+        'fixed z-50 min-w-[216px] overflow-hidden rounded-lg animate-scale-in',
+        'bg-surface-2 bg-surface-gradient shadow-menu',
+        'py-1',
         'text-body-sm text-fg-primary',
       )}
     >
-      {items.map((item, i) =>
-        'type' in item && item.type === 'separator' ? (
-          <div key={`sep-${i}`} className="my-1 h-px bg-surface-3" />
-        ) : (
-          <button
-            key={item.label}
-            type="button"
-            role="menuitem"
-            data-mi
-            disabled={item.disabled}
-            onClick={() => {
-              if (item.disabled) return;
-              item.onSelect();
-              onClose();
-            }}
-            className={cn(
-              'chrome-list-row w-full gap-2.5 px-3 h-7 text-left outline-none rounded-none',
-              item.disabled
-                ? 'text-fg-tertiary/50 cursor-not-allowed'
-                : item.danger
-                  ? 'text-error hover:bg-error-subtle focus:bg-error-subtle'
-                  : 'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary focus:bg-surface-3 focus:text-fg-primary',
-            )}
-          >
-            {item.icon ? (
-              <span className="size-4 shrink-0 flex items-center justify-center text-fg-tertiary">
-                {item.icon}
-              </span>
-            ) : (
-              <span className="size-4 shrink-0" aria-hidden />
-            )}
-            <span className="flex-1 min-w-0 truncate">{item.label}</span>
-            {item.shortcut ? (
-              <span className="text-caption text-fg-tertiary tabular-nums">
-                {item.shortcut}
-              </span>
-            ) : null}
-          </button>
-        ),
-      )}
+      <div className="px-1">
+        {items.map((item, i) =>
+          'type' in item && item.type === 'separator' ? (
+            <div key={`sep-${i}`} className="my-1 -mx-1 h-px bg-border-subtle" />
+          ) : (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              data-mi
+              disabled={item.disabled}
+              onClick={() => {
+                if (item.disabled) return;
+                item.onSelect();
+                onClose();
+              }}
+              className={cn(
+                'w-full flex items-center gap-2 px-2 h-7 rounded-md text-left outline-none',
+                'transition-colors duration-fast',
+                item.disabled
+                  ? 'text-fg-disabled cursor-not-allowed'
+                  : item.danger
+                    ? 'text-error hover:bg-error-subtle/60 focus:bg-error-subtle/60'
+                    : 'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary focus:bg-surface-3 focus:text-fg-primary',
+              )}
+            >
+              {item.icon ? (
+                <span className="size-4 shrink-0 flex items-center justify-center opacity-70">
+                  {item.icon}
+                </span>
+              ) : (
+                <span className="size-4 shrink-0" aria-hidden />
+              )}
+              <span className="flex-1 min-w-0 truncate">{item.label}</span>
+              {item.shortcut ? (
+                <span className="ml-4 text-caption text-fg-tertiary/70 tabular-nums shrink-0">
+                  {item.shortcut}
+                </span>
+              ) : null}
+            </button>
+          ),
+        )}
+      </div>
     </div>,
     document.body,
   );
