@@ -2,9 +2,9 @@
 
 > 상태: **Phase 1 shipped (2026-06-06)** · 범위: AI Chat에 부모 턴 수명을 넘어 분리 실행되는 백그라운드 에이전트 추가.
 > 동반: [subagent 설계](./subagent-design.md) · [agentic-chat 설계](./agentic-chat-design.md) · [remote/mobile bridge 설계](./remote-mobile-bridge-design.md)
-> 결정 입력: 실행 = **detached(턴 비차단)** · 툴 범위 = **read-only/non-gated만(v1)** · 결과 회수 = **registry + on-demand collect**.
+> 결정 입력: 실행 = **detached(턴 비차단)** · 툴 범위 = **read-only + 승인 대기 없는 도구(v1, 웹 리서치 예외)** · 결과 회수 = **registry + on-demand collect**.
 > 관계: 본 문서는 [subagent 설계](./subagent-design.md)의 **직교(orthogonal) 확장**이다. subagent는
-> "한 턴 안의 병렬"(부모 턴이 자식 종료를 기다림)을 다루고, 본 문서는 "**턴을 넘는 분리 실행**"을 다룬다.
+> "부모 턴이 자식 종료를 기다리는 foreground 위임"을 다루고, 본 문서는 "**턴을 넘는 분리 실행**"을 다룬다.
 
 ## Phase 1 구현 메모 (2026-06-06)
 
@@ -14,7 +14,7 @@
 
 - spawn은 자식을 **동기 기동하되 await하지 않고** task id를 즉시 ack로 반환한다. 자식 신호는 부모 턴이
   아니라 레지스트리 entry의 `AbortController`에 묶여 턴 종료가 자식을 죽이지 않는다.
-- 자식은 `runChildAgent`를 그대로 재사용(read-only/non-gated). 자식 툴셋에서 background 3종도 제외해
+- 자식은 `runChildAgent`를 그대로 재사용(read-only + 승인 대기 없는 도구, 웹 리서치 예외). 자식 툴셋에서 background 3종도 제외해
   깊이 1을 고정했다.
 - `reset()`/`resumeSession()`이 떠나는 대화의 작업을 abort + drop한다.
 - 렌더러 트레이(`BackgroundTray`)는 **읽기 전용**으로 착지했다(라벨/model/status + 완료 결과 펼침).
@@ -29,7 +29,7 @@
 부모 에이전트가 `spawn_background_agent` 도구로 **자식 루프를 await 없이 띄우고 즉시 task id만 받아**
 턴을 끝낸다. 자식은 백그라운드에서 계속 돌고, 완료되면 **task registry에 결과를 남긴다**. 사용자(트레이
 UI)와 부모(후속 턴의 `collect_background_agent`)가 결과를 회수한다. 분리 실행의 안전 비용은 자식 툴셋을
-**read-only/non-gated로 고정**해 "사람 없는 승인" 문제를 원천 제거하는 것으로 치른다.
+**read-only + 승인 대기 없는 도구(웹 리서치 예외)**로 고정해 "사람 없는 승인" 문제를 원천 제거하는 것으로 치른다.
 
 ## 1. 왜 (현재 spawn과 무엇이 다른가)
 
@@ -42,8 +42,8 @@ const out = call.name === SPAWN_SUBAGENT
   : await callMcpTool(call.name, call.input, ctx);
 ```
 
-즉 자식이 도는 동안 부모 턴은 `tool_result`를 기다리며 점유된다. subagent 설계 §5가 말하는 "병렬"도
-여전히 **한 턴 경계 안**(여러 spawn을 동시에 띄우되 그 턴이 전부 끝날 때까지 대기)이다.
+즉 자식이 도는 동안 부모 턴은 `tool_result`를 기다리며 점유된다. 현재 foreground `spawn_subagent`는
+부모 루프의 순차 tool 실행 안에서 동작하므로 병렬 fan-out은 `spawn_background_agent`가 담당한다.
 
 백그라운드가 푸는 다른 문제:
 
@@ -56,7 +56,8 @@ const out = call.name === SPAWN_SUBAGENT
 ### 1.1 이미 깔린 자산 (재사용 전략)
 
 - `runChildAgent(request, ctx)` (`electron/agent/subagent-runtime.ts`)는 **self-contained**다: 지역
-  transcript, 지역 `streamText` 루프, `childToolDefs()`(read-only/non-gated 필터), `ctx.signal` 존중.
+  transcript, 지역 `streamText` 루프, `listChildToolDefs()`(built-in read-only + 웹 리서치 예외 필터),
+  `ctx.signal` 존중.
   `S` 싱글톤을 **전혀 건드리지 않는다**. → 백그라운드 실행에 그대로 재사용 가능. 바꿀 건 "await 하느냐"가
   아니라 "await **하지 않고** registry에 넣느냐"뿐.
 - `loop-state.ts`의 `subscribeAgentEvents`/`emit`/`coalesced` fan-out 패턴 — 동일 패턴으로 background
@@ -162,7 +163,7 @@ export type BackgroundTask = {
     '(optionally on a different provider/model). Returns IMMEDIATELY with a task id; ' +
     'the agent keeps running after this turn ends. Use for long research fan-out or ' +
     'fire-and-forget investigation you will collect later with collect_background_agent. ' +
-    'The background agent has read-only tools only and cannot edit files or run gated tools.',
+    'The background agent has built-in read-only tools only; it cannot use external MCP/plugin tools, edit files, mutate the visible plan, ask the user, spawn other agents, or run gated tools other than web_search/fetch_url.',
   inputSchema: {
     type: 'object',
     required: ['task'],
@@ -213,21 +214,26 @@ id로 `controller.abort()` → status `cancelled`. 사용자도 트레이 UI에�
 park"해서 사람이 승인하게 했지만, 그건 사람이 보고 있는 in-turn 모델이라 가능했다. 백그라운드는 사람이
 안 보므로 park는 곧 무한 정지다.
 
-→ **v1 결정: 백그라운드 자식은 read-only + non-gated 도구만.** 이미 `runChildAgent`의 `childToolDefs()`가
-정확히 그 필터다:
+→ **v1 결정: 백그라운드 자식은 write 도구, 외부 MCP/plugin 도구, 승인 대기 도구를 차단한다.** 단,
+read-only 웹 리서치용 `web_search`/`fetch_url`은 부모가 이미 background spawn을 승인한 범위 안에서 허용한다. 이미
+`runChildAgent`의 `listChildToolDefs()`가 정확히 그 필터다:
 
 ```ts
 // subagent-runtime.ts
-listMcpTools().filter((tool) =>
-  tool.name !== ASK_USER && tool.name !== SPAWN_SUBAGENT &&
-  tool.write !== true && tool.gated !== true);
+listMcpTools().filter(
+  (tool) =>
+    !excluded.has(tool.name) &&
+    !CHILD_EXCLUDED_TOOL_GROUPS.has(tool.group) &&
+    tool.write !== true &&
+    (tool.gated !== true || CHILD_WEB_RESEARCH_TOOLS.has(tool.name)),
+);
 ```
 
-여기에 백그라운드용으로 `spawn_background_agent`/`collect`/`cancel`도 자식 툴셋에서 제외(깊이 1 고정,
-폭주 방지). 따라서:
+여기에 `ask_user`, `spawn_subagent`, `spawn_background_agent`, `collect_background_agent`,
+`cancel_background_agent`, `update_plan`도 자식 툴셋에서 제외(깊이 1 고정, 자기 증식/plan mutation 방지). 따라서:
 
 - 새 fs/CDP 권한 표면 없음 — 백그라운드도 `readFileSafe`/read-only CDP만.
-- gated/write 도구 자체가 자식에게 안 보임 → **park 상황이 발생하지 않음** → 승인 큐 불필요.
+- write 도구와 웹 리서치 예외 외 승인 대기 도구가 자식에게 안 보임 → **park 상황이 발생하지 않음** → 승인 큐 불필요.
 - 모든 페이지-유래 문자열 scrub 유지(자식도 동일 경로, 결과는 `scrubText` 통과 후 registry 저장).
 - 브리지 가드 L-1(원격 self-approve 불가)와 무충돌 — 애초에 승인 지점이 없음.
 
@@ -251,7 +257,7 @@ listMcpTools().filter((tool) =>
 
 - 대화당 **동시 활성 백그라운드 작업 상한**(예: 4). 초과 spawn은 거부 결과 반환(모델이 알 수 있게).
 - 대화당 **백그라운드 누적 토큰 상한**. 초과 시 신규 spawn 거부 + 트레이 경고.
-- 작업별 step 상한은 `MAX_CHILD_STEPS`(=6) 상속. 결과 길이 `MAX_CHILD_RESULT_CHARS`(=16k) 상속.
+- 작업별 step 상한은 `MAX_CHILD_STEPS`(=12) 상속. 결과 길이 `MAX_CHILD_RESULT_CHARS`(=16k) 상속.
 - read-only 고정이라 §subagent-7의 편집 레이스/브라우저 single-flight 큐는 **불필요**(write 없음).
   단 read-only CDP(스냅샷/콘솔 읽기)도 라이브 페이지를 공유하므로, 동시 다수 작업의 CDP read는
   **best-effort**(상태 변경 없으니 비결정성 허용). 필요 시 탭 단위 read 직렬화는 추후.
@@ -305,7 +311,7 @@ listMcpTools().filter((tool) =>
 7. renderer: `store.ts` background 투영 → `BackgroundTray.tsx`.
 8. 브리지: `dispatch.ts` `cancelBackground` + `shared/remote.ts`(background는 스냅샷에 이미 포함).
 9. harness/e2e: fake-driver로 spawn→즉시 ack→폴링 collect, 동시 상한 초과 거부, reset 시 abort,
-   read-only 필터(gated 도구 미노출) 검증. `npm run typecheck`/`build`/`harness:*`/`e2e` 그린 →
+   read-only 필터(웹 리서치 예외 외 gated 도구 미노출) 검증. `npm run typecheck`/`build`/`harness:*`/`e2e` 그린 →
    커밋 → 리뷰.
 
 ## 14. 열린 질문 (구현 전 확정 필요)

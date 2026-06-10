@@ -7,7 +7,6 @@ import {
   PromptListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { scrubText } from '../../shared/scrub';
 import {
   isHttpMcpConfig,
   mcpDisplayTarget,
@@ -25,6 +24,15 @@ import {
   type McpGetPromptResult,
   type McpReadResourceResult,
 } from './mcp-content';
+import {
+  createExternalToolPolicy,
+  isExternalToolGated,
+  scrubAndClipCapabilityText,
+  scrubAndClipToolMetadataText,
+  sanitizeExternalInputSchema,
+  shouldExposeExternalTool,
+  type ExternalToolPolicyOptions,
+} from './mcp-runtime-policy';
 export { toToolResult } from './mcp-content';
 
 /**
@@ -113,12 +121,16 @@ export type McpToolAnnotations = {
 
 /** A tool as reported by `client.listTools()` (only the fields we consume). */
 export type McpExternalToolInfo = {
-  name: string;
+  name?: unknown;
   /** A human-readable display name (spec `title`); falls back to `annotations.title`. */
   title?: string;
   description?: string;
   inputSchema?: { type: 'object'; properties?: Record<string, object>; required?: string[] };
   annotations?: McpToolAnnotations;
+};
+
+type ExposedMcpExternalToolInfo = McpExternalToolInfo & {
+  readonly name: string;
 };
 
 /** A prompt as reported by `client.listPrompts()` (only the fields we consume). */
@@ -178,10 +190,13 @@ function setStatus(
     target: mcpDisplayTarget(config),
     enabled: config.enabled,
     trusted: config.trust === true,
+    disabledTools: config.disabledTools ?? [],
+    autoApproveTools: config.autoApproveTools ?? [],
+    confirmTools: config.confirmTools ?? [],
     state,
     toolCount,
     ...(extra?.tools ? { tools: extra.tools } : {}),
-    ...(extra?.error ? { error: scrubText(extra.error) } : {}),
+    ...(extra?.error ? { error: scrubAndClipToolMetadataText(extra.error) } : {}),
   };
   statuses.set(config.id, status);
   return status;
@@ -243,12 +258,9 @@ export function buildExternalServer(
   opts: ExternalServerOptions = {},
 ): McpServer {
   const prefix = `${id}__`;
-  const hidden = new Set(opts.disabledTools ?? []);
-  const autoApprove = new Set(opts.autoApproveTools ?? []);
-  const confirm = new Set(opts.confirmTools ?? []);
-  const trustedAll = opts.trusted === true;
+  const policy = createExternalToolPolicy(opts);
   const wrapped: McpTool[] = tools
-    .filter((t) => typeof t.name === 'string' && t.name.length > 0 && !hidden.has(t.name))
+    .filter((t): t is ExposedMcpExternalToolInfo => shouldExposeExternalTool(t.name, policy, id))
     .map((t) => {
       const toolName = t.name;
       const namespaced = `${prefix}${toolName}`;
@@ -256,19 +268,20 @@ export function buildExternalServer(
       // gated even on a trusted server); otherwise a whole-server `trust` un-gates
       // everything, and on an untrusted server a per-tool allow-list can un-gate
       // individual tools.
-      const gated = confirm.has(toolName) || (!trustedAll && !autoApprove.has(toolName));
+      const gated = isExternalToolGated(toolName, policy);
       const write = annotatedAsWrite(t.annotations);
       // Prefer the spec `title` (or annotations.title) for a friendlier label.
-      const title = t.title ?? t.annotations?.title;
-      const label = title && title !== toolName ? `${title} — ${toolName}` : toolName;
-      // Pass the server's own schema through; fall back to a permissive object
-      // schema if it omitted one (a tool with no declared inputs).
-      const inputSchema = t.inputSchema ?? { type: 'object' as const, properties: {} };
+      const title =
+        t.title ?? (typeof t.annotations?.title === 'string' ? t.annotations.title : undefined);
+      const safeTitle = title ? scrubAndClipToolMetadataText(title) : undefined;
+      const label = safeTitle && safeTitle !== toolName ? `${safeTitle} - ${toolName}` : toolName;
+      const inputSchema = sanitizeExternalInputSchema(t.inputSchema);
+      const description = t.description
+        ? `[${id}] ${label}: ${scrubAndClipToolMetadataText(t.description)}`
+        : `[${id}] external MCP tool "${label}".`;
       const tool: McpTool = {
         name: namespaced,
-        description: t.description
-          ? `[${id}] ${label}: ${t.description}`
-          : `[${id}] external MCP tool "${label}".`,
+        description,
         inputSchema,
         group: 'mcp',
         gated,
@@ -284,7 +297,7 @@ export function buildExternalServer(
           } catch (err) {
             return {
               summary: `${namespaced} error`,
-              text: `${namespaced} failed — ${scrubText((err as Error).message)}`,
+              text: externalErrorText(namespaced, err),
               isError: true,
             };
           }
@@ -323,8 +336,7 @@ export function buildCapabilityTools(
   const caps = client.getServerCapabilities?.();
   if (!caps) return [];
   const prefix = `${id}__`;
-  const gatedDefault = opts.trusted !== true;
-  const autoApprove = new Set(opts.autoApproveTools ?? []);
+  const policy = createExternalToolPolicy(opts);
   const out: McpTool[] = [];
 
   const add = (
@@ -335,13 +347,13 @@ export function buildCapabilityTools(
   ): void => {
     const namespaced = `${prefix}${bare}`;
     // A real tool of the same namespaced name takes precedence — don't shadow it.
-    if (existingNames.has(namespaced)) return;
+    if (existingNames.has(namespaced) || !shouldExposeExternalTool(bare, policy, id)) return;
     out.push({
       name: namespaced,
       description: `[${id}] ${description}`,
       inputSchema,
       group: 'mcp',
-      gated: gatedDefault && !autoApprove.has(bare),
+      gated: isExternalToolGated(bare, policy),
       exec,
     });
   };
@@ -364,7 +376,7 @@ export function buildCapabilityTools(
             return `• ${p.name}${args ? ` (${args})` : ''}${desc}`;
           });
           const text = lines.length > 0 ? lines.join('\n') : '(no prompts)';
-          return { summary: `${prefix}list_prompts`, text: scrubText(text) };
+          return { summary: `${prefix}list_prompts`, text: scrubAndClipCapabilityText(text) };
         } catch (err) {
           return errorResult(`${prefix}list_prompts`, err);
         }
@@ -419,7 +431,7 @@ export function buildCapabilityTools(
             return `• ${r.uri}${nm ? ` — ${nm}` : ''}${mime}`;
           });
           const text = lines.length > 0 ? lines.join('\n') : '(no resources)';
-          return { summary: `${prefix}list_resources`, text: scrubText(text) };
+          return { summary: `${prefix}list_resources`, text: scrubAndClipCapabilityText(text) };
         } catch (err) {
           return errorResult(`${prefix}list_resources`, err);
         }
@@ -455,9 +467,14 @@ export function buildCapabilityTools(
 function errorResult(name: string, err: unknown): ToolResult {
   return {
     summary: `${name} error`,
-    text: `${name} failed — ${scrubText((err as Error).message)}`,
+    text: externalErrorText(name, err),
     isError: true,
   };
+}
+
+function externalErrorText(name: string, err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return `${name} failed — ${scrubAndClipCapabilityText(message)}`;
 }
 
 /** A fresh MCP `Client` with marudesk's identity (no special capabilities). */
@@ -584,22 +601,23 @@ export async function connectServer(
     console.log(`[mcp] connected "${config.id}" — ${server.tools.length} tool(s)`);
     return status;
   } catch (err) {
-    const message = (err as Error).message || 'failed to connect';
+    const message = err instanceof Error ? err.message : String(err || 'failed to connect');
     // Don't log the message verbatim (args/env/headers could be sensitive) — id + a
     // scrubbed reason is enough to debug.
-    console.error(`[mcp] server "${config.id}" failed to connect: ${scrubText(message)}`);
+    console.error(`[mcp] server "${config.id}" failed to connect: ${scrubAndClipToolMetadataText(message)}`);
     return setStatus(config, 'error', 0, { error: message });
   }
 }
 
 /** The wrapping options derived from a server's config (trust + tool filters). */
 function optsFromConfig(config: McpServerConfig): ExternalServerOptions {
-  return {
+  const options: ExternalToolPolicyOptions = {
     trusted: config.trust === true,
     disabledTools: config.disabledTools,
     autoApproveTools: config.autoApproveTools,
     confirmTools: config.confirmTools,
   };
+  return options;
 }
 
 /**
@@ -672,7 +690,8 @@ async function refreshServerTools(id: string): Promise<void> {
     entry.status = setConnectedStatus(entry.config, server);
     console.log(`[mcp] "${id}" tool list changed — now ${server.tools.length} tool(s)`);
   } catch (err) {
-    console.error(`[mcp] "${id}" tool refresh failed: ${scrubText((err as Error).message)}`);
+    const message = err instanceof Error ? err.message : String(err || 'failed to refresh tools');
+    console.error(`[mcp] "${id}" tool refresh failed: ${scrubAndClipToolMetadataText(message)}`);
   }
 }
 
@@ -862,6 +881,7 @@ function configChanged(a: McpServerConfig, b: McpServerConfig): boolean {
   if (a.trust !== b.trust) return true;
   if (JSON.stringify(a.disabledTools ?? []) !== JSON.stringify(b.disabledTools ?? [])) return true;
   if (JSON.stringify(a.autoApproveTools ?? []) !== JSON.stringify(b.autoApproveTools ?? [])) return true;
+  if (JSON.stringify(a.confirmTools ?? []) !== JSON.stringify(b.confirmTools ?? [])) return true;
   if (isHttpMcpConfig(a) && isHttpMcpConfig(b)) {
     return (
       a.url !== b.url ||

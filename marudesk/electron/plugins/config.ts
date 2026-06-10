@@ -82,6 +82,11 @@ export async function setPluginConfig(entry: PluginConfigEntry): Promise<Plugins
   return writePluginsConfig({ plugins });
 }
 
+export async function removePluginConfig(id: string): Promise<PluginsConfigFile> {
+  const current = await readPluginsConfig();
+  return writePluginsConfig({ plugins: current.plugins.filter((p) => p.id !== id) });
+}
+
 export async function ensurePluginsConfigFile(): Promise<void> {
   const p = pluginsConfigPath();
   try {

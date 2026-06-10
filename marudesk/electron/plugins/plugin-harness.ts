@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +10,9 @@ import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
 import { satisfiesEngine } from './engine-compat';
 import { buildPluginServer, PluginHost } from './host';
+import { installUserPluginFolder, removeUserPluginFolder } from './lifecycle';
 import { guardedFetch } from './permissions';
+import { readPluginManifest } from './manifest';
 import { openUserPluginsFolder } from './open-folder';
 import { spawnViaChildProcess } from './transport';
 
@@ -197,6 +200,43 @@ async function main(): Promise<void> {
     openFolderError = (err as Error).message;
   }
   check('open plugins folder surfaces shell.openPath failures', openFolderError === 'open failed');
+
+  // ── Settings → Plugins: install/remove helpers ────────────────────────────
+  const installRoot = mkdtempSync(path.join(os.tmpdir(), 'marudesk-plugins-install-'));
+  const installId = await installUserPluginFolder(installRoot, HELLO_DIR);
+  check('install plugin copies the selected folder into the user plugin dir', installId === 'hello-world');
+  check(
+    'install plugin copies the manifest into the destination folder',
+    existsSync(path.join(installRoot, 'hello-world', 'manifest.json')),
+  );
+  const installedManifest = await readPluginManifest(path.join(installRoot, 'hello-world'));
+  check('install plugin keeps the copied folder valid', installedManifest?.id === 'hello-world');
+  let duplicateError = '';
+  try {
+    await installUserPluginFolder(installRoot, HELLO_DIR);
+  } catch (err) {
+    duplicateError = (err as Error).message;
+  }
+  check('install plugin refuses to overwrite an existing install from another source', /already installed/.test(duplicateError));
+  let installedFolderError = '';
+  try {
+    await installUserPluginFolder(installRoot, path.join(installRoot, 'hello-world'));
+  } catch (err) {
+    installedFolderError = (err as Error).message;
+  }
+  check('install plugin refuses to reinstall an already-installed folder', /already installed/.test(installedFolderError));
+  const invalidRoot = mkdtempSync(path.join(os.tmpdir(), 'marudesk-plugins-invalid-'));
+  const invalidSource = path.join(invalidRoot, 'not-a-plugin');
+  await fs.mkdir(invalidSource, { recursive: true });
+  let invalidInstallError = '';
+  try {
+    await installUserPluginFolder(installRoot, invalidSource);
+  } catch (err) {
+    invalidInstallError = (err as Error).message;
+  }
+  check('install plugin rejects a folder without a valid manifest', /not a valid plugin/.test(invalidInstallError));
+  await removeUserPluginFolder(installRoot, 'hello-world');
+  check('remove plugin deletes the installed user plugin folder', !existsSync(path.join(installRoot, 'hello-world')));
 
   // Engine compat (audit H9): the range forms a manifest realistically uses.
   check('engine: empty/any range allows', satisfiesEngine('0.1.1', undefined) && satisfiesEngine('0.1.1', '*'));

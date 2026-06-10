@@ -144,6 +144,12 @@ type AgentActions = {
   abort: () => Promise<void>;
   answer: (callId: string, answers: AgentAnswers) => Promise<void>;
   approve: (callId: string, approved: boolean, always?: boolean) => Promise<void>;
+  approveForTurn: (
+    turnId: string,
+    callId: string,
+    approved: boolean,
+    always?: boolean,
+  ) => Promise<void>;
   acceptEdit: (editId: string) => Promise<AgentEditActionResult>;
   revertEdit: (editId: string) => Promise<AgentEditActionResult>;
   restoreTurnPage: (turnId: string) => Promise<void>;
@@ -375,6 +381,10 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
   approve: async (callId, approved, always = false) => {
     const turnId = get().chat.turnId;
     if (!turnId) return;
+    await get().approveForTurn(turnId, callId, approved, always);
+  },
+
+  approveForTurn: async (turnId, callId, approved, always = false) => {
     try {
       await window.marudesk.invoke('agent:approve-tool', { turnId, callId, approved, always });
     } catch {

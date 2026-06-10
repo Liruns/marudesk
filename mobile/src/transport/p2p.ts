@@ -39,8 +39,11 @@ export class P2pUpgrade {
   private channel: RTCDataChannel | null = null;
   private closed = false;
   private opened = false;
+  private readonly deps: P2pDeps;
 
-  constructor(private readonly deps: P2pDeps) {}
+  constructor(deps: P2pDeps) {
+    this.deps = deps;
+  }
 
   /** Begin negotiation: create the channel + offer and send it to the PC. */
   async start(): Promise<void> {

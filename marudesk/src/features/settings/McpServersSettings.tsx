@@ -2,20 +2,18 @@ import { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
-  CircleSlash,
   ExternalLink,
-  Globe,
   Loader2,
   Plus,
   RotateCcw,
   ServerCog,
-  ShieldCheck,
-  TerminalSquare,
 } from 'lucide-react';
-import { Badge, Button, Switch } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
-import type { McpServerStatus } from '../../../shared/mcp';
+import { cn } from '../../lib/cn';
+import type { McpConfigHealth, McpServerStatus } from '../../../shared/mcp';
 import { MCP_PRESETS } from '../../../shared/mcp-presets';
+import { McpServerCard, type McpServerEditablePatch } from './McpServerCard';
 
 /**
  * Settings → MCP Servers (docs/remote-mobile-bridge-design §M3, docs/context-mcp-design
@@ -33,6 +31,7 @@ export function McpServersSettings() {
   const { t } = useI18n();
   const [servers, setServers] = useState<McpServerStatus[] | null>(null);
   const [embedded, setEmbedded] = useState<EmbeddedStatus | null>(null);
+  const [configHealth, setConfigHealth] = useState<McpConfigHealth | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Whether the browser-control preset drives the embedded Chromium, and whether the
@@ -42,6 +41,14 @@ export function McpServersSettings() {
       .invoke('mcp:embedded-browser-status')
       .then(setEmbedded)
       .catch(() => {});
+  };
+
+  const refreshConfigHealth = async () => {
+    try {
+      setConfigHealth(await window.marudesk.invoke('mcp:config-diagnostics'));
+    } catch {
+      // A diagnostics read should not make the rest of the panel unusable.
+    }
   };
 
   useEffect(() => {
@@ -54,6 +61,12 @@ export function McpServersSettings() {
       .catch(() => {
         if (alive) setServers([]);
       });
+    void window.marudesk
+      .invoke('mcp:config-diagnostics')
+      .then((health) => {
+        if (alive) setConfigHealth(health);
+      })
+      .catch(() => {});
     refreshEmbedded();
     return () => {
       alive = false;
@@ -64,6 +77,7 @@ export function McpServersSettings() {
     setBusy(true);
     try {
       setServers(await window.marudesk.invoke('mcp:reload'));
+      await refreshConfigHealth();
       refreshEmbedded();
     } catch {
       // Keep the current list; a transient failure shouldn't blank the panel.
@@ -76,9 +90,36 @@ export function McpServersSettings() {
     setBusy(true);
     try {
       setServers(await window.marudesk.invoke('mcp:set-enabled', { id, enabled }));
+      await refreshConfigHealth();
       refreshEmbedded();
     } catch {
       // no-op — the list stays as-is
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateServer = async (id: string, patch: McpServerEditablePatch) => {
+    setBusy(true);
+    try {
+      setServers(await window.marudesk.invoke('mcp:update-server', { id, ...patch }));
+      await refreshConfigHealth();
+      refreshEmbedded();
+    } catch {
+      // no-op - the list stays as-is
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeServer = async (id: string) => {
+    setBusy(true);
+    try {
+      setServers(await window.marudesk.invoke('mcp:remove-server', { id }));
+      await refreshConfigHealth();
+      refreshEmbedded();
+    } catch {
+      // no-op - the list stays as-is
     } finally {
       setBusy(false);
     }
@@ -88,6 +129,7 @@ export function McpServersSettings() {
     setBusy(true);
     try {
       setServers(await window.marudesk.invoke('mcp:add-preset', { id }));
+      await refreshConfigHealth();
       refreshEmbedded();
     } catch {
       // no-op — leave the list as-is on a transient failure
@@ -97,7 +139,10 @@ export function McpServersSettings() {
   };
 
   const openConfig = () => {
-    void window.marudesk.invoke('mcp:open-config').catch(() => {});
+    void window.marudesk
+      .invoke('mcp:open-config')
+      .then(() => refreshConfigHealth())
+      .catch(() => {});
   };
 
   const configuredIds = new Set((servers ?? []).map((s) => s.id));
@@ -127,6 +172,8 @@ export function McpServersSettings() {
           {t('settings.mcp.openConfig')}
         </Button>
       </div>
+
+      <McpConfigDiagnosticsBanner health={configHealth} />
 
       <div className="flex flex-col gap-1.5">
         <span className="text-caption text-fg-tertiary">{t('settings.mcp.presets.label')}</span>
@@ -171,7 +218,14 @@ export function McpServersSettings() {
           <EmptyRow text={t('settings.mcp.empty')} />
         ) : (
           servers.map((s) => (
-            <ServerCard key={s.id} status={s} busy={busy} onToggle={toggle} />
+            <McpServerCard
+              key={s.id}
+              status={s}
+              busy={busy}
+              onToggle={toggle}
+              onUpdate={updateServer}
+              onRemove={removeServer}
+            />
           ))
         )}
       </div>
@@ -188,90 +242,49 @@ function EmptyRow({ text }: { text: string }) {
   );
 }
 
-function ServerCard({
-  status,
-  busy,
-  onToggle,
-}: {
-  status: McpServerStatus;
-  busy: boolean;
-  onToggle: (id: string, enabled: boolean) => Promise<void>;
-}) {
-  const TransportIcon = status.transport === 'stdio' ? TerminalSquare : Globe;
+function McpConfigDiagnosticsBanner({ health }: { readonly health: McpConfigHealth | null }) {
   const { t } = useI18n();
+  if (!health || health.diagnostics.length === 0) return null;
+  const hasError = health.diagnostics.some((d) => d.severity === 'error');
+  const shown = health.diagnostics.slice(0, 4);
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-1 px-4 py-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-body-sm font-medium text-fg-primary truncate">{status.id}</span>
-          <StatusBadge status={status} />
-          {status.trusted ? (
-            <Badge variant="accent" className="gap-1">
-              <ShieldCheck size={11} />
-              Trusted
-            </Badge>
-          ) : null}
-          <span className="text-caption uppercase tracking-wide text-fg-tertiary/70 shrink-0">
-            {status.transport === 'http'
-              ? t('settings.mcp.transport.remote')
-              : t('settings.mcp.transport.stdio')}
-          </span>
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg border px-4 py-3 text-body-sm text-fg-secondary',
+        hasError
+          ? 'border-error/40 bg-error-subtle/40'
+          : 'border-warning/40 bg-warning-subtle/40',
+      )}
+    >
+      <AlertCircle
+        size={15}
+        className={cn('mt-0.5 shrink-0', hasError ? 'text-error' : 'text-warning')}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-fg-primary">
+          {hasError
+            ? t('settings.mcp.configDiagnostics.error')
+            : t('settings.mcp.configDiagnostics.warning')}
         </div>
-        <span className="flex items-center gap-1.5 text-caption font-mono text-fg-tertiary truncate">
-          <TransportIcon size={12} className="shrink-0" />
-          {status.target}
-        </span>
-        {status.state === 'connected' && status.tools && status.tools.length > 0 ? (
-          <span className="text-caption text-fg-tertiary truncate" title={status.tools.join(', ')}>
-            {status.tools.join(', ')}
-          </span>
-        ) : null}
-        {status.state === 'error' && status.error ? (
-          <span className="text-caption text-error truncate">{status.error}</span>
+        <div className="mt-1 flex flex-col gap-1">
+          {shown.map((diagnostic, index) => (
+            <span
+              key={`${diagnostic.code}-${diagnostic.index ?? 'root'}-${diagnostic.serverId ?? 'config'}-${diagnostic.field ?? 'all'}-${index}`}
+              className="break-words"
+            >
+              {diagnostic.message}
+            </span>
+          ))}
+        </div>
+        {health.diagnostics.length > shown.length ? (
+          <div className="mt-1 text-caption text-fg-tertiary">
+            {t('settings.mcp.configDiagnostics.more').replace(
+              '{count}',
+              String(health.diagnostics.length - shown.length),
+            )}
+          </div>
         ) : null}
       </div>
-      <Switch
-        checked={status.enabled}
-        disabled={busy}
-        onChange={(next) => void onToggle(status.id, next)}
-        label={`${status.enabled ? t('settings.mcp.toggle.disable') : t('settings.mcp.toggle.enable')} ${status.id}`}
-      />
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: McpServerStatus }) {
-  const { formatMcpToolCount, t } = useI18n();
-  if (status.state === 'connected') {
-    return (
-      <Badge variant="success" className="gap-1">
-        <CheckCircle2 size={11} />
-        {formatMcpToolCount(status.toolCount)}
-      </Badge>
-    );
-  }
-  if (status.state === 'connecting' || status.state === 'reconnecting') {
-    return (
-      <Badge variant="accent" className="gap-1">
-        <Loader2 size={11} className="animate-spin" />
-        {status.state === 'reconnecting'
-          ? t('settings.mcp.status.reconnecting')
-          : t('settings.mcp.status.connecting')}
-      </Badge>
-    );
-  }
-  if (status.state === 'error') {
-    return (
-      <Badge variant="error" className="gap-1">
-        <AlertCircle size={11} />
-        {t('settings.mcp.status.error')}
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="neutral" className="gap-1">
-      <CircleSlash size={11} />
-      {t('settings.mcp.status.disabled')}
-    </Badge>
   );
 }

@@ -17,10 +17,11 @@ import type { ToolContext, ToolResult } from './tools/types';
  * mirror it into `S.state.background` (and `emit()`) so the renderer/bridge see it
  * through the existing single snapshot.
  *
- * Safety (§6): the child reuses {@link runChildAgent}, whose toolset is read-only +
- * non-gated, so a detached agent can never reach an approval park (which, with no
- * human watching, would stall forever). Write-capable background agents are a
- * deliberate non-goal until the subagent unified approval queue exists.
+ * Safety (§6): the child reuses {@link runChildAgent}, whose toolset blocks
+ * external MCP/plugin tools, writes, and approval-parked tools except read-only
+ * web research (web_search/fetch_url), so a detached agent cannot stall waiting
+ * for a human. Write-capable background agents are a deliberate non-goal until
+ * the subagent unified approval queue exists.
  */
 
 type BackgroundEntry = {

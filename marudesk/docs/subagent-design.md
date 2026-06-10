@@ -14,8 +14,9 @@
 - `spawn_subagent`는 모델에 노출되는 gated tool이며, 부모 승인 후 실행된다.
 - 자식은 부모 provider/model을 기본값으로 쓰고, 요청에 provider/model이 있으면 검증 후 사용한다.
 - 자식 루프는 bounded step limit 안에서 별도 transcript로 실행되고, 결과를 부모의 tool result로 반환한다.
-- 자식이 볼 수 있는 tool은 read-only이면서 non-gated인 도구뿐이다. `ask_user`, `spawn_subagent`,
-  write tool, gated tool은 제외한다.
+- 자식이 볼 수 있는 tool은 built-in read-only 도구이며, gated 도구는 `web_search`/`fetch_url` 웹 리서치 예외만
+  허용한다. `ask_user`, `spawn_subagent`, `spawn_background_agent`, `update_plan`, external MCP/plugin
+  tool, write tool, 그 외 gated tool은 제외한다.
 - UI는 현재 별도 child panel/tree가 아니라 기존 tool card로 task, provider/model, status, result를 보여준다.
 
 남은 full-scope 작업은 §12의 `AgentRuntime` 추출, `AgentTreeState`, 통합 승인 큐, 병렬 child panel,
@@ -132,10 +133,9 @@ export type AgentTreeState = {
 {
   name: 'spawn_subagent',
   description:
-    'Delegate a self-contained subtask to a child agent (optionally on a different ' +
-    'provider/model). The child runs with the same tools, in the same workspace, and ' +
-    'returns a final report. Use for parallel research fan-out, second opinions, or ' +
-    'splitting long work. Spawn multiple in one turn to run them in parallel.',
+    'Delegate a self-contained read-only subtask to a bounded child agent. ' +
+    'The parent turn waits for the child report. Use for focused second opinions ' +
+    'and bounded analysis; use spawn_background_agent for detached fan-out.',
   inputSchema: {
     type: 'object',
     required: ['task'],
@@ -149,13 +149,12 @@ export type AgentTreeState = {
 }
 ```
 
-- **실행기**(`executors.ts`): `provider/model`을 `isProviderId`/`MODELS`로 검증 → 부모 값으로 폴백 →
-  `spawnChild({ task, provider, model, label })` 호출. **즉시 반환하지 않는다**: 자식이 끝나면 그
-  최종 리포트(text)를 이 도구의 `tool_result`로 돌려준다. 부모는 그 사이 다른 도구를 더 호출할 수 있다
-  (한 턴에 여러 spawn → 병렬).
-- **병렬성**: 한 어시스턴트 스텝이 `spawn_subagent`를 여러 개 tool_use로 내면, 부모 루프가 그것들을
-  **동시에 기동**하고 각 결과를 들어오는 대로 `tool_result`로 채운다(기존 루프의 순차 실행을 spawn
-  도구에 한해 동시 실행으로 완화 — §7 동시성 정책 준수).
+- **실행기**(`subagent.ts`/`subagent-runtime.ts`): `provider/model`을 검증 → 부모 또는 delegate 값으로
+  폴백 → bounded child loop 실행. **즉시 반환하지 않는다**: 자식이 끝나면 그 최종 리포트(text)를 이
+  도구의 `tool_result`로 돌려준다. 현재 부모 루프는 tool call을 순차 처리하므로 foreground
+  `spawn_subagent`는 부모 턴을 막는다.
+- **병렬성**: 현재 foreground `spawn_subagent`는 병렬 실행기가 아니다. detached fan-out은
+  `spawn_background_agent`가 담당한다. full visible parallel tree는 §12의 남은 작업이다.
 - **깊이 제한**: 자식의 툴셋에서 `spawn_subagent` 제외(깊이 1 고정). 폭주·과금 방지. (추후 깊이 N은
   토큰/노드 상한과 함께 별도 결정.)
 

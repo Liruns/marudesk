@@ -33,6 +33,8 @@ import {
   ReceiptCard,
   Taskboard,
 } from './chat/Cards';
+import { ApprovalQueueCard } from './chat/ApprovalQueueCard';
+import { OrchestrationTree } from './chat/OrchestrationTree';
 import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
 import { useComposer } from './useComposer';
 
@@ -192,9 +194,19 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
           ) : null}
 
+          {chat.orchestration.length > 0 ? (
+            <div className={full ? 'lg:hidden' : undefined}>
+              <OrchestrationTree nodes={chat.orchestration} />
+            </div>
+          ) : null}
+
           <BackgroundTray tasks={chat.background} />
 
-          {chat.pendingApproval ? <ApprovalCard approval={chat.pendingApproval} /> : null}
+          {chat.approvalQueue.length > 0 ? (
+            <ApprovalQueueCard approvals={chat.approvalQueue} />
+          ) : chat.pendingApproval ? (
+            <ApprovalCard approval={chat.pendingApproval} />
+          ) : null}
           {chat.pendingQuestions ? <QuestionsCard pending={chat.pendingQuestions} /> : null}
 
           {chat.endNote ? (
@@ -226,9 +238,12 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         {/* In the full surface the plan rides in a right-side "Mission Control"
             panel so it stays visible while the transcript scrolls (v5 §G2). The
             compact drawer keeps it inline (collapsible) below. */}
-        {full && chat.plan && chat.plan.steps.length > 0 ? (
+        {full && (chat.plan?.steps.length || chat.orchestration.length > 0) ? (
           <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-l border-subtle p-3 lg:flex">
-            <Taskboard plan={chat.plan} />
+            <div className="flex flex-col gap-3">
+              <Taskboard plan={chat.plan} />
+              <OrchestrationTree nodes={chat.orchestration} />
+            </div>
           </aside>
         ) : null}
       </div>

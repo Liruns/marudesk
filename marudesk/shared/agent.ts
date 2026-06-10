@@ -1,4 +1,5 @@
 import type { CapturePayload } from './composer';
+import type { AgentRunTreeNode, ApprovalQueueItem } from './agent-orchestration';
 import type { ProviderId } from './providers';
 import type { AgentApprovalMode } from './settings';
 import type { WorkspaceId } from './workspace';
@@ -218,6 +219,12 @@ export type AgentChatState = {
   messages: AgentMessage[];
   edits: AgentEdit[];
   pendingApproval: PendingApproval | null;
+  /**
+   * Unified desktop approval projection across open agent threads. This is a
+   * queue view only; approval resolution still routes by each item's turnId and
+   * callId through the existing main-process resolver.
+   */
+  approvalQueue: ApprovalQueueItem[];
   pendingQuestions: PendingQuestions | null;
   /**
    * Token accounting. `inputTokens`/`outputTokens` are cumulative totals for the
@@ -249,6 +256,8 @@ export type AgentChatState = {
    * via collect_background_agent and the user cancels via the tray.
    */
   background: BackgroundTask[];
+  /** Visible parent/child projection of live foreground threads and detached work. */
+  orchestration: AgentRunTreeNode[];
   /**
    * The agent's working plan for multi-step tasks (v5 §G2), maintained by the
    * model via the `update_plan` tool and rendered as a Taskboard. null when the
@@ -348,12 +357,14 @@ export function emptyAgentChatState(): AgentChatState {
     messages: [],
     edits: [],
     pendingApproval: null,
+    approvalQueue: [],
     pendingQuestions: null,
     usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
     activeSessionId: null,
     endNote: null,
     background: [],
+    orchestration: [],
     plan: null,
     approvalMode: 'ask',
   };

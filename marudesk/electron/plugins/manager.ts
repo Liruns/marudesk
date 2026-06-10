@@ -1,47 +1,27 @@
-import { app } from 'electron';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import fsSync from 'node:fs';
 import {
-  isSafePanelPath,
-  isValidPluginId,
   permissionsKey,
-  PLUGIN_PERMISSIONS,
   PLUGIN_SERVER_PREFIX,
   pluginToolName,
   type PluginCommandSnapshot,
-  type PluginManifest,
   type PluginPanel,
   type PluginPermission,
   type PluginSlashContribution,
   type PluginStatus,
 } from '../../shared/plugin';
+import { appVersion } from './app-version';
+import { discoverPlugins, type DiscoveredPlugin } from './discovery';
 import { registerMcpServer, unregisterMcpServer } from '../agent/mcp';
 import { satisfiesEngine } from './engine-compat';
 import { buildPluginServer, PluginHost } from './host';
-import { readPluginsConfig, setPluginConfig } from './config';
+import { readPluginsConfig, removePluginConfig, setPluginConfig } from './config';
+import { hasUserPluginFolder, installUserPluginFolder, removeUserPluginFolder } from './lifecycle';
+import { readPluginManifest } from './manifest';
+import { resolvePanelFile } from './panel-resolver';
 import { spawnViaUtilityProcess } from './spawn-electron';
 import type { SpawnWorker } from './transport';
 
-/**
- * Plugin manager (docs/plugin-runtime-design.md §1, §7 P1). Scans the user and
- * project plugin folders, reconciles each discovered plugin against the persisted
- * enable/grant config, and — for an enabled plugin whose declared permissions are
- * all granted and unchanged — spawns its isolated worker, loads it, and registers
- * its contributed tools through {@link registerMcpServer} (the same merge point the
- * built-in and external-MCP servers use, so the loop mediates a plugin tool exactly
- * like a built-in one). Everything is best-effort: a bad manifest / failed load is
- * recorded as an `error` status and skipped, never crashing the app.
- *
- * Ships inert: with no config the scan finds plugins but activates nothing until
- * the user approves one in Settings (P2).
- */
-
-type Discovered = { scope: 'user' | 'project'; dir: string; manifest: PluginManifest };
-
 type LivePlugin = {
   host: PluginHost;
-  status: PluginStatus;
   commands: PluginSlashContribution[];
   /** Absolute plugin folder + its panel, when active with the `ui` grant (v2). */
   dir: string;
@@ -57,89 +37,6 @@ export type PluginManagerDeps = {
   spawn?: SpawnWorker;
 };
 
-const MAX_PLUGINS = 100;
-
-/** Read + validate one plugin folder's manifest. Returns null if unusable. */
-async function readManifest(dir: string): Promise<PluginManifest | null> {
-  let raw: string;
-  try {
-    raw = await fs.readFile(path.join(dir, 'manifest.json'), 'utf8');
-  } catch {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const m = parsed as Record<string, unknown>;
-  const folder = path.basename(dir);
-  if (!isValidPluginId(m.id) || m.id !== folder) return null;
-  if (typeof m.main !== 'string' || m.main.length === 0) return null;
-  // main must not escape the plugin folder.
-  const entry = path.resolve(dir, m.main);
-  if (!entry.startsWith(path.resolve(dir) + path.sep)) return null;
-  const allowed = new Set<string>(PLUGIN_PERMISSIONS);
-  const permissions = Array.isArray(m.permissions)
-    ? m.permissions.filter((p): p is PluginPermission => typeof p === 'string' && allowed.has(p))
-    : [];
-  return {
-    id: m.id,
-    name: typeof m.name === 'string' ? m.name : m.id,
-    version: typeof m.version === 'string' ? m.version : '0.0.0',
-    description: typeof m.description === 'string' ? m.description : undefined,
-    main: m.main,
-    permissions,
-    ...(m.net && typeof m.net === 'object' ? { net: m.net as PluginManifest['net'] } : {}),
-    ...(parsePanel(m.panel) ? { panel: parsePanel(m.panel)! } : {}),
-    ...(parseEngine(m.engine) ? { engine: parseEngine(m.engine)! } : {}),
-  };
-}
-
-/** Validate a manifest `engine` block: `{ marudesk?: "<semver range>" }`. */
-function parseEngine(value: unknown): { marudesk?: string } | null {
-  if (!value || typeof value !== 'object') return null;
-  const e = value as { marudesk?: unknown };
-  if (typeof e.marudesk !== 'string' || !e.marudesk.trim()) return null;
-  return { marudesk: e.marudesk.trim() };
-}
-
-/** The running app version, with a non-electron fallback so this stays testable. */
-function appVersion(): string {
-  try {
-    return app.getVersion();
-  } catch {
-    return '0.0.0';
-  }
-}
-
-/** Validate a manifest `panel` block: a string title + a safe folder-relative entry. */
-function parsePanel(value: unknown): PluginPanel | null {
-  if (!value || typeof value !== 'object') return null;
-  const p = value as { title?: unknown; entry?: unknown };
-  if (typeof p.title !== 'string' || !isSafePanelPath(p.entry)) return null;
-  return { title: p.title.slice(0, 120), entry: p.entry };
-}
-
-async function scanDir(dir: string, scope: 'user' | 'project'): Promise<Discovered[]> {
-  let entries: string[];
-  try {
-    entries = (await fs.readdir(dir, { withFileTypes: true }))
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-  } catch {
-    return [];
-  }
-  const out: Discovered[] = [];
-  for (const name of entries.slice(0, MAX_PLUGINS)) {
-    const pluginDir = path.join(dir, name);
-    const manifest = await readManifest(pluginDir);
-    if (manifest) out.push({ scope, dir: pluginDir, manifest });
-  }
-  return out;
-}
-
 export class PluginManager {
   private readonly deps: PluginManagerDeps;
   private readonly spawn: SpawnWorker;
@@ -151,20 +48,12 @@ export class PluginManager {
     this.spawn = deps.spawn ?? spawnViaUtilityProcess;
   }
 
-  /** Discover plugins across user + project scope; project shadows user by id. */
-  private async discover(): Promise<Map<string, Discovered>> {
-    const userPlugins = await scanDir(this.deps.userDir, 'user');
-    const root = this.deps.getWorkspaceRoot();
-    const projectPlugins = root
-      ? await scanDir(path.join(root, '.marudesk', 'plugins'), 'project')
-      : [];
-    const byId = new Map<string, Discovered>();
-    for (const d of userPlugins) byId.set(d.manifest.id, d);
-    for (const d of projectPlugins) byId.set(d.manifest.id, d); // project wins
-    return byId;
+  // Discover plugins across user + project scope; project shadows user by id.
+  private discover(): Promise<Map<string, DiscoveredPlugin>> {
+    return discoverPlugins(this.deps.userDir, this.deps.getWorkspaceRoot);
   }
 
-  /** (Re)scan + reconcile with the persisted config. Returns fresh statuses. */
+  // Re-scan and reconcile with persisted config.
   async reload(): Promise<PluginStatus[]> {
     const discovered = await this.discover();
     const config = await readPluginsConfig();
@@ -191,6 +80,7 @@ export class PluginManager {
           name: d.manifest.name,
           version: d.manifest.version,
           scope: d.scope,
+          ...(d.hasUserInstall ? { hasUserInstall: true } : {}),
           state: enabled ? 'needs-approval' : 'disabled',
           permissions: declared,
           granted,
@@ -209,8 +99,8 @@ export class PluginManager {
     return next;
   }
 
-  /** Spawn + load one plugin and register its tools. Idempotent per reload. */
-  private async activate(d: Discovered, granted: PluginPermission[]): Promise<PluginStatus> {
+  // Spawn and load one plugin. Idempotent per reload.
+  private async activate(d: DiscoveredPlugin, granted: PluginPermission[]): Promise<PluginStatus> {
     // Replace any prior instance so a reload re-reads code/manifest cleanly.
     this.deactivate(d.manifest.id);
     const base = {
@@ -218,6 +108,7 @@ export class PluginManager {
       name: d.manifest.name,
       version: d.manifest.version,
       scope: d.scope,
+      ...(d.hasUserInstall ? { hasUserInstall: true } : {}),
       permissions: d.manifest.permissions ?? [],
       granted,
     };
@@ -250,7 +141,6 @@ export class PluginManager {
       };
       this.live.set(d.manifest.id, {
         host,
-        status,
         commands: contributions.commands,
         dir: d.dir,
         panel,
@@ -268,7 +158,7 @@ export class PluginManager {
     }
   }
 
-  /** Tear down a live plugin: unregister its server and dispose the worker. */
+  // Tear down a live plugin: unregister its server and dispose the worker.
   private deactivate(id: string): void {
     const existing = this.live.get(id);
     if (!existing) return;
@@ -277,34 +167,17 @@ export class PluginManager {
     this.live.delete(id);
   }
 
-  /** Latest per-plugin statuses (cheap; no scan). */
+  // Latest per-plugin statuses (cheap; no scan).
   list(): PluginStatus[] {
     return this.statuses;
   }
 
-  /**
-   * Resolve a `plugin://<id>/<relPath>` request to an absolute file, or null
-   * (v2 §8.5). Serves ONLY an active plugin that holds the `ui` grant + declares a
-   * panel, only paths inside its folder (no `..`, symlink realpath re-checked).
-   */
+  // Resolve a plugin panel request to an absolute file, or null.
   resolvePanelFile(pluginId: string, relPath: string): string | null {
-    const live = this.live.get(pluginId);
-    if (!live || !live.panel) return null; // not active / no ui panel
-    if (!isSafePanelPath(relPath)) return null;
-    const root = path.resolve(live.dir);
-    const abs = path.resolve(root, relPath);
-    if (abs !== root && !abs.startsWith(root + path.sep)) return null;
-    try {
-      const real = fsSync.realpathSync(abs);
-      if (real !== root && !real.startsWith(root + path.sep)) return null;
-      if (!fsSync.statSync(real).isFile()) return null;
-      return real;
-    } catch {
-      return null;
-    }
+    return resolvePanelFile(this.live.get(pluginId), relPath);
   }
 
-  /** Slash commands contributed by currently-active plugins (for the composer). */
+  // Slash commands contributed by currently-active plugins.
   listCommands(): PluginCommandSnapshot[] {
     const out: PluginCommandSnapshot[] = [];
     for (const [id, live] of this.live) {
@@ -313,13 +186,7 @@ export class PluginManager {
     return out;
   }
 
-  /**
-   * Enable or disable one plugin and re-reconcile. Enabling a plugin records its
-   * declared permissions as granted (the toggle IS the approval — the card shows
-   * what is being granted) and stamps the approved-permissions key so a later
-   * manifest permission change forces re-approval (state → needs-approval).
-   * Disabling keeps the prior grant so re-enabling doesn't re-prompt.
-   */
+  // Enable/disable one plugin; enabling records declared permissions as approved.
   async setEnabled(id: string, enabled: boolean): Promise<PluginStatus[]> {
     const discovered = await this.discover();
     const found = discovered.get(id);
@@ -342,7 +209,38 @@ export class PluginManager {
     return this.reload();
   }
 
-  /** Tear down everything (before-quit). */
+  // Install a user plugin from an arbitrary folder, then rescan.
+  async installFromFolder(sourceDir: string): Promise<PluginStatus[]> {
+    const manifest = await readPluginManifest(sourceDir);
+    if (!manifest) throw new Error('selected folder is not a valid plugin');
+    const existing = (await this.discover()).get(manifest.id);
+    if (existing?.scope === 'project') {
+      throw new Error(`plugin "${manifest.id}" already exists as a project plugin`);
+    }
+    await installUserPluginFolder(this.deps.userDir, sourceDir);
+    return this.reload();
+  }
+
+  // Remove a discovered user-scoped plugin and forget its saved config.
+  async remove(id: string): Promise<PluginStatus[]> {
+    const discovered = await this.discover();
+    const found = discovered.get(id);
+    if (!found) return this.reload();
+    if (found.scope !== 'user') {
+      if (!found.hasUserInstall || !(await hasUserPluginFolder(this.deps.userDir, id))) {
+        throw new Error('only user plugins can be removed');
+      }
+      await removeUserPluginFolder(this.deps.userDir, id);
+      await removePluginConfig(id);
+      return this.reload();
+    }
+    this.deactivate(id);
+    await removeUserPluginFolder(this.deps.userDir, id);
+    await removePluginConfig(id);
+    return this.reload();
+  }
+
+  // Tear down everything before quit or harness reset.
   dispose(): void {
     for (const id of [...this.live.keys()]) this.deactivate(id);
     this.statuses = [];

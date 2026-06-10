@@ -56,12 +56,12 @@ electron/
     rpc.ts             # PluginRpc 프레이밍·요청/응답 상관·타임아웃 (host ↔ worker 공통 계약)
     permissions.ts     # capability 가드: fs(루트/never-edit glob)·net(도메인 allowlist) 검사
     worker.ts          # ⚠ 워커 진입점 — Electron 비의존(순수 Node). 모듈 로드 → activate(ctx)
-    handlers.ts        # ipcMain: plugins:list / enable / disable / reload / grant / revoke
+    handlers.ts        # ipcMain: list / reload / set-enabled / install-folder / open-folder / remove / commands
     config.ts          # userData의 플러그인 활성/권한 상태 영속화(JSON), 외부 MCP config와 동형
   agent/
     slash-registry.ts  # (신규) 빌트인 + 플러그인 슬래시 커맨드를 합치는 동적 레지스트리
 src/features/settings/
-  PluginsSettings.tsx  # 목록·활성토글·권한 칩·승인/취소·리로드·에러 표시 (McpServersSettings 형제)
+  PluginsSettings.tsx  # 목록·설치·제거·활성토글·권한 칩·리로드·에러 표시 (McpServersSettings 형제)
 docs/
   plugin-runtime-design.md   # 본 문서
 ```
@@ -305,7 +305,7 @@ R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러�
 | `electron/agent/mcp.ts` | 변경 없음(이미 `registerMcpServer` 제공) — 매니저가 호출만 |
 | `electron/agent/slash-registry.ts` | **신규** — 빌트인+플러그인 슬래시 합치기 |
 | `electron/main.ts` | 부팅 시 `pluginManager.init()` 호출(외부 MCP `reload`와 같은 위치) |
-| `electron/preload.ts` | `plugins:*` IPC 노출(목록/토글/권한/리로드) |
+| `electron/preload.ts` | `plugins:*` IPC 노출(목록/리로드/토글/설치 폴더 선택/폴더 열기/제거/커맨드 스냅샷) |
 | `src/features/settings/PluginsSettings.tsx` | **신규** — `McpServersSettings.tsx` 형제 패널 |
 | `src/features/settings/settingsCatalog.ts` 등 | 설정 카테고리에 "Plugins" 항목 추가 |
 | `src/features/agent/AgentChat.tsx` | 슬래시 메뉴에 플러그인 커맨드 스냅샷 머지 |
@@ -329,7 +329,7 @@ R2의 핵심 정정. 권한 가드는 `ctx.*` 경로만 통제하므로, 플러�
   `PluginCommandSnapshot` + `pluginSlashCommand()`의 `$ARGUMENTS` 치환 + `plugins:commands` 1방향
   IPC 스냅샷 + AgentChat의 `filterSlash`/`resolveSlash`에 머지(슬래시 토큰이 `:` 허용→`/myplugin:foo`).
   `PluginsSettings.tsx`(McpServersSettings 형제) + `plugins` 설정 카테고리 + i18n(EN/KO) + IPC 핸들러
-  (`plugins:list`/`reload`/`set-enabled`/`commands`). **승인 모델:** enable 토글이 곧 승인 — 카드가
+  (`plugins:list`/`reload`/`set-enabled`/`install-folder`/`open-folder`/`remove`/`commands`). **승인 모델:** enable 토글이 곧 승인 — 카드가
   선언된 권한을 칩으로 보여주고, 켜면 그 권한이 grant되며 worker가 spawn된다. 매니페스트 권한이 바뀌면
   `approvedPermissionsKey` 불일치 → `needs-approval` 상태(토글 off)로 재승인 요구. typecheck/lint/build
   통과 + 하니스 14 checks(슬래시 치환·네임스페이스 resolve 포함). (한계: 채팅 탭이 열린 채 플러그인을

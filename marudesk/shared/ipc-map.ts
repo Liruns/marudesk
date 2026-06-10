@@ -48,7 +48,7 @@ import type {
   TabKind,
   TabsSnapshot,
 } from './browser';
-import type { McpServerStatus } from './mcp';
+import type { McpConfigHealth, McpServerStatus } from './mcp';
 import type { PluginCommandSnapshot, PluginStatus } from './plugin';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
@@ -644,8 +644,26 @@ export interface IpcMap {
   // follow-up fetch.
   'mcp:list-servers': { args: []; result: McpServerStatus[] };
   'mcp:reload': { args: []; result: McpServerStatus[] };
+  'mcp:config-diagnostics': { args: []; result: McpConfigHealth };
   'mcp:set-enabled': {
     args: [payload: { id: string; enabled: boolean }];
+    result: McpServerStatus[];
+  };
+  'mcp:update-server': {
+    args: [
+      payload: {
+        id: string;
+        enabled?: boolean;
+        trust?: boolean;
+        disabledTools?: string[];
+        autoApproveTools?: string[];
+        confirmTools?: string[];
+      },
+    ];
+    result: McpServerStatus[];
+  };
+  'mcp:remove-server': {
+    args: [payload: { id: string }];
     result: McpServerStatus[];
   };
   'mcp:add-preset': {
@@ -670,8 +688,13 @@ export interface IpcMap {
     args: [payload: { id: string; enabled: boolean }];
     result: PluginStatus[];
   };
+  'plugins:install-folder': { args: []; result: PluginStatus[] };
   'plugins:commands': { args: []; result: PluginCommandSnapshot[] };
   'plugins:open-folder': { args: []; result: { path: string } };
+  'plugins:remove': {
+    args: [payload: { id: string }];
+    result: PluginStatus[];
+  };
 
   // settings
   'settings:get': { args: []; result: AppSettings };

@@ -102,13 +102,15 @@ export async function dispatchAgentCommand(
         // still cancel a dangerous tool); only a remote APPROVE is refused, and
         // only for the gated tool actually parked for THIS turn/call.
         if (approved && guard?.serverExposed()) {
-          const pending = agent.snapshot().pendingApproval;
-          if (
-            pending &&
-            pending.turnId === turnId &&
-            pending.callId === callId &&
-            guard.isGated(pending.name)
-          ) {
+          const snapshot = agent.snapshot();
+          const queued = snapshot.approvalQueue.find(
+            (item) => item.turnId === turnId && item.callId === callId,
+          );
+          const pending = snapshot.pendingApproval;
+          const toolName =
+            queued?.name ??
+            (pending?.turnId === turnId && pending.callId === callId ? pending.name : null);
+          if (toolName && guard.isGated(toolName)) {
             return {
               ok: false,
               error:

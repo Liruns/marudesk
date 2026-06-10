@@ -67,6 +67,8 @@ export type PluginStatus = {
   name: string;
   version: string;
   scope: 'user' | 'project';
+  /** True when a project plugin shadows an installed user plugin with the same id. */
+  hasUserInstall?: boolean;
   state: PluginState;
   /** Permissions the manifest declares. */
   permissions: PluginPermission[];

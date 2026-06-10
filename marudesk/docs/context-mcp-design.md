@@ -346,3 +346,13 @@ tool call이 오면 `registry.callTool(name, input, ctx)`로 라우팅한다. `G
 - 추가는 **untrusted + enabled**(브라우저 컨트롤러는 side-effecting → 호출당 승인 기본). `mcp:add-preset`
   IPC가 `addMcpServer`로 config에 한 번만 추가(중복 id no-op) 후 재동기화. Settings → MCP Servers에
   "서버 추가" 버튼(이미 추가된 프리셋은 비활성+체크).
+## 11. External MCP runtime hardening addendum
+
+- `autoApproveTools: string[]` ungates only named tools on an otherwise untrusted server.
+- `confirmTools: string[]` keeps named tools gated even when the server is trusted or the tool is also auto-approved.
+- Policy precedence is `disabledTools` > `confirmTools` > `autoApproveTools` > `trust`; config sanitization removes lower-priority duplicates and reports policy diagnostics.
+- External tool names must be safe bare names and safe `<server>__<tool>` model names. Invalid, non-string, or overlong names are filtered before registration.
+- Tool titles, descriptions, capability-list output, and JSON schema string values are scrubbed and clipped before model exposure; unsafe schema keys are dropped.
+- `readMcpConfigWithDiagnostics()` returns sanitized config plus typed diagnostics for corrupt JSON, invalid ids, duplicate ids, invalid URLs, missing commands, server-limit truncation, and policy conflicts.
+- `readMcpConfigHealth()` powers Settings diagnostics. A missing config is OK; corrupt or unreadable config is surfaced to the UI and no external server is spawned from that content.
+- Settings -> MCP Servers shows diagnostics and exposes discovered-tool controls for hidden, auto-approved, and confirm-only policies, with manual advanced lists kept for offline or unknown tool names.

@@ -1,14 +1,18 @@
 import { shell } from 'electron';
 import type { McpServerStatus } from '../../shared/mcp';
 import { defineHandler } from '../ipc/define-handler';
-import { bool, nonEmptyStr, obj } from '../ipc/validate';
+import { arrayOf, bool, nonEmptyStr, obj, str } from '../ipc/validate';
 import { findMcpPreset } from '../../shared/mcp-presets';
 import {
   addMcpServer,
   ensureMcpConfigFile,
   mcpConfigPath,
   readMcpConfig,
+  readMcpConfigHealth,
+  removeMcpServer,
   setMcpServerEnabled,
+  updateMcpServer,
+  type McpServerUpdatePatch,
 } from './mcp-config';
 import {
   disposeExternalMcpServers,
@@ -28,6 +32,46 @@ import { embeddedBrowserDebugStatus } from './embedded-browser';
  */
 
 let initialized = false;
+
+const EDITABLE_TOOL_LIST_FIELDS = [
+  'disabledTools',
+  'autoApproveTools',
+  'confirmTools',
+] as const;
+
+type MutableMcpServerUpdatePatch = {
+  enabled?: boolean;
+  trust?: boolean;
+  disabledTools?: string[];
+  autoApproveTools?: string[];
+  confirmTools?: string[];
+};
+
+function hasOwn(payload: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, key);
+}
+
+function parseToolList(
+  payload: Record<string, unknown>,
+  key: (typeof EDITABLE_TOOL_LIST_FIELDS)[number],
+): string[] | undefined {
+  if (!hasOwn(payload, key)) return undefined;
+  return arrayOf(payload[key], (item, index) => str(item, `${key}[${index}]`), key);
+}
+
+function parseUpdatePatch(payload: Record<string, unknown>): McpServerUpdatePatch {
+  const patch: MutableMcpServerUpdatePatch = {
+    ...(hasOwn(payload, 'enabled') ? { enabled: bool(payload.enabled, 'enabled') } : {}),
+    ...(hasOwn(payload, 'trust') ? { trust: bool(payload.trust, 'trust') } : {}),
+  };
+  for (const key of EDITABLE_TOOL_LIST_FIELDS) {
+    const list = parseToolList(payload, key);
+    if (list !== undefined) {
+      patch[key] = list;
+    }
+  }
+  return patch;
+}
 
 /**
  * (Re)connect the manager to whatever is in the config file. Safe to call
@@ -66,12 +110,33 @@ export function registerMcpHandlers(): void {
   // how a hand-edit of the JSON is picked up). Returns the fresh statuses.
   defineHandler('mcp:reload', () => reloadExternalMcp());
 
+  // Report parse/sanitize problems without reconnecting. The renderer uses this
+  // to avoid silently showing an empty list when a hand-edited config is invalid.
+  defineHandler('mcp:config-diagnostics', () => readMcpConfigHealth());
+
   // Flip one server's enabled flag, persist, and reconnect/disconnect it.
   defineHandler('mcp:set-enabled', async ([payload]) => {
     const o = obj(payload);
     const id = nonEmptyStr(o.id, 'id');
     const enabled = bool(o.enabled, 'enabled');
     await setMcpServerEnabled(id, enabled);
+    return reloadExternalMcp();
+  });
+
+  // Edit trust and per-tool approval lists without exposing command env/HTTP headers
+  // to the renderer. The config layer sanitizes blank/duplicate tool names on write.
+  defineHandler('mcp:update-server', async ([payload]) => {
+    const o = obj(payload);
+    const id = nonEmptyStr(o.id, 'id');
+    await updateMcpServer(id, parseUpdatePatch(o));
+    return reloadExternalMcp();
+  });
+
+  // Remove a configured server, then reconcile the manager so live tools vanish.
+  defineHandler('mcp:remove-server', async ([payload]) => {
+    const o = obj(payload);
+    const id = nonEmptyStr(o.id, 'id');
+    await removeMcpServer(id);
     return reloadExternalMcp();
   });
 

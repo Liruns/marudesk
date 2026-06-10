@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { listMcpTools } from './mcp.ts';
+import { listMcpTools, registerMcpServer, unregisterMcpServer } from './mcp.ts';
 import {
+  listChildToolDefs,
   runSubagentTool,
   setSubagentRunnerForTests,
   type SubagentRunRequest,
 } from './subagent.ts';
+import { DEFAULT_CHILD_STEPS, MAX_CHILD_STEPS } from './subagent-types.ts';
 import type { ToolContext } from './tools/types.ts';
 
 let passed = 0;
@@ -21,6 +23,46 @@ check(
   'spawn_subagent requires per-call approval',
   listed.find((tool) => tool.name === 'spawn_subagent')?.gated === true,
 );
+const childToolNames = new Set(listChildToolDefs().map((tool) => tool.name));
+check('child toolset excludes ask_user', !childToolNames.has('ask_user'));
+check('child toolset excludes nested spawn_subagent', !childToolNames.has('spawn_subagent'));
+check('child toolset excludes detached background spawns', !childToolNames.has('spawn_background_agent'));
+check('child toolset excludes background collection', !childToolNames.has('collect_background_agent'));
+check('child toolset excludes background cancellation', !childToolNames.has('cancel_background_agent'));
+check('child toolset excludes update_plan', !childToolNames.has('update_plan'));
+check('child toolset exposes no write tools', listChildToolDefs().every((tool) => tool.write !== true));
+check(
+  'child toolset exposes no gated tools except read-only web research',
+  listChildToolDefs().every((tool) => tool.gated !== true || ['web_search', 'fetch_url'].includes(tool.name)),
+);
+
+registerMcpServer({
+  name: 'child-test-external',
+  tools: [
+    {
+      name: 'child_external__trusted',
+      description: 'trusted external tool with no write annotation',
+      group: 'mcp',
+      gated: false,
+      write: false,
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      exec: async () => ({ summary: 'ok', text: 'ok' }),
+    },
+    {
+      name: 'plugin:child-test__trusted',
+      description: 'trusted plugin tool with no write annotation',
+      group: 'plugin',
+      gated: false,
+      write: false,
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      exec: async () => ({ summary: 'ok', text: 'ok' }),
+    },
+  ],
+});
+const childToolNamesWithExternal = new Set(listChildToolDefs().map((tool) => tool.name));
+check('child toolset excludes trusted external MCP tools', !childToolNamesWithExternal.has('child_external__trusted'));
+check('child toolset excludes trusted plugin tools', !childToolNamesWithExternal.has('plugin:child-test__trusted'));
+unregisterMcpServer('child-test-external');
 
 const ctx: ToolContext = {
   ws: null,
@@ -43,6 +85,7 @@ check('spawn_subagent test runner executes', out.text.includes('child report ok'
 check('spawn_subagent falls back to parent provider', capturedRequest?.provider === 'ollama');
 check('spawn_subagent falls back to parent model', capturedRequest?.model === 'qwen2.5-coder');
 check('spawn_subagent forwards the bounded task', capturedRequest?.task === 'inspect spawn plumbing');
+check('spawn_subagent uses the default child step cap', capturedRequest?.maxSteps === DEFAULT_CHILD_STEPS);
 
 const badProvider = await runSubagentTool({ task: 'x', provider: 'not-a-provider' }, ctx);
 check('spawn_subagent rejects unknown providers', badProvider.isError === true);
@@ -57,6 +100,10 @@ const defaulted = await runSubagentTool({ task: 'y', provider: 'default', model:
 check('spawn_subagent treats "default" provider as inherit', defaulted.isError !== true);
 check('"default" provider inherits the parent provider', capturedRequests[0]?.provider === 'ollama');
 check('"default" model inherits the parent model', capturedRequests[0]?.model === 'qwen2.5-coder');
+
+capturedRequests.length = 0;
+await runSubagentTool({ task: 'clamp steps', maxSteps: 99 }, ctx);
+check('spawn_subagent clamps requested child steps to the max cap', capturedRequests[0]?.maxSteps === MAX_CHILD_STEPS);
 
 // W4/U3: the loop's per-call live-progress sink (ctx.onSubagentProgress) must reach
 // the child runtime, which pushes partial text + tool trace onto the parent card.
