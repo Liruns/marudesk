@@ -8,6 +8,7 @@ import {
   ensureMcpConfigFile,
   mcpConfigPath,
   readMcpConfig,
+  readMcpConfigHealth,
   removeMcpServer,
   setMcpServerEnabled,
   updateMcpServer,
@@ -108,6 +109,10 @@ export function registerMcpHandlers(): void {
   // Re-read the config file and reconcile connections (the "Reload" action — also
   // how a hand-edit of the JSON is picked up). Returns the fresh statuses.
   defineHandler('mcp:reload', () => reloadExternalMcp());
+
+  // Report parse/sanitize problems without reconnecting. The renderer uses this
+  // to avoid silently showing an empty list when a hand-edited config is invalid.
+  defineHandler('mcp:config-diagnostics', () => readMcpConfigHealth());
 
   // Flip one server's enabled flag, persist, and reconnect/disconnect it.
   defineHandler('mcp:set-enabled', async ([payload]) => {

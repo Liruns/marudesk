@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ipcMain } from 'electron';
-import type { McpServerStatus } from '../../shared/mcp';
+import { ipcMain, shell } from 'electron';
+import type { McpConfigHealth, McpServerStatus } from '../../shared/mcp';
 import { MCP_PRESETS } from '../../shared/mcp-presets';
 import {
   mcpConfigPath,
   readMcpConfig,
+  readMcpConfigHealth,
   writeMcpConfig,
 } from './mcp-config';
 import { registerMcpHandlers, shutdownExternalMcp } from './mcp-handlers';
@@ -18,6 +19,12 @@ const ipc = ipcMain as unknown as { handle: (channel: string, handler: IpcHandle
 ipc.handle = (channel, handler) => {
   handlers.set(channel, handler);
 };
+const electronShell = shell as unknown as {
+  openPath: (filePath: string) => Promise<string>;
+  showItemInFolder: (filePath: string) => void;
+};
+electronShell.openPath = async () => '';
+electronShell.showItemInFolder = () => {};
 
 let passed = 0;
 
@@ -55,6 +62,12 @@ async function invokeStatus(channel: string, payload?: unknown): Promise<McpServ
   return value as McpServerStatus[];
 }
 
+async function invokeHealth(channel: string): Promise<McpConfigHealth> {
+  const value = await invoke(channel);
+  assert.ok(value && typeof value === 'object' && !Array.isArray(value), `${channel} returned health`);
+  return value as McpConfigHealth;
+}
+
 function statusById(statuses: McpServerStatus[], id: string): McpServerStatus {
   const status = statuses.find((s) => s.id === id);
   assert.ok(status, `status exists for ${id}`);
@@ -75,9 +88,81 @@ await resetHarnessConfig();
 registerMcpHandlers();
 
 try {
+  const missingHealth = await invokeHealth('mcp:config-diagnostics');
+  check('config diagnostics reports missing config as ok', missingHealth.ok && !missingHealth.exists);
+  checkEqual('missing config has no diagnostics', missingHealth.diagnostics, []);
+
+  await fs.writeFile(mcpConfigPath(), '{ "servers": [', 'utf8');
+  const corruptHealth = await invokeHealth('mcp:config-diagnostics');
+  check('config diagnostics reports corrupt JSON as not ok', corruptHealth.ok === false);
+  check('config diagnostics includes parse_error', corruptHealth.diagnostics.some((d) => d.code === 'parse_error'));
+  const corruptReload = await invokeStatus('mcp:reload');
+  checkEqual('reload fail-closes corrupt JSON to no statuses', corruptReload, []);
+  const opened = await invoke('mcp:open-config');
+  assert.ok(opened && typeof opened === 'object' && !Array.isArray(opened), 'open-config returned an object');
+  check('open-config still returns the config path for corrupt JSON', (opened as { path?: unknown }).path === mcpConfigPath());
+  const directCorruptHealth = await readMcpConfigHealth();
+  check('readMcpConfigHealth sees parse_error after open-config', directCorruptHealth.diagnostics.some((d) => d.code === 'parse_error'));
+
   const browserPreset = MCP_PRESETS.find((preset) => preset.id === 'chrome-devtools');
   assert.ok(browserPreset, 'chrome-devtools preset exists');
   (browserPreset.config as { enabled: boolean }).enabled = false;
+
+  await writeMcpConfig({
+    servers: [
+      {
+        id: 'policy',
+        command: 'node',
+        enabled: false,
+        disabledTools: ['danger', 'danger'],
+        confirmTools: ['danger', 'review'],
+        autoApproveTools: ['danger', 'review', 'safe'],
+      },
+    ],
+  });
+  const normalizedPolicy = (await readMcpConfig()).servers.find((s) => s.id === 'policy');
+  assert.ok(normalizedPolicy, 'policy config exists');
+  checkEqual('write normalizes disabledTools', normalizedPolicy.disabledTools ?? [], ['danger']);
+  checkEqual('write removes disabled tools from confirmTools', normalizedPolicy.confirmTools ?? [], ['review']);
+  checkEqual('write removes disabled/confirm tools from autoApproveTools', normalizedPolicy.autoApproveTools ?? [], ['safe']);
+
+  await fs.writeFile(
+    mcpConfigPath(),
+    JSON.stringify(
+      {
+        servers: [
+          { id: 'bad space', command: 'node' },
+          {
+            id: 'dup',
+            command: 'node',
+            enabled: false,
+            disabledTools: ['danger'],
+            confirmTools: ['danger', 'review'],
+            autoApproveTools: ['danger', 'review', 'safe'],
+          },
+          { id: 'dup', command: 'node', enabled: false },
+          { id: 'badUrl', transport: 'http', url: 'file:///tmp/mcp' },
+          { id: 'noCommand' },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+  const invalidHealth = await invokeHealth('mcp:config-diagnostics');
+  const invalidCodes = new Set(invalidHealth.diagnostics.map((d) => d.code));
+  check('config diagnostics marks invalid sanitized config as not ok', invalidHealth.ok === false);
+  check('config diagnostics reports invalid_id', invalidCodes.has('invalid_id'));
+  check('config diagnostics reports duplicate_id', invalidCodes.has('duplicate_id'));
+  check('config diagnostics reports invalid_url', invalidCodes.has('invalid_url'));
+  check('config diagnostics reports missing_command', invalidCodes.has('missing_command'));
+  check('config diagnostics reports policy_conflict', invalidCodes.has('policy_conflict'));
+  const sanitizedStatuses = await invokeStatus('mcp:reload');
+  checkEqual('reload keeps only valid sanitized config rows', sanitizedStatuses.map((s) => s.id), ['dup']);
+  const sanitizedDup = statusById(sanitizedStatuses, 'dup');
+  checkEqual('sanitized status removes disabled tools from confirmTools', sanitizedDup.confirmTools, ['review']);
+  checkEqual('sanitized status removes disabled/confirm tools from autoApproveTools', sanitizedDup.autoApproveTools, ['safe']);
 
   await writeMcpConfig({
     servers: [

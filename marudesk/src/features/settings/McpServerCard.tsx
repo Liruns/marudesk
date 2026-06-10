@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -44,6 +44,29 @@ export function McpServerCard({
   const [disabledText, setDisabledText] = useState(statusDisabled);
   const [autoApproveText, setAutoApproveText] = useState(statusAutoApprove);
   const [confirmText, setConfirmText] = useState(statusConfirm);
+  const disabledTools = textToList(disabledText);
+  const autoApproveTools = textToList(autoApproveText);
+  const confirmTools = textToList(confirmText);
+  const disabledSet = new Set(disabledTools);
+  const autoApproveSet = new Set(autoApproveTools);
+  const confirmSet = new Set(confirmTools);
+  const exposedTools = status.tools ?? [];
+  const policyTools = uniqueList([...disabledTools, ...autoApproveTools, ...confirmTools]);
+  const knownTools = uniqueList([...exposedTools, ...policyTools]);
+  const savedKnownTools = new Set(uniqueList([
+    ...exposedTools,
+    ...status.disabledTools,
+    ...status.autoApproveTools,
+    ...status.confirmTools,
+  ]));
+  const hasDiscoveredTools = status.state === 'connected' && knownTools.length > 0;
+  const unknownManualTools = hasDiscoveredTools
+    ? policyTools.filter((tool) => !savedKnownTools.has(tool))
+    : [];
+  const conflictingTools = uniqueList([
+    ...disabledTools.filter((tool) => autoApproveSet.has(tool) || confirmSet.has(tool)),
+    ...autoApproveTools.filter((tool) => confirmSet.has(tool)),
+  ]);
 
   useEffect(() => {
     setTrusted(status.trusted);
@@ -61,10 +84,44 @@ export function McpServerCard({
   const save = async () => {
     await onUpdate(status.id, {
       trust: trusted,
-      disabledTools: textToList(disabledText),
-      autoApproveTools: textToList(autoApproveText),
-      confirmTools: textToList(confirmText),
+      disabledTools,
+      autoApproveTools,
+      confirmTools,
     });
+  };
+
+  const updateToolPolicy = (
+    tool: string,
+    mode: 'disabled' | 'autoApprove' | 'confirm',
+  ) => {
+    let nextDisabled = disabledTools;
+    let nextAutoApprove = autoApproveTools;
+    let nextConfirm = confirmTools;
+    if (mode === 'disabled') {
+      const enabled = !disabledSet.has(tool);
+      nextDisabled = toggleList(nextDisabled, tool, enabled);
+      if (enabled) {
+        nextAutoApprove = toggleList(nextAutoApprove, tool, false);
+        nextConfirm = toggleList(nextConfirm, tool, false);
+      }
+    } else if (mode === 'autoApprove') {
+      const enabled = !autoApproveSet.has(tool);
+      nextAutoApprove = toggleList(nextAutoApprove, tool, enabled);
+      if (enabled) {
+        nextDisabled = toggleList(nextDisabled, tool, false);
+        nextConfirm = toggleList(nextConfirm, tool, false);
+      }
+    } else {
+      const enabled = !confirmSet.has(tool);
+      nextConfirm = toggleList(nextConfirm, tool, enabled);
+      if (enabled) {
+        nextDisabled = toggleList(nextDisabled, tool, false);
+        nextAutoApprove = toggleList(nextAutoApprove, tool, false);
+      }
+    }
+    setDisabledText(listToText(nextDisabled));
+    setAutoApproveText(listToText(nextAutoApprove));
+    setConfirmText(listToText(nextConfirm));
   };
 
   const remove = async () => {
@@ -125,26 +182,64 @@ export function McpServerCard({
         />
       </div>
 
-      <div className="grid gap-2 md:grid-cols-3">
-        <ToolListField
-          label={t('settings.mcp.tools.disabled')}
-          value={disabledText}
-          disabled={busy}
-          onChange={setDisabledText}
+      {hasDiscoveredTools ? (
+        <div className="flex flex-col gap-2">
+          <div className="text-caption uppercase tracking-wider text-fg-tertiary">
+            {t('settings.mcp.tools.discovered')}
+          </div>
+          <div className="flex max-h-56 flex-col overflow-y-auto rounded-md border border-subtle bg-surface-page">
+            {knownTools.map((tool) => (
+              <ToolPolicyRow
+                key={tool}
+                tool={tool}
+                busy={busy}
+                disabledSelected={disabledSet.has(tool)}
+                autoApproveSelected={autoApproveSet.has(tool)}
+                confirmSelected={confirmSet.has(tool)}
+                onChange={updateToolPolicy}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {unknownManualTools.length > 0 ? (
+        <ToolPolicyWarning
+          text={t('settings.mcp.tools.unknownNames').replace('{tools}', unknownManualTools.join(', '))}
         />
-        <ToolListField
-          label={t('settings.mcp.tools.autoApprove')}
-          value={autoApproveText}
-          disabled={busy}
-          onChange={setAutoApproveText}
+      ) : null}
+      {conflictingTools.length > 0 ? (
+        <ToolPolicyWarning
+          text={t('settings.mcp.tools.conflicts').replace('{tools}', conflictingTools.join(', '))}
         />
-        <ToolListField
-          label={t('settings.mcp.tools.confirm')}
-          value={confirmText}
-          disabled={busy}
-          onChange={setConfirmText}
+      ) : null}
+
+      {hasDiscoveredTools ? (
+        <details className="rounded-md border border-subtle bg-surface-page/60 px-3 py-2">
+          <summary className="cursor-pointer text-caption uppercase tracking-wider text-fg-tertiary">
+            {t('settings.mcp.tools.advanced')}
+          </summary>
+          <ToolListGrid
+            busy={busy}
+            disabledText={disabledText}
+            autoApproveText={autoApproveText}
+            confirmText={confirmText}
+            onDisabledChange={setDisabledText}
+            onAutoApproveChange={setAutoApproveText}
+            onConfirmChange={setConfirmText}
+          />
+        </details>
+      ) : (
+        <ToolListGrid
+          busy={busy}
+          disabledText={disabledText}
+          autoApproveText={autoApproveText}
+          confirmText={confirmText}
+          onDisabledChange={setDisabledText}
+          onAutoApproveChange={setAutoApproveText}
+          onConfirmChange={setConfirmText}
         />
-      </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
@@ -166,6 +261,140 @@ export function McpServerCard({
           {t('settings.mcp.save')}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ToolPolicyRow({
+  tool,
+  busy,
+  disabledSelected,
+  autoApproveSelected,
+  confirmSelected,
+  onChange,
+}: {
+  readonly tool: string;
+  readonly busy: boolean;
+  readonly disabledSelected: boolean;
+  readonly autoApproveSelected: boolean;
+  readonly confirmSelected: boolean;
+  readonly onChange: (tool: string, mode: 'disabled' | 'autoApprove' | 'confirm') => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex min-h-10 items-center gap-2 border-b border-subtle px-2 py-1 last:border-b-0">
+      <span className="min-w-0 flex-1 truncate font-mono text-caption text-fg-secondary" title={tool}>
+        {tool}
+      </span>
+      <IconToggleButton
+        selected={disabledSelected}
+        disabled={busy}
+        title={`${t('settings.mcp.tools.disabled')}: ${tool}`}
+        onClick={() => onChange(tool, 'disabled')}
+      >
+        <CircleSlash size={13} />
+      </IconToggleButton>
+      <IconToggleButton
+        selected={autoApproveSelected}
+        disabled={busy}
+        title={`${t('settings.mcp.tools.autoApprove')}: ${tool}`}
+        onClick={() => onChange(tool, 'autoApprove')}
+      >
+        <CheckCircle2 size={13} />
+      </IconToggleButton>
+      <IconToggleButton
+        selected={confirmSelected}
+        disabled={busy}
+        title={`${t('settings.mcp.tools.confirm')}: ${tool}`}
+        onClick={() => onChange(tool, 'confirm')}
+      >
+        <AlertCircle size={13} />
+      </IconToggleButton>
+    </div>
+  );
+}
+
+function IconToggleButton({
+  selected,
+  disabled,
+  title,
+  onClick,
+  children,
+}: {
+  readonly selected: boolean;
+  readonly disabled: boolean;
+  readonly title: string;
+  readonly onClick: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'inline-flex size-7 shrink-0 items-center justify-center rounded border transition-colors duration-fast',
+        selected
+          ? 'border-accent bg-accent text-white'
+          : 'border-subtle bg-surface-1 text-fg-tertiary hover:text-fg-primary',
+        'disabled:cursor-not-allowed disabled:opacity-50',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolPolicyWarning({ text }: { readonly text: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded border border-warning/40 bg-warning-subtle/30 px-3 py-2 text-caption text-fg-secondary">
+      <AlertCircle size={13} className="mt-0.5 shrink-0 text-warning" />
+      <span className="min-w-0 break-words">{text}</span>
+    </div>
+  );
+}
+
+function ToolListGrid({
+  busy,
+  disabledText,
+  autoApproveText,
+  confirmText,
+  onDisabledChange,
+  onAutoApproveChange,
+  onConfirmChange,
+}: {
+  readonly busy: boolean;
+  readonly disabledText: string;
+  readonly autoApproveText: string;
+  readonly confirmText: string;
+  readonly onDisabledChange: (value: string) => void;
+  readonly onAutoApproveChange: (value: string) => void;
+  readonly onConfirmChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="mt-2 grid gap-2 md:grid-cols-3">
+      <ToolListField
+        label={t('settings.mcp.tools.disabled')}
+        value={disabledText}
+        disabled={busy}
+        onChange={onDisabledChange}
+      />
+      <ToolListField
+        label={t('settings.mcp.tools.autoApprove')}
+        value={autoApproveText}
+        disabled={busy}
+        onChange={onAutoApproveChange}
+      />
+      <ToolListField
+        label={t('settings.mcp.tools.confirm')}
+        value={confirmText}
+        disabled={busy}
+        onChange={onConfirmChange}
+      />
     </div>
   );
 }
@@ -245,8 +474,18 @@ function listToText(values: readonly string[]): string {
 }
 
 function textToList(value: string): string[] {
-  return value
+  return uniqueList(value
     .split(/[\n,]/)
     .map((item) => item.trim())
-    .filter(Boolean);
+    .filter(Boolean));
+}
+
+function uniqueList(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function toggleList(values: readonly string[], item: string, enabled: boolean): string[] {
+  const existing = uniqueList(values);
+  if (!enabled) return existing.filter((value) => value !== item);
+  return existing.includes(item) ? existing : [...existing, item];
 }

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   isHttpMcpConfig,
+  MAX_MCP_MODEL_TOOL_NAME,
   mcpDisplayTarget,
   mcpTransportOf,
   sanitizeMcpConfig,
@@ -20,6 +21,7 @@ import { htmlToText, isBlockedHost, setFetchUrlTransportForTests } from './tools
 import { updateContextCache } from './context-cache';
 import {
   buildExternalServer,
+  buildCapabilityTools,
   connectServer,
   disposeExternalMcpServers,
   listMcpServerStatuses,
@@ -29,6 +31,7 @@ import {
   type McpCallToolResult,
   type McpClientLike,
   type McpExternalToolInfo,
+  type McpPromptInfo,
 } from './mcp-external';
 import { startHttpMockServer } from './mcp-mock-http-server';
 
@@ -112,13 +115,40 @@ function makeMockClient(): {
  * assertions. Kept separate from {@link makeMockClient} so the existing tools-only
  * assertions (toolCount === 2, tools === [echo, boom]) stay unaffected.
  */
-function makeRichMockClient(): McpClientLike {
-  const tools: McpExternalToolInfo[] = [
+type RichMockClientOptions = {
+  readonly tools?: readonly McpExternalToolInfo[];
+  readonly prompts?: readonly {
+    readonly name: string;
+    readonly description?: string;
+    readonly arguments?: readonly { readonly name: string; readonly required?: boolean }[];
+  }[];
+  readonly promptText?: string;
+  readonly resources?: readonly {
+    readonly uri: string;
+    readonly name?: string;
+    readonly title?: string;
+    readonly mimeType?: string;
+  }[];
+  readonly resourceBody?: string;
+};
+
+function makeRichMockClient(options: RichMockClientOptions = {}): McpClientLike {
+  const tools: McpExternalToolInfo[] = [...(options.tools ?? [
     { name: 'echo', description: 'Echo.', inputSchema: { type: 'object', properties: {} } },
-  ];
+  ])];
+  const prompts: McpPromptInfo[] = (options.prompts ?? [
+    { name: 'greet', description: 'Say hi', arguments: [{ name: 'who', required: true }] },
+  ]).map((prompt) => ({
+    name: prompt.name,
+    ...(prompt.description ? { description: prompt.description } : {}),
+    ...(prompt.arguments ? { arguments: prompt.arguments.map((arg) => ({ ...arg })) } : {}),
+  }));
+  const resources = options.resources ?? [{ uri: 'mem://note', name: 'Note', mimeType: 'text/plain' }];
+  const promptText = options.promptText ?? 'hi';
+  const resourceBody = options.resourceBody ?? 'resource body';
   return {
     async listTools() {
-      return { tools };
+      return { tools: [...tools] };
     },
     async callTool() {
       return { content: [{ type: 'text', text: 'ok' }] };
@@ -128,26 +158,26 @@ function makeRichMockClient(): McpClientLike {
       return { tools: {}, prompts: {}, resources: {} };
     },
     async listPrompts() {
-      return {
-        prompts: [
-          { name: 'greet', description: 'Say hi', arguments: [{ name: 'who', required: true }] },
-        ],
-      };
+      return { prompts: [...prompts] };
     },
     async getPrompt(params) {
       const who = typeof params.arguments?.who === 'string' ? params.arguments.who : '';
       return {
         description: 'Greeting prompt',
-        messages: [{ role: 'user', content: { type: 'text', text: `hi ${who}` } }],
+        messages: [{ role: 'user', content: { type: 'text', text: `${promptText} ${who}`.trim() } }],
       };
     },
     async listResources() {
-      return { resources: [{ uri: 'mem://note', name: 'Note', mimeType: 'text/plain' }] };
+      return { resources: [...resources] };
     },
     async readResource(params) {
-      return { contents: [{ uri: params.uri, mimeType: 'text/plain', text: 'resource body' }] };
+      return { contents: [{ uri: params.uri, mimeType: 'text/plain', text: resourceBody }] };
     },
   };
+}
+
+function makeLargeCapabilityText(seed: string): string {
+  return `${seed} sk-ant-1234567890abcdefghijklmnop ${'0123456789'.repeat(1_300)}\nsentinel-after-limit`;
 }
 
 // The tool context the loop would pass; external tools only use input + the SDK
@@ -171,6 +201,8 @@ async function main(): Promise<void> {
         { id: 'bad-url', transport: 'http', url: 'ftp://nope' },
         // invalid: neither command nor url → dropped.
         { id: 'empty', enabled: true },
+        // invalid: id would exceed provider tool-name limits once exposed.
+        { id: 'x'.repeat(MAX_MCP_MODEL_TOOL_NAME + 1), command: 'too-long' },
         // duplicate id → second dropped (first wins).
         { id: 'local', command: 'other' },
       ],
@@ -196,6 +228,7 @@ async function main(): Promise<void> {
     );
     check('sanitize: non-http url for http transport is dropped', !byId.has('bad-url'));
     check('sanitize: entry with neither command nor url is dropped', !byId.has('empty'));
+    check('sanitize: overlong server id is dropped', !servers.some((s) => s.id.length > MAX_MCP_MODEL_TOOL_NAME));
     check('sanitize: duplicate id keeps the first (command "npx")', (() => {
       const l = byId.get('local');
       return !!l && 'command' in l && l.command === 'npx';
@@ -519,6 +552,7 @@ async function main(): Promise<void> {
 
   /* ── graceful failure: a server that fails to spawn (injected throw) ─────── */
   {
+    const largeError = makeLargeCapabilityText('connect');
     const cfg: McpServerConfig = { id: 'broken', command: 'noop', enabled: true };
     const connect = async (): Promise<{ client: McpClientLike }> => {
       throw new Error('spawn failed: command not found');
@@ -538,6 +572,31 @@ async function main(): Promise<void> {
       !listMcpTools().map((t) => t.name).includes('broken__'),
     );
     await disposeExternalMcpServers();
+
+    const longConnectCfg: McpServerConfig = { id: 'broken_long', command: 'noop', enabled: true };
+    const longConnectStatus = await connectServer(longConnectCfg, async () => {
+      throw new Error(largeError);
+    });
+    const longConnectError = longConnectStatus.error ?? '';
+    check('(c) connect error status scrubs token-shaped secrets', !longConnectError.includes('sk-ant-1234567890abcdefghijklmnop') && longConnectError.includes('redacted'));
+    check('(c) connect error status clips oversized messages', longConnectError.includes('clipped') && !longConnectError.includes('sentinel-after-limit'));
+
+    const listToolsClient: McpClientLike = {
+      async listTools() {
+        throw new Error(largeError);
+      },
+      async callTool() {
+        return { content: [{ type: 'text', text: 'ok' }] };
+      },
+      async close() {},
+    };
+    const listToolsStatus = await connectServer(
+      { id: 'listed_long', command: 'noop', enabled: true },
+      async () => ({ client: listToolsClient }),
+    );
+    const listToolsError = listToolsStatus.error ?? '';
+    check('(c) listTools error status scrubs token-shaped secrets', !listToolsError.includes('sk-ant-1234567890abcdefghijklmnop') && listToolsError.includes('redacted'));
+    check('(c) listTools error status clips oversized messages', listToolsError.includes('clipped') && !listToolsError.includes('sentinel-after-limit'));
   }
 
   /* ── end-to-end: REAL StdioClientTransport against the in-repo mock server ─ */
@@ -638,6 +697,195 @@ async function main(): Promise<void> {
 
     await syncExternalMcpServers([], async () => ({ client }));
     check('caps: dispose removes the synthesized meta-tools', !listMcpTools().some((t) => t.name.startsWith('cap__')));
+  }
+
+  /* ── capability policy: synthesized tools honor disabled/confirm/auto rules ─ */
+  {
+    const client = makeRichMockClient();
+    await syncExternalMcpServers([
+      {
+        id: 'cap_hidden',
+        command: 'noop',
+        enabled: true,
+        disabledTools: ['list_resources', 'read_resource'],
+      },
+    ], async () => ({ client }));
+    let names = listMcpTools().map((t) => t.name);
+    check('caps policy: disabledTools hides synthesized list_resources', !names.includes('cap_hidden__list_resources'));
+    check('caps policy: disabledTools hides synthesized read_resource', !names.includes('cap_hidden__read_resource'));
+    await syncExternalMcpServers([], async () => ({ client }));
+
+    await syncExternalMcpServers([
+      {
+        id: 'cap_confirm',
+        command: 'noop',
+        enabled: true,
+        trust: true,
+        confirmTools: ['read_resource'],
+      },
+    ], async () => ({ client }));
+    const confirmRead = listMcpTools().find((t) => t.name === 'cap_confirm__read_resource');
+    check('caps policy: confirmTools keeps synthesized read_resource gated on a trusted server', confirmRead?.gated === true);
+    await syncExternalMcpServers([], async () => ({ client }));
+
+    await syncExternalMcpServers([
+      {
+        id: 'cap_deny_wins',
+        command: 'noop',
+        enabled: true,
+        autoApproveTools: ['read_resource'],
+        confirmTools: ['read_resource'],
+      },
+    ], async () => ({ client }));
+    const denyWins = listMcpTools().find((t) => t.name === 'cap_deny_wins__read_resource');
+    check('caps policy: confirmTools beats autoApprove for synthesized read_resource', denyWins?.gated === true);
+    await syncExternalMcpServers([], async () => ({ client }));
+
+    const largeClient = makeRichMockClient({
+      prompts: [{ name: 'huge', description: makeLargeCapabilityText('prompt') }],
+      resources: [{ uri: 'mem://huge', name: makeLargeCapabilityText('resource'), mimeType: 'text/plain' }],
+    });
+    await syncExternalMcpServers([{ id: 'cap_big', command: 'noop', enabled: true }], async () => ({ client: largeClient }));
+    const lp = await callMcpTool('cap_big__list_prompts', {}, ctx);
+    check('caps policy: list_prompts scrubs token-shaped secrets', !lp.text.includes('sk-ant-1234567890abcdefghijklmnop') && lp.text.includes('«redacted»'));
+    check('caps policy: list_prompts clips oversized output', lp.text.includes('clipped') && !lp.text.includes('sentinel-after-limit'));
+    const lr = await callMcpTool('cap_big__list_resources', {}, ctx);
+    check('caps policy: list_resources scrubs token-shaped secrets', !lr.text.includes('sk-ant-1234567890abcdefghijklmnop') && lr.text.includes('«redacted»'));
+    check('caps policy: list_resources clips oversized output', lr.text.includes('clipped') && !lr.text.includes('sentinel-after-limit'));
+    await syncExternalMcpServers([], async () => ({ client: largeClient }));
+  }
+
+  /* ── tool hygiene: invalid external tool names are filtered out ───────────── */
+  {
+    const overlongTool = 'x'.repeat(MAX_MCP_MODEL_TOOL_NAME + 1);
+    const client = makeRichMockClient({
+      tools: [
+        { name: 'echo', description: 'Echo.', inputSchema: { type: 'object', properties: {} } },
+        { name: 'valid_tool-2', description: 'Valid.', inputSchema: { type: 'object', properties: {} } },
+        { name: 'bad name', description: 'Invalid.', inputSchema: { type: 'object', properties: {} } },
+        { name: 'bad/slash', description: 'Invalid.', inputSchema: { type: 'object', properties: {} } },
+        { name: 'bad.dot', description: 'Invalid.', inputSchema: { type: 'object', properties: {} } },
+        { name: overlongTool, description: 'Invalid.', inputSchema: { type: 'object', properties: {} } },
+        { name: undefined, description: 'Invalid.', inputSchema: { type: 'object', properties: {} } },
+        { name: null, description: 'Invalid.', inputSchema: { type: 'object', properties: {} } },
+        { description: 'Invalid.', inputSchema: { type: 'object', properties: {} } },
+      ],
+    });
+    await syncExternalMcpServers([{ id: 'tool_names', command: 'noop', enabled: true }], async () => ({ client }));
+    const names = listMcpTools().map((t) => t.name);
+    check('tool hygiene: valid external tools stay exposed', names.includes('tool_names__echo') && names.includes('tool_names__valid_tool-2'));
+    check('tool hygiene: invalid external tool names are filtered out', !names.includes('tool_names__bad name') && !names.includes('tool_names__bad/slash') && !names.includes('tool_names__bad.dot'));
+    check('tool hygiene: overlong bare tool names are filtered out', !names.includes(`tool_names__${overlongTool}`));
+    check('tool hygiene: malformed non-string tool names are ignored', !names.includes('tool_names__undefined') && !names.includes('tool_names__null') && !names.includes('tool_names__'));
+    await syncExternalMcpServers([], async () => ({ client }));
+
+    const boundarySecret = `prefix ${'a'.repeat(973)} sk-ant-1234567890abcdefghijklmnop`;
+    const boundaryClient = makeRichMockClient({
+      tools: [
+        {
+          name: 'echo',
+          description: boundarySecret,
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+    await syncExternalMcpServers([{ id: 'tool_boundary', command: 'noop', enabled: true }], async () => ({ client: boundaryClient }));
+    const boundaryTool = listMcpTools().find((t) => t.name === 'tool_boundary__echo');
+    check('tool hygiene: boundary-crossing secret is scrubbed before metadata clipping', boundaryTool !== undefined && !boundaryTool.description.includes('sk-ant-') && boundaryTool.description.includes('redacted'));
+    await syncExternalMcpServers([], async () => ({ client: boundaryClient }));
+
+    const longId = 's'.repeat(MAX_MCP_MODEL_TOOL_NAME - 1);
+    const namespaceClient = makeRichMockClient({
+      tools: [{ name: 'tiny', description: 'Tiny.', inputSchema: { type: 'object', properties: {} } }],
+    });
+    await syncExternalMcpServers([{ id: longId, command: 'noop', enabled: true }], async () => ({ client: namespaceClient }));
+    check('tool hygiene: overlong final namespaced tool names are filtered out', !listMcpTools().some((t) => t.name === `${longId}__tiny`));
+    await syncExternalMcpServers([], async () => ({ client: namespaceClient }));
+  }
+
+  /* ── metadata hygiene: external tool metadata is scrubbed and clipped ─────── */
+  {
+    const secret = 'sk-ant-1234567890abcdefghijklmnop';
+    const large = `${secret} ${'0123456789'.repeat(220)} sentinel-after-limit`;
+    const overlongKey = 'p'.repeat(MAX_MCP_MODEL_TOOL_NAME + 1);
+    const { client } = makeMockClient();
+    const server = buildExternalServer('metadata', client, [
+      {
+        name: 'echo',
+        title: `Title ${large}`,
+        description: `Description ${large}`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            text: {
+              type: 'string',
+              description: `Param ${large}`,
+              [secret]: 'leaked-key',
+              [overlongKey]: 'long-key',
+            },
+            [secret]: { type: 'string', description: 'secret key' },
+            [overlongKey]: { type: 'string', description: 'long key' },
+          },
+          required: ['text', secret, overlongKey],
+        },
+      },
+    ]);
+    const tool = server.tools[0];
+    check('metadata hygiene: tool description scrubs token-shaped secrets', !tool.description.includes(secret) && tool.description.includes('redacted'));
+    check('metadata hygiene: tool description clips oversized metadata', tool.description.includes('clipped') && !tool.description.includes('sentinel-after-limit'));
+    const schema = tool.inputSchema as { properties?: Record<string, { description?: string }> };
+    const schemaKeys = Object.keys(schema.properties ?? {});
+    const fieldSchema = schema.properties?.text as Record<string, unknown> | undefined;
+    const fieldDescription = typeof fieldSchema?.description === 'string' ? fieldSchema.description : '';
+    check('metadata hygiene: schema descriptions scrub token-shaped secrets', !fieldDescription.includes(secret) && fieldDescription.includes('redacted'));
+    check('metadata hygiene: schema descriptions clip oversized metadata', fieldDescription.includes('clipped') && !fieldDescription.includes('sentinel-after-limit'));
+    check('metadata hygiene: unsafe schema property names are dropped', !schemaKeys.includes(secret) && !schemaKeys.includes(overlongKey));
+    check('metadata hygiene: unsafe nested schema keys are dropped', fieldSchema !== undefined && !Object.keys(fieldSchema).includes(secret) && !Object.keys(fieldSchema).includes(overlongKey));
+  }
+
+  /* ── error hygiene: thrown MCP errors are scrubbed and clipped ───────────── */
+  {
+    const largeError = makeLargeCapabilityText('error');
+    const throwingClient: McpClientLike = {
+      async listTools() {
+        return { tools: [] };
+      },
+      async callTool() {
+        throw new Error(largeError);
+      },
+      async close() {},
+    };
+    const server = buildExternalServer('err_tool', throwingClient, [
+      { name: 'explode', description: 'Throws.', inputSchema: { type: 'object', properties: {} } },
+    ]);
+    const tool = server.tools.find((entry) => entry.name === 'err_tool__explode');
+    const toolError = tool ? await tool.exec({}, ctx) : { text: '', isError: false };
+    check('error hygiene: thrown tool errors scrub token-shaped secrets', toolError.isError === true && !toolError.text.includes('sk-ant-1234567890abcdefghijklmnop') && toolError.text.includes('redacted'));
+    check('error hygiene: thrown tool errors are clipped', toolError.text.includes('clipped') && !toolError.text.includes('sentinel-after-limit'));
+
+    const capabilityClient: McpClientLike = {
+      async listTools() {
+        return { tools: [] };
+      },
+      async callTool() {
+        return { content: [{ type: 'text', text: 'ok' }] };
+      },
+      async close() {},
+      getServerCapabilities() {
+        return { prompts: {} };
+      },
+      async listPrompts() {
+        throw new Error(largeError);
+      },
+      async getPrompt() {
+        return { messages: [] };
+      },
+    };
+    const capTool = buildCapabilityTools('err_cap', capabilityClient, {}, new Set())
+      .find((entry) => entry.name === 'err_cap__list_prompts');
+    const capError = capTool ? await capTool.exec({}, ctx) : { text: '', isError: false };
+    check('error hygiene: capability errors scrub token-shaped secrets', capError.isError === true && !capError.text.includes('sk-ant-1234567890abcdefghijklmnop') && capError.text.includes('redacted'));
+    check('error hygiene: capability errors are clipped', capError.text.includes('clipped') && !capError.text.includes('sentinel-after-limit'));
   }
 
   /* ── capability guard: a tools-only server gets no synthesized meta-tools ──── */

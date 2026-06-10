@@ -5,43 +5,82 @@ import path from 'node:path';
 import { atomicWriteFile } from '../fs-safe';
 import {
   sanitizeMcpConfig,
+  sanitizeMcpConfigWithDiagnostics,
+  type McpConfigDiagnostic,
+  type McpConfigHealth,
   type McpServerConfig,
   type McpServersFile,
 } from '../../shared/mcp';
 
-/**
- * Config store for external (stdio) MCP connectors (docs/remote-mobile-bridge-design
- * §M3). Persisted as `userData/mcp-servers.json` in the Claude-Desktop style — a
- * plain, hand-editable list of `{ id, command, args?, env?, enabled }`. The file is
- * untrusted (the user edits it, or it's read off disk), so every read goes through
- * {@link sanitizeMcpConfig}: a malformed entry is dropped, never crashes the app.
- *
- * Default is EMPTY (no servers) — so M3 ships inert: nothing is spawned until the
- * user adds a server. We never spawn anything not in this file.
- */
-
-/** Absolute path to the config file (also shown in Settings for hand-editing). */
 export function mcpConfigPath(): string {
   return path.join(app.getPath('userData'), 'mcp-servers.json');
 }
 
-/** Read + sanitize the configured servers. Missing/corrupt file → empty list. */
-export async function readMcpConfig(): Promise<McpServersFile> {
+type McpConfigReadResult = {
+  readonly file: McpServersFile;
+  readonly health: McpConfigHealth;
+};
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function fileErrorCode(err: unknown): string | undefined {
+  return err && typeof err === 'object' && 'code' in err
+    ? String((err as { readonly code?: unknown }).code)
+    : undefined;
+}
+
+function health(
+  exists: boolean,
+  diagnostics: readonly McpConfigDiagnostic[],
+): McpConfigHealth {
+  return {
+    path: mcpConfigPath(),
+    exists,
+    ok: diagnostics.every((d) => d.severity !== 'error'),
+    diagnostics,
+  };
+}
+
+export async function readMcpConfigWithDiagnostics(): Promise<McpConfigReadResult> {
+  let raw = '';
   try {
-    const raw = await fs.readFile(mcpConfigPath(), 'utf8');
-    return sanitizeMcpConfig(JSON.parse(raw));
-  } catch {
-    // Missing or unreadable/corrupt — treat as no servers configured.
-    return { servers: [] };
+    raw = await fs.readFile(mcpConfigPath(), 'utf8');
+  } catch (err) {
+    if (fileErrorCode(err) === 'ENOENT') {
+      return { file: { servers: [] }, health: health(false, []) };
+    }
+    const diagnostics: McpConfigDiagnostic[] = [
+      {
+        severity: 'error',
+        code: 'read_error',
+        message: `Could not read MCP config: ${errorMessage(err)}`,
+      },
+    ];
+    return { file: { servers: [] }, health: health(true, diagnostics) };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const { file, diagnostics } = sanitizeMcpConfigWithDiagnostics(parsed);
+    return { file, health: health(true, diagnostics) };
+  } catch (err) {
+    const diagnostics: McpConfigDiagnostic[] = [
+      {
+        severity: 'error',
+        code: 'parse_error',
+        message: `MCP config JSON is invalid: ${errorMessage(err)}`,
+      },
+    ];
+    return { file: { servers: [] }, health: health(true, diagnostics) };
   }
 }
 
-/**
- * Synchronous variant for the pre-app-ready boot path: the remote-debugging-port
- * gate in electron/main.ts must decide before `app.whenReady()` (the switch has no
- * runtime API), and that path can't await. Same sanitize + missing/corrupt → empty
- * list as {@link readMcpConfig}. `app.getPath('userData')` is valid before ready.
- */
+export async function readMcpConfig(): Promise<McpServersFile> {
+  return (await readMcpConfigWithDiagnostics()).file;
+}
+
 export function readMcpConfigSync(): McpServersFile {
   try {
     const raw = readFileSync(mcpConfigPath(), 'utf8');
@@ -51,21 +90,16 @@ export function readMcpConfigSync(): McpServersFile {
   }
 }
 
-/**
- * Write the config back (atomic tmp+rename). Sanitized first so a programmatic
- * write can't persist an invalid shape. Used by the Settings enable/disable toggle
- * and (later) an add form.
- */
+export async function readMcpConfigHealth(): Promise<McpConfigHealth> {
+  return (await readMcpConfigWithDiagnostics()).health;
+}
+
 export async function writeMcpConfig(file: McpServersFile): Promise<McpServersFile> {
   const clean = sanitizeMcpConfig(file);
   await atomicWriteFile(mcpConfigPath(), JSON.stringify(clean, null, 2));
   return clean;
 }
 
-/**
- * Toggle one server's `enabled` flag and persist. Returns the updated config (or
- * the unchanged config when the id is unknown). The caller re-syncs the manager.
- */
 export async function setMcpServerEnabled(id: string, enabled: boolean): Promise<McpServersFile> {
   const current = await readMcpConfig();
   let changed = false;
@@ -86,11 +120,6 @@ export type McpServerUpdatePatch = {
   readonly confirmTools?: readonly string[];
 };
 
-/**
- * Update editable server settings that do not expose secrets to the renderer.
- * Unknown ids are a no-op; writes are re-sanitized so blank/duplicate tool names
- * are cleaned before persistence and empty lists clear the field.
- */
 export async function updateMcpServer(
   id: string,
   patch: McpServerUpdatePatch,
@@ -115,10 +144,6 @@ export async function updateMcpServer(
   return writeMcpConfig({ servers });
 }
 
-/**
- * Remove a configured server. Unknown ids are a no-op so stale renderer state
- * cannot accidentally rewrite the config.
- */
 export async function removeMcpServer(id: string): Promise<McpServersFile> {
   const current = await readMcpConfig();
   const servers = current.servers.filter((s) => s.id !== id);
@@ -126,14 +151,9 @@ export async function removeMcpServer(id: string): Promise<McpServersFile> {
   return writeMcpConfig({ servers });
 }
 
-/**
- * Add a server config (e.g. from a preset) if its id isn't already present, and
- * persist. Returns the resulting config plus whether anything was added — an existing
- * id is left untouched (the caller surfaces "already added"). Re-sanitized on write.
- */
 export async function addMcpServer(
   config: McpServerConfig,
-): Promise<{ file: McpServersFile; added: boolean }> {
+): Promise<{ readonly file: McpServersFile; readonly added: boolean }> {
   const current = await readMcpConfig();
   if (current.servers.some((s) => s.id === config.id)) {
     return { file: current, added: false };
@@ -142,18 +162,11 @@ export async function addMcpServer(
   return { file, added: true };
 }
 
-/**
- * Ensure the config file exists on disk (seeded with an empty, commented-by-example
- * shape) so "open config" reveals a real, editable file rather than a missing one.
- * Best-effort — a failure just means the file is created on the next write.
- */
 export async function ensureMcpConfigFile(): Promise<void> {
   const p = mcpConfigPath();
   try {
     await fs.access(p);
   } catch {
-    // Seed with an empty servers list. A user pastes their Claude-Desktop-style
-    // entries here; nothing is spawned until they add one and enable it.
     const seed: McpServersFile = { servers: [] };
     await atomicWriteFile(p, JSON.stringify(seed, null, 2)).catch(() => {});
   }

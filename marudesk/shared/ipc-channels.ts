@@ -202,6 +202,7 @@ export const CHANNELS = {
   mcp: [
     'mcp:list-servers',
     'mcp:reload',
+    'mcp:config-diagnostics',
     'mcp:set-enabled',
     'mcp:update-server',
     'mcp:remove-server',
