@@ -123,7 +123,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   ...BROWSER_TOOL_SCHEMAS,
   {
     name: SPAWN_SUBAGENT,
-    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The parent turn waits for the child report, so use this for focused second opinions and bounded analysis. For detached fan-out, use spawn_background_agent instead. The child may inspect workspace/live context and search the web (web_search, fetch_url) with non-mutating built-in tools, cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, or run other gated actions.',
+    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The parent turn waits for the child report, so use this for focused second opinions and bounded analysis. To fan out, issue SEVERAL spawn_subagent calls in the SAME assistant turn — independent children then execute concurrently. For detached work that outlives the turn, use spawn_background_agent instead. The child may inspect workspace/live context and search the web (web_search, fetch_url) with non-mutating built-in tools, cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, or run other gated actions.',
     inputSchema: {
       type: 'object',
       properties: {

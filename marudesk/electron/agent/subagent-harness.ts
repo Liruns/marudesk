@@ -123,6 +123,27 @@ check(
   'the streamed progress carries the child text + tool trace',
   progressEvents[0]?.text === 'partial child output…' && progressEvents[0]?.traces[0] === 'read_file: ok',
 );
+// Parallel fan-out (loop chunked dispatch): several children must be able to run
+// CONCURRENTLY — the loop Promise.alls a run of consecutive spawn_subagent calls,
+// so the child runtime must not serialize on shared state. Two delayed children
+// must overlap in time.
+{
+  const stamps: { label: string; phase: 'start' | 'end'; at: number }[] = [];
+  setSubagentRunnerForTests(async (request) => {
+    stamps.push({ label: request.label, phase: 'start', at: Date.now() });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    stamps.push({ label: request.label, phase: 'end', at: Date.now() });
+    return { summary: 'ok', text: `report from ${request.label}` };
+  });
+  const [a, b] = await Promise.all([
+    runSubagentTool({ task: 'left half', label: 'A' }, ctx),
+    runSubagentTool({ task: 'right half', label: 'B' }, ctx),
+  ]);
+  check('parallel: both children report', a.text.includes('A') && b.text.includes('B'));
+  const bStart = stamps.find((s) => s.label === 'B' && s.phase === 'start')!.at;
+  const aEnd = stamps.find((s) => s.label === 'A' && s.phase === 'end')!.at;
+  check('parallel: child B starts before child A finishes (true overlap)', bStart < aEnd);
+}
 setSubagentRunnerForTests(null);
 
 console.log(`\nsubagent harness: ${passed} assertions passed`);
