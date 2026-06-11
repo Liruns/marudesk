@@ -10,6 +10,11 @@ import type {
 import { emptyAgentChatState } from '../../../shared/agent';
 import type { CapturePayload } from '../../../shared/composer';
 import type { SessionSummary } from '../../../shared/context';
+import {
+  findModel,
+  type ProviderId,
+  type ProviderStatus,
+} from '../../../shared/providers';
 import type { CheckpointRestore } from '../../../shared/worktree';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
@@ -100,6 +105,12 @@ type AgentState = {
   queuedPrompts: string[];
   /** Per-thread queued prompts so one chat's follow-ups don't leak into another. */
   queuedPromptsByThread: Record<string, string[]>;
+  /**
+   * Per-thread model pin (model-catalog key). A thread pins its model on first
+   * send (or an explicit pick in its composer) and keeps it even when another
+   * chat selects something else; unpinned threads follow the global selection.
+   */
+  modelKeyByThread: Record<string, string>;
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
   localErrorByThread: Record<string, string | null>;
@@ -125,6 +136,8 @@ type AgentActions = {
   removeQueuedPrompt: (index: number) => void;
   /** Switch composer-local queue state to the active thread from ThreadBar. */
   setActiveThreadId: (id: string | null) => void;
+  /** Pin the ACTIVE thread to `key` and make it the global default for new threads. */
+  setThreadModelKey: (key: string) => void;
   setVerbosity: (v: TranscriptVerbosity) => void;
   /** Replace the projection from an `agent:event` snapshot. */
   ingest: (chat: AgentChatState) => void;
@@ -224,6 +237,12 @@ function activeThreadKey(state: Pick<AgentState, 'activeThreadId'>): string {
   return state.activeThreadId ?? '__main__';
 }
 
+/** Whether `provider` has usable auth — an API key, keyless (Ollama), or OAuth. */
+function hasAuthFor(status: ProviderStatus[], provider: ProviderId): boolean {
+  const s = status.find((p) => p.id === provider);
+  return !!s?.hasKey || !!s?.oauth;
+}
+
 
 function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
   const scope = normalizeAgentWorkspaceId(workspaceId);
@@ -242,6 +261,7 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
   activeThreadId: null,
   queuedPrompts: [],
   queuedPromptsByThread: {},
+  modelKeyByThread: {},
   verbosity: loadVerbosity(verbosityKey),
   localError: null,
   localErrorByThread: {},
@@ -328,6 +348,15 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
       };
     }),
 
+  setThreadModelKey: (key) => {
+    // The pick also becomes the global default (new threads + next launch),
+    // while every OTHER thread keeps its own pin — the per-thread isolation.
+    useProvidersStore.getState().selectModel(key);
+    set((s) => ({
+      modelKeyByThread: { ...s.modelKeyByThread, [activeThreadKey(s)]: key },
+    }));
+  },
+
   setVerbosity: (verbosity) => {
     try {
       localStorage.setItem(verbosityKey, verbosity);
@@ -409,18 +438,31 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
 
   dispatchPrompt: async (prompt, opts) => {
     const providers = useProvidersStore.getState();
-    const provider = providers.selectedProvider;
-    const model = providers.selectedModel;
-    let hasKey = providers.hasKeyForSelected();
+    // Per-thread model: a pinned thread keeps running on its own model; an
+    // unpinned one resolves the global selection and pins it below, so a later
+    // global change (another chat's pick) can't silently retarget this thread.
+    const threadId = activeThreadKey(get());
+    const pinnedKey = get().modelKeyByThread[threadId];
+    const entry =
+      (pinnedKey ? findModel(providers.models, pinnedKey) : undefined) ??
+      findModel(providers.models, providers.selectedModelKey);
+    const provider = entry?.provider ?? providers.selectedProvider;
+    const model = entry?.id ?? providers.selectedModel;
+    let hasKey = hasAuthFor(providers.providerStatus, provider);
     if (!hasKey && !providers.statusChecked) {
       await providers.refreshProviderStatus();
-      hasKey = useProvidersStore.getState().hasKeyForSelected();
+      hasKey = hasAuthFor(useProvidersStore.getState().providerStatus, provider);
     }
     // AI Chat no longer requires an open workspace — file tools just degrade to a
     // friendly "open a folder" message in main, while browser/page tools and a
     // plain conversation work without one.
     if (!hasKey) {
       return { ok: false, reason: `No API key configured for ${provider}. Add one in Settings.` };
+    }
+    if (!pinnedKey && entry) {
+      set((s) => ({
+        modelKeyByThread: { ...s.modelKeyByThread, [threadId]: entry.key },
+      }));
     }
 
     const web = useWebPageStore.getState();
@@ -607,6 +649,19 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
       if (ok) {
         useDiffCommentsStore.getState().clearAll();
         set({ localError: null });
+        // Pin the thread to the session's last-used model so resuming an old
+        // chat doesn't silently continue on whatever happens to be selected.
+        const summary = get().sessions.find((s) => s.id === id);
+        const entry = summary
+          ? useProvidersStore
+              .getState()
+              .models.find((m) => m.provider === summary.provider && m.id === summary.model)
+          : undefined;
+        if (entry) {
+          set((s) => ({
+            modelKeyByThread: { ...s.modelKeyByThread, [activeThreadKey(s)]: entry.key },
+          }));
+        }
         await get().hydrate();
       }
     } catch {
@@ -679,6 +734,17 @@ export const useAgentStore = Object.assign(
  * approval/question. Shared selector so the composer, changes/recovery cards, and
  * capture cards agree on "busy" instead of each re-deriving the status set.
  */
+/**
+ * The ACTIVE thread's effective model key — its pin when set, else the global
+ * selection. Drives the composer chip, the usage gauge, and the reasoning dial
+ * so every per-thread surface agrees with what dispatchPrompt will actually run.
+ */
+export const useThreadModelKey = (): string => {
+  const pinned = useAgentStore((s) => s.modelKeyByThread[activeThreadKey(s)] ?? null);
+  const globalKey = useProvidersStore((s) => s.selectedModelKey);
+  return pinned ?? globalKey;
+};
+
 export const useAgentBusy = (): boolean =>
   useAgentStore(
     (s) =>

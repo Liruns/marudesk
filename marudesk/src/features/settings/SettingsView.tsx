@@ -10,6 +10,7 @@ import {
   DevtoolsCategory,
   EditorCategory,
   TerminalCategory,
+  WindowCategory,
 } from './GeneralSettingsCategories';
 import { McpServersSettings } from './McpServersSettings';
 import { AutomationsSettings } from './AutomationsSettings';
@@ -113,6 +114,7 @@ export function SettingsView() {
               {category === 'automations' ? <AutomationsSettings /> : null}
               {category === 'devtools' ? <DevtoolsCategory /> : null}
               {category === 'remote' ? <RemoteCategory /> : null}
+              {category === 'window' ? <WindowCategory /> : null}
               {category === 'data' ? <DataCategory /> : null}
               {category === 'about' ? <AboutCategory /> : null}
             </>

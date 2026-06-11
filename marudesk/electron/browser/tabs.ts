@@ -140,7 +140,7 @@ export function createTab(
       return { action: 'deny' };
     }
     // Anything else (mailto:/tel: → OS; file:/custom schemes → refused).
-    openExternalUrl(url);
+    void openExternalUrl(url);
     return { action: 'deny' };
   });
 

@@ -57,6 +57,14 @@ export type AgentApprovalMode = 'read-only' | 'ask' | 'auto' | 'plan';
 export type ChatSurface = 'panel' | 'cli';
 
 /**
+ * What the window's close button does: 'quit' exits the app; 'tray' hides the
+ * window and keeps marudesk running in the background behind a tray icon
+ * (Settings → Window). 'tray' is the default so closing the window never kills
+ * in-flight agent turns, terminals, or the remote bridge by surprise.
+ */
+export type CloseBehavior = 'quit' | 'tray';
+
+/**
  * How hard a reasoning ("extended thinking") model should think before answering
  * — a single standard enum the loop maps to each provider's native knob (OpenAI
  * `reasoningEffort`, Anthropic thinking `budgetTokens`, Google `thinkingLevel`).
@@ -102,6 +110,10 @@ export type AppSettings = {
   browser: {
     /** Address-bar search provider for non-URL input. */
     searchEngine: SearchEngine;
+  };
+  window: {
+    /** Close button: quit the app, or hide to the tray and keep running. */
+    closeBehavior: CloseBehavior;
   };
   lanes: {
     /**
@@ -273,6 +285,7 @@ export type SettingsPatch = {
   terminal?: Partial<AppSettings['terminal']>;
   devtools?: Partial<AppSettings['devtools']>;
   browser?: Partial<AppSettings['browser']>;
+  window?: Partial<AppSettings['window']>;
   lanes?: Partial<AppSettings['lanes']>;
   agent?: Partial<AppSettings['agent']>;
   pcControl?: Partial<AppSettings['pcControl']>;
@@ -303,6 +316,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   browser: {
     searchEngine: 'google',
+  },
+  window: {
+    closeBehavior: 'tray',
   },
   lanes: {
     devCommand: '',
@@ -362,6 +378,7 @@ const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing']
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
 const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 const CHAT_SURFACES: readonly ChatSurface[] = ['panel', 'cli'];
+const CLOSE_BEHAVIORS: readonly CloseBehavior[] = ['quit', 'tray'];
 const MAX_DENY_GLOBS = 100;
 
 /**
@@ -453,6 +470,7 @@ export function sanitizeSettings(
   const t = asRecord(root.terminal);
   const d = asRecord(root.devtools);
   const b = asRecord(root.browser);
+  const w = asRecord(root.window);
   const ln = asRecord(root.lanes);
   const ag = asRecord(root.agent);
   const pc = asRecord(root.pcControl);
@@ -504,6 +522,9 @@ export function sanitizeSettings(
         SEARCH_ENGINES,
         base.browser.searchEngine,
       ),
+    },
+    window: {
+      closeBehavior: asEnum(w.closeBehavior, CLOSE_BEHAVIORS, base.window.closeBehavior),
     },
     lanes: {
       devCommand: asString(ln.devCommand, base.lanes.devCommand),

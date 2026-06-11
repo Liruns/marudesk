@@ -19,7 +19,17 @@ import { ModelRow, SectionHeader } from './ModelPaletteRow';
  * Replaces the old anchored combobox dropdown — the chip in {@link ProviderModelBar}
  * is now just the trigger.
  */
-export function ModelPalette({ onClose }: { onClose: () => void }) {
+export function ModelPalette({
+  onClose,
+  selectedKey,
+  onPick,
+}: {
+  onClose: () => void;
+  /** Highlight override — e.g. the active thread's pinned model (defaults to the global selection). */
+  selectedKey?: string;
+  /** Selection override — route the pick somewhere other than the global store. */
+  onPick?: (key: string) => void;
+}) {
   const { t } = useI18n();
   const models = useProvidersStore((s) => s.models);
   const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
@@ -131,7 +141,8 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
   }, [activeIndex]);
 
   const choose = (key: string) => {
-    selectModel(key);
+    if (onPick) onPick(key);
+    else selectModel(key);
     onClose();
   };
 
@@ -221,7 +232,7 @@ export function ModelPalette({ onClose }: { onClose: () => void }) {
                       index={idx}
                       rowRef={idx === activeIndex ? activeRef : undefined}
                       active={idx === activeIndex}
-                      selected={m.key === selectedModelKey}
+                      selected={m.key === (selectedKey ?? selectedModelKey)}
                       favorite={isFavorite}
                       showQuickKey={query.trim() === '' && idx < 9}
                       visionLabel={t('agent.modelPalette.vision')}

@@ -3,6 +3,7 @@ import {
   FONT_SIZE_MIN,
   UI_ZOOM_MAX,
   UI_ZOOM_MIN,
+  type CloseBehavior,
   type ThemeMode,
 } from '../../../shared/settings';
 import { MONO_FONT_PRESETS, UI_FONT_PRESETS } from '../../../shared/fonts';
@@ -204,6 +205,33 @@ export function BrowserCategory() {
           value={browser.searchEngine}
           options={SEARCH_ENGINE_OPTIONS}
           onChange={(searchEngine) => void update({ browser: { searchEngine } })}
+        />
+      </Field>
+    </Section>
+  );
+}
+
+export function WindowCategory() {
+  const { t } = useI18n();
+  const win = useSettingsStore((s) => s.settings.window);
+  const update = useSettingsStore((s) => s.update);
+  const options = [
+    { value: 'tray', label: t('settings.window.closeBehavior.tray') },
+    { value: 'quit', label: t('settings.window.closeBehavior.quit') },
+  ] as const satisfies readonly {
+    readonly value: CloseBehavior;
+    readonly label: string;
+  }[];
+  return (
+    <Section>
+      <Field
+        label={t('settings.window.closeBehavior.label')}
+        hint={t('settings.window.closeBehavior.hint')}
+      >
+        <Segmented
+          value={win.closeBehavior}
+          options={options}
+          onChange={(closeBehavior) => void update({ window: { closeBehavior } })}
         />
       </Field>
     </Section>

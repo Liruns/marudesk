@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, Menu, session } from 'electron';
 // Redirect userData to the active profile BEFORE any persistence module loads.
 import './profile-init';
 import { persistActiveProfile, profileDir, registerProfileHandlers } from './profile-store';
@@ -49,7 +49,8 @@ import { initPlugins, shutdownPlugins } from './plugins';
 import { registerPluginHandlers } from './plugins/handlers';
 import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol';
 import { registerModelsHandlers } from './models';
-import { getSettings, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
+import { getSettings, getSettingsSync, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
+import { destroyTray, syncTrayToSettings } from './tray';
 import { flushAndResetHistoryForProfile, registerHistoryHandlers } from './history';
 import { registerDiagnosticsHandlers } from './diagnostics/handlers';
 import { syncFromContext as syncLspFromContext, disposeAllLsp } from './lsp/manager';
@@ -83,6 +84,25 @@ const rendererDevUrl = process.env.VITE_DEV_SERVER_URL;
 let mainWindow: BrowserWindow | null = null;
 const getMainWindow = (): BrowserWindow | null => mainWindow;
 
+// True once the app is actually exiting (tray Quit, OS shutdown, updater) — the
+// close-to-tray handler uses it to tell a real quit from the ✕ button.
+let quitting = false;
+
+/** Tray callbacks: restore (or recreate) the main window, and really quit. */
+const trayHost = {
+  showMainWindow: (): void => {
+    const win = mainWindow;
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    } else {
+      void createMainWindow();
+    }
+  },
+  quit: (): void => app.quit(),
+};
+
 // The automation runner reads the active workspace lazily, so it's profile-
 // independent: created once and reused for the IPC handlers and every (re)start
 // of the scheduler across live profile switches.
@@ -109,11 +129,12 @@ function initProfileRuntime(): void {
   void configureAutomationStore(path.join(app.getPath('userData'), 'automations.json')).then(() => {
     if (automationRunner) startScheduler(automationRunner);
   });
-  // Warm the settings cache, then reconcile the bridge server + cloud relay with
-  // the new profile's settings.
+  // Warm the settings cache, then reconcile the bridge server + cloud relay +
+  // tray icon with the new profile's settings.
   void getSettings().then((settings) => {
     void syncServerToSettings(settings);
     void syncRelayToSettings(settings);
+    syncTrayToSettings(settings, trayHost);
   });
   // The always-on loopback companion (CLI bridge) — per profile, since the
   // bearer token + cli-bridge.json live in the profile's userData.
@@ -311,7 +332,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   trackWindowState(win);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
+    void openExternalUrl(url);
     return { action: 'deny' };
   });
 
@@ -319,7 +340,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     const localPrefix = rendererDevUrl ?? 'file://';
     if (!url.startsWith(localPrefix)) {
       event.preventDefault();
-      openExternalUrl(url);
+      void openExternalUrl(url);
     }
   });
 
@@ -384,6 +405,19 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   mountBrowserView(win);
   mainWindow = win;
+  // Close-to-tray (Settings → Window): unless the app is really quitting, the
+  // ✕ button only hides the window and marudesk keeps running — agent turns,
+  // terminals, and the bridge server survive. The tray icon (kept in sync with
+  // the setting) is the way back in and the real way out.
+  win.on('close', (event) => {
+    if (quitting) return;
+    // E2E/automation runs opt out via env — a hidden-not-closed window would
+    // deadlock a harness that expects close() to end the process.
+    if (process.env.MARUDESK_DISABLE_TRAY) return;
+    if (getSettingsSync().window.closeBehavior !== 'tray') return;
+    event.preventDefault();
+    win.hide();
+  });
   win.on('closed', () => {
     disposeBrowserView();
     mainWindow = null;
@@ -402,6 +436,14 @@ maybeOpenEmbeddedDebugPort();
 registerPluginScheme();
 
 void app.whenReady().then(() => {
+  // Drop Electron's DEFAULT application menu on Windows/Linux. The window is
+  // frameless (no visible menu bar) but the default menu's accelerators stay
+  // live — most damagingly its Close Window (Ctrl+W), which closes the whole
+  // app whenever no tab handler consumed the key (no tabs open, or focus in a
+  // text field), plus Ctrl+R reloading the shell chrome. The app owns all its
+  // shortcuts in the renderer + per-view before-input-event handlers. macOS
+  // keeps the default menu — the system menu bar carries Cmd+C/V text editing.
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
   // Show the splash immediately so there's feedback while handlers register and
   // the renderer loads; closed on the main window's ready-to-show.
   showSplash();
@@ -469,6 +511,8 @@ void app.whenReady().then(() => {
       // relayUrl change). Also fire-and-forget — connection errors are swallowed
       // by the relay-client's reconnect and never crash the app.
       void syncRelayToSettings(settings);
+      // Create/destroy the tray icon as the close-behavior setting flips.
+      syncTrayToSettings(settings, trayHost);
     },
   });
   registerHistoryHandlers();
@@ -512,6 +556,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Let the close-to-tray handler stand aside — this is a real exit.
+  quitting = true;
+  destroyTray();
   disposeAllTerminals();
   disposeAllLaneDevServers();
   // Tear down every language server so no spawned LSP process lingers past exit.
@@ -535,7 +582,7 @@ app.on('before-quit', () => {
 
 app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
+    void openExternalUrl(url);
     return { action: 'deny' };
   });
 });

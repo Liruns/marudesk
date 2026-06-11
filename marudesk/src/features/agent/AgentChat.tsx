@@ -1,5 +1,11 @@
-import { useEffect } from 'react';
-import { ChevronDown, Send, Square } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  ChevronDown,
+  PanelRightClose,
+  PanelRightOpen,
+  Send,
+  Square,
+} from 'lucide-react';
 import { Button } from '../../components/ui';
 import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
@@ -8,7 +14,7 @@ import { findModel } from '../../../shared/providers';
 import type { AgentChatState, AgentWorkspaceEvent } from '../../../shared/agent';
 import { useProvidersStore } from '../providers/store';
 import { useWorkspaceStore } from '../workspace/store';
-import { useAgentStore, useAgentWorkspaceId } from './store';
+import { useAgentStore, useAgentWorkspaceId, useThreadModelKey } from './store';
 import { ContextPopover } from './ContextPopover';
 import { buildReceipt, isBusy } from './chat/format';
 import {
@@ -39,6 +45,17 @@ import { useStickyTranscriptScroll } from './chat/useStickyTranscriptScroll';
 import { useComposer } from './useComposer';
 
 
+/** Persisted open/closed state of the full surface's Mission Control panel. */
+const MISSION_KEY = 'marudesk.agent.missionControl';
+
+function loadMissionOpen(): boolean {
+  try {
+    return localStorage.getItem(MISSION_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
 export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' } = {}) {
   const { t } = useI18n();
   const chat = useAgentStore((s) => s.chat);
@@ -62,10 +79,11 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const summary = useWorkspaceStore((s) => s.summary);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
   const refreshStatus = useProvidersStore((s) => s.refreshProviderStatus);
-  // Reasoning-effort control is shown only for models the catalog flags `reasoning`.
+  // Reasoning-effort control is shown only for models the catalog flags
+  // `reasoning` — resolved against the ACTIVE THREAD's model, not the global pick.
   const models = useProvidersStore((s) => s.models);
-  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
-  const isReasoningModel = !!findModel(models, selectedModelKey)?.reasoning;
+  const threadModelKey = useThreadModelKey();
+  const isReasoningModel = !!findModel(models, threadModelKey)?.reasoning;
 
   const { scrollRef, atBottom, handleScroll, handleWheel, scrollToBottom, stickToBottom } =
     useStickyTranscriptScroll({
@@ -102,6 +120,18 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
   // The same workspace-scoped state projects into both.
   const full = variant === 'full';
+  // Mission Control (the right-side plan/agents panel) can be collapsed to give
+  // the transcript the full width; persisted so the choice survives restarts.
+  const [missionOpen, setMissionOpen] = useState(loadMissionOpen);
+  const toggleMission = (open: boolean) => {
+    setMissionOpen(open);
+    try {
+      localStorage.setItem(MISSION_KEY, open ? '1' : '0');
+    } catch {
+      // ignore — the in-memory state still applies
+    }
+  };
+  const hasMissionContent = !!(chat.plan?.steps.length || chat.orchestration.length > 0);
   // Completion receipt (Antigravity "Walkthrough" parity): a one-line outcome
   // shown when a finished turn actually probed the live app over CDP or ran a
   // verify pass — surfacing the runtime-evidence wedge + the verify verdict.
@@ -186,16 +216,18 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           {receipt ? <ReceiptCard receipt={receipt} turnId={chat.turnId} /> : null}
 
           {/* Inline plan: always in the compact drawer; in the full surface only
-              below lg, where the side panel is hidden — so the plan is never lost
-              on a narrow window and never doubled (the aside is hidden lg:flex). */}
+              in a narrow CONTAINER (split pane / slim window), where the side
+              panel is hidden — so the plan is never lost when narrow and never
+              doubled. Container-query, not viewport: a half-width split pane on
+              a big monitor must behave like a narrow window. */}
           {chat.plan && chat.plan.steps.length > 0 ? (
-            <div className={full ? 'lg:hidden' : undefined}>
+            <div className={full ? '@[64rem]:hidden' : undefined}>
               <Taskboard plan={chat.plan} />
             </div>
           ) : null}
 
           {chat.orchestration.length > 0 ? (
-            <div className={full ? 'lg:hidden' : undefined}>
+            <div className={full ? '@[64rem]:hidden' : undefined}>
               <OrchestrationTree nodes={chat.orchestration} />
             </div>
           ) : null}
@@ -237,14 +269,39 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
         {/* In the full surface the plan rides in a right-side "Mission Control"
             panel so it stays visible while the transcript scrolls (v5 §G2). The
-            compact drawer keeps it inline (collapsible) below. */}
-        {full && (chat.plan?.steps.length || chat.orchestration.length > 0) ? (
-          <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-l border-subtle p-3 lg:flex">
+            compact drawer keeps it inline (collapsible) below. Container-gated
+            (≥64rem of PANE width — a viewport query would keep it crushing the
+            chat inside a split pane) and collapsible, so the transcript can take
+            the full width; the chip below brings it back. */}
+        {full && hasMissionContent && missionOpen ? (
+          <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-l border-subtle p-3 @[64rem]:flex">
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => toggleMission(false)}
+                aria-label={t('agent.mission.collapse')}
+                title={t('agent.mission.collapse')}
+                className="rounded p-1 text-fg-tertiary/60 transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+              >
+                <PanelRightClose size={13} />
+              </button>
+            </div>
             <div className="flex flex-col gap-3">
               <Taskboard plan={chat.plan} />
               <OrchestrationTree nodes={chat.orchestration} />
             </div>
           </aside>
+        ) : null}
+        {full && hasMissionContent && !missionOpen ? (
+          <button
+            type="button"
+            onClick={() => toggleMission(true)}
+            aria-label={t('agent.mission.expand')}
+            title={t('agent.mission.expand')}
+            className="absolute right-2 top-2 z-10 hidden size-7 items-center justify-center rounded-md border border-subtle bg-surface-2 text-fg-tertiary shadow-card transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary @[64rem]:flex"
+          >
+            <PanelRightOpen size={14} />
+          </button>
         ) : null}
       </div>
 

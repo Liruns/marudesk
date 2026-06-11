@@ -21,7 +21,9 @@ export function SessionRail() {
       className={cn(
         'relative flex h-full shrink-0 overflow-hidden border-r border-subtle bg-surface-1',
         'transition-[width] duration-standard',
-        collapsed ? 'w-8' : 'w-56',
+        // Container-query: in a narrow pane (split view) the rail stays a thin
+        // strip even when "expanded" — the chat column is the priority there.
+        collapsed ? 'w-8' : 'w-8 @[56rem]:w-56',
       )}
     >
       <div className="relative h-full w-56 shrink-0">
@@ -30,7 +32,9 @@ export function SessionRail() {
           className={cn(
             'absolute inset-y-0 left-0 flex w-8 flex-col items-center gap-1 py-2.5',
             'transition-opacity duration-fast',
-            collapsed ? 'opacity-100' : 'pointer-events-none opacity-0',
+            collapsed
+              ? 'opacity-100'
+              : 'opacity-100 @[56rem]:pointer-events-none @[56rem]:opacity-0',
           )}
         >
           <button
@@ -50,7 +54,9 @@ export function SessionRail() {
           className={cn(
             'absolute inset-0 flex flex-col',
             'transition-opacity duration-fast',
-            collapsed ? 'pointer-events-none opacity-0' : 'opacity-100',
+            collapsed
+              ? 'pointer-events-none opacity-0'
+              : 'pointer-events-none opacity-0 @[56rem]:pointer-events-auto @[56rem]:opacity-100',
           )}
         >
           <header className="flex h-9 shrink-0 items-center justify-between border-b border-subtle pl-3 pr-1.5">

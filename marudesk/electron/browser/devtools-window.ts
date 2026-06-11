@@ -76,7 +76,7 @@ export function openDevtoolsWindow(tabId: string): boolean {
     const localPrefix = process.env.VITE_DEV_SERVER_URL ?? 'file://';
     if (!url.startsWith(localPrefix)) {
       event.preventDefault();
-      openExternalUrl(url);
+      void openExternalUrl(url);
     }
   });
 

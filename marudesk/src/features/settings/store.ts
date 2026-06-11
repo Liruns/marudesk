@@ -25,6 +25,7 @@ export type SettingsCategory =
   | 'automations'
   | 'devtools'
   | 'remote'
+  | 'window'
   | 'data'
   | 'about';
 
@@ -97,6 +98,8 @@ function mergePatch(base: AppSettings, patch: SettingsPatch): AppSettings {
     terminal: { ...base.terminal, ...(patch.terminal ?? {}) },
     devtools: { ...base.devtools, ...(patch.devtools ?? {}) },
     browser: { ...base.browser, ...(patch.browser ?? {}) },
+    window: { ...base.window, ...(patch.window ?? {}) },
+    lanes: { ...base.lanes, ...(patch.lanes ?? {}) },
     agent: { ...base.agent, ...(patch.agent ?? {}) },
     pcControl: { ...base.pcControl, ...(patch.pcControl ?? {}) },
     server: { ...base.server, ...(patch.server ?? {}) },
