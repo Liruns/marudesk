@@ -10,6 +10,7 @@ import {
 } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
 import {
+  findSiblingLeaf,
   removeWorkspaceLeaf,
   sanitizeWorkspaceLayout,
   setWorkspaceLeaf,
@@ -356,9 +357,10 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
     closePane: (paneId) => {
       const layout = get().layout;
       if (!layout) return;
+      const sibling = findSiblingLeaf(layout, paneId);
       const next = removeWorkspaceLeaf(layout, paneId);
       const leaves = workspaceLeaves(next);
-      const focused = leaves[0] ?? null;
+      const focused = sibling ?? leaves[0] ?? null;
       set({
         layout: next,
         focusedPaneId: focused?.id ?? null,
