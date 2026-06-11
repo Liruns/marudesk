@@ -26,7 +26,8 @@ let paneSeq = 0;
 
 export function createWorkspacePaneId(): WorkspacePaneId {
   paneSeq += 1;
-  return `workspace-pane-${paneSeq}`;
+  const r = ((Math.random() * 0x100000) | 0).toString(36);
+  return `wp-${paneSeq}-${r}`;
 }
 
 export function workspaceLeaf(workspaceId: WorkspaceId): WorkspaceLeafNode {
@@ -142,4 +143,18 @@ export function removeWorkspaceLeaf(
     return a ?? b;
   };
   return walk(root) ?? root;
+}
+
+export function findSiblingLeaf(
+  root: WorkspaceLayoutNode,
+  leafId: WorkspacePaneId,
+): WorkspaceLeafNode | null {
+  if (root.type === 'leaf') return null;
+  if (root.a.type === 'leaf' && root.a.id === leafId) {
+    return workspaceLeaves(root.b)[0] ?? null;
+  }
+  if (root.b.type === 'leaf' && root.b.id === leafId) {
+    return workspaceLeaves(root.a)[0] ?? null;
+  }
+  return findSiblingLeaf(root.a, leafId) ?? findSiblingLeaf(root.b, leafId);
 }

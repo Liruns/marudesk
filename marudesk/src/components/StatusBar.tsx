@@ -8,7 +8,7 @@ import { ProblemsPopover } from '../features/diagnostics/ProblemsPopover';
 import { useGitStore } from '../features/git/store';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { providerLabel } from '../../shared/providers';
-import type { AgentApprovalMode } from '../../shared/settings';
+import { UI_ZOOM_MAX, UI_ZOOM_MIN, type AgentApprovalMode } from '../../shared/settings';
 import { cn } from '../lib/cn';
 import { useI18n } from '../i18n/useI18n';
 import type { TranslationKey } from '../i18n/messages';
@@ -45,6 +45,8 @@ export function StatusBar() {
   const providerStatus = useProvidersStore((s) => s.providerStatus);
   const customProviders = useProvidersStore((s) => s.customProviders);
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
+  const uiZoom = useSettingsStore((s) => s.settings.appearance.uiZoom);
+  const updateSettings = useSettingsStore((s) => s.update);
   const diagnosticsState = useDiagnosticsStore((s) => s.state);
   const [problemsOpen, setProblemsOpen] = useState(false);
   const { formatCaptureCount, formatFileCount, t } = useI18n();
@@ -133,6 +135,39 @@ export function StatusBar() {
         </span>
       ) : null}
       <span className="flex-1" aria-hidden />
+      <span className="flex items-center gap-0.5">
+        <button
+          type="button"
+          aria-label="Zoom out"
+          title="Zoom out (Ctrl+−)"
+          disabled={uiZoom <= UI_ZOOM_MIN}
+          onClick={() => void updateSettings({ appearance: { uiZoom: Math.max(UI_ZOOM_MIN, uiZoom - 10) } })}
+          className="size-4 flex items-center justify-center hover:text-fg-secondary disabled:opacity-30 transition-colors duration-fast"
+        >
+          −
+        </button>
+        <button
+          type="button"
+          title="Reset zoom to 100%"
+          onClick={() => { if (uiZoom !== 100) void updateSettings({ appearance: { uiZoom: 100 } }); }}
+          className={cn(
+            'px-1 hover:text-fg-secondary transition-colors duration-fast tabular-nums',
+            uiZoom !== 100 && 'text-accent',
+          )}
+        >
+          {uiZoom}%
+        </button>
+        <button
+          type="button"
+          aria-label="Zoom in"
+          title="Zoom in (Ctrl++)"
+          disabled={uiZoom >= UI_ZOOM_MAX}
+          onClick={() => void updateSettings({ appearance: { uiZoom: Math.min(UI_ZOOM_MAX, uiZoom + 10) } })}
+          className="size-4 flex items-center justify-center hover:text-fg-secondary disabled:opacity-30 transition-colors duration-fast"
+        >
+          +
+        </button>
+      </span>
       {inspectMode ? <span className="text-accent">{t('status.inspectOn')}</span> : null}
       {captures.length > 0 ? (
         <span>{captureCount}</span>
