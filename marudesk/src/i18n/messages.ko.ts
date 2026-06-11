@@ -720,6 +720,11 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '바로 적용은 편집을 디스크에 즉시 씁니다(채팅에서 되돌리기). 미리보기는 Ask 모드에서 diff를 먼저 보여주고 각 편집을 확인받습니다.',
   'settings.agent.editApproval.label': '파일 편집',
   'settings.agent.editApproval.preview': '미리보기 먼저',
+  'settings.agent.chatSurface.label': '채팅 화면',
+  'settings.agent.chatSurface.hint':
+    'AI Chat을 열 때 표시할 화면: 사이드 패널 또는 채팅 CLI가 실행되는 터미널 탭(Claude Code 스타일).',
+  'settings.agent.chatSurface.panel': '패널',
+  'settings.agent.chatSurface.cli': '터미널 CLI',
   'settings.agent.autoCompactThreshold.label': '자동 압축 임계치',
   'settings.agent.fallback.addModel': '모델 추가',
   'settings.agent.fallback.empty':

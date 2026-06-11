@@ -191,6 +191,26 @@ export default defineConfig({
           },
         },
       },
+      {
+        // The terminal chat client (docs/chat-cli-tui-design.md). A standalone,
+        // Electron-free ESM file (shared/* inlined, node: builtins only) that the
+        // `agent-cli` terminal profile spawns with ELECTRON_RUN_AS_NODE — and that
+        // `npm run chat` mirrors from source. Rebuilding it must NOT restart the
+        // dev Electron app (it's spawned per terminal), hence the no-op onstart.
+        entry: 'cli/main.ts',
+        onstart() {},
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            emptyOutDir: false,
+            lib: {
+              entry: 'cli/main.ts',
+              formats: ['es'],
+              fileName: () => 'chat-cli.mjs',
+            },
+          },
+        },
+      },
     ]),
   ],
 });

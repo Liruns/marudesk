@@ -1,28 +1,17 @@
 import http from 'node:http';
 import type { Socket } from 'node:net';
 import { hostname } from 'node:os';
-import { unlink, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { app } from 'electron';
-import { toMessage } from '../../shared/to-message';
 import type { AppSettings } from '../../shared/settings';
 import type { PairingRequestInfo, PairingStartInfo, ServerStatus } from '../../shared/remote';
-import {
-  abortTurn,
-  approveTool,
-  editPlanStep,
-  reset,
-  respond,
-  setApprovalMode,
-  snapshot,
-  startTurn,
-  subscribeAgentEvents,
-} from '../agent/loop';
+import { subscribeAgentEvents } from '../agent/loop';
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { getSettingsSync } from '../settings';
 import { createApprovalGuard } from './approval-guard';
 import { addDevice, deviceResolver, listDeviceInfos, revokeDevice } from './devices';
+import { createRouterExtras } from './extras';
+import { LOOP_AGENT_API } from './loop-api';
 import { getConnectCandidates } from './pairing-urls';
 import { createPairingManager } from './pairing';
 import { handleRequest, type RouterDeps } from './router';
@@ -77,34 +66,6 @@ const pairing = createPairingManager({
 /** Whether the bridge server is currently listening. */
 export function isServerRunning(): boolean {
   return server !== null;
-}
-
-/**
- * Same-user handshake file for the terminal client (scripts/chat-cli.mjs):
- * `{ port, token, version }` under userData, mode 0600, present ONLY while the
- * bridge listens (removed on stop). Trust model = filesystem ACL — a process
- * that can read this file runs as the user and could read userData anyway (the
- * Chrome `DevToolsActivePort` pattern). The token still never reaches logs or
- * the renderer.
- */
-function cliBridgeFilePath(): string {
-  return path.join(app.getPath('userData'), 'cli-bridge.json');
-}
-
-async function writeCliBridgeFile(port: number, token: string): Promise<void> {
-  try {
-    await writeFile(
-      cliBridgeFilePath(),
-      JSON.stringify({ port, token, version: app.getVersion() }),
-      { mode: 0o600 },
-    );
-  } catch (err) {
-    console.error('[server] could not write cli-bridge.json:', toMessage(err));
-  }
-}
-
-function removeCliBridgeFile(): void {
-  void unlink(cliBridgeFilePath()).catch(() => {});
 }
 
 /** Wire the renderer status-push once (from main.ts); see `server:status-changed`. */
@@ -169,7 +130,7 @@ export async function startServer(port: number): Promise<void> {
   const deps: RouterDeps = {
     token,
     version: app.getVersion(),
-    agent: { startTurn, abortTurn, respond, approveTool, snapshot, reset, editPlanStep, setApprovalMode },
+    agent: LOOP_AGENT_API,
     subscribe: subscribeAgentEvents,
     // T2: the per-device E2E auth path + the /pair endpoint (paired phones over
     // LAN/Tailscale). The bearer path stays for the loopback companion.
@@ -178,6 +139,8 @@ export async function startServer(port: number): Promise<void> {
     // T2 L-1: a remote peer can't self-approve gated tools while exposed — those
     // approvals stay pinned to the desktop UI (docs/t2-secure-pairing-design.md §8).
     approvalGuard: createApprovalGuard(),
+    // Catalog routes (chat CLI v2) — same picker data as the loopback companion.
+    extras: createRouterExtras(),
   };
 
   const srv = http.createServer((req, res) => {
@@ -221,8 +184,6 @@ export async function startServer(port: number): Promise<void> {
 
   server = srv;
   boundPort = port;
-  // Hand the terminal client its connection info (removed again on stop).
-  await writeCliBridgeFile(port, token);
   // Compute the reachable URLs once and reuse them for the boot log AND the
   // renderer push (one Tailscale shell-out, no divergence between the two).
   const status = getServerStatus();
@@ -240,7 +201,6 @@ export function stopServer(): Promise<void> {
   if (!srv) return Promise.resolve();
   server = null;
   boundPort = null;
-  removeCliBridgeFile();
   for (const s of sockets) s.destroy();
   sockets.clear();
   // State already reflects "stopped" — tell the renderer right away (candidates → []).

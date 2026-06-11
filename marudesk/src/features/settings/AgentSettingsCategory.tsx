@@ -1,4 +1,4 @@
-import type { AgentApprovalMode, ReasoningEffort } from '../../../shared/settings';
+import type { AgentApprovalMode, ChatSurface, ReasoningEffort } from '../../../shared/settings';
 import { useI18n } from '../../i18n/useI18n';
 import {
   Field,
@@ -48,6 +48,13 @@ export function AgentCategory() {
     readonly value: 'auto-apply' | 'preview';
     readonly label: string;
   }[];
+  const chatSurfaceOptions = [
+    { value: 'panel', label: t('settings.agent.chatSurface.panel') },
+    { value: 'cli', label: t('settings.agent.chatSurface.cli') },
+  ] as const satisfies readonly {
+    readonly value: ChatSurface;
+    readonly label: string;
+  }[];
   const autoCompactThresholdOptions = [
     { value: '0.7', label: '70%' },
     { value: '0.8', label: '80%' },
@@ -78,6 +85,16 @@ export function AgentCategory() {
           value={agent.editApproval}
           options={editApprovalOptions}
           onChange={(editApproval) => void update({ agent: { editApproval } })}
+        />
+      </Field>
+      <Field
+        label={t('settings.agent.chatSurface.label')}
+        hint={t('settings.agent.chatSurface.hint')}
+      >
+        <Segmented
+          value={agent.chatSurface}
+          options={chatSurfaceOptions}
+          onChange={(chatSurface) => void update({ agent: { chatSurface } })}
         />
       </Field>
       <Field

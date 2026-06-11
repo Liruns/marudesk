@@ -82,6 +82,12 @@ export type TabState = NavState & {
    */
   pluginPanel?: { id: string; entry: string };
   /**
+   * For `terminal` tabs: the command profile the PTY runs (absent = the user's
+   * shell). `agent-cli` hosts the bundled chat CLI — the AI Chat-as-terminal
+   * surface (chat CLI v2, docs/chat-cli-tui-design.md §6).
+   */
+  terminalProfile?: 'agent-cli';
+  /**
    * Pinned tabs render favicon-only (no title, no close) and are kept at the
    * front of the strip — main enforces the pinned-first ordering, so the
    * renderer just reflects it. Chrome/Edge "Pin tab".

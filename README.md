@@ -71,6 +71,7 @@ Most AI coding assistants only see your source files. MaruDesk co-locates the su
 - **Compaction and verify.** `/compact` summarizes a long conversation to reclaim context; an optional post-edit verify command (e.g. `npm run typecheck`) runs after the agent edits and folds the PASS/FAIL back into the chat.
 - **Approvals that remember.** Approve a gated tool once, or "Allow always" to stop re-prompting for it for the rest of the conversation.
 - **Sessions and memory.** Resume past conversations from a history rail; keep durable cross-session notes.
+- **Chat from the terminal.** A Claude-Code-style CLI (`npm run chat` in `marudesk/`) drives the same agent over a zero-config loopback bridge — streamed markdown and reasoning, a slash menu, model/session pickers, inline approvals, Esc to interrupt. Settings → Agent → **Chat surface** can make the in-app chat toggle open it as an "AI Chat (CLI)" terminal tab instead of the panel.
 
 ### Runtime-aware tools (the differentiator)
 - Read console errors with **source mapping** back to workspace files.

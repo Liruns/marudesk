@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AgentChatState } from '../../shared/agent';
+import type { SessionSummary } from '../../shared/context';
 import {
   REMOTE_MAX_BODY_BYTES,
   REMOTE_SSE_PING_MS,
+  type BridgeModelsResult,
   type RelayCommandName,
   type RemoteEvent,
 } from '../../shared/remote';
@@ -62,6 +64,22 @@ export type RouterDeps = {
    * loopback-only dev/test harness).
    */
   approvalGuard?: ApprovalGuard;
+  /**
+   * Read-mostly catalog routes for thin clients (chat CLI v2 —
+   * docs/chat-cli-tui-design.md §4): `GET /agent/models`, `GET /agent/sessions`,
+   * `POST /agent/resume-session`. Omit ⇒ those routes 404.
+   */
+  extras?: RouterExtras;
+};
+
+/** The injected backends for the catalog routes — mockable in harnesses. */
+export type RouterExtras = {
+  /** Provider catalog + connection state for the `/model` picker. */
+  models(): Promise<BridgeModelsResult>;
+  /** Saved-session summaries for the `/sessions` picker. */
+  sessions(): Promise<SessionSummary[]>;
+  /** Resume a saved session into the active conversation (next SSE snapshot carries it). */
+  resumeSession(id: string): Promise<boolean>;
 };
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;
@@ -277,6 +295,39 @@ async function handleAgentRoutes(
     if (method !== 'GET') return sendError(res, 405, 'method not allowed');
     handleSse(req, res, codec.sse, deps);
     return;
+  }
+
+  // ── catalog routes (chat CLI v2) — only when the extras dep is provided ──
+  if (pathname === '/agent/models') {
+    if (method !== 'GET') return sendError(res, 405, 'method not allowed');
+    if (!deps.extras) return sendError(res, 404, 'not found');
+    return sendResult(res, codec, pathname, await deps.extras.models());
+  }
+  if (pathname === '/agent/sessions') {
+    if (method !== 'GET') return sendError(res, 405, 'method not allowed');
+    if (!deps.extras) return sendError(res, 404, 'not found');
+    return sendResult(res, codec, pathname, await deps.extras.sessions());
+  }
+  if (pathname === '/agent/resume-session') {
+    if (method !== 'POST') return sendError(res, 405, 'method not allowed');
+    if (!deps.extras) return sendError(res, 404, 'not found');
+    let raw: unknown;
+    try {
+      raw = await readJsonBody(req, res);
+    } catch {
+      return; // readJsonBody already wrote the 4xx response
+    }
+    let body: unknown;
+    try {
+      body = await codec.decodeBody(raw, method, pathname);
+    } catch {
+      return sendError(res, 401, 'unauthorized');
+    }
+    const id = (body as { id?: unknown } | null)?.id;
+    if (typeof id !== 'string' || id.length === 0) {
+      return sendError(res, 400, 'id required');
+    }
+    return sendResult(res, codec, pathname, { ok: await deps.extras.resumeSession(id) });
   }
 
   const cmd = REST_COMMANDS[pathname];

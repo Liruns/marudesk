@@ -32,7 +32,12 @@ type TabsState = {
 type TabsActions = {
   setNavState: (state: NavState) => void;
   setTabsState: (snapshot: TabsSnapshot) => void;
-  newTab: (kind?: TabKind, url?: string, workspaceId?: WorkspaceId) => Promise<void>;
+  newTab: (
+    kind?: TabKind,
+    url?: string,
+    workspaceId?: WorkspaceId,
+    extra?: { terminalProfile?: 'agent-cli' },
+  ) => Promise<void>;
   /** Open a plugin's sandboxed UI panel in a new tab (v2 — §8.5). */
   openPluginPanel: (pluginId: string, entry: string) => Promise<void>;
   /**
@@ -108,11 +113,12 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
       ),
     })),
 
-  newTab: async (kind = 'home', url, workspaceId) => {
+  newTab: async (kind = 'home', url, workspaceId, extra) => {
     const payload = {
       kind,
       ...(url === undefined ? {} : { url }),
       ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(extra?.terminalProfile ? { terminalProfile: extra.terminalProfile } : {}),
     };
     await window.marudesk.invoke('browser:tabs-new', payload);
   },

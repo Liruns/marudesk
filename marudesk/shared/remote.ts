@@ -55,6 +55,34 @@ export type RemoteResetResponse = { ok: boolean };
 /** Uniform error envelope for 4xx/5xx responses (never carries the token). */
 export type RemoteError = { error: string };
 
+/* ── read-mostly catalog routes (chat CLI v2 — docs/chat-cli-tui-design.md §4) ──
+ *
+ * Served when the router is given the optional `extras` dep (404 otherwise).
+ * These are HTTP-only conveniences for thin clients (the CLI's `/model` and
+ * `/sessions` pickers); they are deliberately NOT RelayCommandNames — the frozen
+ * Model-B relay protocol doesn't change.
+ */
+
+/** One provider in `GET /agent/models` — its catalog + whether it's usable. */
+export type BridgeProviderModels = {
+  /** ProviderId (kept as string here so the wire type stays dependency-light). */
+  id: string;
+  label: string;
+  /** A credential/OAuth connection is stored (or the provider is keyless). */
+  connected: boolean;
+  /** Grouped last under "Experimental" by pickers, like the desktop's. */
+  experimental?: boolean;
+  /** The provider's suggested default model id, when it has one. */
+  defaultModelId?: string;
+  models: { id: string; label: string }[];
+};
+
+/** `GET /agent/models` response. */
+export type BridgeModelsResult = { providers: BridgeProviderModels[] };
+
+/** `POST /agent/resume-session` request body. */
+export type RemoteResumeSessionBody = { id: string };
+
 /* ── SSE event envelope (server → client) ───────────────────────────────── */
 
 /**

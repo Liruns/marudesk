@@ -6,7 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import type { AppSettings } from '../../../shared/settings';
 import { fontStack } from '../../../shared/fonts';
 import { resolveTheme, subscribeAppearance, useSettingsStore } from '../settings/store';
-import { subscribeTabsByKind } from '../tabs/store';
+import { subscribeTabsByKind, useTabsStore } from '../tabs/store';
 import { toMessage } from '../../lib/toMessage';
 
 /** Event a session fires (bubbling) to ask its surface to open the search bar. */
@@ -218,10 +218,17 @@ export function acquireTerminalSession(tabId: string): Session {
   let offData: (() => void) | null = null;
   let offExit: (() => void) | null = null;
 
+  // A terminal tab can carry a command profile (chat CLI v2 §6.1): main spawns
+  // the bundled chat CLI for 'agent-cli' instead of the user's shell.
+  const profile = useTabsStore
+    .getState()
+    .tabs.find((t) => t.id === tabId)?.terminalProfile;
+
   window.marudesk
     .invoke('terminal:create', {
       cols: term.cols || 80,
       rows: term.rows || 24,
+      ...(profile ? { profile } : {}),
     })
     .then((res) => {
       if (sessions.get(tabId) !== session) {
