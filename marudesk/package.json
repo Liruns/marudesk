@@ -1,7 +1,7 @@
 {
   "name": "marudesk",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Code-aware desktop agent with a browser stage, editor, and terminal.",
   "author": "Liruns",
   "homepage": "https://github.com/Liruns/marudesk",
