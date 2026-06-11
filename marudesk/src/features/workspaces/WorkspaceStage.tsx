@@ -22,7 +22,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { SYSTEM_WORKSPACE_ID, type WorkspaceId, type WorkspacePaneId, type WorkspaceRecord } from '../../../shared/workspace';
+import { SYSTEM_WORKSPACE_ID, type WorkspaceId, type WorkspaceRecord } from '../../../shared/workspace';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { Stage } from '../tabs/Stage';
@@ -430,7 +430,6 @@ function WorkspacePane({
             </PaneButton>
             {splitPickerOpen ? (
               <SplitPicker
-                paneId={paneId as WorkspacePaneId}
                 currentWorkspaceId={workspaceId}
                 onSplit={(wsId, dir) => {
                   doSplit(wsId, dir);
@@ -558,12 +557,10 @@ function workspaceIdForFocus(
 }
 
 function SplitPicker({
-  paneId,
   currentWorkspaceId,
   onSplit,
   onClose,
 }: {
-  paneId: WorkspacePaneId;
   currentWorkspaceId: WorkspaceId;
   onSplit: (workspaceId: WorkspaceId, dir: WorkspaceSplitDir) => void;
   onClose: () => void;
