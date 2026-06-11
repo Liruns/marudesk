@@ -194,6 +194,7 @@ const remoteApi = {
   reset: () => false,
   editPlanStep: () => false,
   setApprovalMode: () => false,
+  setReasoningEffort: () => false,
 } satisfies AgentApi;
 const remoteGuard = {
   serverExposed: () => true,

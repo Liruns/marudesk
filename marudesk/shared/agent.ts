@@ -1,7 +1,7 @@
 import type { CapturePayload } from './composer';
 import type { AgentRunTreeNode, ApprovalQueueItem } from './agent-orchestration';
 import type { ProviderId } from './providers';
-import type { AgentApprovalMode } from './settings';
+import type { AgentApprovalMode, ReasoningEffort } from './settings';
 import type { WorkspaceId } from './workspace';
 
 /**
@@ -271,6 +271,12 @@ export type AgentChatState = {
    * ignores this; the phone has no settings store, so it relies on this mirror.
    */
   approvalMode: AgentApprovalMode;
+  /**
+   * The current reasoning effort (a setting, not loop-owned), projected exactly
+   * like {@link approvalMode} so thin clients can reflect AND steer it (the
+   * mobile twin of the desktop composer's reasoning dial).
+   */
+  reasoningEffort: ReasoningEffort;
 };
 
 /** A step's lifecycle in the agent's task plan (Taskboard). */
@@ -367,6 +373,7 @@ export function emptyAgentChatState(): AgentChatState {
     orchestration: [],
     plan: null,
     approvalMode: 'ask',
+    reasoningEffort: 'medium',
   };
 }
 

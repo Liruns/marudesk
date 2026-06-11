@@ -5,7 +5,7 @@ import type {
   AgentSendInput,
   AgentSendResult,
 } from '../../shared/agent';
-import type { AgentApprovalMode } from '../../shared/settings';
+import type { AgentApprovalMode, ReasoningEffort } from '../../shared/settings';
 import type { RelayCommandName } from '../../shared/remote';
 import {
   parseAbort,
@@ -14,6 +14,8 @@ import {
   parseRespond,
   parseSendInput,
   parseSetApprovalMode,
+  parseSetReasoningEffort,
+  parseWorkspaceScope,
 } from '../agent/parse';
 
 /**
@@ -36,12 +38,16 @@ export type AgentApi = {
   abortTurn(turnId: string): boolean;
   respond(turnId: string, callId: string, answers: AgentAnswers): boolean;
   approveTool(turnId: string, callId: string, approved: boolean): boolean;
-  snapshot(): AgentChatState;
-  reset(): boolean;
+  /** `workspaceId` scopes to that workspace's active thread; omitted ⇒ the global thread. */
+  snapshot(workspaceId?: string): AgentChatState;
+  /** `workspaceId` scopes to that workspace's active thread; omitted ⇒ the global thread. */
+  reset(workspaceId?: string): boolean;
   /** U5 mobile parity: cycle a plan step's status or remove it. */
   editPlanStep(id: string, op: { status?: AgentPlanStepStatus; remove?: boolean }): boolean;
   /** U10 mobile parity: set + persist the approval mode (applies next turn). */
   setApprovalMode(mode: AgentApprovalMode): boolean;
+  /** Mobile parity for the desktop reasoning dial: set + persist (applies next turn). */
+  setReasoningEffort(effort: ReasoningEffort): boolean;
 };
 
 /**
@@ -121,10 +127,14 @@ export async function dispatchAgentCommand(
         }
         return { ok: true, result: { ok: agent.approveTool(turnId, callId, approved) } };
       }
-      case 'reset':
-        return { ok: true, result: { ok: agent.reset() } };
-      case 'snapshot':
-        return { ok: true, result: agent.snapshot() };
+      case 'reset': {
+        const { workspaceId } = parseWorkspaceScope(args);
+        return { ok: true, result: { ok: agent.reset(workspaceId) } };
+      }
+      case 'snapshot': {
+        const { workspaceId } = parseWorkspaceScope(args);
+        return { ok: true, result: agent.snapshot(workspaceId) };
+      }
       case 'edit-plan-step': {
         const { id, status, remove } = parseEditPlanStep(args);
         return { ok: true, result: { ok: agent.editPlanStep(id, { status, remove }) } };
@@ -132,6 +142,10 @@ export async function dispatchAgentCommand(
       case 'set-approval-mode': {
         const { mode } = parseSetApprovalMode(args);
         return { ok: true, result: { ok: agent.setApprovalMode(mode) } };
+      }
+      case 'set-reasoning-effort': {
+        const { effort } = parseSetReasoningEffort(args);
+        return { ok: true, result: { ok: agent.setReasoningEffort(effort) } };
       }
       default: {
         // Exhaustiveness guard: a new RelayCommandName must be handled here.

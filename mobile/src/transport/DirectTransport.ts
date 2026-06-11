@@ -1,4 +1,9 @@
-import type { AgentChatState } from '../types';
+import type {
+  AgentChatState,
+  BridgeModelsResult,
+  BridgeWorkspacesResult,
+  SessionSummary,
+} from '../types';
 import {
   b64urlToBytes,
   importAesKey,
@@ -15,6 +20,7 @@ import { BaseTransport } from './base';
 import type {
   DirectCreds,
   Transport,
+  TransportCatalog,
   TransportCommand,
   TransportCommandArgs,
 } from './types';
@@ -39,6 +45,7 @@ const POST_PATH: Record<Exclude<TransportCommand, 'snapshot'>, string> = {
   reset: '/agent/reset',
   'edit-plan-step': '/agent/edit-plan-step',
   'set-approval-mode': '/agent/set-approval-mode',
+  'set-reasoning-effort': '/agent/set-reasoning-effort',
 };
 
 const RECONNECT_MS = 2500;
@@ -48,9 +55,15 @@ export class DirectTransport extends BaseTransport implements Transport {
   private stream: AbortController | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  /** The PC workspace the event stream is pinned to (null = the global chat). */
+  private workspaceId: string | null;
 
-  constructor(private readonly creds: DirectCreds) {
+  constructor(
+    private readonly creds: DirectCreds,
+    workspaceId: string | null = null,
+  ) {
     super();
+    this.workspaceId = workspaceId;
   }
 
   async connect(): Promise<void> {
@@ -58,6 +71,30 @@ export class DirectTransport extends BaseTransport implements Transport {
     this.setStatus({ status: 'connecting', hostOnline: false });
     this.key = await importAesKey(b64urlToBytes(this.creds.keyB64));
     void this.openStream();
+  }
+
+  /**
+   * Re-pin the SSE stream to another PC workspace. The server fixes a stream's
+   * scope at connect (`?workspace=`), so switching means re-opening it; the new
+   * stream's first frame is that workspace's current snapshot, which repaints
+   * the chat. No-op before connect() — the pending scope applies when it runs.
+   */
+  setWorkspace(workspaceId: string | null): void {
+    if (workspaceId === this.workspaceId) return;
+    this.workspaceId = workspaceId;
+    if (!this.key || this.closed) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.stream?.abort();
+    this.stream = null;
+    void this.openStream();
+  }
+
+  /** The `?workspace=` suffix for scope-aware GETs ('' when global). */
+  private workspaceQuery(): string {
+    return this.workspaceId ? `?workspace=${encodeURIComponent(this.workspaceId)}` : '';
   }
 
   disconnect(): void {
@@ -77,9 +114,9 @@ export class DirectTransport extends BaseTransport implements Transport {
     if (!key) throw new Error('not connected');
 
     // `snapshot` is a GET on the host; the SSE already pushes state, but support an
-    // explicit pull for parity.
+    // explicit pull for parity. Pinned to the same workspace scope as the stream.
     if (cmd === 'snapshot') {
-      const res = await fetch(`${this.creds.baseUrl}/agent/snapshot`, {
+      const res = await fetch(`${this.creds.baseUrl}/agent/snapshot${this.workspaceQuery()}`, {
         headers: { 'x-marudesk-device': this.creds.deviceId },
       });
       if (!res.ok) throw new Error(`snapshot failed (HTTP ${res.status})`);
@@ -99,8 +136,54 @@ export class DirectTransport extends BaseTransport implements Transport {
       headers: { 'content-type': 'application/json', 'x-marudesk-device': this.creds.deviceId },
       body: JSON.stringify(sealed),
     });
-    if (!res.ok) throw new Error(`command failed (HTTP ${res.status})`);
+    if (!res.ok) throw new Error(await errorOf(res, `command failed (HTTP ${res.status})`));
     // The result is sealed too, but we don't need it — the SSE pushes the new state.
+  }
+
+  /**
+   * The PC's picker catalog over the same sealed REST surface. Error bodies are
+   * cleartext (only 200 bodies are envelopes), so failures surface the host's
+   * message — e.g. a resume refused while a turn is running.
+   */
+  readonly catalog: TransportCatalog = {
+    models: () => this.getSealed('/agent/models', '/agent/models') as Promise<BridgeModelsResult>,
+    workspaces: () =>
+      this.getSealed('/agent/workspaces', '/agent/workspaces') as Promise<BridgeWorkspacesResult>,
+    // `?workspace=` present-but-empty means the global (workspace-less) sessions,
+    // matching the host router's filter semantics.
+    sessions: (workspaceId) =>
+      this.getSealed(
+        `/agent/sessions?workspace=${workspaceId ? encodeURIComponent(workspaceId) : ''}`,
+        '/agent/sessions',
+      ) as Promise<SessionSummary[]>,
+    resumeSession: async (id, workspaceId) => {
+      const key = this.key;
+      if (!key) throw new Error('not connected');
+      const path = '/agent/resume-session';
+      const body = workspaceId ? { id, workspaceId } : { id };
+      const sealed = await seal(key, body, reqAad('POST', path));
+      const res = await fetch(`${this.creds.baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-marudesk-device': this.creds.deviceId },
+        body: JSON.stringify(sealed),
+      });
+      if (!res.ok) throw new Error(await errorOf(res, `resume failed (HTTP ${res.status})`));
+      const out = (await open(key, (await res.json()) as Envelope, resAad(path))) as {
+        ok?: boolean;
+      };
+      return out?.ok === true;
+    },
+  };
+
+  /** Sealed GET helper: fetch `pathWithQuery`, open the envelope bound to `aadPath`. */
+  private async getSealed(pathWithQuery: string, aadPath: string): Promise<unknown> {
+    const key = this.key;
+    if (!key) throw new Error('not connected');
+    const res = await fetch(`${this.creds.baseUrl}${pathWithQuery}`, {
+      headers: { 'x-marudesk-device': this.creds.deviceId },
+    });
+    if (!res.ok) throw new Error(await errorOf(res, `request failed (HTTP ${res.status})`));
+    return open(key, (await res.json()) as Envelope, resAad(aadPath));
   }
 
   /** Open the encrypted SSE stream; decode each sealed frame to a snapshot. */
@@ -110,7 +193,7 @@ export class DirectTransport extends BaseTransport implements Transport {
     const ac = new AbortController();
     this.stream = ac;
     try {
-      const res = await fetch(`${this.creds.baseUrl}/agent/events`, {
+      const res = await fetch(`${this.creds.baseUrl}/agent/events${this.workspaceQuery()}`, {
         headers: { 'x-marudesk-device': this.creds.deviceId, accept: 'text/event-stream' },
         signal: ac.signal,
       });
@@ -165,4 +248,15 @@ export class DirectTransport extends BaseTransport implements Transport {
     }, RECONNECT_MS);
   }
 
+}
+
+/** The host's cleartext `{ error }` body when present, else `fallback`. */
+async function errorOf(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (body && typeof body.error === 'string' && body.error.length > 0) return body.error;
+  } catch {
+    // a non-JSON error body keeps the fallback
+  }
+  return fallback;
 }

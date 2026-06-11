@@ -244,6 +244,7 @@ function buildStubAgent(): {
       calls.setApprovalMode.push(mode);
       return true;
     },
+    setReasoningEffort: () => true,
   };
   return {
     agent,

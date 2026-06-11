@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Cpu } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { MessageBubble } from '../components/MessageBubble';
 import { ApprovalPrompt } from '../components/ApprovalPrompt';
@@ -8,10 +9,12 @@ import { QuestionPrompt } from '../components/QuestionPrompt';
 import { Composer } from '../components/Composer';
 import { ChatHeader } from './chat/ChatHeader';
 import { CommandErrorBanner, ConnectionBanner, EmptyState, ThinkingRow } from './chat/ChatStates';
+import { ModelSheet } from './chat/ModelSheet';
+import { SessionsSheet } from './chat/SessionsSheet';
+import { WorkspaceSheet } from './chat/WorkspaceSheet';
 import { usePullToReconnect } from './chat/usePullToReconnect';
 
-const DEFAULT_PROVIDER = 'anthropic';
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+type SheetKind = 'none' | 'workspace' | 'sessions' | 'model';
 
 export function ChatScreen() {
   const chat = useAppStore((s) => s.chat);
@@ -25,14 +28,21 @@ export function ChatScreen() {
   const reconnect = useAppStore((s) => s.reconnect);
   const commandError = useAppStore((s) => s.commandError);
   const clearCommandError = useAppStore((s) => s.clearCommandError);
+  const catalogReady = useAppStore((s) => s.catalogReady);
+  const workspaces = useAppStore((s) => s.workspaces);
+  const workspaceId = useAppStore((s) => s.workspaceId);
+  const provider = useAppStore((s) => s.provider);
+  const model = useAppStore((s) => s.model);
 
   const [actionBusy, setActionBusy] = useState(false);
+  const [sheet, setSheet] = useState<SheetKind>('none');
   const scrollRef = useRef<HTMLDivElement>(null);
   const pullRef = usePullToReconnect(() => void reconnect());
 
   const busy = chat.status === 'thinking' || chat.status === 'working';
   const connected = status.status === 'connected';
   const composerDisabled = !connected || chat.pendingApproval !== null || chat.pendingQuestions !== null;
+  const workspaceName = workspaces.find((w) => w.id === workspaceId)?.name ?? null;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -54,6 +64,10 @@ export function ChatScreen() {
         chat={chat}
         status={status}
         busy={busy}
+        workspaceName={workspaceName}
+        canPick={connected && catalogReady}
+        onOpenWorkspaces={() => setSheet('workspace')}
+        onOpenSessions={() => setSheet('sessions')}
         onAccount={() => setRoute('account')}
         onReset={withBusy(resetChat)}
       />
@@ -94,7 +108,21 @@ export function ChatScreen() {
       )}
 
       {connected && (
-        <div style={{ padding: '4px 12px 0', display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="composer-toolbar">
+          {catalogReady ? (
+            <button
+              type="button"
+              className="chip-button"
+              aria-label="Model and reasoning"
+              onClick={() => setSheet('model')}
+            >
+              <Cpu size={13} />
+              <span className="chip-button__label">{model || provider}</span>
+              <span className="chip-button__sub">{chat.reasoningEffort}</span>
+            </button>
+          ) : (
+            <span />
+          )}
           <ApprovalModeToggle disabled={actionBusy} />
         </div>
       )}
@@ -102,9 +130,13 @@ export function ChatScreen() {
       <Composer
         busy={busy}
         disabled={composerDisabled}
-        onSend={(text) => void sendPrompt(text, DEFAULT_PROVIDER, DEFAULT_MODEL)}
+        onSend={(text) => void sendPrompt(text)}
         onStop={() => void abort()}
       />
+
+      {sheet === 'workspace' && <WorkspaceSheet onClose={() => setSheet('none')} />}
+      {sheet === 'sessions' && <SessionsSheet onClose={() => setSheet('none')} />}
+      {sheet === 'model' && <ModelSheet onClose={() => setSheet('none')} />}
     </div>
   );
 }

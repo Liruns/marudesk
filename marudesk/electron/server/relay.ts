@@ -1,16 +1,6 @@
 import type { AppSettings } from '../../shared/settings';
 import type { RelayStatus } from '../../shared/remote';
-import {
-  abortTurn,
-  approveTool,
-  editPlanStep,
-  reset,
-  respond,
-  setApprovalMode,
-  snapshot,
-  startTurn,
-  subscribeAgentEvents,
-} from '../agent/loop';
+import { subscribeAgentEvents } from '../agent/loop';
 import {
   clearRelaySession,
   getRelaySession,
@@ -21,8 +11,8 @@ import {
 import { defineHandler } from '../ipc/define-handler';
 import { enumOf, nonEmptyStr, obj, str } from '../ipc/validate';
 import { getSettingsSync } from '../settings';
-import type { AgentApi } from './dispatch';
 import { createApprovalGuard } from './approval-guard';
+import { LOOP_AGENT_API } from './loop-api';
 import { normalizeRelayUrl, relayAuthenticate, relayLogout } from './relay-auth';
 import { startRelayClient, type RelayClient } from './relay-client';
 
@@ -40,16 +30,9 @@ import { startRelayClient, type RelayClient } from './relay-client';
  * message, and connection errors are swallowed by the relay-client's reconnect.
  */
 
-const AGENT: AgentApi = {
-  startTurn,
-  abortTurn,
-  respond,
-  approveTool,
-  snapshot,
-  reset,
-  editPlanStep,
-  setApprovalMode,
-};
+// One shared loop binding for every bridge transport — workspace-scoped
+// reset/snapshot and the reasoning-effort setter included (see loop-api.ts).
+const AGENT = LOOP_AGENT_API;
 
 let client: RelayClient | null = null;
 /** The relay URL the live client was started against (so a URL change reconnects). */

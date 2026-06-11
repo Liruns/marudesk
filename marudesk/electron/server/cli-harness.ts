@@ -99,6 +99,7 @@ function mockDeps(extra?: Partial<RouterDeps>): MockAgent {
       reset: () => true,
       editPlanStep: () => true,
       setApprovalMode: () => true,
+      setReasoningEffort: () => true,
     },
     subscribe(cb) {
       subs.add(cb);
@@ -108,6 +109,12 @@ function mockDeps(extra?: Partial<RouterDeps>): MockAgent {
   };
   return { deps, sends };
 }
+
+/** Args the EXTRAS mock saw — so the route → backend threading is assertable. */
+const extrasCalls = {
+  sessionFilters: [] as (string | null | undefined)[],
+  resumes: [] as { id: string; workspaceId: string | undefined }[],
+};
 
 const EXTRAS: NonNullable<RouterDeps['extras']> = {
   models: () =>
@@ -123,8 +130,9 @@ const EXTRAS: NonNullable<RouterDeps['extras']> = {
         { id: 'openai', label: 'OpenAI', connected: false, models: [] },
       ],
     }),
-  sessions: () =>
-    Promise.resolve([
+  sessions: (workspaceId) => {
+    extrasCalls.sessionFilters.push(workspaceId);
+    return Promise.resolve([
       {
         id: 'sess-1',
         title: 'mock session',
@@ -134,8 +142,17 @@ const EXTRAS: NonNullable<RouterDeps['extras']> = {
         model: 'mock-sonnet',
         messageCount: 4,
       },
-    ]),
-  resumeSession: (id) => Promise.resolve(id === 'sess-1'),
+    ]);
+  },
+  resumeSession: (id, workspaceId) => {
+    extrasCalls.resumes.push({ id, workspaceId });
+    return Promise.resolve(id === 'sess-1');
+  },
+  workspaces: () =>
+    Promise.resolve({
+      workspaces: [{ id: 'ws-1', name: 'Mock workspace' }],
+      activeWorkspaceId: 'ws-1',
+    }),
 };
 
 async function fetchJson(
@@ -404,6 +421,42 @@ async function main(): Promise<void> {
       body: JSON.stringify({}),
     });
     check('routes: resume without an id is a 400', badResume.status === 400);
+
+    // ── workspace-aware catalog (mobile workspace/session picker) ──
+    const workspaces = await fetchJson(url, '/agent/workspaces');
+    const workspacesBody = workspaces.body as {
+      workspaces?: { id: string; name: string }[];
+      activeWorkspaceId?: string | null;
+    };
+    check(
+      'routes: /agent/workspaces lists workspaces + the active one',
+      workspaces.status === 200 &&
+        workspacesBody.workspaces?.length === 1 &&
+        workspacesBody.workspaces[0].id === 'ws-1' &&
+        workspacesBody.activeWorkspaceId === 'ws-1',
+    );
+    check(
+      'routes: /agent/sessions without a param lists every session (undefined filter)',
+      extrasCalls.sessionFilters.at(-1) === undefined,
+    );
+    await fetchJson(url, '/agent/sessions?workspace=ws-1');
+    check(
+      'routes: /agent/sessions?workspace=<id> threads the workspace filter',
+      extrasCalls.sessionFilters.at(-1) === 'ws-1',
+    );
+    await fetchJson(url, '/agent/sessions?workspace=');
+    check(
+      'routes: /agent/sessions?workspace= (empty) filters to global-only (null)',
+      extrasCalls.sessionFilters.at(-1) === null,
+    );
+    await fetchJson(url, '/agent/resume-session', {
+      method: 'POST',
+      body: JSON.stringify({ id: 'sess-1', workspaceId: 'ws-1' }),
+    });
+    check(
+      'routes: resume-session threads workspaceId to the backend',
+      extrasCalls.resumes.at(-1)?.workspaceId === 'ws-1',
+    );
 
     // extras omitted ⇒ the catalog routes 404 (older servers stay coherent).
     const bare = mockDeps();

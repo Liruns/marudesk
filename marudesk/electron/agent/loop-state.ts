@@ -335,12 +335,35 @@ export function subscribeAgentEvents(cb: (state: AgentChatState) => void): () =>
   };
 }
 
+// Workspace-scoped twin of `subscribers`: the bridge server subscribes here so a
+// thin client that selected a PC workspace receives that workspace's ACTIVE
+// thread stream (the same states the renderer gets on `agent:workspace-event`).
+const workspaceSubscribers = new Set<(workspaceId: WorkspaceId, state: AgentChatState) => void>();
+
+/**
+ * Subscribe to every workspace-scoped active-thread state push. The callback
+ * receives the owning workspaceId with each state so one subscriber (e.g. an SSE
+ * connection pinned to a workspace) can filter for its scope. Returns an
+ * unsubscribe fn; callbacks are isolated like {@link subscribeAgentEvents}.
+ */
+export function subscribeWorkspaceAgentEvents(
+  cb: (workspaceId: WorkspaceId, state: AgentChatState) => void,
+): () => void {
+  workspaceSubscribers.add(cb);
+  return () => {
+    workspaceSubscribers.delete(cb);
+  };
+}
+
 export const emit = coalesced(() => {
   refreshOrchestrationProjection();
-  // Stamp the live approval mode (a setting, not loop state) into the projection
-  // so thin clients reflect it (U10). Cheap in-memory read; the desktop ignores
-  // this field and reads its settings store directly.
-  S.state.approvalMode = getSettingsSync().agent.approvalMode;
+  // Stamp the live approval mode + reasoning effort (settings, not loop state)
+  // into the projection so thin clients reflect them (U10 + the reasoning dial).
+  // Cheap in-memory reads; the desktop ignores these fields and reads its
+  // settings store directly.
+  const agentSettings = getSettingsSync().agent;
+  S.state.approvalMode = agentSettings.approvalMode;
+  S.state.reasoningEffort = agentSettings.reasoningEffort;
   const host = getHost();
   if (host && !host.isDestroyed()) {
     host.webContents.send('agent:event', S.state);
@@ -388,10 +411,21 @@ function emitWorkspaceContainer(c: ThreadContainer): void {
       // currently viewed conversation.
       if (!isActiveThreadForContainer(c)) return;
       refreshOrchestrationProjection();
-      c.state.approvalMode = getSettingsSync().agent.approvalMode;
+      const agentSettings = getSettingsSync().agent;
+      c.state.approvalMode = agentSettings.approvalMode;
+      c.state.reasoningEffort = agentSettings.reasoningEffort;
       const host = getHost();
       if (host && !host.isDestroyed()) {
         host.webContents.send('agent:workspace-event', { workspaceId: c.workspaceId, state: c.state });
+      }
+      // The bridge's workspace-scoped stream (a phone joined to this workspace)
+      // gets the same active-thread push the renderer just did.
+      for (const cb of workspaceSubscribers) {
+        try {
+          cb(c.workspaceId, c.state);
+        } catch {
+          // A subscriber must never break the loop's fan-out.
+        }
       }
     });
     workspaceEventFlushes.set(c, flush);

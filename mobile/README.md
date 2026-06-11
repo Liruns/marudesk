@@ -23,7 +23,7 @@ package boundaries.
 |---|---|
 | **Connect** (`screens/ConnectScreen.tsx`) | Enter and persist the relay URL (default `http://127.0.0.1:8788`), test `/health`, sign in through the relay path, and pair to a PC host by QR or pasted payload for direct credentials. |
 | **Login** (`screens/LoginScreen.tsx`) | Email/password login and self-signup against the relay, plus Google and GitHub buttons that open the relay web OAuth flow. |
-| **Chat** (`screens/ChatScreen.tsx`) | Streaming message list, collapsible thinking blocks, tool-call cards, inline approval and `ask_user` prompts, a send/stop composer, and connection/empty/error states. |
+| **Chat** (`screens/ChatScreen.tsx`) | Streaming message list, collapsible thinking blocks, tool-call cards, inline approval and `ask_user` prompts, a send/stop composer, and connection/empty/error states. Bottom sheets pick the PC workspace (`chat/WorkspaceSheet.tsx`), resume or start saved conversations (`chat/SessionsSheet.tsx`), and choose the provider/model + reasoning effort (`chat/ModelSheet.tsx`). |
 | **Account** (`screens/AccountScreen.tsx`) | Logged-in identity, relay and PC-host connection status, reconnect, and logout. |
 
 A small hand-rolled router lives in the store
@@ -41,9 +41,13 @@ interface Transport {
   onState(cb: (state: AgentChatState) => void): Unsubscribe;
   onStatus(cb: (info: TransportStatusInfo) => void): Unsubscribe;
   send<K>(
-    cmd: 'send' | 'abort' | 'respond' | 'approve' | 'reset' | 'snapshot',
+    cmd: 'send' | 'abort' | 'respond' | 'approve' | 'reset' | 'snapshot'
+       | 'edit-plan-step' | 'set-approval-mode' | 'set-reasoning-effort',
     args,
   ): Promise<void>;
+  // Optional capabilities (direct + stub transports):
+  catalog?: TransportCatalog;          // PC models/workspaces/sessions + resume
+  setWorkspace?(id: string | null): void; // pin the event stream to a workspace
 }
 ```
 
@@ -64,6 +68,31 @@ Transport selection has two layers:
 In every mode, the mobile client stays thin: the phone renders state and sends
 commands, while the PC keeps model execution, tools, approvals, and workspace
 access.
+
+## Workspace + session continuity (direct mode)
+
+The point of the phone is to drive the SAME conversation the desktop shows, so
+the chat is scoped to a PC workspace:
+
+- The store pins a workspace (`workspaceId`, persisted; defaults to the PC's
+  active workspace on first connect). `DirectTransport` opens
+  `GET /agent/events?workspace=<id>`, which streams that workspace's ACTIVE
+  thread — exactly what the desktop UI renders for it — and `send`/`reset`
+  carry the same `workspaceId`, so a phone turn lands in the conversation the
+  desktop is looking at, and vice versa.
+- The sessions sheet lists that scope's saved conversations
+  (`GET /agent/sessions?workspace=`) and resumes one with
+  `POST /agent/resume-session` — the next snapshot repaints both phone and
+  desktop with the resumed transcript. "New chat" is a scoped `reset`; the
+  first send then starts (and persists) a fresh session both surfaces share.
+- The model sheet is fed by `GET /agent/models` (the PC's connected providers
+  only are selectable) and the picked provider/model ride each `send`, so the
+  model is changeable per chat from the phone. Reasoning effort mirrors the
+  desktop dial through `chat.reasoningEffort` + the `set-reasoning-effort`
+  command (a PC setting; applies on the next turn).
+
+The cloud relay path doesn't carry the catalog routes (its protocol is frozen),
+so in relay mode the pickers hide and the chat stays global-scope.
 
 ## Pairing and connection modes
 

@@ -80,8 +80,29 @@ export type BridgeProviderModels = {
 /** `GET /agent/models` response. */
 export type BridgeModelsResult = { providers: BridgeProviderModels[] };
 
-/** `POST /agent/resume-session` request body. */
-export type RemoteResumeSessionBody = { id: string };
+/** One open PC workspace in `GET /agent/workspaces` — id + display name only. */
+export type BridgeWorkspaceInfo = {
+  id: string;
+  name: string;
+};
+
+/**
+ * `GET /agent/workspaces` response: the PC's open workspaces plus which one is
+ * active in the desktop UI, so a thin client can join the chat the user is
+ * actually looking at. `activeWorkspaceId: null` ⇒ no workspace is open (the
+ * global, workspace-less chat).
+ */
+export type BridgeWorkspacesResult = {
+  workspaces: BridgeWorkspaceInfo[];
+  activeWorkspaceId: string | null;
+};
+
+/**
+ * `POST /agent/resume-session` request body. `workspaceId` scopes the resume to
+ * that workspace's active thread (the loop refuses a cross-workspace resume);
+ * omitted ⇒ the global (workspace-less) thread, the pre-workspace behavior.
+ */
+export type RemoteResumeSessionBody = { id: string; workspaceId?: string };
 
 /* ── SSE event envelope (server → client) ───────────────────────────────── */
 
@@ -114,7 +135,8 @@ export type RelayCommandName =
   | 'reset'
   | 'snapshot'
   | 'edit-plan-step'
-  | 'set-approval-mode';
+  | 'set-approval-mode'
+  | 'set-reasoning-effort';
 
 export const RELAY_COMMANDS: readonly RelayCommandName[] = [
   'send',
@@ -126,6 +148,8 @@ export const RELAY_COMMANDS: readonly RelayCommandName[] = [
   // U5/U10 mobile parity: steer the PC-owned plan + flip the approval mode.
   'edit-plan-step',
   'set-approval-mode',
+  // Mobile parity for the desktop composer's reasoning dial (same shape as U10).
+  'set-reasoning-effort',
 ];
 
 /**
