@@ -5,7 +5,7 @@ import type {
   AgentPlanStepStatus,
   RelayAccount,
 } from '../types';
-import { emptyAgentChatState } from '../types';
+import { emptyAgentChatState, makeAgentSendInput } from '../types';
 import { createTransport } from '../transport';
 import { DirectTransport } from '../transport/DirectTransport';
 import type { DirectCreds, Transport, TransportStatusInfo } from '../transport/types';
@@ -55,6 +55,8 @@ type AppState = {
    * distinct from `chat.error`, which is PC-owned turn state.
    */
   commandError: string | null;
+  /** Local-only debug switch that reveals diagnostics/console UI in Account. */
+  developerMode: boolean;
 
   // actions
   hydrate: () => Promise<void>;
@@ -71,6 +73,7 @@ type AppState = {
   reconnect: () => Promise<void>;
   clearAuthError: () => void;
   clearCommandError: () => void;
+  setDeveloperMode: (enabled: boolean) => Promise<void>;
 
   // chat commands (proxied to the active transport)
   sendPrompt: (prompt: string, provider: string, model: string) => Promise<void>;
@@ -123,9 +126,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   busy: false,
   authError: null,
   commandError: null,
+  developerMode: false,
 
   async hydrate() {
-    const [relayUrl, accessToken, refreshToken, accountRaw, dBase, dDev, dKey] =
+    const [relayUrl, accessToken, refreshToken, accountRaw, dBase, dDev, dKey, developerModeRaw] =
       await Promise.all([
         storageGet(StorageKeys.relayUrl),
         storageGet(StorageKeys.accessToken),
@@ -134,6 +138,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         storageGet(StorageKeys.directBaseUrl),
         storageGet(StorageKeys.directDeviceId),
         storageGet(StorageKeys.directKey),
+        storageGet(StorageKeys.developerMode),
       ]);
     let account: RelayAccount | null = null;
     if (accountRaw) {
@@ -155,7 +160,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         : relayUrl
           ? 'login'
           : 'connect';
-    set({ hydrated: true, relayUrl: url, accessToken, refreshToken, account, mode, direct, route });
+    set({
+      hydrated: true,
+      relayUrl: url,
+      accessToken,
+      refreshToken,
+      account,
+      mode,
+      direct,
+      route,
+      developerMode: developerModeRaw === 'true',
+    });
     if (route === 'chat') void get().connect();
   },
 
@@ -263,6 +278,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ commandError: null });
   },
 
+  async setDeveloperMode(enabled: boolean) {
+    set({ developerMode: enabled });
+    await storageSet(StorageKeys.developerMode, enabled ? 'true' : 'false');
+  },
+
   async pairWithQr(qrString, deviceName) {
     set({ busy: true, authError: null });
     try {
@@ -301,7 +321,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async sendPrompt(prompt, provider, model) {
     const t = ensureTransport(set);
-    await runCommand(set, () => t.send('send', { provider, model, prompt }));
+    await runCommand(set, () => t.send('send', makeAgentSendInput({ provider, model, prompt })));
   },
 
   async abort() {

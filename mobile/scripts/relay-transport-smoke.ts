@@ -154,7 +154,7 @@ async function main(): Promise<void> {
       }),
     );
 
-    const sendArgs = { provider: 'anthropic', model: 'claude-sonnet-4-6', prompt: 'hello' };
+    const sendArgs = { provider: 'anthropic', model: 'claude-sonnet-4-6', prompt: 'hello', captures: [] };
     const okPromise = transport.send('send', sendArgs);
     await waitFor(() => ws.sent.length, (count) => count >= 2, 'send command envelope');
 
@@ -184,6 +184,7 @@ async function main(): Promise<void> {
       provider: 'openai',
       model: 'gpt-5',
       prompt: 'deny this one',
+      captures: [],
     });
     await waitFor(() => ws.sent.length, (count) => count >= 3, 'error ack command envelope');
 

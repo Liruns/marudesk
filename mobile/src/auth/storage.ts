@@ -132,4 +132,6 @@ export const StorageKeys = {
   directBaseUrl: 'directBaseUrl',
   directDeviceId: 'directDeviceId',
   directKey: 'directKey',
+  // Local-only mobile diagnostics flag; never sent to the relay/PC.
+  developerMode: 'developerMode',
 } as const;

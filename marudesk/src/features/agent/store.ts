@@ -78,10 +78,13 @@ function loadVerbosity(key: string): TranscriptVerbosity {
 type AgentState = {
   chat: AgentChatState;
   draft: string;
+  draftByThread: Record<string, string>;
   /** Images pasted/dropped into the composer, sent with the next turn. */
   pendingImages: AgentImageInput[];
+  pendingImagesByThread: Record<string, AgentImageInput[]>;
   /** Local files attached as @path context, sent with the next turn. */
   pendingFiles: PendingFileAttachment[];
+  pendingFilesByThread: Record<string, PendingFileAttachment[]>;
   /** Transcript detail level for the message list. */
   verbosity: TranscriptVerbosity;
   /** Recently sent prompts (newest last) for up/down recall in the composer. */
@@ -91,9 +94,15 @@ type AgentState = {
    * turn finishes. A real queue — each Enter pushes a separate item rather than
    * concatenating into one blob — so the user can line up several follow-ups.
    */
+  /** Active thread id in this workspace, mirrored from the ThreadBar summaries. */
+  activeThreadId: string | null;
+  /** Prompts staged for the ACTIVE thread while a turn is running. */
   queuedPrompts: string[];
+  /** Per-thread queued prompts so one chat's follow-ups don't leak into another. */
+  queuedPromptsByThread: Record<string, string[]>;
   /** Local pre-turn error (no key / no workspace / send rejected). */
   localError: string | null;
+  localErrorByThread: Record<string, string | null>;
   /** Saved sessions (newest first) for the history list — loaded on demand. */
   sessions: SessionSummary[];
 };
@@ -114,6 +123,8 @@ type AgentActions = {
   dequeuePrompt: () => string | null;
   /** Remove one queued prompt by index (the banner's per-item delete). */
   removeQueuedPrompt: (index: number) => void;
+  /** Switch composer-local queue state to the active thread from ThreadBar. */
+  setActiveThreadId: (id: string | null) => void;
   setVerbosity: (v: TranscriptVerbosity) => void;
   /** Replace the projection from an `agent:event` snapshot. */
   ingest: (chat: AgentChatState) => void;
@@ -209,6 +220,11 @@ function scopedPayload(workspaceId: WorkspaceId | undefined): { workspaceId?: Wo
   return scope ? { workspaceId: scope } : {};
 }
 
+function activeThreadKey(state: Pick<AgentState, 'activeThreadId'>): string {
+  return state.activeThreadId ?? '__main__';
+}
+
+
 function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
   const scope = normalizeAgentWorkspaceId(workspaceId);
   const historyKey = scopedStorageKey(HISTORY_KEY, scope);
@@ -217,43 +233,100 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
   return createStore<AgentStore>((set, get) => ({
   chat: emptyAgentChatState(),
   draft: '',
+  draftByThread: {},
   pendingImages: [],
+  pendingImagesByThread: {},
   pendingFiles: [],
+  pendingFilesByThread: {},
   promptHistory: loadHistory(historyKey),
+  activeThreadId: null,
   queuedPrompts: [],
+  queuedPromptsByThread: {},
   verbosity: loadVerbosity(verbosityKey),
   localError: null,
+  localErrorByThread: {},
   sessions: [],
 
-  setDraft: (draft) => set({ draft }),
+  setDraft: (draft) =>
+    set((s) => {
+      const threadId = activeThreadKey(s);
+      return { draft, draftByThread: { ...s.draftByThread, [threadId]: draft } };
+    }),
 
   addImages: (images) =>
-    set((s) => ({ pendingImages: [...s.pendingImages, ...images].slice(0, 8) })),
+    set((s) => {
+      const threadId = activeThreadKey(s);
+      const next = [...(s.pendingImagesByThread[threadId] ?? []), ...images].slice(0, 8);
+      return { pendingImages: next, pendingImagesByThread: { ...s.pendingImagesByThread, [threadId]: next } };
+    }),
 
   addFiles: (files) =>
-    set((s) => ({ pendingFiles: mergeFileAttachments(s.pendingFiles, files) })),
+    set((s) => {
+      const threadId = activeThreadKey(s);
+      const next = mergeFileAttachments(s.pendingFilesByThread[threadId] ?? [], files);
+      return { pendingFiles: next, pendingFilesByThread: { ...s.pendingFilesByThread, [threadId]: next } };
+    }),
 
   removeImage: (index) =>
-    set((s) => ({ pendingImages: s.pendingImages.filter((_, i) => i !== index) })),
+    set((s) => {
+      const threadId = activeThreadKey(s);
+      const next = (s.pendingImagesByThread[threadId] ?? []).filter((_, i) => i !== index);
+      return { pendingImages: next, pendingImagesByThread: { ...s.pendingImagesByThread, [threadId]: next } };
+    }),
 
   removeFile: (index) =>
-    set((s) => ({ pendingFiles: s.pendingFiles.filter((_, i) => i !== index) })),
+    set((s) => {
+      const threadId = activeThreadKey(s);
+      const next = (s.pendingFilesByThread[threadId] ?? []).filter((_, i) => i !== index);
+      return { pendingFiles: next, pendingFilesByThread: { ...s.pendingFilesByThread, [threadId]: next } };
+    }),
 
   enqueuePrompt: (text) => {
     const trimmed = text.trim();
     if (trimmed.length === 0) return;
-    set((s) => ({ queuedPrompts: [...s.queuedPrompts, trimmed] }));
+    set((s) => {
+      const threadId = s.activeThreadId ?? '__main__';
+      const nextQueue = [...(s.queuedPromptsByThread[threadId] ?? []), trimmed];
+      return {
+        queuedPrompts: nextQueue,
+        queuedPromptsByThread: { ...s.queuedPromptsByThread, [threadId]: nextQueue },
+      };
+    });
   },
 
   dequeuePrompt: () => {
-    const [next, ...rest] = get().queuedPrompts;
+    const threadId = get().activeThreadId ?? '__main__';
+    const [next, ...rest] = get().queuedPromptsByThread[threadId] ?? [];
     if (next === undefined) return null;
-    set({ queuedPrompts: rest });
+    set((s) => ({
+      queuedPrompts: rest,
+      queuedPromptsByThread: { ...s.queuedPromptsByThread, [threadId]: rest },
+    }));
     return next;
   },
 
   removeQueuedPrompt: (index) =>
-    set((s) => ({ queuedPrompts: s.queuedPrompts.filter((_, i) => i !== index) })),
+    set((s) => {
+      const threadId = s.activeThreadId ?? '__main__';
+      const nextQueue = (s.queuedPromptsByThread[threadId] ?? []).filter((_, i) => i !== index);
+      return {
+        queuedPrompts: nextQueue,
+        queuedPromptsByThread: { ...s.queuedPromptsByThread, [threadId]: nextQueue },
+      };
+    }),
+
+  setActiveThreadId: (id) =>
+    set((s) => {
+      const threadId = id ?? '__main__';
+      return {
+        activeThreadId: id,
+        draft: s.draftByThread[threadId] ?? '',
+        pendingImages: s.pendingImagesByThread[threadId] ?? [],
+        pendingFiles: s.pendingFilesByThread[threadId] ?? [],
+        queuedPrompts: s.queuedPromptsByThread[threadId] ?? [],
+        localError: s.localErrorByThread[threadId] ?? null,
+      };
+    }),
 
   setVerbosity: (verbosity) => {
     try {
@@ -305,10 +378,33 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
     }
     const fileContext = formatAttachedFilesForPrompt(pendingFiles);
     const prompt = fileContext ? `${text}\n\n${fileContext}` : text;
-    set({ localError: null, draft: '', pendingImages: [], pendingFiles: [], promptHistory: history });
+    const threadId = activeThreadKey(get());
+    set((s) => ({
+      localError: null,
+      localErrorByThread: { ...s.localErrorByThread, [threadId]: null },
+      draft: '',
+      draftByThread: { ...s.draftByThread, [threadId]: '' },
+      pendingImages: [],
+      pendingImagesByThread: { ...s.pendingImagesByThread, [threadId]: [] },
+      pendingFiles: [],
+      pendingFilesByThread: { ...s.pendingFilesByThread, [threadId]: [] },
+      promptHistory: history,
+    }));
     const res = await get().dispatchPrompt(prompt, { images: pendingImages });
-    // Restore the draft + images so the user can retry without re-attaching.
-    if (!res.ok) set({ localError: res.reason ?? null, draft: text, pendingImages, pendingFiles });
+    // Restore the draft + attachments so the user can retry without re-attaching.
+    if (!res.ok) {
+      const reason = res.reason ?? null;
+      set((s) => ({
+        localError: reason,
+        localErrorByThread: { ...s.localErrorByThread, [threadId]: reason },
+        draft: text,
+        draftByThread: { ...s.draftByThread, [threadId]: text },
+        pendingImages,
+        pendingImagesByThread: { ...s.pendingImagesByThread, [threadId]: pendingImages },
+        pendingFiles,
+        pendingFilesByThread: { ...s.pendingFilesByThread, [threadId]: pendingFiles },
+      }));
+    }
   },
 
   dispatchPrompt: async (prompt, opts) => {
@@ -354,7 +450,13 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
       return { ok: false, reason: 'busy' };
     }
     const res = await get().dispatchPrompt(prompt, { captures: opts?.captures });
-    if (!res.ok && res.reason) set({ localError: res.reason });
+    if (!res.ok && res.reason) {
+      const threadId = activeThreadKey(get());
+      set((s) => ({
+        localError: res.reason!,
+        localErrorByThread: { ...s.localErrorByThread, [threadId]: res.reason! },
+      }));
+    }
     return res;
   },
 
@@ -458,7 +560,19 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
     try {
       await window.marudesk.invoke('agent:reset', scopedPayload(workspaceId));
       useDiffCommentsStore.getState().clearAll();
-      set({ localError: null });
+      const threadId = activeThreadKey(get());
+      set((s) => ({
+        localError: null,
+        localErrorByThread: { ...s.localErrorByThread, [threadId]: null },
+        draft: '',
+        draftByThread: { ...s.draftByThread, [threadId]: '' },
+        pendingImages: [],
+        pendingImagesByThread: { ...s.pendingImagesByThread, [threadId]: [] },
+        pendingFiles: [],
+        pendingFilesByThread: { ...s.pendingFilesByThread, [threadId]: [] },
+        queuedPrompts: [],
+        queuedPromptsByThread: { ...s.queuedPromptsByThread, [threadId]: [] },
+      }));
       // The conversation just cleared was persisted on its last finish() — refresh
       // the list so it shows up immediately in the history.
       await get().loadSessions();

@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   assert(status!.status === 'connected', 'transport reports connected');
 
   console.log('send →');
-  await t.send('send', { provider: 'anthropic', model: 'claude-sonnet-4-6', prompt: 'Why is the cart crashing?' });
+  await t.send('send', { provider: 'anthropic', model: 'claude-sonnet-4-6', prompt: 'Why is the cart crashing?', captures: [] });
   assert(state!.messages.some((m) => m.role === 'user'), 'user message recorded');
   await waitFor(() => state!, (s) => s.status === 'thinking', 'status thinking');
   await waitFor(() => state!, (s) => assistantText(s).length > 0, 'assistant text streams in');

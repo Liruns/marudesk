@@ -1,7 +1,9 @@
-import { ArrowLeft, LogOut, RefreshCw, Server, User, Cpu, Smartphone, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Bug, Clipboard, LogOut, RefreshCw, Server, Terminal, User, Cpu, Smartphone, Trash2 } from 'lucide-react';
 import { Screen } from '../components/Screen';
 import { ConnectionChip } from '../components/StatusBadge';
 import { GoogleMark, GitHubMark } from '../components/ProviderMarks';
+import { clearDiagnosticLogs, subscribeDiagnosticLogs, type DiagnosticLogEntry } from '../lib/diagnostics';
 import { useAppStore } from '../store/useAppStore';
 
 /** Step 4 — account / paired-PC, connection status, reconnect, log out / unpair. */
@@ -15,7 +17,17 @@ export function AccountScreen() {
   const unpair = useAppStore((s) => s.unpair);
   const reconnect = useAppStore((s) => s.reconnect);
   const setRoute = useAppStore((s) => s.setRoute);
+  const developerMode = useAppStore((s) => s.developerMode);
+  const setDeveloperMode = useAppStore((s) => s.setDeveloperMode);
   const isDirect = mode === 'direct';
+  const [logs, setLogs] = useState<DiagnosticLogEntry[]>([]);
+
+  useEffect(() => subscribeDiagnosticLogs(setLogs), []);
+
+  const report = useMemo(
+    () => buildDiagnosticReport({ mode, relayUrl, directUrl: direct?.baseUrl, status, logs }),
+    [mode, relayUrl, direct?.baseUrl, status, logs],
+  );
 
   return (
     <Screen
@@ -77,6 +89,39 @@ export function AccountScreen() {
           <RefreshCw size={18} /> Reconnect
         </button>
 
+        <div className="card" style={{ padding: 4 }}>
+          <Row icon={<Bug size={18} />} label="Developer tools">
+            <button
+              className="btn btn-secondary"
+              style={{ minHeight: 34, padding: '0 12px' }}
+              onClick={() => void setDeveloperMode(!developerMode)}
+            >
+              {developerMode ? 'On' : 'Off'}
+            </button>
+          </Row>
+          {developerMode ? (
+            <>
+              <Divider />
+              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="label-row" style={{ color: 'var(--fg-muted)' }}>
+                  <Terminal size={15} />
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>Diagnostics</span>
+                  <span className="faint" style={{ marginLeft: 'auto', fontSize: 12 }}>{logs.length} logs</span>
+                </div>
+                <pre className="diagnostic-report">{report}</pre>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button className="btn btn-secondary" onClick={() => void copyText(report)}>
+                    <Clipboard size={16} /> Copy report
+                  </button>
+                  <button className="btn btn-secondary" onClick={clearDiagnosticLogs}>
+                    Clear logs
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+
         {isDirect ? (
           <button className="btn btn-danger btn-block" onClick={() => void unpair()}>
             <Trash2 size={18} /> Unpair this PC
@@ -110,3 +155,45 @@ function Row({ icon, label, children }: { icon: React.ReactNode; label: string; 
 function Divider() {
   return <div style={{ height: 1, background: 'var(--border)', margin: '0 14px' }} />;
 }
+
+function buildDiagnosticReport(input: {
+  mode: string;
+  relayUrl: string;
+  directUrl?: string;
+  status: unknown;
+  logs: DiagnosticLogEntry[];
+}): string {
+  const lines = [
+    'marudesk mobile diagnostics',
+    `time: ${new Date().toISOString()}`,
+    `mode: ${input.mode}`,
+    `relayUrl: ${input.relayUrl}`,
+    `directUrl: ${input.directUrl ?? '-'}`,
+    `status: ${safeJson(input.status)}`,
+    `userAgent: ${navigator.userAgent}`,
+    `online: ${navigator.onLine}`,
+    `viewport: ${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`,
+    '',
+    'recent console:',
+    ...input.logs.slice(-80).map((log) => `${new Date(log.at).toISOString()} ${log.level.toUpperCase()} ${log.message}`),
+  ];
+  return lines.join('\n');
+}
+
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    // Some WebViews disallow clipboard writes without a user gesture/permission.
+    console.info('diagnostic report copy failed');
+  }
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+

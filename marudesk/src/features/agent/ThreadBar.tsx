@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { AgentWorkspaceThreadsEvent, ThreadSummary } from '../../../shared/agent';
-import { useAgentWorkspaceId } from './store';
+import { useAgentStore, useAgentWorkspaceId } from './store';
 
 /**
  * Thread switcher (Stage 12-B-2). Tabs for the open conversation threads — click
@@ -13,8 +13,14 @@ import { useAgentWorkspaceId } from './store';
  */
 export function ThreadBar() {
   const workspaceId = useAgentWorkspaceId();
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const setActiveThreadId = useAgentStore((s) => s.setActiveThreadId);
+  const [threads, setThreadsState] = useState<ThreadSummary[]>([]);
   const [busy, setBusy] = useState(false);
+
+  const setThreads = (next: ThreadSummary[]): void => {
+    setThreadsState(next);
+    setActiveThreadId(next.find((thread) => thread.active)?.id ?? null);
+  };
 
   useEffect(() => {
     void window.marudesk

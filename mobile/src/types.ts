@@ -157,7 +157,30 @@ export type AgentSendInput = {
   provider: string;
   model: string;
   prompt: string;
+  /** Mirror of the desktop composer captures; mobile sends none for now, but the PC parser requires an array. */
+  captures: unknown[];
+  /** Optional active workspace id once mobile workspace selection is wired. */
+  workspaceId?: string;
+  /** Optional active browser tab id once mobile capture/tab selection is wired. */
+  tabId?: string;
 };
+
+export function makeAgentSendInput(input: {
+  provider: string;
+  model: string;
+  prompt: string;
+  workspaceId?: string;
+  tabId?: string;
+}): AgentSendInput {
+  return {
+    provider: input.provider,
+    model: input.model,
+    prompt: input.prompt,
+    captures: [],
+    workspaceId: input.workspaceId,
+    tabId: input.tabId,
+  };
+}
 
 /* ── Relay auth wire shapes (mirror of marudesk/shared/remote.ts) ───────────── */
 

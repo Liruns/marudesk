@@ -382,6 +382,11 @@ function emitWorkspaceContainer(c: ThreadContainer): void {
   if (!flush) {
     flush = coalesced(() => {
       if (!c.workspaceId) return;
+      // Only the ACTIVE thread for a workspace may drive the visible chat. A turn
+      // running in a switched-away thread should keep working in the background and
+      // refresh the thread list, but must not stream tokens/tool output into the
+      // currently viewed conversation.
+      if (!isActiveThreadForContainer(c)) return;
       refreshOrchestrationProjection();
       c.state.approvalMode = getSettingsSync().agent.approvalMode;
       const host = getHost();
@@ -408,11 +413,20 @@ function emitWorkspaceContainer(c: ThreadContainer): void {
  */
 export function emitContainer(c: ThreadContainer): void {
   emitWorkspaceContainer(c);
-  if (c === S) emit();
-  else {
+  if (c === S) {
     emit();
-    emitThreads();
+    return;
   }
+  // Workspace-scoped active threads are tracked per workspace instead of by the
+  // global S binding. The active workspace thread gets a workspace-event above;
+  // every workspace thread (active or background) also refreshes summaries.
+  if (c.workspaceId) {
+    emitThreads();
+    return;
+  }
+  // Non-active global threads must never call emit(), because that would push the
+  // active global S state at the wrong time and can visually hijack the chat.
+  emitThreads();
 }
 
 function threadProjectionEntries(): OrchestrationThreadEntry[] {
@@ -427,3 +441,17 @@ function isActiveThread(id: string, container: ThreadContainer): boolean {
   if (container.workspaceId) return activeThreadIdsByWorkspace.get(container.workspaceId) === id;
   return id === activeId;
 }
+
+function isActiveThreadForContainer(container: ThreadContainer): boolean {
+  if (container === S) return true;
+  if (!container.workspaceId) return false;
+  return activeThreadIdsByWorkspace.get(container.workspaceId) === idForContainer(container);
+}
+
+function idForContainer(container: ThreadContainer): string | null {
+  for (const [id, candidate] of threads.entries()) {
+    if (candidate === container) return id;
+  }
+  return null;
+}
+
