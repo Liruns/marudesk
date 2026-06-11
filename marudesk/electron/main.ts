@@ -74,6 +74,7 @@ import {
   setRelayStatusListener,
   syncRelayToSettings,
 } from './server/relay';
+import { startCompanion, stopCompanion } from './server/companion';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -114,6 +115,9 @@ function initProfileRuntime(): void {
     void syncServerToSettings(settings);
     void syncRelayToSettings(settings);
   });
+  // The always-on loopback companion (CLI bridge) — per profile, since the
+  // bearer token + cli-bridge.json live in the profile's userData.
+  void startCompanion();
   // Connect the profile's external (stdio) MCP servers + activate its plugins.
   void initExternalMcp();
   void initPlugins(() => getCurrentWorkspace()?.root ?? null);
@@ -143,6 +147,7 @@ async function teardownProfileRuntime(): Promise<void> {
   guard(disposeAllLaneDevServers);
   guard(disposeAllLsp);
   guard(() => void stopServer());
+  guard(() => void stopCompanion());
   guard(disposeRelay);
   guard(() => void shutdownExternalMcp());
   guard(shutdownPlugins);
@@ -514,6 +519,9 @@ app.on('before-quit', () => {
   // Stop the bridge server so its loopback port is released and no SSE
   // connection lingers past app exit.
   void stopServer();
+  // Stop the loopback companion too (removes cli-bridge.json so a CLI doesn't
+  // try to reach a dead port).
+  void stopCompanion();
   // Stop reconnecting + close the outbound cloud-relay host WS on quit.
   disposeRelay();
   // Close every external MCP stdio connection so no spawned child process lingers

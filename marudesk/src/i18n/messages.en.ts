@@ -722,6 +722,11 @@ export const EN_MESSAGES = {
     'Auto-apply writes edits straight to disk (revert from the chat). Preview asks you to confirm each edit, showing the diff first, in Ask mode.',
   'settings.agent.editApproval.label': 'File edits',
   'settings.agent.editApproval.preview': 'Preview first',
+  'settings.agent.chatSurface.label': 'Chat surface',
+  'settings.agent.chatSurface.hint':
+    'Where opening the AI Chat lands: the side panel, or a terminal tab running the chat CLI (Claude Code style).',
+  'settings.agent.chatSurface.panel': 'Panel',
+  'settings.agent.chatSurface.cli': 'Terminal CLI',
   'settings.agent.autoCompactThreshold.hint':
     'How full the context window may get before auto-compaction kicks in.',
   'settings.agent.autoCompactThreshold.label': 'Auto-compact at',

@@ -599,6 +599,25 @@ export async function openAgentTab(workspaceId?: WorkspaceId): Promise<void> {
 }
 
 /**
+ * Open (or focus) the "AI Chat (CLI)" terminal tab — the chat CLI running over
+ * the loopback companion bridge (chat CLI v2 — docs/chat-cli-tui-design.md §6).
+ * The chat-open intents route here instead of the drawer when
+ * `settings.agent.chatSurface` is 'cli'.
+ */
+export async function openCliChatTab(workspaceId?: WorkspaceId): Promise<void> {
+  const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);
+  const tabsState = useTabsStore.getState();
+  const existing = tabsState.tabs.find(
+    (t) =>
+      t.kind === 'terminal' &&
+      t.terminalProfile === 'agent-cli' &&
+      normalizeAgentWorkspaceId(t.workspaceId) === targetWorkspaceId,
+  );
+  if (existing) await tabsState.activateTab(existing.id);
+  else await tabsState.newTab('terminal', undefined, targetWorkspaceId, { terminalProfile: 'agent-cli' });
+}
+
+/**
  * Open (or focus) the AI Chat, prefill a prompt, and send it in one shot. Lets
  * surfaces outside the composer (e.g. the DevTools console "Fix this" button)
  * hand a ready-made request to the agent with a single click. Any captures that

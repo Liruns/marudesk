@@ -57,21 +57,30 @@ npm run e2e
 
 ## Chat from the terminal
 
-With the app running and Settings → Remote → Local server enabled, the bundled
-CLI drives the same agent over the loopback bridge (streamed replies, tool
-lines, approval/question prompts):
+The bundled chat CLI (docs/chat-cli-tui-design.md) is a Claude-Code-style
+terminal UI over the same agent loop: streamed markdown + reasoning, tool
+lines, a sticky composer with a slash menu (`/model`, `/sessions`, `/new`,
+`/review`, …), inline approval/question panels, Esc to interrupt. The app
+always runs a loopback companion bridge while it's open, so this works with
+zero configuration:
 
 ```bash
-npm run chat                                   # interactive REPL
-npm run chat -- --prompt "explain this repo"   # one-shot
-npm run chat -- --provider anthropic --model claude-sonnet-4-6 --prompt "hi"
+npm run chat                                   # interactive TUI
+npm run chat -- --prompt "explain this repo"   # one-shot (plain output)
+npm run chat -- --line                         # plain line-mode REPL
 ```
 
-`--provider/--model` are remembered. The server drops a same-user
-`cli-bridge.json` handshake file under userData while it listens; `--url` /
-`--token` (or `MARUDESK_BRIDGE_URL` / `MARUDESK_BRIDGE_TOKEN`) override it.
-Gated-tool approvals stay pinned to the desktop UI (the L-1 guard); the CLI can
-answer questions and approve edit previews.
+A model is picked interactively on first run (`/model` later) and remembered;
+`--provider/--model` set it explicitly. The companion drops a same-user
+`cli-bridge.json` handshake under userData while the app runs; `--url` /
+`--token` (or `MARUDESK_BRIDGE_URL` / `MARUDESK_BRIDGE_TOKEN`) target another
+bridge instead. Over the loopback companion the CLI is a full chat surface —
+gated-tool approvals included (same-user trust); over the remote bridge server
+those stay pinned to the desktop (the L-1 guard).
+
+In the app itself, Settings → Agent → **Chat surface → Terminal CLI** makes the
+chat toggle open an "AI Chat (CLI)" terminal tab hosting this CLI instead of
+the side panel.
 
 ## Verification harnesses
 

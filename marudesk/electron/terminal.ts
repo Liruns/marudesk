@@ -1,4 +1,5 @@
 import { type BrowserWindow } from 'electron';
+import { fileURLToPath } from 'node:url';
 // Named import verified against node-pty 1.1.0: its CJS entry sets
 // `exports.spawn` + `__esModule`, which Node's cjs-module-lexer detects, so
 // `import { spawn }` resolves through the ESM→CJS interop in the built
@@ -10,6 +11,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getSettings } from './settings';
 import { defineHandler } from './ipc/define-handler';
+import { getCompanionConnection, startCompanion } from './server/companion';
 import { toMessage } from '../shared/to-message';
 import type {
   TerminalCreateOptions,
@@ -70,6 +72,8 @@ function parseCreate(raw: unknown): TerminalCreateOptions {
     cols: clampDim(o.cols, 80),
     rows: clampDim(o.rows, 24),
     shell: typeof o.shell === 'string' ? o.shell : undefined,
+    // Untrusted renderer input: only the known profile name is honored.
+    profile: o.profile === 'agent-cli' ? 'agent-cli' : undefined,
   };
 }
 
@@ -230,6 +234,78 @@ export function inheritedEnv(): Record<string, string> {
   return env;
 }
 
+/**
+ * The built chat-cli entry (chat CLI v2 — docs/chat-cli-tui-design.md §6.1/§7).
+ * It is emitted NEXT TO main.mjs, so resolve from this bundle's own URL — which
+ * is correct however the app was launched (npm dev, `electron .`, the e2e
+ * harness passing the main script directly, or packaged). Packaged builds swap
+ * in the asarUnpacked copy: ELECTRON_RUN_AS_NODE children read plain files,
+ * not app.asar (same reason node-pty is unpacked).
+ */
+function chatCliEntryPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const base = here.replace(/app\.asar(?=[\\/]|$)/, 'app.asar.unpacked');
+  return path.join(base, 'chat-cli.mjs');
+}
+
+/**
+ * How to run the bundled CLI in a PTY. Plain `node` from PATH when available
+ * (a normal console-subsystem binary). Without one: on mac/linux this Electron
+ * binary in RUN_AS_NODE mode works fine under a PTY; on Windows it does NOT —
+ * electron.exe is a GUI-subsystem image, so under ConPTY its std handles never
+ * attach (zero output, no TTY) — wrapping it in cmd.exe (console subsystem)
+ * makes the console exist so the child inherits real handles. The cmd line is
+ * passed as a STRING because node-pty's argv quoting (`\"`) isn't cmd quoting;
+ * `/s /c "…"` is the canonical both-paths-quoted form.
+ */
+function agentCliCommand(entry: string): { file: string; args: string[] | string } {
+  const node = whichShell('node');
+  if (node) return { file: node, args: [entry] };
+  if (process.platform !== 'win32') return { file: process.execPath, args: [entry] };
+  return { file: 'cmd.exe', args: `/d /s /c ""${process.execPath}" "${entry}""` };
+}
+
+/**
+ * Spawn spec for the `agent-cli` terminal profile: the bundled CLI with the
+ * loopback companion's connection injected as env. The injection happens AFTER
+ * the inheritedEnv secret-strip on purpose — it is child-only (the CLI
+ * process, not a user shell) and never reaches the renderer.
+ */
+async function resolveAgentCliSpawn(): Promise<{
+  file: string;
+  args: string[] | string;
+  env: Record<string, string>;
+  displayName: string;
+}> {
+  // The companion is started at boot, but be tolerant of a slow/failed boot —
+  // starting it here is idempotent.
+  let conn = getCompanionConnection();
+  if (!conn) {
+    await startCompanion();
+    conn = getCompanionConnection();
+  }
+  if (!conn) {
+    throw new Error('the CLI bridge (loopback companion) is not running');
+  }
+  const entry = chatCliEntryPath();
+  if (!isExecutableFile(entry)) {
+    throw new Error(`chat CLI not found at ${entry} — run a build first`);
+  }
+  const command = agentCliCommand(entry);
+  return {
+    file: command.file,
+    args: command.args,
+    env: {
+      ...inheritedEnv(),
+      // Only meaningful when the spawned binary is Electron; harmless for node.
+      ELECTRON_RUN_AS_NODE: '1',
+      MARUDESK_BRIDGE_URL: conn.url,
+      MARUDESK_BRIDGE_TOKEN: conn.token,
+    },
+    displayName: 'marudesk chat',
+  };
+}
+
 export function registerTerminalHandlers(deps: {
   getMainWindow: () => BrowserWindow | null;
   getWorkspaceRoot: () => string | null;
@@ -244,24 +320,40 @@ export function registerTerminalHandlers(deps: {
       throw new Error('too many open terminals');
     }
     const opts = parseCreate(raw);
-    const settings = await getSettings();
-    const shell = resolveShell(opts.shell, settings.terminal.defaultShell);
     const cwd = resolveCwd(deps.getWorkspaceRoot());
+
+    // Resolve what to spawn: the user's shell, or a named profile main decides
+    // (the renderer never passes a command — chat CLI v2 §6.1).
+    let file: string;
+    let args: string[] | string = [];
+    let env = inheritedEnv();
+    let displayName: string;
+    if (opts.profile === 'agent-cli') {
+      const cli = await resolveAgentCliSpawn();
+      file = cli.file;
+      args = cli.args;
+      env = cli.env;
+      displayName = cli.displayName;
+    } else {
+      const settings = await getSettings();
+      file = resolveShell(opts.shell, settings.terminal.defaultShell);
+      displayName = file;
+    }
 
     let pty: IPty;
     try {
-      pty = spawn(shell, [], {
+      pty = spawn(file, args, {
         name: 'xterm-256color',
         cols: opts.cols,
         rows: opts.rows,
         cwd,
-        env: inheritedEnv(),
+        env,
       });
     } catch (err) {
       // Surface a shell-specific message (the resolved path + the cause) instead
       // of node-pty's bare `File not found:` — the renderer shows this verbatim.
       const cause = toMessage(err);
-      throw new Error(`could not start shell "${shell}" (cwd: ${cwd}): ${cause}`, {
+      throw new Error(`could not start "${displayName}" (cwd: ${cwd}): ${cause}`, {
         cause: err,
       });
     }
@@ -289,7 +381,7 @@ export function registerTerminalHandlers(deps: {
       sessions.delete(id);
     });
 
-    return { id, shell, cwd } satisfies TerminalCreated;
+    return { id, shell: displayName, cwd } satisfies TerminalCreated;
   });
 
   // The renderer calls this once it has attached its 'terminal:data' listener,

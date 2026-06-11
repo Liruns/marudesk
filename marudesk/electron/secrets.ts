@@ -116,7 +116,12 @@ export async function hasProviderKey(provider: ProviderId): Promise<boolean> {
   }
 }
 
-async function listProviders(): Promise<ProviderStatus[]> {
+/**
+ * Connection status for every built-in provider (key stored / OAuth stored /
+ * keyless). Backs the `secrets:list-providers` IPC and the bridge's
+ * `GET /agent/models` catalog (electron/server/extras.ts).
+ */
+export async function listProviders(): Promise<ProviderStatus[]> {
   let map: CredMap = {};
   try {
     map = await loadCreds();

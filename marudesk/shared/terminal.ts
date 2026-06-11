@@ -4,16 +4,26 @@
  * request/response over `invoke` (create/input/resize/dispose); main → renderer
  * streaming uses the `terminal:data` / `terminal:exit` events.
  *
- * The renderer never chooses a cwd or arbitrary process — only cols/rows and an
+ * The renderer never chooses a cwd or arbitrary process — only cols/rows, an
  * optional shell *override* (which, like VSCode's setting, is the user's own
- * choice). cwd is decided in main (workspace root, else home).
+ * choice), and a named PROFILE whose meaning main decides. cwd is decided in
+ * main (workspace root, else home).
  */
+
+/**
+ * What the PTY runs: the user's shell, or the bundled chat CLI connected to
+ * the loopback companion bridge (chat CLI v2 — docs/chat-cli-tui-design.md
+ * §6.1). The renderer only ever names a profile; main resolves the command.
+ */
+export type TerminalProfile = 'shell' | 'agent-cli';
 
 export type TerminalCreateOptions = {
   cols: number;
   rows: number;
   /** Optional explicit shell. Empty = settings default, else OS default. */
   shell?: string;
+  /** Which command profile to spawn; absent = 'shell'. */
+  profile?: TerminalProfile;
 };
 
 export type TerminalCreated = {

@@ -179,6 +179,8 @@ export interface IpcMap {
         file?: WorkspaceFileRef;
         /** For a `plugin` tab: which plugin panel to render (v2). */
         pluginPanel?: { id: string; entry: string };
+        /** For a `terminal` tab: the PTY command profile (chat CLI v2 §6.1). */
+        terminalProfile?: 'agent-cli';
       },
     ];
     result: string;

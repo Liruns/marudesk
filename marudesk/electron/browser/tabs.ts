@@ -83,6 +83,7 @@ export function createTab(
     workspaceId?: WorkspaceId;
     editorFile?: WorkspaceFileRef;
     pluginPanel?: { id: string; entry: string };
+    terminalProfile?: 'agent-cli';
   },
 ): TabRecord {
   const host = getHost();
@@ -104,6 +105,7 @@ export function createTab(
       filePath: opts?.editorFile?.path ?? filePath,
       editorFile: opts?.editorFile,
       pluginPanel: kind === 'plugin' ? opts?.pluginPanel : undefined,
+      terminalProfile: kind === 'terminal' ? opts?.terminalProfile : undefined,
       untitledName:
         kind === 'editor' && !filePath && !opts?.editorFile
           ? `Untitled-${nextUntitledSeq()}`
@@ -304,6 +306,7 @@ export function createAndActivateTab(
     workspaceId?: WorkspaceId;
     editorFile?: WorkspaceFileRef;
     pluginPanel?: { id: string; entry: string };
+    terminalProfile?: 'agent-cli';
   },
 ): TabRecord {
   const rec = createTab(kind, initialUrl, opts);
@@ -329,6 +332,7 @@ export function replaceTab(
     workspaceId?: WorkspaceId;
     editorFile?: WorkspaceFileRef;
     pluginPanel?: { id: string; entry: string };
+    terminalProfile?: 'agent-cli';
   },
 ): TabRecord | null {
   const old = getTab(oldId);
@@ -341,6 +345,7 @@ export function replaceTab(
     workspaceId: opts?.workspaceId ?? old.workspaceId,
     editorFile: opts?.editorFile,
     pluginPanel: opts?.pluginPanel,
+    terminalProfile: opts?.terminalProfile,
   });
 
   // Tear the old tab down (web view + any DevTools); feature tabs have none.

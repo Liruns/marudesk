@@ -314,16 +314,28 @@ export function registerBrowserHandlers(deps: {
   });
 
   defineHandler('browser:tabs-new', ([payload]) => {
-    const { kind, url, workspaceId, editorFile, pluginPanel } = parseTabSpec(payload);
-    const rec = createAndActivateTab(kind, url, { workspaceId, editorFile, pluginPanel });
+    const { kind, url, workspaceId, editorFile, pluginPanel, terminalProfile } =
+      parseTabSpec(payload);
+    const rec = createAndActivateTab(kind, url, {
+      workspaceId,
+      editorFile,
+      pluginPanel,
+      terminalProfile,
+    });
     return rec.id;
   });
 
   defineHandler('browser:tabs-replace', ([payload]) => {
     const p = obj(payload);
     const id = str(p.id, 'id');
-    const { kind, url, workspaceId, editorFile, pluginPanel } = parseTabSpec(payload);
-    const rec = replaceTab(id, kind, url, { workspaceId, editorFile, pluginPanel });
+    const { kind, url, workspaceId, editorFile, pluginPanel, terminalProfile } =
+      parseTabSpec(payload);
+    const rec = replaceTab(id, kind, url, {
+      workspaceId,
+      editorFile,
+      pluginPanel,
+      terminalProfile,
+    });
     return rec ? rec.id : null;
   });
 

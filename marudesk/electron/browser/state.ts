@@ -41,6 +41,9 @@ export type TabRecord = {
   untitledName?: string;
   // For a 'plugin' tab: which plugin panel it renders (v2 — docs/plugin-runtime-design §8.5).
   pluginPanel?: { id: string; entry: string };
+  // For a 'terminal' tab: the PTY command profile (chat CLI v2 §6.1). The
+  // renderer names it; electron/terminal.ts decides what it spawns.
+  terminalProfile?: 'agent-cli';
   // Custom CDP DevTools (electron/browser/cdp.ts): whether our debugger is
   // attached to this web tab, plus a sync guard against a re-entrant attach
   // race (two near-simultaneous cdp-send calls both seeing !isAttached). The
@@ -386,6 +389,17 @@ function tabStateFor(rec: TabRecord): TabState {
       ...ZERO_NAV,
       title: rec.pluginPanel?.id ?? FEATURE_TITLES.plugin,
       pluginPanel: rec.pluginPanel,
+    };
+  }
+  if (rec.kind === 'terminal' && rec.terminalProfile) {
+    return {
+      id: rec.id,
+      kind: 'terminal',
+      workspaceId: rec.workspaceId ?? SYSTEM_WORKSPACE_ID,
+      pinned,
+      ...ZERO_NAV,
+      title: 'AI Chat (CLI)',
+      terminalProfile: rec.terminalProfile,
     };
   }
   return {
