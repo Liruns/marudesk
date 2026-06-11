@@ -106,8 +106,6 @@ export { testProviderConnection } from './loop-helpers.ts';
  * `agent:event` snapshot, a background thread only refreshes its switcher summary.
  */
 
-const MAX_STEPS = 24;
-
 /**
  * Wall-clock backstop for a single tool call (audit H4). Generous enough to not
  * cut off a legitimate slow tool or a multi-step subagent, but bounds a tool
@@ -363,7 +361,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     return null;
   };
 
-  for (let step = 0; step < MAX_STEPS; step++) {
+  for (let step = 0; !opts.signal.aborted; step++) {
     if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
     S.state.status = 'thinking';
 
@@ -723,7 +721,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
   }
 
-  finish(S, 'completed', 'Stopped at the step limit — ask me to continue');
+  finish(S, 'completed', 'Stopped');
 }
 
 /**
@@ -862,8 +860,8 @@ async function handleAskUser(
 }
 
 function finish(S: ThreadContainer, status: AgentChatState['status'], note?: string, error?: string): void {
-  // An early-end note (user Stop / step limit / dropped connection) shows as an
-  // interrupt LABEL, not a fake assistant message in the S.transcript (v3 polish).
+  // An early-end note (user Stop / dropped connection) shows as an interrupt
+  // LABEL, not a fake assistant message in the S.transcript (v3 polish).
   S.state.endNote = note ?? null;
   S.state.status = status;
   S.state.error = error ?? null;
