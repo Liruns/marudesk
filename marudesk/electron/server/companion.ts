@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { app } from 'electron';
 import { toMessage } from '../../shared/to-message';
-import { subscribeAgentEvents } from '../agent/loop';
+import { subscribeAgentEvents, subscribeWorkspaceAgentEvents } from '../agent/loop';
 import { startCompanionServer, type CompanionHandle } from './companion-core';
 import { createRouterExtras } from './extras';
 import { LOOP_AGENT_API } from './loop-api';
@@ -44,6 +44,10 @@ export function startCompanion(): Promise<void> {
           version: app.getVersion(),
           agent: LOOP_AGENT_API,
           subscribe: subscribeAgentEvents,
+          subscribeWorkspace: (workspaceId, cb) =>
+            subscribeWorkspaceAgentEvents((wsId, state) => {
+              if (wsId === workspaceId) cb(state);
+            }),
           extras: createRouterExtras(),
           // Deliberately NO devices/pair (loopback has no E2E path) and NO
           // approvalGuard — same-user loopback IS the desktop user (§3).

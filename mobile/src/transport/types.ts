@@ -4,6 +4,10 @@ import type {
   AgentApprovalMode,
   AgentPlanStepStatus,
   AgentSendInput,
+  BridgeModelsResult,
+  BridgeWorkspacesResult,
+  ReasoningEffort,
+  SessionSummary,
 } from '../types';
 
 /**
@@ -48,7 +52,8 @@ export type TransportCommand =
   | 'reset'
   | 'snapshot'
   | 'edit-plan-step'
-  | 'set-approval-mode';
+  | 'set-approval-mode'
+  | 'set-reasoning-effort';
 
 /** Strongly-typed args per command (the union the UI passes to {@link Transport.send}). */
 export type TransportCommandArgs = {
@@ -56,12 +61,40 @@ export type TransportCommandArgs = {
   abort: { turnId: string };
   respond: { turnId: string; callId: string; answers: AgentAnswers };
   approve: { turnId: string; callId: string; approved: boolean };
-  reset: Record<string, never>;
-  snapshot: Record<string, never>;
+  // `workspaceId` scopes the new-chat reset to that PC workspace's active thread.
+  reset: { workspaceId?: string };
+  snapshot: { workspaceId?: string };
   // U5: steer the PC-owned plan — cycle a step's status or remove it.
   'edit-plan-step': { id: string; status?: AgentPlanStepStatus; remove?: boolean };
   // U10: flip the PC's approval mode (applies on the next turn).
   'set-approval-mode': { mode: AgentApprovalMode };
+  // The mobile twin of the desktop reasoning dial (applies on the next turn).
+  'set-reasoning-effort': { effort: ReasoningEffort };
+};
+
+/**
+ * Read-mostly catalog the PC serves alongside the command surface: connected
+ * providers + models, open workspaces, and saved sessions. Optional on
+ * {@link Transport} — the direct (paired) transport and the dev stub provide it;
+ * the frozen Model-B relay protocol doesn't carry these, so the relay transport
+ * leaves it undefined and the UI hides the pickers.
+ */
+export type TransportCatalog = {
+  /** PC provider catalog + connection state (`GET /agent/models`). */
+  models(): Promise<BridgeModelsResult>;
+  /** The PC's open workspaces + the active one (`GET /agent/workspaces`). */
+  workspaces(): Promise<BridgeWorkspacesResult>;
+  /**
+   * Saved sessions for one scope: a workspace id, or null for the global
+   * (workspace-less) chat (`GET /agent/sessions?workspace=`).
+   */
+  sessions(workspaceId: string | null): Promise<SessionSummary[]>;
+  /**
+   * Resume a saved session as the scope's active conversation
+   * (`POST /agent/resume-session`). False when the PC refused (busy turn or a
+   * cross-workspace record); the next snapshot carries the resumed transcript.
+   */
+  resumeSession(id: string, workspaceId: string | null): Promise<boolean>;
 };
 
 export type Unsubscribe = () => void;
@@ -104,4 +137,15 @@ export interface Transport {
    * the transport isn't connected.
    */
   send<K extends TransportCommand>(cmd: K, args: TransportCommandArgs[K]): Promise<void>;
+
+  /** The PC's picker catalog, when this transport can serve it (see {@link TransportCatalog}). */
+  readonly catalog?: TransportCatalog;
+
+  /**
+   * Pin the agent-state stream to one PC workspace (null = the global chat).
+   * Transports that support scoping re-key their event stream so `onState`
+   * mirrors that workspace's ACTIVE thread — the conversation the desktop UI
+   * shows for it. Optional: the relay transport is global-only.
+   */
+  setWorkspace?(workspaceId: string | null): void;
 }

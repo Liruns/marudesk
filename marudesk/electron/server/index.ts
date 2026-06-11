@@ -4,7 +4,7 @@ import { hostname } from 'node:os';
 import { app } from 'electron';
 import type { AppSettings } from '../../shared/settings';
 import type { PairingRequestInfo, PairingStartInfo, ServerStatus } from '../../shared/remote';
-import { subscribeAgentEvents } from '../agent/loop';
+import { subscribeAgentEvents, subscribeWorkspaceAgentEvents } from '../agent/loop';
 import { defineHandler } from '../ipc/define-handler';
 import { nonEmptyStr, obj } from '../ipc/validate';
 import { getSettingsSync } from '../settings';
@@ -132,6 +132,13 @@ export async function startServer(port: number): Promise<void> {
     version: app.getVersion(),
     agent: LOOP_AGENT_API,
     subscribe: subscribeAgentEvents,
+    // Workspace-scoped stream for `GET /agent/events?workspace=<id>`: filter the
+    // loop's per-workspace fan-out down to the one workspace this SSE client
+    // joined, so a phone sees exactly what the desktop's workspace chat shows.
+    subscribeWorkspace: (workspaceId, cb) =>
+      subscribeWorkspaceAgentEvents((wsId, state) => {
+        if (wsId === workspaceId) cb(state);
+      }),
     // T2: the per-device E2E auth path + the /pair endpoint (paired phones over
     // LAN/Tailscale). The bearer path stays for the loopback companion.
     devices: deviceResolver,

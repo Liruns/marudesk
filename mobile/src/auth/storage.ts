@@ -134,4 +134,10 @@ export const StorageKeys = {
   directKey: 'directKey',
   // Local-only mobile diagnostics flag; never sent to the relay/PC.
   developerMode: 'developerMode',
+  // Chat scope + model picks, restored across launches. `chatWorkspace` is a PC
+  // workspace id or the literal 'global' (explicitly workspace-less); absent
+  // means "follow the PC's active workspace" on the next catalog load.
+  chatWorkspace: 'chatWorkspace',
+  chatProvider: 'chatProvider',
+  chatModel: 'chatModel',
 } as const;

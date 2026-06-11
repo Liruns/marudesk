@@ -64,7 +64,7 @@ import {
   type ThreadContainer,
 } from './loop-state.ts';
 import { getWorkspaceSummary } from '../workspace-registry';
-export { subscribeAgentEvents } from './loop-state.ts';
+export { subscribeAgentEvents, subscribeWorkspaceAgentEvents } from './loop-state.ts';
 export {
   listThreads,
   newThread,
@@ -86,6 +86,7 @@ export {
   restoreTurnCheckpoint,
   snapshot,
   setApprovalMode,
+  setReasoningEffort,
 } from './loop-turn-actions.ts';
 import { recordTurnStartUrl, recordTurnCheckpoint } from './loop-turn-actions.ts';
 export { editPlanStep } from './plan.ts';

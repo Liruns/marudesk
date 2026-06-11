@@ -4,7 +4,7 @@ import type {
   AgentPlanStepStatus,
   AgentSendInput,
 } from '../../shared/agent';
-import type { AgentApprovalMode } from '../../shared/settings';
+import type { AgentApprovalMode, ReasoningEffort } from '../../shared/settings';
 import { isCapturePayload, type CapturePayload } from '../../shared/composer';
 import { isProviderId } from '../../shared/providers';
 import { arr, nonEmptyStr, obj, optStr } from '../ipc/validate';
@@ -13,6 +13,8 @@ import { arr, nonEmptyStr, obj, optStr } from '../ipc/validate';
 const PLAN_STEP_STATUSES: readonly AgentPlanStepStatus[] = ['pending', 'in_progress', 'done'];
 /** The valid approval modes (mirror {@link AgentApprovalMode}). */
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
+/** The valid reasoning efforts (mirror {@link ReasoningEffort}). */
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 
 /** Upper bounds on attached images (untrusted: also arrives over the relay). */
 const MAX_IMAGES = 8;
@@ -126,6 +128,30 @@ export function parseSetApprovalMode(payload: unknown): { mode: AgentApprovalMod
     throw new Error('mode must be one of read-only, ask, auto, plan');
   }
   return { mode: o.mode as AgentApprovalMode };
+}
+
+/**
+ * `POST /agent/set-reasoning-effort` body (mobile parity for the desktop
+ * reasoning dial) → a validated effort. An unknown effort throws so the bridge
+ * returns a tidy `{ ok:false, error }`.
+ */
+export function parseSetReasoningEffort(payload: unknown): { effort: ReasoningEffort } {
+  const o = obj(payload);
+  if (typeof o.effort !== 'string' || !(REASONING_EFFORTS as readonly string[]).includes(o.effort)) {
+    throw new Error('effort must be one of minimal, low, medium, high');
+  }
+  return { effort: o.effort as ReasoningEffort };
+}
+
+/**
+ * The optional `{ workspaceId }` scope on a bridge `reset`/`snapshot` command —
+ * a thin client targeting one workspace's active thread instead of the global
+ * one. Tolerates a missing/empty body (the pre-workspace clients send `{}`).
+ */
+export function parseWorkspaceScope(payload: unknown): { workspaceId?: string } {
+  if (payload === undefined || payload === null) return {};
+  const o = obj(payload);
+  return { workspaceId: optStr(o.workspaceId, 'workspaceId') };
 }
 
 /** `agent:approve-tool` / `POST /agent/approve` body (missing `approved` → false). */

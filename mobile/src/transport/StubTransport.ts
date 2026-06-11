@@ -2,12 +2,14 @@ import type {
   AgentChatState,
   AgentMessage,
   AgentPart,
+  SessionSummary,
   ToolCall,
 } from '../types';
 import { emptyAgentChatState } from '../types';
 import { BaseTransport } from './base';
 import type {
   Transport,
+  TransportCatalog,
   TransportCommand,
   TransportCommandArgs,
 } from './types';
@@ -83,9 +85,80 @@ export class StubTransport extends BaseTransport implements Transport {
         // fake just reflects it immediately so the toggle is demoable.
         this.patch({ approvalMode: (args as TransportCommandArgs['set-approval-mode']).mode });
         break;
+      case 'set-reasoning-effort':
+        // Same host-mirrored-setting pattern as the approval mode.
+        this.patch({ reasoningEffort: (args as TransportCommandArgs['set-reasoning-effort']).effort });
+        break;
     }
     return Promise.resolve();
   }
+
+  /** Workspace pinning is a no-op for the fake — one in-memory conversation. */
+  setWorkspace(_workspaceId: string | null): void {}
+
+  /**
+   * A believable picker catalog so the workspace/session/model sheets are
+   * demoable standalone. `resumeSession` swaps in a short canned transcript and
+   * marks it active, mirroring what a real resume snapshot does.
+   */
+  readonly catalog: TransportCatalog = {
+    models: () =>
+      Promise.resolve({
+        providers: [
+          {
+            id: 'anthropic',
+            label: 'Anthropic',
+            connected: true,
+            defaultModelId: 'claude-sonnet-4-6',
+            models: [
+              { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+              { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+            ],
+          },
+          {
+            id: 'xai',
+            label: 'xAI',
+            connected: true,
+            defaultModelId: 'grok-4-3',
+            models: [{ id: 'grok-4-3', label: 'Grok 4.3' }],
+          },
+          { id: 'openai', label: 'OpenAI', connected: false, models: [] },
+        ],
+      }),
+    workspaces: () =>
+      Promise.resolve({
+        workspaces: [
+          { id: 'stub-ws-app', name: 'shop-app' },
+          { id: 'stub-ws-docs', name: 'docs-site' },
+        ],
+        activeWorkspaceId: 'stub-ws-app',
+      }),
+    sessions: (workspaceId) => Promise.resolve(stubSessions(workspaceId)),
+    resumeSession: (id, workspaceId) => {
+      const session = stubSessions(workspaceId).find((s) => s.id === id);
+      if (!session) return Promise.resolve(false);
+      this.clearTimers();
+      const resumed = emptyAgentChatState();
+      resumed.activeSessionId = session.id;
+      resumed.messages = [
+        {
+          id: `${session.id}-u1`,
+          role: 'user',
+          parts: [{ type: 'text', text: session.title }],
+          timestamp: session.createdAt,
+        },
+        {
+          id: `${session.id}-a1`,
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Picking this back up — here is where we left off.' }],
+          timestamp: session.updatedAt,
+        },
+      ];
+      this.state = resumed;
+      this.pushState();
+      return Promise.resolve(true);
+    },
+  };
 
   /** U5: cycle a fake plan step's status or remove it (mirrors host editPlanStep). */
   private editPlanStep(op: TransportCommandArgs['edit-plan-step']): void {
@@ -374,4 +447,58 @@ export class StubTransport extends BaseTransport implements Transport {
 function lastText(msg: AgentMessage): string {
   const textParts = msg.parts.filter((p): p is Extract<AgentPart, { type: 'text' }> => p.type === 'text');
   return textParts.length ? textParts[textParts.length - 1]!.text : '';
+}
+
+/** Canned saved-session lists per scope (workspace id or null = global). */
+function stubSessions(workspaceId: string | null): SessionSummary[] {
+  const now = Date.now();
+  if (workspaceId === 'stub-ws-docs') {
+    return [
+      {
+        id: 'stub-sess-docs-1',
+        workspaceId,
+        title: 'Rewrite the getting-started page',
+        createdAt: now - 86_400_000,
+        updatedAt: now - 3_600_000,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        messageCount: 12,
+      },
+    ];
+  }
+  if (workspaceId === 'stub-ws-app') {
+    return [
+      {
+        id: 'stub-sess-app-1',
+        workspaceId,
+        title: 'Why is the cart crashing?',
+        createdAt: now - 7_200_000,
+        updatedAt: now - 600_000,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        messageCount: 9,
+      },
+      {
+        id: 'stub-sess-app-2',
+        workspaceId,
+        title: 'Add a checkout smoke test',
+        createdAt: now - 172_800_000,
+        updatedAt: now - 86_400_000,
+        provider: 'xai',
+        model: 'grok-4-3',
+        messageCount: 22,
+      },
+    ];
+  }
+  return [
+    {
+      id: 'stub-sess-global-1',
+      title: 'Quick question about CSS grid',
+      createdAt: now - 259_200_000,
+      updatedAt: now - 172_800_000,
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      messageCount: 4,
+    },
+  ];
 }

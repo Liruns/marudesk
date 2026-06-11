@@ -5,15 +5,22 @@ import {
   reset,
   respond,
   setApprovalMode,
+  setReasoningEffort,
   snapshot,
   startTurn,
 } from '../agent/loop';
+import { containerForWorkspace } from '../agent/loop-state.ts';
 import type { AgentApi } from './dispatch';
 
 /**
  * The agent loop's public surface as ONE injectable object, shared by every
  * bridge transport (the remote server, the loopback companion, the relay
  * client) so they can't drift on which loop functions back which verbs.
+ *
+ * `snapshot`/`reset` take the bridge's optional workspace scope: a thin client
+ * that selected a PC workspace acts on that workspace's ACTIVE thread (the same
+ * container the desktop UI drives), so phone and desktop literally share one
+ * conversation. Omitted ⇒ the global thread, the pre-workspace behavior.
  */
 export const LOOP_AGENT_API: AgentApi = {
   startTurn,
@@ -21,7 +28,8 @@ export const LOOP_AGENT_API: AgentApi = {
   respond,
   approveTool,
   snapshot,
-  reset,
+  reset: (workspaceId) => reset(containerForWorkspace(workspaceId)),
   editPlanStep,
   setApprovalMode,
+  setReasoningEffort,
 };

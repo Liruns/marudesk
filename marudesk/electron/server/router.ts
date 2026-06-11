@@ -5,6 +5,7 @@ import {
   REMOTE_MAX_BODY_BYTES,
   REMOTE_SSE_PING_MS,
   type BridgeModelsResult,
+  type BridgeWorkspacesResult,
   type RelayCommandName,
   type RemoteEvent,
 } from '../../shared/remote';
@@ -53,6 +54,13 @@ export type RouterDeps = {
   agent: AgentApi;
   /** Subscribe to the loop's state stream; returns an unsubscribe fn. */
   subscribe(cb: (state: AgentChatState) => void): () => void;
+  /**
+   * Subscribe to one workspace's active-thread state stream (the same pushes the
+   * renderer gets on `agent:workspace-event`), for an SSE client that selected a
+   * PC workspace via `GET /agent/events?workspace=<id>`. Omit ⇒ that query is
+   * rejected (e.g. a harness that only mocks the global stream).
+   */
+  subscribeWorkspace?(workspaceId: string, cb: (state: AgentChatState) => void): () => void;
   /** T2 E2E: resolve a paired device's key + note activity. Omit ⇒ the E2E path is off. */
   devices?: DeviceResolver;
   /** T2 E2E: handle `POST /pair`. Omit ⇒ `/pair` returns 404 (pairing disabled). */
@@ -76,10 +84,20 @@ export type RouterDeps = {
 export type RouterExtras = {
   /** Provider catalog + connection state for the `/model` picker. */
   models(): Promise<BridgeModelsResult>;
-  /** Saved-session summaries for the `/sessions` picker. */
-  sessions(): Promise<SessionSummary[]>;
-  /** Resume a saved session into the active conversation (next SSE snapshot carries it). */
-  resumeSession(id: string): Promise<boolean>;
+  /**
+   * Saved-session summaries for the `/sessions` picker. `workspaceId` filters to
+   * one workspace, `null` to the global (workspace-less) sessions, and
+   * `undefined` returns every session (the CLI's cross-workspace list).
+   */
+  sessions(workspaceId?: string | null): Promise<SessionSummary[]>;
+  /**
+   * Resume a saved session into the active conversation (next SSE snapshot
+   * carries it). `workspaceId` resumes into that workspace's active thread;
+   * omitted ⇒ the global thread. The loop still refuses a cross-workspace match.
+   */
+  resumeSession(id: string, workspaceId?: string): Promise<boolean>;
+  /** The PC's open workspaces + the active one, for the workspace picker. */
+  workspaces(): Promise<BridgeWorkspacesResult>;
 };
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;
@@ -222,6 +240,7 @@ function handleSse(
   res: ServerResponse,
   frame: (event: RemoteEvent) => Promise<string>,
   deps: RouterDeps,
+  workspaceId?: string,
 ): void {
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
@@ -245,9 +264,13 @@ function handleSse(
       });
   };
 
-  // First frame: the current snapshot, so a fresh client renders immediately.
-  push({ type: 'snapshot', state: deps.agent.snapshot() });
-  const unsubscribe = deps.subscribe((state) => push({ type: 'snapshot', state }));
+  // First frame: the current snapshot (workspace-scoped when the client picked a
+  // workspace), so a fresh client renders immediately.
+  push({ type: 'snapshot', state: deps.agent.snapshot(workspaceId) });
+  const unsubscribe =
+    workspaceId && deps.subscribeWorkspace
+      ? deps.subscribeWorkspace(workspaceId, (state) => push({ type: 'snapshot', state }))
+      : deps.subscribe((state) => push({ type: 'snapshot', state }));
 
   const ping = setInterval(() => res.write(': ping\n\n'), REMOTE_SSE_PING_MS);
   if (typeof ping.unref === 'function') ping.unref();
@@ -268,7 +291,18 @@ const REST_COMMANDS: Record<string, RelayCommandName> = {
   '/agent/reset': 'reset',
   '/agent/edit-plan-step': 'edit-plan-step',
   '/agent/set-approval-mode': 'set-approval-mode',
+  '/agent/set-reasoning-effort': 'set-reasoning-effort',
 };
+
+/**
+ * The `?workspace=` scope on the GET routes: a workspace id, or undefined when
+ * absent/empty (the global thread / the route's default breadth). The E2E
+ * envelope AADs bind to the PATH only, so a query param never breaks them.
+ */
+function workspaceParamOf(url: URL): string | undefined {
+  const value = url.searchParams.get('workspace');
+  return value ? value : undefined;
+}
 
 /**
  * The shared agent route table, reached by both auth paths with the matching
@@ -279,21 +313,26 @@ async function handleAgentRoutes(
   req: IncomingMessage,
   res: ServerResponse,
   deps: RouterDeps,
-  pathname: string,
+  url: URL,
   method: string,
   codec: Codec,
 ): Promise<void> {
+  const pathname = url.pathname;
   if (pathname === '/health') {
     if (method !== 'GET') return sendError(res, 405, 'method not allowed');
     return sendResult(res, codec, pathname, { ok: true, name: 'marudesk', version: deps.version });
   }
   if (pathname === '/agent/snapshot') {
     if (method !== 'GET') return sendError(res, 405, 'method not allowed');
-    return sendResult(res, codec, pathname, deps.agent.snapshot());
+    return sendResult(res, codec, pathname, deps.agent.snapshot(workspaceParamOf(url)));
   }
   if (pathname === '/agent/events') {
     if (method !== 'GET') return sendError(res, 405, 'method not allowed');
-    handleSse(req, res, codec.sse, deps);
+    const workspaceId = workspaceParamOf(url);
+    if (workspaceId && !deps.subscribeWorkspace) {
+      return sendError(res, 400, 'workspace-scoped events unsupported');
+    }
+    handleSse(req, res, codec.sse, deps, workspaceId);
     return;
   }
 
@@ -303,10 +342,20 @@ async function handleAgentRoutes(
     if (!deps.extras) return sendError(res, 404, 'not found');
     return sendResult(res, codec, pathname, await deps.extras.models());
   }
+  if (pathname === '/agent/workspaces') {
+    if (method !== 'GET') return sendError(res, 405, 'method not allowed');
+    if (!deps.extras) return sendError(res, 404, 'not found');
+    return sendResult(res, codec, pathname, await deps.extras.workspaces());
+  }
   if (pathname === '/agent/sessions') {
     if (method !== 'GET') return sendError(res, 405, 'method not allowed');
     if (!deps.extras) return sendError(res, 404, 'not found');
-    return sendResult(res, codec, pathname, await deps.extras.sessions());
+    // `?workspace=<id>` → that workspace's sessions; `?workspace=` (present but
+    // empty) → the global, workspace-less sessions; absent → every session (the
+    // CLI's cross-workspace list, unchanged).
+    const raw = url.searchParams.get('workspace');
+    const filter = raw === null ? undefined : raw === '' ? null : raw;
+    return sendResult(res, codec, pathname, await deps.extras.sessions(filter));
   }
   if (pathname === '/agent/resume-session') {
     if (method !== 'POST') return sendError(res, 405, 'method not allowed');
@@ -327,7 +376,12 @@ async function handleAgentRoutes(
     if (typeof id !== 'string' || id.length === 0) {
       return sendError(res, 400, 'id required');
     }
-    return sendResult(res, codec, pathname, { ok: await deps.extras.resumeSession(id) });
+    const workspaceRaw = (body as { workspaceId?: unknown }).workspaceId;
+    if (workspaceRaw !== undefined && typeof workspaceRaw !== 'string') {
+      return sendError(res, 400, 'workspaceId must be a string');
+    }
+    const workspaceId = workspaceRaw ? workspaceRaw : undefined;
+    return sendResult(res, codec, pathname, { ok: await deps.extras.resumeSession(id, workspaceId) });
   }
 
   const cmd = REST_COMMANDS[pathname];
@@ -364,13 +418,14 @@ export async function handleRequest(
   res: ServerResponse,
   deps: RouterDeps,
 ): Promise<void> {
-  let pathname: string;
+  let url: URL;
   try {
-    pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+    url = new URL(req.url ?? '/', 'http://127.0.0.1');
   } catch {
     sendError(res, 400, 'bad request');
     return;
   }
+  const pathname = url.pathname;
   const method = req.method ?? 'GET';
 
   // ── CORS preflight (the mobile WebView sends OPTIONS before a cross-origin
@@ -402,7 +457,7 @@ export async function handleRequest(
     const key = await deps.devices.getKey(deviceHeader);
     if (!key) return sendError(res, 401, 'unauthorized');
     deps.devices.touch(deviceHeader);
-    return handleAgentRoutes(req, res, deps, pathname, method, e2eCodec(key));
+    return handleAgentRoutes(req, res, deps, url, method, e2eCodec(key));
   }
 
   // ── bearer path (loopback companion / tests) ────────────────────────────────
@@ -411,5 +466,5 @@ export async function handleRequest(
     sendError(res, 401, 'unauthorized');
     return;
   }
-  return handleAgentRoutes(req, res, deps, pathname, method, PLAIN_CODEC);
+  return handleAgentRoutes(req, res, deps, url, method, PLAIN_CODEC);
 }

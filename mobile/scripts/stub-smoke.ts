@@ -81,6 +81,23 @@ async function main(): Promise<void> {
   await t.send('reset', {});
   assert(state!.messages.length === 0 && state!.status === 'idle', 'reset clears conversation to idle');
 
+  console.log('catalog →');
+  const ws = await t.catalog.workspaces();
+  assert(ws.workspaces.length === 2 && ws.activeWorkspaceId === 'stub-ws-app', 'workspaces listed with the PC-active one');
+  const models = await t.catalog.models();
+  assert(models.providers.some((p) => p.connected && p.models.length > 0), 'model catalog has a connected provider');
+  const sessions = await t.catalog.sessions('stub-ws-app');
+  assert(sessions.length === 2, 'sessions listed for the workspace scope');
+  const resumed = await t.catalog.resumeSession(sessions[0]!.id, 'stub-ws-app');
+  assert(resumed, 'resume-session succeeds for a known id');
+  assert(state!.activeSessionId === sessions[0]!.id, 'resume marks that session active');
+  assert(state!.messages.length > 0, 'resume loads the saved transcript');
+  assert(!(await t.catalog.resumeSession('nope', 'stub-ws-app')), 'resume of an unknown id reports false');
+
+  console.log('set-reasoning-effort →');
+  await t.send('set-reasoning-effort', { effort: 'high' });
+  assert(state!.reasoningEffort === 'high', 'reasoning effort mirrors back through the snapshot');
+
   t.disconnect();
   assert(status!.status === 'disconnected', 'disconnect reported');
 

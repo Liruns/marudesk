@@ -26,12 +26,25 @@ type StartCall = { input: AgentSendInput };
 
 function buildDeps(): {
   deps: RouterDeps;
-  calls: { start: StartCall[] };
+  calls: {
+    start: StartCall[];
+    snapshotWorkspace: (string | undefined)[];
+    reset: (string | undefined)[];
+    effort: string[];
+  };
   emit: (state: AgentChatState) => void;
 } {
-  const calls = { start: [] as StartCall[] };
-  // The current mocked state the snapshot() stub returns; tweaked per test.
+  const calls = {
+    start: [] as StartCall[],
+    snapshotWorkspace: [] as (string | undefined)[],
+    reset: [] as (string | undefined)[],
+    effort: [] as string[],
+  };
+  // The current mocked state the snapshot() stub returns; tweaked per test. The
+  // workspace-scoped twin carries a recognizable turnId so a test can tell which
+  // scope a snapshot/SSE frame came from.
   const state: AgentChatState = { ...emptyAgentChatState(), status: 'idle' };
+  const wsState: AgentChatState = { ...emptyAgentChatState(), status: 'idle', turnId: 'ws-42-turn' };
   // Fake subscriber registry so we can drive an SSE push from a test.
   const subs = new Set<(s: AgentChatState) => void>();
   const deps: RouterDeps = {
@@ -51,10 +64,12 @@ function buildDeps(): {
       approveTool(): boolean {
         return true;
       },
-      snapshot(): AgentChatState {
-        return state;
+      snapshot(workspaceId?: string): AgentChatState {
+        calls.snapshotWorkspace.push(workspaceId);
+        return workspaceId === 'ws-42' ? wsState : state;
       },
-      reset(): boolean {
+      reset(workspaceId?: string): boolean {
+        calls.reset.push(workspaceId);
         return true;
       },
       editPlanStep(): boolean {
@@ -63,10 +78,19 @@ function buildDeps(): {
       setApprovalMode(): boolean {
         return true;
       },
+      setReasoningEffort(effort): boolean {
+        calls.effort.push(effort);
+        return true;
+      },
     },
     subscribe(cb): () => void {
       subs.add(cb);
       return () => subs.delete(cb);
+    },
+    // Workspace-scoped stream: the harness only needs it for the `?workspace=`
+    // SSE path; production filters the loop's per-workspace fan-out the same way.
+    subscribeWorkspace(): () => void {
+      return () => {};
     },
   };
   const emit = (next: AgentChatState): void => {
@@ -110,14 +134,14 @@ function request(
 }
 
 /** Open an SSE connection and resolve with the first `data:` frame's JSON. */
-function firstSseEvent(port: number, token: string): Promise<unknown> {
+function firstSseEvent(port: number, token: string, path = '/agent/events'): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         host: '127.0.0.1',
         port,
         method: 'GET',
-        path: '/agent/events',
+        path,
         headers: { authorization: `Bearer ${token}`, accept: 'text/event-stream' },
       },
       (res) => {
@@ -234,6 +258,73 @@ async function main(): Promise<void> {
       'GET /agent/events first frame is the snapshot event',
       firstEvent.type === 'snapshot' && firstEvent.state.status === 'idle',
     );
+
+    // (e) workspace scoping: `?workspace=` reaches the agent api on snapshot/SSE,
+    // and a `{ workspaceId }` body scopes reset.
+    const globalSnapshots = calls.snapshotWorkspace.length;
+    const wsSnap = await request(port, 'GET', '/agent/snapshot?workspace=ws-42', { token: TOKEN });
+    const wsSnapJson = JSON.parse(wsSnap.body) as AgentChatState;
+    check(
+      'GET /agent/snapshot?workspace=ws-42 returns that workspace state',
+      wsSnap.status === 200 && wsSnapJson.turnId === 'ws-42-turn',
+    );
+    check(
+      'the workspace param reached agent.snapshot()',
+      calls.snapshotWorkspace[globalSnapshots] === 'ws-42',
+    );
+
+    const wsFirstEvent = (await firstSseEvent(port, TOKEN, '/agent/events?workspace=ws-42')) as {
+      type: string;
+      state: AgentChatState;
+    };
+    check(
+      'GET /agent/events?workspace=ws-42 first frame is that workspace snapshot',
+      wsFirstEvent.type === 'snapshot' && wsFirstEvent.state.turnId === 'ws-42-turn',
+    );
+
+    const wsReset = await request(port, 'POST', '/agent/reset', {
+      token: TOKEN,
+      json: { workspaceId: 'ws-42' },
+    });
+    check('POST /agent/reset {workspaceId} → 200', wsReset.status === 200);
+    check('the workspaceId reached agent.reset()', calls.reset.at(-1) === 'ws-42');
+    const globalReset = await request(port, 'POST', '/agent/reset', { token: TOKEN, json: {} });
+    check(
+      'POST /agent/reset {} stays global (undefined workspace)',
+      globalReset.status === 200 && calls.reset.at(-1) === undefined,
+    );
+
+    // (f) set-reasoning-effort: validated + forwarded, like set-approval-mode.
+    const effortOk = await request(port, 'POST', '/agent/set-reasoning-effort', {
+      token: TOKEN,
+      json: { effort: 'high' },
+    });
+    check(
+      'POST /agent/set-reasoning-effort {effort:high} → 200 {ok:true}',
+      effortOk.status === 200 && (JSON.parse(effortOk.body) as { ok: boolean }).ok === true,
+    );
+    check('the effort reached agent.setReasoningEffort()', calls.effort.at(-1) === 'high');
+    const effortBad = await request(port, 'POST', '/agent/set-reasoning-effort', {
+      token: TOKEN,
+      json: { effort: 'extreme' },
+    });
+    check('an unknown effort → 400', effortBad.status === 400);
+    check('a rejected effort did NOT reach the loop', calls.effort.length === 1);
+
+    // (g) a workspace-scoped SSE request is refused when the deps can't serve it
+    // (e.g. an older embedder without the workspace fan-out).
+    const bareDeps: RouterDeps = { ...deps, subscribeWorkspace: undefined };
+    const bareServer = http.createServer((req, res) => {
+      void handleRequest(req, res, bareDeps);
+    });
+    await new Promise<void>((resolve) => bareServer.listen(0, '127.0.0.1', resolve));
+    const barePort = (bareServer.address() as AddressInfo).port;
+    try {
+      const refused = await request(barePort, 'GET', '/agent/events?workspace=ws-42', { token: TOKEN });
+      check('events?workspace without subscribeWorkspace → 400', refused.status === 400);
+    } finally {
+      bareServer.close();
+    }
 
     console.log(`\nbridge-server harness: ${passed} assertions passed`);
   } finally {

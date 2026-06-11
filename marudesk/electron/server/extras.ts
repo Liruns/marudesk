@@ -1,9 +1,15 @@
-import type { BridgeModelsResult, BridgeProviderModels } from '../../shared/remote';
+import type {
+  BridgeModelsResult,
+  BridgeProviderModels,
+  BridgeWorkspacesResult,
+} from '../../shared/remote';
 import { customProviderId, getProvider } from '../../shared/providers';
 import { listSavedSessions, resumeSession } from '../agent/loop';
+import { containerForWorkspace } from '../agent/loop-state.ts';
 import { listCustomProviders } from '../custom-providers';
 import { getModelsFor } from '../models';
 import { hasProviderKey, listProviders } from '../secrets';
+import { getWorkspaceSnapshot } from '../workspace-registry';
 import type { RouterExtras } from './router';
 
 /**
@@ -61,9 +67,19 @@ export function createRouterExtras(): RouterExtras {
       const [builtin, custom] = await Promise.all([builtinCatalog(), customCatalog()]);
       return { providers: [...builtin, ...custom] };
     },
-    // Unfiltered list (every workspace) — the CLI shows where each session
-    // belongs; resume still enforces the active workspace match in the loop.
-    sessions: () => listSavedSessions(),
-    resumeSession: (id) => resumeSession(id),
+    // No filter (undefined) keeps the CLI's cross-workspace list; a thin client
+    // that selected a workspace passes its id (or null for global-only).
+    sessions: (workspaceId) => listSavedSessions(workspaceId),
+    // Resume into the scoped workspace's ACTIVE thread — the same container the
+    // desktop UI drives — so phone and desktop continue ONE conversation. The
+    // loop still refuses a cross-workspace record (sameWorkspace check).
+    resumeSession: (id, workspaceId) => resumeSession(id, containerForWorkspace(workspaceId)),
+    async workspaces(): Promise<BridgeWorkspacesResult> {
+      const snapshot = getWorkspaceSnapshot();
+      return {
+        workspaces: snapshot.workspaces.map((w) => ({ id: w.id, name: w.name })),
+        activeWorkspaceId: snapshot.activeWorkspaceId,
+      };
+    },
   };
 }

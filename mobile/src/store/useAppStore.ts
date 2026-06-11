@@ -3,7 +3,11 @@ import type {
   AgentApprovalMode,
   AgentChatState,
   AgentPlanStepStatus,
+  BridgeProviderModels,
+  BridgeWorkspaceInfo,
+  ReasoningEffort,
   RelayAccount,
+  SessionSummary,
 } from '../types';
 import { emptyAgentChatState, makeAgentSendInput } from '../types';
 import { createTransport } from '../transport';
@@ -27,6 +31,13 @@ export type Route = 'connect' | 'login' | 'chat' | 'account';
 
 /** Default relay endpoint shown/used before the user saves one (matches the relay's default port). */
 export const DEFAULT_RELAY_URL = 'http://127.0.0.1:8788';
+
+/** The 'no workspace' sentinel persisted when the user explicitly picks global. */
+const GLOBAL_WORKSPACE = 'global';
+
+/** Last-resort model pick before the PC catalog has loaded (relay/stub paths). */
+const FALLBACK_PROVIDER = 'anthropic';
+const FALLBACK_MODEL = 'claude-sonnet-4-6';
 
 type AppState = {
   /** Set once we've read persisted tokens/URL from storage at boot. */
@@ -58,6 +69,27 @@ type AppState = {
   /** Local-only debug switch that reveals diagnostics/console UI in Account. */
   developerMode: boolean;
 
+  /* ── PC catalog + chat scope (workspace / sessions / model picks) ────────── */
+
+  /** The PC's open workspaces (from `GET /agent/workspaces`); [] until loaded. */
+  workspaces: BridgeWorkspaceInfo[];
+  /** The workspace active in the desktop UI right now, or null. */
+  pcActiveWorkspaceId: string | null;
+  /** The workspace this phone's chat is pinned to (null = the global chat). */
+  workspaceId: string | null;
+  /** True once the user explicitly picked a workspace (vs. following the PC). */
+  workspacePinned: boolean;
+  /** The PC's provider/model catalog; [] until loaded. */
+  providers: BridgeProviderModels[];
+  /** True when the active transport serves the catalog (pickers are usable). */
+  catalogReady: boolean;
+  /** The provider/model the next send uses (the per-chat model pick). */
+  provider: string;
+  model: string;
+  /** Saved sessions for the current scope; null = not loaded yet. */
+  sessions: SessionSummary[] | null;
+  sessionsLoading: boolean;
+
   // actions
   hydrate: () => Promise<void>;
   setRoute: (route: Route) => void;
@@ -76,7 +108,7 @@ type AppState = {
   setDeveloperMode: (enabled: boolean) => Promise<void>;
 
   // chat commands (proxied to the active transport)
-  sendPrompt: (prompt: string, provider: string, model: string) => Promise<void>;
+  sendPrompt: (prompt: string) => Promise<void>;
   abort: () => Promise<void>;
   approve: (approved: boolean) => Promise<void>;
   respond: (answers: Record<string, string>) => Promise<void>;
@@ -85,6 +117,20 @@ type AppState = {
   editPlanStep: (id: string, op: { status?: AgentPlanStepStatus; remove?: boolean }) => Promise<void>;
   /** U10: flip the PC's approval mode (applies on the next turn). */
   setApprovalMode: (mode: AgentApprovalMode) => Promise<void>;
+  /** Flip the PC's reasoning effort (applies on the next turn). */
+  setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
+
+  // PC catalog + chat scope actions
+  /** (Re)load the PC's workspaces + provider catalog and reconcile the picks. */
+  refreshCatalog: () => Promise<void>;
+  /** Pin the chat to a PC workspace (null = the global chat) and re-key the stream. */
+  selectWorkspace: (workspaceId: string | null) => Promise<void>;
+  /** Load the saved sessions for the current scope (the sessions sheet). */
+  loadSessions: () => Promise<void>;
+  /** Resume a saved session as the scope's live conversation. */
+  resumeSession: (id: string) => Promise<void>;
+  /** Pick the provider+model the next send uses (per-chat, persisted). */
+  selectModel: (provider: string, model: string) => Promise<void>;
 };
 
 /**
@@ -127,19 +173,43 @@ export const useAppStore = create<AppState>((set, get) => ({
   authError: null,
   commandError: null,
   developerMode: false,
+  workspaces: [],
+  pcActiveWorkspaceId: null,
+  workspaceId: null,
+  workspacePinned: false,
+  providers: [],
+  catalogReady: false,
+  provider: FALLBACK_PROVIDER,
+  model: FALLBACK_MODEL,
+  sessions: null,
+  sessionsLoading: false,
 
   async hydrate() {
-    const [relayUrl, accessToken, refreshToken, accountRaw, dBase, dDev, dKey, developerModeRaw] =
-      await Promise.all([
-        storageGet(StorageKeys.relayUrl),
-        storageGet(StorageKeys.accessToken),
-        storageGet(StorageKeys.refreshToken),
-        storageGet(StorageKeys.account),
-        storageGet(StorageKeys.directBaseUrl),
-        storageGet(StorageKeys.directDeviceId),
-        storageGet(StorageKeys.directKey),
-        storageGet(StorageKeys.developerMode),
-      ]);
+    const [
+      relayUrl,
+      accessToken,
+      refreshToken,
+      accountRaw,
+      dBase,
+      dDev,
+      dKey,
+      developerModeRaw,
+      chatWorkspaceRaw,
+      chatProvider,
+      chatModel,
+    ] = await Promise.all([
+      storageGet(StorageKeys.relayUrl),
+      storageGet(StorageKeys.accessToken),
+      storageGet(StorageKeys.refreshToken),
+      storageGet(StorageKeys.account),
+      storageGet(StorageKeys.directBaseUrl),
+      storageGet(StorageKeys.directDeviceId),
+      storageGet(StorageKeys.directKey),
+      storageGet(StorageKeys.developerMode),
+      storageGet(StorageKeys.chatWorkspace),
+      storageGet(StorageKeys.chatProvider),
+      storageGet(StorageKeys.chatModel),
+    ]);
     let account: RelayAccount | null = null;
     if (accountRaw) {
       try {
@@ -170,6 +240,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       direct,
       route,
       developerMode: developerModeRaw === 'true',
+      // Restore the chat scope + model picks; an absent workspace key means
+      // "follow the PC's active workspace" once the catalog loads.
+      workspaceId: chatWorkspaceRaw && chatWorkspaceRaw !== GLOBAL_WORKSPACE ? chatWorkspaceRaw : null,
+      workspacePinned: chatWorkspaceRaw !== null,
+      ...(chatProvider && chatModel ? { provider: chatProvider, model: chatModel } : {}),
     });
     if (route === 'chat') void get().connect();
   },
@@ -236,21 +311,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async connect() {
-    const { mode, direct, relayUrl, accessToken } = get();
+    const { mode, direct, relayUrl, accessToken, workspaceId } = get();
     if (mode === 'direct') {
       if (!direct) {
         set({ route: 'connect' });
         return;
       }
       // Keep the concrete handle for its no-arg connect(), but install it as the
-      // active transport so the chat commands route through it.
-      const dt = new DirectTransport(direct);
+      // active transport so the chat commands route through it. Pinned to the
+      // restored workspace scope so the first snapshot is the right conversation.
+      const dt = new DirectTransport(direct, workspaceId);
       wire(set, dt);
       try {
         await dt.connect();
       } catch {
         // The transport reports the failure via onStatus; nothing extra to do here.
       }
+      void get().refreshCatalog();
       return;
     }
     if (!accessToken) {
@@ -263,6 +340,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch {
       // The transport reports the failure via onStatus; nothing extra to do here.
     }
+    void get().refreshCatalog();
   },
 
   async reconnect() {
@@ -309,6 +387,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       storageRemove(StorageKeys.directBaseUrl),
       storageRemove(StorageKeys.directDeviceId),
       storageRemove(StorageKeys.directKey),
+      // Workspace ids are PC-specific — they mean nothing on the next pairing.
+      storageRemove(StorageKeys.chatWorkspace),
     ]);
     set({
       mode: 'relay',
@@ -316,12 +396,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       chat: emptyAgentChatState(),
       status: { status: 'idle', hostOnline: false },
       route: 'connect',
+      workspaces: [],
+      pcActiveWorkspaceId: null,
+      workspaceId: null,
+      workspacePinned: false,
+      providers: [],
+      catalogReady: false,
+      sessions: null,
     });
   },
 
-  async sendPrompt(prompt, provider, model) {
+  async sendPrompt(prompt) {
+    const { provider, model, workspaceId } = get();
     const t = ensureTransport(set);
-    await runCommand(set, () => t.send('send', makeAgentSendInput({ provider, model, prompt })));
+    await runCommand(set, () =>
+      t.send(
+        'send',
+        makeAgentSendInput({ provider, model, prompt, workspaceId: workspaceId ?? undefined }),
+      ),
+    );
   },
 
   async abort() {
@@ -350,7 +443,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async resetChat() {
     if (!transport) return;
-    await runCommand(set, () => transport!.send('reset', {}));
+    const { workspaceId } = get();
+    // A scoped reset clears the workspace's ACTIVE thread on the PC — the same
+    // "New chat" the desktop UI does for it; the next send starts a fresh session.
+    await runCommand(set, () => transport!.send('reset', workspaceId ? { workspaceId } : {}));
+    // The cleared chat is no longer any saved session; refresh the list lazily.
+    set({ sessions: null });
   },
 
   async editPlanStep(id, op) {
@@ -362,6 +460,120 @@ export const useAppStore = create<AppState>((set, get) => ({
   async setApprovalMode(mode) {
     const t = ensureTransport(set);
     await runCommand(set, () => t.send('set-approval-mode', { mode }));
+  },
+
+  async setReasoningEffort(effort) {
+    const t = ensureTransport(set);
+    await runCommand(set, () => t.send('set-reasoning-effort', { effort }));
+  },
+
+  async refreshCatalog() {
+    const t = transport;
+    if (!t?.catalog) {
+      set({ catalogReady: false });
+      return;
+    }
+    try {
+      const [ws, models] = await Promise.all([t.catalog.workspaces(), t.catalog.models()]);
+      const state = get();
+      // Reconcile the workspace pin: follow the PC's active workspace until the
+      // user explicitly picks one; drop a pin whose workspace closed on the PC.
+      let workspaceId = state.workspaceId;
+      let workspacePinned = state.workspacePinned;
+      const stillOpen = workspaceId === null || ws.workspaces.some((w) => w.id === workspaceId);
+      if (!workspacePinned) {
+        workspaceId = ws.activeWorkspaceId;
+      } else if (!stillOpen) {
+        workspaceId = ws.activeWorkspaceId;
+        workspacePinned = false;
+        await storageRemove(StorageKeys.chatWorkspace);
+      }
+      // Reconcile the model pick: keep a connected pick; otherwise default to the
+      // first connected provider's default model (matching the desktop picker).
+      let { provider, model } = state;
+      const picked = models.providers.find((p) => p.id === provider);
+      const pickValid = picked?.connected && (model ? true : false);
+      if (!pickValid) {
+        const firstConnected = models.providers.find((p) => p.connected && p.models.length > 0);
+        if (firstConnected) {
+          provider = firstConnected.id;
+          model = firstConnected.defaultModelId ?? firstConnected.models[0]!.id;
+        }
+      }
+      set({
+        workspaces: ws.workspaces,
+        pcActiveWorkspaceId: ws.activeWorkspaceId,
+        workspaceId,
+        workspacePinned,
+        providers: models.providers,
+        catalogReady: true,
+        provider,
+        model,
+      });
+      // Re-key the stream if reconciliation moved the scope (e.g. first launch
+      // adopting the PC's active workspace after connecting globally).
+      if (workspaceId !== state.workspaceId) t.setWorkspace?.(workspaceId);
+      // Pre-load the scope's sessions so the sheet opens instantly and the
+      // active-session highlight is ready; never surface a load error here.
+      void get()
+        .loadSessions()
+        .catch(() => {});
+    } catch (err) {
+      set({ catalogReady: false, commandError: messageOf(err) });
+    }
+  },
+
+  async selectWorkspace(workspaceId) {
+    const t = transport;
+    set({ workspaceId, workspacePinned: true, sessions: null });
+    await storageSet(StorageKeys.chatWorkspace, workspaceId ?? GLOBAL_WORKSPACE);
+    // Re-key the event stream; its first frame repaints the chat with the
+    // workspace's active conversation (what the desktop shows for it).
+    t?.setWorkspace?.(workspaceId);
+    void get()
+      .loadSessions()
+      .catch(() => {});
+  },
+
+  async loadSessions() {
+    const t = transport;
+    if (!t?.catalog) return;
+    const scope = get().workspaceId;
+    set({ sessionsLoading: true });
+    try {
+      const sessions = await t.catalog.sessions(scope);
+      // Drop a stale response if the scope changed while loading.
+      if (get().workspaceId === scope) set({ sessions, sessionsLoading: false });
+      else set({ sessionsLoading: false });
+    } catch (err) {
+      set({ sessionsLoading: false, commandError: messageOf(err) });
+    }
+  },
+
+  async resumeSession(id) {
+    const t = transport;
+    if (!t?.catalog) return;
+    const { workspaceId, sessions } = get();
+    await runCommand(set, async () => {
+      const ok = await t.catalog!.resumeSession(id, workspaceId);
+      if (!ok) {
+        throw new Error('Could not resume — finish or stop the running turn on this chat first.');
+      }
+    });
+    // Adopt the resumed conversation's provider/model so the next send continues
+    // with the same brain it was using (still changeable from the picker).
+    const summary = sessions?.find((s) => s.id === id);
+    if (summary && get().commandError === null) {
+      await get().selectModel(summary.provider, summary.model);
+    }
+  },
+
+  async selectModel(provider, model) {
+    set({ provider, model });
+    await Promise.all([
+      storageSet(StorageKeys.chatProvider, provider),
+      storageSet(StorageKeys.chatModel, model),
+    ]);
   },
 }));
 

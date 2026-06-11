@@ -6,12 +6,12 @@ import type {
   AgentEditActionResult,
 } from '../../shared/agent';
 import type { WorkspaceSummary } from '../../shared/workspace';
-import type { AgentApprovalMode } from '../../shared/settings';
+import type { AgentApprovalMode, ReasoningEffort } from '../../shared/settings';
 import { requireWorkspace } from '../ipc/define-handler';
 import { isInsideRoot, resolveWorkspacePath } from '../fs-safe';
 import { readFileSafe, writeFileForEditor } from '../workspace';
 import { MAX_AGENT_FILE_SIZE } from '../workspace-config';
-import { patchSettings } from '../settings';
+import { getSettingsSync, patchSettings } from '../settings';
 import type { CheckpointRestore } from '../../shared/worktree';
 import { effectiveAgentRoot } from '../worktree-isolation';
 import { createCheckpoint, restoreCheckpoint } from '../git-worktree';
@@ -166,7 +166,13 @@ export function snapshot(workspaceId?: WorkspaceId): AgentChatState {
   // coalesced emit flushes; refresh here so a synchronous reader — the renderer's
   // initial pull, the bridge's L-1 gated-tool guard — never sees a stale queue.
   refreshOrchestrationProjection();
-  return containerForWorkspace(workspaceId).state;
+  const state = containerForWorkspace(workspaceId).state;
+  // Stamp the settings projections too: a workspace container that hasn't emitted
+  // yet (a thin client's first pull) would otherwise show the empty-state defaults.
+  const agent = getSettingsSync().agent;
+  state.approvalMode = agent.approvalMode;
+  state.reasoningEffort = agent.reasoningEffort;
+  return state;
 }
 
 /**
@@ -250,5 +256,19 @@ const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto'
 export function setApprovalMode(mode: AgentApprovalMode): boolean {
   if (!APPROVAL_MODES.includes(mode)) return false;
   void patchSettings({ agent: { approvalMode: mode } });
+  return true;
+}
+
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
+
+/**
+ * Set the reasoning effort and persist it — the mobile twin of the desktop
+ * composer's reasoning dial, with exactly {@link setApprovalMode}'s semantics:
+ * the loop reads `getSettingsSync().agent.reasoningEffort` at turn start, so a
+ * change applies to the NEXT turn. An unknown effort is a no-op `false`.
+ */
+export function setReasoningEffort(effort: ReasoningEffort): boolean {
+  if (!REASONING_EFFORTS.includes(effort)) return false;
+  void patchSettings({ agent: { reasoningEffort: effort } });
   return true;
 }

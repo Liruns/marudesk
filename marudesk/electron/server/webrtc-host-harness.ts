@@ -52,6 +52,7 @@ function buildStubAgent(): {
     reset: () => true,
     editPlanStep: () => true,
     setApprovalMode: () => true,
+    setReasoningEffort: () => true,
   };
   return {
     agent,

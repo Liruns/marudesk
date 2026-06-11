@@ -86,6 +86,9 @@ export type AgentPlanStepStatus = 'pending' | 'in_progress' | 'done';
 /** How much the agent may do without asking (mirrors the host AgentApprovalMode). */
 export type AgentApprovalMode = 'read-only' | 'ask' | 'auto' | 'plan';
 
+/** How hard reasoning models think (mirrors the host ReasoningEffort). */
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
 /** A step in the agent's working plan (Taskboard), mirrored from the host. */
 export type AgentPlanStep = {
   id: string;
@@ -125,10 +128,17 @@ export type AgentChatState = {
   usage: { inputTokens: number; outputTokens: number; contextTokens: number };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
+  /**
+   * The saved-session id this conversation persists to (null for a fresh chat).
+   * Highlights the live row in the sessions sheet, mirroring the desktop rail.
+   */
+  activeSessionId: string | null;
   /** The agent's working plan (Taskboard), or null when there's none. */
   plan: AgentPlan | null;
   /** The current approval mode, mirrored from the host (U10 — phone can steer it). */
   approvalMode: AgentApprovalMode;
+  /** The current reasoning effort, mirrored from the host (phone can steer it). */
+  reasoningEffort: ReasoningEffort;
 };
 
 export function emptyAgentChatState(): AgentChatState {
@@ -140,8 +150,10 @@ export function emptyAgentChatState(): AgentChatState {
     pendingQuestions: null,
     usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
     error: null,
+    activeSessionId: null,
     plan: null,
     approvalMode: 'ask',
+    reasoningEffort: 'medium',
   };
 }
 
@@ -181,6 +193,56 @@ export function makeAgentSendInput(input: {
     tabId: input.tabId,
   };
 }
+
+/* ── Bridge catalog wire shapes (mirror of marudesk/shared/remote.ts) ─────────
+ *
+ * Served by the PC's bridge router when its `extras` backends are wired (they
+ * always are in production): `GET /agent/models`, `GET /agent/workspaces`,
+ * `GET /agent/sessions[?workspace=]`, `POST /agent/resume-session`. The phone
+ * uses them to offer the SAME pickers the desktop has — PC-connected providers,
+ * the PC's open workspaces, and each workspace's saved conversations.
+ */
+
+/** One provider in `GET /agent/models` — its catalog + whether it's usable. */
+export type BridgeProviderModels = {
+  id: string;
+  label: string;
+  /** A credential/OAuth connection is stored on the PC (or the provider is keyless). */
+  connected: boolean;
+  /** Grouped last under "Experimental" by pickers, like the desktop's. */
+  experimental?: boolean;
+  /** The provider's suggested default model id, when it has one. */
+  defaultModelId?: string;
+  models: { id: string; label: string }[];
+};
+
+/** `GET /agent/models` response. */
+export type BridgeModelsResult = { providers: BridgeProviderModels[] };
+
+/** One open PC workspace in `GET /agent/workspaces`. */
+export type BridgeWorkspaceInfo = {
+  id: string;
+  name: string;
+};
+
+/** `GET /agent/workspaces` response — the PC's open workspaces + the active one. */
+export type BridgeWorkspacesResult = {
+  workspaces: BridgeWorkspaceInfo[];
+  activeWorkspaceId: string | null;
+};
+
+/** One saved conversation in `GET /agent/sessions` (mirror of SessionSummary). */
+export type SessionSummary = {
+  id: string;
+  workspaceId?: string;
+  /** Derived from the first user message. */
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  provider: string;
+  model: string;
+  messageCount: number;
+};
 
 /* ── Relay auth wire shapes (mirror of marudesk/shared/remote.ts) ───────────── */
 
