@@ -153,10 +153,10 @@ async function checkForUpdates(): Promise<UpdateCheckResult> {
 export function registerAppInfoHandlers(): void {
   defineHandler('app:info', () => appInfo());
   defineHandler('app:open-github', () => {
-    openExternalUrl(MARUDESK_GITHUB_URL);
+    void openExternalUrl(MARUDESK_GITHUB_URL);
   });
   defineHandler('app:open-releases', () => {
-    openExternalUrl(MARUDESK_RELEASES_URL);
+    void openExternalUrl(MARUDESK_RELEASES_URL);
   });
   defineHandler('app:check-for-updates', () => checkForUpdates());
 }

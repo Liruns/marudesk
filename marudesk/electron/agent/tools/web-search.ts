@@ -309,7 +309,7 @@ export function parseBoundedWebSearchJsonForTests(
 export const WEB_SEARCH_TOOL: McpTool = {
   name: 'web_search',
   description:
-    'Search the public web for current information. Use this when the answer may depend on recent or external facts. Returns a short list of source URLs and snippets.',
+    'Search the public web for current information. Use this when the answer may depend on recent or external facts (releases, news, library docs, prices). Returns up to 6 results as URL + title + snippet; snippets are often stale or partial, so follow up with fetch_url on the most promising result before relying on one.',
   inputSchema: {
     type: 'object',
     properties: {

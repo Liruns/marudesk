@@ -63,8 +63,12 @@ beforeEach(() => {
   getAgentStoreForWorkspace('beta').setState({ draft: '', chat: emptyAgentChatState(), queuedPrompts: [] });
   useTabsStore.setState({ tabs: [], activeTabId: null, activeTabIdsByWorkspace: {} });
   // Skip the provider-status refresh effect so the test doesn't need those IPCs,
-  // and pretend the selected provider has a key so `send` reaches the IPC.
-  useProvidersStore.setState({ statusChecked: true, hasKeyForSelected: () => true });
+  // and pretend every provider has a key so `send` reaches the IPC — dispatch
+  // checks the ACTIVE THREAD's provider against providerStatus directly.
+  useProvidersStore.setState((s) => ({
+    statusChecked: true,
+    providerStatus: s.providerStatus.map((p) => ({ ...p, hasKey: true })),
+  }));
 });
 
 afterEach(() => cleanup());
@@ -211,6 +215,7 @@ describe('SessionRail', () => {
 
     const expandedRail = container.querySelector('aside');
     expect(expandedRail).toBe(rail);
-    expect(expandedRail).toHaveClass('w-56');
+    // Expanded width is container-gated: full 224px only in a wide pane.
+    expect(expandedRail).toHaveClass('@[56rem]:w-56');
   });
 });

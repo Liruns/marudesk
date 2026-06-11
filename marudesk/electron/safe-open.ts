@@ -9,9 +9,19 @@ import { shell } from 'electron';
  */
 const SAFE_EXTERNAL_SCHEME = /^(https?|mailto|tel):/i;
 
-/** Open `url` externally iff its scheme is on the safe list; otherwise ignore. */
-export function openExternalUrl(url: string): void {
-  if (typeof url === 'string' && SAFE_EXTERNAL_SCHEME.test(url)) {
-    void shell.openExternal(url);
+/**
+ * Open `url` externally iff its scheme is on the safe list; otherwise ignore.
+ * Resolves `true` only when the OS actually accepted the handoff — a broken
+ * default-browser registration rejects, which callers can surface (the OAuth
+ * connect flow leads with its manual fallback link instead of failing silently).
+ */
+export async function openExternalUrl(url: string): Promise<boolean> {
+  if (typeof url !== 'string' || !SAFE_EXTERNAL_SCHEME.test(url)) return false;
+  try {
+    await shell.openExternal(url);
+    return true;
+  } catch (err) {
+    console.error('[safe-open] shell.openExternal failed:', err);
+    return false;
   }
 }

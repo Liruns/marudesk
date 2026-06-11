@@ -117,7 +117,9 @@ type ProvidersActions = {
   // shows a paste field → `completeOAuth(provider, pasted)`; for 'loopback' the UI
   // calls `completeOAuth(provider)` (no paste) which blocks until the browser
   // callback lands, and `cancelOAuth` aborts that wait.
-  startOAuth: (provider: BuiltinProviderId) => Promise<{ flow: OAuthFlow; url: string } | null>;
+  startOAuth: (
+    provider: BuiltinProviderId,
+  ) => Promise<{ flow: OAuthFlow; url: string; opened: boolean } | null>;
   completeOAuth: (provider: BuiltinProviderId, pasted?: string) => Promise<boolean>;
   cancelOAuth: (provider: BuiltinProviderId) => Promise<void>;
   disconnectOAuth: (provider: BuiltinProviderId) => Promise<void>;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { AgentWorkspaceThreadsEvent, ThreadSummary } from '../../../shared/agent';
@@ -17,10 +17,13 @@ export function ThreadBar() {
   const [threads, setThreadsState] = useState<ThreadSummary[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const setThreads = (next: ThreadSummary[]): void => {
-    setThreadsState(next);
-    setActiveThreadId(next.find((thread) => thread.active)?.id ?? null);
-  };
+  const setThreads = useCallback(
+    (next: ThreadSummary[]): void => {
+      setThreadsState(next);
+      setActiveThreadId(next.find((thread) => thread.active)?.id ?? null);
+    },
+    [setActiveThreadId],
+  );
 
   useEffect(() => {
     void window.marudesk
@@ -33,7 +36,7 @@ export function ThreadBar() {
         })
       : window.marudesk.on('agent:threads', (list: ThreadSummary[]) => setThreads(list));
     return off;
-  }, [workspaceId]);
+  }, [setThreads, workspaceId]);
 
   const run = async (op: () => Promise<ThreadSummary[]>): Promise<void> => {
     setBusy(true);

@@ -24,7 +24,7 @@ import { useProvidersStore } from '../../providers/store';
 import { ProviderGlyph } from '../../providers/ProviderGlyph';
 import { useWorkspaceStore } from '../../workspace/store';
 import { useWebPageStore } from '../../browser/store';
-import { useAgentStore } from '../store';
+import { useAgentStore, useThreadModelKey } from '../store';
 import { ModelPalette } from '../ModelPalette';
 import {
   formatContext,
@@ -100,10 +100,10 @@ export function ContextButton({
 export function UsageMeter() {
   const { locale } = useI18n();
   const usage = useAgentStore((s) => s.chat.usage);
-  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  const modelKey = useThreadModelKey();
   const models = useProvidersStore((s) => s.models);
   if (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.contextTokens === 0) return null;
-  const ctx = findModel(models, selectedModelKey)?.contextWindow;
+  const ctx = findModel(models, modelKey)?.contextWindow;
   // The gauge tracks live context-window occupancy (contextTokens), not the
   // cumulative input total — so it falls after a compaction instead of climbing.
   const pct = ctx ? Math.min(100, Math.round((usage.contextTokens / ctx) * 100)) : null;
@@ -142,7 +142,9 @@ export function UsageMeter() {
  */
 export function ComposerModelButton() {
   const models = useProvidersStore((s) => s.models);
-  const selectedModelKey = useProvidersStore((s) => s.selectedModelKey);
+  // Per-thread: the chip shows (and the palette pins) the ACTIVE thread's model.
+  const modelKey = useThreadModelKey();
+  const setThreadModelKey = useAgentStore((s) => s.setThreadModelKey);
   const selectedModel = useProvidersStore((s) => s.selectedModel);
   const selectedProvider = useProvidersStore((s) => s.selectedProvider);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
@@ -156,8 +158,9 @@ export function ComposerModelButton() {
     return () => window.removeEventListener('marudesk:open-model-palette', onOpen);
   }, []);
 
-  const current = findModel(models, selectedModelKey);
-  const status = providerStatus.find((s) => s.id === selectedProvider);
+  const current = findModel(models, modelKey);
+  const provider = current?.provider ?? selectedProvider;
+  const status = providerStatus.find((s) => s.id === provider);
   const hasAuth = !!status?.hasKey || !!status?.oauth;
   const label = current?.label ?? selectedModel;
 
@@ -172,8 +175,8 @@ export function ComposerModelButton() {
         className="group flex h-7 min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md px-1.5 text-fg-secondary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
       >
         <ProviderGlyph
-          provider={selectedProvider}
-          label={providerLabel(selectedProvider, customProviders)}
+          provider={provider}
+          label={providerLabel(provider, customProviders)}
           size={15}
         />
         <span className="truncate text-caption font-medium">{label}</span>
@@ -185,7 +188,13 @@ export function ComposerModelButton() {
           className="shrink-0 text-fg-tertiary/60 transition-colors duration-fast group-hover:text-fg-tertiary"
         />
       </button>
-      {open ? <ModelPalette onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <ModelPalette
+          onClose={() => setOpen(false)}
+          selectedKey={modelKey}
+          onPick={setThreadModelKey}
+        />
+      ) : null}
     </>
   );
 }
@@ -196,27 +205,32 @@ export function ComposerModelButton() {
  */
 export function ProviderKeyNudge() {
   const { t } = useI18n();
+  const models = useProvidersStore((s) => s.models);
+  const modelKey = useThreadModelKey();
   const selectedProvider = useProvidersStore((s) => s.selectedProvider);
   const providerStatus = useProvidersStore((s) => s.providerStatus);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
   const customProviders = useProvidersStore((s) => s.customProviders);
   const selectKeyProvider = useProvidersStore((s) => s.selectKeyProvider);
 
-  const status = providerStatus.find((s) => s.id === selectedProvider);
+  // Nudge for the ACTIVE THREAD's provider — a thread pinned to a since-
+  // disconnected provider must surface that, not the global selection's state.
+  const provider = findModel(models, modelKey)?.provider ?? selectedProvider;
+  const status = providerStatus.find((s) => s.id === provider);
   const hasAuth = !!status?.hasKey || !!status?.oauth;
-  if (hasAuth || !statusChecked || !isBuiltinProviderId(selectedProvider)) return null;
+  if (hasAuth || !statusChecked || !isBuiltinProviderId(provider)) return null;
 
   return (
     <div className="flex items-center justify-between gap-2 rounded-lg border border-subtle/80 bg-surface-2/70 px-3 py-1.5 shadow-card">
       <span className="truncate text-caption text-fg-tertiary">
         {t('agent.chat.noApiKeyBefore')}
-        {providerLabel(selectedProvider, customProviders)}
+        {providerLabel(provider, customProviders)}
         {t('agent.chat.noApiKeyAfter')}
       </span>
       <button
         type="button"
         onClick={() => {
-          selectKeyProvider(selectedProvider);
+          selectKeyProvider(provider);
           void openSettingsTab('providers');
         }}
         className="flex shrink-0 items-center gap-1 text-caption text-fg-tertiary transition-colors duration-fast hover:text-accent"

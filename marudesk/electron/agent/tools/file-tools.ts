@@ -93,11 +93,16 @@ export async function listFiles(input: { glob?: unknown }, ctx: ToolContext): Pr
   if (!ctx.ws) return noWorkspaceResult('list_files');
   const glob = typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : '';
   const re = glob ? globToRegExp(glob) : null;
-  const matched = ctx.ws.files
+  const all = ctx.ws.files
     .map((f) => f.path)
-    .filter((p) => (re ? re.test(p) : true))
-    .slice(0, 300);
-  const more = ctx.ws.files.length > matched.length ? `\n…(${ctx.ws.files.length} total)` : '';
+    .filter((p) => (re ? re.test(p) : true));
+  const matched = all.slice(0, 300);
+  // Footer counts MATCHES (not the whole index) so a glob-narrowed listing
+  // doesn't read as truncated, and a truncated one says how to narrow.
+  const more =
+    all.length > matched.length
+      ? `\n…(showing ${matched.length} of ${all.length} matches — narrow with a glob)`
+      : '';
   return {
     summary: `list ${matched.length} file${matched.length === 1 ? '' : 's'}${glob ? ` (${glob})` : ''}`,
     text: matched.length ? matched.join('\n') + more : '(no files)',

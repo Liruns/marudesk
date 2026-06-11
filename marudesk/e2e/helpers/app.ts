@@ -43,6 +43,10 @@ export async function launchApp(opts?: {
       ...(typeof process.getuid === 'function' && process.getuid() === 0 ? ['--no-sandbox'] : []),
     ],
     cwd: MARUDESK_ROOT,
+    // Close-to-tray (the default) would turn window close into hide and leave
+    // the process running past app.close(); tests need close = exit. Also keeps
+    // OS tray icons from piling up during a run.
+    env: { ...process.env, MARUDESK_DISABLE_TRAY: '1' },
   });
   // The splash window (electron/splash.ts) opens first, so firstWindow() can be
   // the splash — wait for the real renderer (index.html) instead.

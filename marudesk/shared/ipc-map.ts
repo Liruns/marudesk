@@ -540,7 +540,12 @@ export interface IpcMap {
   // so the renderer just calls `complete`, which blocks until the browser hits it).
   // `complete`'s `pasted` is the `code#state` / URL / code for manual-paste, unused
   // for loopback. `cancel` tears down a pending loopback wait.
-  'auth:oauth-start': { args: [provider: ProviderId]; result: { flow: OAuthFlow; url: string } };
+  // `opened` — whether the OS actually opened the browser; false tells the
+  // renderer to lead with the manual link/copy affordances instead.
+  'auth:oauth-start': {
+    args: [provider: ProviderId];
+    result: { flow: OAuthFlow; url: string; opened: boolean };
+  };
   'auth:oauth-complete': {
     args: [payload: { provider: ProviderId; pasted?: string }];
     result: boolean;

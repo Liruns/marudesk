@@ -75,7 +75,14 @@ async function openExternal(input: { url?: unknown }): Promise<ToolResult> {
       isError: true,
     };
   }
-  openExternalUrl(url);
+  const opened = await openExternalUrl(url);
+  if (!opened) {
+    return {
+      summary: 'open_external (failed)',
+      text: `The OS refused to open ${scrubText(url)} — no working default browser handler.`,
+      isError: true,
+    };
+  }
   return { summary: `opened ${scrubText(url)}`, text: `Opened ${scrubText(url)} in the system browser.` };
 }
 

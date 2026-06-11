@@ -21,7 +21,7 @@ function openUrlInTabOrExternal(url: string, openWebTab: OpenWebTab): void {
     openWebTab(url);
   } else {
     // mailto:/tel: → OS; file:/custom schemes are refused by openExternalUrl.
-    openExternalUrl(url);
+    void openExternalUrl(url);
   }
 }
 

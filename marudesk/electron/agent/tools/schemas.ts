@@ -25,7 +25,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'list_files',
-    description: 'List indexed workspace files, optionally filtered by a glob (e.g. "src/**/*.tsx").',
+    description: 'List indexed workspace files, optionally filtered by a glob (e.g. "src/**/*.tsx"). At most 300 paths are returned — when the footer says more matched, narrow with a glob rather than re-calling.',
     inputSchema: { type: 'object', properties: { glob: strProp('Optional glob; * and ** supported.') }, additionalProperties: false },
   },
   {

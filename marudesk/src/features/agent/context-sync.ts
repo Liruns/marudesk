@@ -58,10 +58,18 @@ function buildPayload(): ContextSyncPayload {
 export function useContextSync(): void {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastSent = '';
     const push = (): void => {
       timer = undefined;
       try {
-        void window.marudesk.invoke('context:sync', buildPayload());
+        const payload = buildPayload();
+        // The source stores churn on every tab focus / selection change; only
+        // pay the IPC + main-side cache write + LSP document resync when the
+        // mirrored content actually changed.
+        const signature = JSON.stringify(payload);
+        if (signature === lastSent) return;
+        lastSent = signature;
+        void window.marudesk.invoke('context:sync', payload);
       } catch {
         // best-effort — a failed mirror just leaves the prior cache in place
       }

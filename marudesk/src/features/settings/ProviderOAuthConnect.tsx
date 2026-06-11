@@ -3,20 +3,50 @@ import {
   AlertCircle,
   CheckCircle2,
   ExternalLink,
+  Globe,
   Loader2,
   LogIn,
 } from 'lucide-react';
 import type { BuiltinProviderId } from '../../../shared/providers';
-import { Button } from '../../components/ui';
+import { Button, CopyButton } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { useProvidersStore } from '../providers/store';
+import { useTabsStore } from '../tabs/store';
 import { providerFriendlyName } from './providerSettingsFormat';
 
 type ProviderOAuthConnectProps = {
   readonly providerId: BuiltinProviderId;
   readonly connected: boolean;
 };
+
+/**
+ * Fallback affordances next to the authorize link: copy the URL, or open it in
+ * an in-app browser tab — the rescue paths when the OS browser handoff fails
+ * (no/broken default browser) or the opened window is buried behind the app.
+ */
+function OAuthLinkActions({ url }: { url: string }) {
+  const { t } = useI18n();
+  const newTab = useTabsStore((s) => s.newTab);
+  return (
+    <div className="flex items-center gap-1">
+      <CopyButton
+        text={url}
+        size="md"
+        label={t('settings.providers.oauth.copyUrl')}
+        write={(text) => window.marudesk.invoke('clipboard:write-text', text)}
+      />
+      <Button
+        variant="ghost"
+        size="sm"
+        leadingIcon={<Globe size={13} />}
+        onClick={() => void newTab('web', url)}
+      >
+        {t('settings.providers.oauth.openInApp')}
+      </Button>
+    </div>
+  );
+}
 
 export function ProviderOAuthConnect({
   providerId,
@@ -34,6 +64,9 @@ export function ProviderOAuthConnect({
   const [phase, setPhase] = useState<'idle' | 'manual' | 'waiting'>('idle');
   const [url, setUrl] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
+  // The OS refused to open the browser (auth:oauth-start returned opened:false)
+  // — lead with the manual link + copy/in-app affordances instead.
+  const [openFailed, setOpenFailed] = useState(false);
   const [test, setTest] = useState<{
     status: 'idle' | 'testing' | 'ok' | 'error';
     message: string | null;
@@ -53,12 +86,14 @@ export function ProviderOAuthConnect({
     setPhase('idle');
     setUrl(null);
     setPasted('');
+    setOpenFailed(false);
   };
 
   const begin = async () => {
     const started = await startOAuth(providerId);
     if (!started) return;
     setUrl(started.url);
+    setOpenFailed(!started.opened);
     if (started.flow === 'loopback') {
       setPhase('waiting');
       const ok = await completeOAuth(providerId);
@@ -175,24 +210,41 @@ export function ProviderOAuthConnect({
       </div>
 
       {phase === 'waiting' ? (
-        <p className="text-caption text-fg-tertiary flex items-center gap-1.5 flex-wrap">
-          <Loader2 size={12} className="animate-spin shrink-0" />
-          {t('settings.providers.oauth.waiting')}
-          {url ? (
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-accent hover:underline"
-            >
-              {t('settings.providers.oauth.reopen')} <ExternalLink size={11} />
-            </a>
+        <div className="flex flex-col gap-2">
+          {openFailed ? (
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-subtle/30 px-3 py-2 text-caption text-fg-secondary">
+              <AlertCircle size={13} className="mt-0.5 shrink-0 text-warning" />
+              <span>{t('settings.providers.oauth.openFailed')}</span>
+            </div>
           ) : null}
-        </p>
+          <p className="text-caption text-fg-tertiary flex items-center gap-1.5 flex-wrap">
+            <Loader2 size={12} className="animate-spin shrink-0" />
+            {t('settings.providers.oauth.waiting')}
+            {url ? (
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-accent hover:underline"
+              >
+                {t('settings.providers.oauth.reopen')} <ExternalLink size={11} />
+              </a>
+            ) : null}
+          </p>
+          {url ? <OAuthLinkActions url={url} /> : null}
+        </div>
       ) : phase === 'manual' && url ? (
         <div className="flex flex-col gap-2">
+          {openFailed ? (
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-subtle/30 px-3 py-2 text-caption text-fg-secondary">
+              <AlertCircle size={13} className="mt-0.5 shrink-0 text-warning" />
+              <span>{t('settings.providers.oauth.openFailed')}</span>
+            </div>
+          ) : null}
           <p className="text-caption text-fg-tertiary">
-            {t('settings.providers.oauth.manualBefore')}{' '}
+            {openFailed ? null : (
+              <>{t('settings.providers.oauth.manualBefore')} </>
+            )}
             <a
               href={url}
               target="_blank"
@@ -203,6 +255,7 @@ export function ProviderOAuthConnect({
               <ExternalLink size={11} />
             </a>
           </p>
+          <OAuthLinkActions url={url} />
           <input
             value={pasted}
             onChange={(event) => setPasted(event.target.value)}

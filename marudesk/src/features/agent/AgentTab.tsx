@@ -12,7 +12,9 @@ import type { WorkspaceId } from '../../../shared/workspace';
 export function AgentTab({ workspaceId }: { workspaceId?: WorkspaceId }) {
   return (
     <AgentScopeProvider workspaceId={workspaceId}>
-      <div className="flex-1 min-w-0 flex flex-row min-h-0 bg-surface-page">
+      {/* @container: the chat surface adapts to its PANE width (split view /
+          divider drags), not the viewport — children use @[…rem]: variants. */}
+      <div className="flex-1 min-w-0 flex flex-row min-h-0 bg-surface-page @container">
         <SessionRail />
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
           <AgentChat variant="full" />

@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import {
+  AppWindow,
   Blocks,
   Bot,
   Clock,
@@ -110,6 +111,13 @@ const CATEGORY_DEFINITIONS = [
     blurbKey: 'settings.category.remote.blurb',
     icon: Radio,
     keywords: 'remote phone pair qr relay server mobile bridge 원격 휴대폰 페어링 서버',
+  },
+  {
+    id: 'window',
+    labelKey: 'settings.category.window.label',
+    blurbKey: 'settings.category.window.blurb',
+    icon: AppWindow,
+    keywords: 'window close quit tray background minimize exit 창 닫기 종료 트레이 백그라운드',
   },
   {
     id: 'data',

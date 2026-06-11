@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import containerQueries from '@tailwindcss/container-queries';
 
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -125,7 +126,10 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  // Container queries (@container / @[64rem]:*) — surfaces that live inside a
+  // split pane (the AI Chat tab) must adapt to their PANE's width, not the
+  // viewport's; vw-keyed breakpoints never reflow on a divider drag.
+  plugins: [containerQueries],
 };
 
 export default config;

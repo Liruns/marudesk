@@ -223,11 +223,15 @@ export async function listWorkspaceFiles(input: {
   const { record, root } = resolveWorkspaceRoot(input);
   const glob = typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : '';
   const re = glob ? globToRegExp(glob) : null;
-  const matched = root.files
+  const all = root.files
     .map((file) => file.path)
-    .filter((filePath) => (re ? re.test(filePath) : true))
-    .slice(0, 300);
-  const more = root.files.length > matched.length ? `\n(${root.files.length} total)` : '';
+    .filter((filePath) => (re ? re.test(filePath) : true));
+  const matched = all.slice(0, 300);
+  // Count MATCHES, not the whole index — mirrors the builtin list_files footer.
+  const more =
+    all.length > matched.length
+      ? `\n…(showing ${matched.length} of ${all.length} matches — narrow with a glob)`
+      : '';
   return {
     summary: `${record.name}/${root.name} - ${matched.length} file${matched.length === 1 ? '' : 's'}`,
     text: matched.length ? clip(matched.join('\n') + more) : '(no files)',

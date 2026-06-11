@@ -14,7 +14,7 @@ export const BROWSER_TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'eval_js',
-    description: 'Evaluate a JavaScript expression in the live page and return the result. Powerful — requires user approval each call. Use for runtime probing you cannot get from query_dom/get_console_errors.',
+    description: 'Evaluate a JavaScript expression in the live page and return the result. Promises are awaited; return JSON-serializable data (a DOM node comes back as a bare description, so map nodes to plain values first, e.g. [...document.querySelectorAll(s)].map(e => e.textContent)). Output is clipped to ~12k chars. Powerful — requires user approval each call. Use for runtime probing you cannot get from query_dom/get_console_errors.',
     inputSchema: { type: 'object', properties: { expression: strProp('JS expression to evaluate.') }, required: ['expression'], additionalProperties: false },
   },
   {

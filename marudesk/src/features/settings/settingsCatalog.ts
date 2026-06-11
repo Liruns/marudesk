@@ -81,6 +81,13 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     keywords: 'search engine google bing duckduckgo address bar 검색 엔진 주소창',
   },
 
+  // Window
+  {
+    categoryId: 'window',
+    labelKey: 'settings.window.closeBehavior.label',
+    keywords: 'close quit tray background exit hide 닫기 종료 트레이 백그라운드 숨기기',
+  },
+
   // AI Providers
   {
     categoryId: 'providers',

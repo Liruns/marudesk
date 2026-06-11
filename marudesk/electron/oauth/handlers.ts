@@ -52,7 +52,9 @@ function discardPending(provider: ProviderId): void {
 }
 
 /** Begin a flow: fresh PKCE, (loopback) a local server, open the browser, return the URL + flow. */
-async function startOAuth(provider: ProviderId): Promise<{ flow: OAuthFlow; url: string }> {
+async function startOAuth(
+  provider: ProviderId,
+): Promise<{ flow: OAuthFlow; url: string; opened: boolean }> {
   const cfg = oauthConfigFor(provider);
   if (!cfg) throw new Error(`${provider} does not support OAuth login`);
   discardPending(provider); // a new attempt supersedes any abandoned one
@@ -81,8 +83,11 @@ async function startOAuth(provider: ProviderId): Promise<{ flow: OAuthFlow; url:
   pending.set(provider, entry);
 
   const url = buildAuthorizeUrl(cfg, pkce, redirectUri);
-  openExternalUrl(url); // the renderer also gets the URL as a fallback link
-  return { flow: cfg.flow, url };
+  // The renderer also gets the URL as a fallback link; `opened: false` (a broken
+  // default-browser handoff) tells it to lead with that link + copy affordances
+  // instead of failing silently — the "Connect did nothing" trap.
+  const opened = await openExternalUrl(url);
+  return { flow: cfg.flow, url, opened };
 }
 
 /** Finish a flow: get the code (paste or loopback callback), validate state, exchange, store. */
