@@ -195,6 +195,35 @@ function firstSseEvent(port: number, token: string, path = '/agent/events'): Pro
   });
 }
 
+/**
+ * Open an SSE connection and resolve once the response status line arrives,
+ * handing back the status + a destroy fn so a test can hold streams open to
+ * exercise the concurrent-stream cap.
+ */
+function openSse(port: number, token: string): Promise<{ status: number; destroy: () => void }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'GET',
+        path: '/agent/events',
+        headers: { authorization: `Bearer ${token}`, accept: 'text/event-stream' },
+      },
+      (res) => {
+        res.resume(); // drain frames so the socket doesn't backpressure
+        resolve({ status: res.statusCode ?? 0, destroy: () => req.destroy() });
+      },
+    );
+    req.on('error', reject);
+    req.end();
+    setTimeout(() => {
+      req.destroy();
+      reject(new Error('SSE open timed out'));
+    }, 4000).unref();
+  });
+}
+
 async function main(): Promise<void> {
   const { deps, calls } = buildDeps();
   const server = http.createServer((req, res) => {
@@ -430,6 +459,39 @@ async function main(): Promise<void> {
       check('events?workspace without subscribeWorkspace → 400', refused.status === 400);
     } finally {
       bareServer.close();
+    }
+
+    // (j) the concurrent SSE cap (M-1+): past the cap a connect is shed with a
+    // 503, and closing a stream frees the slot.
+    const cappedDeps: RouterDeps = { ...deps, maxSseClients: 2 };
+    const cappedServer = http.createServer((req, res) => {
+      void handleRequest(req, res, cappedDeps);
+    });
+    await new Promise<void>((resolve) => cappedServer.listen(0, '127.0.0.1', resolve));
+    const cappedPort = (cappedServer.address() as AddressInfo).port;
+    try {
+      const s1 = await openSse(cappedPort, TOKEN);
+      const s2 = await openSse(cappedPort, TOKEN);
+      check('SSE streams up to the cap connect (200)', s1.status === 200 && s2.status === 200);
+      const s3 = await openSse(cappedPort, TOKEN);
+      check('an SSE stream past the cap is shed with a 503', s3.status === 503);
+      s1.destroy();
+      // The close propagates async; poll briefly for the freed slot.
+      let freed = 0;
+      for (let i = 0; i < 20; i += 1) {
+        const retry = await openSse(cappedPort, TOKEN);
+        freed = retry.status;
+        if (freed === 200) {
+          retry.destroy();
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      check('closing a stream frees a slot under the cap', freed === 200);
+      s2.destroy();
+      s3.destroy();
+    } finally {
+      cappedServer.close();
     }
 
     console.log(`\nbridge-server harness: ${passed} assertions passed`);

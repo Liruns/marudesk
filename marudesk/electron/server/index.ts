@@ -167,6 +167,13 @@ export async function startServer(port: number): Promise<void> {
     });
   });
 
+  // M-2 (design §10.1): bound slow clients so an exposed port can't be held open
+  // by a slowloris-style drip. These only cap RECEIVING a request — the long-lived
+  // SSE *response* stream is unaffected (its request arrives in one packet).
+  srv.headersTimeout = 15_000;
+  srv.requestTimeout = 30_000;
+  srv.keepAliveTimeout = 5_000;
+
   srv.on('connection', (s) => {
     sockets.add(s);
     s.on('close', () => sockets.delete(s));

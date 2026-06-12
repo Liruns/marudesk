@@ -19,8 +19,17 @@ import type { DirectCreds } from '../transport/types';
  * ANSWERS — the design's "try the addresses, keep the first that connects". On the PC
  * the user must approve; on success the sealed `{ deviceId }` comes back and we return
  * the {@link DirectCreds} the DirectTransport needs. Throws a human-readable error.
+ *
+ * `extraUrl` is an optional user-supplied base URL (a self-hosted tunnel such as
+ * cloudflared/ngrok in front of the PC bridge) tried before the QR candidates. All
+ * candidates ride along in {@link DirectCreds.urls} (the answering one first) so the
+ * transport can fail over to another address when the phone changes networks.
  */
-export async function runPairing(qrString: string, deviceName: string): Promise<DirectCreds> {
+export async function runPairing(
+  qrString: string,
+  deviceName: string,
+  extraUrl?: string,
+): Promise<DirectCreds> {
   const payload = decodeQrPayload(qrString.trim());
   if (!payload) throw new Error('That isn’t a valid marudesk pairing QR.');
   if (payload.exp < Date.now()) {
@@ -39,11 +48,12 @@ export async function runPairing(qrString: string, deviceName: string): Promise<
     proof,
   });
 
+  const candidates = candidateUrls(payload.urls, extraUrl);
   let lastNetErr: Error | null = null;
-  for (const cand of payload.urls) {
+  for (const url of candidates) {
     let res: Response;
     try {
-      res = await fetch(`${cand.url}/pair`, {
+      res = await fetch(`${url}/pair`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body,
@@ -57,7 +67,13 @@ export async function runPairing(qrString: string, deviceName: string): Promise<
     if (res.status === 200) {
       const sealed = (await res.json()) as Envelope;
       const result = (await open(key, sealed, resAad('/pair'))) as { deviceId: string };
-      return { baseUrl: cand.url, deviceId: result.deviceId, keyB64: bytesToB64url(keyBytes) };
+      return {
+        baseUrl: url,
+        deviceId: result.deviceId,
+        keyB64: bytesToB64url(keyBytes),
+        // The answering URL first, then the rest — the transport's failover order.
+        urls: [url, ...candidates.filter((u) => u !== url)],
+      };
     }
     let message = `Pairing failed (HTTP ${res.status}).`;
     try {
@@ -74,4 +90,20 @@ export async function runPairing(qrString: string, deviceName: string): Promise<
       ? `Couldn’t reach your PC (${lastNetErr.message}). Same Wi-Fi, or Tailscale up on both?`
       : 'The QR had no addresses to connect to.',
   );
+}
+
+/**
+ * The ordered, de-duplicated base URLs to try: the user's tunnel URL (if any)
+ * first — it's the one address they explicitly chose — then the QR candidates.
+ * Trailing slashes are stripped so `${url}/pair` style joins stay valid.
+ */
+function candidateUrls(qrUrls: readonly { url: string }[], extraUrl?: string): string[] {
+  const out: string[] = [];
+  const push = (raw: string): void => {
+    const url = raw.trim().replace(/\/+$/, '');
+    if (url.length > 0 && !out.includes(url)) out.push(url);
+  };
+  if (extraUrl) push(extraUrl);
+  for (const cand of qrUrls) push(cand.url);
+  return out;
 }

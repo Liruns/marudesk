@@ -109,8 +109,12 @@ type AppState = {
   signup: (email: string, password: string) => Promise<boolean>;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  /** Pair this phone to a PC from a scanned/pasted QR (T2 direct mode). */
-  pairWithQr: (qrString: string, deviceName: string) => Promise<boolean>;
+  /**
+   * Pair this phone to a PC from a scanned/pasted QR (T2 direct mode).
+   * `tunnelUrl` optionally adds a self-hosted tunnel address (cloudflared/ngrok
+   * in front of the PC bridge) to the candidate URLs, tried first.
+   */
+  pairWithQr: (qrString: string, deviceName: string, tunnelUrl?: string) => Promise<boolean>;
   /** Forget the paired PC and return to the connect screen. */
   unpair: () => Promise<void>;
   connect: () => Promise<void>;
@@ -217,6 +221,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       dBase,
       dDev,
       dKey,
+      dUrlsRaw,
       developerModeRaw,
       notificationsRaw,
       chatWorkspaceRaw,
@@ -230,6 +235,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       storageGet(StorageKeys.directBaseUrl),
       storageGet(StorageKeys.directDeviceId),
       storageGet(StorageKeys.directKey),
+      storageGet(StorageKeys.directUrls),
       storageGet(StorageKeys.developerMode),
       storageGet(StorageKeys.notifications),
       storageGet(StorageKeys.chatWorkspace),
@@ -246,7 +252,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     const url = relayUrl ?? DEFAULT_RELAY_URL;
     const direct: DirectCreds | null =
-      dBase && dDev && dKey ? { baseUrl: dBase, deviceId: dDev, keyB64: dKey } : null;
+      dBase && dDev && dKey
+        ? { baseUrl: dBase, deviceId: dDev, keyB64: dKey, urls: parseDirectUrls(dUrlsRaw) }
+        : null;
     const mode: ConnMode = direct ? 'direct' : 'relay';
     // A paired PC is the entry; otherwise fall back to the relay sign-in flow.
     const route: Route = direct
@@ -402,14 +410,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     await storageSet(StorageKeys.notifications, value ? 'true' : 'false');
   },
 
-  async pairWithQr(qrString, deviceName) {
+  async pairWithQr(qrString, deviceName, tunnelUrl) {
     set({ busy: true, authError: null });
     try {
-      const creds = await runPairing(qrString, deviceName.trim() || 'My phone');
+      const creds = await runPairing(qrString, deviceName.trim() || 'My phone', tunnelUrl?.trim() || undefined);
       await Promise.all([
         storageSet(StorageKeys.directBaseUrl, creds.baseUrl),
         storageSet(StorageKeys.directDeviceId, creds.deviceId),
         storageSet(StorageKeys.directKey, creds.keyB64),
+        storageSet(StorageKeys.directUrls, JSON.stringify(creds.urls ?? [creds.baseUrl])),
       ]);
       set({ mode: 'direct', direct: creds, route: 'chat' });
       void get().connect();
@@ -428,6 +437,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       storageRemove(StorageKeys.directBaseUrl),
       storageRemove(StorageKeys.directDeviceId),
       storageRemove(StorageKeys.directKey),
+      storageRemove(StorageKeys.directUrls),
       // Workspace ids are PC-specific — they mean nothing on the next pairing.
       storageRemove(StorageKeys.chatWorkspace),
     ]);
@@ -630,6 +640,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 }));
 
 /* ── helpers (module-scope; not part of React state) ─────────────────────── */
+
+/**
+ * The persisted candidate-URL list (JSON string array), or undefined when absent
+ * or unparsable — creds paired before the failover list carry only `baseUrl`.
+ */
+function parseDirectUrls(raw: string | null): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((u) => typeof u === 'string')) {
+      return parsed;
+    }
+  } catch {
+    // fall through — treat an unparsable list as absent
+  }
+  return undefined;
+}
 
 async function persistAuth(account: RelayAccount, accessToken: string, refreshToken: string): Promise<void> {
   await Promise.all([

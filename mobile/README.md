@@ -105,6 +105,25 @@ so in relay mode the pickers hide and the chat stays global-scope.
   available. Paste entry remains a first-class fallback and is the expected path
   on web/PWA builds or native shells without the plugin.
 
+### Direct mode across networks (no cloud relay)
+
+Direct mode is fully self-hosted — no marudesk cloud in the path. The pairing QR
+carries **every** address the PC may answer at (Tailscale first, then LAN IPs),
+and the phone persists the whole list (`DirectCreds.urls`). `DirectTransport`
+fails over across the candidates whenever a stream open fails, so a phone paired
+on the home LAN keeps reaching the PC from other networks:
+
+- **Tailscale (recommended)**: install/log in Tailscale on the PC and phone. The
+  QR already includes the PC's Tailscale address; nothing else to configure.
+- **Your own tunnel**: if the bridge is published through cloudflared, ngrok, or
+  a reverse proxy, expand "Reaching the PC through your own tunnel?" on the
+  Connect screen and add the tunnel URL before scanning — it joins the failover
+  candidates ahead of the QR ones.
+
+Either way the traffic is application-level end-to-end encrypted (X25519 +
+AES-GCM); possession of the pairing session key is the authentication, so an
+untrusted tunnel/network in the middle never sees plaintext.
+
 ## Auth and storage
 
 - `src/auth/relayClient.ts`: typed fetch wrapper for relay auth REST endpoints
