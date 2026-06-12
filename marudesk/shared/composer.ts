@@ -28,7 +28,20 @@ export type ConsoleErrorCapturePayload = CapturePayloadBase & {
   source?: { url: string; lineNumber?: number };
 };
 
-export type CapturePayload = ElementCapturePayload | ConsoleErrorCapturePayload;
+/** A detected integrated-terminal error forwarded to the LLM context. */
+export type TerminalErrorCapturePayload = CapturePayloadBase & {
+  kind: 'terminal-error';
+  message: string;
+  excerpt: string;
+  terminalId: string;
+  shell?: string;
+  cwd?: string;
+};
+
+export type CapturePayload =
+  | ElementCapturePayload
+  | ConsoleErrorCapturePayload
+  | TerminalErrorCapturePayload;
 
 /* ── runtime guards ─────────────────────────────────────────────────────── */
 
@@ -64,6 +77,15 @@ export function isCapturePayload(value: unknown): value is CapturePayload {
       if (typeof s.url !== 'string') return false;
       if (s.lineNumber !== undefined && typeof s.lineNumber !== 'number') return false;
     }
+    return true;
+  }
+
+  if (v.kind === 'terminal-error') {
+    if (typeof v.message !== 'string') return false;
+    if (typeof v.excerpt !== 'string') return false;
+    if (typeof v.terminalId !== 'string' || v.terminalId.length === 0) return false;
+    if (v.shell !== undefined && typeof v.shell !== 'string') return false;
+    if (v.cwd !== undefined && typeof v.cwd !== 'string') return false;
     return true;
   }
 

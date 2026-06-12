@@ -60,4 +60,23 @@ export type ConsoleErrorCapture = CaptureBase & {
   source?: { url: string; lineNumber?: number };
 };
 
-export type Capture = ElementCapture | ConsoleErrorCapture;
+/**
+ * A detected integrated-terminal error ("terminal error → Fix this"), the
+ * terminal twin of {@link ConsoleErrorCapture}. Carries the scrubbed output
+ * excerpt plus the PTY identity (terminalId / shell / cwd) so the agent can
+ * pull more context via read_terminal. `url` (CaptureBase) is '' — a terminal
+ * has no page URL.
+ */
+export type TerminalErrorCapture = CaptureBase & {
+  kind: 'terminal-error';
+  /** The headline (first matched line of the detected error). */
+  message: string;
+  /** Bounded, ANSI-stripped, secret-scrubbed output excerpt. */
+  excerpt: string;
+  /** The PTY session id (accepted by the agent's read_terminal tool). */
+  terminalId: string;
+  shell?: string;
+  cwd?: string;
+};
+
+export type Capture = ElementCapture | ConsoleErrorCapture | TerminalErrorCapture;

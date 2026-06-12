@@ -39,7 +39,7 @@ function tabIcon(kind: string): LucideIcon {
 /* ── Capture label helper ──────────────────────────────────────────────── */
 
 function captureLabel(c: Capture): string {
-  if (c.kind === 'console-error') {
+  if (c.kind === 'console-error' || c.kind === 'terminal-error') {
     const short = c.message.split('\n')[0];
     return short.length > 60 ? short.slice(0, 60) + '…' : short;
   }
@@ -48,7 +48,9 @@ function captureLabel(c: Capture): string {
 }
 
 function captureKindLabel(c: Capture): string {
-  return c.kind === 'console-error' ? 'error' : c.tagName.toLowerCase();
+  if (c.kind === 'console-error') return 'error';
+  if (c.kind === 'terminal-error') return 'terminal';
+  return c.tagName.toLowerCase();
 }
 
 /* ── Tab mention helper ────────────────────────────────────────────────── */
@@ -200,7 +202,12 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
         ) : (
           captures.map((c) => {
             const selected = selectedIds.has(c.id);
-            const Icon = c.kind === 'console-error' ? Bug : Code;
+            const Icon =
+              c.kind === 'console-error'
+                ? Bug
+                : c.kind === 'terminal-error'
+                  ? SquareTerminal
+                  : Code;
             return (
               <CaptureRow
                 key={c.id}

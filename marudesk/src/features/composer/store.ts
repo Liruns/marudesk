@@ -45,6 +45,19 @@ export function toPayload(capture: Capture): CapturePayload {
       source: capture.source,
     };
   }
+  if (capture.kind === 'terminal-error') {
+    return {
+      kind: 'terminal-error',
+      id: capture.id,
+      url: capture.url,
+      comment: capture.comment,
+      message: capture.message,
+      excerpt: capture.excerpt,
+      terminalId: capture.terminalId,
+      shell: capture.shell,
+      cwd: capture.cwd,
+    };
+  }
   return {
     kind: 'element',
     id: capture.id,

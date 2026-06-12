@@ -15,12 +15,16 @@ import type {
   Capture,
   ConsoleErrorCapture,
   ElementCapture,
+  TerminalErrorCapture,
 } from '../../../shared/capture';
 
 /** Dispatch on the capture kind; each kind renders its own card. */
 export function CaptureCard({ capture }: { capture: Capture }) {
   if (capture.kind === 'console-error') {
     return <ConsoleErrorCaptureCard capture={capture} />;
+  }
+  if (capture.kind === 'terminal-error') {
+    return <TerminalErrorCaptureCard capture={capture} />;
   }
   return <ElementCaptureCard capture={capture} />;
 }
@@ -157,6 +161,61 @@ function ConsoleErrorCaptureCard({ capture }: { capture: ConsoleErrorCapture }) 
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+/**
+ * A detected integrated-terminal error (terminal "Fix this"). Shows the
+ * headline + cwd, expandable to the full (scrubbed, ANSI-stripped) excerpt.
+ */
+function TerminalErrorCaptureCard({ capture }: { capture: TerminalErrorCapture }) {
+  const { t } = useI18n();
+  const selected = useWebPageStore((s) => s.selectedCaptureIds.has(capture.id));
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <article
+      className={cn(
+        'rounded border bg-surface-2 bg-surface-gradient shadow-card flex flex-col transition-colors duration-fast',
+        selected ? 'border-default' : 'border-subtle opacity-70',
+      )}
+    >
+      <div className="p-3 flex flex-col gap-2">
+        <CardHeader capture={capture}>
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={expanded}
+            className="flex items-center gap-2 min-w-0 text-left flex-1 group"
+          >
+            <span className="text-fg-tertiary group-hover:text-fg-secondary transition-colors duration-fast shrink-0">
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </span>
+            <Badge variant="error">{t('context.capture.terminalError')}</Badge>
+            <span
+              className="font-mono text-caption text-fg-tertiary truncate"
+              title={capture.cwd}
+            >
+              {capture.cwd || t('context.capture.noSource')}
+            </span>
+          </button>
+        </CardHeader>
+        <div className="font-mono text-caption text-error break-words line-clamp-3">
+          {capture.message}
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="border-t border-subtle px-3 py-2 flex flex-col gap-1">
+          <div className="text-caption text-fg-tertiary uppercase tracking-wide">
+            {t('context.capture.terminalExcerpt')}
+          </div>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-caption text-fg-secondary">
+            {capture.excerpt}
+          </pre>
         </div>
       ) : null}
     </article>
