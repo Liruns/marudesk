@@ -123,13 +123,14 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   ...BROWSER_TOOL_SCHEMAS,
   {
     name: SPAWN_SUBAGENT,
-    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The parent turn waits for the child report, so use this for focused second opinions and bounded analysis. To fan out, issue SEVERAL spawn_subagent calls in the SAME assistant turn — independent children then execute concurrently. For detached work that outlives the turn, use spawn_background_agent instead. The child may inspect workspace/live context and search the web (web_search, fetch_url) with non-mutating built-in tools, cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, or run other gated actions.',
+    description: 'Delegate a self-contained read-only subtask to a bounded child agent. The parent turn waits for the child report, so use this for focused second opinions and bounded analysis. To fan out, issue SEVERAL spawn_subagent calls in the SAME assistant turn — independent children then execute concurrently. For detached work that outlives the turn, use spawn_background_agent instead. Prefer naming an agent role: built-ins are explore (fast codebase search), researcher (fast web research), reviewer (smart code review), planner (smart implementation planning), general; list_agents shows the full catalog including user-defined roles. The model is resolved automatically against the user\'s CONNECTED providers (with rate-limit fail-over), so omit provider/model unless the task truly needs a specific one. The child may inspect workspace/live context and search the web (web_search, fetch_url) with non-mutating built-in tools, cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, or run other gated actions.',
     inputSchema: {
       type: 'object',
       properties: {
         task: strProp('Self-contained instructions for the child agent.'),
-        provider: strProp('Optional provider id. Omit (or leave unset) to inherit the parent turn provider — that is the normal choice.'),
-        model: strProp('Optional model id. Omit (or leave unset) to inherit the parent turn model — that is the normal choice.'),
+        agent: strProp('Optional agent role name (see list_agents): explore | researcher | reviewer | planner | general | a user-defined agent. Sets the child\'s role instructions, tool subset, and model tier.'),
+        provider: strProp('Optional provider id. Omit to auto-resolve from the agent role / connected providers — that is the normal choice.'),
+        model: strProp('Optional model id, or the tier sentinel "fast"/"smart". Omit to auto-resolve — that is the normal choice.'),
         label: strProp('Optional short label for the child result card.'),
         maxSteps: { type: 'number', description: 'Optional child loop step cap (default 6, max 12).' },
       },
@@ -140,13 +141,14 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: SPAWN_BACKGROUND_AGENT,
     description:
-      'Delegate a self-contained, READ-ONLY subtask to a DETACHED background agent (optionally on a different provider/model). Returns IMMEDIATELY with a task id; the agent keeps running after this turn ends. Use for long research fan-out or fire-and-forget investigation you will read later with collect_background_agent. The background agent may use read-only built-in tools and web research (web_search, fetch_url), but cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, run other gated actions, or spawn further agents.',
+      'Delegate a self-contained, READ-ONLY subtask to a DETACHED background agent (optionally on an agent role or a different provider/model — the model is resolved against the user\'s connected providers, like spawn_subagent). Returns IMMEDIATELY with a task id; the agent keeps running after this turn ends. Use for long research fan-out or fire-and-forget investigation you will read later with collect_background_agent. The background agent may use read-only built-in tools and web research (web_search, fetch_url), but cannot edit, update the visible plan, ask the user, call external MCP/plugin tools, run other gated actions, or spawn further agents.',
     inputSchema: {
       type: 'object',
       properties: {
         task: strProp('Self-contained instructions for the background agent.'),
-        provider: strProp('Optional provider id; defaults to the parent turn provider.'),
-        model: strProp('Optional model id; defaults to the parent turn model.'),
+        agent: strProp('Optional agent role name (see list_agents) — sets role instructions, tool subset, and model tier.'),
+        provider: strProp('Optional provider id; omit to auto-resolve from the agent role / connected providers.'),
+        model: strProp('Optional model id, or the tier sentinel "fast"/"smart"; omit to auto-resolve.'),
         label: strProp('Optional short label for the background tray entry.'),
         maxSteps: { type: 'number', description: 'Optional child loop step cap (default 6, max 12).' },
       },

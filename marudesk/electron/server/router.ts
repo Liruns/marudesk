@@ -4,6 +4,7 @@ import type { SessionSummary } from '../../shared/context';
 import {
   REMOTE_MAX_BODY_BYTES,
   REMOTE_SSE_PING_MS,
+  type BridgeCatalogResult,
   type BridgeModelsResult,
   type BridgeSessionDetail,
   type BridgeWorkspacesResult,
@@ -101,6 +102,12 @@ export type RouterExtras = {
   workspaces(): Promise<BridgeWorkspacesResult>;
   /** Read a single session's transcript for the CLI `/history` command. */
   readSession(id: string): Promise<BridgeSessionDetail | null>;
+  /**
+   * The agent-role + skill catalog for the CLI `/agents` and `/skills`
+   * commands. `workspaceId` scopes the project definitions; omitted ⇒ the
+   * built-in + user scopes only.
+   */
+  catalog(workspaceId?: string): Promise<BridgeCatalogResult>;
 };
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;
@@ -349,6 +356,11 @@ async function handleAgentRoutes(
     if (method !== 'GET') return sendError(res, 405, 'method not allowed');
     if (!deps.extras) return sendError(res, 404, 'not found');
     return sendResult(res, codec, pathname, await deps.extras.workspaces());
+  }
+  if (pathname === '/agent/catalog') {
+    if (method !== 'GET') return sendError(res, 405, 'method not allowed');
+    if (!deps.extras) return sendError(res, 404, 'not found');
+    return sendResult(res, codec, pathname, await deps.extras.catalog(workspaceParamOf(url)));
   }
   if (pathname === '/agent/sessions') {
     if (method !== 'GET') return sendError(res, 405, 'method not allowed');

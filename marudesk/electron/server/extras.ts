@@ -1,4 +1,5 @@
 import type {
+  BridgeCatalogResult,
   BridgeModelsResult,
   BridgeProviderModels,
   BridgeSessionDetail,
@@ -6,13 +7,15 @@ import type {
 } from '../../shared/remote';
 import type { SessionRecord } from '../../shared/context';
 import { customProviderId, getProvider } from '../../shared/providers';
+import { listAgents } from '../agent/agents-store';
+import { listSkills } from '../agent/skills-store';
 import { listSavedSessions, resumeSession } from '../agent/loop';
 import { readSession as readSessionRecord } from '../agent/sessions-store';
 import { containerForWorkspace } from '../agent/loop-state.ts';
 import { listCustomProviders } from '../custom-providers';
 import { getModelsFor } from '../models';
 import { hasProviderKey, listProviders } from '../secrets';
-import { getWorkspaceSnapshot } from '../workspace-registry';
+import { getWorkspaceSnapshot, getWorkspaceSummary } from '../workspace-registry';
 import type { RouterExtras } from './router';
 
 /**
@@ -98,6 +101,21 @@ export function createRouterExtras(): RouterExtras {
       return {
         workspaces: snapshot.workspaces.map((w) => ({ id: w.id, name: w.name })),
         activeWorkspaceId: snapshot.activeWorkspaceId,
+      };
+    },
+    async catalog(workspaceId?: string): Promise<BridgeCatalogResult> {
+      // Scope project agents/skills to the requested workspace (or the active
+      // one when omitted), mirroring what the agent itself would discover.
+      const ws = getWorkspaceSummary(workspaceId) ?? null;
+      const [agents, skills] = await Promise.all([listAgents(ws), listSkills(ws)]);
+      return {
+        agents: agents.map((a) => ({
+          name: a.name,
+          description: a.description,
+          scope: a.scope,
+          model: a.modelPref.kind === 'explicit' ? `${a.modelPref.provider}/${a.modelPref.model}` : a.modelPref.tier,
+        })),
+        skills: skills.map((s) => ({ name: s.name, description: s.description, scope: s.scope })),
       };
     },
     async readSession(id: string): Promise<BridgeSessionDetail | null> {

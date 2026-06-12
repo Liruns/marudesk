@@ -167,6 +167,14 @@ const EXTRAS: NonNullable<RouterDeps['extras']> = {
           }
         : null,
     ),
+  catalog: () =>
+    Promise.resolve({
+      agents: [
+        { name: 'explore', description: 'Fast codebase exploration.', scope: 'builtin', model: 'fast' },
+        { name: 'mock-custom', description: 'A user-defined role.', scope: 'user', model: 'smart' },
+      ],
+      skills: [{ name: 'mock-skill', description: 'A saved playbook.', scope: 'project' }],
+    }),
 };
 
 async function fetchJson(
@@ -470,6 +478,18 @@ async function main(): Promise<void> {
     check(
       'routes: resume-session threads workspaceId to the backend',
       extrasCalls.resumes.at(-1)?.workspaceId === 'ws-1',
+    );
+
+    const catalog = await fetchJson(url, '/agent/catalog');
+    const catalogBody = catalog.body as {
+      agents?: { name: string; scope: string; model?: string }[];
+      skills?: { name: string; scope: string }[];
+    };
+    check(
+      'routes: /agent/catalog serves agents + skills',
+      catalog.status === 200 &&
+        catalogBody.agents?.some((a) => a.name === 'explore' && a.model === 'fast') === true &&
+        catalogBody.skills?.some((s) => s.name === 'mock-skill') === true,
     );
 
     // extras omitted ⇒ the catalog routes 404 (older servers stay coherent).

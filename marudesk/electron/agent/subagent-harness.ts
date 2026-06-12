@@ -91,6 +91,37 @@ const badProvider = await runSubagentTool({ task: 'x', provider: 'not-a-provider
 check('spawn_subagent rejects unknown providers', badProvider.isError === true);
 check('spawn_subagent reports invalid provider text', badProvider.text.includes('unknown provider'));
 
+// Agent roles: list_agents is exposed read-only; spawn resolves a role into the
+// request (system/tool/model preferences ride along on request.agent).
+check('list_agents is listed for the model', listed.some((tool) => tool.name === 'list_agents'));
+check(
+  'list_agents is read-only and non-gated',
+  listed.find((tool) => tool.name === 'list_agents')?.gated !== true &&
+    listed.find((tool) => tool.name === 'list_agents')?.write !== true,
+);
+capturedRequests.length = 0;
+setSubagentRunnerForTests(async (request) => {
+  capturedRequests.push(request);
+  return { summary: 'ok', text: 'child report ok' };
+});
+const roled = await runSubagentTool({ task: 'find the loop entry', agent: 'explore' }, ctx);
+check('spawn_subagent accepts a built-in agent role', roled.isError !== true);
+check('the agent role rides on the request', capturedRequests[0]?.agent?.name === 'explore');
+check(
+  'the explore role narrows the child toolset',
+  (capturedRequests[0]?.agent?.tools ?? []).includes('grep') === true,
+);
+const badAgent = await runSubagentTool({ task: 'x', agent: 'no-such-role' }, ctx);
+check('spawn_subagent rejects an unknown agent role', badAgent.isError === true);
+check('the unknown-agent error lists available roles', badAgent.text.includes('explore'));
+
+// Tier sentinels: model "fast"/"smart" resolve through the provider chain
+// instead of being treated as literal model ids.
+capturedRequests.length = 0;
+const tiered = await runSubagentTool({ task: 'y', model: 'fast' }, ctx);
+check('spawn_subagent accepts the "fast" tier sentinel', tiered.isError !== true);
+check('a tier sentinel never reaches the child as a literal model id', capturedRequests[0]?.model !== 'fast');
+
 capturedRequests.length = 0;
 setSubagentRunnerForTests(async (request) => {
   capturedRequests.push(request);

@@ -760,7 +760,7 @@ export const EN_MESSAGES = {
   'settings.agent.toolGroups.terminal': 'Terminal & diagnostics',
   'settings.agent.toolGroups.web': 'Web search & fetch',
   'settings.agent.delegateModel.hint':
-    'Model that spawned subagents and background agents use by default — pick a cheaper/faster one for delegated subtasks. Inherit uses the conversation model.',
+    'Preferred model for spawned subagents and background agents — pick a cheaper/faster one for delegated subtasks. Agent roles with a fast/smart tier resolve against your connected providers first, and an unavailable provider automatically falls back down the chain. Inherit uses the conversation model.',
   'settings.agent.delegateModel.inherit': 'Inherit current model',
   'settings.agent.delegateModel.label': 'Delegate (subagent) model',
   'settings.agent.fallback.hint':

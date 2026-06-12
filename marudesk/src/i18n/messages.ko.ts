@@ -756,7 +756,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.agent.toolGroups.terminal': '터미널 & 진단',
   'settings.agent.toolGroups.web': '웹 검색 & 가져오기',
   'settings.agent.delegateModel.hint':
-    '생성된 subagent와 백그라운드 에이전트가 기본으로 쓸 모델 — 위임 작업에는 더 싸고 빠른 모델을 고르세요. 상속은 대화 모델을 사용합니다.',
+    '생성된 subagent와 백그라운드 에이전트가 선호하는 모델 — 위임 작업에는 더 싸고 빠른 모델을 고르세요. fast/smart 티어를 가진 에이전트 역할은 연결된 프로바이더에서 먼저 해석되고, 사용할 수 없는 프로바이더는 체인을 따라 자동으로 대체됩니다. 상속은 대화 모델을 사용합니다.',
   'settings.agent.delegateModel.inherit': '현재 모델 상속',
   'settings.agent.delegateModel.label': '위임(subagent) 모델',
   'settings.agent.fallback.hint':

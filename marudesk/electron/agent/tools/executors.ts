@@ -74,7 +74,11 @@ export function describeToolInput(name: string, input: unknown): string {
   if (name === 'generate_image') return typeof o.prompt === 'string' ? o.prompt.slice(0, 500) : '(no prompt)';
   if (name === 'generate_video') return typeof o.prompt === 'string' ? o.prompt.slice(0, 500) : '(no prompt)';
   if (name === SPAWN_SUBAGENT || name === SPAWN_BACKGROUND_AGENT) {
-    return typeof o.task === 'string' ? o.task.slice(0, 500) : '(no task)';
+    const task = typeof o.task === 'string' ? o.task.slice(0, 500) : '(no task)';
+    // Lead with the agent role so the approval/running card shows WHO is being
+    // spawned, not just the task text.
+    const agent = typeof o.agent === 'string' ? o.agent.trim().slice(0, 40) : '';
+    return agent ? `[${agent}] ${task}`.slice(0, 500) : task;
   }
   if (name === 'run_command') return typeof o.command === 'string' ? o.command.slice(0, 300) : '(no command)';
   if (name === 'run_diagnostics') return "run the project's type-check / diagnostics";

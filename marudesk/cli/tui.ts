@@ -17,6 +17,8 @@ import {
   gray,
   green,
   inverse,
+  magenta,
+  padBetween,
   red,
   stringWidth,
   truncate,
@@ -168,6 +170,8 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     return { lines, row, col };
   };
 
+  // Opencode-style status bar: state + workspace + mode on the left, the
+  // model/context/token gauges right-aligned — one full-width line.
   const statusLine = (): string => {
     const s = state;
     const busy = s ? BUSY.has(s.status) : false;
@@ -175,19 +179,22 @@ export async function runTui(opts: TuiOptions): Promise<number> {
       ? red('◌ reconnecting')
       : busy
         ? cyan(`${SPINNER[spinnerIdx % SPINNER.length]} ${s?.status ?? ''}`)
-        : dim('●');
-    const ref = provider && model ? `${provider}/${model}` : 'no model — /model';
-    const parts = [mark, dim(ref)];
-    if (workspaceName) parts.push(dim(workspaceName));
-    if (s) {
-      parts.push(dim(`ctx ${fmtTok(s.usage.contextTokens)}`));
-      parts.push(dim(`↑${fmtTok(s.usage.inputTokens)} ↓${fmtTok(s.usage.outputTokens)}`));
-    }
+        : green('●') + dim(' ready');
+    const leftParts = [mark];
+    if (workspaceName) leftParts.push(dim(workspaceName));
+    if (s?.approvalMode && s.approvalMode !== 'ask') leftParts.push(magenta(s.approvalMode));
     if (busy && turnStartedAt) {
-      parts.push(dim(`${Math.round((Date.now() - turnStartedAt) / 1000)}s`));
-      parts.push(dim('esc to interrupt'));
+      leftParts.push(dim(`${Math.round((Date.now() - turnStartedAt) / 1000)}s`));
+      leftParts.push(dim('esc to interrupt'));
     }
-    return truncate(parts.join(dim(' · ')), cols() - 1);
+    const ref = provider && model ? `${provider}/${model}` : 'no model — /model';
+    const rightParts = [dim(ref)];
+    if (s) {
+      rightParts.push(dim(`ctx ${fmtTok(s.usage.contextTokens)}`));
+      rightParts.push(dim(`↑${fmtTok(s.usage.inputTokens)} ↓${fmtTok(s.usage.outputTokens)}`));
+    }
+    const sep = dim(' · ');
+    return padBetween(leftParts.join(sep), rightParts.join(sep), cols() - 1);
   };
 
   const composerBlock = (): { lines: string[]; cursorRow: number; cursorCol: number } => {
@@ -623,6 +630,36 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     return out;
   };
 
+  /** Render the `/agents` or `/skills` catalog (built-in + user/project). */
+  const catalogLines = async (kind: 'agents' | 'skills'): Promise<string[]> => {
+    let result: import('../shared/remote').BridgeCatalogResult;
+    try {
+      result = await client.catalog(workspaceId);
+    } catch (err) {
+      return [red(`✗ could not list ${kind}: ${(err as Error).message}`)];
+    }
+    const entries = kind === 'agents' ? result.agents : result.skills;
+    const out: string[] = ['', bold(kind)];
+    if (entries.length === 0) {
+      out.push(dim(kind === 'agents' ? '  none' : '  none — add SKILL.md files under .marudesk/skills/'));
+      return out;
+    }
+    const width = cols() - 4;
+    for (const e of entries) {
+      const badge = e.model ? dim(` [${e.scope} · ${e.model}]`) : dim(` [${e.scope}]`);
+      out.push(truncate(`  ${cyan(e.name)}${badge}`, width));
+      for (const l of wrapText(e.description, width - 4)) out.push(dim(`    ${l}`));
+    }
+    out.push(
+      dim(
+        kind === 'agents'
+          ? '  ask the agent to delegate with one (spawn_subagent agent:"<name>"), or define your own in .marudesk/agents/'
+          : '  the agent loads these on demand via the skill tool',
+      ),
+    );
+    return out;
+  };
+
   const runSlash = async (line: string): Promise<boolean> => {
     const resolved = resolveCliSlash(line);
     if (!resolved) {
@@ -698,6 +735,12 @@ export async function runTui(opts: TuiOptions): Promise<number> {
         }
         return true;
       }
+      case 'agents':
+        commitNotice(await catalogLines('agents'));
+        return true;
+      case 'skills':
+        commitNotice(await catalogLines('skills'));
+        return true;
       case 'exit':
         exitResolve?.(0);
         return true;
@@ -972,11 +1015,28 @@ export async function runTui(opts: TuiOptions): Promise<number> {
 
   /* ── lifecycle ────────────────────────────────────────────────────────── */
 
-  const banner = (): string[] => [
-    `${cyan('◆')} ${bold('marudesk chat')} ${dim(`v${opts.version} · ${client.url}`)}`,
-    dim(provider && model ? `  ${provider}/${model} · /help for commands` : '  /help for commands'),
-    '',
-  ];
+  // Opencode-style header block: a bordered card with the app identity on top
+  // and the connection facts beneath, printed once into scrollback.
+  const banner = (): string[] => {
+    const width = Math.min(cols() - 1, 64);
+    const inner = width - 4;
+    const row = (raw: string): string => {
+      const text = stringWidth(raw) > inner ? truncate(raw, inner) : raw;
+      return `${gray('│')} ${text}${' '.repeat(Math.max(0, inner - stringWidth(text)))} ${gray('│')}`;
+    };
+    const rule = (l: string, r: string): string => `${gray(l)}${gray('─'.repeat(width - 2))}${gray(r)}`;
+    return [
+      rule('╭', '╮'),
+      row(`${cyan('█▀▄▀█')} ${bold('marudesk')} ${dim(`v${opts.version}`)}`),
+      row(`${cyan('█ ▀ █')} ${dim('agentic chat · terminal client')}`),
+      rule('├', '┤'),
+      row(dim(`bridge  ${client.url}`)),
+      row(dim(provider && model ? `model   ${provider}/${model}` : 'model   none — /model to pick')),
+      row(dim('help    /help · /agents · /skills · esc interrupts')),
+      rule('╰', '╯'),
+      '',
+    ];
+  };
 
   const decoder = new KeyDecoder();
   let escTimer: NodeJS.Timeout | null = null;
