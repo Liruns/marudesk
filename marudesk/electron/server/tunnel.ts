@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import type { Readable } from 'node:stream';
 import type { TunnelStatus } from '../../shared/remote';
+import { ensureCloudflared, managedBinaryPath } from './tunnel-install';
 
 /**
  * Managed cloudflared quick tunnel for the bridge server (Settings → Remote →
@@ -61,17 +63,31 @@ export function getTunnelUrl(): string | null {
   return state.status?.state === 'up' && state.status.url ? state.status.url : null;
 }
 
-/** Start the quick tunnel fronting `port`. No-op if already running for that port. */
-export function startTunnel(port: number): void {
+/**
+ * Start the quick tunnel fronting `port`. No-op if already running for that
+ * port. `installDir` (the app's user-data dir) enables on-demand install: when
+ * cloudflared is neither managed nor on PATH, the pinned release is downloaded
+ * + digest-verified into `<installDir>/bin` and then spawned — flipping the
+ * toggle is the only user step. Omitted (e.g. a harness) ⇒ PATH only.
+ */
+export function startTunnel(port: number, installDir?: string): void {
   if (state.proc && state.port === port) return;
   stopTunnel();
   state.port = port;
   setStatus({ state: 'starting' });
 
+  // Prefer the managed binary when it's already installed; otherwise PATH.
+  const managed = installDir ? managedBinaryPath(installDir, process.platform) : null;
+  const command = managed && existsSync(managed) ? managed : 'cloudflared';
+  spawnTunnel(command, port, installDir);
+}
+
+/** Spawn one cloudflared process; on a PATH miss, fall back to installing. */
+function spawnTunnel(command: string, port: number, installDir?: string): void {
   let proc: ChildProcessByStdio<null, Readable, Readable>;
   try {
     proc = spawn(
-      'cloudflared',
+      command,
       ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`],
       { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
     );
@@ -96,14 +112,20 @@ export function startTunnel(port: number): void {
   proc.on('error', (err: NodeJS.ErrnoException) => {
     if (state.proc !== proc) return;
     state.proc = null;
-    if (err.code === 'ENOENT') {
+    if (err.code !== 'ENOENT') {
+      setStatus({ state: 'error', detail: err.message });
+      return;
+    }
+    // Not on PATH. With an install dir we can fix that ourselves (unless this
+    // WAS the managed binary, i.e. the install is somehow broken).
+    if (!installDir || command !== 'cloudflared') {
       setStatus({
         state: 'unavailable',
         detail: 'cloudflared not found — install it (or set a Public URL instead)',
       });
-    } else {
-      setStatus({ state: 'error', detail: err.message });
+      return;
     }
+    installAndRetry(port, installDir);
   });
 
   proc.on('exit', (code) => {
@@ -114,6 +136,22 @@ export function startTunnel(port: number): void {
       setStatus({ state: 'error', detail: `cloudflared exited (code ${code ?? 'signal'})` });
     }
   });
+}
+
+/** Download + verify the pinned cloudflared, then spawn it (states: installing → …). */
+function installAndRetry(port: number, installDir: string): void {
+  setStatus({ state: 'installing' });
+  void ensureCloudflared(installDir)
+    .then((binary) => {
+      // Still wanted? The user may have toggled off / changed port mid-download.
+      if (state.port !== port || state.proc) return;
+      setStatus({ state: 'starting' });
+      spawnTunnel(binary, port, installDir);
+    })
+    .catch((err: Error) => {
+      if (state.port !== port) return;
+      setStatus({ state: 'unavailable', detail: err.message });
+    });
 }
 
 /** Stop the tunnel if running and clear its status. */

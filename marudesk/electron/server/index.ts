@@ -264,7 +264,7 @@ export async function syncServerToSettings(settings: AppSettings): Promise<void>
       // No restart needed, but reconcile the tunnel toggle and refresh the
       // renderer's view — a settings edit (e.g. the public URL) may have
       // changed the reachable candidates.
-      if (tunnelEnabled) startTunnel(port);
+      if (tunnelEnabled) startTunnel(port, app.getPath('userData'));
       else stopTunnel();
       onStatus?.(getServerStatus());
       return;
@@ -272,7 +272,7 @@ export async function syncServerToSettings(settings: AppSettings): Promise<void>
     if (server) await stopServer();
     try {
       await startServer(port);
-      if (tunnelEnabled) startTunnel(port);
+      if (tunnelEnabled) startTunnel(port, app.getPath('userData'));
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'EADDRINUSE') {

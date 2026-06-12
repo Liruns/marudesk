@@ -79,7 +79,10 @@ function AutoTunnelField() {
   const tunnel = useServerStatus().tunnel;
   const stateLine =
     enabled && tunnel && tunnel.state !== 'up'
-      ? tunnel.detail ?? t('settings.remote.advanced.tunnel.starting')
+      ? tunnel.detail ??
+        (tunnel.state === 'installing'
+          ? t('settings.remote.advanced.tunnel.installing')
+          : t('settings.remote.advanced.tunnel.starting'))
       : null;
   return (
     <Field

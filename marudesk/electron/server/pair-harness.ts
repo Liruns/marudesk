@@ -22,6 +22,7 @@ import {
 import { getConnectCandidates } from './pairing-urls.ts';
 import { createPairingManager } from './pairing.ts';
 import { handleRequest, type RouterDeps } from './router.ts';
+import { assetFor, extractTarEntry } from './tunnel-install.ts';
 import { parseTunnelUrl } from './tunnel.ts';
 
 /**
@@ -459,6 +460,28 @@ async function main(): Promise<void> {
       parseTunnelUrl(banner) === 'https://random-words-here.trycloudflare.com',
     );
     check('parseTunnelUrl ignores unrelated output', parseTunnelUrl('INF Starting tunnel') === null);
+
+    // ── auto tunnel: the on-demand installer's pure pieces ──────────────────────
+    check(
+      'assetFor maps the supported platforms and rejects the rest',
+      assetFor('linux', 'x64') === 'cloudflared-linux-amd64' &&
+        assetFor('win32', 'x64') === 'cloudflared-windows-amd64.exe' &&
+        assetFor('darwin', 'arm64') === 'cloudflared-darwin-arm64.tgz' &&
+        assetFor('linux', 'ia32') === null,
+    );
+    // A minimal synthetic tar: one regular file "cloudflared" with 5 bytes.
+    const tarBody = Buffer.from('hello');
+    const header = Buffer.alloc(512);
+    header.write('./cloudflared', 0, 'utf8');
+    header.write('0000005\0', 124, 'utf8'); // octal size
+    header.write('0', 156, 'utf8'); // regular file
+    const tar = Buffer.concat([header, tarBody, Buffer.alloc(512 - tarBody.length), Buffer.alloc(1024)]);
+    const extracted = extractTarEntry(tar, 'cloudflared');
+    check(
+      'extractTarEntry pulls the binary entry out of a tar by basename',
+      extracted !== null && extracted.toString('utf8') === 'hello',
+    );
+    check('extractTarEntry misses cleanly on an absent entry', extractTarEntry(tar, 'nope') === null);
 
     console.log(`\npairing + E2E harness: ${passed} assertions passed`);
   } finally {

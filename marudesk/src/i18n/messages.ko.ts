@@ -958,8 +958,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '선택 사항: 이 PC 앞에 직접 띄운 터널·리버스 프록시 주소(cloudflared, ngrok, Caddy)입니다. 페어링 QR에 포함되어 휴대폰이 어느 네트워크에서든 이 PC에 연결됩니다. 클라우드 릴레이도, 휴대폰에 설치할 것도 없습니다.',
   'settings.remote.advanced.publicUrl.label': '공개 URL',
   'settings.remote.advanced.tunnel.hint':
-    '서버가 켜져 있는 동안 cloudflared 퀵 터널을 자동으로 실행하고 그 공개 URL을 페어링 QR에 넣습니다. 설정은 필요 없지만 URL이 시작할 때마다 바뀝니다(장기 페어링에는 위의 고정 공개 URL이 더 적합). cloudflared 설치가 필요합니다.',
+    '서버가 켜져 있는 동안 cloudflared 퀵 터널을 자동으로 실행하고 그 공개 URL을 페어링 QR에 넣습니다. cloudflared는 처음 켤 때 자동으로 내려받아 검증·설치합니다. URL이 시작할 때마다 바뀌므로 장기 페어링에는 위의 고정 공개 URL이 더 적합합니다.',
   'settings.remote.advanced.tunnel.label': '자동 터널',
+  'settings.remote.advanced.tunnel.installing': 'cloudflared 내려받는 중(검증 포함, 최초 1회)…',
   'settings.remote.advanced.tunnel.starting': '터널 시작 중…',
   'settings.remote.advanced.toggle':
     '고급 - 포트, 네트워크 주소, 무인 모드',

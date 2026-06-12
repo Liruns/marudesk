@@ -114,10 +114,11 @@ fails over across the candidates whenever a stream open fails, so a phone paired
 on the home LAN keeps reaching the PC from other networks:
 
 - **Auto tunnel (zero setup)**: flip Settings → Remote → Advanced → **Auto
-  tunnel** on the PC (needs the `cloudflared` binary installed). The PC spawns a
-  quick tunnel alongside the bridge and puts its public URL into the pairing QR
-  — the phone just scans. Caveat: the quick-tunnel URL changes on every server
-  start, so re-pair (or fall back to another candidate) after a PC restart.
+  tunnel** on the PC. If `cloudflared` isn't present, the PC downloads a pinned,
+  SHA-256-verified release by itself (one time), then spawns a quick tunnel
+  alongside the bridge and puts its public URL into the pairing QR — the phone
+  just scans. Caveat: the quick-tunnel URL changes on every server start, so
+  re-pair (or fall back to another candidate) after a PC restart.
 - **Your own stable URL (PC-only setup)**: run cloudflared (named tunnel),
   ngrok, or a reverse proxy in front of the bridge and set it as Settings →
   Remote → Advanced → **Public URL** — it joins the pairing QR as the first

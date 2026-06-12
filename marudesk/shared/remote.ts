@@ -462,7 +462,7 @@ export type ServerStatus = {
  * candidates so the pairing QR works from any network with zero manual steps.
  */
 export type TunnelStatus = {
-  state: 'starting' | 'up' | 'unavailable' | 'error';
+  state: 'starting' | 'installing' | 'up' | 'unavailable' | 'error';
   /** The public base URL once the tunnel is up. */
   url?: string;
   /** Human-readable detail for the unavailable/error states. */
