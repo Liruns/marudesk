@@ -7,6 +7,7 @@ import {
   type ThemeMode,
 } from '../../../shared/settings';
 import { fontStack } from '../../../shared/fonts';
+import { applyHljsTheme } from '../../lib/hljsTheme';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 
@@ -63,7 +64,10 @@ export function resolveTheme(mode: ThemeMode): 'dark' | 'light' {
  */
 function applyAppearance(s: AppSettings): void {
   const root = document.documentElement;
-  root.dataset.theme = resolveTheme(s.appearance.theme);
+  const theme = resolveTheme(s.appearance.theme);
+  root.dataset.theme = theme;
+  // Code-block token palette follows the app theme (github vs github-dark).
+  applyHljsTheme(theme);
   // Surface palette (tokens.css [data-palette] blocks); 'default' clears the
   // attribute so the base graphite tokens apply.
   if (s.appearance.palette === 'default') delete root.dataset.palette;

@@ -1,18 +1,83 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Film, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlertCircle, Film, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
 import { toMessage } from '../../../lib/toMessage';
 import type { ToolMediaArtifact } from '../../../../shared/agent';
 
-/** A bounded image thumbnail (composer attachment strip + transcript). */
+/**
+ * Full-window image viewer for chat thumbnails. Click anywhere (or Escape) to
+ * close. Mirrors ModelPalette's overlay contract: the embedded web view is a
+ * native layer composited OVER the React DOM, so it's hidden while the viewer
+ * is open or the overlay would render behind an active browser pane.
+ */
+function Lightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  const { t } = useI18n();
+  useEffect(() => {
+    void window.marudesk.invoke('browser:set-visible', false);
+    return () => {
+      void window.marudesk.invoke('browser:set-visible', true);
+    };
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/70 p-6"
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-full max-w-full rounded-lg object-contain shadow-lifted animate-scale-in"
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={t('agent.chat.media.close')}
+        title={t('agent.chat.media.close')}
+        className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-pill border border-default bg-surface-2 text-fg-secondary shadow-lifted transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+      >
+        <X size={15} />
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+/** A bounded image thumbnail (composer attachment strip + transcript); click to enlarge. */
 export function ChatImage({ mediaType, data }: { mediaType: string; data: string }) {
   const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const src = `data:${mediaType};base64,${data}`;
+  const alt = t('agent.chat.attachedAlt');
   return (
-    <img
-      src={`data:${mediaType};base64,${data}`}
-      alt={t('agent.chat.attachedAlt')}
-      className="max-h-40 max-w-full rounded border border-subtle object-contain"
-    />
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={t('agent.chat.media.zoom')}
+        className="block cursor-zoom-in"
+      >
+        <img
+          src={src}
+          alt={alt}
+          className="block max-h-40 max-w-full rounded border border-subtle object-contain"
+        />
+      </button>
+      {open ? <Lightbox src={src} alt={alt} onClose={() => setOpen(false)} /> : null}
+    </>
   );
 }
 
@@ -40,6 +105,7 @@ type MediaLoad =
 function GeneratedMedia({ artifact }: { artifact: ToolMediaArtifact }) {
   const { t } = useI18n();
   const [load, setLoad] = useState<MediaLoad>({ status: 'loading' });
+  const [zoomed, setZoomed] = useState(false);
   // Reset to loading when the artifact changes WITHOUT a remount. Done during
   // render (React's "adjust state on prop change" pattern) rather than in the
   // effect below — a synchronous setState in an effect body triggers a wasted
@@ -83,11 +149,18 @@ function GeneratedMedia({ artifact }: { artifact: ToolMediaArtifact }) {
               className="max-h-72 max-w-full block"
             />
           ) : (
-            <img
-              src={load.dataUrl}
-              alt={name}
-              className="max-h-72 max-w-full object-contain block"
-            />
+            <button
+              type="button"
+              onClick={() => setZoomed(true)}
+              title={t('agent.chat.media.zoom')}
+              className="block cursor-zoom-in"
+            >
+              <img
+                src={load.dataUrl}
+                alt={name}
+                className="max-h-72 max-w-full object-contain block"
+              />
+            </button>
           )
         ) : (
           <div className="flex items-center gap-2 px-3 py-6 text-caption text-fg-tertiary">
@@ -104,6 +177,9 @@ function GeneratedMedia({ artifact }: { artifact: ToolMediaArtifact }) {
           </div>
         )}
       </div>
+      {zoomed && load.status === 'ready' ? (
+        <Lightbox src={load.dataUrl} alt={name} onClose={() => setZoomed(false)} />
+      ) : null}
       <figcaption className="flex items-center gap-1 text-[10px] text-fg-tertiary/80">
         <Icon size={10} className="shrink-0" />
         <span className="truncate" title={artifact.path}>

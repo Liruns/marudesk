@@ -424,6 +424,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.attachmentAlt': '첨부 파일',
   'agent.chat.media.loading': '미디어 불러오는 중…',
   'agent.chat.media.error': '미디어를 불러올 수 없음',
+  'agent.chat.media.zoom': '클릭하여 크게 보기',
+  'agent.chat.media.close': '이미지 닫기',
   'agent.chat.badge.errorsGone': '오류 사라짐',
   'agent.chat.badge.noSource': '소스 없음',
   'agent.chat.badge.sourceMapped': '소스 매핑됨',

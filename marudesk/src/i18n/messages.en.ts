@@ -425,6 +425,8 @@ export const EN_MESSAGES = {
   'agent.chat.attachmentAlt': 'attachment',
   'agent.chat.media.loading': 'Loading media…',
   'agent.chat.media.error': 'Could not load media',
+  'agent.chat.media.zoom': 'Click to enlarge',
+  'agent.chat.media.close': 'Close image',
   'agent.chat.badge.errorsGone': 'errors gone',
   'agent.chat.badge.noSource': 'no source',
   'agent.chat.badge.sourceMapped': 'source mapped',
