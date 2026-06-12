@@ -1,4 +1,6 @@
 import type { ProviderId } from '../../shared/providers';
+import type { ModelRef } from '../../shared/settings';
+import type { AgentDef } from './agents-store';
 import type { ToolContext, ToolResult } from './tools/types';
 
 export const MAX_TASK_CHARS = 8_000;
@@ -13,6 +15,13 @@ export type SubagentRunRequest = {
   readonly provider: ProviderId;
   readonly model: string;
   readonly maxSteps: number;
+  /** The agent role driving the child's system prompt + tool allowlist, if any. */
+  readonly agent?: AgentDef | null;
+  /**
+   * Remaining candidates from the provider-aware resolution chain
+   * (subagent-resolve.ts) — walked on a mid-run 429/5xx, parent-loop style.
+   */
+  readonly fallbacks?: readonly ModelRef[];
 };
 
 export type SubagentRunner = (

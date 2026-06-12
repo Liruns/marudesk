@@ -66,7 +66,7 @@ setBackgroundRunnerForTests((request) => {
   });
 });
 
-const spawn = startBackgroundAgentTool({ task: 'investigate plumbing', label: 'BG' }, ctx);
+const spawn = await startBackgroundAgentTool({ task: 'investigate plumbing', label: 'BG' }, ctx);
 const id = ackId(spawn.text);
 check('spawn returns immediately without error', spawn.isError !== true && id.startsWith('bg-'));
 check('spawn falls back to parent provider/model', captured[0]?.provider === 'ollama' && captured[0]?.model === 'qwen2.5-coder');
@@ -95,7 +95,7 @@ function ctxSignalToResolve(_r: SubagentRunRequest, resolve: (v: { summary: stri
   // Mimic runChildAgent: settle as an aborted failure when cancelled.
   setTimeout(() => resolve({ summary: 'aborted', text: 'aborted by user', isError: true }), 0);
 }
-const spawn2 = startBackgroundAgentTool({ task: 'long job', label: 'BG2' }, ctx);
+const spawn2 = await startBackgroundAgentTool({ task: 'long job', label: 'BG2' }, ctx);
 const id2 = ackId(spawn2.text);
 const cancelled = cancelBackgroundTool({ id: id2 });
 check('cancel reports success', cancelled.isError !== true && cancelled.text.includes('Cancelled'));
@@ -107,12 +107,12 @@ check('collecting a cancelled task marks it collected', S.state.background.find(
 
 /* ── concurrency cap ──────────────────────────────────────────────────── */
 setBackgroundRunnerForTests(() => new Promise(() => {})); // never settles → stays running
-for (let i = 0; i < 4; i += 1) startBackgroundAgentTool({ task: `fill ${i}`, label: `F${i}` }, ctx);
-const overflow = startBackgroundAgentTool({ task: 'one too many', label: 'OVER' }, ctx);
+for (let i = 0; i < 4; i += 1) await startBackgroundAgentTool({ task: `fill ${i}`, label: `F${i}` }, ctx);
+const overflow = await startBackgroundAgentTool({ task: 'one too many', label: 'OVER' }, ctx);
 check('spawn beyond the active cap is rejected', overflow.isError === true && overflow.text.includes('Too many'));
 
 /* ── input validation ─────────────────────────────────────────────────── */
-const bad = startBackgroundAgentTool({ task: 'x', provider: 'not-a-provider' }, ctx);
+const bad = await startBackgroundAgentTool({ task: 'x', provider: 'not-a-provider' }, ctx);
 check('spawn rejects unknown providers', bad.isError === true && bad.text.includes('unknown provider'));
 
 /* ── conversation teardown drops tasks ────────────────────────────────── */
@@ -124,7 +124,7 @@ check('collect after teardown reports none', listAfter.text.includes('No backgro
 /* ── user cancel from the tray (H6) ───────────────────────────────────── */
 S.conversationId = 'session-cancel';
 setBackgroundRunnerForTests(() => new Promise(() => {})); // never settles on its own
-const spawn3 = startBackgroundAgentTool({ task: 'cancel me', label: 'C' }, ctx);
+const spawn3 = await startBackgroundAgentTool({ task: 'cancel me', label: 'C' }, ctx);
 const id3 = ackId(spawn3.text);
 check('cancelBackgroundTask cancels a running task', cancelBackgroundTask(id3) === true);
 check(
@@ -139,7 +139,7 @@ S.conversationId = 'session-evict';
 setBackgroundRunnerForTests(() => Promise.resolve({ summary: 'ok', text: 'ok' }));
 const evIds: string[] = [];
 for (let i = 0; i < 22; i += 1) {
-  const s = startBackgroundAgentTool({ task: `t${i}`, label: `T${i}` }, ctx);
+  const s = await startBackgroundAgentTool({ task: `t${i}`, label: `T${i}` }, ctx);
   const eid = ackId(s.text);
   evIds.push(eid);
   await whenBackgroundSettled(eid);

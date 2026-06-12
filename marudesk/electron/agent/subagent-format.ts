@@ -13,7 +13,8 @@ export function childPrompt(request: SubagentRunRequest, ctx: ToolContext): stri
     ? `Workspace: ${ctx.ws.name} (${ctx.ws.files.length} indexed files).`
     : 'Workspace: none open; file tools are unavailable.';
   const tab = ctx.tabId ? `Active web tab id: ${ctx.tabId}.` : 'Active web tab: none.';
-  return `${workspace}\n${tab}\n\nDelegated task:\n${request.task}\n\nReturn a compact final report for the parent agent.`;
+  const role = request.agent ? `Role: ${request.agent.name} — ${request.agent.description}\n` : '';
+  return `${workspace}\n${tab}\n${role}\nDelegated task:\n${request.task}\n\nReturn a compact final report for the parent agent.`;
 }
 
 export function subagentSuccess(
@@ -44,7 +45,8 @@ export function subagentFailure(
 }
 
 function subagentSummary(request: SubagentRunRequest): string {
-  return `Subagent ${request.label} - ${request.provider}/${request.model}`;
+  const role = request.agent ? ` (${request.agent.name})` : '';
+  return `Subagent ${request.label}${role} - ${request.provider}/${request.model}`;
 }
 
 function formatSubagentResult(
@@ -56,6 +58,7 @@ function formatSubagentResult(
   const traceText = traces.length > 0 ? `\n\nTool trace:\n${traces.map((trace) => `- ${trace}`).join('\n')}` : '';
   const text = [
     `Task: ${request.task}`,
+    ...(request.agent ? [`Agent: ${request.agent.name}`] : []),
     `Provider/model: ${request.provider} / ${request.model}`,
     `Status: ${status}`,
     '',

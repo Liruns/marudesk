@@ -57,12 +57,14 @@ npm run e2e
 
 ## Chat from the terminal
 
-The bundled chat CLI (docs/chat-cli-tui-design.md) is a Claude-Code-style
-terminal UI over the same agent loop: streamed markdown + reasoning, tool
-lines, a sticky composer with a slash menu (`/model`, `/sessions`, `/new`,
-`/review`, …), inline approval/question panels, Esc to interrupt. The app
-always runs a loopback companion bridge while it's open, so this works with
-zero configuration:
+The bundled chat CLI (docs/chat-cli-tui-design.md) is an OpenCode-style
+terminal UI over the same agent loop: a bordered header card, a full-width
+status bar (state · workspace · approval mode on the left, model · context ·
+tokens on the right), streamed markdown + reasoning, tool lines, a sticky
+composer with a slash menu (`/model`, `/sessions`, `/new`, `/review`,
+`/agents`, `/skills`, …), inline approval/question panels, Esc to interrupt.
+The app always runs a loopback companion bridge while it's open, so this works
+with zero configuration:
 
 ```bash
 npm run chat                                   # interactive TUI
@@ -81,6 +83,30 @@ those stay pinned to the desktop (the L-1 guard).
 In the app itself, Settings → Agent → **Chat surface → Terminal CLI** makes the
 chat toggle open an "AI Chat (CLI)" terminal tab hosting this CLI instead of
 the side panel.
+
+## Agent roles & skills
+
+Delegated subtasks (`spawn_subagent` / `spawn_background_agent`) run as named
+roles. Built-ins: `explore`, `researcher`, `reviewer`, `planner`, `general`
+(`list_agents` shows the catalog; docs/subagent-design.md has the design).
+Define your own as markdown files — `<userData>/agents/<name>.md` (user) or
+`<workspace>/.marudesk/agents/<name>.md` (project; shadows user/builtin):
+
+```markdown
+---
+description: Writes API documentation from source.
+model: fast            # fast | smart | inherit | <provider>/<model>
+tools: read_file, list_files, grep
+---
+You are a documentation writer. Read the relevant source and produce…
+```
+
+The role's model preference resolves against the providers you actually
+connected (tier → concrete model per provider), and a rate-limited/erroring
+provider fails over down the chain mid-run — same rules as the main loop's
+model fallback. Tool lists only ever narrow the child-safe read-only toolset.
+Reusable instruction **skills** live next door (`skills/<name>/SKILL.md`) and
+load on demand through the `skill` tool.
 
 ## Verification harnesses
 

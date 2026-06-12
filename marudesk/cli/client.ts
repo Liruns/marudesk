@@ -6,7 +6,13 @@ import type {
 } from '../shared/agent';
 import type { SessionSummary } from '../shared/context';
 import type { AgentApprovalMode } from '../shared/settings';
-import type { BridgeModelsResult, BridgeSessionDetail, BridgeWorkspacesResult, RemoteHealth } from '../shared/remote';
+import type {
+  BridgeCatalogResult,
+  BridgeModelsResult,
+  BridgeSessionDetail,
+  BridgeWorkspacesResult,
+  RemoteHealth,
+} from '../shared/remote';
 
 /**
  * Typed REST + SSE client over the bridge's bearer path (chat CLI v2 —
@@ -48,6 +54,10 @@ export function createClient(conn: Connection) {
     snapshot: () => request<AgentChatState>('/agent/snapshot'),
     models: () => request<BridgeModelsResult>('/agent/models'),
     workspaces: () => request<BridgeWorkspacesResult>('/agent/workspaces'),
+    catalog: (workspaceId?: string) =>
+      request<BridgeCatalogResult>(
+        `/agent/catalog${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ''}`,
+      ),
     sessionHistory: (id: string) => request<BridgeSessionDetail>(`/agent/session?id=${encodeURIComponent(id)}`),
     sessions: (workspaceId?: string | null) => {
       const q = workspaceId === undefined ? '' : `?workspace=${workspaceId ?? ''}`;

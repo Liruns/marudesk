@@ -80,6 +80,26 @@ export type BridgeProviderModels = {
 /** `GET /agent/models` response. */
 export type BridgeModelsResult = { providers: BridgeProviderModels[] };
 
+/** One agent role / skill entry in `GET /agent/catalog`. */
+export type BridgeCatalogEntry = {
+  name: string;
+  description: string;
+  /** 'builtin' | 'user' | 'project' (kept as string so the wire type stays light). */
+  scope: string;
+  /** Agents only: the model preference (`fast`/`smart`/`inherit` or `provider/model`). */
+  model?: string;
+};
+
+/**
+ * `GET /agent/catalog?workspace=<id>` response: the subagent roles + skills the
+ * agent can use (built-in + user + the scoped workspace's project definitions),
+ * for the CLI's `/agents` and `/skills` commands.
+ */
+export type BridgeCatalogResult = {
+  agents: BridgeCatalogEntry[];
+  skills: BridgeCatalogEntry[];
+};
+
 /** One open PC workspace in `GET /agent/workspaces` — id + display name only. */
 export type BridgeWorkspaceInfo = {
   id: string;

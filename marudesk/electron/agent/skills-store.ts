@@ -37,8 +37,9 @@ export type SkillMeta = {
 
 const strProp = (desc: string) => ({ type: 'string', description: desc });
 
-/** Parse leading `---`-fenced frontmatter into a flat key→string map + the body. */
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+/** Parse leading `---`-fenced frontmatter into a flat key→string map + the body.
+ * Shared with agents-store.ts (AGENT.md uses the same convention). */
+export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
   const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
   const fenced = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
   const m = fenced.exec(text);
@@ -54,7 +55,7 @@ function parseFrontmatter(raw: string): { meta: Record<string, string>; body: st
 }
 
 /** First non-empty, non-heading body line — the description fallback. */
-function firstLine(body: string): string {
+export function firstLine(body: string): string {
   for (const line of body.split(/\r?\n/)) {
     const t = line.trim();
     if (t && !t.startsWith('#')) return t.slice(0, 200);

@@ -77,15 +77,15 @@ setBackgroundRunnerForTests((request: SubagentRunRequest) => {
 });
 
 switchThread(MAIN_THREAD);
-const running = startBackgroundAgentTool({ task: 'long root work', label: 'running child' }, ctx());
+const running = await startBackgroundAgentTool({ task: 'long root work', label: 'running child' }, ctx());
 const runningId = ackId(running.text);
 check('running background spawn returns an id', runningId.startsWith('bg-'));
 
 switchThread(sideThread);
-const done = startBackgroundAgentTool({ task: 'finished side work', label: 'done child' }, ctx());
+const done = await startBackgroundAgentTool({ task: 'finished side work', label: 'done child' }, ctx());
 const doneId = ackId(done.text);
 await whenBackgroundSettled(doneId);
-const cancelled = startBackgroundAgentTool({ task: 'cancel side work', label: 'cancelled child' }, ctx());
+const cancelled = await startBackgroundAgentTool({ task: 'cancel side work', label: 'cancelled child' }, ctx());
 const cancelledId = ackId(cancelled.text);
 cancelBackgroundTool({ id: cancelledId }, ctx());
 
