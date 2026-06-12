@@ -20,6 +20,7 @@ import { projectRemoteCallback } from './remote-state';
 import {
   normalizeRelayUrl,
   relayAuthenticate,
+  relayGoogleAuthorizeUrl,
   relayHandoffExchange,
   relayLogout,
 } from './relay-auth';
@@ -156,8 +157,10 @@ const GOOGLE_HANDOFF_PATH = '/oauth/relay/callback';
 
 /**
  * Log in to the relay with Google (B4 desktop flow): start a transient loopback
- * server, send the SYSTEM browser through the relay's OAuth web flow
- * (`/auth/google?handoff_port=N`), then trade the one-time code the relay
+ * server, resolve the provider authorize URL from the relay
+ * (`/auth/google?handoff_port=N` → its 302 target, so a down/unconfigured relay
+ * errors here instead of as a dead browser tab), open the SYSTEM browser
+ * directly on Google's sign-in page, then trade the one-time code the relay
  * redirected back with for the session. On success the Google identity is also
  * linked onto the active profile (the ProfileSwitcher badge).
  */
@@ -177,7 +180,8 @@ export async function loginWithGoogle(input: {
   });
   try {
     const port = Number(new URL(loopback.redirectUri).port);
-    const opened = await openExternalUrl(`${relayUrl}/auth/google?handoff_port=${port}`);
+    const authorizeUrl = await relayGoogleAuthorizeUrl(relayUrl, port);
+    const opened = await openExternalUrl(authorizeUrl);
     if (!opened) throw new Error('could not open the browser for Google sign-in');
     const { code } = await loopback.waitForCallback(GOOGLE_LOGIN_TIMEOUT_MS, abort.signal);
     const auth = await relayHandoffExchange(relayUrl, code);

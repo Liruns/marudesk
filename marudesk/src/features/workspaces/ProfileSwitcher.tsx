@@ -36,7 +36,7 @@ export function ProfileSwitcher() {
     setLinking(true);
     try {
       // Same backend flow as Settings → Remote's Google button: the relay URL
-      // comes from settings (its default points at the hosted relay).
+      // comes from settings (default: the local dev relay on 127.0.0.1:8788).
       const settings = await window.marudesk.invoke('settings:get');
       await window.marudesk.invoke('relay:login-google', { relayUrl: settings.server.relayUrl });
     } catch (err) {
