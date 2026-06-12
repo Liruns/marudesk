@@ -1,7 +1,11 @@
 import { createRequire } from 'node:module';
 import { app, type BrowserWindow } from 'electron';
 import type { AppUpdater, ProgressInfo, UpdateInfo } from 'electron-updater';
-import type { UpdateStatus } from '../shared/app-info';
+import {
+  MARUDESK_RELEASES_URL,
+  type UpdateCheckResult,
+  type UpdateStatus,
+} from '../shared/app-info';
 import { defineHandler } from './ipc/define-handler';
 import { toMessage } from '../shared/to-message';
 
@@ -60,6 +64,55 @@ function wireEvents(autoUpdater: AppUpdater): void {
   autoUpdater.on('error', (err: Error) =>
     setStatus({ kind: 'error', message: toMessage(err) }),
   );
+}
+
+/**
+ * Trigger a manual update check through electron-updater (same path as the
+ * launch-time check). Returns null when the auto-updater is not active (dev /
+ * non-Windows), signalling the caller to fall back to the GitHub API check.
+ */
+export async function checkManually(): Promise<UpdateCheckResult | null> {
+  if (currentStatus.kind === 'disabled') return null;
+
+  const { autoUpdater } = updaterModule;
+  const currentVersion = app.getVersion();
+
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    const checkedAt = Date.now();
+    const latestVersion = result?.updateInfo.version ?? currentVersion;
+
+    if (
+      currentStatus.kind === 'available' ||
+      currentStatus.kind === 'downloading' ||
+      currentStatus.kind === 'downloaded'
+    ) {
+      return {
+        kind: 'available',
+        currentVersion,
+        latestVersion,
+        releaseUrl: MARUDESK_RELEASES_URL,
+        checkedAt,
+      };
+    }
+
+    return {
+      kind: 'up-to-date',
+      currentVersion,
+      latestVersion,
+      releaseUrl: MARUDESK_RELEASES_URL,
+      checkedAt,
+    };
+  } catch (err: unknown) {
+    setStatus({ kind: 'error', message: toMessage(err) });
+    return {
+      kind: 'unavailable',
+      currentVersion,
+      reason: 'network-error',
+      releaseUrl: MARUDESK_RELEASES_URL,
+      checkedAt: Date.now(),
+    };
+  }
 }
 
 /**
