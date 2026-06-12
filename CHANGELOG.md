@@ -37,6 +37,9 @@
   (open/delete), persisted per profile.
 - Address bar suggestions: bookmarks and frecency-ranked history with token
   highlighting, plus a search-the-web row.
+- Tab groups: group tabs under a named, colored chip (collapse/expand,
+  rename, recolor, ungroup, close group), with contiguous membership kept
+  through drag-reorder and groups restored with the session.
 
 ### DevTools
 - Network request details get proper tabs: Headers (collapsible,
@@ -58,6 +61,15 @@
 - Mobile local notifications for background-agent completion, new approval
   requests, and turn completion while the app is backgrounded, with a
   Notifications toggle in Account settings.
+
+### Source control
+- Stashes: list, apply, pop, and drop from a new Stashes section, plus a
+  stash-changes action (optional message, includes untracked files).
+- Merge conflict resolution: conflicted files get their own section with
+  per-file accept ours/theirs/mark resolved/open actions, an operation
+  banner (merge/rebase/cherry-pick), and Continue/Abort once everything is
+  resolved. Conflict markers in open editor buffers are highlighted with
+  accept current/incoming/both codelens actions.
 
 ### Security
 - SSH host keys are now pinned on first sight and verified on every
