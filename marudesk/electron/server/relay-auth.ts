@@ -13,10 +13,12 @@ import type {
  * generic — no user enumeration), and tokens are returned to the caller (main)
  * only; they're persisted by electron/secrets.ts and never reach the renderer.
  *
- * Google OAuth (B4): the relay runs its standard web flow in the user's browser
- * (`/auth/google?handoff_port=N`) and redirects back to the app's transient
- * loopback server with a one-time code; {@link relayHandoffExchange} trades that
- * code for the session. GitHub stays web-only for now.
+ * Google OAuth (B4): {@link relayGoogleAuthorizeUrl} asks the relay for the
+ * provider authorize URL (the 302 target of `/auth/google?handoff_port=N`) so the
+ * system browser opens directly on Google's sign-in page; the relay's callback
+ * then redirects back to the app's transient loopback server with a one-time
+ * code, and {@link relayHandoffExchange} trades that code for the session.
+ * GitHub stays web-only for now.
  */
 
 const AUTH_TIMEOUT_MS = 15_000;
@@ -133,6 +135,47 @@ export async function relayAuthenticate(
   const parsed = coerceAuthResponse(json);
   if (!parsed) throw new Error('relay returned a malformed auth response');
   return parsed;
+}
+
+/**
+ * `GET /auth/google?handoff_port=N` WITHOUT following the redirect — returns the
+ * provider authorize URL from the relay's 302 `location`. Resolving this in main
+ * (instead of pointing the browser at the relay URL) fails fast with a clear,
+ * in-app error when the relay is unreachable or Google OAuth isn't configured,
+ * and lands the browser directly on Google's sign-in page rather than on a dead
+ * `127.0.0.1:<relay>` tab.
+ */
+export async function relayGoogleAuthorizeUrl(
+  relayUrl: string,
+  handoffPort: number,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${relayUrl}/auth/google?handoff_port=${handoffPort}`, {
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+  } catch {
+    throw new Error(
+      `relay is not reachable at ${relayUrl} — start the relay or fix the relay URL in Settings → Remote`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status === 503) {
+    throw new Error(
+      'Google sign-in is not configured on this relay (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET unset)',
+    );
+  }
+  const location = res.headers.get('location');
+  // The relay only ever 302s to the provider's https authorize URL; anything
+  // else (proxy page, wrong service on that port) must not reach the browser.
+  if (res.status !== 302 || !location || !/^https:\/\//i.test(location)) {
+    throw new Error(`relay returned an unexpected response for Google sign-in (HTTP ${res.status})`);
+  }
+  return location;
 }
 
 /**
