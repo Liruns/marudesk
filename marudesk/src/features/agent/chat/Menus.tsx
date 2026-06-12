@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { FileCode, X } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useI18n } from '../../../i18n/useI18n';
@@ -9,6 +10,22 @@ import { useSettingsStore } from '../../settings/store';
 import { useProvidersStore } from '../../providers/store';
 import { useAgentStore } from '../store';
 import { formatContext, formatContextWindow } from './format';
+
+/**
+ * Keep the keyboard-highlighted row visible: the menus scroll (max-h-64) but
+ * arrow keys move only the `aria-selected` row, so the list must follow it.
+ */
+function useScrollActiveIntoView(activeIndex: number) {
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = listRef.current?.querySelector('[aria-selected="true"]');
+    // jsdom (tests) has no scrollIntoView; real DOM always does.
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest' });
+    }
+  }, [activeIndex]);
+  return listRef;
+}
 
 /** The `@file` picker — mirrors {@link SlashMenu}, listing matched workspace files. */
 export function MentionMenu({
@@ -23,8 +40,10 @@ export function MentionMenu({
   onHover: (index: number) => void;
 }) {
   const { t } = useI18n();
+  const listRef = useScrollActiveIntoView(activeIndex);
   return (
     <div
+      ref={listRef}
       role="listbox"
       aria-label={t('agent.chat.workspaceFiles')}
       className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
@@ -111,8 +130,10 @@ export function SlashMenu({
   onHover: (index: number) => void;
 }) {
   const { t } = useI18n();
+  const listRef = useScrollActiveIntoView(activeIndex);
   return (
     <div
+      ref={listRef}
       role="listbox"
       aria-label={t('agent.chat.slashCommands')}
       className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"

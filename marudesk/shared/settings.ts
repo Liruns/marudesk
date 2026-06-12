@@ -50,13 +50,6 @@ export type SearchEngine = 'google' | 'duckduckgo' | 'bing';
 export type AgentApprovalMode = 'read-only' | 'ask' | 'auto' | 'plan';
 
 /**
- * Which surface the AI-Chat open intents land on (chat CLI v2 —
- * docs/chat-cli-tui-design.md §6.2): the React chat drawer/panel, or an
- * "AI Chat (CLI)" terminal tab running the bundled chat CLI.
- */
-export type ChatSurface = 'panel' | 'cli';
-
-/**
  * What the window's close button does: 'quit' exits the app; 'tray' hides the
  * window and keeps marudesk running in the background behind a tray icon
  * (Settings → Window). 'tray' is the default so closing the window never kills
@@ -220,13 +213,6 @@ export type AppSettings = {
      * still override per-call; null = inherit the parent model (default, no change).
      */
     subagentModel: ModelRef | null;
-    /**
-     * Which surface the AI-Chat open intents (titlebar toggle, console
-     * "Fix this") land on (chat CLI v2 — docs/chat-cli-tui-design.md §6.2):
-     * `panel` (default) opens the chat drawer; `cli` opens/focuses an
-     * "AI Chat (CLI)" terminal tab running the bundled chat CLI.
-     */
-    chatSurface: ChatSurface;
   };
   /**
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
@@ -384,7 +370,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     denyTools: [],
     alwaysAllowTools: [],
     subagentModel: null,
-    chatSurface: 'panel',
   },
   pcControl: {
     enabled: false,
@@ -421,7 +406,6 @@ const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
 const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing'];
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
 const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
-const CHAT_SURFACES: readonly ChatSurface[] = ['panel', 'cli'];
 const CLOSE_BEHAVIORS: readonly CloseBehavior[] = ['quit', 'tray'];
 const MAX_DENY_GLOBS = 100;
 
@@ -615,7 +599,6 @@ export function sanitizeSettings(
       denyTools: asStringArray(ag.denyTools, base.agent.denyTools),
       alwaysAllowTools: asStringArray(ag.alwaysAllowTools, base.agent.alwaysAllowTools),
       subagentModel: asModelRefOrNull(ag.subagentModel, base.agent.subagentModel),
-      chatSurface: asEnum(ag.chatSurface, CHAT_SURFACES, base.agent.chatSurface),
     },
     pcControl: {
       enabled: asBool(pc.enabled, base.pcControl.enabled),

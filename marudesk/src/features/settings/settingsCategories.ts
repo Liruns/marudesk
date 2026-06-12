@@ -7,14 +7,12 @@ import {
   Clock,
   Code2,
   Database,
-  Globe,
   Info,
   KeyRound,
   Palette,
   Plug,
   Radio,
   SquareTerminal,
-  Wrench,
 } from 'lucide-react';
 import type { TranslationKey } from '../../i18n/messages';
 import type { SettingsCategory } from './store';
@@ -58,11 +56,12 @@ const CATEGORY_DEFINITIONS = [
     keywords: 'shell bash zsh powershell font terminal pty 터미널 셸 글꼴',
   },
   {
-    id: 'browser',
-    labelKey: 'settings.category.browser.label',
-    blurbKey: 'settings.category.browser.blurb',
-    icon: Globe,
-    keywords: 'search engine google duckduckgo bing browser web 브라우저 검색 엔진',
+    id: 'application',
+    labelKey: 'settings.category.application.label',
+    blurbKey: 'settings.category.application.blurb',
+    icon: AppWindow,
+    keywords:
+      'app window close quit tray background minimize exit search engine google duckduckgo bing browser web devtools dock inspect console network 앱 창 닫기 종료 트레이 백그라운드 브라우저 검색 엔진 개발자도구 도킹',
   },
   {
     id: 'providers',
@@ -107,25 +106,11 @@ const CATEGORY_DEFINITIONS = [
     keywords: 'automation schedule cron interval daily background prompt recurring 자동화 스케줄 예약 반복 프롬프트',
   },
   {
-    id: 'devtools',
-    labelKey: 'settings.category.devtools.label',
-    blurbKey: 'settings.category.devtools.blurb',
-    icon: Wrench,
-    keywords: 'devtools dock inspect console network 개발자도구 검사 콘솔 네트워크',
-  },
-  {
     id: 'remote',
     labelKey: 'settings.category.remote.label',
     blurbKey: 'settings.category.remote.blurb',
     icon: Radio,
     keywords: 'remote phone pair qr relay server mobile bridge 원격 휴대폰 페어링 서버',
-  },
-  {
-    id: 'window',
-    labelKey: 'settings.category.window.label',
-    blurbKey: 'settings.category.window.blurb',
-    icon: AppWindow,
-    keywords: 'window close quit tray background minimize exit 창 닫기 종료 트레이 백그라운드',
   },
   {
     id: 'data',

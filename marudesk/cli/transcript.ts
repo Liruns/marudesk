@@ -42,7 +42,12 @@ const BUSY: ReadonlySet<AgentStatus> = new Set(['thinking', 'working', 'waiting_
 
 type Cursor = { msg: number; part: number; offset: number };
 
-type ToolSeen = { state: ToolCall['state'] };
+/**
+ * Longest in-flight text tail rendered live per frame. A pathological single
+ * line (a model streaming megabytes without a newline) would otherwise be
+ * re-wrapped on every repaint; the committed transcript is unaffected.
+ */
+const LIVE_TAIL_MAX = 4000;
 
 function toolGlyph(call: ToolCall): string {
   switch (call.state) {
@@ -96,8 +101,12 @@ export function createTranscript(opts: { cols(): number }) {
   let cursor: Cursor = { msg: 0, part: 0, offset: 0 };
   /** Message ids in committed order, to detect reset/resume (history swap). */
   let knownIds: string[] = [];
-  const tools = new Map<string, ToolSeen>();
-  /** `messageId:partIndex` keys whose "✦ thinking" header is already printed. */
+  /**
+   * `messageId:partIndex` keys whose "✦ thinking" header is already printed.
+   * Pruned once the cursor moves past a message — the header check only
+   * matters for the message still streaming, so the set stays O(1) over a
+   * long-running session instead of growing with every reasoning part.
+   */
   const reasoningHeaders = new Set<string>();
   let md: MarkdownRenderer = createMarkdownRenderer();
   let lastStatus: AgentStatus = 'idle';
@@ -107,10 +116,15 @@ export function createTranscript(opts: { cols(): number }) {
   const reset = (): void => {
     cursor = { msg: 0, part: 0, offset: 0 };
     knownIds = [];
-    tools.clear();
     reasoningHeaders.clear();
     md = createMarkdownRenderer();
     lastPlanKey = '';
+  };
+
+  const dropReasoningHeaders = (messageId: string): void => {
+    for (const key of [...reasoningHeaders]) {
+      if (key.startsWith(`${messageId}:`)) reasoningHeaders.delete(key);
+    }
   };
 
   /** The conversation changed underneath us (reset / session resume)? */
@@ -239,9 +253,6 @@ export function createTranscript(opts: { cols(): number }) {
         }
 
         if (part.type === 'tool') {
-          const seen = tools.get(part.call.id);
-          if (!seen) tools.set(part.call.id, { state: part.call.state });
-          else seen.state = part.call.state;
           if (!isTerminalTool(part.call.state)) {
             halted = true; // running/awaiting tool — its line stays live
             break;
@@ -269,6 +280,7 @@ export function createTranscript(opts: { cols(): number }) {
       if (cursor.part >= parts.length) {
         const lastMessage = cursor.msg === state.messages.length - 1;
         if (lastMessage && BUSY.has(state.status)) break; // more parts may stream in
+        dropReasoningHeaders(message.id);
         cursor = { msg: cursor.msg + 1, part: 0, offset: 0 };
       }
     }
@@ -319,7 +331,8 @@ export function createTranscript(opts: { cols(): number }) {
       const parts = message.parts;
       const part = parts[cursor.part];
       if (part && (part.type === 'text' || part.type === 'reasoning')) {
-        const tail = part.text.slice(cursor.offset);
+        const from = Math.max(cursor.offset, part.text.length - LIVE_TAIL_MAX);
+        const tail = part.text.slice(from);
         if (tail.length > 0) {
           if (part.type === 'reasoning') {
             for (const l of wrapText(tail, cols - 2)) lines.push(dim(`  ${l}`));

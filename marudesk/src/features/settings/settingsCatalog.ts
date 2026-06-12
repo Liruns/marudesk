@@ -88,19 +88,28 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     labelKey: 'settings.terminal.shell.label',
     keywords: 'shell bash zsh powershell pty default 셸 기본 셸',
   },
-
-  // Browser
   {
-    categoryId: 'browser',
-    labelKey: 'settings.browser.searchEngine.label',
-    keywords: 'search engine google bing duckduckgo address bar 검색 엔진 주소창',
+    categoryId: 'terminal',
+    labelKey: 'settings.terminal.cliCommand.label',
+    keywords: 'marudesk command cli path install terminal chat 명령 명령어 설치 터미널 채팅',
   },
 
-  // Window
+  // Application (window close, search engine, DevTools dock)
   {
-    categoryId: 'window',
+    categoryId: 'application',
+    labelKey: 'settings.browser.searchEngine.label',
+    keywords: 'search engine google bing duckduckgo address bar browser 검색 엔진 주소창 브라우저',
+  },
+  {
+    categoryId: 'application',
     labelKey: 'settings.window.closeBehavior.label',
-    keywords: 'close quit tray background exit hide 닫기 종료 트레이 백그라운드 숨기기',
+    keywords: 'close quit tray background exit hide window 닫기 종료 트레이 백그라운드 숨기기 창',
+  },
+  {
+    categoryId: 'application',
+    labelKey: 'settings.devtools.dock.label',
+    keywords:
+      'devtools dock right bottom chrome inspector console network 검사기 도킹 콘솔 개발자도구',
   },
 
   // AI Providers
@@ -163,14 +172,6 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     categoryId: 'mcp',
     labelKey: 'settings.category.mcp.label',
     keywords: 'mcp server stdio http remote url tools context 서버 도구 컨텍스트',
-  },
-
-  // Browser DevTools
-  {
-    categoryId: 'devtools',
-    labelKey: 'settings.devtools.dock.label',
-    keywords:
-      'devtools dock right bottom chrome inspector console network 검사기 도킹 콘솔',
   },
 
   // Remote access

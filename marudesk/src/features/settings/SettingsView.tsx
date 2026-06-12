@@ -6,11 +6,9 @@ import { AboutCategory } from './AboutSettingsCategory';
 import { DataCategory } from './DataSettingsCategory';
 import {
   AppearanceCategory,
-  BrowserCategory,
-  DevtoolsCategory,
+  ApplicationCategory,
   EditorCategory,
   TerminalCategory,
-  WindowCategory,
 } from './GeneralSettingsCategories';
 import { McpServersSettings } from './McpServersSettings';
 import { AutomationsSettings } from './AutomationsSettings';
@@ -107,16 +105,14 @@ export function SettingsView() {
               {category === 'appearance' ? <AppearanceCategory /> : null}
               {category === 'editor' ? <EditorCategory /> : null}
               {category === 'terminal' ? <TerminalCategory /> : null}
-              {category === 'browser' ? <BrowserCategory /> : null}
+              {category === 'application' ? <ApplicationCategory /> : null}
               {category === 'providers' ? <ProvidersSettings /> : null}
               {category === 'usage' ? <UsageCategory /> : null}
               {category === 'agent' ? <AgentCategory /> : null}
               {category === 'mcp' ? <McpServersSettings /> : null}
               {category === 'plugins' ? <PluginsSettings /> : null}
               {category === 'automations' ? <AutomationsSettings /> : null}
-              {category === 'devtools' ? <DevtoolsCategory /> : null}
               {category === 'remote' ? <RemoteCategory /> : null}
-              {category === 'window' ? <WindowCategory /> : null}
               {category === 'data' ? <DataCategory /> : null}
               {category === 'about' ? <AboutCategory /> : null}
             </>

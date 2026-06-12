@@ -59,6 +59,7 @@ import { registerDiagnosticsHandlers } from './diagnostics/handlers';
 import { syncFromContext as syncLspFromContext, disposeAllLsp } from './lsp/manager';
 import { setContextCacheListener } from './agent/context-cache';
 import { registerTerminalHandlers, disposeAllTerminals } from './terminal';
+import { ensureCliCommand, registerCliCommandHandlers } from './cli-command';
 import { registerClipboardHandlers } from './clipboard';
 import { registerWindowControlHandlers } from './window-controls';
 import { loadWindowState, trackWindowState } from './window-state';
@@ -533,6 +534,10 @@ void app.whenReady().then(() => {
     getMainWindow,
     getWorkspaceRoot: () => getCurrentWorkspace()?.root ?? null,
   });
+  registerCliCommandHandlers();
+  // Keep the `marudesk` terminal command pointing at this install (best effort;
+  // Settings → Terminal has the manual install button when this can't write).
+  void ensureCliCommand();
   registerClipboardHandlers();
   // Bring up all per-profile runtime: restore workspaces, warm settings (so
   // getSettingsSync() reflects the persisted choice on the first navigation),

@@ -31,9 +31,8 @@ type ComposerActions = {
    */
   revealCaptures: () => void;
   /**
-   * Reveal the AI Chat itself: switch to the Agent tab and ask the shell to open
-   * the chat surface (drawer, or the CLI tab — the shell routes by
-   * `settings.agent.chatSurface`). Lets out-of-chat surfaces (e.g. the StatusBar
+   * Reveal the AI Chat itself: switch to the Agent tab and ask the shell to
+   * open the chat drawer. Lets out-of-chat surfaces (e.g. the StatusBar
    * context ring) jump the user straight to the conversation.
    */
   revealChat: () => void;

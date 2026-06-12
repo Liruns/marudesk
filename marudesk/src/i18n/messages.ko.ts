@@ -423,15 +423,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.context.addContext': '컨텍스트 추가',
   'agent.context.addFile': '파일 추가',
   'agent.context.addPhoto': '사진 추가',
-  'agent.context.builtinBody':
-    '에이전트는 필요할 때 페이지 텍스트와 DOM, 네트워크, 쿠키/저장소, 열린 편집기(저장 전 내용 포함), 터미널, 파일 트리, 이전 세션, 메모리를 가져옵니다.',
-  'agent.context.builtinTitle': '내장 컨텍스트 · MCP',
   'agent.context.captures': '캡처',
   'agent.context.insertMentionAfter': ' 탭 멘션 삽입',
   'agent.context.insertMentionBefore': '',
-  'agent.context.noCaptures':
-    '아직 캡처가 없습니다 - 검사를 켜고 브라우저의 요소를 클릭해 캡처하세요.',
-  'agent.context.noOpenTabs': '열린 탭이 없습니다.',
   'agent.context.openTabsFiles': '열린 탭 / 파일',
   'agent.mission.collapse': '계획 패널 접기',
   'agent.mission.expand': '계획 패널 열기',
@@ -737,6 +731,13 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.terminal.shell.hint':
     '통합 터미널에서 사용할 경로나 명령. 비워 두면 OS 기본값을 사용하고, 알 수 없는 셸은 자동으로 대체됩니다.',
   'settings.terminal.shell.label': '기본 셸',
+  'settings.terminal.cliCommand.label': 'marudesk 명령',
+  'settings.terminal.cliCommand.hint':
+    '어느 터미널에서든 "marudesk"를 입력해 채팅 CLI를 실행합니다(데스크톱 앱이 실행 중이어야 함). 자동으로 설치되며, 사라졌다면 여기서 다시 설치하세요.',
+  'settings.terminal.cliCommand.install': '설치',
+  'settings.terminal.cliCommand.reinstall': '다시 설치',
+  'settings.terminal.cliCommand.notOnPath':
+    '설치 폴더가 아직 PATH에 없습니다. 새 터미널을 열거나 PATH에 추가하세요.',
   'settings.category.about.blurb': '버전과 런타임 정보.',
   'settings.category.about.label': '정보',
   'settings.category.agent.blurb':
@@ -744,13 +745,12 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.category.agent.label': 'AI 에이전트',
   'settings.category.appearance.blurb': '테마, 인터페이스 확대/축소, UI 글꼴.',
   'settings.category.appearance.label': '테마',
-  'settings.category.browser.blurb': '검색 엔진과 내장 브라우저 동작.',
-  'settings.category.browser.label': '브라우저',
+  'settings.category.application.blurb':
+    '앱 동작: 창 닫기, 주소창 검색 엔진, DevTools 도킹 위치.',
+  'settings.category.application.label': '애플리케이션',
   'settings.category.data.blurb':
     '실행 사이에 저장할 항목 - 채팅 세션, 탭 - 과 저장 위치.',
   'settings.category.data.label': '데이터 및 저장소',
-  'settings.category.devtools.blurb': '내장 브라우저 DevTools가 열리는 방식.',
-  'settings.category.devtools.label': '브라우저 DevTools',
   'settings.category.editor.blurb': '코드 편집기 글꼴과 크기.',
   'settings.category.editor.label': '편집기',
   'settings.category.mcp.blurb':
@@ -785,9 +785,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.category.terminal.label': '터미널',
   'settings.category.usage.blurb': '설정된 제공자의 API 사용량과 할당량을 모니터링합니다.',
   'settings.category.usage.label': '사용량',
-  'settings.category.window.blurb':
-    '창을 닫을 때의 동작 - 완전히 종료할지, 트레이에서 백그라운드로 계속 실행할지.',
-  'settings.category.window.label': '창',
   'settings.usage.empty': '사용량 데이터가 없습니다. API 키를 설정한 제공자가 있어야 할당량 정보를 확인할 수 있습니다.',
   'settings.usage.fetchError': '사용량 데이터를 불러오지 못했습니다.',
   'settings.usage.identity': '계정',
@@ -824,11 +821,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '바로 적용은 편집을 디스크에 즉시 씁니다(채팅에서 되돌리기). 미리보기는 Ask 모드에서 diff를 먼저 보여주고 각 편집을 확인받습니다.',
   'settings.agent.editApproval.label': '파일 편집',
   'settings.agent.editApproval.preview': '미리보기 먼저',
-  'settings.agent.chatSurface.label': '채팅 화면',
-  'settings.agent.chatSurface.hint':
-    'AI Chat을 열 때 표시할 화면: 사이드 패널 또는 채팅 CLI가 실행되는 터미널 탭.',
-  'settings.agent.chatSurface.panel': '패널',
-  'settings.agent.chatSurface.cli': '터미널 CLI',
   'settings.agent.autoCompactThreshold.label': '자동 압축 임계치',
   'settings.agent.fallback.addModel': '모델 추가',
   'settings.agent.fallback.empty':
@@ -1289,6 +1281,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'home.launcher.agent.label': 'AI 채팅',
   'home.launcher.browser.hint': '빈 페이지 열기',
   'home.launcher.browser.label': '브라우저 탭',
+  'home.launcher.cli.hint': '터미널 탭에서 채팅',
+  'home.launcher.cli.label': 'AI Chat (CLI)',
   'home.launcher.editor.hint': '탭에서 파일 편집',
   'home.launcher.editor.label': '코드 편집기',
   'home.launcher.terminal.hint': '탭에서 셸 열기',

@@ -45,3 +45,18 @@ export type TerminalExitEvent = {
   exitCode: number;
   signal?: number;
 };
+
+/**
+ * State of the `marudesk` terminal command — a small shim script on the user's
+ * PATH that launches the bundled chat CLI against the running desktop app
+ * (electron/cli-command.ts). Surfaced in Settings → Terminal.
+ */
+export type CliCommandStatus = {
+  installed: boolean;
+  /** Absolute path of the installed shim, or null when not installed. */
+  path: string | null;
+  /** Whether the shim's directory is visible on PATH (new terminals count). */
+  onPath: boolean;
+  /** Human-readable failure reason when an install attempt didn't stick. */
+  error?: string;
+};

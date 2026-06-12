@@ -266,7 +266,7 @@ export function inheritedEnv(): Record<string, string> {
  * in the asarUnpacked copy: ELECTRON_RUN_AS_NODE children read plain files,
  * not app.asar (same reason node-pty is unpacked).
  */
-function chatCliEntryPath(): string {
+export function chatCliEntryPath(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const base = here.replace(/app\.asar(?=[\\/]|$)/, 'app.asar.unpacked');
   return path.join(base, 'chat-cli.mjs');

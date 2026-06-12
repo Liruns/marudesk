@@ -203,7 +203,7 @@ export function BrowserMenu() {
         useDevtoolsStore.getState().toggle();
         return;
       case 'settings':
-        void openSettingsTab('browser');
+        void openSettingsTab('application');
         return;
       default:
         return;

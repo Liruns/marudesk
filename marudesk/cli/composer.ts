@@ -31,9 +31,14 @@ function nextBoundary(text: string, i: number): number {
 }
 
 export function insert(s: ComposerState, input: string): ComposerState {
+  // Normalize the inserted text together with what precedes the cursor: some
+  // IME/terminal paths deliver Hangul as decomposed jamo (NFD or bare jamo
+  // keystrokes), which would otherwise sit in the buffer as separate
+  // double-width jamo cells instead of composing into syllables.
+  const head = (s.text.slice(0, s.cursor) + input).normalize('NFC');
   return {
-    text: s.text.slice(0, s.cursor) + input + s.text.slice(s.cursor),
-    cursor: s.cursor + input.length,
+    text: head + s.text.slice(s.cursor),
+    cursor: head.length,
   };
 }
 
