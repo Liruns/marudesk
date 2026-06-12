@@ -93,6 +93,8 @@ export type AppSettings = {
     uiFontFamily: string;
     /** Whole-UI scale, percent (VSCode-style zoom). 100 = design baseline. */
     uiZoom: number;
+    /** AI chat transcript scale, percent (reading comfort; composer/chrome unaffected). */
+    chatZoom: number;
     /** Empty string = use the monospace token default. */
     editorFontFamily: string;
     editorFontSize: number;
@@ -303,6 +305,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     palette: 'default',
     uiFontFamily: '',
     uiZoom: 100,
+    chatZoom: 100,
     editorFontFamily: '',
     editorFontSize: 13,
     terminalFontFamily: '',
@@ -366,6 +369,8 @@ export const FONT_SIZE_MIN = 8;
 export const FONT_SIZE_MAX = 32;
 export const UI_ZOOM_MIN = 50;
 export const UI_ZOOM_MAX = 200;
+export const CHAT_ZOOM_MIN = 80;
+export const CHAT_ZOOM_MAX = 160;
 /** rem anchor: text-scale tokens are authored relative to this px base. */
 export const UI_ZOOM_BASE_PX = 16;
 /** Bridge-server port range — below 1024 needs privilege; cap at the TCP max. */
@@ -488,6 +493,12 @@ export function sanitizeSettings(
         base.appearance.uiZoom,
         UI_ZOOM_MIN,
         UI_ZOOM_MAX,
+      ),
+      chatZoom: clampNumber(
+        a.chatZoom,
+        base.appearance.chatZoom,
+        CHAT_ZOOM_MIN,
+        CHAT_ZOOM_MAX,
       ),
       editorFontFamily: asString(
         a.editorFontFamily,

@@ -1,4 +1,6 @@
 import {
+  CHAT_ZOOM_MAX,
+  CHAT_ZOOM_MIN,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   UI_ZOOM_MAX,
@@ -94,6 +96,20 @@ export function AppearanceCategory() {
           suffix="%"
           name={t('settings.appearance.uiZoom.label')}
           onChange={(uiZoom) => void update({ appearance: { uiZoom } })}
+        />
+      </Field>
+      <Field
+        label={t('settings.appearance.chatZoom.label')}
+        hint={t('settings.appearance.chatZoom.hint')}
+      >
+        <Stepper
+          value={a.chatZoom}
+          min={CHAT_ZOOM_MIN}
+          max={CHAT_ZOOM_MAX}
+          step={10}
+          suffix="%"
+          name={t('settings.appearance.chatZoom.label')}
+          onChange={(chatZoom) => void update({ appearance: { chatZoom } })}
         />
       </Field>
       <Field

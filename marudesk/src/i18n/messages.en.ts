@@ -449,6 +449,13 @@ export const EN_MESSAGES = {
   'agent.chat.context.provider': 'Provider',
   'agent.chat.contextWindow': 'Context window',
   'agent.chat.copyMessage': 'Copy message',
+  'agent.chat.export': 'Export conversation (.md)',
+  'agent.chat.search.open': 'Search transcript (Ctrl+F)',
+  'agent.chat.search.placeholder': 'Search · empty = prompts',
+  'agent.chat.search.older': 'Older match',
+  'agent.chat.search.newer': 'Newer match',
+  'agent.chat.search.none': '0/0',
+  'agent.chat.search.close': 'Close search',
   'agent.chat.copyOutput': 'Copy output',
   'agent.chat.deny': 'Deny',
   'agent.chat.dismiss': 'Dismiss',
@@ -643,6 +650,8 @@ export const EN_MESSAGES = {
   'settings.appearance.uiFont.label': 'UI font',
   'settings.appearance.uiZoom.hint': 'Scales the whole UI.',
   'settings.appearance.uiZoom.label': 'Interface zoom',
+  'settings.appearance.chatZoom.hint': 'Scales the AI chat transcript only.',
+  'settings.appearance.chatZoom.label': 'AI chat zoom',
   'settings.appearance.accent.hint':
     'Recolors active states, buttons, links, and focus rings.',
   'settings.appearance.language.hint':

@@ -27,3 +27,10 @@ describe('Markdown pre decoration', () => {
     expect(container.querySelector('pre')?.classList.contains('md-wrap')).toBe(true);
   });
 });
+
+describe('KaTeX math', () => {
+  it('renders inline math through the sanitizer', () => {
+    const { container } = render(<Markdown source={'Euler: $e^{i\\pi} + 1 = 0$'} />);
+    expect(container.querySelector('.katex')).not.toBeNull();
+  });
+});

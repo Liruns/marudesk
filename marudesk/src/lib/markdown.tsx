@@ -102,6 +102,52 @@ function decoratePre(root: HTMLElement) {
   });
 }
 
+/* ── mermaid diagrams ───────────────────────────────────────────────────── */
+
+let mermaidSeq = 0;
+
+/**
+ * Replace ```mermaid fences with rendered SVG diagrams. The library (~1MB) is
+ * imported lazily on the first diagram ever seen, so transcripts without
+ * diagrams never pay for it. `parse` validates first: a partially-streamed or
+ * invalid diagram simply stays a code block (and is retried on the next chunk,
+ * since streaming rebuilds the HTML). Theme follows `data-theme` at render time.
+ */
+async function renderMermaidBlocks(root: HTMLElement): Promise<void> {
+  const blocks = root.querySelectorAll<HTMLElement>('pre > code.language-mermaid');
+  if (blocks.length === 0) return;
+  const { default: mermaid } = await import('mermaid');
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: document.documentElement.dataset.theme === 'light' ? 'default' : 'dark',
+  });
+  for (const code of blocks) {
+    const pre = code.closest('pre');
+    // The root may have been replaced (streaming) while the import resolved.
+    if (!pre || !pre.isConnected) continue;
+    const src = code.textContent ?? '';
+    const id = `md-mermaid-${++mermaidSeq}`;
+    try {
+      await mermaid.parse(src);
+      const { svg } = await mermaid.render(id, src);
+      if (!pre.isConnected) continue;
+      const fig = document.createElement('div');
+      fig.className = 'md-mermaid';
+      // mermaid sanitizes its own SVG output under securityLevel: 'strict'.
+      fig.innerHTML = svg;
+      pre.replaceWith(fig);
+      // The sibling expand bar (long-block collapse) belongs to the replaced pre.
+      const next = fig.nextElementSibling;
+      if (next?.classList.contains('md-expand-btn')) next.remove();
+    } catch {
+      // Invalid/incomplete source: keep the highlighted code block as-is, but
+      // sweep any error node mermaid may have left behind.
+      document.getElementById(`d${id}`)?.remove();
+    }
+  }
+}
+
 interface MarkdownProps {
   source: string;
   className?: string;
@@ -118,7 +164,9 @@ export function Markdown({ source, className }: MarkdownProps) {
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (ref.current) decoratePre(ref.current);
+    if (!ref.current) return;
+    decoratePre(ref.current);
+    void renderMermaidBlocks(ref.current);
   }, [html]);
 
   return (

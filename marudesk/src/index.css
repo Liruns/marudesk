@@ -197,6 +197,23 @@ svg.lucide {
   }
 }
 
+/* ─── Transcript search flash ─────────────────────────────────────────────────
+   Applied transiently by TranscriptSearch when jumping to a message: a brief
+   accent ring that fades, so the landed message is unmistakable. */
+.msg-flash {
+  border-radius: var(--radius);
+  animation: msg-flash 1.2s var(--easing);
+}
+@keyframes msg-flash {
+  0%,
+  55% {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
 /* ─── Markdown preview prose ──────────────────────────────────────────────────
    Applied to the .md-prose container in MarkdownPreview.tsx.
    Uses design tokens only; adapts automatically to dark/light via data-theme. */
@@ -441,6 +458,30 @@ svg.lucide {
 /* Give the first code line clearance so it doesn't run under the lang label. */
 .md-prose pre.md-codeblock:has(.md-code-lang) > code {
   padding-top: 0.9rem;
+}
+
+/* Mermaid diagrams (```mermaid fences rendered to SVG by src/lib/markdown.tsx).
+   Card chrome matches code blocks; wide diagrams scroll inside their bounds. */
+.md-prose .md-mermaid {
+  display: flex;
+  justify-content: center;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 0.875em 1em;
+  margin: 1em 0;
+  overflow-x: auto;
+}
+.md-prose .md-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* KaTeX display math: wide equations scroll instead of overflowing the pane. */
+.md-prose .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25em 0;
 }
 
 /* ─── Compact prose (AI chat) ─────────────────────────────────────────────────
