@@ -175,10 +175,13 @@ test('devtools: Network separates request payload and pretty JSON response', asy
 
     await expect(dock.getByText('users')).toBeVisible();
     await dock.getByText('users').click();
+    // The detail pane is tabbed (Headers / Payload / Response / Timing / …).
+    await dock.getByRole('button', { name: 'Payload', exact: true }).click();
     await expect(dock.getByText('Request payload')).toBeVisible();
     await expect(dock.getByText('"name": "Ada"')).toBeVisible();
     await expect(dock.getByText('sk-123456789012345678901234')).toHaveCount(0);
 
+    await dock.getByRole('button', { name: 'Response', exact: true }).click();
     await dock.getByRole('button', { name: 'Load response body' }).click();
     await expect(dock.getByText('"ok": true')).toBeVisible();
     await expect(dock.getByText('"id": 42')).toBeVisible();

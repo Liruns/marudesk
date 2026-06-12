@@ -81,6 +81,7 @@ export function freshSlices(): Pick<
   | 'pendingPatch'
   | 'console'
   | 'network'
+  | 'wsFrames'
   | 'appOrigin'
   | 'localStorageItems'
   | 'sessionStorageItems'
@@ -110,6 +111,7 @@ export function freshSlices(): Pick<
     pendingPatch: null,
     console: [],
     network: [],
+    wsFrames: new Map(),
     appOrigin: null,
     localStorageItems: [],
     sessionStorageItems: [],

@@ -64,6 +64,13 @@ const config: Config = {
           add: token('--diff-add-bg'),
           remove: token('--diff-remove-bg'),
         },
+        // DevTools box-model diagram region fills (Elements › Computed).
+        boxmodel: {
+          margin: token('--boxmodel-margin'),
+          border: token('--boxmodel-border'),
+          padding: token('--boxmodel-padding'),
+          content: token('--boxmodel-content'),
+        },
       },
       borderColor: {
         subtle: token('--border-subtle'),

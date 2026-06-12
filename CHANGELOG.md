@@ -38,6 +38,19 @@
 - Address bar suggestions: bookmarks and frecency-ranked history with token
   highlighting, plus a search-the-web row.
 
+### DevTools
+- Network request details get proper tabs: Headers (collapsible,
+  click-to-copy), Payload (query/form/JSON parsed), Response (raw/tree
+  toggle, copy body), Timing (blocked/DNS/connect/TLS/send/wait/receive
+  phase bars), and Initiator.
+- WebSocket / SSE frames viewer: live frame log per connection (direction,
+  opcode/event, payload preview with JSON tree, filter), with WS/SSE badges
+  in the network table.
+- Application panel storage editing: inline edit / add / delete for
+  localStorage and sessionStorage, per-cookie delete.
+- Elements gains a Computed tab with the classic box-model diagram
+  (token-based colors) and a grouped, filterable computed-style list.
+
 ### Remote / mobile
 - Review agent edits from the phone: per-edit unified diff cards in the
   mobile chat (expand, +N/−M stats, revert applied edits), and proposed

@@ -18,6 +18,7 @@ import {
   type StyleSheetHeader,
 } from './types';
 import type { PatchOp } from '../../../shared/patch';
+import type { WsFrame } from './ws-frames';
 import { loadPrefs } from './store-prefs';
 import type { ToolLocation, DevtoolsTool } from './store-prefs';
 
@@ -198,6 +199,10 @@ export type DevtoolsState = {
   showTimestamps: boolean;
   // network
   network: NetworkEntry[];
+  // WebSocket/SSE frames per connection (requestId → ring buffer, newest last,
+  // capped per ./ws-frames). Lifecycle mirrors `network`: cleared with the log,
+  // kept across navigation iff preserveNetworkLog.
+  wsFrames: Map<string, WsFrame[]>;
   // When true, network rows survive a main-frame navigation (DevTools' Network
   // "Preserve log"). The requestIds become historical (response bodies may be
   // evicted), but the rows stay for cross-navigation diffing. UI preference.
@@ -298,7 +303,11 @@ export type DevtoolsActions = {
   // application (storage)
   refreshApplication: () => Promise<void>;
   removeStorageItem: (isLocalStorage: boolean, key: string) => Promise<void>;
+  /** Add or overwrite a web-storage entry (DOMStorage.setDOMStorageItem). */
+  setStorageItem: (isLocalStorage: boolean, key: string, value: string) => Promise<void>;
   clearStorage: (isLocalStorage: boolean) => Promise<void>;
+  /** Delete one cookie, scoped by name+domain+path (Network.deleteCookies). */
+  deleteCookie: (cookie: CdpCookie) => Promise<void>;
   clearSiteData: () => Promise<void>;
   // rendering
   setRendering: (patch: Partial<RenderingState>) => void;

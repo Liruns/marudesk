@@ -3,6 +3,13 @@ import { cdpTry } from './cdp';
 import { indexNode, setAttr, removeAttr } from './dom-index';
 import { consoleKindFromApi, consoleKindFromLog } from './console-kind';
 import { boundedNetworkPayload, entryId, MAX_CONSOLE, MAX_NETWORK } from './store-internals';
+import {
+  MAX_FRAME_CONNECTIONS,
+  makeSseFrame,
+  makeWsFrame,
+  pushFrame,
+  type WsFrame,
+} from './ws-frames';
 import type {
   CdpNode,
   ConsoleEntry,
@@ -39,6 +46,11 @@ export function applyIngestBatch(
         let network = s.network;
         let netIndex: Map<string, number> | null = null;
         let netDirty = false;
+        let wsFrames = s.wsFrames;
+        let framesDirty = false;
+        // Connections whose buffer was already copied this batch (copy-on-write
+        // against the previous state; later pushes mutate the fresh copy).
+        const framesTouched = new Set<string>();
         let styleSheets = s.styleSheets;
         let sheetsDirty = false;
         // Page-lifecycle timing for the Network summary bar (CDP seconds).
@@ -67,6 +79,30 @@ export function applyIngestBatch(
           } else if (!netIndex) {
             netIndex = new Map(network.map((e, i) => [e.requestId, i]));
           }
+        };
+        // Frame buffer for one WS/SSE connection, safe to mutate this batch.
+        // Evicts the oldest connection beyond MAX_FRAME_CONNECTIONS (Map keeps
+        // insertion order) so a page cycling sockets can't grow the store.
+        const framesFor = (requestId: string): WsFrame[] => {
+          if (!framesDirty) {
+            wsFrames = new Map(wsFrames);
+            framesDirty = true;
+          }
+          let arr = wsFrames.get(requestId);
+          if (!arr) {
+            if (wsFrames.size >= MAX_FRAME_CONNECTIONS) {
+              const oldest = wsFrames.keys().next().value;
+              if (oldest !== undefined) wsFrames.delete(oldest);
+            }
+            arr = [];
+            wsFrames.set(requestId, arr);
+            framesTouched.add(requestId);
+          } else if (!framesTouched.has(requestId)) {
+            arr = [...arr];
+            wsFrames.set(requestId, arr);
+            framesTouched.add(requestId);
+          }
+          return arr;
         };
         const pushConsole = (e: ConsoleEntry) => {
           if (!consoleDirty) {
@@ -372,6 +408,114 @@ export function applyIngestBatch(
               }
               break;
             }
+
+            /* WebSocket / SSE (Frames tab). WS connections never emit
+               requestWillBeSent — webSocketCreated seeds the row, the handshake
+               events fill in timing/headers/status, frames go to the per-
+               connection ring buffer. SSE rides a normal request row (resource-
+               type EventSource); only its messages land here. */
+            case 'Network.webSocketCreated': {
+              ensureNet();
+              const requestId = pAny.requestId as string;
+              const entry: NetworkEntry = {
+                requestId,
+                url: pAny.url as string,
+                method: 'GET',
+                resourceType: 'WebSocket',
+                // Placeholder until webSocketWillSendHandshakeRequest delivers
+                // the real timestamp (it follows within the same connection).
+                startTime: navStart ?? 0,
+                initiator: pAny.initiator as NetworkEntry['initiator'],
+              };
+              const idx = netIndex!.get(requestId);
+              if (idx === undefined) {
+                netIndex!.set(requestId, network.length);
+                network.push(entry);
+              } else {
+                network[idx] = { ...network[idx], ...entry };
+              }
+              break;
+            }
+            case 'Network.webSocketWillSendHandshakeRequest': {
+              ensureNet();
+              const idx = netIndex!.get(pAny.requestId as string);
+              if (idx !== undefined) {
+                const req = pAny.request as { headers: Record<string, string> };
+                network[idx] = {
+                  ...network[idx],
+                  startTime: pAny.timestamp as number,
+                  wallTime:
+                    typeof pAny.wallTime === 'number' ? pAny.wallTime * 1000 : undefined,
+                  requestHeaders: req.headers,
+                };
+              }
+              break;
+            }
+            case 'Network.webSocketHandshakeResponseReceived': {
+              ensureNet();
+              const idx = netIndex!.get(pAny.requestId as string);
+              if (idx !== undefined) {
+                const resp = pAny.response as {
+                  status: number;
+                  statusText: string;
+                  headers: Record<string, string>;
+                  requestHeaders?: Record<string, string>;
+                };
+                network[idx] = {
+                  ...network[idx],
+                  status: resp.status,
+                  statusText: resp.statusText,
+                  responseHeaders: resp.headers,
+                  requestHeaders: resp.requestHeaders ?? network[idx].requestHeaders,
+                };
+              }
+              break;
+            }
+            case 'Network.webSocketFrameSent':
+            case 'Network.webSocketFrameReceived': {
+              const frame = pAny.response as { opcode: number; payloadData: string };
+              pushFrame(
+                framesFor(pAny.requestId as string),
+                makeWsFrame(
+                  method === 'Network.webSocketFrameSent' ? 'sent' : 'received',
+                  frame.opcode,
+                  frame.payloadData,
+                  pAny.timestamp as number,
+                ),
+              );
+              break;
+            }
+            case 'Network.webSocketFrameError': {
+              ensureNet();
+              const idx = netIndex!.get(pAny.requestId as string);
+              if (idx !== undefined) {
+                network[idx] = {
+                  ...network[idx],
+                  failed: true,
+                  errorText: pAny.errorMessage as string,
+                };
+              }
+              break;
+            }
+            case 'Network.webSocketClosed': {
+              ensureNet();
+              const idx = netIndex!.get(pAny.requestId as string);
+              if (idx !== undefined) {
+                network[idx] = { ...network[idx], endTime: pAny.timestamp as number };
+              }
+              break;
+            }
+            case 'Network.eventSourceMessageReceived': {
+              pushFrame(
+                framesFor(pAny.requestId as string),
+                makeSseFrame(
+                  pAny.eventName as string,
+                  pAny.data as string,
+                  pAny.timestamp as number,
+                ),
+              );
+              break;
+            }
           }
         }
 
@@ -389,6 +533,7 @@ export function applyIngestBatch(
         }
         if (consoleDirty) next.console = consoleArr;
         if (netDirty) next.network = network;
+        if (framesDirty) next.wsFrames = wsFrames;
         if (sheetsDirty) next.styleSheets = styleSheets;
         if (navStart !== s.navStartTime) next.navStartTime = navStart;
         if (domContent !== s.domContentTime) next.domContentTime = domContent;

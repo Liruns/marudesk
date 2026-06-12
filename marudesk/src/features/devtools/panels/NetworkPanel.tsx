@@ -3,7 +3,9 @@ import { Trash2 } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore, type ThrottlePreset } from '../store';
-import { Detail, SummaryBar, Waterfall } from './NetworkPanel.parts';
+import { isStreamEntry } from '../ws-frames';
+import { Detail } from './NetworkDetail';
+import { SummaryBar, Waterfall } from './NetworkPanel.parts';
 import {
   TYPE_FILTERS,
   THROTTLE_OPTIONS,
@@ -18,12 +20,11 @@ import {
 } from './network-utils';
 
 /**
- * Network panel: a request table fed by the `Network.*` event stream, plus a
- * detail pane (headers + on-demand response body via `Network.getResponseBody`
- * — bodies are pull-only and may be evicted, hence the explicit load button).
- * A filter bar (text on URL + resource-type buttons) narrows the table;
- * Disable-cache + throttling are sticky page conditions (store), and a request's
- * context offers Copy-as-cURL.
+ * Network panel: a request table fed by the `Network.*` event stream, plus the
+ * tabbed detail pane (NetworkDetail: Headers / Payload / Response / Timing /
+ * Initiator, and Frames for WebSocket/SSE rows). A filter bar (text on URL +
+ * resource-type buttons) narrows the table; Disable-cache + throttling are
+ * sticky page conditions (store), and a request's detail offers Copy-as-cURL.
  */
 
 export function NetworkPanel() {
@@ -201,7 +202,13 @@ export function NetworkPanel() {
                     {r.failed ? 'fail' : (r.status ?? '·')}
                   </td>
                   <td className="px-1 py-0.5 text-fg-tertiary truncate">
-                    {r.resourceType ?? '—'}
+                    {isStreamEntry(r.resourceType) ? (
+                      <span className="inline-flex items-center rounded-pill bg-accent-subtle px-1.5 text-[10px] font-medium text-accent">
+                        {r.resourceType === 'WebSocket' ? 'WS' : 'SSE'}
+                      </span>
+                    ) : (
+                      (r.resourceType ?? '—')
+                    )}
                   </td>
                   <td className="px-1 py-0.5 text-right text-fg-tertiary tabular-nums">
                     {fmtSize(r)}

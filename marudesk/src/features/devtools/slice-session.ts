@@ -238,7 +238,7 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
       set({
         enabled: new Set(),
         ...(get().preserveLog ? {} : { console: [] }),
-        ...(get().preserveNetworkLog ? {} : { network: [] }),
+        ...(get().preserveNetworkLog ? {} : { network: [], wsFrames: new Map() }),
         // Page timing is always per-document — reset even when logs are preserved.
         navStartTime: null,
         domContentTime: null,
