@@ -15,6 +15,8 @@ export type CliActionId =
   | 'new'
   | 'sessions'
   | 'resume'
+  | 'workspace'
+  | 'history'
   | 'status'
   | 'approval-mode'
   | 'exit';
@@ -53,6 +55,20 @@ const CLI_COMMANDS: CliSlashCommand[] = [
     description: 'Resume a saved conversation by id',
     argHint: 'session id',
     action: 'resume',
+  },
+  {
+    kind: 'action',
+    name: 'workspace',
+    aliases: ['ws'],
+    description: 'Switch workspace (syncs sessions with the desktop panel)',
+    action: 'workspace',
+  },
+  {
+    kind: 'action',
+    name: 'history',
+    description: 'View conversation transcript of a session',
+    argHint: 'session id',
+    action: 'history',
   },
   {
     kind: 'action',

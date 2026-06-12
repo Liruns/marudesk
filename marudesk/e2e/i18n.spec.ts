@@ -127,8 +127,8 @@ test('localizes the settings shell after switching to Korean', async () => {
     await expect(page.getByRole('heading', { name: '설정' })).toBeVisible();
     await expect(page.getByRole('navigation', { name: '설정 카테고리' })).toBeVisible();
     await expect(page.getByPlaceholder('설정 검색')).toBeVisible();
-    await expect(page.getByRole('button', { name: '모양새' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '모양새' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '테마' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '테마' })).toBeVisible();
     await expect(
       page.getByText('테마, 인터페이스 확대/축소, UI 글꼴.'),
     ).toBeVisible();

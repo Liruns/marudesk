@@ -1,10 +1,13 @@
 import type {
   BridgeModelsResult,
   BridgeProviderModels,
+  BridgeSessionDetail,
   BridgeWorkspacesResult,
 } from '../../shared/remote';
+import type { SessionRecord } from '../../shared/context';
 import { customProviderId, getProvider } from '../../shared/providers';
 import { listSavedSessions, resumeSession } from '../agent/loop';
+import { readSession as readSessionRecord } from '../agent/sessions-store';
 import { containerForWorkspace } from '../agent/loop-state.ts';
 import { listCustomProviders } from '../custom-providers';
 import { getModelsFor } from '../models';
@@ -60,6 +63,22 @@ async function customCatalog(): Promise<BridgeProviderModels[]> {
   );
 }
 
+function flattenSession(rec: SessionRecord): string {
+  return rec.messages
+    .map((m) => {
+      const text = m.parts.filter((p) => p.type === 'text').map((p) => (p.type === 'text' ? p.text : '')).join('');
+      const tools = m.parts
+        .filter((p) => p.type === 'tool')
+        .map((p) => (p.type === 'tool' ? `  · ${p.call.summary ?? p.call.name}` : ''))
+        .filter(Boolean)
+        .join('\n');
+      const head = m.role === 'user' ? 'User' : 'Assistant';
+      return `${head}: ${text.trim()}${tools ? `\n${tools}` : ''}`.trim();
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 /** Build the injected catalog/session backends for {@link RouterExtras}. */
 export function createRouterExtras(): RouterExtras {
   return {
@@ -79,6 +98,19 @@ export function createRouterExtras(): RouterExtras {
       return {
         workspaces: snapshot.workspaces.map((w) => ({ id: w.id, name: w.name })),
         activeWorkspaceId: snapshot.activeWorkspaceId,
+      };
+    },
+    async readSession(id: string): Promise<BridgeSessionDetail | null> {
+      const rec = await readSessionRecord(id);
+      if (!rec) return null;
+      return {
+        title: rec.title,
+        provider: rec.provider,
+        model: rec.model,
+        messageCount: rec.messageCount,
+        createdAt: rec.createdAt,
+        updatedAt: rec.updatedAt,
+        transcript: flattenSession(rec),
       };
     },
   };

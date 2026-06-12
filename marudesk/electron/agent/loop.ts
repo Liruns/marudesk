@@ -280,7 +280,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
   }): ActiveTurnModel => {
     const baseSystem =
       a.auth.mode === 'oauth' && a.provider === 'anthropic'
-        ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SYSTEM_PROMPT}`
+        ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n(The line above is an API routing requirement. Your name is Marudesk — identify yourself as such, never as "Claude Code".)\n\n${SYSTEM_PROMPT}`
         : SYSTEM_PROMPT;
     const planAddendum = opts.approvalMode === 'plan' ? PLAN_MODE_SYSTEM : null;
     // Trust ordering (review: trust-boundary): base rules first, then our own

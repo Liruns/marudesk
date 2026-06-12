@@ -98,6 +98,20 @@ export type BridgeWorkspacesResult = {
 };
 
 /**
+ * `GET /agent/session?id=<id>` response: a single session's metadata + flattened
+ * transcript for the CLI `/history` command. `null` when the session doesn't exist.
+ */
+export type BridgeSessionDetail = {
+  title: string;
+  provider: string;
+  model: string;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+  transcript: string;
+};
+
+/**
  * `POST /agent/resume-session` request body. `workspaceId` scopes the resume to
  * that workspace's active thread (the loop refuses a cross-workspace resume);
  * omitted ⇒ the global (workspace-less) thread, the pre-workspace behavior.

@@ -1,10 +1,9 @@
 import type { StoreApi } from 'zustand';
-import { toast } from '../../lib/toast';
 import { cdpTry } from './cdp';
 import { useTabsStore } from '../tabs/store';
 import { useGridStore, groupForTab } from '../tabs/grid';
 import { useSettingsStore } from '../settings/store';
-import { DEFAULT_SIZE, MIN_SIZE, freshSlices, hasRenderingOverrides, msg } from './store-internals';
+import { DEFAULT_SIZE, MIN_SIZE, freshSlices, hasRenderingOverrides } from './store-internals';
 import type { ConsoleEntry } from './types';
 import type { DevtoolsState, DevtoolsActions } from './store';
 
@@ -37,20 +36,19 @@ type SessionActions = Pick<
 export function createSessionSlice(set: SetState, get: GetState): SessionActions {
   return {
     toggle: () => {
-      if (groupForTab(useGridStore.getState().groups, useTabsStore.getState().activeTabId) !== null) {
-        toast({
-          title: msg('devtools.toast.exitGrid'),
-          description: msg('devtools.toast.exitGridDescription'),
-          variant: 'warning',
-        });
-        return;
-      }
       const tabs = useTabsStore.getState();
       const active = tabs.tabs.find((t) => t.id === tabs.activeTabId);
       if (!active || active.kind !== 'web') return;
       const dock = useSettingsStore.getState().settings.devtools.defaultDock;
       if (dock === 'chrome') {
         void window.marudesk.invoke('devtools:open-chrome', { tabId: active.id });
+        return;
+      }
+      // In grid/split mode the dock would fight the split layout — pop out
+      // into a separate window instead of blocking the user entirely.
+      const inGrid = groupForTab(useGridStore.getState().groups, active.id) !== null;
+      if (inGrid) {
+        void window.marudesk.invoke('devtools:popout-open', { tabId: active.id });
         return;
       }
       const s = get();

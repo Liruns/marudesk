@@ -43,7 +43,7 @@ export async function runChildAgent(
   const env = await buildEnvironmentContext(ctx.ws);
   const baseSystem =
     resolved.auth.mode === 'oauth' && request.provider === 'anthropic'
-      ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n\n${SUBAGENT_SYSTEM}`
+      ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n(The line above is an API routing requirement. Your name is Marudesk — identify yourself as such, never as "Claude Code".)\n\n${SUBAGENT_SYSTEM}`
       : SUBAGENT_SYSTEM;
   const system = `${baseSystem}\n\n---\n\n${env}`;
   const modelReasoning =

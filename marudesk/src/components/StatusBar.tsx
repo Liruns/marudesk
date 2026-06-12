@@ -115,7 +115,7 @@ export function StatusBar() {
             type="button"
             onClick={() => setProblemsOpen((v) => !v)}
             aria-expanded={problemsOpen}
-            title="Problems — click for the list, run the project checker"
+            title={t('status.problems.title')}
             className="flex items-center gap-2 hover:text-fg-secondary transition-colors duration-fast"
           >
             {diagnosticsState.running ? (
@@ -138,8 +138,8 @@ export function StatusBar() {
       <span className="flex items-center gap-0.5">
         <button
           type="button"
-          aria-label="Zoom out"
-          title="Zoom out (Ctrl+−)"
+          aria-label={t('status.zoom.out')}
+          title={t('status.zoom.outTitle')}
           disabled={uiZoom <= UI_ZOOM_MIN}
           onClick={() => void updateSettings({ appearance: { uiZoom: Math.max(UI_ZOOM_MIN, uiZoom - 10) } })}
           className="size-4 flex items-center justify-center hover:text-fg-secondary disabled:opacity-30 transition-colors duration-fast"
@@ -148,7 +148,7 @@ export function StatusBar() {
         </button>
         <button
           type="button"
-          title="Reset zoom to 100%"
+          title={t('status.zoom.resetTitle')}
           onClick={() => { if (uiZoom !== 100) void updateSettings({ appearance: { uiZoom: 100 } }); }}
           className={cn(
             'px-1 hover:text-fg-secondary transition-colors duration-fast tabular-nums',
@@ -159,8 +159,8 @@ export function StatusBar() {
         </button>
         <button
           type="button"
-          aria-label="Zoom in"
-          title="Zoom in (Ctrl++)"
+          aria-label={t('status.zoom.in')}
+          title={t('status.zoom.inTitle')}
           disabled={uiZoom >= UI_ZOOM_MAX}
           onClick={() => void updateSettings({ appearance: { uiZoom: Math.min(UI_ZOOM_MAX, uiZoom + 10) } })}
           className="size-4 flex items-center justify-center hover:text-fg-secondary disabled:opacity-30 transition-colors duration-fast"

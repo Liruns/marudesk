@@ -37,6 +37,7 @@ import { NameDialog } from './NameDialog';
 import { SshRootDialog } from './SshRootDialog';
 import { startLayoutPersistence, useWorkspaceDeckStore } from './store';
 import { PeekExplorer } from './WorkspaceStage.parts';
+import { useI18n } from '../../i18n/useI18n';
 
 type DeckDialog =
   | { mode: 'create' }
@@ -79,6 +80,7 @@ export function WorkspaceStage() {
 }
 
 function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] }) {
+  const { t } = useI18n();
   const layout = useWorkspaceDeckStore((s) => s.layout);
   const focusedPaneId = useWorkspaceDeckStore((s) => s.focusedPaneId);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
@@ -163,8 +165,8 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
       })}
       <button
         type="button"
-        aria-label="New workspace"
-        title="New workspace"
+        aria-label={t('workspace.new')}
+        title={t('workspace.new')}
         onClick={(event) => setCreateMenu({ x: event.clientX, y: event.clientY })}
         className={cn(
           'size-8 rounded-md border border-dashed border-subtle flex items-center justify-center',
@@ -203,7 +205,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
       ) : null}
       {dialog?.mode === 'create' ? (
         <NameDialog
-          title="New workspace"
+          title={t('workspace.new')}
           confirmLabel="Choose folder…"
           placeholder="Workspace name (optional)"
           allowEmpty
@@ -216,7 +218,7 @@ function WorkspaceRail({ workspaces }: { workspaces: readonly WorkspaceRecord[] 
       ) : null}
       {dialog?.mode === 'rename' ? (
         <NameDialog
-          title="Rename workspace"
+          title={t('workspace.rename')}
           confirmLabel="Rename"
           initialValue={dialog.workspace.name}
           onSubmit={(name) => void renameWorkspace(dialog.workspace.id, name)}
@@ -565,6 +567,7 @@ function SplitPicker({
   onSplit: (workspaceId: WorkspaceId, dir: WorkspaceSplitDir) => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -616,7 +619,7 @@ function SplitPicker({
             </span>
             <button
               type="button"
-              title="Split right"
+              title={t('workspace.split.right')}
               onClick={() => onSplit(ws.id, 'row')}
               className="chrome-icon-button size-6"
             >
@@ -624,7 +627,7 @@ function SplitPicker({
             </button>
             <button
               type="button"
-              title="Split down"
+              title={t('workspace.split.down')}
               onClick={() => onSplit(ws.id, 'col')}
               className="chrome-icon-button size-6"
             >

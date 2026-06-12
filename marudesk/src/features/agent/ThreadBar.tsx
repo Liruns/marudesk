@@ -3,6 +3,7 @@ import { Loader2, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { AgentWorkspaceThreadsEvent, ThreadSummary } from '../../../shared/agent';
 import { useAgentStore, useAgentWorkspaceId } from './store';
+import { useI18n } from '../../i18n/useI18n';
 
 /**
  * Thread switcher (Stage 12-B-2). Tabs for the open conversation threads — click
@@ -12,6 +13,7 @@ import { useAgentStore, useAgentWorkspaceId } from './store';
  * until there's more than one thread, so the single-chat case is unchanged.
  */
 export function ThreadBar() {
+  const { t } = useI18n();
   const workspaceId = useAgentWorkspaceId();
   const setActiveThreadId = useAgentStore((s) => s.setActiveThreadId);
   const [threads, setThreadsState] = useState<ThreadSummary[]>([]);
@@ -97,12 +99,12 @@ export function ThreadBar() {
         type="button"
         onClick={() => void newThread()}
         disabled={busy}
-        aria-label="New thread"
-        title="New thread"
+        aria-label={t('agent.thread.new')}
+        title={t('agent.thread.new')}
         className="shrink-0 flex items-center gap-1 rounded-md px-1.5 py-1 text-caption text-fg-tertiary hover:bg-surface-1/80 hover:text-fg-secondary transition-colors duration-fast disabled:opacity-50"
       >
         <Plus size={12} />
-        {!multi && <span>New thread</span>}
+        {!multi && <span>{t('agent.thread.new')}</span>}
       </button>
     </div>
   );

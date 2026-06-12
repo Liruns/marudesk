@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { Columns2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import { useTabsStore } from './store';
 import { tabKinds } from './registry';
 import { useGridStore } from './grid';
@@ -181,6 +182,7 @@ function GridNode({
  * ratio from the pointer position within the *split container* it lives in.
  */
 function Divider({ splitId, dir }: { splitId: PaneId; dir: 'row' | 'col' }) {
+  const { t } = useI18n();
   const resize = useGridStore((s) => s.resize);
   const [active, setActive] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -222,7 +224,7 @@ function Divider({ splitId, dir }: { splitId: PaneId; dir: 'row' | 'col' }) {
       aria-orientation={isRow ? 'vertical' : 'horizontal'}
       onPointerDown={onPointerDown}
       onDoubleClick={() => resize(splitId, 0.5)}
-      title="Drag to resize · double-click to even out"
+      title={t('grid.resizeHint')}
       className={cn(
         'relative shrink-0 z-10 group',
         isRow ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',

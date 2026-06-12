@@ -3,6 +3,8 @@ import { useState } from 'react';
 import type { TabKind } from '../../../shared/browser';
 import logoUrl from '../../assets/logo-mark.png';
 import { useI18n } from '../../i18n/useI18n';
+import { openCliChatTab } from '../agent/store';
+import { useSettingsStore } from '../settings/store';
 import { useGridStore } from '../tabs/grid';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -21,7 +23,13 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
   const workspaceCount = useWorkspaceDeckStore((s) => s.workspaces.length);
   const [showGuide, setShowGuide] = useState(() => !hasSeenGuide());
 
+  const chatSurface = useSettingsStore((s) => s.settings.agent.chatSurface);
+
   const open = (kind: TabKind, url?: string) => {
+    if (kind === 'agent' && chatSurface === 'cli') {
+      void openCliChatTab();
+      return;
+    }
     const target = tabId ?? activeTabId;
     if (!target) {
       void newTab(kind, url);
