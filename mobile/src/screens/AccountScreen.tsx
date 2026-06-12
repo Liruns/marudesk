@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bug, Clipboard, LogOut, RefreshCw, Server, Terminal, User, Cpu, Smartphone, Trash2 } from 'lucide-react';
+import { ArrowLeft, Bell, Bug, Clipboard, LogOut, RefreshCw, Server, Terminal, User, Cpu, Smartphone, Trash2 } from 'lucide-react';
 import { Screen } from '../components/Screen';
 import { ConnectionChip } from '../components/StatusBadge';
 import { GoogleMark, GitHubMark } from '../components/ProviderMarks';
@@ -19,6 +19,8 @@ export function AccountScreen() {
   const setRoute = useAppStore((s) => s.setRoute);
   const developerMode = useAppStore((s) => s.developerMode);
   const setDeveloperMode = useAppStore((s) => s.setDeveloperMode);
+  const notificationsEnabled = useAppStore((s) => s.notificationsEnabled);
+  const setNotificationsEnabled = useAppStore((s) => s.setNotificationsEnabled);
   const isDirect = mode === 'direct';
   const [logs, setLogs] = useState<DiagnosticLogEntry[]>([]);
 
@@ -88,6 +90,23 @@ export function AccountScreen() {
         <button className="btn btn-secondary btn-block" onClick={() => void reconnect()}>
           <RefreshCw size={18} /> Reconnect
         </button>
+
+        {/* notifications: backgrounded approval / turn-end / background-task alerts */}
+        <div className="card" style={{ padding: 4 }}>
+          <Row icon={<Bell size={18} />} label="Notifications">
+            <button
+              className="btn btn-secondary"
+              style={{ minHeight: 34, padding: '0 12px' }}
+              onClick={() => void setNotificationsEnabled(!notificationsEnabled)}
+            >
+              {notificationsEnabled ? 'On' : 'Off'}
+            </button>
+          </Row>
+          <div className="faint" style={{ fontSize: 12, padding: '0 14px 10px' }}>
+            Alerts while the app is in the background: approval requests, finished turns, and
+            background tasks.
+          </div>
+        </div>
 
         <div className="card" style={{ padding: 4 }}>
           <Row icon={<Bug size={18} />} label="Developer tools">

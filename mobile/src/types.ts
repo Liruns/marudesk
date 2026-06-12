@@ -64,6 +64,8 @@ export type AgentRole = 'user' | 'assistant';
 
 export type AgentMessage = {
   id: string;
+  /** Turn that produced this row (absent for legacy rows) — anchors edit cards. */
+  turnId?: string;
   role: AgentRole;
   parts: AgentPart[];
   timestamp: number;
@@ -118,6 +120,66 @@ export type PendingQuestions = {
   questions: AgentQuestion[];
 };
 
+/* ── remote edit diffs + background tasks (mirrors marudesk/shared/remote.ts /
+ *    agent.ts — hand-kept, do not cross-import) ─────────────────────────────── */
+
+/** An applied edit's lifecycle on the PC (mirrors the host RemoteEditStatus). */
+export type RemoteEditStatus = 'applied' | 'accepted' | 'reverted';
+
+/**
+ * One agent file edit as the PC projects it for thin clients: a BOUNDED unified
+ * diff (the host clips at ~20KB with a marker line) plus the ids needed to
+ * render a review card and send `revert-edit`. Mirrors RemoteEditDiff in
+ * marudesk/shared/remote.ts.
+ */
+export type RemoteEditDiff = {
+  /** The edit id `revert-edit` acts on. */
+  id: string;
+  /** The turn that produced the edit (groups cards under the right reply). */
+  turnId: string;
+  /** Workspace-root-qualified display label (workspace-relative path). */
+  label: string;
+  kind: 'edit' | 'create';
+  status: RemoteEditStatus;
+  /** Unified diff text (`@@` hunk + ` `/`-`/`+` lines), clipped by the host. */
+  diff: string;
+  /** Added/removed line counts of the full (pre-clip) change. */
+  additions: number;
+  deletions: number;
+  /** True when `diff` was clipped (the full change is visible on the desktop). */
+  truncated: boolean;
+  timestamp: number;
+};
+
+/** Lifecycle of a detached background agent (mirrors the host BackgroundStatus). */
+export type BackgroundStatus = 'running' | 'done' | 'error' | 'cancelled';
+
+/**
+ * A detached background agent task, projected from the PC's task registry.
+ * Display-only on the phone (the PC owns execution); drives the notification
+ * transitions in lib/notifications.ts. Mirrors BackgroundTask in
+ * marudesk/shared/agent.ts.
+ */
+export type BackgroundTask = {
+  id: string;
+  /** Short name for the task row. */
+  label: string;
+  /** The delegated task instructions (clipped by the host). */
+  task: string;
+  provider: string;
+  model: string;
+  status: BackgroundStatus;
+  startedAt: number;
+  /** Set when the task reaches a terminal status, else null. */
+  finishedAt: number | null;
+  /** The child's final report on success, else null. */
+  result: string | null;
+  /** The failure/cancellation reason when status is error/cancelled, else null. */
+  error: string | null;
+  /** Whether the parent already collected this result. */
+  collected: boolean;
+};
+
 /** The full PC-owned chat state the phone projects. */
 export type AgentChatState = {
   turnId: string | null;
@@ -139,6 +201,18 @@ export type AgentChatState = {
   approvalMode: AgentApprovalMode;
   /** The current reasoning effort, mirrored from the host (phone can steer it). */
   reasoningEffort: ReasoningEffort;
+  /**
+   * The PC's bounded per-edit diff projection (patch review). OPTIONAL so an
+   * older desktop that doesn't stamp it keeps working — the phone just shows no
+   * edit cards. Never present without entries.
+   */
+  editDiffs?: RemoteEditDiff[];
+  /**
+   * Detached background agents the PC is running for this conversation.
+   * OPTIONAL for the same older-host reason; read-only on the phone (drives the
+   * completion notifications).
+   */
+  background?: BackgroundTask[];
 };
 
 export function emptyAgentChatState(): AgentChatState {

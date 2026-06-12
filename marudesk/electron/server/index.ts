@@ -14,6 +14,7 @@ import { createRouterExtras } from './extras';
 import { LOOP_AGENT_API } from './loop-api';
 import { getConnectCandidates } from './pairing-urls';
 import { createPairingManager } from './pairing';
+import { projectRemoteCallback, projectRemoteState } from './remote-state';
 import { handleRequest, type RouterDeps } from './router';
 import { getServerToken } from './token';
 
@@ -131,13 +132,16 @@ export async function startServer(port: number): Promise<void> {
     token,
     version: app.getVersion(),
     agent: LOOP_AGENT_API,
-    subscribe: subscribeAgentEvents,
+    // Every published frame is remote-projected (bounded editDiffs in place of
+    // the heavy per-edit before/after) — same projection LOOP_AGENT_API.snapshot
+    // applies, so the pull and push paths can't drift.
+    subscribe: (cb) => subscribeAgentEvents(projectRemoteCallback(cb)),
     // Workspace-scoped stream for `GET /agent/events?workspace=<id>`: filter the
     // loop's per-workspace fan-out down to the one workspace this SSE client
     // joined, so a phone sees exactly what the desktop's workspace chat shows.
     subscribeWorkspace: (workspaceId, cb) =>
       subscribeWorkspaceAgentEvents((wsId, state) => {
-        if (wsId === workspaceId) cb(state);
+        if (wsId === workspaceId) cb(projectRemoteState(state));
       }),
     // T2: the per-device E2E auth path + the /pair endpoint (paired phones over
     // LAN/Tailscale). The bearer path stays for the loopback companion.

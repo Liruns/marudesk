@@ -13,6 +13,7 @@ import { enumOf, nonEmptyStr, obj, str } from '../ipc/validate';
 import { getSettingsSync } from '../settings';
 import { createApprovalGuard } from './approval-guard';
 import { LOOP_AGENT_API } from './loop-api';
+import { projectRemoteCallback } from './remote-state';
 import { normalizeRelayUrl, relayAuthenticate, relayLogout } from './relay-auth';
 import { startRelayClient, type RelayClient } from './relay-client';
 
@@ -78,7 +79,8 @@ function startClient(session: RelaySession): void {
     accessToken: session.accessToken,
     refreshToken: session.refreshToken,
     agent: AGENT,
-    subscribe: subscribeAgentEvents,
+    // Remote-projected like the M4 server's stream (bounded editDiffs view).
+    subscribe: (cb) => subscribeAgentEvents(projectRemoteCallback(cb)),
     // T2 L-1: same desktop-pinned gated-approval guard as the M4 server, so the
     // cloud path can't be used for remote self-approval either.
     approvalGuard: createApprovalGuard(),

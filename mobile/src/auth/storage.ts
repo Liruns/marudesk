@@ -134,6 +134,8 @@ export const StorageKeys = {
   directKey: 'directKey',
   // Local-only mobile diagnostics flag; never sent to the relay/PC.
   developerMode: 'developerMode',
+  // Local notifications toggle ('true'/'false'); never sent to the relay/PC.
+  notifications: 'notifications',
   // Chat scope + model picks, restored across launches. `chatWorkspace` is a PC
   // workspace id or the literal 'global' (explicitly workspace-less); absent
   // means "follow the PC's active workspace" on the next catalog load.

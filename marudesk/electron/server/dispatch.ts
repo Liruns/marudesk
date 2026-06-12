@@ -1,6 +1,7 @@
 import type {
   AgentAnswers,
   AgentChatState,
+  AgentEditActionResult,
   AgentPlanStepStatus,
   AgentSendInput,
   AgentSendResult,
@@ -12,6 +13,7 @@ import {
   parseApprove,
   parseEditPlanStep,
   parseRespond,
+  parseRevertEdit,
   parseSendInput,
   parseSetApprovalMode,
   parseSetReasoningEffort,
@@ -48,6 +50,15 @@ export type AgentApi = {
   setApprovalMode(mode: AgentApprovalMode): boolean;
   /** Mobile parity for the desktop reasoning dial: set + persist (applies next turn). */
   setReasoningEffort(effort: ReasoningEffort): boolean;
+  /**
+   * Mobile parity for the desktop Changes card's per-edit Revert: restore an
+   * APPLIED edit's pre-edit content on disk (PC-owned logic; the loop's own
+   * staleness guard refuses if the file changed since). `workspaceId` scopes the
+   * lookup to that workspace's threads; omitted ⇒ any thread (edit ids are
+   * unique). OPTIONAL so harness mocks / older embedders that predate the verb
+   * keep compiling — the dispatcher answers `{ ok:false }` when absent.
+   */
+  revertEdit?(editId: string, workspaceId?: string): Promise<AgentEditActionResult>;
 };
 
 /**
@@ -147,6 +158,18 @@ export async function dispatchAgentCommand(
         const { effort } = parseSetReasoningEffort(args);
         return { ok: true, result: { ok: agent.setReasoningEffort(effort) } };
       }
+      case 'revert-edit': {
+        const { editId, workspaceId } = parseRevertEdit(args);
+        if (!agent.revertEdit) {
+          return { ok: false, error: 'this host does not support remote revert' };
+        }
+        // A refused revert (stale file, already resolved, …) surfaces as a tidy
+        // error so the phone shows WHY nothing changed instead of a silent no-op;
+        // the loop already emitted no state change in that case.
+        const res = await agent.revertEdit(editId, workspaceId);
+        if (!res.ok) return { ok: false, error: revertFailureMessage(res.reason) };
+        return { ok: true, result: res };
+      }
       default: {
         // Exhaustiveness guard: a new RelayCommandName must be handled here.
         const _never: never = cmd;
@@ -155,5 +178,21 @@ export async function dispatchAgentCommand(
     }
   } catch (err) {
     return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Human-readable message per {@link AgentEditActionResult} refusal reason. */
+function revertFailureMessage(reason: AgentEditActionResult['reason']): string {
+  switch (reason) {
+    case 'stale':
+      return 'The file changed since this edit — revert it from the desktop to resolve.';
+    case 'not-found':
+      return 'This edit is no longer revertible (already kept or reverted).';
+    case 'no-workspace':
+      return 'No workspace is open on the PC for this edit.';
+    case 'write-failed':
+      return 'The PC could not write the file.';
+    default:
+      return 'Revert failed.';
   }
 }

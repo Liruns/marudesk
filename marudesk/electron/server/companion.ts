@@ -5,6 +5,7 @@ import { subscribeAgentEvents, subscribeWorkspaceAgentEvents } from '../agent/lo
 import { startCompanionServer, type CompanionHandle } from './companion-core';
 import { createRouterExtras } from './extras';
 import { LOOP_AGENT_API } from './loop-api';
+import { projectRemoteCallback, projectRemoteState } from './remote-state';
 import { getServerToken } from './token';
 
 /**
@@ -43,10 +44,11 @@ export function startCompanion(): Promise<void> {
           token: bearer,
           version: app.getVersion(),
           agent: LOOP_AGENT_API,
-          subscribe: subscribeAgentEvents,
+          // Remote-projected like the M4 server's stream (bounded editDiffs view).
+          subscribe: (cb) => subscribeAgentEvents(projectRemoteCallback(cb)),
           subscribeWorkspace: (workspaceId, cb) =>
             subscribeWorkspaceAgentEvents((wsId, state) => {
-              if (wsId === workspaceId) cb(state);
+              if (wsId === workspaceId) cb(projectRemoteState(state));
             }),
           extras: createRouterExtras(),
           // Deliberately NO devices/pair (loopback has no E2E path) and NO

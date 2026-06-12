@@ -811,6 +811,51 @@ textarea {
   gap: 8px;
   margin-top: 12px;
 }
+
+/* ── diff view (patch-review cards + approval previews) ──────────────────── */
+.diff-view {
+  margin: 0;
+  padding: 8px 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-page);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 280px;
+  overflow: auto;
+  box-shadow: var(--inset-shadow);
+}
+.diff-view__line {
+  display: block;
+  padding: 0 10px;
+  white-space: pre;
+  min-width: max-content;
+}
+.diff-view__line--add {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.diff-view__line--remove {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.diff-view__line--hunk {
+  color: var(--fg-faint);
+}
+.edit-card__stats {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.edit-card__add {
+  color: var(--ok);
+}
+.edit-card__remove {
+  color: var(--danger);
+}
 .question-panel__header {
   color: var(--accent);
 }

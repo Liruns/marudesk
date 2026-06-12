@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { AgentChatState, AgentSendInput, AgentSendResult } from '../../shared/agent';
+import type {
+  AgentChatState,
+  AgentEdit,
+  AgentEditActionResult,
+  AgentSendInput,
+  AgentSendResult,
+} from '../../shared/agent';
 import { emptyAgentChatState } from '../../shared/agent';
+import { EDIT_DIFF_TRUNCATION_MARKER } from '../../shared/edit-diff.ts';
+import { REMOTE_EDIT_DIFF_MAX_CHARS } from '../../shared/remote.ts';
+import { projectRemoteState } from './remote-state.ts';
 import { handleRequest, type RouterDeps } from './router.ts';
 
 /**
@@ -31,6 +40,7 @@ function buildDeps(): {
     snapshotWorkspace: (string | undefined)[];
     reset: (string | undefined)[];
     effort: string[];
+    revert: { editId: string; workspaceId: string | undefined }[];
   };
   emit: (state: AgentChatState) => void;
 } {
@@ -39,6 +49,7 @@ function buildDeps(): {
     snapshotWorkspace: [] as (string | undefined)[],
     reset: [] as (string | undefined)[],
     effort: [] as string[],
+    revert: [] as { editId: string; workspaceId: string | undefined }[],
   };
   // The current mocked state the snapshot() stub returns; tweaked per test. The
   // workspace-scoped twin carries a recognizable turnId so a test can tell which
@@ -81,6 +92,14 @@ function buildDeps(): {
       setReasoningEffort(effort): boolean {
         calls.effort.push(effort);
         return true;
+      },
+      // Mirrors the loop's revertEdit: a recognizable id refuses as stale so the
+      // harness can assert the refusal surfaces as a 4xx with a reason message.
+      revertEdit(editId, workspaceId): Promise<AgentEditActionResult> {
+        calls.revert.push({ editId, workspaceId });
+        return Promise.resolve(
+          editId === 'edit-stale' ? { ok: false, reason: 'stale' } : { ok: true },
+        );
       },
     },
     subscribe(cb): () => void {
@@ -310,6 +329,93 @@ async function main(): Promise<void> {
     });
     check('an unknown effort → 400', effortBad.status === 400);
     check('a rejected effort did NOT reach the loop', calls.effort.length === 1);
+
+    // (h) revert-edit: validated + forwarded; a loop refusal surfaces as a 400
+    // with the human-readable reason (phone patch review).
+    const revertOk = await request(port, 'POST', '/agent/revert-edit', {
+      token: TOKEN,
+      json: { editId: 'edit-1', workspaceId: 'ws-42' },
+    });
+    check(
+      'POST /agent/revert-edit {editId,workspaceId} → 200 {ok:true}',
+      revertOk.status === 200 && (JSON.parse(revertOk.body) as { ok: boolean }).ok === true,
+    );
+    check(
+      'the edit id + workspace reached agent.revertEdit()',
+      calls.revert.at(-1)?.editId === 'edit-1' && calls.revert.at(-1)?.workspaceId === 'ws-42',
+    );
+    const revertStale = await request(port, 'POST', '/agent/revert-edit', {
+      token: TOKEN,
+      json: { editId: 'edit-stale' },
+    });
+    check(
+      'a stale revert refusal → 400 with the reason message',
+      revertStale.status === 400 &&
+        (JSON.parse(revertStale.body) as { error: string }).error.includes('changed since'),
+    );
+    const revertBad = await request(port, 'POST', '/agent/revert-edit', { token: TOKEN, json: {} });
+    check('POST /agent/revert-edit without an editId → 400', revertBad.status === 400);
+    check('a rejected revert did NOT reach the loop', calls.revert.length === 2);
+
+    // (i) remote edit projection (remote-state.ts): the heavy before/after edit
+    // list becomes a bounded unified-diff view; the authoritative input state is
+    // never mutated.
+    const edit: AgentEdit = {
+      id: 'edit-proj-1',
+      turnId: 'turn-9',
+      path: 'src/App.tsx',
+      kind: 'edit',
+      before: 'a\nb\nc\nd\n',
+      after: 'a\nB!\nc\nd\n',
+      status: 'applied',
+      timestamp: 123,
+    };
+    const richState: AgentChatState = { ...emptyAgentChatState(), edits: [edit] };
+    const projected = projectRemoteState(richState);
+    const pd = projected.editDiffs?.[0];
+    check(
+      'projectRemoteState stamps editDiffs (id/label/status/turn ride along)',
+      pd !== undefined &&
+        pd.id === 'edit-proj-1' &&
+        pd.turnId === 'turn-9' &&
+        pd.label === 'src/App.tsx' &&
+        pd.status === 'applied' &&
+        pd.kind === 'edit',
+    );
+    check(
+      'the projected diff is a unified hunk with +/- lines and counts',
+      pd !== undefined &&
+        pd.additions === 1 &&
+        pd.deletions === 1 &&
+        pd.diff.includes('@@') &&
+        pd.diff.includes('-b') &&
+        pd.diff.includes('+B!'),
+    );
+    check(
+      'the heavy edits array is emptied on the wire but untouched in the input',
+      projected.edits.length === 0 && richState.edits.length === 1,
+    );
+    check(
+      'a state without edits passes through unchanged (no editDiffs field)',
+      projectRemoteState(emptyAgentChatState()).editDiffs === undefined,
+    );
+    const bigEdit: AgentEdit = {
+      ...edit,
+      id: 'edit-proj-big',
+      before: null,
+      after: Array.from({ length: 4000 }, (_, i) => `line ${i} ${'x'.repeat(20)}`).join('\n'),
+      kind: 'create',
+    };
+    const bigDiff = projectRemoteState({ ...emptyAgentChatState(), edits: [bigEdit] })
+      .editDiffs?.[0];
+    check(
+      'an oversized diff is clipped at the budget with the truncation marker',
+      bigDiff !== undefined &&
+        bigDiff.truncated === true &&
+        bigDiff.diff.length <= REMOTE_EDIT_DIFF_MAX_CHARS + EDIT_DIFF_TRUNCATION_MARKER.length + 1 &&
+        bigDiff.diff.endsWith(EDIT_DIFF_TRUNCATION_MARKER) &&
+        bigDiff.additions === 4000,
+    );
 
     // (g) a workspace-scoped SSE request is refused when the deps can't serve it
     // (e.g. an older embedder without the workspace fan-out).

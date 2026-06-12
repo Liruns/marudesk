@@ -23,8 +23,8 @@ package boundaries.
 |---|---|
 | **Connect** (`screens/ConnectScreen.tsx`) | Enter and persist the relay URL (default `http://127.0.0.1:8788`), test `/health`, sign in through the relay path, and pair to a PC host by QR or pasted payload for direct credentials. |
 | **Login** (`screens/LoginScreen.tsx`) | Email/password login and self-signup against the relay, plus Google and GitHub buttons that open the relay web OAuth flow. |
-| **Chat** (`screens/ChatScreen.tsx`) | Streaming message list, collapsible thinking blocks, tool-call cards, inline approval and `ask_user` prompts, a send/stop composer, and connection/empty/error states. Bottom sheets pick the PC workspace (`chat/WorkspaceSheet.tsx`), resume or start saved conversations (`chat/SessionsSheet.tsx`), and choose the provider/model + reasoning effort (`chat/ModelSheet.tsx`). |
-| **Account** (`screens/AccountScreen.tsx`) | Logged-in identity, relay and PC-host connection status, reconnect, and logout. |
+| **Chat** (`screens/ChatScreen.tsx`) | Streaming message list, collapsible thinking blocks, tool-call cards, inline approval and `ask_user` prompts (file-edit approvals show the proposed diff above Approve/Deny), per-edit patch-review cards (PC-projected bounded unified diffs with +N/−M stats, expandable colored diff, and Revert on applied edits), a send/stop composer, and connection/empty/error states. Bottom sheets pick the PC workspace (`chat/WorkspaceSheet.tsx`), resume or start saved conversations (`chat/SessionsSheet.tsx`), and choose the provider/model + reasoning effort (`chat/ModelSheet.tsx`). |
+| **Account** (`screens/AccountScreen.tsx`) | Logged-in identity, relay and PC-host connection status, reconnect, logout, and the Notifications toggle (local alerts while backgrounded: new approval requests, finished/failed turns, and background-task completion — `lib/notifications.ts`, via `@capacitor/local-notifications` natively and the Web Notifications API on web/PWA). |
 
 A small hand-rolled router lives in the store
 (`route: 'connect'|'login'|'chat'|'account'`).
@@ -142,11 +142,12 @@ logged into the same account, then start the mobile client with
 ```bash
 npm run typecheck    # tsc -b (strict)
 npm run build        # vite build -> dist/
-npm run smoke        # runs stub, storage, pairing, and relay smoke suites
+npm run smoke        # runs stub, storage, pairing, relay, and notifications smoke suites
 npm run smoke:stub   # StubTransport data-path test
 npm run smoke:storage
 npm run smoke:pairing
 npm run smoke:relay
+npm run smoke:notifications
 ```
 
 `npm run smoke:stub` drives the same command sequence the screens issue
@@ -166,6 +167,12 @@ expired payloads before any network request.
 WebSocket. It verifies relay URL conversion, ready frames, command envelopes,
 ack resolution/rejection, malformed-frame ignores, and relay-delivered agent
 events.
+
+`npm run smoke:notifications` covers the local-notification seam: the pure
+snapshot diffing fires exactly one event per transition (background task
+done/error, new approval, turn completed/failed), baselines the first snapshot,
+de-dupes re-emits, and tolerates older-host snapshots without the optional
+fields.
 
 ## Capacitor / Android APK
 
