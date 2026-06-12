@@ -34,9 +34,6 @@ let getWindow: () => BrowserWindow | null = () => null;
 // `download-progress` carries no version, so remember the target from the
 // available/downloaded events to keep the renderer's progress label populated.
 let targetVersion = '';
-// When the user explicitly clicks "Check for updates", auto-install on download
-// completion instead of waiting for a manual "Restart to install" click.
-let pendingManualInstall = false;
 
 function setStatus(next: UpdateStatus): void {
   currentStatus = next;
@@ -63,15 +60,10 @@ function wireEvents(autoUpdater: AppUpdater): void {
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
     targetVersion = info.version;
     setStatus({ kind: 'downloaded', version: info.version });
-    if (pendingManualInstall) {
-      pendingManualInstall = false;
-      autoUpdater.quitAndInstall(false, true);
-    }
   });
-  autoUpdater.on('error', (err: Error) => {
-    pendingManualInstall = false;
-    setStatus({ kind: 'error', message: toMessage(err) });
-  });
+  autoUpdater.on('error', (err: Error) =>
+    setStatus({ kind: 'error', message: toMessage(err) }),
+  );
 }
 
 /**
@@ -85,20 +77,6 @@ export async function checkManually(): Promise<UpdateCheckResult | null> {
   const { autoUpdater } = updaterModule;
   const currentVersion = app.getVersion();
 
-  // Already downloaded (from the startup check) — install immediately.
-  if (currentStatus.kind === 'downloaded') {
-    process.nextTick(() => autoUpdater.quitAndInstall(false, true));
-    return {
-      kind: 'available',
-      currentVersion,
-      latestVersion: targetVersion || currentVersion,
-      releaseUrl: MARUDESK_RELEASES_URL,
-      checkedAt: Date.now(),
-    };
-  }
-
-  pendingManualInstall = true;
-
   try {
     const result = await autoUpdater.checkForUpdates();
     const checkedAt = Date.now();
@@ -106,7 +84,8 @@ export async function checkManually(): Promise<UpdateCheckResult | null> {
 
     if (
       currentStatus.kind === 'available' ||
-      currentStatus.kind === 'downloading'
+      currentStatus.kind === 'downloading' ||
+      currentStatus.kind === 'downloaded'
     ) {
       return {
         kind: 'available',
@@ -117,7 +96,6 @@ export async function checkManually(): Promise<UpdateCheckResult | null> {
       };
     }
 
-    pendingManualInstall = false;
     return {
       kind: 'up-to-date',
       currentVersion,
@@ -126,7 +104,6 @@ export async function checkManually(): Promise<UpdateCheckResult | null> {
       checkedAt,
     };
   } catch (err: unknown) {
-    pendingManualInstall = false;
     setStatus({ kind: 'error', message: toMessage(err) });
     return {
       kind: 'unavailable',
