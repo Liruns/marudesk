@@ -1,7 +1,7 @@
 {
   "name": "marudesk-mobile",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "marudesk Model-B bridge — mobile (Capacitor) thin client for the PC's AI Chat. Sends agent commands and renders the PC's agent state over a relay; never runs the model/tools itself.",
   "scripts": {
