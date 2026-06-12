@@ -66,7 +66,7 @@ type PickerItem =
   | { kind: 'header'; label: string }
   | { kind: 'model'; provider: string; model: string; label: string }
   | { kind: 'session'; id: string; label: string }
-  | { kind: 'workspace'; id: string; label: string };
+  | { kind: 'workspace'; id: string; name: string; label: string };
 
 type Mode =
   | { name: 'input' }
@@ -409,18 +409,20 @@ export async function runTui(opts: TuiOptions): Promise<number> {
   // default — TS's outer-scope flow analysis can't see closure assignments.
   let streamStop: () => void = () => {};
   let stopped = false;
+  let streamGen = 0;
   const connectStream = (): void => {
+    const gen = ++streamGen;
     const stream = client.events(onState, workspaceId);
     streamStop = stream.stop;
     void stream.done
       .catch(() => {})
       .finally(() => {
-        if (stopped) return;
+        if (stopped || gen !== streamGen) return;
         connected = false;
         paint();
         // The app may be restarting (profile switch) — quietly retry.
         setTimeout(() => {
-          if (stopped) return;
+          if (stopped || gen !== streamGen) return;
           connected = true;
           connectStream();
         }, 1500);
@@ -537,6 +539,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     const items: PickerItem[] = result.workspaces.map((w) => ({
       kind: 'workspace' as const,
       id: w.id,
+      name: w.name,
       label: `${w.id === result.activeWorkspaceId ? '● ' : '  '}${w.name}`,
     }));
     mode = { name: 'picker', title: 'switch workspace', items, selected: 0, filter: '' };
@@ -576,7 +579,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     }
     if (item.kind === 'workspace') {
       workspaceId = item.id;
-      workspaceName = item.label.replace(/^[● ]+/, '');
+      workspaceName = item.name;
       commitNotice([dim(`workspace → ${workspaceName}`)]);
       streamStop();
       connectStream();
