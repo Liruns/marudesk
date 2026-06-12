@@ -2,15 +2,54 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-06-12
+
+### Auth & Accounts
+- Google sign-in via relay OAuth handoff, linked onto the active profile.
+- Per-profile web partitions (cookies, storage, cache isolated per profile).
+- Link / unlink Google account directly from the profile switcher.
+
+### Providers & Usage
+- Multi-provider OAuth expansion: device-code flow UI, credential rotation,
+  multi-credential slot management.
+- Usage dashboard: per-provider cost breakdown, session history, and
+  provider setup guides.
+- Self-hosted cross-network direct mode (no cloud relay needed).
+
+### Remote
+- Auto tunnel: spawn cloudflared on demand and feed its public URL into the
+  pairing QR, enabling cross-network phone pairing without manual port
+  forwarding.
+
+### Agent
+- Agent-loop step budget: configurable per-turn tool-call limit.
+- Richer compaction trace: the `/compact` summary now preserves more
+  structural detail for long conversations.
+- Skill suggestions: the agent proposes relevant built-in skills when the
+  task matches.
+
+### Context
+- Context-window usage ring in the StatusBar; clicking it opens the chat.
+- Nudge to compact when the context window is almost full (manual mode only).
+
 ### Source Control
 - Worktree lanes board (Mission Control): each lane now shows its GitHub PR
   (#number with open/draft/merged/closed state) and an aggregated CI verdict
   from the head commit's check runs, both clickable into an in-app browser
-  tab, with a refresh button on the board. Status is fetched best-effort with
-  whatever auth the environment has (`GITHUB_TOKEN`/`GH_TOKEN`, `gh auth
-  token`, or unauthenticated for public repos) and cached briefly per branch.
-- A lane's "open dev URL" now reuses the lane's one browser tab (re-focusing
-  and re-navigating it) instead of opening a new tab on every click.
+  tab, with a refresh button on the board.
+- A lane's "open dev URL" now reuses the lane's one browser tab instead of
+  opening a new tab on every click.
+
+### Updates
+- Manual "Check for updates" now uses the same electron-updater path as the
+  startup auto-check on Windows, so the update is downloaded in-app with
+  progress display and installed via "Restart to install" — no more opening
+  the browser to the releases page.
+
+### Fixes
+- AI Chat tab isolation and tab restore reliability.
+- Only show the compaction nudge in manual mode.
+- Clear pre-existing typecheck errors on workspace open.
 
 ## 0.7.0 - 2026-06-12
 
