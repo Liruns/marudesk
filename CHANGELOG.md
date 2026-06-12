@@ -38,6 +38,14 @@
 - Address bar suggestions: bookmarks and frecency-ranked history with token
   highlighting, plus a search-the-web row.
 
+### Remote / mobile
+- Review agent edits from the phone: per-edit unified diff cards in the
+  mobile chat (expand, +N/−M stats, revert applied edits), and proposed
+  diffs shown above Approve/Deny on write-tool approvals.
+- Mobile local notifications for background-agent completion, new approval
+  requests, and turn completion while the app is backgrounded, with a
+  Notifications toggle in Account settings.
+
 ### Security
 - SSH host keys are now pinned on first sight and verified on every
   subsequent connect; a mismatch refuses the connection with an actionable
