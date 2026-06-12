@@ -4,7 +4,9 @@ import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-import { registerModelDisposer } from './store';
+import type { WorkspaceFileRef } from '../../../shared/workspace';
+import { registerModelDisposer, useEditorStore } from './store';
+import './editor-git.css';
 
 /**
  * One-time Monaco bootstrap: wire web workers, define the app theme, and own
@@ -67,6 +69,119 @@ if (!window.__marudeskMonacoCancelGuard) {
     if (canceled) e.preventDefault();
   });
 }
+
+/* ── TypeScript / JavaScript IntelliSense ─────────────────────────────────────
+ * The ts.worker above ships the full TS language service, so open buffers get
+ * real completions, hover, signature help, and go-to-definition — not just
+ * syntax colors. The service only sees OPEN models (there's no project/disk
+ * access from the worker), so:
+ *   - compilerOptions are permissive (strict off, allowJs) — red squiggles on a
+ *     perfectly buildable but untyped workspace would just be noise;
+ *   - module-not-found diagnostics are suppressed (diagnosticCodesToIgnore):
+ *     imports of files that aren't open / node_modules can't resolve here, and
+ *     flagging every one of them would drown real errors. Project-accurate
+ *     errors come from the diagnostics feature (the project's own tsc).
+ * NodeJs module resolution is the closest the worker's options enum offers to
+ * `bundler` (the enum exposes only Classic | NodeJs).
+ *
+ * monaco-editor ≥0.52 exposes this API as the top-level `monaco.typescript`
+ * namespace (`monaco.languages.typescript` is a deprecated stub).
+ */
+const TS_COMPILER_OPTIONS: monaco.typescript.CompilerOptions = {
+  target: monaco.typescript.ScriptTarget.ESNext,
+  module: monaco.typescript.ModuleKind.ESNext,
+  moduleResolution: monaco.typescript.ModuleResolutionKind.NodeJs,
+  jsx: monaco.typescript.JsxEmit.ReactJSX,
+  allowJs: true,
+  checkJs: false,
+  esModuleInterop: true,
+  allowSyntheticDefaultImports: true,
+  resolveJsonModule: true,
+  strict: false,
+  noImplicitAny: false,
+  skipLibCheck: true,
+};
+
+/**
+ * TS diagnostic codes that depend on resolving files the worker can't see:
+ * 2307/2792 "Cannot find module …", 7016 "Could not find a declaration file…",
+ * 2306 "… is not a module" (a barrel that resolves but isn't open), and
+ * 6133-adjacent 1479/2614 import-shape complaints that follow a failed resolve.
+ */
+const TS_IGNORED_DIAGNOSTICS = [2307, 2792, 7016, 2306, 1479, 2614];
+
+for (const defaults of [
+  monaco.typescript.typescriptDefaults,
+  monaco.typescript.javascriptDefaults,
+]) {
+  defaults.setCompilerOptions(TS_COMPILER_OPTIONS);
+  defaults.setDiagnosticsOptions({
+    noSemanticValidation: false,
+    noSyntaxValidation: false,
+    noSuggestionDiagnostics: true,
+    diagnosticCodesToIgnore: TS_IGNORED_DIAGNOSTICS,
+  });
+  // Mirror EVERY open model into the worker (not just the focused one), so
+  // completions and go-to-definition work ACROSS the open files.
+  defaults.setEagerModelSync(true);
+}
+
+/**
+ * Reverse of the model-URI construction in {@link getModel}: extract the doc
+ * key (legacy rel path, or `workspaceId:rootId:path`) from a workspace model
+ * URI; null for anything else (lib.d.ts etc.).
+ */
+export function docKeyFromUri(uri: monaco.Uri): string | null {
+  if (uri.scheme !== 'inmemory' || uri.authority !== 'workspace') return null;
+  const key = uri.path.replace(/^\//, '');
+  return key.length > 0 ? key : null;
+}
+
+/**
+ * Rebuild the editor store's open-file input from a doc key. Multi-root keys
+ * are `workspaceId:rootId:path` (ids are `workspace-<uuid>`/`root-<uuid>`, so
+ * they never contain ':'); a legacy key is the bare workspace-relative path
+ * (':' is rejected by the path validator, so the formats can't collide).
+ */
+export function fileInputFromDocKey(key: string): string | WorkspaceFileRef {
+  const first = key.indexOf(':');
+  if (first < 0) return key;
+  const second = key.indexOf(':', first + 1);
+  if (second < 0) return key;
+  return {
+    workspaceId: key.slice(0, first),
+    rootId: key.slice(first + 1, second),
+    path: key.slice(second + 1),
+  };
+}
+
+// Go-to-definition across models: standalone Monaco can't open a different
+// model on its own, so route the target through the editor store's openFile
+// flow — the target tab activates (or opens, reading the file from disk) and
+// the editor reveals the definition's position.
+monaco.editor.registerEditorOpener({
+  openCodeEditor(
+    _source: monaco.editor.ICodeEditor,
+    resource: monaco.Uri,
+    selectionOrPosition?: monaco.IRange | monaco.IPosition,
+  ): boolean {
+    const key = docKeyFromUri(resource);
+    if (!key) return false;
+    let line = 1;
+    let col = 1;
+    if (selectionOrPosition) {
+      if ('startLineNumber' in selectionOrPosition) {
+        line = selectionOrPosition.startLineNumber;
+        col = selectionOrPosition.startColumn;
+      } else {
+        line = selectionOrPosition.lineNumber;
+        col = selectionOrPosition.column;
+      }
+    }
+    void useEditorStore.getState().openFileAt(fileInputFromDocKey(key), line, col);
+    return true;
+  },
+});
 
 export const MARUDESK_THEME = 'marudesk';
 

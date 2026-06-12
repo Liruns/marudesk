@@ -101,6 +101,20 @@ export type AppSettings = {
     terminalFontFamily: string;
     terminalFontSize: number;
   };
+  editor: {
+    /**
+     * Run the language's Monaco format provider on the buffer before each save
+     * (TS/JS/JSON/CSS/HTML have built-ins). Languages without a formatter save
+     * unformatted — formatting failures never block the write.
+     */
+    formatOnSave: boolean;
+    /**
+     * GitLens-style inline blame: a dim end-of-line annotation on the current
+     * cursor line ("author, relative time · summary"). Hidden while the buffer
+     * has unsaved edits so it can't flicker or mislabel lines mid-typing.
+     */
+    inlineBlame: boolean;
+  };
   terminal: {
     /** Empty string = the OS default shell, resolved per-platform in main. */
     defaultShell: string;
@@ -284,6 +298,7 @@ export type AppSettings = {
  */
 export type SettingsPatch = {
   appearance?: Partial<AppSettings['appearance']>;
+  editor?: Partial<AppSettings['editor']>;
   terminal?: Partial<AppSettings['terminal']>;
   devtools?: Partial<AppSettings['devtools']>;
   browser?: Partial<AppSettings['browser']>;
@@ -310,6 +325,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     editorFontSize: 13,
     terminalFontFamily: '',
     terminalFontSize: 13,
+  },
+  editor: {
+    formatOnSave: false,
+    inlineBlame: true,
   },
   terminal: {
     defaultShell: '',
@@ -472,6 +491,7 @@ export function sanitizeSettings(
 ): AppSettings {
   const root = asRecord(input);
   const a = asRecord(root.appearance);
+  const ed = asRecord(root.editor);
   const t = asRecord(root.terminal);
   const d = asRecord(root.devtools);
   const b = asRecord(root.browser);
@@ -520,6 +540,10 @@ export function sanitizeSettings(
         FONT_SIZE_MIN,
         FONT_SIZE_MAX,
       ),
+    },
+    editor: {
+      formatOnSave: asBool(ed.formatOnSave, base.editor.formatOnSave),
+      inlineBlame: asBool(ed.inlineBlame, base.editor.inlineBlame),
     },
     terminal: {
       defaultShell: asShell(t.defaultShell, base.terminal.defaultShell),

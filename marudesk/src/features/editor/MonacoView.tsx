@@ -6,11 +6,41 @@ import {
   monacoThemeFor,
 } from './monaco-setup';
 import { useEditorStore, type RevealRequest } from './store';
+import { GitEditorDecorations } from './git-decorations';
 import { ensureDiagnosticMarkers } from '../diagnostics/markers';
 import type { EditorStatus } from './EditorView';
-import { resolveTheme, subscribeAppearance } from '../settings/store';
+import {
+  resolveTheme,
+  subscribeAppearance,
+  useSettingsStore,
+} from '../settings/store';
+import { useGitStore } from '../git/store';
+import { isTextFileBuf } from './buffer';
 import { fontStack } from '../../../shared/fonts';
 import type { AppSettings } from '../../../shared/settings';
+
+/**
+ * Ctrl/Cmd+S: optionally format, then save through the store. Formatting runs
+ * only when the setting is on AND Monaco has a format provider for the model's
+ * language (TS/JS/JSON/CSS/HTML built-ins); a missing formatter or a formatting
+ * failure never blocks the save. The format edits flow through the normal
+ * onDidChangeContent → setContent path before save() reads the buffer, so
+ * dirty tracking stays consistent.
+ */
+async function formatAndSave(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  path: string,
+): Promise<void> {
+  if (useSettingsStore.getState().settings.editor.formatOnSave) {
+    try {
+      const action = editor.getAction('editor.action.formatDocument');
+      if (action && action.isSupported()) await action.run();
+    } catch {
+      // No formatter for this language / formatter error — save unformatted.
+    }
+  }
+  await useEditorStore.getState().save(path);
+}
 
 // Cursor/scroll position per file, so switching tabs (or away to a web tab and
 // back) restores where you were.
@@ -41,6 +71,7 @@ export function MonacoView({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const gitDecorationsRef = useRef<GitEditorDecorations | null>(null);
   const pathRef = useRef(path);
   const onStatusRef = useRef(onStatus);
   // The last reveal nonce we acted on, so a model re-bind (tab switch) doesn't
@@ -61,8 +92,12 @@ export function MonacoView({
     ensureDiagnosticMarkers();
     const editor = monaco.editor.create(host, EDITOR_OPTIONS);
     editorRef.current = editor;
+    // Git diff gutter + inline blame, driven by the hooks below (model bind,
+    // cursor/content changes, saves, git-store refreshes, the blame setting).
+    const gitDecorations = new GitEditorDecorations(editor);
+    gitDecorationsRef.current = gitDecorations;
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      void useEditorStore.getState().save(pathRef.current);
+      void formatAndSave(editor, pathRef.current);
     });
     // Report cursor position up for the status bar (language is reported on each
     // model bind below, where it's known).
@@ -72,9 +107,29 @@ export function MonacoView({
         column: e.position.column,
         language: editor.getModel()?.getLanguageId() ?? 'plaintext',
       });
+      gitDecorations.onCursorChanged();
+    });
+    // Re-fetch the gutter/blame whenever Source Control refreshes its status —
+    // a commit/stage/discard/branch switch changes what "vs HEAD" means.
+    let lastGitStatus = useGitStore.getState().status;
+    const unsubGit = useGitStore.subscribe((s) => {
+      if (s.status === lastGitStatus) return;
+      lastGitStatus = s.status;
+      gitDecorations.onGitStateChanged();
+    });
+    // Live "Inline blame" setting.
+    gitDecorations.setBlameEnabled(
+      useSettingsStore.getState().settings.editor.inlineBlame,
+    );
+    const unsubSettings = useSettingsStore.subscribe((s) => {
+      gitDecorations.setBlameEnabled(s.settings.editor.inlineBlame);
     });
     return () => {
       cursorSub.dispose();
+      unsubGit();
+      unsubSettings();
+      gitDecorations.dispose();
+      gitDecorationsRef.current = null;
       viewStates.set(pathRef.current, editor.saveViewState());
       editor.dispose();
       editorRef.current = null;
@@ -127,11 +182,26 @@ export function MonacoView({
     });
     const sub = model.onDidChangeContent(() => {
       useEditorStore.getState().setContent(path, model.getValue());
+      gitDecorationsRef.current?.onContentChanged();
+    });
+    // Bind the git decorations to this document, and re-fetch after each save
+    // (the buffer's `saved` snapshot advancing is the save-completed signal).
+    gitDecorationsRef.current?.setDocKey(path);
+    let lastSaved = (() => {
+      const buf = useEditorStore.getState().files[path];
+      return isTextFileBuf(buf) ? buf.saved : undefined;
+    })();
+    const unsubSaved = useEditorStore.subscribe((s) => {
+      const buf = s.files[path];
+      if (!isTextFileBuf(buf) || buf.saved === lastSaved) return;
+      lastSaved = buf.saved;
+      gitDecorationsRef.current?.onSaved();
     });
     return () => {
       const ed = editorRef.current;
       if (ed) viewStates.set(path, ed.saveViewState());
       sub.dispose();
+      unsubSaved();
     };
   }, [path]);
 

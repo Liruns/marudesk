@@ -22,7 +22,7 @@ import {
   TextField,
 } from './SettingsControls';
 import { SEARCH_ENGINE_OPTIONS } from './settingsOptions';
-import { useDockOptions } from './useLocalizedSettingsOptions';
+import { useDockOptions, useOnOffOptions } from './useLocalizedSettingsOptions';
 import { useSettingsStore } from './store';
 
 function shellPlaceholder(): string {
@@ -129,7 +129,9 @@ export function AppearanceCategory() {
 export function EditorCategory() {
   const { t } = useI18n();
   const a = useSettingsStore((s) => s.settings.appearance);
+  const editor = useSettingsStore((s) => s.settings.editor);
   const update = useSettingsStore((s) => s.update);
+  const onOffOptions = useOnOffOptions();
   return (
     <Section>
       <Field
@@ -155,6 +157,26 @@ export function EditorCategory() {
           onChange={(editorFontSize) =>
             void update({ appearance: { editorFontSize } })
           }
+        />
+      </Field>
+      <Field
+        label={t('settings.editor.formatOnSave.label')}
+        hint={t('settings.editor.formatOnSave.hint')}
+      >
+        <Segmented
+          value={editor.formatOnSave ? 'on' : 'off'}
+          options={onOffOptions}
+          onChange={(v) => void update({ editor: { formatOnSave: v === 'on' } })}
+        />
+      </Field>
+      <Field
+        label={t('settings.editor.inlineBlame.label')}
+        hint={t('settings.editor.inlineBlame.hint')}
+      >
+        <Segmented
+          value={editor.inlineBlame ? 'on' : 'off'}
+          options={onOffOptions}
+          onChange={(v) => void update({ editor: { inlineBlame: v === 'on' } })}
         />
       </Field>
     </Section>

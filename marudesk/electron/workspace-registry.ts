@@ -145,6 +145,21 @@ export function getWorkspaceSnapshot(): WorkspaceSnapshot {
   return snapshot();
 }
 
+/**
+ * Resolve a multi-root file ref's owning root to its filesystem path (or SSH
+ * root key), or null when the workspace/root is gone. Used by sibling main
+ * modules (e.g. git.ts editor decorations) that receive a WorkspaceFileRef and
+ * must run against THAT root rather than the active legacy workspace.
+ */
+export function resolveWorkspaceRootPath(
+  workspaceId: WorkspaceId,
+  rootId: WorkspaceRootId,
+): string | null {
+  const record = workspaceRecords.get(workspaceId);
+  const root = record?.roots.find((entry) => entry.id === rootId);
+  return root?.root ?? null;
+}
+
 
 function activeRecord(): WorkspaceRecord | null {
   return activeWorkspaceId ? (workspaceRecords.get(activeWorkspaceId) ?? null) : null;

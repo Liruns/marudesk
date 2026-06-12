@@ -35,6 +35,14 @@ export const CHANNELS = {
     'browser:tabs-set-pinned',
     'browser:tabs-bind-path',
     'browser:popup-menu',
+    'browser:suggest',
+  ],
+  // Bookmarks (electron/bookmarks.ts): the address-bar star toggle + panel.
+  bookmarks: [
+    'bookmarks:list',
+    'bookmarks:add',
+    'bookmarks:remove',
+    'bookmarks:toggle',
   ],
   devtools: [
     'devtools:open',
@@ -87,6 +95,8 @@ export const CHANNELS = {
     'ssh:remove-connection',
     'ssh:test-connection',
     'ssh:list-dir',
+    'ssh:list-host-keys',
+    'ssh:clear-host-key',
   ],
   history: ['history:query', 'history:recent'],
   // Workspace diagnostics (docs/workspace-language-support-design.md, Tier 1).
@@ -106,6 +116,11 @@ export const CHANNELS = {
     'git:unstage',
     'git:discard',
     'git:diff',
+    // Editor decorations: per-line worktree-vs-HEAD change ranges (diff gutter)
+    // and line-porcelain blame (inline blame). Both degrade to an empty result
+    // for non-repo / untracked / remote roots instead of throwing.
+    'git:file-diff-lines',
+    'git:blame-file',
     'git:commit',
     'git:branches',
     'git:checkout',
@@ -193,7 +208,7 @@ export const CHANNELS = {
   storage: ['storage:stats', 'storage:clear-sessions', 'storage:reveal'],
   // Memory controls — Settings → Data lets the user view/edit/delete the agent's
   // remembered notes (v5 §G5).
-  memory: ['memory:list', 'memory:search', 'memory:read', 'memory:write', 'memory:delete'],
+  memory: ['memory:list', 'memory:search', 'memory:read', 'memory:write', 'memory:delete', 'memory:clear'],
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],
@@ -259,6 +274,8 @@ export const CHANNELS = {
     'terminal:resize',
     'terminal:dispose',
     'terminal:ready',
+    'terminal:pull-errors',
+    'terminal:clear-errors',
   ],
   clipboard: ['clipboard:write-text', 'clipboard:read-text'],
   app: [

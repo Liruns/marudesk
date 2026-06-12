@@ -26,9 +26,11 @@ import type {
 } from './context';
 import type {
   GitAvailability,
+  GitBlameFile,
   GitBranches,
   GitCommit,
   GitCommitResult,
+  GitFileDiffLines,
   GitRemoteResult,
   GitStatus,
 } from './git';
@@ -52,6 +54,8 @@ import type { McpConfigHealth, McpServerStatus } from './mcp';
 import type { PluginCommandSnapshot, PluginStatus } from './plugin';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
+import type { Suggestion } from './suggest';
+import type { Bookmark, BookmarkInput } from './bookmarks';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
 import type {
   CustomProviderInfo,
@@ -66,6 +70,7 @@ import type {
   SshConnectionInfo,
   SshConnectionInput,
   SshListDirResult,
+  SshPinnedHostKey,
   SshTestResult,
 } from './ssh';
 import type {
@@ -80,6 +85,7 @@ import type {
   TerminalInput,
   TerminalResize,
 } from './terminal';
+import type { TerminalErrorEvent } from './terminal-evidence';
 import type {
   CaptureInput,
   CreateKind,
@@ -399,6 +405,13 @@ export interface IpcMap {
     args: [payload: { connectionId: string; path: string }];
     result: SshListDirResult;
   };
+  // Pinned (TOFU) host keys — Settings → Remote lists them and clears one when
+  // a host's key legitimately changed (reinstall). Fingerprints only, no secrets.
+  'ssh:list-host-keys': { args: []; result: SshPinnedHostKey[] };
+  'ssh:clear-host-key': {
+    args: [payload: { host: string; port: number }];
+    result: { ok: boolean };
+  };
 
   // git (Source Control — electron/git.ts). Paths are workspace-relative POSIX.
   // `status` never throws for a non-repo (returns { isRepo: false }); `discard`
@@ -413,6 +426,21 @@ export interface IpcMap {
   'git:diff': {
     args: [payload: { path: string; staged: boolean }];
     result: { diff: string };
+  };
+  // Editor diff gutter: line ranges added/modified/deleted vs HEAD for one file.
+  // `file` (a multi-root WorkspaceFileRef) resolves the owning root; omitted =
+  // the active legacy workspace root. Never throws for non-repo/untracked —
+  // returns { tracked: false } so the gutter quietly shows nothing.
+  'git:file-diff-lines': {
+    args: [payload: { path: string; file?: WorkspaceFileRef }];
+    result: GitFileDiffLines;
+  };
+  // Editor inline blame: per-line {author, time, summary, hash} from
+  // `git blame --line-porcelain`. Same root resolution + graceful degradation
+  // as git:file-diff-lines ({ ok: false } instead of throwing).
+  'git:blame-file': {
+    args: [payload: { path: string; file?: WorkspaceFileRef }];
+    result: GitBlameFile;
   };
   'git:commit': {
     args: [payload: { message: string; amend?: boolean }];
@@ -490,6 +518,19 @@ export interface IpcMap {
   // history (address-bar autocomplete)
   'history:query': { args: [query: string]; result: HistoryEntry[] };
   'history:recent': { args: []; result: HistoryEntry[] };
+
+  // address-bar dropdown suggestions: matching bookmarks + history (frecency)
+  // + a trailing "search the web" row. Matching/ranking runs in main where the
+  // stores live (electron/suggest.ts → the pure ranker in shared/suggest.ts).
+  'browser:suggest': { args: [query: string]; result: Suggestion[] };
+
+  // bookmarks (flat list persisted under userData — electron/bookmarks.ts).
+  // `toggle` is the address-bar star: adds for the current tab URL (returns
+  // the new bookmark) or removes an existing one for that URL (returns null).
+  'bookmarks:list': { args: []; result: Bookmark[] };
+  'bookmarks:add': { args: [input: BookmarkInput]; result: Bookmark };
+  'bookmarks:remove': { args: [payload: { id: string }]; result: boolean };
+  'bookmarks:toggle': { args: [input: BookmarkInput]; result: Bookmark | null };
 
   // diagnostics (workspace language support, Tier 1 — electron/diagnostics/*).
   // `run` runs the open project's own checker and parses its output; `get` pulls
@@ -638,6 +679,8 @@ export interface IpcMap {
     result: { ok: boolean; name: string; reason?: string; evicted?: string[] };
   };
   'memory:delete': { args: [payload: { name: string }]; result: boolean };
+  // Wipe every remembered note (the panel's clear-all). Returns the count removed.
+  'memory:clear': { args: []; result: number };
 
   // context (built-in MCP mirror): the renderer pushes the surfaces main can't
   // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget
@@ -752,6 +795,15 @@ export interface IpcMap {
   'terminal:resize': { args: [resize: TerminalResize]; result: void };
   'terminal:dispose': { args: [id: string]; result: void };
   'terminal:ready': { args: [payload: { id: string }]; result: void };
+  // Always-on terminal error capture (terminal "Fix this"): drain the per-PTY
+  // ring of detected error events — the badge popover reads this on open. The
+  // live count pushes on the `terminal:error-count` event. Empty array when the
+  // session is gone. `clear-errors` empties the ring (and re-pushes count 0).
+  'terminal:pull-errors': {
+    args: [payload: { id: string }];
+    result: TerminalErrorEvent[];
+  };
+  'terminal:clear-errors': { args: [payload: { id: string }]; result: void };
 
   // clipboard (integrated-terminal copy/paste — electron/clipboard.ts)
   'clipboard:write-text': { args: [text: string]; result: void };

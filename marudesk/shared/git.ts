@@ -91,3 +91,44 @@ export type GitRemoteResult = { ok: true; summary: string };
  * ENOENT from every command.
  */
 export type GitAvailability = { installed: boolean; version?: string };
+
+/** Kind of a changed line range in the working tree vs HEAD. */
+export type GitDiffLineKind = 'added' | 'modified';
+
+/** An inclusive 1-based line range in the CURRENT (new) file content. */
+export type GitDiffLineRange = {
+  startLine: number;
+  endLine: number;
+  kind: GitDiffLineKind;
+};
+
+/**
+ * Result of `git:file-diff-lines` — the per-line change map the editor's diff
+ * gutter renders. `tracked` is false for an untracked file / non-repo / remote
+ * root (the gutter then shows nothing — untracked files are deliberately not
+ * painted all-added). `deletedAfter` holds 1-based line numbers in the current
+ * file AFTER which lines were deleted (0 = deleted before the first line).
+ */
+export type GitFileDiffLines = {
+  tracked: boolean;
+  ranges: GitDiffLineRange[];
+  deletedAfter: number[];
+};
+
+/** One line's blame info from `git blame --line-porcelain`. */
+export type GitBlameLine = {
+  /** 1-based line number in the current file. */
+  line: number;
+  hash: string;
+  author: string;
+  /** Author time, Unix seconds. */
+  authorTime: number;
+  summary: string;
+};
+
+/**
+ * Result of `git:blame-file`. `ok: false` covers non-repo / untracked /
+ * remote-root cases — the inline blame then simply doesn't render (not an
+ * error state).
+ */
+export type GitBlameFile = { ok: true; lines: GitBlameLine[] } | { ok: false };

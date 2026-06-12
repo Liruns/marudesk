@@ -3,9 +3,11 @@ import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import type {
   GitAvailability,
+  GitBlameFile,
   GitBranches,
   GitCommit,
   GitCommitResult,
+  GitFileDiffLines,
   GitRemoteResult,
   GitStatus,
 } from '../shared/git';
@@ -13,8 +15,14 @@ import { isSshRootKey } from '../shared/ssh';
 import { resolveWorkspacePath } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, bool, obj, str } from './ipc/validate';
-import { readFileSafe } from './workspace';
-import { parseBranchHeaders, parseStatus, summarize } from './git-parse';
+import { readFileSafe, resolveWorkspaceRootPath } from './workspace';
+import {
+  parseBranchHeaders,
+  parseLinePorcelainBlame,
+  parseStatus,
+  parseUnifiedZeroDiff,
+  summarize,
+} from './git-parse';
 import {
   discardIsolation,
   enterIsolation,
@@ -255,6 +263,80 @@ async function synthesizeUntrackedDiff(
   return header + lines.map((l) => `+${l}`).join('\n') + (lines.length ? '\n' : '');
 }
 
+/**
+ * Resolve the repo root + safe relative path for the per-file editor channels
+ * (diff gutter / inline blame). A multi-root `file` ref resolves through the
+ * workspace registry (so a file in a non-active root diffs against ITS repo);
+ * otherwise the active legacy workspace root applies. Returns null — never
+ * throws — for missing workspaces, remote (SSH) roots, or unsafe paths: these
+ * channels fire on every file open, so degraded cases must be silent.
+ */
+function rootForFileTarget(payload: unknown): { root: string; rel: string } | null {
+  const p = obj(payload);
+  let root: string | null;
+  let rel: string;
+  if (p.file !== undefined) {
+    const f = obj(p.file, 'file');
+    root = resolveWorkspaceRootPath(
+      str(f.workspaceId, 'workspaceId'),
+      str(f.rootId, 'rootId'),
+    );
+    rel = str(f.path, 'path');
+  } else {
+    try {
+      root = requireWorkspace().root;
+    } catch {
+      root = null;
+    }
+    rel = str(p.path, 'path');
+  }
+  if (!root || isSshRootKey(root)) return null;
+  try {
+    return { root, rel: resolveWorkspacePath(root, rel).rel };
+  } catch {
+    return null;
+  }
+}
+
+/** Line ranges added/modified/deleted in the working tree vs HEAD for a file. */
+async function fileDiffLines(root: string, rel: string): Promise<GitFileDiffLines> {
+  const none: GitFileDiffLines = { tracked: false, ranges: [], deletedAfter: [] };
+  if (!(await isRepo(root))) return none;
+  // An untracked file has no HEAD side — the gutter deliberately shows nothing
+  // (rather than painting every line "added", which is just noise on new files).
+  try {
+    const { stdout } = await git(root, ['ls-files', '--', rel]);
+    if (stdout.trim().length === 0) return none;
+  } catch {
+    return none;
+  }
+  // Diff vs HEAD (staged + unstaged, like VSCode's gutter). On an unborn branch
+  // HEAD doesn't resolve — fall back to the index diff so the gutter still works.
+  let stdout: string;
+  try {
+    ({ stdout } = await git(root, ['diff', 'HEAD', '--unified=0', '--no-color', '--', rel]));
+  } catch {
+    try {
+      ({ stdout } = await git(root, ['diff', '--unified=0', '--no-color', '--', rel]));
+    } catch {
+      return none;
+    }
+  }
+  return { tracked: true, ...parseUnifiedZeroDiff(stdout) };
+}
+
+/** Per-line porcelain blame for a file; { ok: false } when blame can't apply. */
+async function blameFile(root: string, rel: string): Promise<GitBlameFile> {
+  if (!(await isRepo(root))) return { ok: false };
+  try {
+    const { stdout } = await git(root, ['blame', '--line-porcelain', '--', rel]);
+    return { ok: true, lines: parseLinePorcelainBlame(stdout) };
+  } catch {
+    // Untracked file / unborn HEAD / any blame failure — no inline blame.
+    return { ok: false };
+  }
+}
+
 async function commit(
   root: string,
   message: string,
@@ -367,6 +449,21 @@ export function registerGitHandlers(): void {
     return getDiff(root, str(p.path, 'path'), bool(p.staged, 'staged')).then(
       (diff) => ({ diff }),
     );
+  });
+
+  // Editor decorations (diff gutter / inline blame). Both resolve the file's
+  // owning root (multi-root aware) and degrade to an empty result instead of
+  // throwing — they run on every file open/save.
+  defineHandler('git:file-diff-lines', async ([payload]) => {
+    const target = rootForFileTarget(payload);
+    if (!target) return { tracked: false, ranges: [], deletedAfter: [] };
+    return fileDiffLines(target.root, target.rel);
+  });
+
+  defineHandler('git:blame-file', async ([payload]) => {
+    const target = rootForFileTarget(payload);
+    if (!target) return { ok: false } as const;
+    return blameFile(target.root, target.rel);
   });
 
   defineHandler('git:commit', ([payload]) => {

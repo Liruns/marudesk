@@ -156,6 +156,7 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
   const section = (
     key:
       | 'appearance'
+      | 'editor'
       | 'terminal'
       | 'devtools'
       | 'browser'
@@ -173,6 +174,7 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
   return {
     version: 1,
     appearance: section('appearance'),
+    editor: section('editor'),
     terminal: section('terminal'),
     devtools: section('devtools'),
     browser: section('browser'),

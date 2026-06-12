@@ -4,6 +4,7 @@ export {
   getWorkspaceSnapshot,
   registerWorkspaceHandlers,
   resetWorkspaceRegistryForProfile,
+  resolveWorkspaceRootPath,
   restoreWorkspaces,
 } from './workspace-registry';
 export {

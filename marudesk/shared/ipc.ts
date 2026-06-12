@@ -13,6 +13,7 @@ import type { AppSettings } from './settings';
 import type { UpdateStatus } from './app-info';
 import type { PairingRequestInfo, RelayStatus, ServerStatus } from './remote';
 import type { TerminalDataEvent, TerminalExitEvent } from './terminal';
+import type { TerminalErrorCountEvent } from './terminal-evidence';
 import type { WorkspaceSnapshot } from './workspace';
 import type { DiagnosticsState } from './diagnostics';
 import type { IpcMap } from './ipc-map.ts';
@@ -126,6 +127,10 @@ export interface EventPayloadMap {
   'app:update-status-changed': UpdateStatus;
   'terminal:data': TerminalDataEvent;
   'terminal:exit': TerminalExitEvent;
+  // Always-on terminal error capture: the current detected-error count for a
+  // PTY session's ring buffer, pushed when it changes or is cleared. Drives the
+  // terminal pane's error badge (the terminal twin of devtools:error-count).
+  'terminal:error-count': TerminalErrorCountEvent;
   // App-level zoom intent forwarded from main's host before-input-event, which
   // intercepts Ctrl/Cmd +/-/0 so Chromium's built-in (unmanaged, non-persisted)
   // zoom can't fire. The renderer applies page zoom for a web tab or scales the
@@ -177,6 +182,7 @@ export const EVENT_CHANNELS = [
   'app:update-status-changed',
   'terminal:data',
   'terminal:exit',
+  'terminal:error-count',
   'app:ui-zoom',
   'app:tab-shortcut',
 ] as const satisfies readonly EventChannel[];
