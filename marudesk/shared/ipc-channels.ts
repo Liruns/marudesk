@@ -311,6 +311,8 @@ export const CHANNELS = {
     'terminal:ready',
     'terminal:pull-errors',
     'terminal:clear-errors',
+    'cli:command-status',
+    'cli:command-install',
   ],
   usage: ['usage:fetch', 'usage:fetch-all'],
   oauthSlots: ['auth:oauth-slots', 'auth:oauth-add-slot', 'auth:oauth-rotate'],

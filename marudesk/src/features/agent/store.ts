@@ -770,9 +770,9 @@ export async function openAgentTab(workspaceId?: WorkspaceId): Promise<void> {
 }
 
 /**
- * Open a new "AI Chat (CLI)" terminal tab (always creates a fresh tab). The
- * chat-open intents route here instead of the drawer when
- * `settings.agent.chatSurface` is 'cli'.
+ * Open a new "AI Chat (CLI)" terminal tab (always creates a fresh tab). An
+ * always-available sibling of the chat drawer/panel — reachable from the Home
+ * launcher and the `marudesk` terminal command, not gated by a setting.
  */
 export async function openCliChatTab(workspaceId?: WorkspaceId): Promise<void> {
   const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);

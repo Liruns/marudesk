@@ -20,14 +20,6 @@ export function ContextSection({
   );
 }
 
-export function EmptyHint({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-3 py-1.5 text-caption text-fg-tertiary leading-relaxed">
-      {children}
-    </p>
-  );
-}
-
 export function CaptureRow({
   icon,
   kind,

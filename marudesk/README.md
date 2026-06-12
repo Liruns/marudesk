@@ -80,9 +80,11 @@ bridge instead. Over the loopback companion the CLI is a full chat surface —
 gated-tool approvals included (same-user trust); over the remote bridge server
 those stay pinned to the desktop (the L-1 guard).
 
-In the app itself, Settings → Agent → **Chat surface → Terminal CLI** makes the
-chat toggle open an "AI Chat (CLI)" terminal tab hosting this CLI instead of
-the side panel.
+In the app itself the CLI is an always-available sibling of the chat panel:
+the Home view's **AI Chat (CLI)** launcher opens an "AI Chat (CLI)" terminal
+tab hosting this CLI. The app also installs a `marudesk` command on PATH at
+boot (Settings → Terminal shows/repairs it), so any terminal can run the chat
+CLI while the app is running.
 
 ## Agent roles & skills
 

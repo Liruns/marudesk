@@ -84,6 +84,7 @@ import type {
   ServerStatus,
 } from './remote';
 import type {
+  CliCommandStatus,
   TerminalCreateOptions,
   TerminalCreated,
   TerminalInput,
@@ -888,6 +889,10 @@ export interface IpcMap {
   'terminal:input': { args: [input: TerminalInput]; result: void };
   'terminal:resize': { args: [resize: TerminalResize]; result: void };
   'terminal:dispose': { args: [id: string]; result: void };
+
+  // `marudesk` terminal command shim (Settings → Terminal — electron/cli-command.ts)
+  'cli:command-status': { args: []; result: CliCommandStatus };
+  'cli:command-install': { args: []; result: CliCommandStatus };
   'terminal:ready': { args: [payload: { id: string }]; result: void };
   // Always-on terminal error capture (terminal "Fix this"): drain the per-PTY
   // ring of detected error events — the badge popover reads this on open. The

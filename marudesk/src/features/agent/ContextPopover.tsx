@@ -6,10 +6,7 @@ import {
   FileText,
   Globe,
   Image,
-  LayoutDashboard,
   Paperclip,
-  Settings,
-  Sparkles,
   SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,7 +14,7 @@ import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import { useWebPageStore } from '../browser/store';
 import { useTabsStore } from '../tabs/store';
-import { CaptureRow, ContextSection, EmptyHint, TabRow } from './ContextPopoverRows';
+import { CaptureRow, ContextSection, TabRow } from './ContextPopoverRows';
 import type { Capture } from '../../../shared/capture';
 import type { TabState } from '../../../shared/browser';
 
@@ -25,16 +22,20 @@ import type { TabState } from '../../../shared/browser';
 
 const TAB_KIND_ICON: Record<string, LucideIcon> = {
   web: Globe,
-  home: LayoutDashboard,
   terminal: SquareTerminal,
   editor: FileText,
-  settings: Settings,
-  agent: Code,
 };
 
 function tabIcon(kind: string): LucideIcon {
   return TAB_KIND_ICON[kind] ?? Globe;
 }
+
+/**
+ * Tab kinds worth mentioning to the agent — a URL, a file, or a terminal the
+ * agent can read. Home/settings/agent tabs produced useless `@home` mentions
+ * and only padded the list.
+ */
+const MENTIONABLE_TAB_KINDS = new Set(['web', 'editor', 'terminal']);
 
 /* ── Capture label helper ──────────────────────────────────────────────── */
 
@@ -79,18 +80,18 @@ type Props = {
 /**
  * "+" context popover for the AI Chat composer (agentic-chat-v4 Track B §B3).
  *
- * Two sections:
- *  1. Captures — current page captures (element / console-error). Checkboxes are
- *     bound to `selectedCaptureIds`; the existing `toggleCaptureSelected` action
- *     is the only write path. Selected captures already flow to the agent's first
- *     turn via `agent/store.ts send()`, so surfacing selection here is purely
- *     presentational.
- *  2. Open tabs — each tab inserts an @-style mention into the draft on click
- *     (e.g. `@src/App.tsx`, `@https://…`). No selection state — just a nudge
- *     that the agent can fetch context from that target on demand.
+ * Always shows the two attach actions (photo / file); the Captures and Open
+ * tabs sections appear only when they have content:
+ *  1. Captures — current page captures (element / console-error). Checkboxes
+ *     are bound to `selectedCaptureIds`; the existing `toggleCaptureSelected`
+ *     action is the only write path. Selected captures already flow to the
+ *     agent's first turn via `agent/store.ts send()`.
+ *  2. Open tabs — web/editor/terminal tabs only; each inserts an @-style
+ *     mention into the draft on click (e.g. `@src/App.tsx`, `@https://…`).
  *
- * Closes on outside pointer-down, Escape, or scroll — same dismiss contract as
- * the existing {@link ContextMenu} component.
+ * Keyboard: ArrowUp/ArrowDown move between rows (focus lands on the first row
+ * when the popover opens), Enter activates, Escape closes. Also closes on
+ * outside pointer-down or scroll — same dismiss contract as {@link ContextMenu}.
  */
 export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto, onAddFile }: Props) {
   const { t } = useI18n();
@@ -100,7 +101,8 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
   const selectedIds = useWebPageStore((s) => s.selectedCaptureIds);
   const toggleCapture = useWebPageStore((s) => s.toggleCaptureSelected);
 
-  const tabs = useTabsStore((s) => s.tabs);
+  const allTabs = useTabsStore((s) => s.tabs);
+  const tabs = allTabs.filter((tab) => MENTIONABLE_TAB_KINDS.has(tab.kind));
 
   /* ── Position above the anchor button ────────────────────────────────── */
 
@@ -140,7 +142,13 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
         onClose();
       }
     };
-    const onScroll = () => onClose();
+    // Outside scroll moves the anchor, so close — but scrolling a section
+    // INSIDE the popover (captures/tabs overflow, or arrow-key focus pulling a
+    // row into view) must not dismiss it.
+    const onScroll = (e: Event) => {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
+      onClose();
+    };
 
     window.addEventListener('pointerdown', onDown, true);
     window.addEventListener('keydown', onKey, true);
@@ -152,6 +160,28 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
     };
   }, [anchorRef, onClose]);
 
+  /* ── Keyboard: arrows walk the rows, Enter activates (native button) ── */
+
+  // Focus the first row once positioned, so arrows work immediately.
+  useEffect(() => {
+    if (pos) ref.current?.querySelector('button')?.focus();
+  }, [pos]);
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const root = ref.current;
+    if (!root) return;
+    e.preventDefault();
+    const rows = Array.from(root.querySelectorAll<HTMLButtonElement>('button'));
+    if (rows.length === 0) return;
+    const current = rows.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      e.key === 'ArrowDown'
+        ? (current + 1) % rows.length
+        : (current - 1 + rows.length) % rows.length;
+    rows[next]?.focus();
+  };
+
   /* ── Render ─────────────────────────────────────────────────────────── */
 
   const hasCaptures = captures.length > 0;
@@ -162,6 +192,7 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
       ref={ref}
       role="dialog"
       aria-label={t('agent.context.addContext')}
+      onKeyDown={onKeyDown}
       style={{ left: pos?.left ?? 8, top: pos?.top, visibility: pos ? undefined : 'hidden' }}
       className={cn(
         'fixed z-50 w-72 max-w-[calc(100vw-16px)] -translate-y-full mb-1',
@@ -192,98 +223,62 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
         </button>
       </div>
 
-      <div className="h-px bg-surface-3 shrink-0" />
+      {hasCaptures ? (
+        <>
+          <div className="h-px bg-surface-3 shrink-0" />
+          <ContextSection label={t('agent.context.captures')}>
+            {captures.map((c) => {
+              const selected = selectedIds.has(c.id);
+              const Icon =
+                c.kind === 'console-error'
+                  ? Bug
+                  : c.kind === 'terminal-error'
+                    ? SquareTerminal
+                    : Code;
+              return (
+                <CaptureRow
+                  key={c.id}
+                  icon={<Icon size={12} />}
+                  kind={captureKindLabel(c)}
+                  label={captureLabel(c)}
+                  selected={selected}
+                  onToggle={() => toggleCapture(c.id)}
+                />
+              );
+            })}
+          </ContextSection>
+        </>
+      ) : null}
 
-      <ContextSection label={t('agent.context.captures')}>
-        {!hasCaptures ? (
-          <EmptyHint>
-            {t('agent.context.noCaptures')}
-          </EmptyHint>
-        ) : (
-          captures.map((c) => {
-            const selected = selectedIds.has(c.id);
-            const Icon =
-              c.kind === 'console-error'
-                ? Bug
-                : c.kind === 'terminal-error'
-                  ? SquareTerminal
-                  : Code;
-            return (
-              <CaptureRow
-                key={c.id}
-                icon={<Icon size={12} />}
-                kind={captureKindLabel(c)}
-                label={captureLabel(c)}
-                selected={selected}
-                onToggle={() => toggleCapture(c.id)}
-              />
-            );
-          })
-        )}
-      </ContextSection>
-
-      <div className="h-px bg-surface-3 shrink-0" />
-
-      {/* ── Open tabs section ─────────────────────────────────────────── */}
-      <ContextSection label={t('agent.context.openTabsFiles')}>
-        {!hasTabs ? (
-          <EmptyHint>{t('agent.context.noOpenTabs')}</EmptyHint>
-        ) : (
-          tabs.map((tab) => {
-            const Icon = tabIcon(tab.kind);
-            const mention = tabMention(tab);
-            const display = tab.title || (tab.kind === 'editor' && tab.filePath) || tab.url || kindLabel(tab.kind);
-            return (
-              <TabRow
-                key={tab.id}
-                icon={<Icon size={12} />}
-                kind={kindLabel(tab.kind)}
-                label={String(display)}
-                title={`${t('agent.context.insertMentionBefore')}${kindLabel(tab.kind)}${t(
-                  'agent.context.insertMentionAfter',
-                )}`}
-                onClick={() => {
-                  onInsertMention(mention);
-                  onClose();
-                }}
-              />
-            );
-          })
-        )}
-      </ContextSection>
-
-      <div className="h-px bg-surface-3 shrink-0" />
-
-      {/* ── Built-in context MCP ──────────────────────────────────────── */}
-      <div className="flex flex-col">
-        <div className="px-3 pt-2 pb-1 flex items-center gap-1.5 text-caption uppercase tracking-wider text-fg-tertiary">
-          <Sparkles size={11} className="text-accent" />
-          <span>{t('agent.context.builtinTitle')}</span>
-        </div>
-        <p className="px-3 pb-2 text-caption text-fg-tertiary leading-relaxed">
-          {t('agent.context.builtinBody')}
-        </p>
-      </div>
+      {hasTabs ? (
+        <>
+          <div className="h-px bg-surface-3 shrink-0" />
+          <ContextSection label={t('agent.context.openTabsFiles')}>
+            {tabs.map((tab) => {
+              const Icon = tabIcon(tab.kind);
+              const mention = tabMention(tab);
+              const display = tab.title || (tab.kind === 'editor' && tab.filePath) || tab.url || tab.kind;
+              return (
+                <TabRow
+                  key={tab.id}
+                  icon={<Icon size={12} />}
+                  kind={tab.kind}
+                  label={String(display)}
+                  title={`${t('agent.context.insertMentionBefore')}${tab.kind}${t(
+                    'agent.context.insertMentionAfter',
+                  )}`}
+                  onClick={() => {
+                    onInsertMention(mention);
+                    onClose();
+                  }}
+                />
+              );
+            })}
+          </ContextSection>
+        </>
+      ) : null}
     </div>,
     document.body,
   );
 }
 
-function kindLabel(kind: string): string {
-  switch (kind) {
-    case 'web':
-      return 'web';
-    case 'home':
-      return 'home';
-    case 'terminal':
-      return 'terminal';
-    case 'editor':
-      return 'editor';
-    case 'settings':
-      return 'settings';
-    case 'agent':
-      return 'agent';
-    default:
-      return kind;
-  }
-}

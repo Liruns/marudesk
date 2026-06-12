@@ -424,15 +424,9 @@ export const EN_MESSAGES = {
   'agent.context.addContext': 'Add context',
   'agent.context.addFile': 'Add file',
   'agent.context.addPhoto': 'Add photo',
-  'agent.context.builtinBody':
-    'The agent pulls these on demand: page text & DOM, network, cookies/storage, open editors (incl. unsaved), terminals, the file tree, previous sessions, and memory.',
-  'agent.context.builtinTitle': 'Built-in context · MCP',
   'agent.context.captures': 'Captures',
   'agent.context.insertMentionAfter': ' tab',
   'agent.context.insertMentionBefore': 'Insert mention for this ',
-  'agent.context.noCaptures':
-    'No captures yet - toggle Inspect and click any element in the browser to capture it.',
-  'agent.context.noOpenTabs': 'No open tabs.',
   'agent.context.openTabsFiles': 'Open tabs / files',
   'agent.mission.collapse': 'Collapse plan panel',
   'agent.mission.expand': 'Show plan panel',
@@ -740,6 +734,13 @@ export const EN_MESSAGES = {
   'settings.terminal.shell.hint':
     'Path or command for the integrated terminal. Leave blank for the OS default; an unknown shell falls back automatically.',
   'settings.terminal.shell.label': 'Default shell',
+  'settings.terminal.cliCommand.label': 'marudesk command',
+  'settings.terminal.cliCommand.hint':
+    'Run the chat CLI from any terminal by typing "marudesk" (the desktop app must be running). Installed automatically; reinstall here if it goes missing.',
+  'settings.terminal.cliCommand.install': 'Install',
+  'settings.terminal.cliCommand.reinstall': 'Reinstall',
+  'settings.terminal.cliCommand.notOnPath':
+    'The install folder is not on PATH yet — open a new terminal, or add it to PATH.',
   'settings.category.about.blurb': 'Version and runtime details.',
   'settings.category.about.label': 'About',
   'settings.category.agent.blurb':
@@ -747,13 +748,12 @@ export const EN_MESSAGES = {
   'settings.category.agent.label': 'AI Agent',
   'settings.category.appearance.blurb': 'Theme, interface zoom, and UI font.',
   'settings.category.appearance.label': 'Appearance',
-  'settings.category.browser.blurb': 'Search engine and embedded-browser behavior.',
-  'settings.category.browser.label': 'Browser',
+  'settings.category.application.blurb':
+    'App behavior: window close, address-bar search engine, and the DevTools dock.',
+  'settings.category.application.label': 'Application',
   'settings.category.data.blurb':
     'What the app saves between launches - chat sessions, tabs - and where it lives.',
   'settings.category.data.label': 'Data & Storage',
-  'settings.category.devtools.blurb': 'How the embedded browser DevTools opens.',
-  'settings.category.devtools.label': 'Browser DevTools',
   'settings.category.editor.blurb': 'Code editor font and size.',
   'settings.category.editor.label': 'Editor',
   'settings.category.mcp.blurb':
@@ -788,9 +788,6 @@ export const EN_MESSAGES = {
   'settings.category.terminal.label': 'Terminal',
   'settings.category.usage.blurb': 'Monitor API rate limits and quota usage across your configured providers.',
   'settings.category.usage.label': 'Usage',
-  'settings.category.window.blurb':
-    'What closing the window does - quit completely, or keep running in the tray.',
-  'settings.category.window.label': 'Window',
   'settings.usage.empty': 'No usage data available. Configure a provider with API credentials to see quota information.',
   'settings.usage.fetchError': 'Failed to load usage data.',
   'settings.usage.identity': 'Account',
@@ -826,11 +823,6 @@ export const EN_MESSAGES = {
     'Auto-apply writes edits straight to disk (revert from the chat). Preview asks you to confirm each edit, showing the diff first, in Ask mode.',
   'settings.agent.editApproval.label': 'File edits',
   'settings.agent.editApproval.preview': 'Preview first',
-  'settings.agent.chatSurface.label': 'Chat surface',
-  'settings.agent.chatSurface.hint':
-    'Where opening the AI Chat lands: the side panel, or a terminal tab running the chat CLI.',
-  'settings.agent.chatSurface.panel': 'Panel',
-  'settings.agent.chatSurface.cli': 'Terminal CLI',
   'settings.agent.autoCompactThreshold.hint':
     'How full the context window may get before auto-compaction kicks in.',
   'settings.agent.autoCompactThreshold.label': 'Auto-compact at',
@@ -1314,6 +1306,8 @@ export const EN_MESSAGES = {
   'home.launcher.agent.label': 'AI Chat',
   'home.launcher.browser.hint': 'Open a blank page',
   'home.launcher.browser.label': 'Browser tab',
+  'home.launcher.cli.hint': 'Chat from a terminal tab',
+  'home.launcher.cli.label': 'AI Chat (CLI)',
   'home.launcher.editor.hint': 'Edit files in a tab',
   'home.launcher.editor.label': 'Code editor',
   'home.launcher.terminal.hint': 'Shell in a tab',

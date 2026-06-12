@@ -1,10 +1,9 @@
-import { Code2, FolderOpen, Globe, Smartphone, Sparkles, SquareTerminal } from 'lucide-react';
+import { Code2, FolderOpen, Globe, Smartphone, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
 import { useState } from 'react';
 import type { TabKind } from '../../../shared/browser';
 import logoUrl from '../../assets/logo-mark.png';
 import { useI18n } from '../../i18n/useI18n';
 import { openCliChatTab } from '../agent/store';
-import { useSettingsStore } from '../settings/store';
 import { useGridStore } from '../tabs/grid';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -23,13 +22,7 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
   const workspaceCount = useWorkspaceDeckStore((s) => s.workspaces.length);
   const [showGuide, setShowGuide] = useState(() => !hasSeenGuide());
 
-  const chatSurface = useSettingsStore((s) => s.settings.agent.chatSurface);
-
   const open = (kind: TabKind, url?: string) => {
-    if (kind === 'agent' && chatSurface === 'cli') {
-      void openCliChatTab();
-      return;
-    }
     const target = tabId ?? activeTabId;
     if (!target) {
       void newTab(kind, url);
@@ -92,6 +85,12 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
               hint={t('home.launcher.agent.hint')}
               icon={<Sparkles size={18} />}
               onOpen={() => open('agent')}
+            />
+            <HomeLauncherCard
+              label={t('home.launcher.cli.label')}
+              hint={t('home.launcher.cli.hint')}
+              icon={<Terminal size={18} />}
+              onOpen={() => void openCliChatTab()}
             />
             <HomeLauncherCard
               label={t('home.launcher.browser.label')}

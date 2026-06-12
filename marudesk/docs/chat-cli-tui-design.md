@@ -171,17 +171,13 @@ pattern keep working. TUI-only affordances degrade away cleanly.
   like `pluginPanel`; `browser:tabs-new` accepts it; the terminal session
   passes it to `terminal:create`; tab title "AI Chat (CLI)".
 
-### 6.2 Chat-surface setting
+### 6.2 Surfaces (panel + CLI, no routing setting)
 
-- `shared/settings.ts`: `agent.chatSurface: 'panel' | 'cli'` (default
-  `panel`) + sanitize + Settings → Agent radio.
-- `Shell.tsx`: the two chat-open intents — the titlebar drawer toggle and the
-  `drawerOpenNonce` bump used by `askAgent()` (console "Fix this") — route to
-  `openCliChatTab()` when the setting is `cli`: focus an existing
-  `agent-cli` terminal tab in the active workspace, else open one. The context
-  drawer itself (captures/specs) stays reachable; only the *chat* intent is
-  rerouted. `openAgentTab()` call sites (full-surface chat) are unchanged in
-  this pass.
+- The `agent.chatSurface` setting is REMOVED: the chat drawer/panel and the
+  "AI Chat (CLI)" terminal tab are both always available. Chat-open intents
+  (titlebar toggle, console "Fix this" via `drawerOpenNonce`) always open the
+  drawer; the CLI tab opens from the Home launcher card (`openCliChatTab()`)
+  or the installed `marudesk` terminal command (electron/cli-command.ts).
 
 ## 7. Build & packaging
 
@@ -207,9 +203,9 @@ pattern keep working. TUI-only affordances degrade away cleanly.
   paths/deps — asserts loopback-only bind, handshake write/remove, and that a
   gated approve is ALLOWED here while the guarded remote router still refuses
   it (the L-1 contrast case).
-- e2e (Playwright): flip `chatSurface` to `cli`, trigger the chat toggle →
-  expect a terminal tab titled "AI Chat (CLI)" whose xterm shows the CLI
-  banner (real PTY + real companion in the packaged-dev build).
+- e2e (Playwright): click the Home "AI Chat (CLI)" launcher → expect a
+  terminal tab titled "AI Chat (CLI)" whose xterm shows the CLI banner (real
+  PTY + real companion in the packaged-dev build).
 - `typecheck`/`lint` 0, full `harness:all`, existing e2e suite stays green.
 
 ## 9. Out of scope (follow-ups)

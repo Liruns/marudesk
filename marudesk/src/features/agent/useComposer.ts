@@ -375,6 +375,10 @@ export function useComposer({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // While an IME composition is active (Korean/Japanese/Chinese input), every
+    // key belongs to the composition — handling Enter/arrows here would send a
+    // half-composed syllable or hijack the IME's own candidate navigation.
+    if (e.nativeEvent.isComposing) return;
     // While the slash menu is open it owns the arrow/Tab/Enter keys.
     if (slashOpen) {
       if (e.key === 'ArrowDown') {

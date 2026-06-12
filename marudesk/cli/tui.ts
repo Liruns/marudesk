@@ -214,6 +214,8 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     };
   };
 
+  const SLASH_MENU_ROWS = 8;
+
   const slashMenuLines = (): string[] => {
     if (mode.name !== 'input') return [];
     const query = cliSlashQuery(composer.text);
@@ -222,11 +224,23 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     if (matches.length === 0) return [dim('  no matching command')];
     if (slashSelected >= matches.length) slashSelected = matches.length - 1;
     const width = cols() - 1;
-    return matches.slice(0, 8).map((c, i) => {
+    // Window the list around the selection so ↑/↓ past the visible rows
+    // scrolls the menu instead of moving the highlight off-screen.
+    const start = Math.max(
+      0,
+      Math.min(slashSelected - (SLASH_MENU_ROWS >> 1), matches.length - SLASH_MENU_ROWS),
+    );
+    const visible = matches.slice(start, start + SLASH_MENU_ROWS);
+    const out = visible.map((c, i) => {
+      const idx = start + i;
       const hint = c.argHint ? ` ${dim(`<${c.argHint}>`)}` : '';
       const label = `  /${c.name}${hint}  ${dim(c.description)}`;
-      return truncate(i === slashSelected ? inverse(`  /${c.name}`) + hint + `  ${dim(c.description)}` : label, width);
+      return truncate(idx === slashSelected ? inverse(`  /${c.name}`) + hint + `  ${dim(c.description)}` : label, width);
     });
+    if (start > 0) out.unshift(dim(`  ↑ ${start} more`));
+    const below = matches.length - (start + visible.length);
+    if (below > 0) out.push(dim(`  ↓ ${below} more`));
+    return out;
   };
 
   const approvalLines = (): string[] => {
@@ -325,8 +339,26 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     return [];
   };
 
+  /**
+   * Commit lines waiting for the next repaint. Snapshot streams can push many
+   * frames per second; buffering them behind a short coalescing timer keeps
+   * the repaint cost (and terminal write volume) flat no matter how fast the
+   * model streams, while key echo still paints synchronously.
+   */
+  let pendingCommits: string[] = [];
+  let paintTimer: NodeJS.Timeout | null = null;
+  const PAINT_COALESCE_MS = 33;
+
   /** Repaint the sticky block (and commit finished scrollback lines first). */
   const paint = (commitLines: string[] = []): void => {
+    if (paintTimer) {
+      clearTimeout(paintTimer);
+      paintTimer = null;
+    }
+    if (pendingCommits.length > 0) {
+      commitLines = commitLines.length > 0 ? [...pendingCommits, ...commitLines] : pendingCommits;
+      pendingCommits = [];
+    }
     const block: string[] = [];
     let cursorRow: number | null = null;
     let cursorCol = 0;
@@ -375,6 +407,16 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     io.write(frame.join(''));
   };
 
+  /** Queue commit lines and repaint on the coalescing timer (stream path). */
+  const schedulePaint = (commitLines: string[] = []): void => {
+    if (commitLines.length > 0) pendingCommits.push(...commitLines);
+    if (paintTimer) return;
+    paintTimer = setTimeout(() => {
+      paintTimer = null;
+      paint();
+    }, PAINT_COALESCE_MS);
+  };
+
   /* ── agent wiring ─────────────────────────────────────────────────────── */
 
   const onState = (next: AgentChatState): void => {
@@ -409,7 +451,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
       mode = { name: 'input' };
     }
 
-    paint(update.commit);
+    schedulePaint(update.commit);
   };
 
   // Assigned from inside connectStream (a closure), so give it a callable
@@ -932,7 +974,8 @@ export async function runTui(opts: TuiOptions): Promise<number> {
       }
       case 'down': {
         if (slashOpen) {
-          slashSelected += 1;
+          const count = filterCliSlash(cliSlashQuery(composer.text) ?? '').length;
+          slashSelected = Math.min(slashSelected + 1, Math.max(0, count - 1));
           break;
         }
         const next = historyNext(history);
@@ -1064,11 +1107,23 @@ export async function runTui(opts: TuiOptions): Promise<number> {
   const spinnerTimer = setInterval(() => {
     spinnerIdx += 1;
     const busy = (state && BUSY.has(state.status)) || !connected;
-    if (busy) paint();
+    if (busy) schedulePaint();
   }, 120);
   spinnerTimer.unref?.();
 
-  const onResize = (): void => paint();
+  // Resize rewraps previously painted rows, so the cursor-up bookkeeping no
+  // longer matches what's on screen — debounce the storm a drag produces, then
+  // start from a clean screen instead of erasing a stale row count.
+  let resizeTimer: NodeJS.Timeout | null = null;
+  const onResize = (): void => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      resizeTimer = null;
+      io.write('\x1b[2J\x1b[H');
+      paintedRowsAboveCursor = 0;
+      paint();
+    }, 80);
+  };
 
   const code = await new Promise<number>((resolve) => {
     exitResolve = resolve;
@@ -1101,6 +1156,8 @@ export async function runTui(opts: TuiOptions): Promise<number> {
   stopped = true;
   clearInterval(spinnerTimer);
   if (escTimer) clearTimeout(escTimer);
+  if (resizeTimer) clearTimeout(resizeTimer);
+  if (pendingCommits.length > 0 || paintTimer) paint(); // flush coalesced lines
   streamStop();
   stdin.off('data', onStdin);
   io.off('resize', onResize);

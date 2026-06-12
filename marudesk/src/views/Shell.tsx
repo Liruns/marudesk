@@ -21,7 +21,6 @@ import { confirmCloseTab } from '../features/editor/store';
 import { ContextDrawer } from '../features/context/ContextDrawer';
 import { useComposerStore } from '../features/composer/store';
 import { useContextSync } from '../features/agent/context-sync';
-import { openCliChatTab } from '../features/agent/store';
 import { ToastHost } from '../components/ToastHost';
 import { toast } from '../lib/toast';
 import { useI18n } from '../i18n/useI18n';
@@ -121,27 +120,19 @@ export function Shell() {
   const toggleLeft = (panel: Exclude<LeftPanel, null>) =>
     setLeftPanel((cur) => (cur === panel ? null : panel));
 
-  // The chat-open intents honor Settings → Agent → Chat surface (chat CLI v2
-  // §6.2): 'cli' routes them to the "AI Chat (CLI)" terminal tab instead of
-  // the drawer. The drawer itself stays reachable for captures/specs.
-  const chatSurface = useSettingsStore((s) => s.settings.agent.chatSurface);
-
-  // Open the chat surface when a stage element pick / askAgent asks for it (the
+  // Open the chat drawer when a stage element pick / askAgent asks for it (the
   // composer store bumps a nonce). A store SUBSCRIPTION (not an effect on the
   // selected value) so the setState happens in an external-event callback; the
   // ref means a repeat pick re-opens a drawer the user closed, and nothing
-  // fires on mount. chatSurface is read at event time to avoid a stale closure.
+  // fires on mount. The "AI Chat (CLI)" terminal tab is a separate, always-
+  // available surface (Home launcher / `marudesk` command), not a routing mode.
   const drawerNonceSeen = useRef(useComposerStore.getState().drawerOpenNonce);
   useEffect(
     () =>
       useComposerStore.subscribe((s) => {
         if (s.drawerOpenNonce === drawerNonceSeen.current) return;
         drawerNonceSeen.current = s.drawerOpenNonce;
-        if (useSettingsStore.getState().settings.agent.chatSurface === 'cli') {
-          void openCliChatTab();
-        } else {
-          setDrawerOpen(true);
-        }
+        setDrawerOpen(true);
       }),
     [],
   );
@@ -373,10 +364,7 @@ export function Shell() {
           sourceControlOpen={leftPanel === 'sourceControl'}
           onToggleSourceControl={() => toggleLeft('sourceControl')}
           drawerOpen={drawerOpen}
-          onToggleDrawer={() => {
-            if (chatSurface === 'cli' && !drawerOpen) void openCliChatTab();
-            else setDrawerOpen((v) => !v);
-          }}
+          onToggleDrawer={() => setDrawerOpen((v) => !v)}
         />
         <ExplorerPanel
           open={leftPanel === 'explorer'}
