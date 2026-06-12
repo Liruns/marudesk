@@ -151,7 +151,7 @@ export const MessageView = memo(function MessageView({
   // we suppress the empty text part's caret so there's only one.
   const reasoningStreaming = streaming && hasReasoning && answerText.trim().length === 0;
   return (
-    <div id={`agent-msg-${message.id}`} className="group/msg relative flex flex-col gap-3">
+    <div id={`agent-msg-${message.id}`} className="group/msg relative flex min-w-0 flex-col gap-3">
       {/* Copy the assistant's prose — appears on hover, hidden mid-stream. */}
       {!streaming && answerText.trim() ? (
         <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">
@@ -179,7 +179,7 @@ export const MessageView = memo(function MessageView({
           // + copy buttons) via the shared renderer. The streaming caret rides
           // the live edge: it sits inline right after the rendered prose.
           return (
-            <div key={i} className="text-body-sm text-fg-secondary">
+            <div key={i} className="min-w-0 max-w-full text-body-sm text-fg-secondary">
               <Markdown source={part.text} className="md-compact" />
               {caret ? <StreamCaret /> : null}
             </div>

@@ -208,6 +208,12 @@ svg.lucide {
   font-family: var(--font-body);
   font-size: 0.875rem;       /* body */
   line-height: 1.7;
+  /* AI output is full of long unbroken tokens (URLs, file paths, hashes).
+     `anywhere` lets them wrap — and, unlike `break-word`, also shrinks the
+     min-content width, so prose can never force a narrow split pane / drawer
+     wider than its container. */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .md-prose > * + * { margin-top: 1em; }
@@ -297,9 +303,16 @@ svg.lucide {
   color: var(--text-primary);
 }
 
-/* Tables */
+/* Tables — GFM tables have no minimum-width escape hatch of their own, so a
+   wide table would otherwise push past a narrow split pane / drawer. Render as
+   a block that scrolls horizontally inside its own bounds instead (GitHub's
+   approach): narrow tables keep their natural width, wide ones get a local
+   scrollbar rather than overflowing the transcript. */
 .md-prose table {
-  width: 100%;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 0.8125rem;
   margin: 1em 0;

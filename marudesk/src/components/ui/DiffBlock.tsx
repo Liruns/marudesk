@@ -70,7 +70,7 @@ export function DiffBlock({ filePath, lines, className, comments, onCommentChang
         className,
       )}
     >
-      <div className="bg-surface-2 border-b border-subtle px-3 py-2 font-mono text-body-sm text-fg-secondary tabular-nums">
+      <div className="bg-surface-2 border-b border-subtle px-3 py-2 font-mono text-body-sm text-fg-secondary tabular-nums break-words">
         {filePath}
       </div>
       <pre className="font-mono text-body-sm leading-[1.55] m-0">
@@ -106,7 +106,10 @@ export function DiffBlock({ filePath, lines, className, comments, onCommentChang
                 <span className="w-4 text-center text-fg-tertiary shrink-0 select-none">
                   {ROW_PREFIX[line.kind]}
                 </span>
-                <span className="text-fg-primary whitespace-pre">{line.content}</span>
+                {/* pre-wrap + break-words: long lines wrap within the content
+                    column instead of being clipped by the card's overflow-hidden
+                    (which made diffs unreadable in a narrow split pane/drawer). */}
+                <span className="min-w-0 flex-1 text-fg-primary whitespace-pre-wrap break-words">{line.content}</span>
               </div>
               {editing === i ? (
                 <div className="flex flex-col gap-1.5 whitespace-normal bg-surface-2 border-y border-subtle px-3 py-2 font-sans">

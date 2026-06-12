@@ -192,8 +192,11 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       {full ? <ThreadBar /> : null}
 
       <div className="relative flex-1 min-h-0 flex">
-       <div className="relative flex-1 min-h-0">
-       <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto">
+       {/* min-w-0: this column flexes beside the Mission Control aside — without
+           it a wide code block / table in the transcript would set the row's
+           min-content width and push the pane wider than its container. */}
+       <div className="relative flex-1 min-w-0 min-h-0">
+       <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto overflow-x-hidden">
         <div
           className={cn(
             'flex flex-col gap-5',

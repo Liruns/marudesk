@@ -97,7 +97,10 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
         // No width transition mid-drag — it would lag a frame behind the pointer.
         resizing ? '' : 'transition-[width] duration-standard',
       )}
-      style={{ width: open ? width : 0 }}
+      // Clamp to the window so a wide persisted width can't push the drawer
+      // off-screen when the window shrinks (the activity bar's 3rem stays
+      // reachable on the left).
+      style={{ width: open ? width : 0, maxWidth: 'calc(100vw - 3rem)' }}
     >
       {open ? (
         <div
@@ -115,7 +118,13 @@ export function ContextDrawer({ open, onOpenChange }: Props) {
           <span aria-hidden className="absolute inset-y-0 left-0 -right-1" />
         </div>
       ) : null}
-      <div className="relative h-full flex flex-col" style={{ width }}>
+      <div
+        className="relative h-full flex flex-col"
+        // Same clamp as the aside: the inner wrapper keeps a fixed width so the
+        // open/close animation doesn't reflow content, but it must shrink with
+        // the window or the right edge of the chat would be clipped.
+        style={{ width, maxWidth: 'calc(100vw - 3rem)' }}
+      >
         <header className="chrome-header h-10 shrink-0 flex items-center justify-between px-3">
           <h2 className="text-body-sm font-medium text-fg-primary">{t('context.drawer.title')}</h2>
           <div className="flex items-center gap-0.5">
