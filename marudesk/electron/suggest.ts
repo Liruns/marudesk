@@ -1,7 +1,7 @@
 import { defineHandler } from './ipc/define-handler';
 import { str } from './ipc/validate';
 import { allHistoryEntries } from './history';
-import { listBookmarks } from './bookmarks';
+import { listBookmarks } from './browser/bookmarks';
 import { searchBaseFor } from './browser/url';
 import { getSettingsSync } from './settings';
 import { buildSuggestions } from '../shared/suggest';

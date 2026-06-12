@@ -20,9 +20,11 @@ export function fileName(url: string): string {
 }
 
 /** Filter-bar resource-type buckets → the CDP resourceType values each admits. */
-export type TypeFilter = 'all' | 'fetch' | 'js' | 'css' | 'img' | 'font' | 'doc' | 'media' | 'other';
+export type TypeFilter = 'all' | 'fetch' | 'js' | 'css' | 'img' | 'font' | 'doc' | 'ws' | 'media' | 'other';
 
-export const TYPE_FILTERS: { id: TypeFilter; labelKey: TranslationKey }[] = [
+// The original filters carry i18n keys; newer buckets (WS) use registry-style
+// literals, like the Application panel's newer storage sections.
+export const TYPE_FILTERS: { id: TypeFilter; labelKey?: TranslationKey; label?: string }[] = [
   { id: 'all', labelKey: 'devtools.network.filter.all' },
   { id: 'fetch', labelKey: 'devtools.network.filter.fetch' },
   { id: 'js', labelKey: 'devtools.network.filter.js' },
@@ -30,11 +32,12 @@ export const TYPE_FILTERS: { id: TypeFilter; labelKey: TranslationKey }[] = [
   { id: 'img', labelKey: 'devtools.network.filter.img' },
   { id: 'font', labelKey: 'devtools.network.filter.font' },
   { id: 'doc', labelKey: 'devtools.network.filter.doc' },
+  { id: 'ws', label: 'WS' },
   { id: 'media', labelKey: 'devtools.network.filter.media' },
   { id: 'other', labelKey: 'devtools.network.filter.other' },
 ];
 
-export const KNOWN_TYPES = new Set(['fetch', 'js', 'css', 'img', 'font', 'doc', 'media']);
+export const KNOWN_TYPES = new Set(['fetch', 'js', 'css', 'img', 'font', 'doc', 'ws', 'media']);
 
 /** Map a CDP resourceType to its filter bucket. */
 export function typeBucket(resourceType: string | undefined): Exclude<TypeFilter, 'all'> {
@@ -43,6 +46,8 @@ export function typeBucket(resourceType: string | undefined): Exclude<TypeFilter
     case 'Fetch':
     case 'EventSource':
       return 'fetch';
+    case 'WebSocket':
+      return 'ws';
     case 'Script':
       return 'js';
     case 'Stylesheet':
@@ -108,6 +113,12 @@ export function buildNetworkFixPrompt(entry: NetworkEntry): string {
     `client call site or the server/handler — fix it, then reload and verify the ` +
     `request succeeds.`
   );
+}
+
+/** The Type column's display label ('WS' for WebSocket rows, like Chrome). */
+export function typeLabel(entry: NetworkEntry): string {
+  if (entry.isWebSocket || entry.resourceType === 'WebSocket') return 'WS';
+  return entry.resourceType ?? '—';
 }
 
 export function fmtSize(entry: NetworkEntry): string {

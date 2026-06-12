@@ -12,8 +12,11 @@ import type { DevtoolsPanel } from './store';
 export const PANELS: { id: DevtoolsPanel; label: string }[] = [
   { id: 'elements', label: 'Elements' },
   { id: 'console', label: 'Console' },
+  { id: 'sources', label: 'Sources' },
   { id: 'timeline', label: 'Timeline' },
   { id: 'network', label: 'Network' },
   { id: 'application', label: 'Application' },
   { id: 'rendering', label: 'Rendering' },
+  { id: 'performance', label: 'Performance' },
+  { id: 'security', label: 'Security' },
 ];

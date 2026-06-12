@@ -45,13 +45,6 @@ export const CHANNELS = {
     'browser:popup-menu',
     'browser:suggest',
   ],
-  // Bookmarks (electron/bookmarks.ts): the address-bar star toggle + panel.
-  bookmarks: [
-    'bookmarks:list',
-    'bookmarks:add',
-    'bookmarks:remove',
-    'bookmarks:toggle',
-  ],
   devtools: [
     'devtools:open',
     'devtools:close',
@@ -106,7 +99,21 @@ export const CHANNELS = {
     'ssh:list-host-keys',
     'ssh:clear-host-key',
   ],
-  history: ['history:query', 'history:recent'],
+  history: [
+    'history:query',
+    'history:recent',
+    'history:list',
+    'history:delete',
+    'history:clear',
+  ],
+  // Bookmarks (electron/browser/bookmarks.ts). Mutations resolve the fresh
+  // list; live changes also push on the browser:bookmarks event.
+  bookmarks: [
+    'bookmarks:list',
+    'bookmarks:add',
+    'bookmarks:remove',
+    'bookmarks:update',
+  ],
   // Workspace diagnostics (docs/workspace-language-support-design.md, Tier 1).
   // `run` triggers the project's own checker (tsc/eslint/…) and parses its output;
   // `get` is the pull for initial render. Results also push on diagnostics:update.

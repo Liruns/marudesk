@@ -52,7 +52,6 @@ import { registerModelsHandlers } from './models';
 import { getSettings, getSettingsSync, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
 import { destroyTray, syncTrayToSettings } from './tray';
 import { flushAndResetHistoryForProfile, registerHistoryHandlers } from './history';
-import { flushAndResetBookmarksForProfile, registerBookmarkHandlers } from './bookmarks';
 import { registerSuggestHandlers } from './suggest';
 import { registerDiagnosticsHandlers } from './diagnostics/handlers';
 import { syncFromContext as syncLspFromContext, disposeAllLsp } from './lsp/manager';
@@ -164,7 +163,6 @@ async function teardownProfileRuntime(): Promise<void> {
   // Abort any in-flight agent turn first, then flush the history debounce to disk.
   guard(resetThreadsForProfileSwitch);
   await flushAndResetHistoryForProfile().catch(() => undefined);
-  guard(flushAndResetBookmarksForProfile);
   // Dispose runtime (disposeBrowserView also saves the pinned/tab session to disk).
   guard(disposeBrowserView);
   guard(disposeAllTerminals);
@@ -519,7 +517,6 @@ void app.whenReady().then(() => {
     },
   });
   registerHistoryHandlers();
-  registerBookmarkHandlers();
   registerSuggestHandlers();
   registerDiagnosticsHandlers({ getMainWindow });
   // Drive LSP document sync from the editor mirror: when the renderer pushes its

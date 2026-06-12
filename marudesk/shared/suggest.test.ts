@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSuggestions, matchRanges, SUGGEST_LIMIT } from './suggest';
-import type { Bookmark } from './bookmarks';
+import type { BookmarkEntry } from './bookmarks';
 import type { HistoryEntry } from './history';
 
 const SEARCH_BASE = 'https://www.google.com/search?q=';
@@ -14,14 +14,14 @@ function h(
   return { url, title, visitCount, lastVisit };
 }
 
-function b(url: string, title: string, createdAt = 0): Bookmark {
+function b(url: string, title: string, createdAt = 0): BookmarkEntry {
   return { id: `bm-${url}`, url, title, createdAt };
 }
 
 function build(
   query: string,
   history: HistoryEntry[] = [],
-  bookmarks: Bookmark[] = [],
+  bookmarks: BookmarkEntry[] = [],
   limit?: number,
 ) {
   return buildSuggestions({ query, history, bookmarks, searchBase: SEARCH_BASE, limit });

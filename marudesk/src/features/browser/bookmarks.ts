@@ -1,68 +1,84 @@
 import { create } from 'zustand';
-import type { Bookmark, BookmarkInput } from '../../../shared/bookmarks';
+import type { BookmarkEntry } from '../../../shared/bookmarks';
 
 /**
- * Renderer mirror of the main-process bookmark store (electron/bookmarks.ts).
- * Main owns the persisted list; every mutation round-trips and re-syncs the
- * local copy, so the star toggle and the panel can't drift from disk. `load`
- * is lazy and idempotent — the first consumer triggers the initial fetch.
+ * Bookmarks + library-panel store. Mirrors the main-process bookmark list
+ * (pushed on the browser:bookmarks event, pulled once on mount — the downloads
+ * pattern) and owns the library panel's open/section state. The panel renders
+ * as a flex sibling of the browser stage in BrowserCanvas (like the DevTools
+ * dock) — a stage overlay would be hidden behind the native WebContentsView.
  */
 
+export type LibrarySection = 'bookmarks' | 'history';
+
 type BookmarksState = {
-  bookmarks: Bookmark[];
-  loaded: boolean;
-  /** The toolbar bookmarks panel (a chrome row below the toolbar). */
-  panelOpen: boolean;
+  bookmarks: BookmarkEntry[];
+  libraryOpen: boolean;
+  librarySection: LibrarySection;
 };
 
 type BookmarksActions = {
-  load: () => Promise<void>;
-  /** Address-bar star: bookmark the current page, or un-bookmark it. */
-  toggle: (input: BookmarkInput) => Promise<void>;
-  remove: (id: string) => Promise<void>;
-  togglePanel: () => void;
-  closePanel: () => void;
+  setBookmarks: (list: BookmarkEntry[]) => void;
+  openLibrary: (section?: LibrarySection) => void;
+  closeLibrary: () => void;
+  toggleLibrary: () => void;
+  setLibrarySection: (section: LibrarySection) => void;
+  /**
+   * Star-button toggle for the page at `url`: removes the existing bookmark or
+   * adds one from the active tab's title/favicon. The invoke resolves the
+   * fresh list, adopted immediately (the push covers other listeners).
+   */
+  toggleBookmark: (input: { url: string; title: string; faviconUrl?: string }) => Promise<void>;
+  removeBookmark: (id: string) => Promise<void>;
+  renameBookmark: (id: string, title: string) => Promise<void>;
 };
+
+/** The bookmark for `url`, or undefined — drives the star button's fill. */
+export function findBookmark(
+  bookmarks: readonly BookmarkEntry[],
+  url: string,
+): BookmarkEntry | undefined {
+  return url ? bookmarks.find((b) => b.url === url) : undefined;
+}
 
 export const useBookmarksStore = create<BookmarksState & BookmarksActions>(
   (set, get) => ({
     bookmarks: [],
-    loaded: false,
-    panelOpen: false,
+    libraryOpen: false,
+    librarySection: 'bookmarks',
 
-    load: async () => {
-      if (get().loaded) return;
-      set({ loaded: true });
-      try {
-        const bookmarks = await window.marudesk.invoke('bookmarks:list');
-        set({ bookmarks });
-      } catch {
-        // Listing failed (e.g. early startup) — retry on the next load call.
-        set({ loaded: false });
-      }
-    },
+    setBookmarks: (bookmarks) => set({ bookmarks }),
 
-    toggle: async (input) => {
-      const result = await window.marudesk.invoke('bookmarks:toggle', input);
+    openLibrary: (section) =>
       set((s) => ({
-        bookmarks: result
-          ? [result, ...s.bookmarks.filter((b) => b.id !== result.id)]
-          : s.bookmarks.filter((b) => b.url !== input.url),
-      }));
+        libraryOpen: true,
+        librarySection: section ?? s.librarySection,
+      })),
+    closeLibrary: () => set({ libraryOpen: false }),
+    toggleLibrary: () => set((s) => ({ libraryOpen: !s.libraryOpen })),
+    setLibrarySection: (librarySection) => set({ librarySection }),
+
+    toggleBookmark: async ({ url, title, faviconUrl }) => {
+      if (!url) return;
+      const existing = findBookmark(get().bookmarks, url);
+      const list = existing
+        ? await window.marudesk.invoke('bookmarks:remove', { id: existing.id })
+        : await window.marudesk.invoke('bookmarks:add', {
+            url,
+            title: title || url,
+            faviconUrl: faviconUrl || undefined,
+          });
+      set({ bookmarks: list });
     },
 
-    remove: async (id) => {
-      await window.marudesk.invoke('bookmarks:remove', { id });
-      set((s) => ({ bookmarks: s.bookmarks.filter((b) => b.id !== id) }));
+    removeBookmark: async (id) => {
+      const list = await window.marudesk.invoke('bookmarks:remove', { id });
+      set({ bookmarks: list });
     },
 
-    togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
-    closePanel: () => set({ panelOpen: false }),
+    renameBookmark: async (id, title) => {
+      const list = await window.marudesk.invoke('bookmarks:update', { id, title });
+      set({ bookmarks: list });
+    },
   }),
 );
-
-/** Whether `url` is bookmarked — drives the star's filled state. */
-export function selectIsBookmarked(url: string) {
-  return (s: BookmarksState): boolean =>
-    url.length > 0 && s.bookmarks.some((b) => b.url === url);
-}

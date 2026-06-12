@@ -8,6 +8,7 @@ import type {
 } from './agent';
 import type { LaneDevState } from './lanes';
 import type { NavState, TabsSnapshot } from './browser';
+import type { BookmarkEntry } from './bookmarks';
 import type { DownloadEntry } from './downloads';
 import type { AppSettings } from './settings';
 import type { UpdateStatus } from './app-info';
@@ -70,6 +71,8 @@ export interface EventPayloadMap {
   };
   // The full download list, pushed (coalesced) whenever it changes.
   'browser:downloads': DownloadEntry[];
+  // The full bookmark list, pushed whenever the set changes (add/remove/rename).
+  'browser:bookmarks': BookmarkEntry[];
   // CDP events, coalesced per tab and delivered as a batch (see cdp.ts).
   // `dropped` = events shed when a flooding page overran the per-tick cap, so
   // the renderer can surface "N dropped" instead of silently losing them.
@@ -162,6 +165,7 @@ export const EVENT_CHANNELS = [
   'browser:open-find',
   'browser:found-in-page',
   'browser:downloads',
+  'browser:bookmarks',
   'devtools:cdp-event',
   'devtools:detached',
   'devtools:toggle',

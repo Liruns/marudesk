@@ -305,7 +305,7 @@ P0 메인 foundation 위에 **렌더러 커스텀 DevTools 전체 + 호스팅 �
 - **P4** — Elements 라이브 편집(`CSS.setStyleTexts`/`DOM.setAttributeValue`) + (A) 노드→`Capture` 훅(`shared/capture.ts`에 `outerHTML?`/`computedStyle?` 추가) + (B) 라이브CSS→`patch:preview`(소스맵 역매핑 한정). **thesis(§15) 검증 단계 — 미착수.**
 - **P5a/P5b** — Sources(transpiled 디버깅 + 소스맵 원본복원). 최대 규모, 미착수.
 - 백그라운드 탭 고볼륨 도메인 pause(§4 M2) — 현재는 rebind 시 detach로 대체.
-- 설정 마이그레이션 단위테스트(§11.7/§12) — 단위 테스트 러너(vitest) 부재로 보류; fallback 동작은 리뷰에서 correct 확인.
+- 설정 마이그레이션 단위테스트(§11.7/§12) — vitest 도입 후 `shared/settings.test.ts`로 완료(레거시 `side`/`popup` → `right` fallback 검증).
 - 나머지 리뷰 LOW(리다이렉트 체인, console.group, base64 body, size-per-orientation)는 v1 수용.
 
 ## 19. P4 — 라이브 편집 + 통합 훅 A/B 구현 (2026-05-30)
@@ -338,4 +338,21 @@ P1~P3 dock 위에 **프로젝트 thesis(§15) 검증 단계**를 구현. `tsc`(a
 
 **e2e**: `devtools.spec.ts`에 hook A 케이스 추가(web 탭→dock→`body` treeitem 선택→"Add to AI context"→"Added to context" 토스트 = 실 CDP `getOuterHTML`/`getBoxModel` end-to-end). 라이브편집·hook B 실 CDP 흐름은 §12대로 수동 GUI 스모크(dev 서버 서빙 자기앱 + 워크스페이스 필요).
 
-**미완(다음)**: P5a/P5b Sources(transpiled 디버깅 + 소스맵 원본복원, 최대 규모·별도 세션). 잔여: 백그라운드 탭 고볼륨 도메인 pause(§4 M2), 설정 마이그레이션 단위테스트(vitest 부재), hook B Layer 2(Vite dev-id/외부 소스맵).
+**미완(다음)**: P5a/P5b Sources(transpiled 디버깅 + 소스맵 원본복원, 최대 규모·별도 세션). 잔여: 백그라운드 탭 고볼륨 도메인 pause(§4 M2), hook B Layer 2(Vite dev-id/외부 소스맵). 설정 마이그레이션 단위테스트는 `shared/settings.test.ts`로 완료.
+
+## 20. P5a/P5b + parity 잔여 일괄 구현 (2026-06-12)
+
+§19 이후 남아 있던 계획 항목을 일괄 구현. `tsc -b`·`vitest`(196 tests)·`vite build`·`eslint` 클린.
+
+- **P5a Sources**: scriptParsed 트리 · 소스 뷰어(라인 거터 + 경량 구문 강조 `syntax.ts`) · url:line BP(리로드 생존, `_applySources` sticky 재적용) · pause/resume/step · 콜스택 · 스코프 · pause-on-exceptions.
+- **P5b 소스맵 원본 복원**(§13-D3): 의존성 없는 v3 파서(`source-map.ts`, base64-VLQ) · 인라인 `data:` + 외부 `.map`은 CSP 우회를 위해 `Network.loadNetworkResource`→`IO.read`로 CDP 경유 페치 · Original/Compiled 토글 · BP 원본→생성 매핑 · paused/콜스택 생성→원본 역매핑 · 전 경로 best-effort(실패 시 생성 뷰 폴백). 미지원: indexed(sections) 맵.
+- **DOMDebugger**: XHR/fetch BP(부분문자열, 빈 문자열=전체) + 이벤트 리스너 BP(큐레이트 16종) — sticky 재적용, paused 배너에 reason+aux 표기.
+- **Watch 표현식**: paused 시 선택 프레임 `evaluateOnCallFrame`, 평시 `Runtime.evaluate`, objectGroup 라운드별 release.
+- **Elements**: Event Listeners 패널(`DOMDebugger.getEventListeners`, objectGroup 즉시 release) · Accessibility 패널(`getPartialAXTree` + `CSS.getBackgroundColors` 대비) · Fonts 패널(`getPlatformFontsForNode`) · DOM 편집(Edit as HTML/삭제/숨김/복제, F2·H·Delete) · grid/flex 오버레이(선택 노드, sticky-overlay 해제 §E 준수).
+- **Network**: WS 프레임 + SSE 메시지(연결당 500 캡, 바이너리는 크기만) · Initiator/Cookies 탭 · HAR 1.2 내보내기(body 미포함) · copy-as-fetch.
+- **Application**: 쿼터(`Storage.getUsageAndQuota`) · Manifest · Frames 트리 · Service Worker 상태(읽기 전용 — 구동/변경 메서드 10종 BLOCKED).
+- **Performance 패널**: 라이브 메트릭 + CPU 프로파일(top-down/bottom-up). **Security 패널**: visibleSecurityStateChanged(인증서 우회 메서드 BLOCKED).
+- **Coverage**(Rendering 섹션): JS precise coverage + CSS rule usage, 미사용 바이트 정렬.
+- 허용 도메인 추가: IndexedDB·CacheStorage·Security·ServiceWorker·DOMDebugger·Accessibility·IO (각 위험 메서드는 BLOCKED_METHODS로 차감 — §4 원칙 유지).
+
+**잔여(후속)**: 백그라운드 탭 고볼륨 도메인 pause(§4 M2) · hook B Layer 2(Vite dev-id/CSS 소스맵) · 워커/OOPIF 멀티 타깃(`Target.setAutoAttach` flatten) · §14 heavy 항목(플레임 차트, 메모리 스냅샷, Layers, Lighthouse, Recorder) · 기기 에뮬레이션(보안 차단 유지 중 — 해제 여부는 별도 결정).

@@ -8,7 +8,9 @@ import {
 } from 'react';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from './store';
+import { useBookmarksStore } from './bookmarks';
 import { useDownloadsStore } from './downloads';
+import { BrowserLibraryPanel } from './BrowserLibraryPanel';
 import { DownloadShelf } from './DownloadShelf';
 import { useTabsStore } from '../tabs/store';
 import {
@@ -24,8 +26,6 @@ import { BrowserToolbar } from './BrowserToolbar';
 import { useBrowserStrings } from './browserStrings';
 import { AddressSuggestionsPanel } from './AddressSuggestions';
 import { useAddressSuggestions } from './useAddressSuggestions';
-import { BookmarksPanel } from './BookmarksPanel';
-import { selectIsBookmarked, useBookmarksStore } from './bookmarks';
 import type { HistoryEntry } from '../../../shared/history';
 
 /**
@@ -83,10 +83,7 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
   const shelfOpen = useDownloadsStore((s) => s.shelfOpen);
   const openShelf = useDownloadsStore((s) => s.openShelf);
   const closeShelf = useDownloadsStore((s) => s.closeShelf);
-  const loadBookmarks = useBookmarksStore((s) => s.load);
-  const bookmarked = useBookmarksStore(selectIsBookmarked(canvasNav.url));
-  const bookmarksOpen = useBookmarksStore((s) => s.panelOpen);
-  const toggleBookmarksPanel = useBookmarksStore((s) => s.togglePanel);
+  const libraryOpen = useBookmarksStore((s) => s.libraryOpen);
 
   const ensureActiveTab = async (): Promise<void> => {
     if (!tabId || useTabsStore.getState().activeTabId === tabId) return;
@@ -108,25 +105,6 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
     autocompleteFromRef.current = null;
     runForTab(commitNavigate);
   });
-
-  // Lazy initial bookmark fetch — drives the star's filled state + the panel.
-  useEffect(() => {
-    void loadBookmarks();
-  }, [loadBookmarks]);
-
-  const onToggleBookmark = (): void => {
-    const url = canvasNav.url || displayedCurrentUrl;
-    // Mirror the store's policy: only http(s) pages can be bookmarked.
-    if (!/^https?:\/\//i.test(url)) return;
-    void useBookmarksStore
-      .getState()
-      .toggle({
-        url,
-        title: canvasNav.title,
-        faviconUrl: canvasNav.favicon || undefined,
-      })
-      .catch(() => undefined);
-  };
 
   useEffect(() => {
     const el = containerRef.current;
@@ -276,10 +254,6 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
         shelfOpen={shelfOpen}
         consoleErrorCount={consoleErrorCount}
         devtoolsOpen={devtoolsOpen}
-        bookmarked={bookmarked}
-        bookmarksOpen={bookmarksOpen}
-        onToggleBookmark={onToggleBookmark}
-        onToggleBookmarksPanel={toggleBookmarksPanel}
         onAddressChange={onAddressChange}
         onAddressKeyDown={onAddressKeyDown}
         onAddressBlur={onAddressBlur}
@@ -298,11 +272,10 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
         onToggleDevtools={() => useDevtoolsStore.getState().toggle()}
       />
 
-      {/* Address suggestions + bookmarks: chrome rows between toolbar and stage
-          (like the find bar below) — the native view paints over React, so they
-          can't float over the stage; the web view shrinks beneath them. */}
+      {/* Address suggestions: a chrome row between toolbar and stage (like the
+          find bar below) — the native view paints over React, so it can't
+          float over the stage; the web view shrinks beneath it. */}
       {canvasActive ? <AddressSuggestionsPanel state={suggest} /> : null}
-      {canvasActive && bookmarksOpen ? <BookmarksPanel /> : null}
 
       {/* Find bar: a flex row between toolbar and stage. Because the web view
           tracks the (now-shorter) stage via the ResizeObserver above, it shrinks
@@ -319,21 +292,28 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
           devtoolsOpen && devtoolsSide === 'bottom' ? 'flex-col' : 'flex-row',
         )}
       >
-        <div
-          ref={containerRef}
-          className={cn(
-            'flex-1 min-w-0 min-h-0 relative bg-surface-1',
-            inspectMode ? 'ring-1 ring-inset ring-accent' : '',
-            'transition-shadow duration-fast',
-          )}
-          aria-label={t('browser.stage.aria')}
-        >
-          <BrowserStageOverlays
-            hasUrl={hasUrl}
-            inspectMode={inspectMode}
-            crashed={canvasNav.crashed}
-            onReload={() => runForTab(reloadOrStop)}
-          />
+        {/* Stage + library panel stay a row regardless of the dock side, so the
+            library always reads as a right-hand sidebar. Like the dock, it's a
+            flex sibling of the stage (never an overlay — the native web view
+            paints above React) and the ResizeObserver re-fits the web view. */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-row">
+          <div
+            ref={containerRef}
+            className={cn(
+              'flex-1 min-w-0 min-h-0 relative bg-surface-1',
+              inspectMode ? 'ring-1 ring-inset ring-accent' : '',
+              'transition-shadow duration-fast',
+            )}
+            aria-label={t('browser.stage.aria')}
+          >
+            <BrowserStageOverlays
+              hasUrl={hasUrl}
+              inspectMode={inspectMode}
+              crashed={canvasNav.crashed}
+              onReload={() => runForTab(reloadOrStop)}
+            />
+          </div>
+          {libraryOpen && canvasActive ? <BrowserLibraryPanel /> : null}
         </div>
         {devtoolsOpen ? <DevtoolsDock /> : null}
       </div>

@@ -55,10 +55,10 @@ import type {
 } from './browser';
 import type { McpConfigHealth, McpServerStatus } from './mcp';
 import type { PluginCommandSnapshot, PluginStatus } from './plugin';
+import type { BookmarkEntry, BookmarkInput } from './bookmarks';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
 import type { Suggestion } from './suggest';
-import type { Bookmark, BookmarkInput } from './bookmarks';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
 import type {
   CustomProviderInfo,
@@ -589,19 +589,27 @@ export interface IpcMap {
   // history (address-bar autocomplete)
   'history:query': { args: [query: string]; result: HistoryEntry[] };
   'history:recent': { args: []; result: HistoryEntry[] };
+  // history (library panel): full search (most recent 500 matching, empty
+  // query = everything), per-entry delete by exact URL, and clear-all.
+  'history:list': { args: [payload: { query?: string }]; result: HistoryEntry[] };
+  'history:delete': { args: [payload: { url: string }]; result: boolean };
+  'history:clear': { args: []; result: void };
+
+  // bookmarks (electron/browser/bookmarks.ts). Mutations resolve the fresh
+  // list so the caller reprojects without a follow-up fetch; the
+  // browser:bookmarks push covers every other listener.
+  'bookmarks:list': { args: []; result: BookmarkEntry[] };
+  'bookmarks:add': { args: [input: BookmarkInput]; result: BookmarkEntry[] };
+  'bookmarks:remove': { args: [payload: { id: string }]; result: BookmarkEntry[] };
+  'bookmarks:update': {
+    args: [payload: { id: string; title: string }];
+    result: BookmarkEntry[];
+  };
 
   // address-bar dropdown suggestions: matching bookmarks + history (frecency)
   // + a trailing "search the web" row. Matching/ranking runs in main where the
   // stores live (electron/suggest.ts → the pure ranker in shared/suggest.ts).
   'browser:suggest': { args: [query: string]; result: Suggestion[] };
-
-  // bookmarks (flat list persisted under userData — electron/bookmarks.ts).
-  // `toggle` is the address-bar star: adds for the current tab URL (returns
-  // the new bookmark) or removes an existing one for that URL (returns null).
-  'bookmarks:list': { args: []; result: Bookmark[] };
-  'bookmarks:add': { args: [input: BookmarkInput]; result: Bookmark };
-  'bookmarks:remove': { args: [payload: { id: string }]; result: boolean };
-  'bookmarks:toggle': { args: [input: BookmarkInput]; result: Bookmark | null };
 
   // diagnostics (workspace language support, Tier 1 — electron/diagnostics/*).
   // `run` runs the open project's own checker and parses its output; `get` pulls

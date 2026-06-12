@@ -8,7 +8,7 @@ import type {
 import {
   ArrowLeft,
   ArrowRight,
-  Bookmark,
+  BookMarked,
   Download,
   Globe,
   Lock,
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { BrowserHistoryMenu, BrowserMenu } from './BrowserMenu';
+import { findBookmark, useBookmarksStore } from './bookmarks';
 import { useBrowserStrings } from './browserStrings';
 import type { NavState } from '../../../shared/browser';
 
@@ -36,11 +37,9 @@ type Props = {
   readonly shelfOpen: boolean;
   readonly consoleErrorCount: number;
   readonly devtoolsOpen: boolean;
-  readonly bookmarked: boolean;
-  readonly bookmarksOpen: boolean;
-  readonly onToggleBookmark: () => void;
-  readonly onToggleBookmarksPanel: () => void;
   readonly onAddressChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  // Address-bar suggestions: arrows/Enter/Esc go to the dropdown first, and a
+  // blur (after the mousedown-accept window) dismisses it (BrowserCanvas).
   readonly onAddressKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   readonly onAddressBlur: (event: FocusEvent<HTMLInputElement>) => void;
   readonly onSubmit: (event: FormEvent) => void;
@@ -65,10 +64,6 @@ export function BrowserToolbar({
   shelfOpen,
   consoleErrorCount,
   devtoolsOpen,
-  bookmarked,
-  bookmarksOpen,
-  onToggleBookmark,
-  onToggleBookmarksPanel,
   onAddressChange,
   onAddressKeyDown,
   onAddressBlur,
@@ -146,28 +141,6 @@ export function BrowserToolbar({
             )}
             aria-label={t('browser.address.aria')}
           />
-          {hasUrl ? (
-            <button
-              type="button"
-              onClick={onToggleBookmark}
-              aria-label={t(
-                bookmarked ? 'browser.bookmarks.remove' : 'browser.bookmarks.add',
-              )}
-              title={t(
-                bookmarked ? 'browser.bookmarks.remove' : 'browser.bookmarks.add',
-              )}
-              aria-pressed={bookmarked}
-              className={cn(
-                'size-6 rounded-pill flex items-center justify-center shrink-0',
-                'transition-colors duration-fast',
-                bookmarked
-                  ? 'text-accent hover:bg-accent-subtle/40'
-                  : 'text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary',
-              )}
-            >
-              <Star size={14} fill={bookmarked ? 'currentColor' : 'none'} />
-            </button>
-          ) : null}
           {nav.isLoading ? (
             <span
               aria-hidden
@@ -176,6 +149,8 @@ export function BrowserToolbar({
           ) : null}
         </div>
       </form>
+
+      <BookmarkStarButton nav={nav} currentUrl={currentUrl} />
 
       {nav.zoomFactor !== 1 ? (
         <button
@@ -193,18 +168,9 @@ export function BrowserToolbar({
         </button>
       ) : null}
 
-      <NavIconButton
-        label={t(
-          bookmarksOpen ? 'browser.bookmarks.hide' : 'browser.bookmarks.show',
-        )}
-        active={bookmarksOpen}
-        aria-pressed={bookmarksOpen}
-        onClick={onToggleBookmarksPanel}
-      >
-        <Bookmark size={16} />
-      </NavIconButton>
-
       <BrowserHistoryMenu />
+
+      <LibraryToggleButton />
 
       {nav.audible || nav.audioMuted ? (
         <NavIconButton
@@ -272,6 +238,61 @@ export function BrowserToolbar({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The address-bar star: outline when the current page isn't bookmarked,
+ * accent-filled when it is. Toggles the bookmark for the active tab's URL,
+ * carrying the tab's live title + inlined favicon into the entry.
+ */
+function BookmarkStarButton({
+  nav,
+  currentUrl,
+}: {
+  nav: NavState;
+  currentUrl: string;
+}) {
+  const { t } = useBrowserStrings();
+  const bookmarks = useBookmarksStore((s) => s.bookmarks);
+  const toggleBookmark = useBookmarksStore((s) => s.toggleBookmark);
+  const pageUrl = nav.url || currentUrl;
+  const bookmarked = !!findBookmark(bookmarks, pageUrl);
+
+  return (
+    <NavIconButton
+      label={t(bookmarked ? 'browser.bookmarks.remove' : 'browser.bookmarks.add')}
+      disabled={!pageUrl}
+      active={bookmarked}
+      aria-pressed={bookmarked}
+      onClick={() =>
+        void toggleBookmark({
+          url: pageUrl,
+          title: nav.title,
+          faviconUrl: nav.favicon || undefined,
+        })
+      }
+    >
+      <Star size={16} fill={bookmarked ? 'currentColor' : 'none'} />
+    </NavIconButton>
+  );
+}
+
+/** Opens/closes the library panel (Bookmarks | History) beside the stage. */
+function LibraryToggleButton() {
+  const { t } = useBrowserStrings();
+  const libraryOpen = useBookmarksStore((s) => s.libraryOpen);
+  const toggleLibrary = useBookmarksStore((s) => s.toggleLibrary);
+
+  return (
+    <NavIconButton
+      label={t('browser.library.button')}
+      active={libraryOpen}
+      aria-pressed={libraryOpen}
+      onClick={toggleLibrary}
+    >
+      <BookMarked size={16} />
+    </NavIconButton>
   );
 }
 

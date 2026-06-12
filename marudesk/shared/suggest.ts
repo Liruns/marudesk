@@ -1,4 +1,4 @@
-import type { Bookmark } from './bookmarks';
+import type { BookmarkEntry } from './bookmarks';
 import { frecency, stripUrlPrefix, type HistoryEntry } from './history';
 
 /**
@@ -49,7 +49,7 @@ function isPrefixMatch(q: string, url: string): boolean {
 export function buildSuggestions(opts: {
   query: string;
   history: readonly HistoryEntry[];
-  bookmarks: readonly Bookmark[];
+  bookmarks: readonly BookmarkEntry[];
   /** Query-prefix of the configured search engine (electron/browser/url.ts). */
   searchBase: string;
   limit?: number;
