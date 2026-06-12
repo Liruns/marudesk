@@ -2,13 +2,21 @@ import type { StoreApi } from 'zustand';
 import { cdpTry } from './cdp';
 import { indexNode, setAttr, removeAttr } from './dom-index';
 import { consoleKindFromApi, consoleKindFromLog } from './console-kind';
-import { boundedNetworkPayload, entryId, MAX_CONSOLE, MAX_NETWORK } from './store-internals';
+import {
+  boundedNetworkPayload,
+  entryId,
+  MAX_CONSOLE,
+  MAX_NETWORK,
+  MAX_SCRIPTS,
+} from './store-internals';
+import { isInternalScriptUrl } from './sources-utils';
 import type {
   CdpNode,
   ConsoleEntry,
   NetworkEntry,
   NodeId,
   RemoteObject,
+  ScriptInfo,
 } from './types';
 import type { DevtoolsState, DevtoolsActions } from './store';
 
@@ -41,6 +49,8 @@ export function applyIngestBatch(
         let netDirty = false;
         let styleSheets = s.styleSheets;
         let sheetsDirty = false;
+        let scripts = s.scripts;
+        let scriptsDirty = false;
         // Page-lifecycle timing for the Network summary bar (CDP seconds).
         let navStart = s.navStartTime;
         let domContent = s.domContentTime;
@@ -57,6 +67,12 @@ export function applyIngestBatch(
           if (!sheetsDirty) {
             styleSheets = new Map(styleSheets);
             sheetsDirty = true;
+          }
+        };
+        const ensureScripts = () => {
+          if (!scriptsDirty) {
+            scripts = new Map(scripts);
+            scriptsDirty = true;
           }
         };
         const ensureNet = () => {
@@ -203,6 +219,31 @@ export function applyIngestBatch(
             case 'CSS.styleSheetRemoved': {
               ensureSheets();
               styleSheets.delete(pAny.styleSheetId as string);
+              break;
+            }
+
+            /* Debugger (Sources) */
+            case 'Debugger.scriptParsed': {
+              const scriptId = pAny.scriptId as string;
+              const url = pAny.url as string | undefined;
+              // Skip eval/internal scripts (no url / extension scheme) and stop
+              // growing past the cap — a heavy SPA can parse thousands.
+              if (!scriptId || !url || isInternalScriptUrl(url)) break;
+              if (scripts.size >= MAX_SCRIPTS && !scripts.has(scriptId)) break;
+              ensureScripts();
+              const info: ScriptInfo = { scriptId, url };
+              scripts.set(scriptId, info);
+              break;
+            }
+            case 'Debugger.paused': {
+              // Post-commit effect: the pause handler selects + fetches the top
+              // frame's script (Debugger/Runtime only — safe while paused).
+              const pausedParams = params;
+              effects.push(() => get()._handlePaused(pausedParams));
+              break;
+            }
+            case 'Debugger.resumed': {
+              effects.push(() => get()._handleResumed());
               break;
             }
 
@@ -390,6 +431,7 @@ export function applyIngestBatch(
         if (consoleDirty) next.console = consoleArr;
         if (netDirty) next.network = network;
         if (sheetsDirty) next.styleSheets = styleSheets;
+        if (scriptsDirty) next.scripts = scripts;
         if (navStart !== s.navStartTime) next.navStartTime = navStart;
         if (domContent !== s.domContentTime) next.domContentTime = domContent;
         if (load !== s.loadTime) next.loadTime = load;

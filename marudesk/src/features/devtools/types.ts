@@ -240,7 +240,102 @@ export type NetworkEntry = {
   initiator?: NetworkInitiator;
 };
 
+/* ── Debugger (Sources) ───────────────────────────────────────────────── */
+
+/** `Debugger.scriptParsed` (subset) — one parsed script with a real URL. */
+export type ScriptInfo = {
+  scriptId: string;
+  url: string;
+};
+
+/** `Debugger.Location` — line/column inside a script (0-based). */
+export type DebuggerLocation = {
+  scriptId: string;
+  lineNumber: number;
+  columnNumber?: number;
+};
+
+/** One entry of a paused call frame's scope chain (`Debugger.Scope`). */
+export type DebuggerScope = {
+  /** 'global' | 'local' | 'closure' | 'block' | 'with' | 'catch' | 'module' … */
+  type: string;
+  /** The scope's variables as a RemoteObject (expand via Runtime.getProperties). */
+  object: RemoteObject;
+  name?: string;
+};
+
+/** `Debugger.CallFrame` (subset) from a `Debugger.paused` event. */
+export type DebuggerCallFrame = {
+  callFrameId: string;
+  functionName: string;
+  url: string;
+  location: DebuggerLocation;
+  scopeChain: DebuggerScope[];
+};
+
+/**
+ * A user breakpoint, keyed by url:line so it survives reloads (CDP's
+ * setBreakpointByUrl is URL-keyed server-side too). `id` is the live CDP
+ * breakpoint id for the CURRENT debugger session — re-setting on a fresh
+ * attach refreshes it (see `_applySources`).
+ */
+export type SourceBreakpoint = {
+  id: string | null;
+  url: string;
+  lineNumber: number;
+};
+
+/** `Debugger.setPauseOnExceptions` state. */
+export type PauseOnExceptions = 'none' | 'uncaught' | 'all';
+
+/** The pause snapshot while the page is stopped at a breakpoint/exception. */
+export type PausedInfo = {
+  reason: string;
+  callFrames: DebuggerCallFrame[];
+  /** The call-stack frame the viewer/scope pane currently shows. */
+  frameIndex: number;
+};
+
 /* ── Application (storage) ────────────────────────────────────────────── */
+
+/** One object store of an IndexedDB database (`IndexedDB.ObjectStore` subset). */
+export type IdbObjectStore = {
+  name: string;
+  /** Display form of the key path ('' when the store uses out-of-line keys). */
+  keyPath: string;
+  autoIncrement: boolean;
+};
+
+/** `IndexedDB.DatabaseWithObjectStores` (subset). */
+export type IdbDatabase = {
+  name: string;
+  version: number;
+  objectStores: IdbObjectStore[];
+};
+
+/** One `IndexedDB.requestData` entry — key/value arrive as RemoteObjects. */
+export type IdbEntry = {
+  key: RemoteObject;
+  primaryKey: RemoteObject;
+  value: RemoteObject;
+};
+
+/** `CacheStorage.Cache` — one cache of the origin's CacheStorage. */
+export type CacheInfo = {
+  cacheId: string;
+  securityOrigin: string;
+  cacheName: string;
+};
+
+/** `CacheStorage.DataEntry` (subset) for the entries table. */
+export type CacheEntry = {
+  requestURL: string;
+  requestMethod: string;
+  responseStatus: number;
+  responseStatusText: string;
+  /** Seconds since epoch. */
+  responseTime?: number;
+};
 
 /** `Network.Cookie` (subset) for the Application panel's read-only table. */
 export type CdpCookie = {

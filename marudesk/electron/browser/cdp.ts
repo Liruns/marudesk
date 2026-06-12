@@ -52,6 +52,13 @@ const ALLOWED_PREFIXES = [
   // (Storage.clearCookies) are subtracted in BLOCKED_METHODS below.
   'DOMStorage.',
   'Storage.',
+  // Application panel: IndexedDB + Cache Storage inspection. Every method in
+  // BOTH domains is origin/cache scoped (requestDatabaseNames / requestData /
+  // deleteDatabase, requestCacheNames / requestEntries / deleteCache /
+  // deleteEntry …) — read + same-origin delete only, no whole-browser or
+  // cross-origin escape, so no per-method subtraction is needed.
+  'IndexedDB.',
+  'CacheStorage.',
   // Rendering panel: media / vision-deficiency emulation only. The prefix would
   // otherwise also admit environment-override WRITES (UA / geolocation / device
   // metrics / timezone / locale / sensors) — those are subtracted in

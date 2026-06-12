@@ -18,6 +18,8 @@ export function msg(key: TranslationKey): string {
 export const MAX_CONSOLE = 1500;
 export const MAX_HISTORY = 200;
 export const MAX_NETWORK = 1500;
+// Script-list cap (Debugger.scriptParsed can stream thousands on heavy pages).
+export const MAX_SCRIPTS = 2000;
 const MAX_NETWORK_PAYLOAD = 64_000;
 
 /**
@@ -81,10 +83,18 @@ export function freshSlices(): Pick<
   | 'pendingPatch'
   | 'console'
   | 'network'
+  | 'scripts'
+  | 'selectedScriptId'
+  | 'scriptSource'
+  | 'scriptSourceLoading'
+  | 'reveal'
+  | 'paused'
   | 'appOrigin'
   | 'localStorageItems'
   | 'sessionStorageItems'
   | 'cookies'
+  | 'idbDatabases'
+  | 'cacheNames'
   | 'appLoading'
   | 'dropped'
   | 'navStartTime'
@@ -110,10 +120,18 @@ export function freshSlices(): Pick<
     pendingPatch: null,
     console: [],
     network: [],
+    scripts: new Map(),
+    selectedScriptId: null,
+    scriptSource: null,
+    scriptSourceLoading: false,
+    reveal: null,
+    paused: null,
     appOrigin: null,
     localStorageItems: [],
     sessionStorageItems: [],
     cookies: [],
+    idbDatabases: [],
+    cacheNames: [],
     appLoading: false,
     dropped: 0,
     navStartTime: null,

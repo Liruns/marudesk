@@ -1,6 +1,7 @@
 import type { DevtoolsPanel } from './store';
 import { ElementsPanel } from './panels/ElementsPanel';
 import { ConsolePanel } from './panels/ConsolePanel';
+import { SourcesPanel } from './panels/SourcesPanel';
 import { EvidenceTimeline } from './panels/EvidenceTimeline';
 import { NetworkPanel } from './panels/NetworkPanel';
 import { ApplicationPanel } from './panels/ApplicationPanel';
@@ -21,6 +22,8 @@ export function PanelById({ panel }: { panel: DevtoolsPanel }) {
       return <ElementsPanel />;
     case 'console':
       return <ConsolePanel />;
+    case 'sources':
+      return <SourcesPanel />;
     case 'timeline':
       return <EvidenceTimeline />;
     case 'network':

@@ -26,15 +26,17 @@ export type DevtoolsTool = {
 export const DEFAULT_TOOLS: DevtoolsTool[] = [
   { id: 'elements', location: 'main', order: 0 },
   { id: 'console', location: 'main', order: 1 },
-  { id: 'timeline', location: 'main', order: 2 },
-  { id: 'network', location: 'main', order: 3 },
-  { id: 'application', location: 'main', order: 4 },
-  { id: 'rendering', location: 'main', order: 5 },
+  { id: 'sources', location: 'main', order: 2 },
+  { id: 'timeline', location: 'main', order: 3 },
+  { id: 'network', location: 'main', order: 4 },
+  { id: 'application', location: 'main', order: 5 },
+  { id: 'rendering', location: 'main', order: 6 },
 ];
 
 const PANEL_IDS: ReadonlySet<DevtoolsPanel> = new Set<DevtoolsPanel>([
   'elements',
   'console',
+  'sources',
   'timeline',
   'network',
   'application',

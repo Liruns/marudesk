@@ -219,6 +219,14 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         // Re-apply sticky cache/throttle — they reset whenever Network is
         // (re)enabled (fresh attach or post-navigation re-enable).
         await get()._applyNetworkConditions();
+      } else if (panel === 'sources') {
+        // Debugger.enable replays scriptParsed for already-parsed scripts, so
+        // the sidebar populates immediately. On a FRESH enable (new attach or
+        // post-navigation re-enable) re-apply the sticky debugger state —
+        // url:line breakpoints + pause-on-exceptions (mirrors _applyRendering).
+        const fresh = !get().enabled.has('Debugger');
+        await get()._ensureDomains(['Debugger']);
+        if (fresh) await get()._applySources();
       } else if (panel === 'application') {
         // DOMStorage for live storage events; Network is needed for getCookies.
         await get()._ensureDomains(['DOMStorage', 'Network']);
@@ -257,10 +265,21 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         searchCount: 0,
         styleSheets: new Map(),
         pendingPatch: null,
+        // Scripts (and their ids) die with the document — Debugger.enable on
+        // the new page replays scriptParsed. URL-keyed breakpoints stay: CDP
+        // keeps setBreakpointByUrl registrations across reloads in-session.
+        scripts: new Map(),
+        selectedScriptId: null,
+        scriptSource: null,
+        scriptSourceLoading: false,
+        reveal: null,
+        paused: null,
         appOrigin: null,
         localStorageItems: [],
         sessionStorageItems: [],
         cookies: [],
+        idbDatabases: [],
+        cacheNames: [],
       });
       const epoch = get().epoch;
       void (async () => {
@@ -315,7 +334,9 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
 
     handleDetached: (tabId, reason) => {
       if (get().tabId !== tabId) return;
-      set({ session: 'detached', detachReason: reason, picking: false });
+      // Detaching the debugger auto-resumes the page — drop the pause snapshot
+      // so a later reconnect doesn't show a stale "Paused" banner.
+      set({ session: 'detached', detachReason: reason, picking: false, paused: null });
     },
   };
 }

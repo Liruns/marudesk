@@ -6,15 +6,23 @@ import type { CompletionResult } from './console/completion';
 export type { CompletionKind, CompletionItem, CompletionResult } from './console/completion';
 import {
   type BoxModel,
+  type CacheEntry,
+  type CacheInfo,
   type CdpCookie,
   type CdpNode,
   type ComputedStyleProperty,
   type ConsoleEntry,
   type CssStyle,
+  type IdbDatabase,
+  type IdbEntry,
   type NetworkEntry,
   type NodeId,
+  type PauseOnExceptions,
+  type PausedInfo,
   type RemoteObject,
   type RuleMatch,
+  type ScriptInfo,
+  type SourceBreakpoint,
   type StyleSheetHeader,
 } from './types';
 import type { PatchOp } from '../../../shared/patch';
@@ -31,6 +39,7 @@ import { createConsoleSlice } from './slice-console';
 import { createPanelsSlice } from './slice-panels';
 import { createDockSlice } from './slice-dock';
 import { createSessionSlice } from './slice-session';
+import { createSourcesSlice } from './slice-sources';
 
 /**
  * The custom DevTools session store. One dock, bound to the active web tab; it
@@ -49,6 +58,7 @@ export type DockSide = 'right' | 'bottom';
 export type DevtoolsPanel =
   | 'elements'
   | 'console'
+  | 'sources'
   | 'timeline'
   | 'network'
   | 'application'
@@ -213,11 +223,33 @@ export type DevtoolsState = {
   // Survive freshSlices (preferences, not per-page state).
   cacheDisabled: boolean;
   throttle: ThrottlePreset;
+  // sources (Debugger) — per-page script list + viewer + pause machine.
+  // scriptId → info, fed by Debugger.scriptParsed (urlless/internal scripts are
+  // skipped at ingest). Reset per page (the ids die with the document).
+  scripts: Map<string, ScriptInfo>;
+  selectedScriptId: string | null;
+  scriptSource: string | null;
+  scriptSourceLoading: boolean;
+  // Scroll-to target in the viewer. `seq` bumps on every reveal so revealing
+  // the same line twice still re-scrolls.
+  reveal: { line: number; seq: number } | null;
+  // URL-keyed breakpoints — sticky across navigations AND re-attach (like the
+  // rendering toggles): CDP keeps url breakpoints across reloads within a
+  // session, and `_applySources` re-sets them on a fresh attach.
+  breakpoints: SourceBreakpoint[];
+  // Sticky Debugger.setPauseOnExceptions state, re-applied on (re)attach.
+  pauseOnExceptions: PauseOnExceptions;
+  // Non-null while the page is stopped (Debugger.paused → Debugger.resumed).
+  paused: PausedInfo | null;
   // application (storage) — resolved from the bound tab's URL on panel open.
   appOrigin: string | null;
   localStorageItems: [string, string][];
   sessionStorageItems: [string, string][];
   cookies: CdpCookie[];
+  // IndexedDB databases + CacheStorage caches of the origin (read on refresh;
+  // entries are pulled on demand via loadIdbEntries / loadCacheEntries).
+  idbDatabases: IdbDatabase[];
+  cacheNames: CacheInfo[];
   appLoading: boolean;
   // rendering panel toggles — sticky preferences, re-applied on (re)attach.
   rendering: RenderingState;
@@ -295,11 +327,41 @@ export type DevtoolsActions = {
   setThrottle: (preset: ThrottlePreset) => void;
   /** Push the sticky cache/throttle conditions to the page (on enable / change). */
   _applyNetworkConditions: () => Promise<void>;
+  // sources (Debugger)
+  /** Show a script in the viewer (fetches its source on first selection). */
+  selectScript: (scriptId: string) => Promise<void>;
+  /** Select a script and scroll the viewer to a 0-based line. */
+  openScriptAt: (scriptId: string, lineNumber: number) => Promise<void>;
+  /** Reveal a breakpoint's location (resolves the script by URL). */
+  revealBreakpoint: (bp: SourceBreakpoint) => Promise<void>;
+  /** Gutter click: set/remove a url:line breakpoint (setBreakpointByUrl). */
+  toggleBreakpoint: (url: string, lineNumber: number) => Promise<void>;
+  setPauseOnExceptions: (state: PauseOnExceptions) => void;
+  pause: () => void;
+  resume: () => void;
+  stepOver: () => void;
+  stepInto: () => void;
+  stepOut: () => void;
+  /** Focus a call-stack frame: scope pane + viewer follow it. */
+  selectCallFrame: (index: number) => void;
+  /** Re-apply sticky debugger state (breakpoints + pause-on-exceptions) after
+   *  the Debugger domain is freshly enabled on a (re)attach. */
+  _applySources: () => Promise<void>;
+  /** `Debugger.paused` event → pause snapshot + reveal the top frame. */
+  _handlePaused: (params: unknown) => void;
+  _handleResumed: () => void;
   // application (storage)
   refreshApplication: () => Promise<void>;
   removeStorageItem: (isLocalStorage: boolean, key: string) => Promise<void>;
   clearStorage: (isLocalStorage: boolean) => Promise<void>;
   clearSiteData: () => Promise<void>;
+  /** First page of an object store's entries (read-only preview). */
+  loadIdbEntries: (databaseName: string, objectStoreName: string) => Promise<IdbEntry[]>;
+  deleteIdbDatabase: (databaseName: string) => Promise<void>;
+  /** First page of a cache's entries (capped). */
+  loadCacheEntries: (cacheId: string) => Promise<CacheEntry[]>;
+  deleteCache: (cacheId: string) => Promise<void>;
+  deleteCacheEntry: (cacheId: string, requestURL: string) => Promise<void>;
   // rendering
   setRendering: (patch: Partial<RenderingState>) => void;
   /** Push all rendering toggles to the page (on change / re-attach). */
@@ -359,6 +421,9 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     cacheDisabled: false,
     throttle: 'online',
     rendering: DEFAULT_RENDERING,
+    // Sticky debugger preferences — survive freshSlices, re-applied on attach.
+    breakpoints: [],
+    pauseOnExceptions: 'none',
     tabId: null,
     session: 'idle',
     detachReason: null,
@@ -378,6 +443,10 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     /* ── console ─────────────────────────────────────────────────────── */
 
     ...createConsoleSlice(set, get),
+
+    /* ── sources (debugger) ──────────────────────────────────────────── */
+
+    ...createSourcesSlice(set, get),
 
     /* ── network ─────────────────────────────────────────────────────── */
 

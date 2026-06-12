@@ -11,6 +11,7 @@ import type { TranslationKey } from '../../i18n/messages';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useDevtoolsStore, type DevtoolsPanel, type ToolLocation } from './store';
+import { PANELS } from './panel-list';
 import { PanelById } from './DevtoolsBody';
 import { DevtoolsGate } from './DevtoolsGate';
 import { DrawerSplitter, DRAWER_MIN } from './DrawerSplitter';
@@ -30,7 +31,10 @@ import { DrawerSplitter, DRAWER_MIN } from './DrawerSplitter';
  * already sized to the dock's outer rect — needs no further shrink.
  */
 
-const PANEL_LABEL_KEYS: Record<DevtoolsPanel, TranslationKey> = {
+// Panels added before the i18n catalog froze have translation keys; newer ones
+// (Sources) fall back to their registry label in panel-list.ts. Keeping the
+// fallback here avoids forking the shared i18n catalog for one tab label.
+const PANEL_LABEL_KEYS: Partial<Record<DevtoolsPanel, TranslationKey>> = {
   application: 'devtools.panel.application',
   console: 'devtools.panel.console',
   elements: 'devtools.panel.elements',
@@ -38,6 +42,12 @@ const PANEL_LABEL_KEYS: Record<DevtoolsPanel, TranslationKey> = {
   network: 'devtools.panel.network',
   rendering: 'devtools.panel.rendering',
 };
+
+function panelLabel(t: (key: TranslationKey) => string, panel: DevtoolsPanel): string {
+  const key = PANEL_LABEL_KEYS[panel];
+  if (key) return t(key);
+  return PANELS.find((p) => p.id === panel)?.label ?? panel;
+}
 
 /** Tools assigned to a location, in display order. */
 function useToolsIn(location: ToolLocation): DevtoolsPanel[] {
@@ -80,7 +90,7 @@ function ArrangeableTab({
           : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
       )}
     >
-      {t(PANEL_LABEL_KEYS[panel])}
+      {panelLabel(t, panel)}
     </button>
   );
 }
