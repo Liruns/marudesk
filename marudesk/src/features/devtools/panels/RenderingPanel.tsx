@@ -6,6 +6,10 @@ import {
 } from '../store';
 import { useI18n } from '../../../i18n/useI18n';
 import type { TranslationKey } from '../../../i18n/messages';
+import { cn } from '../../../lib/cn';
+import { useCoverageStore } from '../coverage-store';
+import { truncateMiddle, usagePercent, type CoverageRow } from '../coverage-utils';
+import { fmtBytes } from './network-utils';
 
 /**
  * Rendering panel: cheap, high-value debugging overlays + media/vision
@@ -51,6 +55,100 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const SELECT_CLASS =
   'h-6 rounded bg-surface-2 px-1 text-caption text-fg-secondary focus:outline-none focus:ring-1 focus:ring-accent/50';
+
+const COVERAGE_BUTTON_CLASS =
+  'h-6 px-2 rounded bg-surface-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 transition-colors duration-fast disabled:opacity-40 disabled:hover:bg-surface-2 disabled:hover:text-fg-secondary';
+
+function CoverageRowView({ row }: { row: CoverageRow }) {
+  const pct = usagePercent(row);
+  return (
+    <div className="flex items-center gap-2 text-caption">
+      <span
+        title={row.url}
+        className="w-[38%] shrink-0 font-mono text-fg-secondary whitespace-nowrap overflow-hidden"
+      >
+        {truncateMiddle(row.url, 48)}
+      </span>
+      <span className="w-8 shrink-0 text-fg-tertiary uppercase">{row.kind}</span>
+      <div className="flex-1 h-2 bg-surface-3 rounded-sm overflow-hidden" aria-hidden>
+        <div className="h-full bg-accent/70 rounded-sm" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-44 shrink-0 text-right tabular-nums text-fg-tertiary whitespace-nowrap">
+        {fmtBytes(row.usedBytes)} / {fmtBytes(row.totalBytes)}
+        <span className="text-fg-secondary"> · {pct.toFixed(0)}%</span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Coverage section: arm Profiler precise coverage (JS) + CSS rule-usage
+ * tracking, then on stop render per-script / per-stylesheet used-vs-total
+ * bytes, biggest unused share first. Lives in the Rendering panel; the state
+ * sits in its own small store (coverage-store) so a recording survives
+ * switching panels.
+ */
+function CoverageSection() {
+  const recording = useCoverageStore((s) => s.recording);
+  const busy = useCoverageStore((s) => s.busy);
+  const rows = useCoverageStore((s) => s.rows);
+  const attached = useDevtoolsStore((s) => s.session === 'attached');
+
+  return (
+    <div className="px-3 py-2 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-body-sm text-fg-secondary">Coverage</span>
+        <div className="flex items-center gap-1.5">
+          {rows.length > 0 && !recording ? (
+            <button
+              type="button"
+              onClick={() => useCoverageStore.getState().clear()}
+              className={COVERAGE_BUTTON_CLASS}
+            >
+              Clear
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy || (!recording && !attached)}
+            title={
+              !recording && !attached
+                ? 'Coverage needs an attached DevTools session.'
+                : undefined
+            }
+            onClick={() => {
+              const s = useCoverageStore.getState();
+              if (s.recording) void s.stop();
+              else void s.start();
+            }}
+            className={cn(
+              COVERAGE_BUTTON_CLASS,
+              recording && 'text-error hover:text-error',
+            )}
+          >
+            {recording ? 'Stop' : 'Start'}
+          </button>
+        </div>
+      </div>
+      {recording ? (
+        <div className="text-caption text-fg-tertiary">
+          Recording coverage. Exercise the page, then stop to see usage.
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="text-caption text-fg-tertiary">
+          Start instrumentation, exercise the page, then stop to see per-file JS
+          and CSS usage.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {rows.map((row) => (
+            <CoverageRowView key={row.id} row={row} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function RenderingPanel() {
   const { t } = useI18n();
@@ -114,6 +212,7 @@ export function RenderingPanel() {
           ))}
         </select>
       </Row>
+      <CoverageSection />
     </div>
   );
 }

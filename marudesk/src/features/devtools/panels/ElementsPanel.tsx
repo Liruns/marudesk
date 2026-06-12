@@ -24,7 +24,13 @@ export function ElementsPanel() {
   const forcedStates = useDevtoolsStore((s) => s.forcedStates);
   const searchCount = useDevtoolsStore((s) => s.searchCount);
   const searchIndex = useDevtoolsStore((s) => s.searchIndex);
+  // Non-null while a DOM search session is active — drives the n/m counter
+  // (incl. the explicit "0/0" no-match state).
+  const searchActive = useDevtoolsStore((s) => s.searchId !== null);
   const [searchInput, setSearchInput] = useState('');
+  // The query the active search session ran with: Enter steps through matches
+  // while the input still equals it, and re-runs the search once it differs.
+  const [submittedQuery, setSubmittedQuery] = useState('');
 
   // Esc cancels picking, matching the page-side inspect overlay.
   useEffect(() => {
@@ -39,9 +45,13 @@ export function ElementsPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [picking]);
 
-  const runSearch = () => void useDevtoolsStore.getState().searchDom(searchInput);
+  const runSearch = () => {
+    setSubmittedQuery(searchInput.trim());
+    void useDevtoolsStore.getState().searchDom(searchInput);
+  };
   const clearSearch = () => {
     setSearchInput('');
+    setSubmittedQuery('');
     useDevtoolsStore.getState().clearSearch();
   };
 
@@ -98,7 +108,10 @@ export function ElementsPanel() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  if (useDevtoolsStore.getState().searchCount > 0 && searchInput.trim()) {
+                  const q = searchInput.trim();
+                  // Step (with wrap-around) only while the input still matches
+                  // the active search; an edited query re-runs instead.
+                  if (useDevtoolsStore.getState().searchCount > 0 && q && q === submittedQuery) {
                     void useDevtoolsStore.getState().stepSearch(e.shiftKey ? -1 : 1);
                   } else {
                     runSearch();
@@ -115,24 +128,31 @@ export function ElementsPanel() {
               className="h-6 w-36 min-w-0 rounded bg-surface-2 pl-6 pr-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
             />
           </div>
-          {searchCount > 0 ? (
+          {searchActive ? (
             <>
-              <span className="text-caption text-fg-tertiary tabular-nums px-0.5">
-                {searchIndex + 1}/{searchCount}
+              <span
+                className={cn(
+                  'text-caption tabular-nums px-0.5',
+                  searchCount === 0 ? 'text-warning' : 'text-fg-tertiary',
+                )}
+              >
+                {searchCount === 0 ? 0 : searchIndex + 1}/{searchCount}
               </span>
               <button
                 type="button"
                 aria-label={t('devtools.elements.previousMatch')}
+                disabled={searchCount === 0}
                 onClick={() => void useDevtoolsStore.getState().stepSearch(-1)}
-                className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
+                className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-tertiary"
               >
                 <ChevronUp size={13} />
               </button>
               <button
                 type="button"
                 aria-label={t('devtools.elements.nextMatch')}
+                disabled={searchCount === 0}
                 onClick={() => void useDevtoolsStore.getState().stepSearch(1)}
-                className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
+                className="size-5 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-tertiary"
               >
                 <ChevronDown size={13} />
               </button>

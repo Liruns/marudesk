@@ -12,6 +12,7 @@ import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { RemoteValue } from '../components/RemoteValue';
 import { groupScriptsByOrigin, scriptLabel } from '../sources-utils';
+import { tokenizeLines, type SyntaxTokenKind } from '../syntax';
 import type {
   DebuggerCallFrame,
   DebuggerScope,
@@ -316,6 +317,20 @@ function ScriptsPane() {
 
 /* ── source viewer ────────────────────────────────────────────────────── */
 
+/**
+ * Token kind → text class for the viewer's lightweight highlighting (syntax.ts).
+ * Muted picks from the existing palette only: keywords ride the single accent,
+ * strings the sage AI hue, numbers the blue one (both pre-muted at 0.72 alpha),
+ * comments drop to tertiary + italic (the one sanctioned italic: code).
+ * 'plain' renders without a span and inherits the pre's text-fg-primary.
+ */
+const TOKEN_CLASS: Record<Exclude<SyntaxTokenKind, 'plain'>, string> = {
+  keyword: 'text-accent',
+  string: 'text-ai-grep',
+  number: 'text-ai-read',
+  comment: 'text-fg-tertiary italic',
+};
+
 function SourceViewer() {
   const selectedScriptId = useDevtoolsStore((s) => s.selectedScriptId);
   const scripts = useDevtoolsStore((s) => s.scripts);
@@ -335,6 +350,18 @@ function SourceViewer() {
     if (all.length <= MAX_VIEW_LINES) return { lines: all, truncatedLines: false };
     return { lines: all.slice(0, MAX_VIEW_LINES), truncatedLines: true };
   }, [source]);
+
+  // Per-line syntax tokens over the DISPLAYED text (lines clipped to
+  // MAX_LINE_CHARS), so the concatenated token texts equal what's rendered.
+  // tokenizeLines threads the block-comment/template carry across lines and
+  // never throws (a bad line degrades to plain).
+  const lineTokens = useMemo(
+    () =>
+      tokenizeLines(
+        lines.map((l) => (l.length > MAX_LINE_CHARS ? l.slice(0, MAX_LINE_CHARS) : l)),
+      ),
+    [lines],
+  );
 
   const bpLines = useMemo(() => {
     const set = new Set<number>();
@@ -422,7 +449,16 @@ function SourceViewer() {
               {i + 1}
             </button>
             <pre className="flex-1 px-2 m-0 font-mono text-caption whitespace-pre text-fg-primary">
-              {line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS)} …` : line}
+              {(lineTokens[i] ?? []).map((tok, j) =>
+                tok.kind === 'plain' ? (
+                  tok.text
+                ) : (
+                  <span key={j} className={TOKEN_CLASS[tok.kind]}>
+                    {tok.text}
+                  </span>
+                ),
+              )}
+              {line.length > MAX_LINE_CHARS ? ' …' : ''}
             </pre>
           </div>
         ))}

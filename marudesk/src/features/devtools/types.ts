@@ -420,3 +420,35 @@ export type CdpCookie = {
   session?: boolean;
   sameSite?: string;
 };
+
+/* ── Coverage (Profiler / CSS rule usage) ─────────────────────────────── */
+
+/** One `Profiler.CoverageRange` — byte offsets into the script source. */
+export type ProfilerCoverageRange = {
+  startOffset: number;
+  endOffset: number;
+  /** Execution count (0 with `callCount: false` still means "not executed"). */
+  count: number;
+};
+
+/** `Profiler.FunctionCoverage` (subset) from `Profiler.takePreciseCoverage`. */
+export type ProfilerFunctionCoverage = {
+  functionName: string;
+  ranges: ProfilerCoverageRange[];
+  isBlockCoverage: boolean;
+};
+
+/** `Profiler.ScriptCoverage` — per-script coverage entries. */
+export type ProfilerScriptCoverage = {
+  scriptId: string;
+  url: string;
+  functions: ProfilerFunctionCoverage[];
+};
+
+/** One `CSS.RuleUsage` entry from `CSS.stopRuleUsageTracking`. */
+export type CssRuleUsage = {
+  styleSheetId: string;
+  startOffset: number;
+  endOffset: number;
+  used: boolean;
+};

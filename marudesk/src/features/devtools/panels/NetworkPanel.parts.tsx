@@ -6,6 +6,7 @@ import { toast } from '../../../lib/toast';
 import { toMessage } from '../../../lib/toMessage';
 import { askAgent } from '../../agent/store';
 import { useDevtoolsStore } from '../store';
+import { buildFetchSnippet } from '../har';
 import type { NetworkEntry } from '../types';
 import {
   buildCurl,
@@ -197,6 +198,15 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
     }
   };
 
+  const copyFetch = async () => {
+    try {
+      await navigator.clipboard.writeText(buildFetchSnippet(entry));
+      toast({ title: 'Copied as fetch.', variant: 'success' });
+    } catch (err) {
+      toast({ title: t('common.copyFailed'), description: toMessage(err), variant: 'error' });
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-0 h-full">
       <div className="shrink-0 h-7 flex items-center justify-between gap-2 px-2 border-b border-subtle">
@@ -222,6 +232,14 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
             className="h-5 px-1.5 rounded text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
           >
             {t('devtools.network.copyCurl')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void copyFetch()}
+            title="Copy as fetch"
+            className="h-5 px-1.5 rounded text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
+          >
+            Copy as fetch
           </button>
           <button
             type="button"
