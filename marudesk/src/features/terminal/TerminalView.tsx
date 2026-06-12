@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  AlertCircle,
   ChevronDown,
   ChevronUp,
   ClipboardPaste,
@@ -7,19 +8,26 @@ import {
   Eraser,
   Folder,
   Search,
+  Sparkles,
   SquareTerminal,
   TextSelect,
   X,
 } from 'lucide-react';
+import { randomId } from '../../../shared/id';
+import type { TerminalErrorEvent } from '../../../shared/terminal-evidence';
 import { useTabsStore } from '../tabs/store';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useI18n } from '../../i18n/useI18n';
+import { useWebPageStore } from '../browser/store';
+import { askAgent } from '../agent/store';
 import {
   acquireTerminalSession,
   fitTerminalSession,
   terminalClear,
+  terminalClearErrors,
   terminalClearSearch,
   terminalCopySelection,
+  terminalErrorCount,
   terminalFindNext,
   terminalFindPrevious,
   terminalFocus,
@@ -27,7 +35,10 @@ import {
   terminalInfo,
   terminalOnSearchResults,
   terminalPaste,
+  terminalPtyId,
+  terminalPullErrors,
   terminalSelectAll,
+  TERMINAL_ERRORS_EVENT,
   TERMINAL_INFO_EVENT,
   TERMINAL_OPEN_SEARCH_EVENT,
   type TerminalInfo,
@@ -42,6 +53,15 @@ function basename(p: string): string {
 const IS_MAC =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
 const MOD = IS_MAC ? '⌘' : 'Ctrl';
+
+// Model-facing fix instructions (English on purpose, like the DevTools console
+// "Fix this" prompt) — the detected excerpt rides along as the attached capture.
+const TERMINAL_FIX_PROMPT =
+  'Fix this error from the integrated terminal. The output excerpt is attached ' +
+  "with the terminal's working directory — use the read_terminal tool to see " +
+  'more of the terminal output and run_diagnostics for project checks, find the ' +
+  'root cause in the workspace files, fix it, then re-run the failing command ' +
+  'to verify.';
 
 /**
  * The 'terminal' tab surface. The heavy lifting lives in the session registry
@@ -66,6 +86,8 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
   );
   const [searchOpen, setSearchOpen] = useState(false);
   const [info, setInfo] = useState<TerminalInfo | null>(null);
+  const [errorCount, setErrorCount] = useState(0);
+  const [errorsOpen, setErrorsOpen] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -84,6 +106,10 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
     // Shell/cwd resolve async; update the header when they arrive.
     const onInfo = () => setInfo(terminalInfo(tabId));
     host.addEventListener(TERMINAL_INFO_EVENT, onInfo);
+    // Detected-error count pushes (terminal "Fix this") → header badge.
+    setErrorCount(terminalErrorCount(tabId));
+    const onErrors = () => setErrorCount(terminalErrorCount(tabId));
+    host.addEventListener(TERMINAL_ERRORS_EVENT, onErrors);
     session.term.focus();
 
     return () => {
@@ -91,7 +117,10 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
       ro.disconnect();
       host.removeEventListener(TERMINAL_OPEN_SEARCH_EVENT, onOpenSearch);
       host.removeEventListener(TERMINAL_INFO_EVENT, onInfo);
+      host.removeEventListener(TERMINAL_ERRORS_EVENT, onErrors);
       setInfo(null);
+      setErrorCount(0);
+      setErrorsOpen(false);
       // Detach but keep the session alive for re-mount; disposal is the tab's
       // job (see the prune subscription in session.ts).
       if (session.container.parentElement === host) {
@@ -172,6 +201,21 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
           <span className="truncate" title={`${t('terminal.header.cwd')}: ${info.cwd}`}>
             {info.cwd}
           </span>
+          {errorCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setErrorsOpen((o) => !o)}
+              title={t('terminal.errors.badgeTitle')}
+              aria-label={t('terminal.errors.badgeTitle')}
+              aria-expanded={errorsOpen}
+              className="ml-auto flex shrink-0 items-center gap-1 rounded px-1.5 h-4 text-error hover:bg-surface-3 transition-colors duration-fast"
+            >
+              <AlertCircle size={11} aria-hidden />
+              <span className="min-w-3.5 h-3.5 px-0.5 rounded-pill bg-error text-white text-[9px] leading-[14px] font-medium text-center tabular-nums">
+                {errorCount > 9 ? '9+' : errorCount}
+              </span>
+            </button>
+          ) : null}
         </header>
       ) : null}
       <div className="relative flex-1 min-h-0 min-w-0">
@@ -199,9 +243,134 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
             }}
           />
         ) : null}
+        {errorsOpen && tabId ? (
+          <TerminalErrorsPanel tabId={tabId} onClose={() => setErrorsOpen(false)} />
+        ) : null}
         {menu ? (
           <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** First few lines of an excerpt for the compact row preview. */
+function excerptPreview(excerpt: string): string {
+  return excerpt.split('\n').slice(0, 3).join('\n');
+}
+
+/**
+ * Compact list of the terminal's detected error events (pulled from main's
+ * per-PTY ring on open). Each row shows the headline + an excerpt preview and a
+ * "Fix this" action that stages a `terminal-error` capture and hands it to the
+ * agent — the terminal twin of the DevTools console "Fix this" flow.
+ */
+function TerminalErrorsPanel({
+  tabId,
+  onClose,
+}: {
+  tabId: string;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [events, setEvents] = useState<TerminalErrorEvent[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void terminalPullErrors(tabId).then((evs) => {
+      if (alive) setEvents(evs);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [tabId]);
+
+  const fix = async (ev: TerminalErrorEvent) => {
+    const ptyId = terminalPtyId(tabId);
+    if (!ptyId) return;
+    const info = terminalInfo(tabId);
+    // Stage the error as a selected capture (already ANSI-stripped + scrubbed
+    // in main), then open the chat and fire the fix loop — askAgent sends the
+    // selected captures along with the prompt.
+    useWebPageStore.getState().addCapture({
+      kind: 'terminal-error',
+      id: randomId('tcap'),
+      timestamp: ev.timestamp,
+      url: '',
+      message: ev.message,
+      excerpt: ev.excerpt,
+      terminalId: ptyId,
+      shell: info?.shell,
+      cwd: info?.cwd,
+    });
+    onClose();
+    await askAgent(TERMINAL_FIX_PROMPT);
+  };
+
+  const clear = async () => {
+    await terminalClearErrors(tabId);
+    setEvents([]);
+    onClose();
+    terminalFocus(tabId);
+  };
+
+  return (
+    <div className="absolute right-3 top-2 z-10 flex w-96 max-w-[calc(100%-1.5rem)] flex-col rounded-md border border-default bg-surface-2 shadow-xl">
+      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-subtle px-2 text-caption text-fg-tertiary">
+        <AlertCircle size={12} className="shrink-0 text-error" aria-hidden />
+        <span className="text-fg-secondary">{t('terminal.errors.title')}</span>
+        <span className="flex-1" aria-hidden />
+        <button
+          type="button"
+          onClick={() => void clear()}
+          className="rounded px-1.5 py-0.5 hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
+        >
+          {t('terminal.errors.clear')}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          title={t('terminal.errors.closeTitle')}
+          aria-label={t('terminal.errors.close')}
+          className="grid size-5 place-items-center rounded hover:bg-surface-3 hover:text-fg-primary"
+        >
+          <X size={13} />
+        </button>
+      </div>
+      <div className="max-h-64 overflow-y-auto">
+        {events.length === 0 ? (
+          <div className="px-3 py-4 text-center text-caption text-fg-tertiary">
+            {t('terminal.errors.empty')}
+          </div>
+        ) : (
+          events.map((ev) => (
+            <div
+              key={ev.id}
+              className="flex items-start gap-2 border-b border-subtle px-2 py-1.5 last:border-b-0"
+            >
+              <div className="min-w-0 flex-1">
+                <div
+                  className="truncate font-mono text-caption text-error"
+                  title={ev.message}
+                >
+                  {ev.message}
+                </div>
+                <div className="line-clamp-2 whitespace-pre-wrap break-all font-mono text-caption text-fg-tertiary">
+                  {excerptPreview(ev.excerpt)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void fix(ev)}
+                title={t('terminal.errors.fixTitle')}
+                className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded px-1.5 h-5 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
+              >
+                <Sparkles size={11} aria-hidden />
+                {t('terminal.errors.fix')}
+              </button>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

@@ -57,6 +57,26 @@ export const BROWSER_TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
   {
+    name: 'screenshot',
+    description: 'Capture the active web tab (or a tab by id) as an image and SEE it — the screenshot is attached to this tool result for vision-capable models. Use after UI/style edits to visually verify the result (edit → reload_and_verify → screenshot). Read-only. If the active model cannot accept images, returns a text note instead.',
+    inputSchema: { type: 'object', properties: { tabId: strProp('Optional web tab id (from list_tabs); defaults to the active tab.') }, additionalProperties: false },
+  },
+  {
+    name: 'get_web_vitals',
+    description: "Read the live page's Core Web Vitals — LCP, CLS, INP/FID, TTFB, FCP — plus basic navigation timing, measured in the real page via buffered PerformanceObserver entries. Values cover the CURRENT document since its navigation; reload_and_verify first for a fresh load, and interact with the page for INP. Read-only.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'arm_exception_capture',
+    description: 'Arm a one-shot exception trap on the active web tab: the page pauses on its next UNCAUGHT exception, the snapshot (description, top 5 call frames, local variables of the top 2 frames) is captured, and the page resumes IMMEDIATELY. Auto-disarms after 120s or when the tab leaves the current origin (a reload keeps the trap armed). Flow: arm_exception_capture → reproduce the crash (click / fill / press_key / reload_and_verify) → read_exception_capture.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'read_exception_capture',
+    description: 'Read the snapshot captured by arm_exception_capture for the active web tab: the exception description, top call frames (function, url, line), and local-variable previews of the topmost frames. Reports "armed, nothing captured yet" while the trap is live and "not armed" when it never was. Read-only.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'browser_cookies',
     description: "Read the live page's cookies (name, value, domain, flags). Read-only; values are secret-scrubbed. Requires user approval. Use to debug auth/session state.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },

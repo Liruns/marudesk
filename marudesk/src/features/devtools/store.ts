@@ -440,7 +440,11 @@ export type DevtoolsActions = {
   // application (storage)
   refreshApplication: () => Promise<void>;
   removeStorageItem: (isLocalStorage: boolean, key: string) => Promise<void>;
+  /** Add or overwrite a web-storage entry (DOMStorage.setDOMStorageItem). */
+  setStorageItem: (isLocalStorage: boolean, key: string, value: string) => Promise<void>;
   clearStorage: (isLocalStorage: boolean) => Promise<void>;
+  /** Delete one cookie, scoped by name+domain+path (Network.deleteCookies). */
+  deleteCookie: (cookie: CdpCookie) => Promise<void>;
   clearSiteData: () => Promise<void>;
   /** First page of an object store's entries (read-only preview). */
   loadIdbEntries: (databaseName: string, objectStoreName: string) => Promise<IdbEntry[]>;

@@ -154,6 +154,19 @@ export function parseWorkspaceScope(payload: unknown): { workspaceId?: string } 
   return { workspaceId: optStr(o.workspaceId, 'workspaceId') };
 }
 
+/**
+ * `POST /agent/revert-edit` / relay `revert-edit` body (mobile patch review) →
+ * the applied-edit id to revert plus the thin client's optional workspace scope
+ * (same shallow check the `agent:revert-edit` IPC handler does on `editId`).
+ */
+export function parseRevertEdit(payload: unknown): { editId: string; workspaceId?: string } {
+  const o = obj(payload);
+  return {
+    editId: nonEmptyStr(o.editId, 'editId'),
+    workspaceId: optStr(o.workspaceId, 'workspaceId'),
+  };
+}
+
 /** `agent:approve-tool` / `POST /agent/approve` body (missing `approved` → false). */
 export function parseApprove(payload: unknown): {
   turnId: string;

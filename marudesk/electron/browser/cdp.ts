@@ -101,7 +101,10 @@ const BLOCKED_METHODS = new Set([
   'Network.continueInterceptedRequest',
   'Network.setCookie',
   'Network.setCookies',
-  'Network.deleteCookies',
+  // Network.deleteCookies is deliberately NOT blocked: the Application panel's
+  // per-cookie delete is name+domain+path scoped (no broader reach than the
+  // attached page already has over its own cookies). Cookie WRITES and the
+  // whole-browser clears below stay blocked.
   'Network.clearBrowserCookies',
   'Network.clearBrowserCache',
   'Network.setBlockedURLs',

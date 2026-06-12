@@ -14,6 +14,8 @@ import {
   discoverLocalSshConfigConnections,
   type DiscoveredSshConfigConnection,
 } from './config-discovery';
+import { evaluateHostKey, getPinnedHostKey, pinHostKey } from './host-keys';
+import { knownHostsFile } from './host-keys-file';
 
 /**
  * In-memory registry of configured SSH hosts and their live sessions.
@@ -23,10 +25,10 @@ import {
  * sanitized {@link SshConnectionInfo}. Connections are lazy: a Client is opened
  * on first SFTP/exec use and reused; a dropped connection reconnects on demand.
  *
- * SECURITY TODO: host keys are currently accepted on first sight (no known_hosts
- * / TOFU verification). A future pass should persist + compare host fingerprints
- * to defend against MITM. The fingerprint is surfaced from probes so the UI can
- * eventually pin it.
+ * Host keys are verified trust-on-first-use (./host-keys.ts): the first
+ * connect pins the host's SHA256 fingerprint under userData; later connects
+ * compare and a CHANGED key rejects the handshake with an error naming both
+ * fingerprints and how to clear the pin (Settings → Remote).
  */
 
 const EXEC_MAX_OUTPUT = 64 * 1024 * 1024;
@@ -53,17 +55,45 @@ function defaultAgentPath(): string | undefined {
   return process.env.SSH_AUTH_SOCK || undefined;
 }
 
+/**
+ * ssh2's hostVerifier can only return a boolean — its rejection surfaces as a
+ * generic handshake error. The verifier writes the detailed mismatch message
+ * here so the connect path can re-throw something actionable.
+ */
+type HostKeyFailure = { error: string | null };
+
 /** Build the ssh2 connect options from a stored auth method (reads the key file). */
 async function buildConnectConfig(
   base: { host: string; port: number; username: string },
   auth: SshAuth,
-): Promise<ConnectConfig> {
+): Promise<{ config: ConnectConfig; hostKeyFailure: HostKeyFailure }> {
+  // Load the pin BEFORE the handshake so the verifier can stay synchronous.
+  const pinned = await getPinnedHostKey(knownHostsFile(), base.host, base.port);
+  const hostKeyFailure: HostKeyFailure = { error: null };
   const config: ConnectConfig = {
     host: base.host,
     port: base.port,
     username: base.username,
-    // First-use host key acceptance (see SECURITY TODO above).
-    hostVerifier: () => true,
+    // TOFU verification (./host-keys.ts): first sight pins, mismatch rejects.
+    hostVerifier: (key: Buffer): boolean => {
+      const verdict = evaluateHostKey(pinned, base.host, base.port, key);
+      if (!verdict.ok) {
+        hostKeyFailure.error = verdict.error;
+        return false;
+      }
+      if (verdict.firstSight) {
+        // Fire-and-forget: the pin write must not block the handshake, and a
+        // failed write only means the next connect re-pins on first sight.
+        void pinHostKey(knownHostsFile(), {
+          host: base.host,
+          port: base.port,
+          algorithm: verdict.algorithm,
+          fingerprintSha256: verdict.fingerprintSha256,
+          pinnedAt: Date.now(),
+        }).catch(() => undefined);
+      }
+      return true;
+    },
     readyTimeout: 20_000,
     keepaliveInterval: 15_000,
   };
@@ -97,7 +127,25 @@ async function buildConnectConfig(
       break;
     }
   }
-  return config;
+  return { config, hostKeyFailure };
+}
+
+/**
+ * Open a client for a built config, translating ssh2's generic host-verifier
+ * rejection into the detailed pinned-vs-offered fingerprint error.
+ */
+async function openVerifiedClient(built: {
+  config: ConnectConfig;
+  hostKeyFailure: HostKeyFailure;
+}): Promise<{ client: Client; sftp: SFTPWrapper }> {
+  try {
+    return await openClient(built.config);
+  } catch (err) {
+    if (built.hostKeyFailure.error) {
+      throw new Error(built.hostKeyFailure.error, { cause: err });
+    }
+    throw err;
+  }
 }
 
 /** Open a fresh SSH client + SFTP channel for the given config. */
@@ -170,8 +218,8 @@ export async function ensureSftp(id: SshConnectionId): Promise<SFTPWrapper> {
     // cleared only on failure; on success it's harmless (the cached-handle
     // check above short-circuits) and `detach` clears it on disconnect.
     conn.pending = (async () => {
-      const config = await buildConnectConfig(conn.info, conn.auth);
-      const opened = await openClient(config);
+      const built = await buildConnectConfig(conn.info, conn.auth);
+      const opened = await openVerifiedClient(built);
       // Keep an error handler attached for the connection's whole life: an
       // EventEmitter 'error' with no listener is an uncaught exception that
       // would crash the main process. Both error and close tear the session
@@ -377,11 +425,11 @@ export async function probeConnection(
   input: SshConnectionInput,
 ): Promise<{ homeDir: string }> {
   const port = input.port ?? DEFAULT_SSH_PORT;
-  const config = await buildConnectConfig(
+  const built = await buildConnectConfig(
     { host: input.host.trim(), port, username: input.username.trim() },
     input.auth,
   );
-  const { client, sftp } = await openClient(config);
+  const { client, sftp } = await openVerifiedClient(built);
   try {
     const homeDir = await new Promise<string>((resolve, reject) => {
       sftp.realpath('.', (err, absPath) => {

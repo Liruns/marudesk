@@ -26,10 +26,14 @@ import type {
 } from './context';
 import type {
   GitAvailability,
+  GitBlameFile,
   GitBranches,
   GitCommit,
   GitCommitResult,
+  GitConflictState,
+  GitFileDiffLines,
   GitRemoteResult,
+  GitStashEntry,
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
@@ -45,6 +49,7 @@ import type { Spec, SpecInput } from './specs';
 import type { LaneDevState, LaneDevStartResult } from './lanes';
 import type {
   BrowserNativeMenuItem,
+  TabGroupColor,
   TabKind,
   TabsSnapshot,
 } from './browser';
@@ -53,6 +58,7 @@ import type { PluginCommandSnapshot, PluginStatus } from './plugin';
 import type { BookmarkEntry, BookmarkInput } from './bookmarks';
 import type { DownloadAction, DownloadEntry } from './downloads';
 import type { HistoryEntry } from './history';
+import type { Suggestion } from './suggest';
 import type { ApplyResult, PatchOp, PatchPreview } from './patch';
 import type {
   CustomProviderInfo,
@@ -67,6 +73,7 @@ import type {
   SshConnectionInfo,
   SshConnectionInput,
   SshListDirResult,
+  SshPinnedHostKey,
   SshTestResult,
 } from './ssh';
 import type {
@@ -81,6 +88,7 @@ import type {
   TerminalInput,
   TerminalResize,
 } from './terminal';
+import type { TerminalErrorEvent } from './terminal-evidence';
 import type {
   CaptureInput,
   CreateKind,
@@ -208,9 +216,54 @@ export interface IpcMap {
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };
+  // Drag-reorder one tab to the slot of `targetId`, with Chrome-style tab-group
+  // membership semantics (dropping inside a group's span joins it; dragging a
+  // member out of its span leaves it). The strip's drag-drop uses this; the
+  // bulk `tabs-reorder` above stays membership-neutral.
+  'browser:tabs-move': {
+    args: [payload: { id: string; targetId: string }];
+    result: boolean;
+  };
   // Pin/unpin a tab (favicon-only, kept at the front). Main re-sorts pinned-first.
   'browser:tabs-set-pinned': {
     args: [payload: { id: string; pinned: boolean }];
+    result: boolean;
+  };
+  // Tab groups (Chrome-style; shared/browser.ts TabGroup). Main owns the group
+  // records next to the tab records; every mutation pushes a fresh snapshot
+  // through `browser:tabs-state`, so the renderer store stays a mirror.
+  // Create a new group containing exactly the given tab; returns its id.
+  'browser:tab-groups-create': {
+    args: [payload: { tabId: string; name?: string; color?: TabGroupColor }];
+    result: string | null;
+  };
+  'browser:tab-groups-add-tab': {
+    args: [payload: { tabId: string; groupId: string }];
+    result: boolean;
+  };
+  'browser:tab-groups-remove-tab': {
+    args: [payload: { tabId: string }];
+    result: boolean;
+  };
+  // Rename and/or recolor a group ('' name = unnamed, renders the dot only).
+  'browser:tab-groups-update': {
+    args: [payload: { groupId: string; name?: string; color?: TabGroupColor }];
+    result: boolean;
+  };
+  // Collapse/expand. Refused (false) when collapsing would leave the workspace
+  // with no visible tab to activate.
+  'browser:tab-groups-collapse': {
+    args: [payload: { groupId: string; collapsed: boolean }];
+    result: boolean;
+  };
+  // Ungroup all members (tabs stay open); the group record is deleted.
+  'browser:tab-groups-dissolve': {
+    args: [payload: { groupId: string }];
+    result: boolean;
+  };
+  // Close every member tab, then the group itself.
+  'browser:tab-groups-close': {
+    args: [payload: { groupId: string }];
     result: boolean;
   };
   'browser:tabs-bind-path': {
@@ -400,6 +453,13 @@ export interface IpcMap {
     args: [payload: { connectionId: string; path: string }];
     result: SshListDirResult;
   };
+  // Pinned (TOFU) host keys — Settings → Remote lists them and clears one when
+  // a host's key legitimately changed (reinstall). Fingerprints only, no secrets.
+  'ssh:list-host-keys': { args: []; result: SshPinnedHostKey[] };
+  'ssh:clear-host-key': {
+    args: [payload: { host: string; port: number }];
+    result: { ok: boolean };
+  };
 
   // git (Source Control — electron/git.ts). Paths are workspace-relative POSIX.
   // `status` never throws for a non-repo (returns { isRepo: false }); `discard`
@@ -415,6 +475,21 @@ export interface IpcMap {
     args: [payload: { path: string; staged: boolean }];
     result: { diff: string };
   };
+  // Editor diff gutter: line ranges added/modified/deleted vs HEAD for one file.
+  // `file` (a multi-root WorkspaceFileRef) resolves the owning root; omitted =
+  // the active legacy workspace root. Never throws for non-repo/untracked —
+  // returns { tracked: false } so the gutter quietly shows nothing.
+  'git:file-diff-lines': {
+    args: [payload: { path: string; file?: WorkspaceFileRef }];
+    result: GitFileDiffLines;
+  };
+  // Editor inline blame: per-line {author, time, summary, hash} from
+  // `git blame --line-porcelain`. Same root resolution + graceful degradation
+  // as git:file-diff-lines ({ ok: false } instead of throwing).
+  'git:blame-file': {
+    args: [payload: { path: string; file?: WorkspaceFileRef }];
+    result: GitBlameFile;
+  };
   'git:commit': {
     args: [payload: { message: string; amend?: boolean }];
     result: GitCommitResult;
@@ -429,6 +504,29 @@ export interface IpcMap {
   'git:fetch': { args: []; result: GitRemoteResult };
   'git:pull': { args: []; result: GitRemoteResult };
   'git:push': { args: []; result: GitRemoteResult };
+  // Stash. `list` returns [] for a non-repo; `push` stashes the working tree
+  // including untracked files (-u) with an optional message; apply/pop/drop
+  // take a "stash@{N}" ref (validated in main — never shell-parsed).
+  'git:stash-list': { args: []; result: GitStashEntry[] };
+  'git:stash-push': {
+    args: [payload: { message?: string }];
+    result: { ok: true };
+  };
+  'git:stash-apply': { args: [payload: { ref: string }]; result: { ok: true } };
+  'git:stash-pop': { args: [payload: { ref: string }]; result: { ok: true } };
+  'git:stash-drop': { args: [payload: { ref: string }]; result: { ok: true } };
+  // Merge-conflict flow. `state` detects the in-progress operation from the
+  // .git dir (never throws — { op: null } when clean/undeterminable);
+  // `resolve` accepts one side of a conflicted file (checkout --ours/--theirs
+  // + add); continue/abort drive the detected operation (`-c core.editor=true`
+  // so no editor can hang the continue).
+  'git:conflict-state': { args: []; result: GitConflictState };
+  'git:conflict-resolve': {
+    args: [payload: { path: string; side: 'ours' | 'theirs' }];
+    result: { ok: true };
+  };
+  'git:conflict-continue': { args: []; result: { ok: true } };
+  'git:conflict-abort': { args: []; result: { ok: true } };
   // Worktree isolation (Stage 12-B): run the agent in an isolated worktree.
   'git:worktree-status': { args: []; result: WorktreeIsolationStatus };
   'git:worktree-enter': { args: []; result: WorktreeIsolationStatus };
@@ -507,6 +605,11 @@ export interface IpcMap {
     args: [payload: { id: string; title: string }];
     result: BookmarkEntry[];
   };
+
+  // address-bar dropdown suggestions: matching bookmarks + history (frecency)
+  // + a trailing "search the web" row. Matching/ranking runs in main where the
+  // stores live (electron/suggest.ts → the pure ranker in shared/suggest.ts).
+  'browser:suggest': { args: [query: string]; result: Suggestion[] };
 
   // diagnostics (workspace language support, Tier 1 — electron/diagnostics/*).
   // `run` runs the open project's own checker and parses its output; `get` pulls
@@ -655,6 +758,8 @@ export interface IpcMap {
     result: { ok: boolean; name: string; reason?: string; evicted?: string[] };
   };
   'memory:delete': { args: [payload: { name: string }]; result: boolean };
+  // Wipe every remembered note (the panel's clear-all). Returns the count removed.
+  'memory:clear': { args: []; result: number };
 
   // context (built-in MCP mirror): the renderer pushes the surfaces main can't
   // see (unsaved editor buffers + explorer tree state) on change. Fire-and-forget
@@ -769,6 +874,15 @@ export interface IpcMap {
   'terminal:resize': { args: [resize: TerminalResize]; result: void };
   'terminal:dispose': { args: [id: string]; result: void };
   'terminal:ready': { args: [payload: { id: string }]; result: void };
+  // Always-on terminal error capture (terminal "Fix this"): drain the per-PTY
+  // ring of detected error events — the badge popover reads this on open. The
+  // live count pushes on the `terminal:error-count` event. Empty array when the
+  // session is gone. `clear-errors` empties the ring (and re-pushes count 0).
+  'terminal:pull-errors': {
+    args: [payload: { id: string }];
+    result: TerminalErrorEvent[];
+  };
+  'terminal:clear-errors': { args: [payload: { id: string }]; result: void };
 
   // clipboard (integrated-terminal copy/paste — electron/clipboard.ts)
   'clipboard:write-text': { args: [text: string]; result: void };

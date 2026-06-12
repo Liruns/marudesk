@@ -20,6 +20,9 @@ import {
 import { click, fill, pressKey, scroll } from './interaction-tools.ts';
 import { runCommand } from './command-tools.ts';
 import { readDiagnostics, runDiagnosticsTool } from './diagnostics-tool.ts';
+import { screenshot } from './screenshot.ts';
+import { getWebVitals } from './web-vitals.ts';
+import { armExceptionCapture, readExceptionCapture } from './exception-capture.ts';
 
 /**
  * The agent tool registry (docs/agentic-chat-design.md §4) — the §9 promotion of
@@ -52,6 +55,12 @@ export const EXECUTORS: Record<string, Executor> = {
   reload_and_verify: reloadAndVerify as Executor,
   browser_cookies: browserCookies as Executor,
   browser_storage: browserStorage as Executor,
+  screenshot: screenshot as Executor,
+  get_web_vitals: getWebVitals as Executor,
+  arm_exception_capture: armExceptionCapture as Executor,
+  read_exception_capture: readExceptionCapture as Executor,
+  // triage_network_failure lives in CONTEXT_TOOLS (context-sources.ts) — it
+  // reads the terminal subsystem, which tools/ must not import (cycle).
 };
 
 export async function executeTool(
@@ -98,6 +107,11 @@ export function describeToolInput(name: string, input: unknown): string {
   if (name === 'scroll') {
     if (typeof o.selector === 'string') return `scroll to ${o.selector}`.slice(0, 300);
     return `scroll ${o.direction === 'up' ? 'up' : 'down'}`;
+  }
+  if (name === 'triage_network_failure') {
+    return typeof o.requestId === 'string'
+      ? `correlate request ${o.requestId} with terminal output`.slice(0, 300)
+      : '(no requestId)';
   }
   // PC-control / path tools: show the target plainly — this is an approval card.
   if (typeof o.path === 'string') return o.path.slice(0, 300);

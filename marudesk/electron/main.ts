@@ -52,6 +52,7 @@ import { registerModelsHandlers } from './models';
 import { getSettings, getSettingsSync, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
 import { destroyTray, syncTrayToSettings } from './tray';
 import { flushAndResetHistoryForProfile, registerHistoryHandlers } from './history';
+import { registerSuggestHandlers } from './suggest';
 import { registerDiagnosticsHandlers } from './diagnostics/handlers';
 import { syncFromContext as syncLspFromContext, disposeAllLsp } from './lsp/manager';
 import { setContextCacheListener } from './agent/context-cache';
@@ -516,6 +517,7 @@ void app.whenReady().then(() => {
     },
   });
   registerHistoryHandlers();
+  registerSuggestHandlers();
   registerDiagnosticsHandlers({ getMainWindow });
   // Drive LSP document sync from the editor mirror: when the renderer pushes its
   // open buffers (context:sync), reconcile language servers + open documents for

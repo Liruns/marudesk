@@ -27,6 +27,11 @@ function pushBookmarks(list: BookmarkEntry[]): void {
   host.webContents.send('browser:bookmarks', list);
 }
 
+/** The current bookmark list (newest first) — address-bar suggestions input. */
+export function listBookmarks(): Promise<BookmarkEntry[]> {
+  return store.list();
+}
+
 export function registerBookmarkHandlers(): void {
   defineHandler('bookmarks:list', () => store.list());
 

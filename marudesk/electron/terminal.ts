@@ -13,6 +13,13 @@ import { getSettings } from './settings';
 import { defineHandler } from './ipc/define-handler';
 import { getCompanionConnection, startCompanion } from './server/companion';
 import { toMessage } from '../shared/to-message';
+import { scrubText } from '../shared/scrub';
+import {
+  createTerminalErrorDetector,
+  stripAnsi,
+  type TerminalErrorDetector,
+  type TerminalErrorEvent,
+} from '../shared/terminal-evidence';
 import type {
   TerminalCreateOptions,
   TerminalCreated,
@@ -40,6 +47,16 @@ type Session = {
   ready: boolean;
   /** Bounded recent output tail (raw bytes) for the agent's read_terminal tool. */
   scrollback: string;
+  /**
+   * Passive error detection over the output stream (terminal "Fix this").
+   * null for the agent-cli profile — the chat CLI quoting errors would be
+   * noise, not evidence.
+   */
+  detector: TerminalErrorDetector | null;
+  /** Ring of recent detected errors (already secret-scrubbed), oldest first. */
+  errors: TerminalErrorEvent[];
+  /** Quiet-period timer that flushes a still-open detector event. */
+  errorFlushTimer: NodeJS.Timeout | null;
 };
 
 const sessions = new Map<string, Session>();
@@ -53,6 +70,13 @@ const MAX_EARLY_BUFFER_BYTES = 1024 * 1024;
 // main can't query — so we retain a bounded tail here). Raw bytes; the tool
 // strips ANSI + scrubs secrets at egress.
 const SCROLLBACK_MAX = 16 * 1024;
+// Detected-error ring per terminal (terminal "Fix this"): newer events replace
+// older ones; there is no shell-integration signal to clear on, so the ring +
+// the explicit terminal:clear-errors invoke are the whole lifecycle.
+const MAX_ERRORS_PER_TERMINAL = 10;
+// Quiet period after which an open detector run is flushed, so an error that is
+// the LAST thing a command printed still fires without waiting for more output.
+const ERROR_FLUSH_QUIET_MS = 300;
 
 // Strip secret-shaped vars so a user command (`env`, `Get-ChildItem Env:`) and
 // any subprocess can't read them. The shell still inherits PATH/HOME/etc. — a
@@ -310,7 +334,10 @@ export function registerTerminalHandlers(deps: {
   getMainWindow: () => BrowserWindow | null;
   getWorkspaceRoot: () => string | null;
 }): void {
-  const sendToRenderer = (channel: 'terminal:data' | 'terminal:exit', payload: unknown) => {
+  const sendToRenderer = (
+    channel: 'terminal:data' | 'terminal:exit' | 'terminal:error-count',
+    payload: unknown,
+  ) => {
     const win = deps.getMainWindow();
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
@@ -359,14 +386,53 @@ export function registerTerminalHandlers(deps: {
     }
 
     const id = randomUUID();
-    const rec: Session = { pty, buffer: [], buffered: 0, ready: false, scrollback: '' };
+    const rec: Session = {
+      pty,
+      buffer: [],
+      buffered: 0,
+      ready: false,
+      scrollback: '',
+      detector: opts.profile === 'agent-cli' ? null : createTerminalErrorDetector(),
+      errors: [],
+      errorFlushTimer: null,
+    };
     sessions.set(id, rec);
+
+    // Intake for detected errors: scrub each excerpt BEFORE it leaves the
+    // terminal layer (read_terminal's egress contract), ring-buffer it, and
+    // push the fresh count so the renderer badge updates without polling.
+    const recordErrors = (events: TerminalErrorEvent[]): void => {
+      if (events.length === 0) return;
+      for (const ev of events) {
+        rec.errors.push({
+          ...ev,
+          message: scrubText(ev.message),
+          excerpt: scrubText(ev.excerpt),
+        });
+      }
+      if (rec.errors.length > MAX_ERRORS_PER_TERMINAL) {
+        rec.errors.splice(0, rec.errors.length - MAX_ERRORS_PER_TERMINAL);
+      }
+      sendToRenderer('terminal:error-count', { id, count: rec.errors.length });
+    };
 
     pty.onData((data) => {
       // Retain a bounded scrollback tail for the agent's read_terminal tool.
       rec.scrollback += data;
       if (rec.scrollback.length > SCROLLBACK_MAX) {
         rec.scrollback = rec.scrollback.slice(-SCROLLBACK_MAX);
+      }
+      if (rec.detector) {
+        recordErrors(rec.detector.push(data));
+        // Flush on a quiet period so an error printed last (no trailing output
+        // to close the run) still fires.
+        if (rec.errorFlushTimer) clearTimeout(rec.errorFlushTimer);
+        rec.errorFlushTimer = setTimeout(() => {
+          rec.errorFlushTimer = null;
+          if (rec.detector && sessions.get(id) === rec) {
+            recordErrors(rec.detector.flush());
+          }
+        }, ERROR_FLUSH_QUIET_MS);
       }
       if (rec.ready) {
         sendToRenderer('terminal:data', { id, data });
@@ -377,6 +443,7 @@ export function registerTerminalHandlers(deps: {
     });
 
     pty.onExit(({ exitCode, signal }) => {
+      if (rec.errorFlushTimer) clearTimeout(rec.errorFlushTimer);
       sendToRenderer('terminal:exit', { id, exitCode, signal });
       sessions.delete(id);
     });
@@ -414,11 +481,27 @@ export function registerTerminalHandlers(deps: {
   defineHandler('terminal:dispose', ([raw]) => {
     killSession(parseId(raw));
   });
+
+  // Drain the detected-error ring (the badge popover's pull on open). A fresh
+  // array each call; empty when the session is gone. Already scrubbed at intake.
+  defineHandler('terminal:pull-errors', ([raw]) => {
+    const rec = sessions.get(parseId(raw));
+    return rec ? [...rec.errors] : [];
+  });
+
+  defineHandler('terminal:clear-errors', ([raw]) => {
+    const id = parseId(raw);
+    const rec = sessions.get(id);
+    if (!rec) return;
+    rec.errors = [];
+    sendToRenderer('terminal:error-count', { id, count: 0 });
+  });
 }
 
 function killSession(id: string): void {
   const rec = sessions.get(id);
   if (!rec) return;
+  if (rec.errorFlushTimer) clearTimeout(rec.errorFlushTimer);
   try {
     rec.pty.kill();
   } catch {
@@ -432,11 +515,8 @@ export function disposeAllTerminals(): void {
   for (const id of [...sessions.keys()]) killSession(id);
 }
 
-// CSI (colors/cursor) + OSC (window-title) escape sequences, stripped before the
-// scrollback is handed to the agent so it reads plain text.
-const ANSI_ESCAPE =
-  // eslint-disable-next-line no-control-regex
-  /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+// ANSI stripping lives in shared/terminal-evidence.ts (stripAnsi) so the error
+// detector and the read_terminal egress strip identically.
 
 /**
  * Recent output of the most-recently-created live terminal, ANSI-stripped and
@@ -451,7 +531,7 @@ export function getRecentTerminalOutput(
   const ids = [...sessions.keys()];
   const rec = sessions.get(ids[ids.length - 1]);
   if (!rec) return null;
-  const stripped = rec.scrollback.replace(ANSI_ESCAPE, '');
+  const stripped = stripAnsi(rec.scrollback);
   const output = stripped.length > maxChars ? stripped.slice(-maxChars) : stripped;
   return { count: sessions.size, output };
 }
@@ -463,7 +543,7 @@ export function getRecentTerminalOutput(
  */
 export function getTerminalList(): { id: string; bytes: number; lines: number }[] {
   return [...sessions.entries()].map(([id, rec]) => {
-    const stripped = rec.scrollback.replace(ANSI_ESCAPE, '');
+    const stripped = stripAnsi(rec.scrollback);
     return {
       id,
       bytes: stripped.length,
@@ -483,7 +563,7 @@ export function getTerminalOutput(
 ): { output: string } | null {
   const rec = sessions.get(id);
   if (!rec) return null;
-  const stripped = rec.scrollback.replace(ANSI_ESCAPE, '');
+  const stripped = stripAnsi(rec.scrollback);
   const output = stripped.length > maxChars ? stripped.slice(-maxChars) : stripped;
   return { output };
 }

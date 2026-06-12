@@ -33,6 +33,12 @@ export function formatEvidencePack(capture: Capture): string {
       }
       lines.push('```');
     }
+  } else if (capture.kind === 'terminal-error') {
+    lines.push('## Terminal error (marudesk evidence pack)', '');
+    lines.push(`- **Message:** \`${scrubText(capture.message)}\``);
+    if (capture.cwd) lines.push(`- **Working directory:** ${scrubText(capture.cwd)}`);
+    if (capture.shell) lines.push(`- **Shell:** ${scrubText(capture.shell)}`);
+    lines.push('', '**Output excerpt:**', '```', scrubText(capture.excerpt).slice(0, MAX_HTML), '```');
   } else {
     lines.push('## Element (marudesk evidence pack)', '');
     lines.push(`- **Tag:** \`<${capture.tagName.toLowerCase()}>\``);

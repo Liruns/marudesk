@@ -4,6 +4,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { AppSettings } from '../../../shared/settings';
+import type { TerminalErrorEvent } from '../../../shared/terminal-evidence';
 import { fontStack } from '../../../shared/fonts';
 import { resolveTheme, subscribeAppearance, useSettingsStore } from '../settings/store';
 import { subscribeTabsByKind, useTabsStore } from '../tabs/store';
@@ -13,6 +14,8 @@ import { toMessage } from '../../lib/toMessage';
 export const TERMINAL_OPEN_SEARCH_EVENT = 'terminal:open-search';
 /** Event a session fires on its container once the shell/cwd are resolved. */
 export const TERMINAL_INFO_EVENT = 'terminal:info';
+/** Event a session fires on its container when its detected-error count changes. */
+export const TERMINAL_ERRORS_EVENT = 'terminal:errors';
 
 /** Shell path + working directory, surfaced in the terminal header. */
 export type TerminalInfo = { shell: string; cwd: string };
@@ -55,6 +58,8 @@ type Session = {
   search: SearchAddon;
   ptyId: string | null;
   info: TerminalInfo | null;
+  /** Detected-error count, mirrored from the terminal:error-count push. */
+  errorCount: number;
   cleanup: () => void;
 };
 
@@ -210,6 +215,7 @@ export function acquireTerminalSession(tabId: string): Session {
     search,
     ptyId: null,
     info: null,
+    errorCount: 0,
     cleanup: () => {},
   };
   sessions.set(tabId, session);
@@ -217,6 +223,7 @@ export function acquireTerminalSession(tabId: string): Session {
 
   let offData: (() => void) | null = null;
   let offExit: (() => void) | null = null;
+  let offErrors: (() => void) | null = null;
 
   // A terminal tab can carry a command profile (chat CLI v2 §6.1): main spawns
   // the bundled chat CLI for 'agent-cli' instead of the user's shell.
@@ -250,6 +257,15 @@ export function acquireTerminalSession(tabId: string): Session {
         const code = typeof p.exitCode === 'number' ? ` (${p.exitCode})` : '';
         term.write(`\r\n\x1b[2m[process exited${code}]\x1b[0m\r\n`);
       });
+      // Main pushes the detected-error count (terminal "Fix this"); mirror it
+      // and nudge the mounted surface so its badge re-renders.
+      offErrors = window.marudesk.on('terminal:error-count', (p) => {
+        if (p.id !== res.id) return;
+        session.errorCount = p.count;
+        session.container.dispatchEvent(
+          new CustomEvent(TERMINAL_ERRORS_EVENT, { bubbles: true }),
+        );
+      });
       // Listeners are wired — let main flush any output buffered pre-subscribe.
       void window.marudesk.invoke('terminal:ready', { id: res.id });
     })
@@ -273,6 +289,7 @@ export function acquireTerminalSession(tabId: string): Session {
     onData.dispose();
     offData?.();
     offExit?.();
+    offErrors?.();
     if (session.ptyId) void window.marudesk.invoke('terminal:dispose', session.ptyId);
     term.dispose();
   };
@@ -335,6 +352,29 @@ export function terminalFocus(tabId: string): void {
 /** The resolved shell + cwd for a terminal tab, or null until the PTY is up. */
 export function terminalInfo(tabId: string): TerminalInfo | null {
   return sessions.get(tabId)?.info ?? null;
+}
+
+/** The PTY session id for a terminal tab, or null until the PTY is up. */
+export function terminalPtyId(tabId: string): string | null {
+  return sessions.get(tabId)?.ptyId ?? null;
+}
+
+/** Detected-error count for a terminal tab (drives the header badge). */
+export function terminalErrorCount(tabId: string): number {
+  return sessions.get(tabId)?.errorCount ?? 0;
+}
+
+/** Drain main's detected-error ring for this tab's PTY (badge popover open). */
+export async function terminalPullErrors(tabId: string): Promise<TerminalErrorEvent[]> {
+  const id = sessions.get(tabId)?.ptyId;
+  if (!id) return [];
+  return window.marudesk.invoke('terminal:pull-errors', { id });
+}
+
+/** Clear main's detected-error ring; the badge resets via terminal:error-count. */
+export async function terminalClearErrors(tabId: string): Promise<void> {
+  const id = sessions.get(tabId)?.ptyId;
+  if (id) await window.marudesk.invoke('terminal:clear-errors', { id });
 }
 
 /**

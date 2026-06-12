@@ -84,16 +84,20 @@ export function Section({
   title,
   count,
   action,
+  icon,
   children,
 }: {
   title: string;
   count: number;
   action: RowAction;
+  /** Optional leading icon (e.g. the Merge Conflicts warning triangle). */
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className="group/section">
       <div className="flex items-center gap-1.5 px-3 pb-1 pt-2.5">
+        {icon}
         <span className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
           {title}
         </span>

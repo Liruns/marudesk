@@ -34,6 +34,7 @@
     "harness:webrtc": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/webrtc-host-harness.ts",
     "harness:search": "node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/search-core.harness.ts",
     "harness:ssh-config": "node --experimental-strip-types electron/ssh/config-discovery.harness.ts",
+    "harness:ssh-host-keys": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/ssh/host-keys.harness.ts",
     "harness:patch-match": "node --experimental-strip-types electron/patch-match.harness.ts",
     "harness:worktree": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/git-worktree.harness.ts",
     "harness:worktree-iso": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/worktree-isolation.harness.ts",

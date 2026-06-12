@@ -75,6 +75,19 @@ There is exactly one accent. Do not introduce a second hue for "secondary brand.
 | `--warning` | `#F2C94C` | Low-confidence match, non-blocking caution. |
 | `--error` | `#EB5757` | Validation failure, model error, destructive confirm. |
 
+### DevTools box model — diagram fills only
+The Elements panel's box-model diagram uses four region fills that mirror
+Chromium's inspector-overlay hues at low alpha, so the in-panel diagram matches
+the on-page highlight. Like the AI Timeline colors, they are **never** ordinary
+UI color — they exist only for the box-model diagram.
+
+| Token | Value | Region |
+|---|---|---|
+| `--boxmodel-margin` | `rgba(246,178,107,0.25)` | Margin ring |
+| `--boxmodel-border` | `rgba(255,229,153,0.30)` | Border ring |
+| `--boxmodel-padding` | `rgba(147,196,125,0.30)` | Padding ring |
+| `--boxmodel-content` | `rgba(111,168,220,0.30)` | Content box |
+
 ### AI Timeline — chromatic only here
 The 4-color accent system, alpha-adjusted (0.72) for dark surfaces. Each color maps to a specific AI operation type.
 

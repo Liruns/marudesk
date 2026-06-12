@@ -3,10 +3,16 @@ import {
   ZERO_NAV,
   applyReorder,
   type NavState,
+  type TabGroup,
+  type TabGroupColor,
   type TabKind,
   type TabState,
   type TabsSnapshot,
 } from '../../../shared/browser';
+import {
+  applyScopedOrder,
+  moveTabAmongGroups,
+} from '../../../shared/tab-groups';
 import type { WorkspaceId } from '../../../shared/workspace';
 
 /**
@@ -27,6 +33,13 @@ type TabsState = {
   tabs: TabState[];
   activeTabId: string | null;
   activeTabIdsByWorkspace: Record<WorkspaceId, string>;
+  /**
+   * Chrome-style tab groups, mirrored from main exactly like `tabs`: main owns
+   * the records (electron/browser/state.ts) and every group mutation pushes a
+   * fresh {@link TabsSnapshot} through `browser:tabs-state`. Distinct from the
+   * grid store's split-view groups (`features/tabs/grid.ts`).
+   */
+  groups: TabGroup[];
 };
 
 type TabsActions = {
@@ -58,6 +71,32 @@ type TabsActions = {
   activateTab: (id: string) => Promise<void>;
   refreshTabsSnapshot: () => Promise<void>;
   reorderTabs: (orderedIds: string[]) => void;
+  /**
+   * Drag-reorder one tab to the slot of `targetId` with Chrome-style tab-group
+   * membership semantics (dropping inside a group's span joins it; dragging a
+   * member out leaves it). The strip's drag-drop uses this; `reorderTabs`
+   * stays membership-neutral for bulk callers (grid pane sync).
+   */
+  moveTab: (id: string, targetId: string) => void;
+  /** Create a new tab group containing exactly this tab ("Add to new group"). */
+  createTabGroup: (tabId: string) => Promise<string | null>;
+  /** Add a tab to an existing group (moves it to the end of the group's span). */
+  addTabToTabGroup: (tabId: string, groupId: string) => Promise<void>;
+  /** Remove a tab from its group (re-slots just after the group's span). */
+  removeTabFromTabGroup: (tabId: string) => Promise<void>;
+  /** Rename and/or recolor a group ('' name = unnamed, dot-only chip). */
+  updateTabGroup: (
+    groupId: string,
+    patch: { name?: string; color?: TabGroupColor },
+  ) => Promise<void>;
+  /** Collapse/expand a group. Main refuses a collapse that would hide every tab. */
+  setTabGroupCollapsed: (groupId: string, collapsed: boolean) => Promise<void>;
+  /** Ungroup: members stay open in place, the group record goes. */
+  dissolveTabGroup: (groupId: string) => Promise<void>;
+  /** Close every member tab, then the group itself. */
+  closeTabGroup: (groupId: string) => Promise<void>;
+  /** Open a fresh home tab directly inside an existing group. */
+  newTabInTabGroup: (groupId: string, workspaceId?: WorkspaceId) => Promise<void>;
   /** Pin/unpin a tab (favicon-only, kept at the front). Main re-sorts + pushes. */
   setPinned: (id: string, pinned: boolean) => Promise<void>;
   goBack: () => Promise<void>;
@@ -95,6 +134,7 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
   tabs: [],
   activeTabId: null,
   activeTabIdsByWorkspace: {},
+  groups: [],
 
   // Just record the active tab's nav snapshot. The address bar (currentUrl /
   // pendingUrl) used to be reconciled here too; that now lives in the web-page
@@ -106,6 +146,7 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
     set((state) => ({
       tabs: snap.tabs,
       activeTabId: snap.activeTabId,
+      groups: snap.groups,
       activeTabIdsByWorkspace: activeTabsByWorkspace(
         snap.tabs,
         snap.activeTabId,
@@ -168,6 +209,7 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
     set((state) => ({
       tabs: snap.tabs,
       activeTabId: snap.activeTabId,
+      groups: snap.groups,
       activeTabIdsByWorkspace: activeTabsByWorkspace(
         snap.tabs,
         snap.activeTabId,
@@ -192,6 +234,95 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
       return { tabs: next };
     });
     void window.marudesk.invoke('browser:tabs-reorder', orderedIds);
+  },
+
+  moveTab: (id, targetId) => {
+    // Optimistic local move with the same shared group-membership policy main
+    // applies (moveTabAmongGroups + applyScopedOrder), so the strip doesn't
+    // flicker; main pushes back the authoritative snapshot either way.
+    set((state) => {
+      const moved = state.tabs.find((t) => t.id === id);
+      const target = state.tabs.find((t) => t.id === targetId);
+      if (!moved || !target || moved.workspaceId !== target.workspaceId) {
+        return {};
+      }
+      const entries = state.tabs
+        .filter((t) => t.workspaceId === moved.workspaceId)
+        .map((t) => ({ id: t.id, groupId: t.groupId ?? null }));
+      let next = moveTabAmongGroups(entries, id, targetId);
+      if (moved.pinned) {
+        // Pinned tabs never join groups; main clears this the same way.
+        next = next.map((e) => (e.id === id ? { id: e.id, groupId: null } : e));
+      }
+      const membership = new Map(next.map((e) => [e.id, e.groupId] as const));
+      const order = applyScopedOrder(
+        state.tabs.map((t) => t.id),
+        next.map((e) => e.id),
+      );
+      const byId = new Map(state.tabs.map((t) => [t.id, t] as const));
+      const tabs: TabState[] = [];
+      for (const tabId of order) {
+        const tab = byId.get(tabId);
+        if (!tab) continue;
+        if (!membership.has(tabId)) {
+          tabs.push(tab);
+          continue;
+        }
+        const groupId = membership.get(tabId) ?? null;
+        tabs.push(
+          groupId === (tab.groupId ?? null)
+            ? tab
+            : { ...tab, groupId: groupId ?? undefined },
+        );
+      }
+      return { tabs };
+    });
+    void window.marudesk.invoke('browser:tabs-move', { id, targetId });
+  },
+
+  // Tab-group verbs: main owns the group records and pushes a fresh snapshot
+  // after every mutation, so nothing is set locally.
+  createTabGroup: async (tabId) => {
+    return await window.marudesk.invoke('browser:tab-groups-create', { tabId });
+  },
+
+  addTabToTabGroup: async (tabId, groupId) => {
+    await window.marudesk.invoke('browser:tab-groups-add-tab', { tabId, groupId });
+  },
+
+  removeTabFromTabGroup: async (tabId) => {
+    await window.marudesk.invoke('browser:tab-groups-remove-tab', { tabId });
+  },
+
+  updateTabGroup: async (groupId, patch) => {
+    await window.marudesk.invoke('browser:tab-groups-update', {
+      groupId,
+      ...(patch.name === undefined ? {} : { name: patch.name }),
+      ...(patch.color === undefined ? {} : { color: patch.color }),
+    });
+  },
+
+  setTabGroupCollapsed: async (groupId, collapsed) => {
+    await window.marudesk.invoke('browser:tab-groups-collapse', {
+      groupId,
+      collapsed,
+    });
+  },
+
+  dissolveTabGroup: async (groupId) => {
+    await window.marudesk.invoke('browser:tab-groups-dissolve', { groupId });
+  },
+
+  closeTabGroup: async (groupId) => {
+    await window.marudesk.invoke('browser:tab-groups-close', { groupId });
+  },
+
+  newTabInTabGroup: async (groupId, workspaceId) => {
+    const tabId = await window.marudesk.invoke('browser:tabs-new', {
+      kind: 'home',
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+    });
+    await window.marudesk.invoke('browser:tab-groups-add-tab', { tabId, groupId });
   },
 
   // Pin/unpin: main owns the pinned-first ordering and pushes a fresh snapshot,

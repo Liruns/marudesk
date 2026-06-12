@@ -1,0 +1,72 @@
+/* Editor git decorations — diff gutter bars + inline blame (git-decorations.ts).
+ * Colors come ONLY from the design tokens (src/styles/tokens.css), so the
+ * markers follow theme/palette switches: added = --success (green), modified =
+ * --ai-read (the sanctioned timeline blue), deleted = --error, blame text =
+ * --text-disabled. No hex values here, per the token rule. */
+
+/* Gutter change bars (linesDecorationsClassName). Monaco absolutely positions
+   these inside the line-decorations margin; the !important width overrides its
+   inline computed width so the bar renders as a slim 3px strip. */
+.marudesk-gutter-added,
+.marudesk-gutter-modified {
+  width: 3px !important;
+  margin-left: 4px;
+  border-radius: var(--radius-sm);
+}
+.marudesk-gutter-added {
+  background: var(--success);
+}
+.marudesk-gutter-modified {
+  background: var(--ai-read);
+}
+
+/* Deletion boundary: a small triangle pointing at the seam where lines were
+   removed — at the bottom edge of the boundary line, or the top edge when the
+   deletion happened before the first line (.marudesk-gutter-deleted-top). */
+.marudesk-gutter-deleted,
+.marudesk-gutter-deleted-top {
+  width: 8px !important;
+  margin-left: 1px;
+  overflow: visible;
+}
+.marudesk-gutter-deleted::after,
+.marudesk-gutter-deleted-top::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--error);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+.marudesk-gutter-deleted::after {
+  bottom: -4px;
+}
+.marudesk-gutter-deleted-top::after {
+  top: -4px;
+}
+
+/* Merge-conflict aid (conflict-decorations.ts): whole-line washes over the
+   two sides of a conflict block. Current (ours) rides the diff-add green wash,
+   incoming (theirs) the accent wash, and the marker/base lines a dim warning
+   wash — all existing alpha tokens, no new colors. */
+.marudesk-conflict-current {
+  background: var(--diff-add-bg);
+}
+.marudesk-conflict-incoming {
+  background: var(--accent-subtle);
+}
+.marudesk-conflict-marker {
+  background: var(--warning-subtle);
+}
+
+/* Inline blame (injected after-content on the current cursor line): a dim,
+   non-interactive end-of-line annotation in the GitLens style. */
+.marudesk-inline-blame {
+  color: var(--text-disabled) !important;
+  font-style: italic;
+  padding-left: 28px;
+  white-space: pre;
+  pointer-events: none;
+}

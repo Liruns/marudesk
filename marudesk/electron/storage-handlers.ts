@@ -3,6 +3,7 @@ import { defineHandler } from './ipc/define-handler';
 import { nonEmptyStr, obj } from './ipc/validate';
 import { clearAllSessions, sessionStats } from './agent/sessions-store';
 import {
+  clearMemory,
   deleteMemory,
   listMemory,
   readMemory,
@@ -50,4 +51,6 @@ export function registerStorageHandlers(): void {
   defineHandler('memory:delete', ([payload]) =>
     deleteMemory(nonEmptyStr(obj(payload).name, 'name')),
   );
+
+  defineHandler('memory:clear', () => clearMemory());
 }

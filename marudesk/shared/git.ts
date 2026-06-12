@@ -62,6 +62,27 @@ export type GitStatus =
       files: GitChange[];
     };
 
+/** One stash entry from `git stash list --format=%gd|%at|%s`. */
+export type GitStashEntry = {
+  /** The stash ref, e.g. "stash@{0}". */
+  ref: string;
+  /** Author time, Unix seconds. */
+  timestamp: number;
+  /** The stash message (the default "WIP on main: …" or the user's -m text). */
+  message: string;
+};
+
+/** The in-progress multi-commit operation a conflict belongs to. */
+export type GitMergeOp = 'merge' | 'rebase' | 'cherry-pick';
+
+/**
+ * Result of `git:conflict-state` — which operation (if any) is mid-flight,
+ * detected from the repo's .git dir (MERGE_HEAD / rebase-merge / rebase-apply /
+ * CHERRY_PICK_HEAD). `op` is null for a clean repo, a non-repo, or when the
+ * operation can't be determined.
+ */
+export type GitConflictState = { op: GitMergeOp | null };
+
 /** One commit from `git:log`. */
 export type GitCommit = {
   hash: string;
@@ -91,3 +112,44 @@ export type GitRemoteResult = { ok: true; summary: string };
  * ENOENT from every command.
  */
 export type GitAvailability = { installed: boolean; version?: string };
+
+/** Kind of a changed line range in the working tree vs HEAD. */
+export type GitDiffLineKind = 'added' | 'modified';
+
+/** An inclusive 1-based line range in the CURRENT (new) file content. */
+export type GitDiffLineRange = {
+  startLine: number;
+  endLine: number;
+  kind: GitDiffLineKind;
+};
+
+/**
+ * Result of `git:file-diff-lines` — the per-line change map the editor's diff
+ * gutter renders. `tracked` is false for an untracked file / non-repo / remote
+ * root (the gutter then shows nothing — untracked files are deliberately not
+ * painted all-added). `deletedAfter` holds 1-based line numbers in the current
+ * file AFTER which lines were deleted (0 = deleted before the first line).
+ */
+export type GitFileDiffLines = {
+  tracked: boolean;
+  ranges: GitDiffLineRange[];
+  deletedAfter: number[];
+};
+
+/** One line's blame info from `git blame --line-porcelain`. */
+export type GitBlameLine = {
+  /** 1-based line number in the current file. */
+  line: number;
+  hash: string;
+  author: string;
+  /** Author time, Unix seconds. */
+  authorTime: number;
+  summary: string;
+};
+
+/**
+ * Result of `git:blame-file`. `ok: false` covers non-repo / untracked /
+ * remote-root cases — the inline blame then simply doesn't render (not an
+ * error state).
+ */
+export type GitBlameFile = { ok: true; lines: GitBlameLine[] } | { ok: false };

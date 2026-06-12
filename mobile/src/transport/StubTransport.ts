@@ -89,6 +89,17 @@ export class StubTransport extends BaseTransport implements Transport {
         // Same host-mirrored-setting pattern as the approval mode.
         this.patch({ reasoningEffort: (args as TransportCommandArgs['set-reasoning-effort']).effort });
         break;
+      case 'revert-edit': {
+        // The host restores the file and flips the edit's status in the next
+        // snapshot; the fake flips it immediately so the Revert flow is demoable.
+        const { editId } = args as TransportCommandArgs['revert-edit'];
+        this.patch({
+          editDiffs: (this.state.editDiffs ?? []).map((e) =>
+            e.id === editId && e.status === 'applied' ? { ...e, status: 'reverted' as const } : e,
+          ),
+        });
+        break;
+      }
     }
     return Promise.resolve();
   }
@@ -337,11 +348,67 @@ export class StubTransport extends BaseTransport implements Transport {
         pending.turnId,
         prev + `\n\nGot it — "${answer}". I'll add the optional-chaining guard and re-check the console.`,
       );
+      // The turn "applied" a file edit — surface the PC-projected diff card —
+      // and detached a background agent that completes shortly after (so the
+      // notification flow is demoable: background the app before it finishes).
+      const bgId = `${pending.turnId}-bg-1`;
       this.patch({
         status: 'completed',
         turnId: null,
         usage: { inputTokens: 1280, outputTokens: 342, contextTokens: 1280 },
+        editDiffs: [
+          ...(this.state.editDiffs ?? []),
+          {
+            id: `${pending.turnId}-edit-1`,
+            turnId: pending.turnId,
+            label: 'src/CartView.tsx',
+            kind: 'edit',
+            status: 'applied',
+            diff: [
+              '@@ -40,5 +40,5 @@',
+              '   const item = cart.items[index];',
+              '-  const id = item.id;',
+              '+  const id = item?.id ?? null;',
+              '   if (id === null) return null;',
+              '   return <Row id={id} />;',
+            ].join('\n'),
+            additions: 1,
+            deletions: 1,
+            truncated: false,
+            timestamp: Date.now(),
+          },
+        ],
+        background: [
+          ...(this.state.background ?? []),
+          {
+            id: bgId,
+            label: 'Checkout smoke test',
+            task: 'Write a smoke test covering the fixed cart flow',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-6',
+            status: 'running',
+            startedAt: Date.now(),
+            finishedAt: null,
+            result: null,
+            error: null,
+            collected: false,
+          },
+        ],
       });
+      this.schedule(() => {
+        this.patch({
+          background: (this.state.background ?? []).map((t) =>
+            t.id === bgId
+              ? {
+                  ...t,
+                  status: 'done' as const,
+                  finishedAt: Date.now(),
+                  result: 'Added checkout.smoke.test.ts — 3 assertions, all passing.',
+                }
+              : t,
+          ),
+        });
+      }, 6000);
     }, 900);
   }
 

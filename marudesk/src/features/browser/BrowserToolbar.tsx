@@ -1,4 +1,10 @@
-import type { ChangeEvent, FormEvent, RefObject } from 'react';
+import type {
+  ChangeEvent,
+  FocusEvent,
+  FormEvent,
+  KeyboardEvent,
+  RefObject,
+} from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -32,6 +38,10 @@ type Props = {
   readonly consoleErrorCount: number;
   readonly devtoolsOpen: boolean;
   readonly onAddressChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  // Address-bar suggestions: arrows/Enter/Esc go to the dropdown first, and a
+  // blur (after the mousedown-accept window) dismisses it (BrowserCanvas).
+  readonly onAddressKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  readonly onAddressBlur: (event: FocusEvent<HTMLInputElement>) => void;
   readonly onSubmit: (event: FormEvent) => void;
   readonly onGoBack: () => void;
   readonly onGoForward: () => void;
@@ -55,6 +65,8 @@ export function BrowserToolbar({
   consoleErrorCount,
   devtoolsOpen,
   onAddressChange,
+  onAddressKeyDown,
+  onAddressBlur,
   onSubmit,
   onGoBack,
   onGoForward,
@@ -120,6 +132,8 @@ export function BrowserToolbar({
             placeholder={t('browser.address.placeholder')}
             value={pendingUrl}
             onChange={onAddressChange}
+            onKeyDown={onAddressKeyDown}
+            onBlur={onAddressBlur}
             onFocus={(e) => e.currentTarget.select()}
             className={cn(
               'flex-1 min-w-0 bg-transparent text-body-sm text-fg-primary',

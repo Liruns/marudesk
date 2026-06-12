@@ -8,6 +8,9 @@ import { askAgent } from '../../agent/store';
 import { useDevtoolsStore } from '../store';
 import { buildFetchSnippet } from '../har';
 import type { NetworkEntry, SseMessage, WsFrame } from '../types';
+import { parseFormBody, parseQueryParams } from '../network/detail';
+import { parseJsonContainer } from '../json-value';
+import { JsonTree } from '../components/JsonTree';
 import {
   buildCurl,
   buildNetworkFixPrompt,
@@ -59,6 +62,22 @@ function HeaderList({ headers }: { headers?: Record<string, string> }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Two-column key/value table (query params, form data). */
+function KvTable({ rows }: { rows: [string, string][] }) {
+  return (
+    <table className="w-full text-caption">
+      <tbody>
+        {rows.map(([k, v], i) => (
+          <tr key={`${k}-${i}`} className="align-top hover:bg-surface-2">
+            <td className="px-2 py-0.5 font-mono text-fg-primary break-all w-1/3">{k}</td>
+            <td className="px-2 py-0.5 font-mono text-fg-secondary break-all">{v}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -357,6 +376,8 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
   const [bodyState, setBodyState] = useState<'idle' | 'loading' | 'empty'>('idle');
   const [bodyQuery, setBodyQuery] = useState('');
   const [tab, setTab] = useState<DetailTab>('headers');
+  // Response body view: raw (pretty text + search) or a collapsible JSON tree.
+  const [bodyView, setBodyView] = useState<'raw' | 'tree'>('raw');
   // Reset the loaded body when the selected request changes, using the
   // store-previous-prop pattern (no effect → no cascading render), matching
   // SettingsView's TextField.
@@ -367,6 +388,7 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
     setBodyState('idle');
     setBodyQuery('');
     setTab('headers');
+    setBodyView('raw');
   }
 
   // Messages only exists for WebSocket connections and SSE streams.
@@ -383,10 +405,19 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
 
   // The displayed body: JSON pretty-printed when applicable. `null` until loaded.
   const shownBody = body === null ? null : prettyBody(body, entry.mimeType);
-  const requestPayload =
+  // JSON container for the tree view, or undefined (toggle hidden).
+  const bodyTree = body === null ? undefined : parseJsonContainer(body);
+  const queryParams = parseQueryParams(entry.url);
+  const requestContentType = headerValue(entry.requestHeaders, 'content-type');
+  // Form-encoded bodies render as a key/value table; others pretty-print.
+  const formRows =
     entry.requestPostData === undefined
       ? null
-      : prettyBody(entry.requestPostData, headerValue(entry.requestHeaders, 'content-type'));
+      : parseFormBody(entry.requestPostData, requestContentType);
+  const requestPayload =
+    entry.requestPostData === undefined || formRows
+      ? null
+      : prettyBody(entry.requestPostData, requestContentType);
   const bodyMatches =
     shownBody && bodyQuery
       ? shownBody.toLowerCase().split(bodyQuery.toLowerCase()).length - 1
@@ -518,6 +549,16 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
             <Section title={t('devtools.network.requestHeaders')}>
               <HeaderList headers={entry.requestHeaders} />
             </Section>
+            {queryParams.length > 0 ? (
+              <Section title={t('devtools.network.queryParams')}>
+                <KvTable rows={queryParams} />
+              </Section>
+            ) : null}
+            {formRows && formRows.length > 0 ? (
+              <Section title={t('devtools.network.formData')}>
+                <KvTable rows={formRows} />
+              </Section>
+            ) : null}
             {requestPayload !== null ? (
               <Section title={t('devtools.network.requestPayload')}>
                 <pre className="font-mono text-caption text-fg-secondary px-2 whitespace-pre-wrap break-words max-h-48 overflow-auto">
@@ -566,10 +607,36 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
                       {bodyMatches} {bodyMatches === 1 ? t('devtools.network.match') : t('devtools.network.matches')}
                     </span>
                   ) : null}
+                  {bodyTree !== undefined ? (
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {(['raw', 'tree'] as const).map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          aria-pressed={bodyView === v}
+                          onClick={() => setBodyView(v)}
+                          className={cn(
+                            'h-5 px-1.5 rounded text-caption transition-colors duration-fast',
+                            bodyView === v
+                              ? 'bg-surface-page text-fg-primary'
+                              : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
+                          )}
+                        >
+                          {v === 'raw' ? t('devtools.network.viewRaw') : t('devtools.network.viewTree')}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                <pre className="font-mono text-caption text-fg-secondary px-2 whitespace-pre-wrap break-words max-h-64 overflow-auto">
-                  {highlight(shownBody, bodyQuery)}
-                </pre>
+                {bodyView === 'tree' && bodyTree !== undefined ? (
+                  <div className="px-2 max-h-64 overflow-auto">
+                    <JsonTree value={bodyTree} />
+                  </div>
+                ) : (
+                  <pre className="font-mono text-caption text-fg-secondary px-2 whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                    {highlight(shownBody, bodyQuery)}
+                  </pre>
+                )}
               </div>
             ) : (
               <button

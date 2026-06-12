@@ -5,6 +5,7 @@ import { DevicePairing } from './RemoteDevicePairing';
 import { CloudRelaySection } from './RemoteRelaySection';
 import { RemoteGuide } from './RemoteGuide';
 import { AdvancedRemote } from './AdvancedRemoteSettings';
+import { SshHostKeysSettings } from './SshHostKeysSettings';
 import { useOnOffOptions } from './useLocalizedSettingsOptions';
 
 export function RemoteCategory() {
@@ -43,6 +44,9 @@ export function RemoteCategory() {
         </p>
       </header>
       <CloudRelaySection />
+
+      {/* Pinned SSH host keys (TOFU) — the trust list behind SSH workspaces. */}
+      <SshHostKeysSettings />
     </div>
   );
 }

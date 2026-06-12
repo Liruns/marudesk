@@ -1,4 +1,10 @@
-import type { GitChange, GitFileStatus } from '../shared/git';
+import type {
+  GitBlameLine,
+  GitChange,
+  GitDiffLineRange,
+  GitFileStatus,
+  GitStashEntry,
+} from '../shared/git';
 
 /**
  * Pure parsers for git CLI porcelain output (status -z records, --branch
@@ -91,6 +97,102 @@ export function parseBranchHeaders(records: string[]): {
     }
   }
   return { branch, upstream, ahead, behind, unborn };
+}
+
+/**
+ * Parse `git diff --unified=0` output into per-line change ranges for the diff
+ * gutter. With zero context lines every hunk header maps 1:1 to a change:
+ *   - `+c,0` (no new lines)  → pure deletion AFTER line c of the new file;
+ *   - `-a,0` (no old lines)  → pure addition at new lines c..c+d-1;
+ *   - both sides non-zero    → modification at new lines c..c+d-1.
+ * Counts default to 1 when omitted (`@@ -3 +3 @@`).
+ */
+export function parseUnifiedZeroDiff(stdout: string): {
+  ranges: GitDiffLineRange[];
+  deletedAfter: number[];
+} {
+  const ranges: GitDiffLineRange[] = [];
+  const deletedAfter: number[] = [];
+  const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+  for (const line of stdout.split('\n')) {
+    const m = hunk.exec(line);
+    if (!m) continue;
+    const oldCount = m[2] === undefined ? 1 : Number(m[2]);
+    const newStart = Number(m[3]);
+    const newCount = m[4] === undefined ? 1 : Number(m[4]);
+    if (newCount === 0) {
+      deletedAfter.push(newStart);
+    } else {
+      ranges.push({
+        startLine: newStart,
+        endLine: newStart + newCount - 1,
+        kind: oldCount === 0 ? 'added' : 'modified',
+      });
+    }
+  }
+  return { ranges, deletedAfter };
+}
+
+/**
+ * Parse `git blame --line-porcelain` output into per-line blame entries. In
+ * line-porcelain mode EVERY line repeats the full commit header block
+ * (`<hash> <orig> <final>` then `author`/`author-time`/`summary`/… tags) and
+ * ends with the tab-prefixed content line, so parsing is stateless per entry.
+ */
+export function parseLinePorcelainBlame(stdout: string): GitBlameLine[] {
+  const out: GitBlameLine[] = [];
+  const header = /^([0-9a-f]{40}) \d+ (\d+)(?: \d+)?$/;
+  let cur: { hash: string; line: number } | null = null;
+  let author = '';
+  let authorTime = 0;
+  let summary = '';
+  for (const line of stdout.split('\n')) {
+    const h = header.exec(line);
+    if (h) {
+      cur = { hash: h[1], line: Number(h[2]) };
+      author = '';
+      authorTime = 0;
+      summary = '';
+      continue;
+    }
+    if (!cur) continue;
+    if (line.startsWith('\t')) {
+      // The content line terminates this entry.
+      out.push({ line: cur.line, hash: cur.hash, author, authorTime, summary });
+      cur = null;
+    } else if (line.startsWith('author ')) {
+      author = line.slice('author '.length);
+    } else if (line.startsWith('author-time ')) {
+      authorTime = Number(line.slice('author-time '.length)) || 0;
+    } else if (line.startsWith('summary ')) {
+      summary = line.slice('summary '.length);
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse `git stash list --format=%gd|%at|%s` output. Only the first two `|`
+ * separators are structural — the message itself may contain `|`, so split at
+ * most twice and keep the rest verbatim. Lines that don't fit the shape (no
+ * ref / non-numeric timestamp) are skipped rather than guessed at.
+ */
+export function parseStashList(stdout: string): GitStashEntry[] {
+  const out: GitStashEntry[] = [];
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const first = trimmed.indexOf('|');
+    if (first < 0) continue;
+    const second = trimmed.indexOf('|', first + 1);
+    if (second < 0) continue;
+    const ref = trimmed.slice(0, first);
+    const timestamp = Number(trimmed.slice(first + 1, second));
+    const message = trimmed.slice(second + 1);
+    if (!ref.startsWith('stash@{') || !Number.isFinite(timestamp)) continue;
+    out.push({ ref, timestamp, message });
+  }
+  return out;
 }
 
 export function summarize(stdout: string, stderr: string, fallback: string): string {

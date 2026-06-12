@@ -138,6 +138,57 @@ export type BridgeSessionDetail = {
  */
 export type RemoteResumeSessionBody = { id: string; workspaceId?: string };
 
+/* ── remote edit-diff projection (phone patch review) ────────────────────────
+ *
+ * The authoritative state keeps each agent edit as FULL before/after content
+ * (shared/agent.ts AgentEdit) — fine over IPC, unbounded over the bridge. The
+ * server boundary (electron/server/remote-state.ts) therefore stamps a bounded
+ * `editDiffs` view onto every snapshot it publishes: per edit, a clipped unified
+ * diff plus the ids/status a thin client needs to render a review card and send
+ * `revert-edit`. Purely ADDITIVE — older phones ignore the extra field, and the
+ * heavy `edits` array they never read is emptied to keep frames small.
+ */
+
+/** Hard cap on one projected unified diff (chars); clipped with a marker line. */
+export const REMOTE_EDIT_DIFF_MAX_CHARS = 20_000;
+
+/** Newest-last cap on the projected edit list (one conversation's review tail). */
+export const REMOTE_EDIT_DIFF_MAX_ENTRIES = 50;
+
+/** Mirrors shared/agent.ts AgentEditStatus (kept inline so the wire type is light). */
+export type RemoteEditStatus = 'applied' | 'accepted' | 'reverted';
+
+/** One agent file edit as a thin client sees it — bounded, display + act-by-id. */
+export type RemoteEditDiff = {
+  /** The edit id `revert-edit` acts on. */
+  id: string;
+  /** The turn that produced the edit (groups cards under the right reply). */
+  turnId: string;
+  /** Workspace-root-qualified display label (the edit's workspace-relative path). */
+  label: string;
+  kind: 'edit' | 'create';
+  status: RemoteEditStatus;
+  /** Unified diff text, clipped to {@link REMOTE_EDIT_DIFF_MAX_CHARS}. */
+  diff: string;
+  /** Added/removed line counts of the full (pre-clip) change. */
+  additions: number;
+  deletions: number;
+  /** True when `diff` was clipped (the full change is visible on the desktop). */
+  truncated: boolean;
+  timestamp: number;
+};
+
+/**
+ * The state shape the bridge actually publishes: the authoritative
+ * {@link AgentChatState} plus the optional bounded edit projection. Optional so
+ * older hosts (which never stamp it) and older clients (which never read it)
+ * stay wire-compatible in both directions.
+ */
+export type RemoteAgentState = AgentChatState & { editDiffs?: RemoteEditDiff[] };
+
+/** `POST /agent/revert-edit` body / relay `revert-edit` args. */
+export type RemoteRevertEditBody = { editId: string; workspaceId?: string };
+
 /* ── SSE event envelope (server → client) ───────────────────────────────── */
 
 /**
@@ -170,7 +221,8 @@ export type RelayCommandName =
   | 'snapshot'
   | 'edit-plan-step'
   | 'set-approval-mode'
-  | 'set-reasoning-effort';
+  | 'set-reasoning-effort'
+  | 'revert-edit';
 
 export const RELAY_COMMANDS: readonly RelayCommandName[] = [
   'send',
@@ -184,6 +236,9 @@ export const RELAY_COMMANDS: readonly RelayCommandName[] = [
   'set-approval-mode',
   // Mobile parity for the desktop composer's reasoning dial (same shape as U10).
   'set-reasoning-effort',
+  // Mobile parity for the desktop Changes card's per-edit Revert (PC-owned logic;
+  // the phone only sends the id it saw in {@link RemoteEditDiff}).
+  'revert-edit',
 ];
 
 /**

@@ -46,6 +46,23 @@ export type SshConnectionInfo = {
   connected: boolean;
 };
 
+/**
+ * A pinned (trusted-on-first-use) SSH host key. Stored main-side under
+ * userData/ssh-known-hosts.json; the renderer only lists and clears entries —
+ * fingerprints are public material, so the full record crosses IPC.
+ */
+export type SshPinnedHostKey = {
+  /** Hostname exactly as configured (no normalization beyond trim). */
+  host: string;
+  port: number;
+  /** Host key algorithm, e.g. `ssh-ed25519`. */
+  algorithm: string;
+  /** OpenSSH-style fingerprint: `SHA256:<base64, no padding>`. */
+  fingerprintSha256: string;
+  /** Epoch ms when the key was first seen and pinned. */
+  pinnedAt: number;
+};
+
 /** Result of probing a connection: the resolved remote home dir, or why it failed. */
 export type SshTestResult =
   | { ok: true; homeDir: string }

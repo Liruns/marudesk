@@ -22,6 +22,12 @@ import {
 } from '../auth/relayClient';
 import { StorageKeys, storageGet, storageRemove, storageSet } from '../auth/storage';
 import { messageOf } from '../lib/errorMessage';
+import {
+  onAgentState,
+  requestNotificationPermission,
+  resetNotificationBaseline,
+  setNotificationsEnabled as syncNotificationsEnabled,
+} from '../lib/notifications';
 
 /** How the phone reaches the agent: the cloud relay (Model B) or a directly-paired PC (T2). */
 export type ConnMode = 'relay' | 'direct';
@@ -68,6 +74,12 @@ type AppState = {
   commandError: string | null;
   /** Local-only debug switch that reveals diagnostics/console UI in Account. */
   developerMode: boolean;
+  /**
+   * Local notifications for backgrounded agent transitions (approvals, turn
+   * end, background-task completion). Persisted; toggling on asks the platform
+   * for permission.
+   */
+  notificationsEnabled: boolean;
 
   /* ── PC catalog + chat scope (workspace / sessions / model picks) ────────── */
 
@@ -106,6 +118,8 @@ type AppState = {
   clearAuthError: () => void;
   clearCommandError: () => void;
   setDeveloperMode: (enabled: boolean) => Promise<void>;
+  /** Flip + persist the notifications toggle (requests permission on enable). */
+  setNotificationsEnabled: (enabled: boolean) => Promise<void>;
 
   // chat commands (proxied to the active transport)
   sendPrompt: (prompt: string) => Promise<void>;
@@ -119,6 +133,8 @@ type AppState = {
   setApprovalMode: (mode: AgentApprovalMode) => Promise<void>;
   /** Flip the PC's reasoning effort (applies on the next turn). */
   setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
+  /** Revert one applied PC edit by id (patch review; PC-owned, may refuse). */
+  revertEdit: (editId: string) => Promise<void>;
 
   // PC catalog + chat scope actions
   /** (Re)load the PC's workspaces + provider catalog and reconcile the picks. */
@@ -148,7 +164,14 @@ function wire(set: (partial: Partial<AppState>) => void, t: Transport): Transpor
   unsubStatus?.();
   transport?.disconnect();
   transport = t;
-  unsubState = t.onState((chat) => set({ chat }));
+  // A fresh transport's first snapshot is a baseline, not a transition.
+  resetNotificationBaseline();
+  unsubState = t.onState((chat) => {
+    // Diff consecutive PC snapshots for backgrounded local notifications
+    // (lib/notifications.ts) before handing the state to React.
+    onAgentState(chat);
+    set({ chat });
+  });
   unsubStatus = t.onStatus((status) => set({ status }));
   return t;
 }
@@ -173,6 +196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   authError: null,
   commandError: null,
   developerMode: false,
+  notificationsEnabled: false,
   workspaces: [],
   pcActiveWorkspaceId: null,
   workspaceId: null,
@@ -194,6 +218,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       dDev,
       dKey,
       developerModeRaw,
+      notificationsRaw,
       chatWorkspaceRaw,
       chatProvider,
       chatModel,
@@ -206,6 +231,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       storageGet(StorageKeys.directDeviceId),
       storageGet(StorageKeys.directKey),
       storageGet(StorageKeys.developerMode),
+      storageGet(StorageKeys.notifications),
       storageGet(StorageKeys.chatWorkspace),
       storageGet(StorageKeys.chatProvider),
       storageGet(StorageKeys.chatModel),
@@ -230,8 +256,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         : relayUrl
           ? 'login'
           : 'connect';
+    const notificationsEnabled = notificationsRaw === 'true';
+    // Sync the module-level flag the transport seam reads (no permission prompt
+    // here — a previously granted permission persists platform-side).
+    syncNotificationsEnabled(notificationsEnabled);
     set({
       hydrated: true,
+      notificationsEnabled,
       relayUrl: url,
       accessToken,
       refreshToken,
@@ -361,6 +392,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     await storageSet(StorageKeys.developerMode, enabled ? 'true' : 'false');
   },
 
+  async setNotificationsEnabled(enabled: boolean) {
+    // Enabling needs platform permission (asked inside this user gesture); a
+    // refusal leaves the toggle visibly off so the UI never lies about delivery.
+    const granted = enabled ? await requestNotificationPermission() : false;
+    const value = enabled && granted;
+    syncNotificationsEnabled(value);
+    set({ notificationsEnabled: value });
+    await storageSet(StorageKeys.notifications, value ? 'true' : 'false');
+  },
+
   async pairWithQr(qrString, deviceName) {
     set({ busy: true, authError: null });
     try {
@@ -465,6 +506,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   async setReasoningEffort(effort) {
     const t = ensureTransport(set);
     await runCommand(set, () => t.send('set-reasoning-effort', { effort }));
+  },
+
+  async revertEdit(editId) {
+    if (!transport) return;
+    const { workspaceId } = get();
+    // PC-owned logic: the host's staleness guard may refuse (the file changed
+    // since) — that comes back as a command error the banner surfaces; the next
+    // snapshot carries the flipped status when it succeeds.
+    await runCommand(set, () =>
+      transport!.send('revert-edit', workspaceId ? { editId, workspaceId } : { editId }),
+    );
   },
 
   async refreshCatalog() {

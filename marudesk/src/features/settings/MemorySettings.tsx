@@ -91,6 +91,25 @@ export function MemorySettings() {
     }
   }, [openName, refresh, t]);
 
+  const clearAll = useCallback(async () => {
+    if (!window.confirm(t('settings.memory.clearAllConfirm'))) return;
+    setBusy(true);
+    try {
+      const removed = await window.marudesk.invoke('memory:clear');
+      setOpenName(null);
+      toast({
+        title: t('settings.memory.clearedAll'),
+        description: `${t('settings.memory.clearedAllCountPrefix')}${removed}${t('settings.memory.clearedAllCountSuffix')}`,
+        variant: 'success',
+      });
+      await refresh();
+    } catch {
+      toast({ title: t('settings.memory.clearAllFailed'), variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, t]);
+
   return (
     <Section>
       <div className="flex items-center gap-2">
@@ -105,6 +124,21 @@ export function MemorySettings() {
           <RefreshCw size={14} />
           {t('settings.memory.refresh')}
         </button>
+        {entries.length > 0 ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void clearAll()}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-body-sm text-fg-secondary bg-surface-2',
+              'hover:text-error hover:bg-surface-3 transition-colors duration-fast',
+              busy && 'opacity-50 pointer-events-none',
+            )}
+          >
+            <Trash2 size={14} />
+            {t('settings.memory.clearAll')}
+          </button>
+        ) : null}
       </div>
 
       <div className="relative">

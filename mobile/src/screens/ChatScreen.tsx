@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Cpu } from 'lucide-react';
+import type { RemoteEditDiff } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { MessageBubble } from '../components/MessageBubble';
 import { ApprovalPrompt } from '../components/ApprovalPrompt';
+import { EditDiffCard } from '../components/EditDiffCard';
 import { ApprovalModeToggle } from '../components/ApprovalModeToggle';
 import { PlanBoard } from '../components/PlanBoard';
 import { QuestionPrompt } from '../components/QuestionPrompt';
@@ -12,6 +14,7 @@ import { CommandErrorBanner, ConnectionBanner, EmptyState, ThinkingRow } from '.
 import { ModelSheet } from './chat/ModelSheet';
 import { SessionsSheet } from './chat/SessionsSheet';
 import { WorkspaceSheet } from './chat/WorkspaceSheet';
+import { attachEditsToMessages } from './chat/turnEdits';
 import { usePullToReconnect } from './chat/usePullToReconnect';
 
 type SheetKind = 'none' | 'workspace' | 'sessions' | 'model';
@@ -25,6 +28,7 @@ export function ChatScreen() {
   const approve = useAppStore((s) => s.approve);
   const respond = useAppStore((s) => s.respond);
   const resetChat = useAppStore((s) => s.resetChat);
+  const revertEdit = useAppStore((s) => s.revertEdit);
   const reconnect = useAppStore((s) => s.reconnect);
   const commandError = useAppStore((s) => s.commandError);
   const clearCommandError = useAppStore((s) => s.clearCommandError);
@@ -41,13 +45,21 @@ export function ChatScreen() {
 
   const busy = chat.status === 'thinking' || chat.status === 'working';
   const connected = status.status === 'connected';
+  // Anchor the PC-projected edit diffs under the turn that produced them.
+  const editAnchors = useMemo(
+    () => attachEditsToMessages(chat.messages, chat.editDiffs ?? []),
+    [chat.messages, chat.editDiffs],
+  );
+  const onRevert = (editId: string) => void withBusy(() => revertEdit(editId))();
+  const renderEdits = (edits: RemoteEditDiff[] | undefined) =>
+    edits?.map((e) => <EditDiffCard key={e.id} edit={e} busy={actionBusy} onRevert={onRevert} />);
   const composerDisabled = !connected || chat.pendingApproval !== null || chat.pendingQuestions !== null;
   const workspaceName = workspaces.find((w) => w.id === workspaceId)?.name ?? null;
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [chat.messages, chat.status, chat.pendingApproval, chat.pendingQuestions]);
+  }, [chat.messages, chat.status, chat.pendingApproval, chat.pendingQuestions, chat.editDiffs]);
 
   const withBusy = (fn: () => Promise<void>) => async () => {
     setActionBusy(true);
@@ -89,9 +101,15 @@ export function ChatScreen() {
         ) : (
           chat.messages.map((m, i) => {
             const isLastAssistant = i === chat.messages.length - 1 && m.role === 'assistant';
-            return <MessageBubble key={m.id} message={m} streaming={isLastAssistant && busy} />;
+            return (
+              <div key={m.id}>
+                <MessageBubble message={m} streaming={isLastAssistant && busy} />
+                {renderEdits(editAnchors.byMessageId.get(m.id))}
+              </div>
+            );
           })
         )}
+        {renderEdits(editAnchors.trailing.length > 0 ? editAnchors.trailing : undefined)}
 
         {chat.status === 'thinking' && <ThinkingRow />}
       </div>

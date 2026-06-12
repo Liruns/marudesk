@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, type ChangeEvent, type FormEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from './store';
 import { useBookmarksStore } from './bookmarks';
@@ -17,6 +24,8 @@ import { BrowserFindBar } from './BrowserFindBar';
 import { BrowserStageOverlays } from './BrowserStageOverlays';
 import { BrowserToolbar } from './BrowserToolbar';
 import { useBrowserStrings } from './browserStrings';
+import { AddressSuggestionsPanel } from './AddressSuggestions';
+import { useAddressSuggestions } from './useAddressSuggestions';
 import type { HistoryEntry } from '../../../shared/history';
 
 /**
@@ -87,6 +96,15 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
       await action();
     })();
   };
+
+  // Dropdown suggestions (bookmarks + history + search) under the address bar.
+  // Accepting one routes through the normal commit path so direct-URL / search
+  // resolution and currentUrl bookkeeping stay identical to a typed Enter.
+  const suggest = useAddressSuggestions((s) => {
+    setPendingUrl(s.url);
+    autocompleteFromRef.current = null;
+    runForTab(commitNavigate);
+  });
 
   useEffect(() => {
     const el = containerRef.current;
@@ -167,6 +185,8 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
     const value = e.target.value;
     const inputType = (e.nativeEvent as InputEvent).inputType ?? '';
     setPendingUrl(value);
+    // Dropdown suggestions follow every edit (insert or delete), debounced.
+    suggest.onInput(value);
     // Complete only on insertion (never deletion) and not for multi-word search.
     if (!value || !inputType.startsWith('insert') || /\s/.test(value)) {
       autocompleteFromRef.current = null;
@@ -193,7 +213,21 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    suggest.close();
     runForTab(commitNavigate);
+  };
+
+  // Arrow/Enter/Esc go to the dropdown first; unconsumed keys keep their
+  // existing behavior (Enter without a selection submits the form as before).
+  const onAddressKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    suggest.onKeyDown(e);
+  };
+
+  const onAddressBlur = () => {
+    // Delay so a row's mousedown (which navigates) wins over the dismiss.
+    window.setTimeout(() => {
+      if (addressInputRef.current !== document.activeElement) suggest.close();
+    }, 120);
   };
 
   const hasUrl = displayedCurrentUrl.length > 0 || canvasNav.url.length > 0;
@@ -221,6 +255,8 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
         consoleErrorCount={consoleErrorCount}
         devtoolsOpen={devtoolsOpen}
         onAddressChange={onAddressChange}
+        onAddressKeyDown={onAddressKeyDown}
+        onAddressBlur={onAddressBlur}
         onSubmit={onSubmit}
         onGoBack={() => runForTab(goBack)}
         onGoForward={() => runForTab(goForward)}
@@ -235,6 +271,11 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
         onToggleInspect={() => void toggleInspect()}
         onToggleDevtools={() => useDevtoolsStore.getState().toggle()}
       />
+
+      {/* Address suggestions: a chrome row between toolbar and stage (like the
+          find bar below) — the native view paints over React, so it can't
+          float over the stage; the web view shrinks beneath it. */}
+      {canvasActive ? <AddressSuggestionsPanel state={suggest} /> : null}
 
       {/* Find bar: a flex row between toolbar and stage. Because the web view
           tracks the (now-shorter) stage via the ResizeObserver above, it shrinks

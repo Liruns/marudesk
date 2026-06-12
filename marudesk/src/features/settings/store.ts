@@ -99,6 +99,7 @@ function mergePatch(base: AppSettings, patch: SettingsPatch): AppSettings {
   return {
     ...base,
     appearance: { ...base.appearance, ...(patch.appearance ?? {}) },
+    editor: { ...base.editor, ...(patch.editor ?? {}) },
     terminal: { ...base.terminal, ...(patch.terminal ?? {}) },
     devtools: { ...base.devtools, ...(patch.devtools ?? {}) },
     browser: { ...base.browser, ...(patch.browser ?? {}) },

@@ -5,6 +5,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpFromLine,
   Check,
   ChevronDown,
   ChevronRight,
@@ -16,6 +21,7 @@ import {
   RefreshCw,
   RotateCcw,
   Trash2,
+  TriangleAlert,
   Undo2,
   Upload,
 } from 'lucide-react';
@@ -25,6 +31,7 @@ import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import { bucketChanges, useGitStore } from './store';
+import { relativeTime } from './statusMeta';
 import {
   FileRow,
   GitMissing,
@@ -90,6 +97,15 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   const fetch = useGitStore((s) => s.fetch);
   const pull = useGitStore((s) => s.pull);
   const push = useGitStore((s) => s.push);
+  const stashes = useGitStore((s) => s.stashes);
+  const conflictOp = useGitStore((s) => s.conflictOp);
+  const stashPush = useGitStore((s) => s.stashPush);
+  const stashApply = useGitStore((s) => s.stashApply);
+  const stashPop = useGitStore((s) => s.stashPop);
+  const stashDrop = useGitStore((s) => s.stashDrop);
+  const conflictResolve = useGitStore((s) => s.conflictResolve);
+  const conflictContinue = useGitStore((s) => s.conflictContinue);
+  const conflictAbort = useGitStore((s) => s.conflictAbort);
   const openFile = useEditorStore((s) => s.openFile);
   // The active workspace root — when it changes (profile/workspace switch), the
   // main process is now pointed at a different repo, so re-run git status against
@@ -101,6 +117,9 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   const [inCloseZone, setInCloseZone] = useState(false);
   const [message, setMessage] = useState('');
   const [logOpen, setLogOpen] = useState(false);
+  const [stashesOpen, setStashesOpen] = useState(false);
+  const [stashPromptOpen, setStashPromptOpen] = useState(false);
+  const [stashMessage, setStashMessage] = useState('');
   const [diff, setDiff] = useState<DiffTarget | null>(null);
   const [branchMenu, setBranchMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -152,12 +171,31 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
   const hasStaged = !!buckets && buckets.staged.length > 0;
   const hasUnstaged =
     !!buckets && (buckets.changes.length > 0 || buckets.untracked.length > 0);
+  const hasConflicts = !!buckets && buckets.conflicts.length > 0;
   const canCommit = hasStaged && message.trim().length > 0 && !busy;
+  const canStash = (hasStaged || hasUnstaged) && !busy;
 
   const onCommit = async () => {
     if (!canCommit) return;
     const ok = await commit(message.trim());
     if (ok) setMessage('');
+  };
+
+  const onStash = async () => {
+    if (!canStash) return;
+    const ok = await stashPush(stashMessage.trim() || undefined);
+    if (ok) {
+      setStashMessage('');
+      setStashPromptOpen(false);
+    }
+  };
+
+  const onStashDrop = (ref: string) => {
+    if (window.confirm(t('git.stash.dropConfirm'))) void stashDrop(ref);
+  };
+
+  const onConflictAbort = () => {
+    if (window.confirm(t('git.conflict.abortConfirm'))) void conflictAbort();
   };
 
   const onDiscard = (paths: string[], label: string) => {
@@ -223,6 +261,15 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                 <Plus size={15} />
               </IconButton>
             ) : null}
+            {status?.isRepo ? (
+              <IconButton
+                label={t('git.action.stash')}
+                onClick={() => setStashPromptOpen((v) => !v)}
+                disabled={busy}
+              >
+                <Archive size={14} />
+              </IconButton>
+            ) : null}
             {available?.installed === false ? null : (
               <IconButton label={t('git.action.fetch')} onClick={() => void fetch()} disabled={busy}>
                 <RefreshCw size={14} />
@@ -285,6 +332,54 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
             {/* Worktree lanes board — every worktree of the repo (§3.8). */}
             <WorktreeLanes />
 
+            {/* merge-conflict banner: names the in-progress operation; offers
+                Continue (once every conflict is resolved) and Abort. */}
+            {conflictOp !== null || hasConflicts ? (
+              <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border-b border-subtle bg-warning-subtle">
+                <TriangleAlert size={13} className="shrink-0 text-warning" />
+                <span className="min-w-0 flex-1 truncate text-caption text-fg-secondary">
+                  {conflictOp === 'merge'
+                    ? t('git.conflict.banner.merge')
+                    : conflictOp === 'rebase'
+                      ? t('git.conflict.banner.rebase')
+                      : conflictOp === 'cherry-pick'
+                        ? t('git.conflict.banner.cherryPick')
+                        : t('git.conflict.banner.conflicts')}
+                </span>
+                {conflictOp !== null ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void conflictContinue()}
+                      disabled={busy || hasConflicts}
+                      title={hasConflicts ? undefined : t('git.conflict.resolvedHint')}
+                      className={cn(
+                        'shrink-0 h-5 px-1.5 rounded text-caption font-medium transition-colors duration-fast',
+                        busy || hasConflicts
+                          ? 'text-fg-tertiary/60 cursor-not-allowed'
+                          : 'text-success hover:bg-surface-2',
+                      )}
+                    >
+                      {t('git.conflict.continue')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onConflictAbort}
+                      disabled={busy}
+                      className={cn(
+                        'shrink-0 h-5 px-1.5 rounded text-caption font-medium transition-colors duration-fast',
+                        busy
+                          ? 'text-fg-tertiary/60 cursor-not-allowed'
+                          : 'text-error hover:bg-surface-2',
+                      )}
+                    >
+                      {t('git.conflict.abort')}
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             {/* commit box */}
             <div className="shrink-0 p-2 border-b border-subtle">
               <textarea
@@ -327,6 +422,46 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
               </button>
             </div>
 
+            {/* inline stash prompt (Archive in the header toggles it) */}
+            {stashPromptOpen ? (
+              <div className="shrink-0 flex items-center gap-1.5 p-2 border-b border-subtle">
+                <input
+                  value={stashMessage}
+                  onChange={(e) => setStashMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void onStash();
+                    } else if (e.key === 'Escape') {
+                      setStashPromptOpen(false);
+                    }
+                  }}
+                  placeholder={t('git.stash.placeholder')}
+                  spellCheck={false}
+                  autoFocus
+                  className={cn(
+                    'min-w-0 flex-1 h-7 rounded border border-subtle bg-surface-2 px-2',
+                    'text-body-sm text-fg-primary placeholder:text-fg-tertiary',
+                    'focus:outline-none focus:border-accent',
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={() => void onStash()}
+                  disabled={!canStash}
+                  className={cn(
+                    'shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-body-sm font-medium',
+                    'transition-colors duration-fast',
+                    canStash
+                      ? 'bg-accent text-white hover:bg-accent-hover'
+                      : 'bg-surface-2 text-fg-tertiary cursor-not-allowed',
+                  )}
+                >
+                  <Archive size={13} /> {t('git.stash.save')}
+                </button>
+              </div>
+            ) : null}
+
             {error ? (
               <p className="shrink-0 px-3 py-1.5 text-caption text-error border-b border-subtle">
                 {error}
@@ -335,11 +470,50 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
 
             {/* change sections */}
             <div className="flex-1 min-h-0 overflow-y-auto">
-              {buckets && buckets.staged.length === 0 && buckets.changes.length === 0 && buckets.untracked.length === 0 ? (
+              {buckets && buckets.staged.length === 0 && buckets.changes.length === 0 && buckets.untracked.length === 0 && buckets.conflicts.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-caption text-fg-tertiary">
                   <GitCommitHorizontal size={18} className="opacity-30" />
                   <span>{t('git.empty.noChanges')}</span>
                 </div>
+              ) : null}
+
+              {buckets && buckets.conflicts.length > 0 ? (
+                <Section
+                  title={t('git.section.conflicts')}
+                  count={buckets.conflicts.length}
+                  icon={<TriangleAlert size={12} className="shrink-0 text-warning" />}
+                  action={{
+                    icon: <Check size={13} />,
+                    label: t('git.conflict.markAllResolved'),
+                    onClick: () => void stage(buckets.conflicts.map((f) => f.path)),
+                  }}
+                >
+                  {buckets.conflicts.map((f) => (
+                    <FileRow
+                      key={`x:${f.path}`}
+                      change={f}
+                      staged={false}
+                      onOpen={() => void openFile(f.path)}
+                      actions={[
+                        {
+                          icon: <ArrowLeft size={13} />,
+                          label: t('git.conflict.acceptOurs'),
+                          onClick: () => void conflictResolve(f.path, 'ours'),
+                        },
+                        {
+                          icon: <ArrowRight size={13} />,
+                          label: t('git.conflict.acceptTheirs'),
+                          onClick: () => void conflictResolve(f.path, 'theirs'),
+                        },
+                        {
+                          icon: <Check size={13} />,
+                          label: t('git.conflict.markResolved'),
+                          onClick: () => void stage([f.path]),
+                        },
+                      ]}
+                    />
+                  ))}
+                </Section>
               ) : null}
 
               {buckets && buckets.staged.length > 0 ? (
@@ -453,6 +627,82 @@ export function SourceControlPanel({ open, onRequestClose }: Props) {
                         <GitCommitHorizontal size={11} className="shrink-0 translate-y-0.5 text-fg-tertiary" />
                         <code className="shrink-0 text-fg-tertiary tabular-nums">{c.shortHash}</code>
                         <span className="truncate text-fg-secondary">{c.subject}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {/* stashes — collapsible, mirrors the recent-commits section */}
+            <div className="shrink-0 border-t border-subtle">
+              <button
+                type="button"
+                onClick={() => setStashesOpen((v) => !v)}
+                className="flex w-full items-center gap-1.5 px-3 h-7 text-caption uppercase tracking-wide text-fg-tertiary hover:text-fg-secondary"
+              >
+                {stashesOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                <Archive size={12} />
+                <span>{t('git.section.stashes')}</span>
+                {stashes.length > 0 ? <span className="tabular-nums">{stashes.length}</span> : null}
+              </button>
+              {stashesOpen ? (
+                <div className="max-h-40 overflow-y-auto pb-1">
+                  {stashes.length === 0 ? (
+                    <p className="px-3 py-2 text-caption text-fg-tertiary">{t('git.stash.empty')}</p>
+                  ) : (
+                    stashes.map((s) => (
+                      <div
+                        key={s.ref}
+                        className="group/stash flex h-7 items-center gap-2 pl-3 pr-1.5 text-caption hover:bg-surface-2"
+                        title={`${s.ref} · ${s.message}`}
+                      >
+                        <Archive size={11} className="shrink-0 text-fg-tertiary" />
+                        <span className="min-w-0 flex-1 truncate text-fg-secondary">{s.message}</span>
+                        <span className="shrink-0 text-fg-tertiary tabular-nums group-hover/stash:hidden">
+                          {relativeTime(s.timestamp * 1000)}
+                        </span>
+                        <span className="hidden shrink-0 items-center gap-0.5 group-hover/stash:flex">
+                          {[
+                            {
+                              icon: <ArchiveRestore size={13} />,
+                              label: t('git.stash.apply'),
+                              danger: false,
+                              onClick: () => void stashApply(s.ref),
+                            },
+                            {
+                              icon: <ArrowUpFromLine size={13} />,
+                              label: t('git.stash.pop'),
+                              danger: false,
+                              onClick: () => void stashPop(s.ref),
+                            },
+                            {
+                              icon: <Trash2 size={13} />,
+                              label: t('git.stash.drop'),
+                              danger: true,
+                              onClick: () => onStashDrop(s.ref),
+                            },
+                          ].map((a) => (
+                            <button
+                              key={a.label}
+                              type="button"
+                              onClick={a.onClick}
+                              disabled={busy}
+                              aria-label={a.label}
+                              title={a.label}
+                              className={cn(
+                                'size-5 rounded flex items-center justify-center',
+                                'hover:bg-surface-3 transition-colors',
+                                a.danger
+                                  ? 'text-fg-tertiary hover:text-error'
+                                  : 'text-fg-tertiary hover:text-fg-primary',
+                                busy ? 'opacity-50 cursor-not-allowed' : '',
+                              )}
+                            >
+                              {a.icon}
+                            </button>
+                          ))}
+                        </span>
                       </div>
                     ))
                   )}

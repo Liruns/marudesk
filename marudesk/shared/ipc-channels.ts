@@ -32,9 +32,18 @@ export const CHANNELS = {
     'browser:tabs-activate',
     'browser:tabs-snapshot',
     'browser:tabs-reorder',
+    'browser:tabs-move',
     'browser:tabs-set-pinned',
     'browser:tabs-bind-path',
+    'browser:tab-groups-create',
+    'browser:tab-groups-add-tab',
+    'browser:tab-groups-remove-tab',
+    'browser:tab-groups-update',
+    'browser:tab-groups-collapse',
+    'browser:tab-groups-dissolve',
+    'browser:tab-groups-close',
     'browser:popup-menu',
+    'browser:suggest',
   ],
   devtools: [
     'devtools:open',
@@ -87,6 +96,8 @@ export const CHANNELS = {
     'ssh:remove-connection',
     'ssh:test-connection',
     'ssh:list-dir',
+    'ssh:list-host-keys',
+    'ssh:clear-host-key',
   ],
   history: [
     'history:query',
@@ -120,6 +131,11 @@ export const CHANNELS = {
     'git:unstage',
     'git:discard',
     'git:diff',
+    // Editor decorations: per-line worktree-vs-HEAD change ranges (diff gutter)
+    // and line-porcelain blame (inline blame). Both degrade to an empty result
+    // for non-repo / untracked / remote roots instead of throwing.
+    'git:file-diff-lines',
+    'git:blame-file',
     'git:commit',
     'git:branches',
     'git:checkout',
@@ -128,6 +144,20 @@ export const CHANNELS = {
     'git:fetch',
     'git:pull',
     'git:push',
+    // Stash: list/push/apply/pop/drop against the workspace repo. `push`
+    // includes untracked files (-u); apply/pop/drop take a validated
+    // "stash@{N}" ref.
+    'git:stash-list',
+    'git:stash-push',
+    'git:stash-apply',
+    'git:stash-pop',
+    'git:stash-drop',
+    // Merge-conflict flow: detect the in-progress operation, accept a side per
+    // file, and continue/abort the whole operation once resolved.
+    'git:conflict-state',
+    'git:conflict-resolve',
+    'git:conflict-continue',
+    'git:conflict-abort',
     // Worktree isolation (Stage 12-B): run the agent in an isolated git worktree.
     'git:worktree-status',
     'git:worktree-enter',
@@ -207,7 +237,7 @@ export const CHANNELS = {
   storage: ['storage:stats', 'storage:clear-sessions', 'storage:reveal'],
   // Memory controls — Settings → Data lets the user view/edit/delete the agent's
   // remembered notes (v5 §G5).
-  memory: ['memory:list', 'memory:search', 'memory:read', 'memory:write', 'memory:delete'],
+  memory: ['memory:list', 'memory:search', 'memory:read', 'memory:write', 'memory:delete', 'memory:clear'],
   // The renderer mirrors surfaces main can't observe (unsaved editor buffers, the
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],
@@ -273,6 +303,8 @@ export const CHANNELS = {
     'terminal:resize',
     'terminal:dispose',
     'terminal:ready',
+    'terminal:pull-errors',
+    'terminal:clear-errors',
   ],
   clipboard: ['clipboard:write-text', 'clipboard:read-text'],
   app: [

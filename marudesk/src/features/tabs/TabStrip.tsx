@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Plus } from 'lucide-react';
-import type { TabState } from '../../../shared/browser';
+import { Pencil, Plus, Ungroup, X } from 'lucide-react';
+import type {
+  TabGroup,
+  TabGroupColor,
+  TabState,
+} from '../../../shared/browser';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
@@ -10,11 +14,18 @@ import { groupForTab, useGridStore } from './grid';
 import { leaves } from './layout';
 import { SplitGroup } from './SplitGroup';
 import { TabChip, type TabChipLabels } from './TabChip';
+import { TabGroupChip, type TabGroupChipLabels } from './TabGroupChip';
+import { TabGroupMenu, type TabGroupMenuItem } from './TabGroupMenu';
 import { TabStripMenu } from './TabStripMenu';
 import { buildTabMenuItems, type TabStripMenuLabels } from './tabMenuItems';
 import { useTabsStore } from './store';
 
 type MenuState = { readonly tabId: string; readonly x: number; readonly y: number };
+type ChipMenuState = {
+  readonly groupId: string;
+  readonly x: number;
+  readonly y: number;
+};
 
 export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const { t } = useI18n();
@@ -27,8 +38,19 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const activateTab = useTabsStore((s) => s.activateTab);
   const closeTab = useTabsStore((s) => s.closeTab);
   const newTab = useTabsStore((s) => s.newTab);
-  const reorderTabs = useTabsStore((s) => s.reorderTabs);
+  const moveTab = useTabsStore((s) => s.moveTab);
   const setPinned = useTabsStore((s) => s.setPinned);
+  // Chrome-style tab groups (mirrored from main) — distinct from the grid
+  // store's split-view `groups` below.
+  const tabGroups = useTabsStore((s) => s.groups);
+  const createTabGroup = useTabsStore((s) => s.createTabGroup);
+  const addTabToTabGroup = useTabsStore((s) => s.addTabToTabGroup);
+  const removeTabFromTabGroup = useTabsStore((s) => s.removeTabFromTabGroup);
+  const updateTabGroup = useTabsStore((s) => s.updateTabGroup);
+  const setTabGroupCollapsed = useTabsStore((s) => s.setTabGroupCollapsed);
+  const dissolveTabGroup = useTabsStore((s) => s.dissolveTabGroup);
+  const closeTabGroup = useTabsStore((s) => s.closeTabGroup);
+  const newTabInTabGroup = useTabsStore((s) => s.newTabInTabGroup);
   const agentWaiting = useAgentStore((s) => s.chat.status === 'waiting_for_user');
   const setDraggingTab = useGridStore((s) => s.setDraggingTab);
   const groups = useGridStore((s) => s.groups);
@@ -37,6 +59,8 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [chipMenu, setChipMenu] = useState<ChipMenuState | null>(null);
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [edge, setEdge] = useState({ l: false, r: false });
   const preferredActiveTabId = workspaceId
@@ -61,10 +85,28 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
     exitSplit: t('tabStrip.menu.exitSplit'),
     pin: t('tabStrip.menu.pin'),
     unpin: t('tabStrip.menu.unpin'),
+    addToNewGroup: t('tabStrip.menu.addToNewGroup'),
+    addToGroup: t('tabStrip.menu.addToGroup'),
+    removeFromGroup: t('tabStrip.menu.removeFromGroup'),
+    newTabInGroup: t('tabStrip.menu.newTabInGroup'),
+    unnamedGroup: t('tabGroup.unnamed'),
   };
   const splitLabels = {
     group: t('tabStrip.splitGroup'),
     exit: t('tabStrip.exitSplitView'),
+  };
+  const groupChipLabels: TabGroupChipLabels = {
+    tabGroup: t('tabGroup.chipAria'),
+    unnamed: t('tabGroup.unnamed'),
+    renamePlaceholder: t('tabGroup.renamePlaceholder'),
+  };
+  const groupColorLabels: Readonly<Record<TabGroupColor, string>> = {
+    violet: t('tabGroup.color.violet'),
+    blue: t('tabGroup.color.blue'),
+    teal: t('tabGroup.color.teal'),
+    green: t('tabGroup.color.green'),
+    amber: t('tabGroup.color.amber'),
+    rose: t('tabGroup.color.rose'),
   };
 
   const groupIdOf = (tabId: string): string | null =>
@@ -81,20 +123,10 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
       resetDrag();
       return;
     }
-    const ids = useTabsStore
-      .getState()
-      .tabs
-      .filter((tab) => !workspaceId || tab.workspaceId === workspaceId)
-      .map((t) => t.id);
-    const from = ids.indexOf(draggingId);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) {
-      resetDrag();
-      return;
-    }
-    ids.splice(from, 1);
-    ids.splice(to, 0, draggingId);
-    reorderTabs(ids);
+    // Membership-aware move (browser:tabs-move): dropping inside a tab group's
+    // span joins the group, dragging a member out of its span leaves it — main
+    // applies the same shared moveTabAmongGroups policy authoritatively.
+    moveTab(draggingId, targetId);
     resetDrag();
   };
 
@@ -118,16 +150,19 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
       el.removeEventListener('scroll', update);
       ro.disconnect();
     };
-  }, [scopedTabs.length, groups]);
+  }, [scopedTabs.length, groups, tabGroups]);
 
   useEffect(() => {
-    if (!menu) return;
+    if (!menu && !chipMenu) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenu(null);
+      if (e.key === 'Escape') {
+        setMenu(null);
+        setChipMenu(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [menu]);
+  }, [menu, chipMenu]);
 
   const closeMany = (ids: readonly string[]) => {
     const byId = new Map(scopedTabs.map((t) => [t.id, t] as const));
@@ -144,7 +179,11 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
     if (leaf) focusPane(leaf.id);
   };
 
-  const renderChip = (tab: TabState, grouped = false) => (
+  const renderChip = (
+    tab: TabState,
+    grouped = false,
+    tabGroupColor?: TabGroupColor,
+  ) => (
     <TabChip
       key={tab.id}
       tab={tab}
@@ -152,6 +191,7 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
       attention={tab.kind === 'agent' && agentWaiting}
       grouped={grouped}
       pinned={!grouped && tab.pinned}
+      {...(tabGroupColor ? { tabGroupColor } : {})}
       dragging={tab.id === draggingId}
       dropTarget={
         tab.id === overId && draggingId !== null && draggingId !== tab.id
@@ -178,7 +218,12 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
     />
   );
 
+  const tabGroupById = new Map(tabGroups.map((g) => [g.id, g] as const));
+  const tabGroupOf = (tab: TabState): TabGroup | undefined =>
+    tab.groupId ? tabGroupById.get(tab.groupId) : undefined;
+
   const stripNodes: ReactNode[] = [];
+  // Split-view run buffer (grid feature — unrelated to tab groups).
   let run: TabState[] = [];
   let runGroupId: string | null = null;
   const flushRun = () => {
@@ -201,7 +246,59 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
     run = [];
     runGroupId = null;
   };
+
+  // Tab-group run buffer: the colored header chip precedes the group's member
+  // chips; a collapsed group renders the chip only (members hidden from the
+  // strip but still in the registry — activating one expands the group in main).
+  let tabGroupRun: TabState[] = [];
+  let runTabGroup: TabGroup | null = null;
+  const flushTabGroup = () => {
+    const group = runTabGroup;
+    if (!group) return;
+    stripNodes.push(
+      <TabGroupChip
+        key={`tabgroup-${group.id}`}
+        group={group}
+        memberCount={tabGroupRun.length}
+        renaming={renamingGroupId === group.id}
+        labels={groupChipLabels}
+        onToggleCollapse={() =>
+          void setTabGroupCollapsed(group.id, !group.collapsed)
+        }
+        onContextMenu={(x, y) => setChipMenu({ groupId: group.id, x, y })}
+        onRenameCommit={(name) => {
+          setRenamingGroupId(null);
+          void updateTabGroup(group.id, { name });
+        }}
+        onRenameCancel={() => setRenamingGroupId(null)}
+      />,
+    );
+    if (!group.collapsed) {
+      for (const tab of tabGroupRun) {
+        stripNodes.push(renderChip(tab, false, group.color));
+      }
+    }
+    tabGroupRun = [];
+    runTabGroup = null;
+  };
+
   for (const tab of scopedTabs) {
+    const tabGroup = tabGroupOf(tab);
+    if (tabGroup) {
+      // Tab-group membership wins over the split-view wrapper in the strip
+      // (the grid split itself is untouched; only the chrome-panel chrome is
+      // skipped for tabs that live inside a tab group).
+      flushRun();
+      if (runTabGroup?.id === tabGroup.id) {
+        tabGroupRun.push(tab);
+      } else {
+        flushTabGroup();
+        runTabGroup = tabGroup;
+        tabGroupRun = [tab];
+      }
+      continue;
+    }
+    flushTabGroup();
     const gid = groupIdOf(tab.id);
     if (gid && gid === runGroupId) {
       run.push(tab);
@@ -212,8 +309,34 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
     }
   }
   flushRun();
+  flushTabGroup();
 
   const menuTab = menu ? scopedTabs.find((t) => t.id === menu.tabId) : undefined;
+  const chipMenuGroup = chipMenu
+    ? tabGroups.find((g) => g.id === chipMenu.groupId)
+    : undefined;
+  const chipMenuItems: TabGroupMenuItem[] = chipMenuGroup
+    ? [
+        {
+          key: 'rename',
+          label: t('tabGroup.rename'),
+          icon: Pencil,
+          onClick: () => setRenamingGroupId(chipMenuGroup.id),
+        },
+        {
+          key: 'ungroup',
+          label: t('tabGroup.ungroup'),
+          icon: Ungroup,
+          onClick: () => void dissolveTabGroup(chipMenuGroup.id),
+        },
+        {
+          key: 'close-group',
+          label: t('tabGroup.closeGroup'),
+          icon: X,
+          onClick: () => void closeTabGroup(chipMenuGroup.id),
+        },
+      ]
+    : [];
   const maskImage = tabStripMask(edge.l, edge.r);
 
   return (
@@ -251,12 +374,35 @@ export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
             tab: menuTab,
             tabs: scopedTabs,
             inGroup: !!groupIdOf(menu.tabId),
+            tabGroups: tabGroups.filter(
+              (g) => g.workspaceId === menuTab.workspaceId,
+            ),
             labels: menuLabels,
             closeMany,
             duplicate: () => void newTab('web', menuTab.url, workspaceId),
             exitSplit: () => dissolveGroup(menu.tabId),
             togglePin: () => void setPinned(menu.tabId, !menuTab.pinned),
+            addToNewTabGroup: () => void createTabGroup(menuTab.id),
+            addToTabGroup: (groupId) =>
+              void addTabToTabGroup(menuTab.id, groupId),
+            removeFromTabGroup: () => void removeTabFromTabGroup(menuTab.id),
+            newTabInTabGroup: (groupId) =>
+              void newTabInTabGroup(groupId, menuTab.workspaceId),
           })}
+        />
+      ) : null}
+      {chipMenu && chipMenuGroup ? (
+        <TabGroupMenu
+          x={chipMenu.x}
+          y={chipMenu.y}
+          color={chipMenuGroup.color}
+          colorRowLabel={t('tabGroup.colorLabel')}
+          colorLabels={groupColorLabels}
+          items={chipMenuItems}
+          onPickColor={(color) =>
+            void updateTabGroup(chipMenuGroup.id, { color })
+          }
+          onClose={() => setChipMenu(null)}
         />
       ) : null}
     </div>

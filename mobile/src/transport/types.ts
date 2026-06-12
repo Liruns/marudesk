@@ -53,7 +53,8 @@ export type TransportCommand =
   | 'snapshot'
   | 'edit-plan-step'
   | 'set-approval-mode'
-  | 'set-reasoning-effort';
+  | 'set-reasoning-effort'
+  | 'revert-edit';
 
 /** Strongly-typed args per command (the union the UI passes to {@link Transport.send}). */
 export type TransportCommandArgs = {
@@ -70,6 +71,9 @@ export type TransportCommandArgs = {
   'set-approval-mode': { mode: AgentApprovalMode };
   // The mobile twin of the desktop reasoning dial (applies on the next turn).
   'set-reasoning-effort': { effort: ReasoningEffort };
+  // Revert one applied edit (patch review) — PC-owned logic; the phone only
+  // sends the id it saw in `editDiffs`. An older host rejects/ignores it.
+  'revert-edit': { editId: string; workspaceId?: string };
 };
 
 /**

@@ -51,7 +51,9 @@ type PanelsActions = Pick<
   | '_applyNetworkConditions'
   | 'refreshApplication'
   | 'removeStorageItem'
+  | 'setStorageItem'
   | 'clearStorage'
+  | 'deleteCookie'
   | 'clearSiteData'
   | 'loadIdbEntries'
   | 'deleteIdbDatabase'
@@ -304,6 +306,21 @@ export function createPanelsSlice(set: SetState, get: GetState): PanelsActions {
       set({ [field]: get()[field].filter(([k]) => k !== key) } as Partial<DevtoolsState>);
     },
 
+    setStorageItem: async (isLocalStorage, key, value) => {
+      const tabId = get().tabId;
+      const origin = get().appOrigin;
+      if (!tabId || !origin || !key) return;
+      await cdpTry(tabId, 'DOMStorage.setDOMStorageItem', {
+        storageId: { securityOrigin: origin, isLocalStorage },
+        key,
+        value,
+      });
+      if (get().tabId !== tabId) return;
+      // Re-read rather than patch locally: the page may normalize/reject the
+      // write (quota), and refresh keeps ordering identical to the real store.
+      await get().refreshApplication();
+    },
+
     clearStorage: async (isLocalStorage) => {
       const tabId = get().tabId;
       const origin = get().appOrigin;
@@ -315,6 +332,20 @@ export function createPanelsSlice(set: SetState, get: GetState): PanelsActions {
       set(
         isLocalStorage ? { localStorageItems: [] } : { sessionStorageItems: [] },
       );
+    },
+
+    deleteCookie: async (cookie) => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      // Name+domain+path scoped — never a whole-browser clear (those CDP
+      // methods stay blocked by the relay allowlist).
+      await cdpTry(tabId, 'Network.deleteCookies', {
+        name: cookie.name,
+        domain: cookie.domain,
+        path: cookie.path,
+      });
+      if (get().tabId !== tabId) return;
+      await get().refreshApplication();
     },
 
     clearSiteData: async () => {

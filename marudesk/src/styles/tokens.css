@@ -39,11 +39,33 @@
   --diff-add-bg:    rgba(76, 183, 130, 0.10);
   --diff-remove-bg: rgba(235, 87, 87, 0.10);
 
+  /* DevTools box-model diagram (Elements › Computed) — the four region fills.
+     They mirror Chromium's inspector-overlay hues (HIGHLIGHT_CONFIG in
+     devtools/store-internals.ts) at low alpha, so the diagram matches the
+     on-page highlight; alpha washes read correctly in both themes. */
+  --boxmodel-margin:  rgba(246, 178, 107, 0.25);
+  --boxmodel-border:  rgba(255, 229, 153, 0.30);
+  --boxmodel-padding: rgba(147, 196, 125, 0.30);
+  --boxmodel-content: rgba(111, 168, 220, 0.30);
+
   /* AI Timeline (from Cursor's 4-color system, alpha-adjusted for dark surface) */
   --ai-thinking: rgba(223, 168, 143, 0.72); /* peach */
   --ai-grep:     rgba(159, 201, 162, 0.72); /* sage  */
   --ai-read:     rgba(159, 187, 224, 0.72); /* blue  */
   --ai-edit:     rgba(192, 168, 221, 0.72); /* lavender */
+
+  /* Tab-group palette — the 6 hues a tab group can be labeled with (Chrome-style
+     tab groups in the strip). These are LABELS the user picks, not a second
+     brand accent: they appear only on group chips, member-tab underlines, and
+     the picker swatches. The hues mirror the [data-accent] presets (plus the
+     base violet) so grouped strips stay in the app's existing color family;
+     they hold across both themes and every palette. */
+  --tabgroup-violet: #5E6AD2;
+  --tabgroup-blue:   #4C8DFF;
+  --tabgroup-teal:   #2DB8A8;
+  --tabgroup-green:  #46B17F;
+  --tabgroup-amber:  #E0A03A;
+  --tabgroup-rose:   #E5618B;
 
   /* Typography */
   --font-display: 'Inter Display', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;

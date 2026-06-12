@@ -32,17 +32,18 @@ function EdgeLabel({ value }: { value: number }) {
 /** One labelled ring (margin / border / padding) wrapping its children. */
 function Ring({
   label,
-  color,
+  fillClass,
   e,
   children,
 }: {
   label: string;
-  color: string;
+  /** A `bg-boxmodel-*` token alias — never a literal color (DESIGN.md). */
+  fillClass: string;
   e: { top: number; right: number; bottom: number; left: number };
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative inline-block p-4" style={{ background: color }}>
+    <div className={`relative inline-block p-4 ${fillClass}`}>
       <span className="absolute top-0 left-1 text-[9px] uppercase tracking-wide text-fg-tertiary">
         {label}
       </span>
@@ -69,10 +70,10 @@ export function BoxModel({ model }: { model: BoxModelData }) {
   const padding = edges(model.padding, model.content);
   return (
     <div className="flex justify-center py-3 font-mono text-caption">
-      <Ring label="margin" color="rgba(246,178,107,0.25)" e={margin}>
-        <Ring label="border" color="rgba(255,229,153,0.3)" e={border}>
-          <Ring label="padding" color="rgba(147,196,125,0.3)" e={padding}>
-            <div className="px-3 py-2 text-center bg-accent/20 text-fg-primary tabular-nums">
+      <Ring label="margin" fillClass="bg-boxmodel-margin" e={margin}>
+        <Ring label="border" fillClass="bg-boxmodel-border" e={border}>
+          <Ring label="padding" fillClass="bg-boxmodel-padding" e={padding}>
+            <div className="px-3 py-2 text-center bg-boxmodel-content text-fg-primary tabular-nums">
               {Math.round(model.width)} × {Math.round(model.height)}
             </div>
           </Ring>

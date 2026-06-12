@@ -9,6 +9,8 @@ import {
   probeConnection,
   removeConnection,
 } from './connection-manager';
+import { clearPinnedHostKey, listPinnedHostKeys } from './host-keys';
+import { knownHostsFile } from './host-keys-file';
 import { readdir, realpath } from './sftp';
 
 /** Validate an untrusted auth blob into a typed {@link SshAuth}. */
@@ -46,6 +48,18 @@ export function registerSshHandlers(): void {
     const p = obj(payload);
     removeConnection(str(p.connectionId, 'connectionId'));
     return { ok: true as const };
+  });
+
+  // Pinned (TOFU) host keys — Settings → Remote → Pinned SSH host keys. Listing
+  // and clearing only touch fingerprints (public material), never credentials.
+  defineHandler('ssh:list-host-keys', () => listPinnedHostKeys(knownHostsFile()));
+
+  defineHandler('ssh:clear-host-key', async ([payload]) => {
+    const p = obj(payload);
+    const host = nonEmptyStr(p.host, 'host');
+    const port = num(p.port, 'port');
+    const ok = await clearPinnedHostKey(knownHostsFile(), host, port);
+    return { ok };
   });
 
   defineHandler('ssh:test-connection', async ([input]) => {
