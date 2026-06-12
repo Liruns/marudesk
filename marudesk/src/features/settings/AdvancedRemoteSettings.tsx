@@ -6,7 +6,7 @@ import { CopyButton } from '../../components/ui';
 import { useIpcListener } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
-import { Field, Section, Segmented, Stepper } from './SettingsControls';
+import { Field, Section, Segmented, Stepper, TextField } from './SettingsControls';
 import { useSettingsStore } from './store';
 import { useOnOffOptions } from './useLocalizedSettingsOptions';
 
@@ -43,6 +43,16 @@ export function AdvancedRemote() {
                 step={1}
                 name={t('settings.remote.advanced.port.name')}
                 onChange={(port) => void update({ server: { port } })}
+              />
+            </Field>
+            <Field
+              label={t('settings.remote.advanced.publicUrl.label')}
+              hint={t('settings.remote.advanced.publicUrl.hint')}
+            >
+              <TextField
+                value={server.publicUrl}
+                placeholder="https://my-pc.example.com"
+                onCommit={(publicUrl) => void update({ server: { publicUrl } })}
               />
             </Field>
           </Section>

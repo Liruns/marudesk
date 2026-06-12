@@ -959,6 +959,9 @@ export const EN_MESSAGES = {
     'The TCP port the server listens on (all interfaces).',
   'settings.remote.advanced.port.label': 'Port',
   'settings.remote.advanced.port.name': 'server port',
+  'settings.remote.advanced.publicUrl.hint':
+    'Optional: a tunnel or reverse-proxy address (cloudflared, ngrok, Caddy) you run in front of this PC. It joins the pairing QR, so the phone reaches this PC from any network - no cloud relay, nothing to install on the phone.',
+  'settings.remote.advanced.publicUrl.label': 'Public URL',
   'settings.remote.advanced.toggle':
     'Advanced - port, network addresses, unattended',
   'settings.remote.cloud.description':

@@ -19,6 +19,7 @@ import {
   type Envelope,
   type SessionKey,
 } from '../../shared/e2e.ts';
+import { getConnectCandidates } from './pairing-urls.ts';
 import { createPairingManager } from './pairing.ts';
 import { handleRequest, type RouterDeps } from './router.ts';
 
@@ -425,6 +426,18 @@ async function main(): Promise<void> {
     } finally {
       serverAuto.close();
     }
+
+    // ── connect candidates: a configured public URL leads the QR's address list ──
+    const withPublic = getConnectCandidates(8787, 'https://my-pc.example.com/');
+    check(
+      'a configured public URL is the FIRST connect candidate, normalized',
+      withPublic[0]?.label === 'Public' && withPublic[0]?.url === 'https://my-pc.example.com',
+    );
+    const withoutPublic = getConnectCandidates(8787, '');
+    check(
+      'an empty public URL adds no candidate',
+      !withoutPublic.some((c) => c.label === 'Public'),
+    );
 
     console.log(`\npairing + E2E harness: ${passed} assertions passed`);
   } finally {

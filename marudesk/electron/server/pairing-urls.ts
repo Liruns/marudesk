@@ -22,12 +22,23 @@ import type { ConnectCandidate } from '../../shared/remote';
 export type { ConnectCandidate };
 
 /**
- * Collect reachable base-URL candidates for `port`, Tailscale-preferred (it works
- * across networks, so it's the best first guess), then private LAN addresses.
+ * Collect reachable base-URL candidates for `port`: the user-configured public
+ * URL first (a self-hosted tunnel/reverse proxy — it works from ANY network, so
+ * it's the best first guess), then Tailscale, then private LAN addresses.
  * De-duplicated by URL, order preserved. Never throws.
  */
-export function getConnectCandidates(port: number): ConnectCandidate[] {
-  return dedupe([...tailscaleCandidates(port), ...lanCandidates(port)]);
+export function getConnectCandidates(port: number, publicUrl?: string): ConnectCandidate[] {
+  return dedupe([
+    ...publicUrlCandidates(publicUrl),
+    ...tailscaleCandidates(port),
+    ...lanCandidates(port),
+  ]);
+}
+
+/** The Settings → Remote public URL (tunnel/reverse proxy), normalized; '' = none. */
+function publicUrlCandidates(publicUrl?: string): ConnectCandidate[] {
+  const url = publicUrl?.trim().replace(/\/+$/, '');
+  return url ? [{ label: 'Public', url }] : [];
 }
 
 /** Tailscale IPs (100.64/10 + IPv6) and the MagicDNS name, if the CLI reports them. */

@@ -954,6 +954,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '서버가 수신 대기할 TCP 포트입니다(모든 인터페이스).',
   'settings.remote.advanced.port.label': '포트',
   'settings.remote.advanced.port.name': '서버 포트',
+  'settings.remote.advanced.publicUrl.hint':
+    '선택 사항: 이 PC 앞에 직접 띄운 터널·리버스 프록시 주소(cloudflared, ngrok, Caddy)입니다. 페어링 QR에 포함되어 휴대폰이 어느 네트워크에서든 이 PC에 연결됩니다. 클라우드 릴레이도, 휴대폰에 설치할 것도 없습니다.',
+  'settings.remote.advanced.publicUrl.label': '공개 URL',
   'settings.remote.advanced.toggle':
     '고급 - 포트, 네트워크 주소, 무인 모드',
   'settings.remote.cloud.description':

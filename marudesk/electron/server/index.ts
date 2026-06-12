@@ -100,7 +100,10 @@ export function getServerStatus(): ServerStatus {
   if (!server || boundPort === null) {
     return { running: false, port: null, candidates: [] };
   }
-  return { running: true, port: boundPort, candidates: getConnectCandidates(boundPort) };
+  // The user-configured public URL (tunnel/reverse proxy) joins the candidates,
+  // so the pairing QR carries a from-anywhere address with zero phone-side setup.
+  const { publicUrl } = getSettingsSync().server;
+  return { running: true, port: boundPort, candidates: getConnectCandidates(boundPort, publicUrl) };
 }
 
 /**
@@ -244,7 +247,12 @@ export async function syncServerToSettings(settings: AppSettings): Promise<void>
       return;
     }
     // Enabled: (re)start if not running, or running on a different port.
-    if (server && boundPort === port) return;
+    if (server && boundPort === port) {
+      // No restart needed, but a settings edit (e.g. the public URL) may have
+      // changed the reachable candidates — refresh the renderer's view.
+      onStatus?.(getServerStatus());
+      return;
+    }
     if (server) await stopServer();
     try {
       await startServer(port);

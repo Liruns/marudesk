@@ -277,6 +277,15 @@ export type AppSettings = {
     relayUrl: string;
     cloudEnabled: boolean;
     /**
+     * Optional public base URL where THIS PC's bridge is reachable from outside
+     * the LAN — a self-hosted tunnel (cloudflared/ngrok) or reverse proxy the
+     * user runs in front of `http://localhost:<port>`. When set it is included
+     * in the pairing QR's connect candidates (tried first), so a phone pairs
+     * once and reaches the PC from any network with no cloud relay and nothing
+     * installed on the phone. '' = none.
+     */
+    publicUrl: string;
+    /**
      * Unattended mode (T2 — docs/t2-secure-pairing-design.md). When on AND the
      * server is enabled, it skips BOTH human approval gates so a phone can drive
      * the PC hands-free: (1) device pairing auto-approves (no desktop card), and
@@ -376,6 +385,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     port: 8787,
     relayUrl: DEFAULT_RELAY_URL,
     cloudEnabled: false,
+    publicUrl: '',
     skipApprovals: false,
   },
   storage: {
@@ -435,6 +445,13 @@ function asRelayUrl(value: unknown, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+/** Like {@link asRelayUrl}, but an empty string is honored — it means "no public URL". */
+function asOptionalBaseUrl(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  if (value.trim().length === 0) return '';
+  return asRelayUrl(value, fallback);
 }
 
 /**
@@ -602,6 +619,7 @@ export function sanitizeSettings(
       port: clampNumber(sv.port, base.server.port, SERVER_PORT_MIN, SERVER_PORT_MAX),
       relayUrl: asRelayUrl(sv.relayUrl, base.server.relayUrl),
       cloudEnabled: asBool(sv.cloudEnabled, base.server.cloudEnabled),
+      publicUrl: asOptionalBaseUrl(sv.publicUrl, base.server.publicUrl),
       skipApprovals: asBool(sv.skipApprovals, base.server.skipApprovals),
     },
   };

@@ -113,12 +113,14 @@ and the phone persists the whole list (`DirectCreds.urls`). `DirectTransport`
 fails over across the candidates whenever a stream open fails, so a phone paired
 on the home LAN keeps reaching the PC from other networks:
 
-- **Tailscale (recommended)**: install/log in Tailscale on the PC and phone. The
-  QR already includes the PC's Tailscale address; nothing else to configure.
-- **Your own tunnel**: if the bridge is published through cloudflared, ngrok, or
-  a reverse proxy, expand "Reaching the PC through your own tunnel?" on the
-  Connect screen and add the tunnel URL before scanning — it joins the failover
-  candidates ahead of the QR ones.
+- **Your own tunnel (PC-only setup)**: run cloudflared/ngrok/a reverse proxy in
+  front of the bridge on the PC and set it as Settings → Remote → Advanced →
+  **Public URL** — it joins the pairing QR as the first candidate, so the phone
+  just scans and works from any network (nothing installed or typed on the
+  phone). The Connect screen's "Reaching the PC through your own tunnel?" field
+  remains as a phone-side override for a URL the PC didn't advertise.
+- **Tailscale**: install/log in Tailscale on the PC and phone. The QR already
+  includes the PC's Tailscale address; nothing else to configure.
 
 Either way the traffic is application-level end-to-end encrypted (X25519 +
 AES-GCM); possession of the pairing session key is the authentication, so an
