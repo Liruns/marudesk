@@ -753,10 +753,6 @@ export const useAgentBusy = (): boolean =>
       s.chat.status === 'waiting_for_user',
   );
 
-/**
- * Open (or focus) the full-surface AI Chat tab for the target workspace. Other
- * workspaces keep separate tab/session state.
- */
 function resolveAgentWorkspaceId(workspaceId?: WorkspaceId): WorkspaceId | undefined {
   const requested = normalizeAgentWorkspaceId(workspaceId);
   if (requested) return requested;
@@ -767,7 +763,29 @@ function resolveAgentWorkspaceId(workspaceId?: WorkspaceId): WorkspaceId | undef
   );
 }
 
+/** Open a new full-surface AI Chat tab (always creates a fresh tab). */
 export async function openAgentTab(workspaceId?: WorkspaceId): Promise<void> {
+  const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);
+  await useTabsStore.getState().newTab('agent', undefined, targetWorkspaceId);
+}
+
+/**
+ * Open a new "AI Chat (CLI)" terminal tab (always creates a fresh tab). The
+ * chat-open intents route here instead of the drawer when
+ * `settings.agent.chatSurface` is 'cli'.
+ */
+export async function openCliChatTab(workspaceId?: WorkspaceId): Promise<void> {
+  const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);
+  await useTabsStore.getState().newTab('terminal', undefined, targetWorkspaceId, { terminalProfile: 'agent-cli' });
+}
+
+/**
+ * Focus an existing AI Chat tab for the workspace, or create one if none exists.
+ * Used by surfaces that need to send a prompt to the workspace's chat session
+ * (e.g. "Fix this", specs, captures) — avoids tab clutter while keeping the
+ * shared per-workspace agent store reachable.
+ */
+export async function focusOrOpenAgentTab(workspaceId?: WorkspaceId): Promise<void> {
   const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);
   const tabsState = useTabsStore.getState();
   const existing = tabsState.tabs.find(
@@ -779,26 +797,7 @@ export async function openAgentTab(workspaceId?: WorkspaceId): Promise<void> {
 }
 
 /**
- * Open (or focus) the "AI Chat (CLI)" terminal tab — the chat CLI running over
- * the loopback companion bridge (chat CLI v2 — docs/chat-cli-tui-design.md §6).
- * The chat-open intents route here instead of the drawer when
- * `settings.agent.chatSurface` is 'cli'.
- */
-export async function openCliChatTab(workspaceId?: WorkspaceId): Promise<void> {
-  const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);
-  const tabsState = useTabsStore.getState();
-  const existing = tabsState.tabs.find(
-    (t) =>
-      t.kind === 'terminal' &&
-      t.terminalProfile === 'agent-cli' &&
-      normalizeAgentWorkspaceId(t.workspaceId) === targetWorkspaceId,
-  );
-  if (existing) await tabsState.activateTab(existing.id);
-  else await tabsState.newTab('terminal', undefined, targetWorkspaceId, { terminalProfile: 'agent-cli' });
-}
-
-/**
- * Open (or focus) the AI Chat, prefill a prompt, and send it in one shot. Lets
+ * Focus or open the AI Chat, prefill a prompt, and send it in one shot. Lets
  * surfaces outside the composer (e.g. the DevTools console "Fix this" button)
  * hand a ready-made request to the agent with a single click. Any captures that
  * were already staged + selected in {@link useWebPageStore} ride along via
@@ -807,7 +806,7 @@ export async function openCliChatTab(workspaceId?: WorkspaceId): Promise<void> {
  */
 export async function askAgent(prompt: string): Promise<void> {
   const workspaceId = resolveAgentWorkspaceId();
-  await openAgentTab(workspaceId);
+  await focusOrOpenAgentTab(workspaceId);
   const store = getAgentStoreForWorkspace(workspaceId).getState();
   store.setDraft(prompt);
   await store.send();

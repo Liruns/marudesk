@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronRight, Plus, SendHorizontal, Square, Trash2,
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
-import { openAgentTab, useAgentStore } from '../agent/store';
+import { focusOrOpenAgentTab, useAgentStore } from '../agent/store';
 import { SPEC_STATUSES, type Spec, type SpecStatus, type SpecTask } from '../../../shared/specs';
 
 /**
@@ -72,7 +72,7 @@ export function SpecsPanel() {
   };
 
   const sendToAgent = async (spec: Spec): Promise<void> => {
-    await openAgentTab();
+    await focusOrOpenAgentTab();
     const open = spec.tasks.filter((t2) => !t2.done).map((t2) => `- [ ] ${t2.text}`).join('\n');
     const prompt = [
       `${t('specs.agentPreamble')}: ${spec.title}`,
