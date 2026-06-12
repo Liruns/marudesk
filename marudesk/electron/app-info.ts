@@ -8,6 +8,7 @@ import {
 } from '../shared/app-info';
 import { defineHandler } from './ipc/define-handler';
 import { openExternalUrl } from './safe-open';
+import { checkManually } from './updater';
 
 const LATEST_RELEASE_API_URL =
   'https://api.github.com/repos/Liruns/marudesk/releases/latest';
@@ -158,5 +159,9 @@ export function registerAppInfoHandlers(): void {
   defineHandler('app:open-releases', () => {
     void openExternalUrl(MARUDESK_RELEASES_URL);
   });
-  defineHandler('app:check-for-updates', () => checkForUpdates());
+  defineHandler('app:check-for-updates', async () => {
+    const autoResult = await checkManually();
+    if (autoResult) return autoResult;
+    return checkForUpdates();
+  });
 }

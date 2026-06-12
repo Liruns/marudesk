@@ -169,7 +169,8 @@ export function AboutCategory() {
               {t('settings.about.updates.auto.restart')}
             </button>
           ) : null}
-          {updateCheck?.kind === 'available' ? (
+          {updateCheck?.kind === 'available' &&
+          autoStatus.kind === 'disabled' ? (
             <button
               type="button"
               onClick={() => void window.marudesk.invoke('app:open-releases')}
