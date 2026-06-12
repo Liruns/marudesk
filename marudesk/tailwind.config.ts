@@ -52,6 +52,11 @@ const config: Config = {
         DEFAULT: 'var(--border-default)',
         strong: 'var(--border-strong)',
       },
+      // Hairline fills (`bg-subtle`) — dividers and resting indicator dots ride
+      // the same token as the subtle border so they read as one hairline system.
+      backgroundColor: {
+        subtle: 'var(--border-subtle)',
+      },
       fontFamily: {
         display: 'var(--font-display)',
         body: 'var(--font-body)',

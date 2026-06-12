@@ -46,7 +46,7 @@ function CompactionDivider({ summary, freedTokens }: { summary: string; freedTok
   return (
     <div className="flex flex-col gap-2 py-1">
       <div className="flex items-center gap-2 text-caption text-fg-tertiary">
-        <span className="h-px flex-1 border-t border-subtle" />
+        <span className="h-px flex-1 bg-subtle" />
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -57,7 +57,7 @@ function CompactionDivider({ summary, freedTokens }: { summary: string; freedTok
           <span>{label}</span>
           {open ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
         </button>
-        <span className="h-px flex-1 border-t border-subtle" />
+        <span className="h-px flex-1 bg-subtle" />
       </div>
       {open ? (
         <div className="rounded border border-subtle bg-surface-2/50 px-3 py-2 text-body-sm text-fg-secondary">
