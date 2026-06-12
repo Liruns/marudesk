@@ -6,7 +6,7 @@ import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
-import { useAgentStore, useAgentBusy, openAgentTab } from '../agent/store';
+import { useAgentStore, useAgentBusy, focusOrOpenAgentTab } from '../agent/store';
 import { toPayload } from '../composer/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { useEditorStore } from '../editor/store';
@@ -188,7 +188,7 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   // v6 §U2: send this element (with the user's note) straight to the agent as a
   // focused turn — only this capture rides along, regardless of the cart selection.
   const sendToAgent = async () => {
-    await openAgentTab();
+    await focusOrOpenAgentTab();
     const note = (capture.comment ?? '').trim();
     const res = await submitPrompt(note || t('context.capture.defaultPrompt'), {
       captures: [toPayload(capture)],
@@ -202,7 +202,7 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   // fix instructions (find the root cause in source, fix it, reload + verify) —
   // the element analog of the console "Fix this". The user's note is appended.
   const fixWithAgent = async () => {
-    await openAgentTab();
+    await focusOrOpenAgentTab();
     const note = (capture.comment ?? '').trim();
     const base = t('context.capture.fixPrompt');
     const res = await submitPrompt(note ? `${base}\n\n${note}` : base, {
