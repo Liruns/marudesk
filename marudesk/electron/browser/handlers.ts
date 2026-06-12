@@ -47,6 +47,17 @@ import {
   replaceTab,
   setTabPinned,
 } from './tabs';
+import {
+  addTabToGroup,
+  closeTabGroup,
+  createTabGroupFromTab,
+  dissolveTabGroup,
+  moveTabToTarget,
+  removeTabFromGroup,
+  setTabGroupCollapsed,
+  updateTabGroup,
+} from './tab-groups';
+import { isTabGroupColor, type TabGroupColor } from '../../shared/browser';
 
 /**
  * IPC registration for the browser/tab subsystem. Invoke channels go through
@@ -355,6 +366,60 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:tabs-set-pinned', ([payload]) => {
     const p = obj(payload);
     return setTabPinned(str(p.id, 'id'), bool(p.pinned, 'pinned'));
+  });
+
+  // Tab groups (Chrome-style). Every verb pushes a fresh tabs snapshot, so the
+  // renderer store mirrors the result; untrusted payloads are validated here.
+  // An optional/unknown color falls back to the palette-cycling default rather
+  // than throwing (same "coerce, don't destruct" stance as browser:zoom).
+  const groupColor = (value: unknown): TabGroupColor | undefined =>
+    isTabGroupColor(value) ? value : undefined;
+
+  defineHandler('browser:tabs-move', ([payload]) => {
+    const p = obj(payload);
+    return moveTabToTarget(str(p.id, 'id'), str(p.targetId, 'targetId'));
+  });
+
+  defineHandler('browser:tab-groups-create', ([payload]) => {
+    const p = obj(payload);
+    const name = p.name === undefined ? undefined : str(p.name, 'name');
+    return createTabGroupFromTab(str(p.tabId, 'tabId'), name, groupColor(p.color));
+  });
+
+  defineHandler('browser:tab-groups-add-tab', ([payload]) => {
+    const p = obj(payload);
+    return addTabToGroup(str(p.tabId, 'tabId'), str(p.groupId, 'groupId'));
+  });
+
+  defineHandler('browser:tab-groups-remove-tab', ([payload]) => {
+    const p = obj(payload);
+    return removeTabFromGroup(str(p.tabId, 'tabId'));
+  });
+
+  defineHandler('browser:tab-groups-update', ([payload]) => {
+    const p = obj(payload);
+    return updateTabGroup(str(p.groupId, 'groupId'), {
+      name: p.name === undefined ? undefined : str(p.name, 'name'),
+      color: groupColor(p.color),
+    });
+  });
+
+  defineHandler('browser:tab-groups-collapse', ([payload]) => {
+    const p = obj(payload);
+    return setTabGroupCollapsed(
+      str(p.groupId, 'groupId'),
+      bool(p.collapsed, 'collapsed'),
+    );
+  });
+
+  defineHandler('browser:tab-groups-dissolve', ([payload]) => {
+    const p = obj(payload);
+    return dissolveTabGroup(str(p.groupId, 'groupId'));
+  });
+
+  defineHandler('browser:tab-groups-close', ([payload]) => {
+    const p = obj(payload);
+    return closeTabGroup(str(p.groupId, 'groupId'));
   });
 
   defineHandler('browser:tabs-bind-path', ([payload]) => {

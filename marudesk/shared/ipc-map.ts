@@ -30,8 +30,10 @@ import type {
   GitBranches,
   GitCommit,
   GitCommitResult,
+  GitConflictState,
   GitFileDiffLines,
   GitRemoteResult,
+  GitStashEntry,
   GitStatus,
 } from './git';
 import type { SearchOptions, SearchResult } from './search';
@@ -47,6 +49,7 @@ import type { Spec, SpecInput } from './specs';
 import type { LaneDevState, LaneDevStartResult } from './lanes';
 import type {
   BrowserNativeMenuItem,
+  TabGroupColor,
   TabKind,
   TabsSnapshot,
 } from './browser';
@@ -213,9 +216,54 @@ export interface IpcMap {
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };
+  // Drag-reorder one tab to the slot of `targetId`, with Chrome-style tab-group
+  // membership semantics (dropping inside a group's span joins it; dragging a
+  // member out of its span leaves it). The strip's drag-drop uses this; the
+  // bulk `tabs-reorder` above stays membership-neutral.
+  'browser:tabs-move': {
+    args: [payload: { id: string; targetId: string }];
+    result: boolean;
+  };
   // Pin/unpin a tab (favicon-only, kept at the front). Main re-sorts pinned-first.
   'browser:tabs-set-pinned': {
     args: [payload: { id: string; pinned: boolean }];
+    result: boolean;
+  };
+  // Tab groups (Chrome-style; shared/browser.ts TabGroup). Main owns the group
+  // records next to the tab records; every mutation pushes a fresh snapshot
+  // through `browser:tabs-state`, so the renderer store stays a mirror.
+  // Create a new group containing exactly the given tab; returns its id.
+  'browser:tab-groups-create': {
+    args: [payload: { tabId: string; name?: string; color?: TabGroupColor }];
+    result: string | null;
+  };
+  'browser:tab-groups-add-tab': {
+    args: [payload: { tabId: string; groupId: string }];
+    result: boolean;
+  };
+  'browser:tab-groups-remove-tab': {
+    args: [payload: { tabId: string }];
+    result: boolean;
+  };
+  // Rename and/or recolor a group ('' name = unnamed, renders the dot only).
+  'browser:tab-groups-update': {
+    args: [payload: { groupId: string; name?: string; color?: TabGroupColor }];
+    result: boolean;
+  };
+  // Collapse/expand. Refused (false) when collapsing would leave the workspace
+  // with no visible tab to activate.
+  'browser:tab-groups-collapse': {
+    args: [payload: { groupId: string; collapsed: boolean }];
+    result: boolean;
+  };
+  // Ungroup all members (tabs stay open); the group record is deleted.
+  'browser:tab-groups-dissolve': {
+    args: [payload: { groupId: string }];
+    result: boolean;
+  };
+  // Close every member tab, then the group itself.
+  'browser:tab-groups-close': {
+    args: [payload: { groupId: string }];
     result: boolean;
   };
   'browser:tabs-bind-path': {
@@ -456,6 +504,29 @@ export interface IpcMap {
   'git:fetch': { args: []; result: GitRemoteResult };
   'git:pull': { args: []; result: GitRemoteResult };
   'git:push': { args: []; result: GitRemoteResult };
+  // Stash. `list` returns [] for a non-repo; `push` stashes the working tree
+  // including untracked files (-u) with an optional message; apply/pop/drop
+  // take a "stash@{N}" ref (validated in main — never shell-parsed).
+  'git:stash-list': { args: []; result: GitStashEntry[] };
+  'git:stash-push': {
+    args: [payload: { message?: string }];
+    result: { ok: true };
+  };
+  'git:stash-apply': { args: [payload: { ref: string }]; result: { ok: true } };
+  'git:stash-pop': { args: [payload: { ref: string }]; result: { ok: true } };
+  'git:stash-drop': { args: [payload: { ref: string }]; result: { ok: true } };
+  // Merge-conflict flow. `state` detects the in-progress operation from the
+  // .git dir (never throws — { op: null } when clean/undeterminable);
+  // `resolve` accepts one side of a conflicted file (checkout --ours/--theirs
+  // + add); continue/abort drive the detected operation (`-c core.editor=true`
+  // so no editor can hang the continue).
+  'git:conflict-state': { args: []; result: GitConflictState };
+  'git:conflict-resolve': {
+    args: [payload: { path: string; side: 'ours' | 'theirs' }];
+    result: { ok: true };
+  };
+  'git:conflict-continue': { args: []; result: { ok: true } };
+  'git:conflict-abort': { args: []; result: { ok: true } };
   // Worktree isolation (Stage 12-B): run the agent in an isolated worktree.
   'git:worktree-status': { args: []; result: WorktreeIsolationStatus };
   'git:worktree-enter': { args: []; result: WorktreeIsolationStatus };

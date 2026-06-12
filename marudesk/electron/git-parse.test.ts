@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseBranchHeaders,
   parseLinePorcelainBlame,
+  parseStashList,
   parseStatus,
   parseUnifiedZeroDiff,
   summarize,
@@ -26,6 +27,51 @@ describe('parseStatus', () => {
   it('flags conflicts (UU) as not staged', () => {
     const [f] = parseStatus(['UU src/x.ts']);
     expect(f).toMatchObject({ conflicted: true, staged: false });
+  });
+
+  it('flags every unmerged XY code as conflicted', () => {
+    const records = [
+      'AA both.ts', // both added
+      'DD gone.ts', // both deleted
+      'AU added-us.ts',
+      'UA added-them.ts',
+      'DU deleted-us.ts',
+      'UD deleted-them.ts',
+      'UU classic.ts',
+    ];
+    const files = parseStatus(records);
+    expect(files).toHaveLength(records.length);
+    for (const f of files) {
+      expect(f.conflicted).toBe(true);
+      expect(f.staged).toBe(false);
+      expect(f.untracked).toBe(false);
+    }
+  });
+});
+
+describe('parseStashList', () => {
+  it('parses ref, timestamp, and message records', () => {
+    const out = parseStashList(
+      [
+        'stash@{0}|1718000000|WIP on main: abc123 fix the thing',
+        'stash@{1}|1717000000|my named stash',
+        '',
+      ].join('\n'),
+    );
+    expect(out).toEqual([
+      { ref: 'stash@{0}', timestamp: 1718000000, message: 'WIP on main: abc123 fix the thing' },
+      { ref: 'stash@{1}', timestamp: 1717000000, message: 'my named stash' },
+    ]);
+  });
+
+  it('keeps "|" inside the message intact', () => {
+    const [entry] = parseStashList('stash@{0}|1718000000|left | right | end');
+    expect(entry.message).toBe('left | right | end');
+  });
+
+  it('skips malformed lines and empty input', () => {
+    expect(parseStashList('')).toEqual([]);
+    expect(parseStashList('garbage line\nstash@{0}|not-a-number|msg\n|1|x')).toEqual([]);
   });
 });
 

@@ -4,6 +4,8 @@ import type {
   GitBranches,
   GitChange,
   GitCommit,
+  GitMergeOp,
+  GitStashEntry,
   GitStatus,
 } from '../../../shared/git';
 import { getMessage } from '../../i18n/messages';
@@ -25,6 +27,9 @@ type GitState = {
   available: GitAvailability | null;
   branches: GitBranches | null;
   log: GitCommit[];
+  stashes: GitStashEntry[];
+  /** The in-progress merge/rebase/cherry-pick, or null when none/undetectable. */
+  conflictOp: GitMergeOp | null;
   loading: boolean;
   /** A non-fatal error from the last op, surfaced inline + via toast. */
   error: string | null;
@@ -45,6 +50,13 @@ type GitActions = {
   fetch: () => Promise<void>;
   pull: () => Promise<void>;
   push: () => Promise<void>;
+  stashPush: (message?: string) => Promise<boolean>;
+  stashApply: (ref: string) => Promise<void>;
+  stashPop: (ref: string) => Promise<void>;
+  stashDrop: (ref: string) => Promise<void>;
+  conflictResolve: (path: string, side: 'ours' | 'theirs') => Promise<void>;
+  conflictContinue: () => Promise<void>;
+  conflictAbort: () => Promise<void>;
 };
 
 export const useGitStore = create<GitState & GitActions>((set, get) => ({
@@ -52,6 +64,8 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
   available: null,
   branches: null,
   log: [],
+  stashes: [],
+  conflictOp: null,
   loading: false,
   error: null,
   busy: false,
@@ -68,6 +82,8 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
           status: null,
           branches: null,
           log: [],
+          stashes: [],
+          conflictOp: null,
           loading: false,
           error: null,
         });
@@ -75,15 +91,36 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
       }
       const status = await window.marudesk.invoke('git:status');
       if (!status.isRepo) {
-        set({ available, status, branches: null, log: [], loading: false, error: null });
+        set({
+          available,
+          status,
+          branches: null,
+          log: [],
+          stashes: [],
+          conflictOp: null,
+          loading: false,
+          error: null,
+        });
         return;
       }
-      // Branches + log are independent of status; fetch them together.
-      const [branches, log] = await Promise.all([
+      // Branches / log / stashes / conflict-state are independent of status;
+      // fetch them together.
+      const [branches, log, stashes, conflict] = await Promise.all([
         window.marudesk.invoke('git:branches'),
         window.marudesk.invoke('git:log'),
+        window.marudesk.invoke('git:stash-list'),
+        window.marudesk.invoke('git:conflict-state'),
       ]);
-      set({ available, status, branches, log, loading: false, error: null });
+      set({
+        available,
+        status,
+        branches,
+        log,
+        stashes,
+        conflictOp: conflict.op,
+        loading: false,
+        error: null,
+      });
     } catch (err) {
       set({ loading: false, error: toMessage(err) });
     }
@@ -171,6 +208,55 @@ export const useGitStore = create<GitState & GitActions>((set, get) => ({
     });
     await get().refresh();
   },
+
+  stashPush: async (message) => {
+    let ok = false;
+    await run(set, async () => {
+      await window.marudesk.invoke('git:stash-push', { message });
+      ok = true;
+      toast({
+        title: getMessage(currentLocale(), 'git.toast.stashed'),
+        description: message?.trim() || undefined,
+        variant: 'success',
+      });
+    });
+    await get().refresh();
+    return ok;
+  },
+
+  stashApply: async (ref) => {
+    await run(set, () => window.marudesk.invoke('git:stash-apply', { ref }));
+    await get().refresh();
+  },
+
+  stashPop: async (ref) => {
+    await run(set, () => window.marudesk.invoke('git:stash-pop', { ref }));
+    await get().refresh();
+  },
+
+  stashDrop: async (ref) => {
+    // Destructive — the caller (panel) confirms before invoking this.
+    await run(set, () => window.marudesk.invoke('git:stash-drop', { ref }));
+    await get().refresh();
+  },
+
+  conflictResolve: async (path, side) => {
+    await run(set, () =>
+      window.marudesk.invoke('git:conflict-resolve', { path, side }),
+    );
+    await get().refresh();
+  },
+
+  conflictContinue: async () => {
+    await run(set, () => window.marudesk.invoke('git:conflict-continue'));
+    await get().refresh();
+  },
+
+  conflictAbort: async () => {
+    // Destructive — the caller (panel) confirms before invoking this.
+    await run(set, () => window.marudesk.invoke('git:conflict-abort'));
+    await get().refresh();
+  },
 }));
 
 /**
@@ -192,23 +278,26 @@ async function run(
   }
 }
 
-/** Split the status file list into the three panel buckets. */
+/** Split the status file list into the four panel buckets. */
 export function bucketChanges(files: GitChange[]): {
   staged: GitChange[];
   changes: GitChange[];
   untracked: GitChange[];
+  conflicts: GitChange[];
 } {
   const staged: GitChange[] = [];
   const changes: GitChange[] = [];
   const untracked: GitChange[] = [];
+  const conflicts: GitChange[] = [];
   for (const f of files) {
-    if (f.untracked) untracked.push(f);
+    if (f.conflicted) conflicts.push(f);
+    else if (f.untracked) untracked.push(f);
     else {
       // A file can be both staged AND have further unstaged edits — it then
       // shows in both Staged (index half) and Changes (worktree half).
       if (f.staged) staged.push(f);
-      if (f.worktreeStatus !== ' ' || f.conflicted) changes.push(f);
+      if (f.worktreeStatus !== ' ') changes.push(f);
     }
   }
-  return { staged, changes, untracked };
+  return { staged, changes, untracked, conflicts };
 }

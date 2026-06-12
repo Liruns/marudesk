@@ -13,13 +13,16 @@ import {
   getActiveTabId,
   getHost,
   getTab,
+  getTabGroup,
   isNetworkCaptureOn,
   nextUntitledSeq,
+  pruneEmptyTabGroups,
   pushState,
   reorderTabRecords,
   setActiveTabId,
   setHost,
   setTab,
+  setTabGroup,
   tabKeys,
   tabValues,
   type TabRecord,
@@ -41,7 +44,7 @@ import { clearFavicon, updateFavicon } from './favicon';
 import { handleFoundInPage } from './find';
 import { reapplyZoom } from './zoom';
 import { handleTabShortcut } from './tab-shortcuts';
-import { pinnedFirst } from './tab-order.ts';
+import { groupContiguousOrder, pinnedFirst } from './tab-order.ts';
 import { buildWebTabUserAgent } from './user-agent.ts';
 export { reorderTabs, setTabPinned } from './tab-order.ts';
 import { registerDownloadHandler } from './downloads';
@@ -347,6 +350,9 @@ export function replaceTab(
     pluginPanel: opts?.pluginPanel,
     terminalProfile: opts?.terminalProfile,
   });
+  // An in-place replacement keeps the old tab's group membership (it also
+  // keeps the old slot, so the group's contiguous run is undisturbed).
+  rec.groupId = old.groupId;
 
   // Tear the old tab down (web view + any DevTools); feature tabs have none.
   detachCdp(old);
@@ -376,9 +382,25 @@ export function replaceTab(
   return rec;
 }
 
+/** Whether a tab is hidden from the strip because its tab group is collapsed. */
+function hiddenByCollapsedGroup(rec: TabRecord): boolean {
+  if (!rec.groupId) return false;
+  return getTabGroup(rec.groupId)?.collapsed === true;
+}
+
 export function activateTab(id: string): boolean {
   const rec = getTab(id);
   if (!rec) return false;
+  // Activating a tab hidden inside a collapsed group (Ctrl+Tab cycle, the tab
+  // list, "reveal this tab" flows) expands the group — the active tab must
+  // always be visible in the strip, exactly like Chrome.
+  if (rec.groupId) {
+    const group = getTabGroup(rec.groupId);
+    if (group?.collapsed) {
+      setTabGroup({ ...group, collapsed: false });
+      saveTabSession();
+    }
+  }
   const activeId = getActiveTabId();
   if (activeId === id) {
     // Re-apply layout in case bounds changed while this was active. MUST go
@@ -446,6 +468,8 @@ export function closeTab(id: string): boolean {
     rec.view.webContents.close();
   }
   deleteTab(id);
+  // Closing a group's last member dissolves the (now empty) group record.
+  pruneEmptyTabGroups();
   if (getActiveTabId() === id) {
     setActiveTabId(null);
     activateFallbackAfterClosing(rec);
@@ -465,11 +489,18 @@ function pushClosedTab(spec: ClosedTab): void {
 }
 
 function activateFallbackAfterClosing(closed: TabRecord): void {
-  const sameWorkspace = tabValues().find(
+  // Prefer a tab that is actually visible in the strip — falling back into a
+  // collapsed group would silently expand it (closing the active tab inside a
+  // collapsed group must not pop a different group open). Only when every
+  // remaining tab is hidden do we take one anyway (activateTab expands it).
+  const sameWorkspace = tabValues().filter(
     (tab) => tab.workspaceId === closed.workspaceId,
   );
-  if (sameWorkspace) {
-    activateTab(sameWorkspace.id);
+  const fallback =
+    sameWorkspace.find((tab) => !hiddenByCollapsedGroup(tab)) ??
+    sameWorkspace[0];
+  if (fallback) {
+    activateTab(fallback.id);
     return;
   }
   // No tab remains in this workspace: allow the empty state (the renderer shows a
@@ -520,17 +551,50 @@ function restoreTabSession(): boolean {
   const session = loadTabSession();
   if (session.tabs.length === 0) return false;
   const ids: string[] = [];
+  // Saved groups are re-minted with fresh ids, lazily — a saved group none of
+  // the restored tabs reference anymore is simply never re-created.
+  const groupIds = new Map<number, string>();
   for (const spec of session.tabs) {
     const rec =
       spec.kind === 'web'
         ? createTab('web', spec.url || undefined)
         : createTab('editor', spec.filePath);
     rec.pinned = spec.pinned;
+    // Pinned tabs are never grouped; loadTabSession already validated indices.
+    const groupIdx = spec.group;
+    const saved = groupIdx !== undefined ? session.groups[groupIdx] : undefined;
+    if (groupIdx !== undefined && saved && !rec.pinned) {
+      let gid = groupIds.get(groupIdx);
+      if (!gid) {
+        gid = randomUUID();
+        groupIds.set(groupIdx, gid);
+        setTabGroup({
+          id: gid,
+          workspaceId: rec.workspaceId,
+          name: saved.name,
+          color: saved.color,
+          collapsed: saved.collapsed,
+        });
+      }
+      rec.groupId = gid;
+    }
     ids.push(rec.id);
   }
-  // Keep the pinned-first invariant the strip enforces everywhere else.
-  reorderTabRecords(pinnedFirst(tabKeys()));
-  const activeId = session.activeIndex >= 0 ? ids[session.activeIndex] : ids[0];
+  // Keep the pinned-first + group-contiguity invariants the strip enforces
+  // everywhere else.
+  reorderTabRecords(groupContiguousOrder(pinnedFirst(tabKeys())));
+  let activeId = session.activeIndex >= 0 ? ids[session.activeIndex] : ids[0];
+  // A session can save its active tab inside a collapsed group (collapse →
+  // quit before switching). Restoring must keep that group collapsed, so
+  // activate the first VISIBLE tab instead; only when every tab is hidden does
+  // the saved choice win (activateTab then expands its group).
+  const hidden = (id: string): boolean => {
+    const rec = getTab(id);
+    return !!rec && hiddenByCollapsedGroup(rec);
+  };
+  if (activeId && hidden(activeId)) {
+    activeId = ids.find((id) => !hidden(id)) ?? activeId;
+  }
   if (activeId) activateTab(activeId);
   return true;
 }

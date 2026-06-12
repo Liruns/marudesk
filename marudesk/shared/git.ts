@@ -62,6 +62,27 @@ export type GitStatus =
       files: GitChange[];
     };
 
+/** One stash entry from `git stash list --format=%gd|%at|%s`. */
+export type GitStashEntry = {
+  /** The stash ref, e.g. "stash@{0}". */
+  ref: string;
+  /** Author time, Unix seconds. */
+  timestamp: number;
+  /** The stash message (the default "WIP on main: …" or the user's -m text). */
+  message: string;
+};
+
+/** The in-progress multi-commit operation a conflict belongs to. */
+export type GitMergeOp = 'merge' | 'rebase' | 'cherry-pick';
+
+/**
+ * Result of `git:conflict-state` — which operation (if any) is mid-flight,
+ * detected from the repo's .git dir (MERGE_HEAD / rebase-merge / rebase-apply /
+ * CHERRY_PICK_HEAD). `op` is null for a clean repo, a non-repo, or when the
+ * operation can't be determined.
+ */
+export type GitConflictState = { op: GitMergeOp | null };
+
 /** One commit from `git:log`. */
 export type GitCommit = {
   hash: string;

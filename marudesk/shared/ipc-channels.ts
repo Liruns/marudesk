@@ -32,8 +32,16 @@ export const CHANNELS = {
     'browser:tabs-activate',
     'browser:tabs-snapshot',
     'browser:tabs-reorder',
+    'browser:tabs-move',
     'browser:tabs-set-pinned',
     'browser:tabs-bind-path',
+    'browser:tab-groups-create',
+    'browser:tab-groups-add-tab',
+    'browser:tab-groups-remove-tab',
+    'browser:tab-groups-update',
+    'browser:tab-groups-collapse',
+    'browser:tab-groups-dissolve',
+    'browser:tab-groups-close',
     'browser:popup-menu',
     'browser:suggest',
   ],
@@ -129,6 +137,20 @@ export const CHANNELS = {
     'git:fetch',
     'git:pull',
     'git:push',
+    // Stash: list/push/apply/pop/drop against the workspace repo. `push`
+    // includes untracked files (-u); apply/pop/drop take a validated
+    // "stash@{N}" ref.
+    'git:stash-list',
+    'git:stash-push',
+    'git:stash-apply',
+    'git:stash-pop',
+    'git:stash-drop',
+    // Merge-conflict flow: detect the in-progress operation, accept a side per
+    // file, and continue/abort the whole operation once resolved.
+    'git:conflict-state',
+    'git:conflict-resolve',
+    'git:conflict-continue',
+    'git:conflict-abort',
     // Worktree isolation (Stage 12-B): run the agent in an isolated git worktree.
     'git:worktree-status',
     'git:worktree-enter',

@@ -3,6 +3,7 @@ import type {
   GitChange,
   GitDiffLineRange,
   GitFileStatus,
+  GitStashEntry,
 } from '../shared/git';
 
 /**
@@ -166,6 +167,30 @@ export function parseLinePorcelainBlame(stdout: string): GitBlameLine[] {
     } else if (line.startsWith('summary ')) {
       summary = line.slice('summary '.length);
     }
+  }
+  return out;
+}
+
+/**
+ * Parse `git stash list --format=%gd|%at|%s` output. Only the first two `|`
+ * separators are structural — the message itself may contain `|`, so split at
+ * most twice and keep the rest verbatim. Lines that don't fit the shape (no
+ * ref / non-numeric timestamp) are skipped rather than guessed at.
+ */
+export function parseStashList(stdout: string): GitStashEntry[] {
+  const out: GitStashEntry[] = [];
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const first = trimmed.indexOf('|');
+    if (first < 0) continue;
+    const second = trimmed.indexOf('|', first + 1);
+    if (second < 0) continue;
+    const ref = trimmed.slice(0, first);
+    const timestamp = Number(trimmed.slice(first + 1, second));
+    const message = trimmed.slice(second + 1);
+    if (!ref.startsWith('stash@{') || !Number.isFinite(timestamp)) continue;
+    out.push({ ref, timestamp, message });
   }
   return out;
 }

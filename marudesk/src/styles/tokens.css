@@ -54,6 +54,19 @@
   --ai-read:     rgba(159, 187, 224, 0.72); /* blue  */
   --ai-edit:     rgba(192, 168, 221, 0.72); /* lavender */
 
+  /* Tab-group palette — the 6 hues a tab group can be labeled with (Chrome-style
+     tab groups in the strip). These are LABELS the user picks, not a second
+     brand accent: they appear only on group chips, member-tab underlines, and
+     the picker swatches. The hues mirror the [data-accent] presets (plus the
+     base violet) so grouped strips stay in the app's existing color family;
+     they hold across both themes and every palette. */
+  --tabgroup-violet: #5E6AD2;
+  --tabgroup-blue:   #4C8DFF;
+  --tabgroup-teal:   #2DB8A8;
+  --tabgroup-green:  #46B17F;
+  --tabgroup-amber:  #E0A03A;
+  --tabgroup-rose:   #E5618B;
+
   /* Typography */
   --font-display: 'Inter Display', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-body:    'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;

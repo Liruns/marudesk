@@ -7,18 +7,22 @@ import type {
   GitBranches,
   GitCommit,
   GitCommitResult,
+  GitConflictState,
   GitFileDiffLines,
+  GitMergeOp,
   GitRemoteResult,
+  GitStashEntry,
   GitStatus,
 } from '../shared/git';
 import { isSshRootKey } from '../shared/ssh';
 import { resolveWorkspacePath } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
-import { arrayOf, bool, obj, str } from './ipc/validate';
+import { arrayOf, bool, enumOf, obj, optStr, str } from './ipc/validate';
 import { readFileSafe, resolveWorkspaceRootPath } from './workspace';
 import {
   parseBranchHeaders,
   parseLinePorcelainBlame,
+  parseStashList,
   parseStatus,
   parseUnifiedZeroDiff,
   summarize,
@@ -405,6 +409,94 @@ async function remote(
   }
 }
 
+/**
+ * Validate a stash ref from the renderer. Only the canonical "stash@{N}" form
+ * is accepted — anything else (including a string starting with "-", which git
+ * would parse as a flag) is rejected before it reaches the argv array.
+ */
+function safeStashRef(value: unknown): string {
+  const ref = str(value, 'ref');
+  if (!/^stash@\{\d+\}$/.test(ref)) throw new Error('invalid stash ref');
+  return ref;
+}
+
+async function stashList(root: string): Promise<GitStashEntry[]> {
+  if (!(await isRepo(root))) return [];
+  const { stdout } = await git(root, [
+    'stash',
+    'list',
+    '--format=%gd|%at|%s',
+  ]);
+  return parseStashList(stdout);
+}
+
+async function stashPush(root: string, message: string | undefined): Promise<void> {
+  // -u includes untracked files; the panel's "Stash changes" should sweep the
+  // whole working tree like VSCode's stash, not silently leave new files.
+  const args = ['stash', 'push', '-u'];
+  const msg = message?.trim();
+  if (msg) args.push('-m', msg);
+  await git(root, args);
+}
+
+/**
+ * Detect the in-progress multi-commit operation from the repo's .git dir:
+ * rebase-merge / rebase-apply directories mean a rebase, CHERRY_PICK_HEAD a
+ * cherry-pick, MERGE_HEAD a merge. Rebase is checked first — a conflicted
+ * rebase step can also leave merge state behind, and the continue/abort must
+ * target the rebase. Never throws: { op: null } for clean/non-repo cases.
+ */
+async function detectConflictOp(root: string): Promise<GitConflictState> {
+  if (!(await isRepo(root))) return { op: null };
+  let gitDir: string;
+  try {
+    const { stdout } = await git(root, ['rev-parse', '--absolute-git-dir']);
+    gitDir = stdout.trim();
+  } catch {
+    return { op: null };
+  }
+  const exists = (rel: string): Promise<boolean> =>
+    fs
+      .access(path.join(gitDir, rel))
+      .then(() => true)
+      .catch(() => false);
+  if ((await exists('rebase-merge')) || (await exists('rebase-apply'))) {
+    return { op: 'rebase' };
+  }
+  if (await exists('CHERRY_PICK_HEAD')) return { op: 'cherry-pick' };
+  if (await exists('MERGE_HEAD')) return { op: 'merge' };
+  return { op: null };
+}
+
+/** The continue/abort subcommand for each detected operation. */
+const CONFLICT_OP_COMMAND: Record<GitMergeOp, string> = {
+  merge: 'merge',
+  rebase: 'rebase',
+  'cherry-pick': 'cherry-pick',
+};
+
+async function conflictFlow(root: string, action: 'continue' | 'abort'): Promise<void> {
+  const { op } = await detectConflictOp(root);
+  if (!op) throw new Error('no merge, rebase, or cherry-pick is in progress');
+  // `-c core.editor=true` keeps the continue from opening an editor for the
+  // resulting commit message (execFile has no TTY — it would hang to timeout).
+  await git(
+    root,
+    ['-c', 'core.editor=true', CONFLICT_OP_COMMAND[op], `--${action}`],
+    SLOW_TIMEOUT,
+  );
+}
+
+/** Accept one side of a conflicted file, then stage it as resolved. */
+async function conflictResolve(
+  root: string,
+  rel: string,
+  side: 'ours' | 'theirs',
+): Promise<void> {
+  await git(root, ['checkout', side === 'ours' ? '--ours' : '--theirs', '--', rel]);
+  await git(root, ['add', '--', rel]);
+}
+
 export function registerGitHandlers(): void {
   // Probes PATH for a git binary — needs no workspace, unlike every op below.
   defineHandler('git:available', () => checkGitAvailable());
@@ -497,6 +589,60 @@ export function registerGitHandlers(): void {
   defineHandler('git:fetch', () => remote(requireWorkspace().root, 'fetch'));
   defineHandler('git:pull', () => remote(requireWorkspace().root, 'pull'));
   defineHandler('git:push', () => remote(requireWorkspace().root, 'push'));
+
+  // Stash. list is read-only ([] for a non-repo); push sweeps the working tree
+  // including untracked files; apply/pop/drop act on a validated stash@{N} ref.
+  defineHandler('git:stash-list', () => stashList(requireWorkspace().root));
+
+  defineHandler('git:stash-push', async ([payload]) => {
+    const message = optStr(obj(payload).message, 'message');
+    await stashPush(requireWorkspace().root, message);
+    return { ok: true } as const;
+  });
+
+  defineHandler('git:stash-apply', async ([payload]) => {
+    const ref = safeStashRef(obj(payload).ref);
+    await git(requireWorkspace().root, ['stash', 'apply', ref]);
+    return { ok: true } as const;
+  });
+
+  defineHandler('git:stash-pop', async ([payload]) => {
+    const ref = safeStashRef(obj(payload).ref);
+    await git(requireWorkspace().root, ['stash', 'pop', ref]);
+    return { ok: true } as const;
+  });
+
+  defineHandler('git:stash-drop', async ([payload]) => {
+    const ref = safeStashRef(obj(payload).ref);
+    await git(requireWorkspace().root, ['stash', 'drop', ref]);
+    return { ok: true } as const;
+  });
+
+  // Merge-conflict flow: detect the in-progress operation, accept a side per
+  // conflicted file, continue/abort the whole operation. "Mark resolved" is
+  // just `git add`, which the existing git:stage channel already covers.
+  defineHandler('git:conflict-state', () =>
+    detectConflictOp(requireWorkspace().root),
+  );
+
+  defineHandler('git:conflict-resolve', async ([payload]) => {
+    const p = obj(payload);
+    const root = requireWorkspace().root;
+    const rel = resolveWorkspacePath(root, str(p.path, 'path')).rel;
+    const side = enumOf(p.side, ['ours', 'theirs'] as const, 'side');
+    await conflictResolve(root, rel, side);
+    return { ok: true } as const;
+  });
+
+  defineHandler('git:conflict-continue', async () => {
+    await conflictFlow(requireWorkspace().root, 'continue');
+    return { ok: true } as const;
+  });
+
+  defineHandler('git:conflict-abort', async () => {
+    await conflictFlow(requireWorkspace().root, 'abort');
+    return { ok: true } as const;
+  });
 
   // Worktree isolation (Stage 12-B): drive the agent's isolated worktree for the
   // active workspace. The lifecycle/state lives in worktree-isolation.ts.

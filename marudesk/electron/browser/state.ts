@@ -2,6 +2,7 @@ import type { BrowserWindow, WebContentsView } from 'electron';
 import {
   ZERO_NAV,
   type NavState,
+  type TabGroup,
   type TabKind,
   type TabState,
   type TabsSnapshot,
@@ -69,6 +70,11 @@ export type TabRecord = {
   // Pinned tab: favicon-only in the strip, kept at the front. The action layer
   // (tabs.ts) re-sorts pinned-first whenever this flips or tabs reorder.
   pinned?: boolean;
+  // Tab group (Chrome-style): the TabGroup record this tab belongs to, or
+  // undefined when ungrouped. Members of one group stay a contiguous run in
+  // the tab order — the verbs in ./tab-groups enforce that on every mutation.
+  // Pinned tabs are never grouped (setTabPinned strips membership).
+  groupId?: string;
 };
 
 // Titles for feature tabs (web tabs derive their title from the page).
@@ -95,6 +101,10 @@ export function isTabKind(value: unknown): value is TabKind {
 }
 
 const tabs = new Map<string, TabRecord>();
+// Tab groups (Chrome-style), keyed by group id. Group ORDER is derived from
+// the tab order (a group renders at its first member's slot), so the map needs
+// no ordering of its own. Records whose last member closes are pruned.
+const tabGroups = new Map<string, TabGroup>();
 let activeTabId: string | null = null;
 let untitledSeq = 0;
 let host: BrowserWindow | null = null;
@@ -213,6 +223,39 @@ export function deleteTab(id: string): boolean {
 
 export function clearTabs(): void {
   tabs.clear();
+  tabGroups.clear();
+}
+
+/* ── tab-group map accessors ────────────────────────────────────────────── */
+
+export function getTabGroup(id: string): TabGroup | undefined {
+  return tabGroups.get(id);
+}
+
+export function setTabGroup(group: TabGroup): void {
+  tabGroups.set(group.id, group);
+}
+
+export function deleteTabGroup(id: string): boolean {
+  return tabGroups.delete(id);
+}
+
+export function tabGroupValues(): TabGroup[] {
+  return [...tabGroups.values()];
+}
+
+/**
+ * Drop group records that no longer have a member tab (the last member was
+ * closed / replaced / ungrouped) — Chrome deletes empty groups the same way.
+ */
+export function pruneEmptyTabGroups(): void {
+  const live = new Set<string>();
+  for (const rec of tabs.values()) {
+    if (rec.groupId) live.add(rec.groupId);
+  }
+  for (const id of [...tabGroups.keys()]) {
+    if (!live.has(id)) tabGroups.delete(id);
+  }
 }
 
 export function tabValues(): TabRecord[] {
@@ -414,10 +457,23 @@ function tabStateFor(rec: TabRecord): TabState {
 
 export function snapshot(): TabsSnapshot {
   const list: TabState[] = [];
+  const groups: TabGroup[] = [];
+  const seenGroups = new Set<string>();
   for (const rec of tabs.values()) {
-    list.push(tabStateFor(rec));
+    const state = tabStateFor(rec);
+    if (rec.groupId) {
+      state.groupId = rec.groupId;
+      // Emit each group once, at its first member — so the snapshot's group
+      // order matches where the chip renders in the strip.
+      const group = tabGroups.get(rec.groupId);
+      if (group && !seenGroups.has(group.id)) {
+        seenGroups.add(group.id);
+        groups.push({ ...group });
+      }
+    }
+    list.push(state);
   }
-  return { tabs: list, activeTabId };
+  return { tabs: list, activeTabId, groups };
 }
 
 // `pushState` is called on every page event — and a single navigation emits a

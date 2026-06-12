@@ -7,6 +7,7 @@ import {
 } from './monaco-setup';
 import { useEditorStore, type RevealRequest } from './store';
 import { GitEditorDecorations } from './git-decorations';
+import { ConflictEditorAid } from './conflict-decorations';
 import { ensureDiagnosticMarkers } from '../diagnostics/markers';
 import type { EditorStatus } from './EditorView';
 import {
@@ -72,6 +73,7 @@ export function MonacoView({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const gitDecorationsRef = useRef<GitEditorDecorations | null>(null);
+  const conflictAidRef = useRef<ConflictEditorAid | null>(null);
   const pathRef = useRef(path);
   const onStatusRef = useRef(onStatus);
   // The last reveal nonce we acted on, so a model re-bind (tab switch) doesn't
@@ -96,6 +98,10 @@ export function MonacoView({
     // cursor/content changes, saves, git-store refreshes, the blame setting).
     const gitDecorations = new GitEditorDecorations(editor);
     gitDecorationsRef.current = gitDecorations;
+    // Merge-conflict aid: section highlights + accept-current/incoming/both
+    // codelenses whenever the buffer contains conflict markers.
+    const conflictAid = new ConflictEditorAid(editor);
+    conflictAidRef.current = conflictAid;
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       void formatAndSave(editor, pathRef.current);
     });
@@ -128,6 +134,8 @@ export function MonacoView({
       cursorSub.dispose();
       unsubGit();
       unsubSettings();
+      conflictAid.dispose();
+      conflictAidRef.current = null;
       gitDecorations.dispose();
       gitDecorationsRef.current = null;
       viewStates.set(pathRef.current, editor.saveViewState());
@@ -183,10 +191,12 @@ export function MonacoView({
     const sub = model.onDidChangeContent(() => {
       useEditorStore.getState().setContent(path, model.getValue());
       gitDecorationsRef.current?.onContentChanged();
+      conflictAidRef.current?.refreshSoon();
     });
     // Bind the git decorations to this document, and re-fetch after each save
     // (the buffer's `saved` snapshot advancing is the save-completed signal).
     gitDecorationsRef.current?.setDocKey(path);
+    conflictAidRef.current?.refresh();
     let lastSaved = (() => {
       const buf = useEditorStore.getState().files[path];
       return isTextFileBuf(buf) ? buf.saved : undefined;

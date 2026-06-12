@@ -60,6 +60,16 @@ const config: Config = {
           read: token('--ai-read'),
           edit: token('--ai-edit'),
         },
+        // Tab-group label hues (Chrome-style tab groups in the strip). Function
+        // colors so alpha washes (`bg-tabgroup-blue/15`) composite the token.
+        tabgroup: {
+          violet: token('--tabgroup-violet'),
+          blue: token('--tabgroup-blue'),
+          teal: token('--tabgroup-teal'),
+          green: token('--tabgroup-green'),
+          amber: token('--tabgroup-amber'),
+          rose: token('--tabgroup-rose'),
+        },
         diff: {
           add: token('--diff-add-bg'),
           remove: token('--diff-remove-bg'),

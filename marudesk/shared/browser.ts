@@ -93,11 +93,58 @@ export type TabState = NavState & {
    * renderer just reflects it. Chrome/Edge "Pin tab".
    */
   pinned?: boolean;
+  /**
+   * The tab group this tab belongs to (a {@link TabGroup} id from the same
+   * snapshot), or undefined when ungrouped. Members of one group are always a
+   * contiguous run in the tab order; pinned tabs are never grouped.
+   */
+  groupId?: string;
+};
+
+/**
+ * The tab-group color palette — a small, fixed set of token-backed hues
+ * (`--tabgroup-*` in src/styles/tokens.css). The names double as the stable
+ * wire/persistence values, so renaming a hue is a schema change.
+ */
+export const TAB_GROUP_COLORS = [
+  'violet',
+  'blue',
+  'teal',
+  'green',
+  'amber',
+  'rose',
+] as const;
+
+export type TabGroupColor = (typeof TAB_GROUP_COLORS)[number];
+
+export function isTabGroupColor(value: unknown): value is TabGroupColor {
+  return (
+    typeof value === 'string' &&
+    (TAB_GROUP_COLORS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * A Chrome-style tab group. Groups live WITHIN one workspace's tab strip:
+ * members are a contiguous run in the tab order (main enforces contiguity on
+ * every reorder), each tab referencing its group via `TabState.groupId`. Main
+ * owns the records; the renderer mirrors them through {@link TabsSnapshot}.
+ */
+export type TabGroup = {
+  id: string;
+  workspaceId: WorkspaceId;
+  /** Display name; '' renders as a color dot only (Chrome's unnamed group). */
+  name: string;
+  color: TabGroupColor;
+  /** Collapsed groups hide their tabs from the strip (not from the registry). */
+  collapsed: boolean;
 };
 
 export type TabsSnapshot = {
   tabs: TabState[];
   activeTabId: string | null;
+  /** Open tab groups, ordered by each group's first member in the tab order. */
+  groups: TabGroup[];
 };
 
 export type BrowserNativeMenuItem =
