@@ -3,6 +3,7 @@ import { cn } from '../../lib/cn';
 import { findModel } from '../../../shared/providers';
 import { estimateCostUsd, formatCostUsd } from '../../../shared/model-pricing';
 import { useProvidersStore } from '../providers/store';
+import { useComposerStore } from '../composer/store';
 import { useAgentStore, useThreadModelKey } from './store';
 import { formatContext, formatContextWindow, formatUsageTitle } from './chat/format';
 
@@ -60,22 +61,32 @@ export function ContextRing() {
     ),
   ].join(' · ');
 
+  const reveal = () => useComposerStore.getState().revealChat();
+
   // No context window (local/unknown model): show a plain token count, no ring.
   if (pct === null) {
     return (
-      <span className="flex items-center gap-1 tabular-nums" title={title}>
+      <button
+        type="button"
+        onClick={reveal}
+        title={title}
+        aria-label={t('status.context.aria')}
+        className="flex items-center gap-1 tabular-nums hover:text-fg-secondary transition-colors duration-fast"
+      >
         {used} tok
-      </span>
+      </button>
     );
   }
 
   const dash = (pct / 100) * C;
 
   return (
-    <span
-      className="flex items-center gap-1.5 tabular-nums"
+    <button
+      type="button"
+      onClick={reveal}
       title={title}
       aria-label={t('status.context.aria')}
+      className="flex items-center gap-1.5 tabular-nums hover:text-fg-secondary transition-colors duration-fast"
     >
       <svg
         width={SIZE}
@@ -107,6 +118,6 @@ export function ContextRing() {
         {pct}%
       </span>
       {cost !== null ? <span>≈ {formatCostUsd(cost)}</span> : null}
-    </span>
+    </button>
   );
 }

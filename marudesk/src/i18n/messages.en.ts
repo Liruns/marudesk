@@ -1420,7 +1420,7 @@ export const EN_MESSAGES = {
   'status.ahead': 'ahead',
   'status.behind': 'behind',
   'status.branchTitle': 'Branch',
-  'status.context.aria': 'Context window usage',
+  'status.context.aria': 'Context window usage - click to open chat',
   'status.inspectOn': 'Inspect on',
   'status.modelProviderTitle': 'Model & provider - click to manage',
   'status.noApiKeyTitle': 'No API key for this provider - click to add one',

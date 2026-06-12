@@ -1395,7 +1395,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'status.ahead': '앞섬',
   'status.behind': '뒤처짐',
   'status.branchTitle': '브랜치',
-  'status.context.aria': '컨텍스트 윈도우 사용량',
+  'status.context.aria': '컨텍스트 윈도우 사용량 - 클릭해서 채팅 열기',
   'status.inspectOn': '검사 켜짐',
   'status.modelProviderTitle': '모델 및 제공자 - 클릭해서 관리',
   'status.noApiKeyTitle': '이 제공자의 API 키 없음 - 클릭해서 추가',

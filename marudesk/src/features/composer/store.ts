@@ -30,6 +30,13 @@ type ComposerActions = {
    * drawer. The stagewise "select on the page → hand it to the agent" moment.
    */
   revealCaptures: () => void;
+  /**
+   * Reveal the AI Chat itself: switch to the Agent tab and ask the shell to open
+   * the chat surface (drawer, or the CLI tab — the shell routes by
+   * `settings.agent.chatSurface`). Lets out-of-chat surfaces (e.g. the StatusBar
+   * context ring) jump the user straight to the conversation.
+   */
+  revealChat: () => void;
 };
 
 /** Map a renderer {@link Capture} to the lean payload attached to an agent turn. */
@@ -78,4 +85,6 @@ export const useComposerStore = create<ComposerState & ComposerActions>((set) =>
   setTab: (tab) => set({ tab }),
   revealCaptures: () =>
     set((s) => ({ tab: 'captures', drawerOpenNonce: s.drawerOpenNonce + 1 })),
+  revealChat: () =>
+    set((s) => ({ tab: 'agent', drawerOpenNonce: s.drawerOpenNonce + 1 })),
 }));
