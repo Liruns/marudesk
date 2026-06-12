@@ -4,15 +4,11 @@
  * hardware back button to the in-app router and logs network changes; both are
  * best-effort and silently skipped on the web.
  */
+import { isNativePlatform } from './lib/platform';
 import { useAppStore } from './store/useAppStore';
 
-function isNative(): boolean {
-  const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-  return Boolean(cap?.isNativePlatform?.());
-}
-
 export async function initNative(): Promise<void> {
-  if (!isNative()) return;
+  if (!isNativePlatform()) return;
 
   // Hardware back button: navigate within the app instead of closing it.
   try {

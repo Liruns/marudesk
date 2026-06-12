@@ -12,15 +12,12 @@
  * ('cancelled' vs 'unavailable') so the UI can fall through without lying.
  */
 
+import { isNativePlatform } from './platform';
+
 export type NativeScanResult =
   | { kind: 'scanned'; value: string }
   | { kind: 'cancelled' }
   | { kind: 'unavailable' };
-
-function isNativePlatform(): boolean {
-  const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-  return Boolean(cap?.isNativePlatform?.());
-}
 
 /**
  * Scan one QR with the native ML Kit plugin. Resolves 'unavailable' when not in
@@ -30,11 +27,18 @@ function isNativePlatform(): boolean {
  */
 export async function scanWithNativePlugin(): Promise<NativeScanResult> {
   if (!isNativePlatform()) return { kind: 'unavailable' };
+  let plugin: typeof import('@capacitor-mlkit/barcode-scanning');
   try {
-    const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
-    const { supported } = await BarcodeScanner.isSupported();
+    plugin = await import('@capacitor-mlkit/barcode-scanning');
+    const { supported } = await plugin.BarcodeScanner.isSupported();
     if (!supported) return { kind: 'unavailable' };
-    const { barcodes } = await BarcodeScanner.scan({ formats: [BarcodeFormat.QrCode] });
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const { barcodes } = await plugin.BarcodeScanner.scan({
+      formats: [plugin.BarcodeFormat.QrCode],
+    });
     const value = barcodes[0]?.rawValue;
     return value ? { kind: 'scanned', value } : { kind: 'cancelled' };
   } catch (err) {
@@ -42,9 +46,7 @@ export async function scanWithNativePlugin(): Promise<NativeScanResult> {
     if (message.includes('cancel')) return { kind: 'cancelled' };
     // Most likely the Google barcode-scanner module isn't installed yet (first
     // run on this device). Start the install in the background, best-effort.
-    void import('@capacitor-mlkit/barcode-scanning')
-      .then(({ BarcodeScanner }) => BarcodeScanner.installGoogleBarcodeScannerModule())
-      .catch(() => {});
+    void plugin.BarcodeScanner.installGoogleBarcodeScannerModule().catch(() => {});
     return { kind: 'unavailable' };
   }
 }

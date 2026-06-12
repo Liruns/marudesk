@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Loader2, Smartphone, Trash2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, Smartphone, Trash2, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import type {
   PairedDeviceInfo,
   PairingRequestInfo,
   PairingStartInfo,
 } from '../../../shared/remote';
-import { Button } from '../../components/ui';
+import { Button, CopyButton } from '../../components/ui';
 import { useCountdown } from '../../hooks';
 import { useI18n, type I18nContextValue } from '../../i18n/useI18n';
 import { Section } from './SettingsControls';
@@ -20,8 +20,6 @@ export function QrCard({
 }) {
   const { t } = useI18n();
   const [dataUrl, setDataUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remaining = useCountdown(start.expiresAt);
   const expired = remaining <= 0;
 
@@ -40,26 +38,6 @@ export function QrCard({
       alive = false;
     };
   }, [start.qr]);
-
-  useEffect(
-    () => () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
-
-  // The full QR payload IS the manual-entry pairing code — the phone's paste
-  // box needs all of it (PC public key + addresses), not the short check code.
-  const copyPairingCode = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(start.qr);
-      setCopied(true);
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard refused — leave the button as-is; the QR remains scannable.
-    }
-  };
 
   return (
     <Section>
@@ -94,22 +72,24 @@ export function QrCard({
             <Loader2 size={22} className="animate-spin text-fg-tertiary" />
           </div>
         )}
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-1">
           {!expired ? (
             <>
-              <span className="text-caption text-fg-tertiary">
-                {t('settings.remote.pairing.copyHint')}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                leadingIcon={copied ? <Check size={14} /> : <Copy size={14} />}
-                onClick={() => void copyPairingCode()}
-              >
-                {copied
-                  ? t('settings.remote.pairing.copied')
-                  : t('settings.remote.pairing.copy')}
-              </Button>
+              {/* The full QR payload IS the manual-entry pairing code — the
+                  phone's paste box needs all of it (PC public key + addresses),
+                  not the short check code. Copy rides the IPC clipboard bridge
+                  (navigator.clipboard is unreliable in the main window). */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-caption text-fg-tertiary">
+                  {t('settings.remote.pairing.copyHint')}
+                </span>
+                <CopyButton
+                  text={start.qr}
+                  label={t('settings.remote.pairing.copy')}
+                  size="md"
+                  write={(text) => window.marudesk.invoke('clipboard:write-text', text)}
+                />
+              </div>
               <span className="text-caption text-fg-tertiary">
                 {t('settings.remote.pairing.expiresBefore')}
                 {remaining}

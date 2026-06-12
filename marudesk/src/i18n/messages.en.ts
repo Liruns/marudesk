@@ -999,7 +999,6 @@ export const EN_MESSAGES = {
   'settings.remote.pairing.approveAfter': '?',
   'settings.remote.pairing.approveBefore': 'Pair "',
   'settings.remote.pairing.close': 'Close',
-  'settings.remote.pairing.copied': 'Copied',
   'settings.remote.pairing.copy': 'Copy pairing code',
   'settings.remote.pairing.copyHint':
     'Can’t scan? Copy the pairing code and paste it on your phone',

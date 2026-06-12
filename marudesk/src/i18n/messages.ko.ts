@@ -994,7 +994,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.remote.pairing.approveAfter': ' 페어링?',
   'settings.remote.pairing.approveBefore': '',
   'settings.remote.pairing.close': '닫기',
-  'settings.remote.pairing.copied': '복사됨',
   'settings.remote.pairing.copy': '페어링 코드 복사',
   'settings.remote.pairing.copyHint':
     '스캔이 어려우면 페어링 코드를 복사해 휴대폰에 붙여넣으세요',

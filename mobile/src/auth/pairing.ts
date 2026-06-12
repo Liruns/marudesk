@@ -108,10 +108,11 @@ export async function runPairing(
 /**
  * Heuristic for "the user pasted the 8-character code shown beside the QR, not
  * the payload": short, and made only of the PC's no-ambiguity code alphabet
- * (A–Z without I/L/O, digits 2–9), case-insensitive, dashes/spaces tolerated.
- * A real payload is base64url JSON — hundreds of characters.
+ * (A–Z without I/L/O, digits 2–9), case-insensitive, dashes tolerated (the
+ * caller has already stripped whitespace). A real payload is base64url JSON —
+ * hundreds of characters.
  */
-export function looksLikeShortCode(compact: string): boolean {
+function looksLikeShortCode(compact: string): boolean {
   const bare = compact.replace(/-/g, '');
   return bare.length > 0 && bare.length <= 16 && /^[a-hj-km-np-z2-9]+$/i.test(bare);
 }

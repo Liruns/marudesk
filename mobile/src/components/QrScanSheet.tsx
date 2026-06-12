@@ -20,6 +20,12 @@ export function QrScanSheet({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The camera lifecycle runs ONCE per mount: `onScan` is read through a ref so
+  // an unstable callback identity (an inline arrow in the parent) can't restart
+  // getUserMedia mid-scan on every parent re-render.
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
+
   useEffect(() => {
     let stream: MediaStream | null = null;
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -73,7 +79,7 @@ export function QrScanSheet({
             if (value && !done) {
               done = true;
               stop();
-              onScan(value);
+              onScanRef.current(value);
             }
           })
           .catch(() => {
@@ -90,7 +96,7 @@ export function QrScanSheet({
       done = true;
       stop();
     };
-  }, [onScan]);
+  }, []);
 
   return (
     <div className="qr-scan" role="dialog" aria-modal="true" aria-label="Scan pairing QR">
