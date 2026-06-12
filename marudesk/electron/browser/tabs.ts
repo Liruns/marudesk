@@ -29,7 +29,7 @@ import {
 } from './state';
 import { applyWebLayout, hideTab, showTab } from './layout';
 import { loadPinnedSpecs, savePinnedTabs } from './pinned-session';
-import { loadTabSession, saveTabSession } from './tab-session';
+import { loadTabSession, saveTabSession, saveTabSessionSync } from './tab-session';
 import { closeChromeDevtools } from './devtools';
 import {
   detachCdp,
@@ -555,10 +555,15 @@ function restoreTabSession(): boolean {
   // the restored tabs reference anymore is simply never re-created.
   const groupIds = new Map<number, string>();
   for (const spec of session.tabs) {
-    const rec =
-      spec.kind === 'web'
-        ? createTab('web', spec.url || undefined)
-        : createTab('editor', spec.filePath);
+    const wsOpts = spec.workspaceId ? { workspaceId: spec.workspaceId } : undefined;
+    let rec: ReturnType<typeof createTab>;
+    if (spec.kind === 'web') {
+      rec = createTab('web', spec.url || undefined, wsOpts);
+    } else if (spec.kind === 'editor') {
+      rec = createTab('editor', spec.filePath, wsOpts);
+    } else {
+      rec = createTab(spec.kind, undefined, wsOpts);
+    }
     rec.pinned = spec.pinned;
     // Pinned tabs are never grouped; loadTabSession already validated indices.
     const groupIdx = spec.group;
@@ -638,7 +643,7 @@ export function disposeBrowserView(): void {
   // the views down, so a site that was navigated mid-session restores where it
   // was left (the "Continue where you left off" moment).
   savePinnedTabs();
-  saveTabSession();
+  saveTabSessionSync();
   for (const rec of tabValues()) {
     detachCdp(rec);
     closeChromeDevtools(rec);

@@ -52,7 +52,7 @@ export const tabKinds: Record<TabKind, TabKindDef> = {
   agent: {
     title: 'AI Chat',
     icon: Sparkles,
-    render: (_tabId, tab) => <AgentTab workspaceId={tab?.workspaceId} />,
+    render: (tabId, tab) => <AgentTab tabId={tabId} workspaceId={tab?.workspaceId} />,
   },
   plugin: {
     title: 'Plugin',

@@ -52,11 +52,22 @@ async function caaCall<T>(token: string, methodColon: string, body: unknown): Pr
 }
 
 type LoadResp = {
-  cloudaicompanionProject?: string;
+  cloudaicompanionProject?: unknown;
   currentTier?: { id?: string };
   allowedTiers?: { id?: string; isDefault?: boolean }[];
 };
-type Operation = { name?: string; done?: boolean; response?: { cloudaicompanionProject?: string } };
+type Operation = { name?: string; done?: boolean; response?: { cloudaicompanionProject?: unknown } };
+
+function extractProjectString(value: unknown): string | undefined {
+  if (typeof value === 'string' && value) return value;
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.name === 'string') return obj.name;
+    if (typeof obj.projectId === 'string') return obj.projectId;
+    if (typeof obj.id === 'string') return obj.id;
+  }
+  return undefined;
+}
 
 // The project is account-scoped and stable across token refreshes, so cache a
 // SINGLE value — NOT keyed by the (rotating) access token, which would grow
@@ -70,20 +81,18 @@ async function resolveProject(token: string): Promise<string> {
   if (cachedProject) return cachedProject;
 
   const load = await caaCall<LoadResp>(token, 'loadCodeAssist', { metadata: META });
-  let project = load.cloudaicompanionProject;
+  let project = extractProjectString(load.cloudaicompanionProject);
 
   if (!project) {
     const tierId =
       load.allowedTiers?.find((t) => t.isDefault)?.id ?? load.currentTier?.id ?? 'free-tier';
     const onboardBody = { tierId, metadata: META };
-    // onboardUser returns a long-running operation; gemini-cli re-polls the SAME
-    // RPC until it reports done (cap ~24s) — consistent with the colon convention.
     let op = await caaCall<Operation>(token, 'onboardUser', onboardBody);
     for (let i = 0; i < 12 && !op.done; i++) {
       await sleep(2000);
       op = await caaCall<Operation>(token, 'onboardUser', onboardBody);
     }
-    project = op.response?.cloudaicompanionProject;
+    project = extractProjectString(op.response?.cloudaicompanionProject);
   }
 
   if (!project) {
@@ -173,6 +182,9 @@ export function codeAssistFetch(token: string): FetchFunction {
       signal: init?.signal ?? undefined,
     });
     if (!resp.ok) {
+      // A 400 with "Invalid value (project)" means the cached project is stale
+      // or malformed — drop it so the next request re-bootstraps.
+      if (resp.status === 400) cachedProject = null;
       const text = await resp.text().catch(() => '');
       return new Response(text, {
         status: resp.status,
