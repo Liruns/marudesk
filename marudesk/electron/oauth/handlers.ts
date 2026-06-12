@@ -2,7 +2,7 @@ import { isProviderId, type OAuthFlow, type ProviderId } from '../../shared/prov
 import { defineHandler } from '../ipc/define-handler';
 import { obj, optStr } from '../ipc/validate';
 import { invalidateModelsCache } from '../models';
-import { clearProviderOAuth, setProviderOAuth, getAllProviderOAuth, addProviderOAuthSlot, rotateProviderOAuth } from '../secrets';
+import { clearProviderOAuth, setProviderOAuth, getAllProviderOAuth, rotateProviderOAuth } from '../secrets';
 import { openExternalUrl } from '../safe-open';
 import { oauthConfigFor, parsePastedCode, supportsOAuth, type OAuthProviderConfig } from './config';
 import { buildAuthorizeUrl, exchangeCode, generatePkce, type Pkce } from './flow';

@@ -487,6 +487,8 @@ export const EN_MESSAGES = {
   'agent.chat.context.model': 'Model',
   'agent.chat.context.outputTokens': 'Output tokens',
   'agent.chat.context.provider': 'Provider',
+  'agent.chat.contextNudge.body': 'Context window is almost full.',
+  'agent.chat.contextNudge.compact': 'Compact',
   'agent.chat.contextWindow': 'Context window',
   'agent.chat.copyMessage': 'Copy message',
   'agent.chat.costEstimateNote':
@@ -1420,6 +1422,7 @@ export const EN_MESSAGES = {
   'status.ahead': 'ahead',
   'status.behind': 'behind',
   'status.branchTitle': 'Branch',
+  'status.context.aria': 'Context window usage - click to open chat',
   'status.inspectOn': 'Inspect on',
   'status.modelProviderTitle': 'Model & provider - click to manage',
   'status.noApiKeyTitle': 'No API key for this provider - click to add one',

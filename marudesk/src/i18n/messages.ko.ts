@@ -486,6 +486,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.context.model': '모델',
   'agent.chat.context.outputTokens': '출력 토큰',
   'agent.chat.context.provider': '제공자',
+  'agent.chat.contextNudge.body': '컨텍스트 창이 거의 찼습니다.',
+  'agent.chat.contextNudge.compact': '정리하기',
   'agent.chat.contextWindow': '컨텍스트 창',
   'agent.chat.copyMessage': '메시지 복사',
   'agent.chat.costEstimateNote':
@@ -1395,6 +1397,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'status.ahead': '앞섬',
   'status.behind': '뒤처짐',
   'status.branchTitle': '브랜치',
+  'status.context.aria': '컨텍스트 윈도우 사용량 - 클릭해서 채팅 열기',
   'status.inspectOn': '검사 켜짐',
   'status.modelProviderTitle': '모델 및 제공자 - 클릭해서 관리',
   'status.noApiKeyTitle': '이 제공자의 API 키 없음 - 클릭해서 추가',
