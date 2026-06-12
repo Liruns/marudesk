@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import {
   AppWindow,
+  BarChart3,
   Blocks,
   Bot,
   Clock,
@@ -69,6 +70,13 @@ const CATEGORY_DEFINITIONS = [
     blurbKey: 'settings.category.providers.blurb',
     icon: KeyRound,
     keywords: 'api key openai anthropic claude gemini grok ollama oauth model provider token 제공자 키 모델',
+  },
+  {
+    id: 'usage',
+    labelKey: 'settings.category.usage.label',
+    blurbKey: 'settings.category.usage.blurb',
+    icon: BarChart3,
+    keywords: 'usage quota rate limit tokens requests api cost budget 사용량 할당량 요금 토큰 요청',
   },
   {
     id: 'agent',

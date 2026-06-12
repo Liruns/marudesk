@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -6,6 +6,8 @@ import {
   Globe,
   Loader2,
   LogIn,
+  RefreshCw,
+  UserPlus,
 } from 'lucide-react';
 import type { BuiltinProviderId } from '../../../shared/providers';
 import { Button, CopyButton } from '../../components/ui';
@@ -130,6 +132,42 @@ export function ProviderOAuthConnect({
     </div>
   ) : null;
 
+  const [slots, setSlots] = useState<{ count: number; activeScope?: string } | null>(null);
+
+  useEffect(() => {
+    if (!connected) return;
+    let cancelled = false;
+    void window.marudesk
+      .invoke('auth:oauth-slots', providerId)
+      .then((result: { count: number; activeScope?: string }) => {
+        if (!cancelled) setSlots(result);
+      })
+      .catch(() => {
+        /* ignore — slots UI simply stays hidden */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, providerId]);
+
+  const handleRotate = async () => {
+    await window.marudesk.invoke('auth:oauth-rotate', providerId);
+    const result = await window.marudesk.invoke('auth:oauth-slots', providerId) as {
+      count: number;
+      activeScope?: string;
+    };
+    setSlots(result);
+  };
+
+  const handleAddSlot = async () => {
+    await window.marudesk.invoke('auth:oauth-add-slot', providerId);
+    const result = await window.marudesk.invoke('auth:oauth-slots', providerId) as {
+      count: number;
+      activeScope?: string;
+    };
+    setSlots(result);
+  };
+
   if (connected) {
     return (
       <div className="flex flex-col gap-2 rounded-md border border-subtle bg-surface-page/60 px-3 py-2.5">
@@ -165,6 +203,35 @@ export function ProviderOAuthConnect({
           {friendly}
           {t('settings.providers.oauth.agentUsesAfter')}
         </p>
+        {slots && (slots.count > 1 || slots.activeScope) ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-caption text-fg-tertiary">
+              {t('settings.providers.credentials.title')}: {slots.count}{' '}
+              {t('settings.providers.credentials.count')}
+            </span>
+            <span className="flex-1" />
+            {slots.count > 1 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleRotate()}
+                disabled={busy}
+              >
+                <RefreshCw size={13} className="mr-1" />
+                {t('settings.providers.credentials.rotate')}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void handleAddSlot()}
+              disabled={busy}
+            >
+              <UserPlus size={13} className="mr-1" />
+              {t('settings.providers.credentials.addAccount')}
+            </Button>
+          </div>
+        ) : null}
         {test.status === 'ok' || test.status === 'error' ? (
           <div
             className={cn(

@@ -49,6 +49,7 @@ import { initPlugins, shutdownPlugins } from './plugins';
 import { registerPluginHandlers } from './plugins/handlers';
 import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol';
 import { registerModelsHandlers } from './models';
+import { registerUsageHandlers } from './usage';
 import { getSettings, getSettingsSync, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
 import { destroyTray, syncTrayToSettings } from './tray';
 import { flushAndResetHistoryForProfile, registerHistoryHandlers } from './history';
@@ -469,6 +470,7 @@ void app.whenReady().then(() => {
   registerOAuthHandlers();
   registerModelsHandlers();
   registerCustomProviderHandlers();
+  registerUsageHandlers();
   registerAgentHandlers();
   registerWorkflowHandlers();
   registerSpecHandlers();

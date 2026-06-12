@@ -2,7 +2,7 @@ import { isProviderId, type OAuthFlow, type ProviderId } from '../../shared/prov
 import { defineHandler } from '../ipc/define-handler';
 import { obj, optStr } from '../ipc/validate';
 import { invalidateModelsCache } from '../models';
-import { clearProviderOAuth, setProviderOAuth } from '../secrets';
+import { clearProviderOAuth, setProviderOAuth, getAllProviderOAuth, addProviderOAuthSlot, rotateProviderOAuth } from '../secrets';
 import { openExternalUrl } from '../safe-open';
 import { oauthConfigFor, parsePastedCode, supportsOAuth, type OAuthProviderConfig } from './config';
 import { buildAuthorizeUrl, exchangeCode, generatePkce, type Pkce } from './flow';
@@ -211,4 +211,22 @@ export function registerOAuthHandlers(): void {
   defineHandler('auth:oauth-disconnect', ([provider]) =>
     disconnectOAuth(requireOAuthProvider(provider)),
   );
+
+  defineHandler('auth:oauth-slots', async ([provider]) => {
+    const id = requireOAuthProvider(provider);
+    const slots = await getAllProviderOAuth(id);
+    return {
+      count: slots.length,
+      activeScope: slots[0]?.scope ?? undefined,
+    };
+  });
+
+  defineHandler('auth:oauth-add-slot', ([provider]) => startOAuth(requireOAuthProvider(provider)));
+
+  defineHandler('auth:oauth-rotate', async ([provider]) => {
+    const id = requireOAuthProvider(provider);
+    const next = await rotateProviderOAuth(id);
+    if (next) invalidateModelsCache(id);
+    return !!next;
+  });
 }

@@ -17,6 +17,7 @@ import { AutomationsSettings } from './AutomationsSettings';
 import { PluginsSettings } from './PluginsSettings';
 import { ProvidersSettings } from './ProvidersSettings';
 import { RemoteCategory } from './RemoteSettingsCategory';
+import { UsageCategory } from './UsageSettingsCategory';
 import { NavItem } from './SettingsControls';
 import { getSettingsCategories } from './settingsCategories';
 import { SettingsSearchResults } from './SettingsSearchResults';
@@ -108,6 +109,7 @@ export function SettingsView() {
               {category === 'terminal' ? <TerminalCategory /> : null}
               {category === 'browser' ? <BrowserCategory /> : null}
               {category === 'providers' ? <ProvidersSettings /> : null}
+              {category === 'usage' ? <UsageCategory /> : null}
               {category === 'agent' ? <AgentCategory /> : null}
               {category === 'mcp' ? <McpServersSettings /> : null}
               {category === 'plugins' ? <PluginsSettings /> : null}

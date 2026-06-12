@@ -896,6 +896,11 @@ export interface IpcMap {
   'usage:fetch': { args: [provider: ProviderId]; result: UsageReport | null };
   'usage:fetch-all': { args: []; result: UsageReport[] };
 
+  // Multi-credential OAuth slot management (electron/oauth/handlers.ts)
+  'auth:oauth-slots': { args: [provider: ProviderId]; result: { count: number; activeScope?: string } };
+  'auth:oauth-add-slot': { args: [provider: ProviderId]; result: { flow: OAuthFlow; url: string; opened: boolean; userCode?: string; verificationUri?: string } };
+  'auth:oauth-rotate': { args: [provider: ProviderId]; result: boolean };
+
   // clipboard (integrated-terminal copy/paste — electron/clipboard.ts)
   'clipboard:write-text': { args: [text: string]; result: void };
   'clipboard:read-text': { args: []; result: string };
