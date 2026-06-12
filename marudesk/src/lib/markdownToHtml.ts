@@ -1,5 +1,6 @@
 import { Marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
+import markedKatex from 'marked-katex-extension';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 
@@ -9,7 +10,9 @@ import DOMPurify from 'dompurify';
  * fenced language is used when valid (`hljs.getLanguage` guards unknown ids),
  * otherwise we auto-detect. The emitted `<code>` carries `hljs language-<id>`
  * classes; DOMPurify must therefore keep `class` so the token spans survive
- * sanitisation. GFM is on (tables, strikethrough, autolinks).
+ * sanitisation. GFM is on (tables, strikethrough, autolinks). KaTeX renders
+ * `$…$` / `$$…$$` math (AI answers use it constantly); `throwOnError: false`
+ * keeps malformed/partially-streamed TeX as visible source instead of throwing.
  */
 const marked = new Marked(
   markedHighlight({
@@ -24,6 +27,7 @@ const marked = new Marked(
     },
   }),
 );
+marked.use(markedKatex({ throwOnError: false }));
 marked.setOptions({ async: false, breaks: false, gfm: true });
 
 /**
@@ -36,7 +40,10 @@ marked.setOptions({ async: false, breaks: false, gfm: true });
 export function renderMarkdownToHtml(source: string): string {
   const raw = marked.parse(source) as string;
   return DOMPurify.sanitize(raw, {
-    USE_PROFILES: { html: true },
+    // mathMl keeps KaTeX's hidden <math> accessibility tree (the visual HTML
+    // half is aria-hidden, so stripping MathML would leave math unreadable to
+    // screen readers).
+    USE_PROFILES: { html: true, mathMl: true },
     ADD_ATTR: ['target', 'rel', 'class'],
   });
 }

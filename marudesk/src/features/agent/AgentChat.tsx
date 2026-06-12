@@ -13,6 +13,7 @@ import { cn } from '../../lib/cn';
 import { findModel } from '../../../shared/providers';
 import type { AgentChatState, AgentWorkspaceEvent } from '../../../shared/agent';
 import { useProvidersStore } from '../providers/store';
+import { useSettingsStore } from '../settings/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { useAgentStore, useAgentWorkspaceId, useThreadModelKey } from './store';
 import { ContextPopover } from './ContextPopover';
@@ -31,6 +32,7 @@ import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
 import { Transcript } from './chat/Transcript';
+import { TranscriptSearch } from './chat/TranscriptSearch';
 import {
   ApprovalCard,
   BackgroundTray,
@@ -77,6 +79,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const workspaceId = useAgentWorkspaceId();
 
   const summary = useWorkspaceStore((s) => s.summary);
+  // Reading-comfort scale for the transcript only (settings → Appearance). CSS
+  // `zoom` so the rem-based type scale inside still renders proportionally.
+  const chatZoom = useSettingsStore((s) => s.settings.appearance.chatZoom);
   const statusChecked = useProvidersStore((s) => s.statusChecked);
   const refreshStatus = useProvidersStore((s) => s.refreshProviderStatus);
   // Reasoning-effort control is shown only for models the catalog flags
@@ -120,6 +125,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // (Claude/Codex Desktop parity, v3 §5-B); the drawer companion stays compact.
   // The same workspace-scoped state projects into both.
   const full = variant === 'full';
+  // Transcript navigator (Ctrl/Cmd+F or the composer's search toggle).
+  const [searchOpen, setSearchOpen] = useState(false);
   // Mission Control (the right-side plan/agents panel) can be collapsed to give
   // the transcript the full width; persisted so the choice survives restarts.
   const [missionOpen, setMissionOpen] = useState(loadMissionOpen);
@@ -188,18 +195,33 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   });
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div
+      className="flex flex-col h-full min-h-0"
+      onKeyDown={(e) => {
+        // Find-in-transcript, scoped to focus within the chat surface so it
+        // doesn't shadow a find on other panes.
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && !empty) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSearchOpen(true);
+        }
+      }}
+    >
       {full ? <ThreadBar /> : null}
 
       <div className="relative flex-1 min-h-0 flex">
-       <div className="relative flex-1 min-h-0">
-       <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto">
+       {/* min-w-0: this column flexes beside the Mission Control aside — without
+           it a wide code block / table in the transcript would set the row's
+           min-content width and push the pane wider than its container. */}
+       <div className="relative flex-1 min-w-0 min-h-0">
+       <div ref={scrollRef} onScroll={handleScroll} onWheel={handleWheel} className="h-full overflow-y-auto overflow-x-hidden">
         <div
           className={cn(
             'flex flex-col gap-5',
             full ? 'mx-auto w-full max-w-3xl px-5 py-6' : 'px-3 py-4',
             empty && 'min-h-full justify-center',
           )}
+          style={chatZoom !== 100 ? { zoom: chatZoom / 100 } : undefined}
         >
           {empty ? (
             <EmptyState hasWorkspace={!!summary} onPick={handlePickSuggestion} />
@@ -251,6 +273,10 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           {chat.error ? <ErrorRecoveryCard error={chat.error} /> : null}
         </div>
        </div>
+
+        {searchOpen && !empty ? (
+          <TranscriptSearch messages={chat.messages} onClose={() => setSearchOpen(false)} />
+        ) : null}
 
         {/* Jump to latest — appears only when the user has scrolled up off the
             live edge, so a streaming turn never traps them mid-transcript. */}
@@ -322,7 +348,12 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
 
             {/* Right: toggles grouped in a single pill-shaped container */}
-            <ComposerToggles empty={empty} busy={busy} isReasoningModel={isReasoningModel} />
+            <ComposerToggles
+              empty={empty}
+              busy={busy}
+              isReasoningModel={isReasoningModel}
+              onToggleSearch={() => setSearchOpen((v) => !v)}
+            />
           </div>
 
           <ComposerBanners />

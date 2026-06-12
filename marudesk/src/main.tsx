@@ -2,11 +2,16 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LucideProvider } from 'lucide-react'
 import './index.css'
+// KaTeX layout CSS for $…$ math rendered by the shared markdown pipeline.
+import 'katex/dist/katex.min.css'
 // highlight.js token colours for fenced code blocks (editor preview + AI chat).
-// The app is dark-first; this dark palette is loaded once globally.
-import 'highlight.js/styles/github-dark.css'
+// Theme-aware: seeded here from the pre-paint data-theme guard so first paint is
+// right; the settings store re-applies it on every theme change.
+import { applyHljsTheme } from './lib/hljsTheme'
 import App from './App.tsx'
 import { I18nProvider } from './i18n/I18nProvider'
+
+applyHljsTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
 
 class RootElementMissingError extends Error {
   constructor() {

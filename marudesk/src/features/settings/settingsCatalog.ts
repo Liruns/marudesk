@@ -31,6 +31,11 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
   },
   {
     categoryId: 'appearance',
+    labelKey: 'settings.appearance.chatZoom.label',
+    keywords: 'chat zoom transcript ai font size 채팅 대화 확대 배율 글자',
+  },
+  {
+    categoryId: 'appearance',
     labelKey: 'settings.appearance.uiFont.label',
     keywords: 'ui font family typeface 글꼴 폰트 서체',
   },

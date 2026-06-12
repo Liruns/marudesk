@@ -112,7 +112,11 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
     const anchor = anchorRef.current;
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
-    setPos({ left: Math.max(8, rect.left), top: rect.top });
+    // Clamp into the viewport: in a narrow split pane / drawer the anchor can sit
+    // closer to the window's right edge than the popover is wide (w-72 = 288px).
+    const popoverWidth = 288;
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - popoverWidth - 8));
+    setPos({ left, top: rect.top });
   }, [anchorRef]);
 
   /* ── Dismiss on outside pointer-down / Esc / scroll ─────────────────── */
@@ -158,7 +162,7 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
       aria-label={t('agent.context.addContext')}
       style={{ left: pos?.left ?? 8, top: pos?.top, visibility: pos ? undefined : 'hidden' }}
       className={cn(
-        'fixed z-50 w-72 -translate-y-full mb-1',
+        'fixed z-50 w-72 max-w-[calc(100vw-16px)] -translate-y-full mb-1',
         // L2 "soft glow" is the design system's popover elevation (§6); shadow-xl
         // was an off-system Tailwind default.
         'rounded-lg border border-default bg-surface-1 shadow-glow',

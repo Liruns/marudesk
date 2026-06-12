@@ -12,19 +12,28 @@ function handleLinks(e: React.MouseEvent<HTMLDivElement>) {
   if (href) window.open(href, '_blank', 'noopener,noreferrer');
 }
 
-const COPY_BTN_ATTR = 'data-md-copy';
+const DECORATED_ATTR = 'data-md-decorated';
 
 /**
- * After the sanitized HTML is mounted, decorate every `<pre>` with a hover copy
- * button (top-right) and, when highlight.js detected a language, a small label.
- * Idempotent per render: we re-run whenever the HTML changes and skip blocks
- * already decorated. Plain DOM (no React portals) keeps this cheap during
- * streaming re-renders.
+ * Blocks longer than this many lines start collapsed (with a "show all" toggle)
+ * so one giant code dump doesn't take over the whole transcript.
+ */
+const COLLAPSE_LINES = 26;
+
+/**
+ * After the sanitized HTML is mounted, decorate every `<pre>` with hover actions
+ * (wrap toggle + copy, top-right), a language label when highlight.js detected
+ * one, and a collapse toggle for very long blocks. Idempotent per render: we
+ * re-run whenever the HTML changes and skip blocks already decorated. Plain DOM
+ * (no React portals) keeps this cheap during streaming re-renders. (Streaming
+ * replaces the HTML each chunk, so toggle state resets until the turn settles —
+ * an accepted trade-off for the stateless decoration.)
  */
 function decoratePre(root: HTMLElement) {
   const pres = root.querySelectorAll('pre');
   pres.forEach((pre) => {
-    if (pre.querySelector(`[${COPY_BTN_ATTR}]`)) return;
+    if (pre.hasAttribute(DECORATED_ATTR)) return;
+    pre.setAttribute(DECORATED_ATTR, '');
     pre.classList.add('md-codeblock');
 
     const code = pre.querySelector('code');
@@ -41,24 +50,102 @@ function decoratePre(root: HTMLElement) {
       pre.appendChild(label);
     }
 
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.setAttribute(COPY_BTN_ATTR, '');
-    btn.className = 'md-copy-btn';
-    btn.textContent = 'Copy';
-    btn.addEventListener('click', () => {
-      const text = code?.textContent ?? pre.textContent ?? '';
-      void navigator.clipboard.writeText(text).then(() => {
-        btn.textContent = 'Copied';
-        btn.classList.add('is-copied');
+    const text = code?.textContent ?? pre.textContent ?? '';
+
+    const actions = document.createElement('span');
+    actions.className = 'md-pre-actions';
+
+    // Wrap toggle: long lines wrap in place instead of scrolling sideways —
+    // much easier to read in a narrow split pane / drawer.
+    const wrapBtn = document.createElement('button');
+    wrapBtn.type = 'button';
+    wrapBtn.className = 'md-pre-btn';
+    wrapBtn.textContent = 'Wrap';
+    wrapBtn.addEventListener('click', () => {
+      wrapBtn.classList.toggle('is-on', pre.classList.toggle('md-wrap'));
+    });
+    actions.appendChild(wrapBtn);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'md-pre-btn';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', () => {
+      void navigator.clipboard.writeText(code?.textContent ?? pre.textContent ?? '').then(() => {
+        copyBtn.textContent = 'Copied';
+        copyBtn.classList.add('is-copied');
         window.setTimeout(() => {
-          btn.textContent = 'Copy';
-          btn.classList.remove('is-copied');
+          copyBtn.textContent = 'Copy';
+          copyBtn.classList.remove('is-copied');
         }, 1200);
       });
     });
-    pre.appendChild(btn);
+    actions.appendChild(copyBtn);
+    pre.appendChild(actions);
+
+    // Collapse long blocks behind a full-width toggle bar inserted right after
+    // the <pre> (a sibling, not absolute-positioned, so it never drifts when the
+    // block scrolls horizontally).
+    const lines = text.split('\n').length;
+    if (lines > COLLAPSE_LINES && pre.parentElement) {
+      pre.classList.add('md-collapsed');
+      const expandLabel = `Show all ${lines} lines`;
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'md-expand-btn';
+      toggle.textContent = expandLabel;
+      toggle.addEventListener('click', () => {
+        toggle.textContent = pre.classList.toggle('md-collapsed') ? expandLabel : 'Collapse';
+      });
+      pre.insertAdjacentElement('afterend', toggle);
+    }
   });
+}
+
+/* ── mermaid diagrams ───────────────────────────────────────────────────── */
+
+let mermaidSeq = 0;
+
+/**
+ * Replace ```mermaid fences with rendered SVG diagrams. The library (~1MB) is
+ * imported lazily on the first diagram ever seen, so transcripts without
+ * diagrams never pay for it. `parse` validates first: a partially-streamed or
+ * invalid diagram simply stays a code block (and is retried on the next chunk,
+ * since streaming rebuilds the HTML). Theme follows `data-theme` at render time.
+ */
+async function renderMermaidBlocks(root: HTMLElement): Promise<void> {
+  const blocks = root.querySelectorAll<HTMLElement>('pre > code.language-mermaid');
+  if (blocks.length === 0) return;
+  const { default: mermaid } = await import('mermaid');
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: document.documentElement.dataset.theme === 'light' ? 'default' : 'dark',
+  });
+  for (const code of blocks) {
+    const pre = code.closest('pre');
+    // The root may have been replaced (streaming) while the import resolved.
+    if (!pre || !pre.isConnected) continue;
+    const src = code.textContent ?? '';
+    const id = `md-mermaid-${++mermaidSeq}`;
+    try {
+      await mermaid.parse(src);
+      const { svg } = await mermaid.render(id, src);
+      if (!pre.isConnected) continue;
+      const fig = document.createElement('div');
+      fig.className = 'md-mermaid';
+      // mermaid sanitizes its own SVG output under securityLevel: 'strict'.
+      fig.innerHTML = svg;
+      pre.replaceWith(fig);
+      // The sibling expand bar (long-block collapse) belongs to the replaced pre.
+      const next = fig.nextElementSibling;
+      if (next?.classList.contains('md-expand-btn')) next.remove();
+    } catch {
+      // Invalid/incomplete source: keep the highlighted code block as-is, but
+      // sweep any error node mermaid may have left behind.
+      document.getElementById(`d${id}`)?.remove();
+    }
+  }
 }
 
 interface MarkdownProps {
@@ -77,7 +164,9 @@ export function Markdown({ source, className }: MarkdownProps) {
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (ref.current) decoratePre(ref.current);
+    if (!ref.current) return;
+    decoratePre(ref.current);
+    void renderMermaidBlocks(ref.current);
   }, [html]);
 
   return (

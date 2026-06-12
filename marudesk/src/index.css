@@ -197,6 +197,23 @@ svg.lucide {
   }
 }
 
+/* ─── Transcript search flash ─────────────────────────────────────────────────
+   Applied transiently by TranscriptSearch when jumping to a message: a brief
+   accent ring that fades, so the landed message is unmistakable. */
+.msg-flash {
+  border-radius: var(--radius);
+  animation: msg-flash 1.2s var(--easing);
+}
+@keyframes msg-flash {
+  0%,
+  55% {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
 /* ─── Markdown preview prose ──────────────────────────────────────────────────
    Applied to the .md-prose container in MarkdownPreview.tsx.
    Uses design tokens only; adapts automatically to dark/light via data-theme. */
@@ -208,6 +225,12 @@ svg.lucide {
   font-family: var(--font-body);
   font-size: 0.875rem;       /* body */
   line-height: 1.7;
+  /* AI output is full of long unbroken tokens (URLs, file paths, hashes).
+     `anywhere` lets them wrap — and, unlike `break-word`, also shrinks the
+     min-content width, so prose can never force a narrow split pane / drawer
+     wider than its container. */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .md-prose > * + * { margin-top: 1em; }
@@ -297,9 +320,16 @@ svg.lucide {
   color: var(--text-primary);
 }
 
-/* Tables */
+/* Tables — GFM tables have no minimum-width escape hatch of their own, so a
+   wide table would otherwise push past a narrow split pane / drawer. Render as
+   a block that scrolls horizontally inside its own bounds instead (GitHub's
+   approach): narrow tables keep their natural width, wide ones get a local
+   scrollbar rather than overflowing the transcript. */
 .md-prose table {
-  width: 100%;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 0.8125rem;
   margin: 1em 0;
@@ -334,16 +364,27 @@ svg.lucide {
   padding: 0;
 }
 
-/* ─── Code block chrome: copy button + language label ─────────────────────────
+/* ─── Code block chrome: action buttons + language label ──────────────────────
    <pre> is decorated by the shared Markdown renderer (src/lib/markdown.tsx),
-   which adds .md-codeblock plus the button/label elements. */
+   which adds .md-codeblock plus the action/label/expand elements. */
 .md-prose pre.md-codeblock {
   position: relative;
 }
-.md-prose pre.md-codeblock .md-copy-btn {
+.md-prose pre.md-codeblock .md-pre-actions {
   position: absolute;
   top: 0.4rem;
   right: 0.4rem;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity var(--duration-fast, 120ms) ease;
+}
+.md-prose pre.md-codeblock:hover .md-pre-actions,
+.md-prose pre.md-codeblock .md-pre-actions:focus-within,
+.md-prose pre.md-codeblock .md-pre-actions:has(.is-on, .is-copied) {
+  opacity: 1;
+}
+.md-prose pre.md-codeblock .md-pre-btn {
   padding: 0.15rem 0.45rem;
   font-family: var(--font-body);
   font-size: 0.6875rem;
@@ -353,20 +394,54 @@ svg.lucide {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--duration-fast, 120ms) ease,
-    color var(--duration-fast, 120ms) ease;
+  transition: color var(--duration-fast, 120ms) ease;
 }
-.md-prose pre.md-codeblock:hover .md-copy-btn,
-.md-prose pre.md-codeblock .md-copy-btn:focus-visible {
-  opacity: 1;
-}
-.md-prose pre.md-codeblock .md-copy-btn:hover {
+.md-prose pre.md-codeblock .md-pre-btn:hover {
   color: var(--text-primary);
 }
-.md-prose pre.md-codeblock .md-copy-btn.is-copied {
+.md-prose pre.md-codeblock .md-pre-btn.is-copied,
+.md-prose pre.md-codeblock .md-pre-btn.is-on {
   color: var(--accent);
-  opacity: 1;
+}
+
+/* Wrap toggle: long lines wrap in place (white-space inherits into <code>). */
+.md-prose pre.md-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Long-block collapse: the renderer caps blocks over ~26 lines and inserts a
+   full-width "Show all N lines" bar right after the <pre>. */
+.md-prose pre.md-codeblock.md-collapsed {
+  max-height: 21rem;
+  overflow-y: hidden;
+}
+.md-prose pre.md-codeblock:has(+ .md-expand-btn) {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+}
+.md-prose .md-expand-btn {
+  display: block;
+  width: 100%;
+  margin-top: 0;
+  padding: 0.3rem 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--text-tertiary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0 0 var(--radius) var(--radius);
+  cursor: pointer;
+  transition: color var(--duration-fast, 120ms) ease,
+    background-color var(--duration-fast, 120ms) ease;
+}
+.md-prose .md-expand-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-3);
 }
 .md-prose pre.md-codeblock .md-code-lang {
   position: absolute;
@@ -383,6 +458,30 @@ svg.lucide {
 /* Give the first code line clearance so it doesn't run under the lang label. */
 .md-prose pre.md-codeblock:has(.md-code-lang) > code {
   padding-top: 0.9rem;
+}
+
+/* Mermaid diagrams (```mermaid fences rendered to SVG by src/lib/markdown.tsx).
+   Card chrome matches code blocks; wide diagrams scroll inside their bounds. */
+.md-prose .md-mermaid {
+  display: flex;
+  justify-content: center;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 0.875em 1em;
+  margin: 1em 0;
+  overflow-x: auto;
+}
+.md-prose .md-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* KaTeX display math: wide equations scroll instead of overflowing the pane. */
+.md-prose .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25em 0;
 }
 
 /* ─── Compact prose (AI chat) ─────────────────────────────────────────────────
