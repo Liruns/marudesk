@@ -2,29 +2,37 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { AgentWorkspaceThreadsEvent, ThreadSummary } from '../../../shared/agent';
-import { useAgentStore, useAgentWorkspaceId } from './store';
+import { useAgentPanelKey, useAgentStore, useAgentWorkspaceId } from './store';
 import { useI18n } from '../../i18n/useI18n';
 
 /**
  * Thread switcher (Stage 12-B-2). Tabs for the open conversation threads — click
- * to switch, ✕ to close, + to start a new one. The active thread drives the main
- * chat (switching emits its state). Main owns the registry; this is a projection
- * fed by the scoped thread event stream (pushed on every emit + on structure changes). Hidden
- * until there's more than one thread, so the single-chat case is unchanged.
+ * to switch, ✕ to close, + to start a new one. Main owns the registry; this is a
+ * projection fed by the scoped thread event stream (pushed on every emit + on
+ * structure changes). Hidden until there's more than one thread.
+ *
+ * In a panel-scoped surface (an AI Chat tab bound to its own thread), switching
+ * REBINDS this panel to the picked thread — the panel's binding is its own, so
+ * the workspace-active marker streaming from main must never overwrite it
+ * (that's how two panels used to end up mirroring one conversation).
  */
 export function ThreadBar() {
   const { t } = useI18n();
   const workspaceId = useAgentWorkspaceId();
+  const panelKey = useAgentPanelKey();
   const setActiveThreadId = useAgentStore((s) => s.setActiveThreadId);
+  const activeThreadId = useAgentStore((s) => s.activeThreadId);
   const [threads, setThreadsState] = useState<ThreadSummary[]>([]);
   const [busy, setBusy] = useState(false);
 
   const setThreads = useCallback(
     (next: ThreadSummary[]): void => {
       setThreadsState(next);
-      setActiveThreadId(next.find((thread) => thread.active)?.id ?? null);
+      // Only an active-follower surface tracks the workspace-active thread; a
+      // panel keeps its own binding.
+      if (!panelKey) setActiveThreadId(next.find((thread) => thread.active)?.id ?? null);
     },
-    [setActiveThreadId],
+    [setActiveThreadId, panelKey],
   );
 
   useEffect(() => {
@@ -51,14 +59,32 @@ export function ThreadBar() {
     }
   };
 
-  const newThread = () => run(() => window.marudesk.invoke('agent:new-thread', { workspaceId }));
-  const switchTo = (id: string) =>
-    run(() => window.marudesk.invoke('agent:switch-thread', { id, workspaceId }));
+  const newThread = () =>
+    run(async () => {
+      const next = await window.marudesk.invoke('agent:new-thread', { workspaceId });
+      if (panelKey) setActiveThreadId(next.find((thread) => thread.active)?.id ?? null);
+      return next;
+    });
+  const switchTo = (id: string) => {
+    // Rebind the panel BEFORE the invoke so the switched thread's state push
+    // passes the panel's threadId filter.
+    if (panelKey) setActiveThreadId(id);
+    return run(() => window.marudesk.invoke('agent:switch-thread', { id, workspaceId }));
+  };
   const close = (id: string) =>
-    run(() => window.marudesk.invoke('agent:close-thread', { id, workspaceId }));
+    run(async () => {
+      const next = await window.marudesk.invoke('agent:close-thread', { id, workspaceId });
+      // Closing the panel's own thread: rebind to whatever main made active.
+      if (panelKey && id === activeThreadId) {
+        setActiveThreadId(next.find((thread) => thread.active)?.id ?? null);
+      }
+      return next;
+    });
 
   // Single-thread case: just the "+" affordance, kept unobtrusive.
   const multi = threads.length > 1;
+  const isActive = (thread: ThreadSummary): boolean =>
+    panelKey ? thread.id === activeThreadId : thread.active;
 
   return (
     <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-subtle/70 overflow-x-auto scrollbar-none">
@@ -68,17 +94,17 @@ export function ThreadBar() {
             key={t.id}
             className={cn(
               'group flex items-center gap-1.5 rounded-md px-2 py-1 text-caption max-w-44 shrink-0 cursor-pointer transition-colors duration-fast',
-              t.active
+              isActive(t)
                 ? 'bg-surface-2 text-fg-primary shadow-highlight'
                 : 'text-fg-tertiary hover:bg-surface-1/80 hover:text-fg-secondary',
             )}
-            onClick={() => !t.active && void switchTo(t.id)}
+            onClick={() => !isActive(t) && void switchTo(t.id)}
             title={t.title}
           >
             {t.busy ? (
               <Loader2 size={10} className="shrink-0 animate-spin text-accent" />
             ) : (
-              <span className={cn('shrink-0 size-1.5 rounded-full', t.active ? 'bg-accent' : 'bg-fg-tertiary/30')} />
+              <span className={cn('shrink-0 size-1.5 rounded-full', isActive(t) ? 'bg-accent' : 'bg-fg-tertiary/30')} />
             )}
             <span className="truncate">{t.title}</span>
             <button

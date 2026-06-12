@@ -165,6 +165,15 @@ export function containerBusy(c: ThreadContainer): boolean {
 }
 
 /**
+ * The container for one specific thread, or null when it's gone (closed, or
+ * dropped by a profile switch). Thread-pinned surfaces (an AI Chat tab bound to
+ * its own thread) route their commands here instead of the ACTIVE-thread lookup.
+ */
+export function containerForThread(id: string): ThreadContainer | null {
+  return threads.get(id) ?? null;
+}
+
+/**
  * Find the container that owns a given turn, by its live turnId. A turn runs on a
  * captured container even after the user switches threads, so turn-control
  * actions (approve/respond/abort) must route by turnId across ALL threads, not
@@ -405,26 +414,38 @@ function emitWorkspaceContainer(c: ThreadContainer): void {
   if (!flush) {
     flush = coalesced(() => {
       if (!c.workspaceId) return;
-      // Only the ACTIVE thread for a workspace may drive the visible chat. A turn
-      // running in a switched-away thread should keep working in the background and
-      // refresh the thread list, but must not stream tokens/tool output into the
-      // currently viewed conversation.
-      if (!isActiveThreadForContainer(c)) return;
+      // A container that was closed between emit and flush has no id anymore —
+      // there's nothing a subscriber could address the state by, so drop it.
+      const threadId = idForContainer(c);
+      if (!threadId) return;
+      // EVERY workspace thread streams to the renderer, stamped with its threadId
+      // and whether it's the workspace's ACTIVE thread. Panel surfaces pinned to
+      // one thread filter by threadId (so two AI Chat tabs stay independent);
+      // active-follower surfaces (the drawer) keep ignoring non-active pushes —
+      // a background turn still can't hijack the conversation they show.
+      const active = isActiveThreadForContainer(c);
       refreshOrchestrationProjection();
       const agentSettings = getSettingsSync().agent;
       c.state.approvalMode = agentSettings.approvalMode;
       c.state.reasoningEffort = agentSettings.reasoningEffort;
       const host = getHost();
       if (host && !host.isDestroyed()) {
-        host.webContents.send('agent:workspace-event', { workspaceId: c.workspaceId, state: c.state });
+        host.webContents.send('agent:workspace-event', {
+          workspaceId: c.workspaceId,
+          threadId,
+          active,
+          state: c.state,
+        });
       }
       // The bridge's workspace-scoped stream (a phone joined to this workspace)
-      // gets the same active-thread push the renderer just did.
-      for (const cb of workspaceSubscribers) {
-        try {
-          cb(c.workspaceId, c.state);
-        } catch {
-          // A subscriber must never break the loop's fan-out.
+      // stays an ACTIVE-thread stream — thin clients render one conversation.
+      if (active) {
+        for (const cb of workspaceSubscribers) {
+          try {
+            cb(c.workspaceId, c.state);
+          } catch {
+            // A subscriber must never break the loop's fan-out.
+          }
         }
       }
     });

@@ -721,16 +721,21 @@ export interface IpcMap {
     args: [payload: { id: string; status?: string; remove?: boolean }];
     result: boolean;
   };
-  // Pull the current chat state (initial render / re-mount).
-  'agent:snapshot': { args: [payload?: { workspaceId?: WorkspaceId }]; result: AgentChatState };
+  // Pull the current chat state (initial render / re-mount). `threadId` scopes
+  // the read to one conversation thread (a panel pinned to its own thread);
+  // omitted, it reads the workspace's (or global) ACTIVE thread.
+  'agent:snapshot': {
+    args: [payload?: { workspaceId?: WorkspaceId; threadId?: string }];
+    result: AgentChatState;
+  };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
-  'agent:reset': { args: [payload?: { workspaceId?: WorkspaceId }]; result: boolean };
+  'agent:reset': { args: [payload?: { workspaceId?: WorkspaceId; threadId?: string }]; result: boolean };
   // Compact the conversation: summarize the transcript for the model while
   // keeping the visible scrollback (claude-code / codex `/compact`). An optional
   // `focus` (from `/compact <focus>`) asks the summarizer to preserve specific
   // details. Returns ok, or a reason when there's nothing to compact.
   'agent:compact': {
-    args: [payload?: { focus?: string; workspaceId?: WorkspaceId }];
+    args: [payload?: { focus?: string; workspaceId?: WorkspaceId; threadId?: string }];
     result: { ok: boolean; reason?: string };
   };
   // Session history (v3 §5-C): list past saved conversations, resume one as the
@@ -740,8 +745,14 @@ export interface IpcMap {
     args: [payload: { query: string; workspaceId?: WorkspaceId }];
     result: SessionSearchHit[];
   };
-  'agent:resume-session': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: boolean };
-  'agent:delete-session': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: boolean };
+  'agent:resume-session': {
+    args: [payload: { id: string; workspaceId?: WorkspaceId; threadId?: string }];
+    result: boolean;
+  };
+  'agent:delete-session': {
+    args: [payload: { id: string; workspaceId?: WorkspaceId; threadId?: string }];
+    result: boolean;
+  };
   // threads (Stage 12-B-2 — concurrent conversation switching)
   'agent:list-threads': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
   'agent:new-thread': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };

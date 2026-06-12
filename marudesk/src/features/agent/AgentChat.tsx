@@ -15,7 +15,13 @@ import type { AgentChatState, AgentWorkspaceEvent } from '../../../shared/agent'
 import { useProvidersStore } from '../providers/store';
 import { useSettingsStore } from '../settings/store';
 import { useWorkspaceStore } from '../workspace/store';
-import { useAgentStore, useAgentWorkspaceId, useThreadModelKey } from './store';
+import {
+  useAgentPanelKey,
+  useAgentStore,
+  useAgentStoreApi,
+  useAgentWorkspaceId,
+  useThreadModelKey,
+} from './store';
 import { ContextPopover } from './ContextPopover';
 import { buildReceipt, isBusy } from './chat/format';
 import {
@@ -77,6 +83,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const dequeuePrompt = useAgentStore((s) => s.dequeuePrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
   const workspaceId = useAgentWorkspaceId();
+  const panelKey = useAgentPanelKey();
+  const storeApi = useAgentStoreApi();
 
   const summary = useWorkspaceStore((s) => s.summary);
   // Reading-comfort scale for the transcript only (settings → Appearance). CSS
@@ -101,17 +109,28 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     });
 
   // Subscribe to the server-owned snapshot stream while mounted; hydrate once so
-  // we catch up on whatever happened while the panel was on another tab.
+  // we catch up on whatever happened while the panel was on another tab. A
+  // panel-scoped surface (one AI Chat tab) only ingests ITS OWN thread's pushes;
+  // an active-follower surface (the drawer) ignores non-active threads — that's
+  // what keeps two open chat panels from mirroring each other.
   useEffect(() => {
     void hydrate();
     if (workspaceId) {
       return window.marudesk.on('agent:workspace-event', (event: AgentWorkspaceEvent) => {
-        if (event.workspaceId === workspaceId) ingest(event.state);
+        if (event.workspaceId !== workspaceId) return;
+        // main stamps every push with its threadId; an unstamped event (test
+        // injection) is treated as a workspace-wide broadcast.
+        if (panelKey) {
+          if (event.threadId && event.threadId !== storeApi.getState().activeThreadId) return;
+        } else if (event.active === false) {
+          return;
+        }
+        ingest(event.state);
       });
     }
     const off = window.marudesk.on('agent:event', (s: AgentChatState) => ingest(s));
     return off;
-  }, [hydrate, ingest, workspaceId]);
+  }, [hydrate, ingest, workspaceId, panelKey, storeApi]);
 
   useEffect(() => {
     if (!statusChecked) void refreshStatus();

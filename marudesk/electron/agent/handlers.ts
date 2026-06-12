@@ -7,7 +7,7 @@ import { cancelBackgroundTask } from './background';
 import { editPlanStep } from './plan';
 import { parseAbort, parseApprove, parseEditPlanStep, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
-import { containerForWorkspace } from './loop-state.ts';
+import { containerForThread, containerForWorkspace, type ThreadContainer } from './loop-state.ts';
 import { builtinToolInfo } from './tools/registry';
 import {
   abortTurn,
@@ -44,6 +44,28 @@ function workspaceIdOf(payload: unknown): WorkspaceId | undefined {
 
 function uiWorkspaceFilterOf(payload: unknown): WorkspaceId | null {
   return workspaceIdOf(payload) ?? null;
+}
+
+function threadIdOf(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const value = (payload as Record<string, unknown>).threadId;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * The container a chat command targets: the payload's `threadId` when present
+ * (a panel pinned to its own thread — an unknown id is a hard error, never a
+ * fallback to someone else's conversation), else the workspace/global ACTIVE
+ * thread as before.
+ */
+function containerOf(payload: unknown): ThreadContainer {
+  const threadId = threadIdOf(payload);
+  if (threadId) {
+    const container = containerForThread(threadId);
+    if (!container) throw new Error('unknown thread');
+    return container;
+  }
+  return containerForWorkspace(workspaceIdOf(payload));
 }
 
 /** Defensively coerce the renderer's context mirror into the cached shape. */
@@ -137,14 +159,14 @@ export function registerAgentHandlers(): void {
     return editPlanStep(id, { status, remove });
   });
 
-  defineHandler('agent:snapshot', ([payload]) => snapshot(workspaceIdOf(payload)));
+  defineHandler('agent:snapshot', ([payload]) => snapshot(workspaceIdOf(payload), threadIdOf(payload)));
 
-  defineHandler('agent:reset', ([payload]) => reset(containerForWorkspace(workspaceIdOf(payload))));
+  defineHandler('agent:reset', ([payload]) => reset(containerOf(payload)));
 
   defineHandler('agent:compact', ([payload]) => {
     const data = obj(payload ?? {});
     const focus = typeof data.focus === 'string' ? data.focus : undefined;
-    return compactConversation(focus, containerForWorkspace(workspaceIdOf(payload)));
+    return compactConversation(focus, containerOf(payload));
   });
 
   // Session history (v3 §5-C): list past conversations, resume one as the active
@@ -159,17 +181,11 @@ export function registerAgentHandlers(): void {
   });
 
   defineHandler('agent:resume-session', ([payload]) =>
-    resumeSession(
-      nonEmptyStr(obj(payload).id, 'id'),
-      containerForWorkspace(workspaceIdOf(payload)),
-    ),
+    resumeSession(nonEmptyStr(obj(payload).id, 'id'), containerOf(payload)),
   );
 
   defineHandler('agent:delete-session', ([payload]) =>
-    deleteSavedSession(
-      nonEmptyStr(obj(payload).id, 'id'),
-      containerForWorkspace(workspaceIdOf(payload)),
-    ),
+    deleteSavedSession(nonEmptyStr(obj(payload).id, 'id'), containerOf(payload)),
   );
 
   // Thread switching (Stage 12-B-2): hold several conversations and switch the

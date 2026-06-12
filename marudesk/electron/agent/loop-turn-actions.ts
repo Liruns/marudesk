@@ -21,6 +21,7 @@ import { getWorkspaceSummary } from '../workspace-registry';
 import {
   emitContainer,
   containers,
+  containerForThread,
   containerForTurn,
   containerForWorkspace,
   refreshOrchestrationProjection,
@@ -161,12 +162,18 @@ async function revertOnDisk(ws: WorkspaceSummary, edit: AgentEdit): Promise<void
   }
 }
 
-export function snapshot(workspaceId?: WorkspaceId): AgentChatState {
+export function snapshot(workspaceId?: WorkspaceId, threadId?: string): AgentChatState {
   // The projection (approvalQueue/orchestration) is normally refreshed inside the
   // coalesced emit flushes; refresh here so a synchronous reader — the renderer's
   // initial pull, the bridge's L-1 gated-tool guard — never sees a stale queue.
   refreshOrchestrationProjection();
-  const state = containerForWorkspace(workspaceId).state;
+  // A thread-pinned panel reads ITS OWN thread; without one, the workspace's (or
+  // global) ACTIVE thread. An unknown threadId is a hard error, not a fallback —
+  // silently answering with another conversation is the cross-panel bleed this
+  // scoping exists to prevent.
+  const container = threadId ? containerForThread(threadId) : containerForWorkspace(workspaceId);
+  if (!container) throw new Error('unknown thread');
+  const state = container.state;
   // Stamp the settings projections too: a workspace container that hasn't emitted
   // yet (a thin client's first pull) would otherwise show the empty-state defaults.
   const agent = getSettingsSync().agent;

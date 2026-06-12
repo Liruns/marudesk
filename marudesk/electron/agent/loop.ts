@@ -57,6 +57,7 @@ import { runContextHook, runVerifyNote } from './loop-commands.ts';
 import {
   emitContainer,
   currentContainer,
+  containerForThread,
   containerForWorkspace,
   containerBusy,
   uid,
@@ -949,11 +950,21 @@ function shouldAutoCompact(S: ThreadContainer): boolean {
  * tiny generateText against the provider's default model.
  */
 export async function startTurn(input: AgentSendInput): Promise<AgentSendResult> {
-  // Bind this turn to the ACTIVE thread's container now (Stage 12-B-2). Capturing
-  // it up front means the turn sets up + runs on the thread the user sent to even
-  // if they switch away during the async auth resolve below. `busy()` checks the
-  // active thread — a turn already running on ANOTHER thread doesn't block this.
-  const S = input.workspaceId ? containerForWorkspace(input.workspaceId) : currentContainer();
+  // Bind this turn to its container now (Stage 12-B-2). A thread-pinned send (an
+  // AI Chat tab bound to its own thread) targets that exact thread; otherwise the
+  // workspace's (or global) ACTIVE thread. Capturing it up front means the turn
+  // sets up + runs on the thread the user sent to even if they switch away during
+  // the async auth resolve below. `busy()` checks the active thread — a turn
+  // already running on ANOTHER thread doesn't block this.
+  const S = input.threadId
+    ? containerForThread(input.threadId)
+    : input.workspaceId
+      ? containerForWorkspace(input.workspaceId)
+      : currentContainer();
+  if (!S) return { ok: false, reason: 'that conversation is no longer open' };
+  if (input.threadId && input.workspaceId && S.workspaceId !== input.workspaceId) {
+    return { ok: false, reason: 'that conversation belongs to another workspace' };
+  }
   // `S.starting` closes the window between this check and `S.state.status` going
   // busy (there's an auth-resolution await before we set it), so two
   // near-simultaneous sends can't both set up a turn and clobber `S.controller`.

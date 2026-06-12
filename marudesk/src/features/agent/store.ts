@@ -202,30 +202,26 @@ function activeWebTabId(): string | undefined {
   return active?.kind === 'web' ? active.id : undefined;
 }
 
-/**
- * Trigger a Source Control refresh when the agent's applied-edits set actually
- * changes (a new edit, or an accept/revert flipping a status) — not on every
- * streaming snapshot. The signature is the appended edits' `id:status`; an empty
- * set (fresh chat / reset) is skipped since it implies no new disk change.
- */
-let prevEditsSig = '';
-function maybeRefreshGitForEdits(chat: AgentChatState): void {
-  const sig = chat.edits.map((e) => `${e.id}:${e.status}`).join('|');
-  if (sig === prevEditsSig) return;
-  prevEditsSig = sig;
-  if (chat.edits.length === 0) return;
-  void useGitStore.getState().refresh();
-}
-
 type AgentStore = AgentState & AgentActions;
 type AgentStoreApi = StoreApi<AgentStore>;
 
-const AgentWorkspaceContext = createContext<WorkspaceId | undefined>(undefined);
+/**
+ * Where a chat surface binds: its workspace, plus an optional `panelKey` (the
+ * hosting tab's id) when the surface is one AI Chat panel pinned to its OWN
+ * conversation thread. Panel-scoped surfaces get their own store instance, so
+ * two AI Chat tabs in the same workspace keep independent drafts, transcripts,
+ * and history selection; without a panelKey (the drawer) the store follows the
+ * workspace's ACTIVE thread as before.
+ */
+type AgentScope = { workspaceId?: WorkspaceId; panelKey?: string };
+
+const AgentScopeContext = createContext<AgentScope>({});
 const GLOBAL_AGENT_SCOPE = '__global__';
 const agentStores = new Map<string, AgentStoreApi>();
 
-function scopeKey(workspaceId: WorkspaceId | undefined): string {
-  return normalizeAgentWorkspaceId(workspaceId) ?? GLOBAL_AGENT_SCOPE;
+function scopeKey(workspaceId: WorkspaceId | undefined, panelKey?: string): string {
+  const base = normalizeAgentWorkspaceId(workspaceId) ?? GLOBAL_AGENT_SCOPE;
+  return panelKey ? `${base}::panel::${panelKey}` : base;
 }
 
 function scopedPayload(workspaceId: WorkspaceId | undefined): { workspaceId?: WorkspaceId } {
@@ -244,12 +240,33 @@ function hasAuthFor(status: ProviderStatus[], provider: ProviderId): boolean {
 }
 
 
-function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
+function createAgentStore(workspaceId: WorkspaceId | undefined, panelScoped = false): AgentStoreApi {
   const scope = normalizeAgentWorkspaceId(workspaceId);
   const historyKey = scopedStorageKey(HISTORY_KEY, scope);
   const verbosityKey = scopedStorageKey(VERBOSITY_KEY, scope);
+  // Per-store edits signature for the Source Control refresh trigger, so two
+  // panels streaming different threads can't thrash each other's signature.
+  let prevEditsSig = '';
+  function maybeRefreshGitForEdits(chat: AgentChatState): void {
+    const sig = chat.edits.map((e) => `${e.id}:${e.status}`).join('|');
+    if (sig === prevEditsSig) return;
+    prevEditsSig = sig;
+    if (chat.edits.length === 0) return;
+    void useGitStore.getState().refresh();
+  }
 
-  return createStore<AgentStore>((set, get) => ({
+  return createStore<AgentStore>((set, get) => {
+  /**
+   * The thread this store's commands target. A panel store is pinned to its own
+   * thread (its `activeThreadId`); an active-follower store omits the field so
+   * main routes to the workspace/global ACTIVE thread.
+   */
+  const threadPayload = (): { threadId?: string } => {
+    const id = get().activeThreadId;
+    return id ? { threadId: id } : {};
+  };
+
+  return {
   chat: emptyAgentChatState(),
   draft: '',
   draftByThread: {},
@@ -382,8 +399,15 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
   },
 
   hydrate: async () => {
+    // A panel store that hasn't bound its own thread yet must not pull the
+    // workspace-ACTIVE state — that's another panel's conversation. It stays on
+    // the empty state until AgentTab binds the thread and hydrates again.
+    if (panelScoped && !get().activeThreadId) return;
     try {
-      const chat = await window.marudesk.invoke('agent:snapshot', scopedPayload(workspaceId));
+      const chat = await window.marudesk.invoke('agent:snapshot', {
+        ...scopedPayload(workspaceId),
+        ...threadPayload(),
+      });
       set({ chat });
     } catch {
       // best-effort; the next agent:event will populate it
@@ -476,6 +500,7 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
         model,
         prompt,
         ...scopedPayload(scope),
+        ...threadPayload(),
         captures,
         images: images && images.length > 0 ? images : undefined,
         tabId: activeWebTabId(),
@@ -600,7 +625,10 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
 
   resetChat: async () => {
     try {
-      await window.marudesk.invoke('agent:reset', scopedPayload(workspaceId));
+      await window.marudesk.invoke('agent:reset', {
+        ...scopedPayload(workspaceId),
+        ...threadPayload(),
+      });
       useDiffCommentsStore.getState().clearAll();
       const threadId = activeThreadKey(get());
       set((s) => ({
@@ -625,7 +653,11 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
 
   compact: async (focus?: string) => {
     try {
-      return await window.marudesk.invoke('agent:compact', { ...scopedPayload(workspaceId), focus });
+      return await window.marudesk.invoke('agent:compact', {
+        ...scopedPayload(workspaceId),
+        ...threadPayload(),
+        focus,
+      });
     } catch (err) {
       return { ok: false, reason: toMessage(err) };
     }
@@ -644,6 +676,7 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
     try {
       const ok = await window.marudesk.invoke('agent:resume-session', {
         ...scopedPayload(workspaceId),
+        ...threadPayload(),
         id,
       });
       if (ok) {
@@ -671,13 +704,18 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
 
   deleteSession: async (id) => {
     try {
-      await window.marudesk.invoke('agent:delete-session', { ...scopedPayload(workspaceId), id });
+      await window.marudesk.invoke('agent:delete-session', {
+        ...scopedPayload(workspaceId),
+        ...threadPayload(),
+        id,
+      });
       await get().loadSessions();
     } catch {
       // ignore
     }
   },
-  }));
+  };
+  });
 }
 
 export function getAgentStoreForWorkspace(workspaceId: WorkspaceId | undefined): AgentStoreApi {
@@ -690,22 +728,73 @@ export function getAgentStoreForWorkspace(workspaceId: WorkspaceId | undefined):
   return created;
 }
 
+/**
+ * The store for ONE AI Chat panel (a tab pinned to its own thread). Created on
+ * first use and kept across remounts — the single-view stage unmounts a tab's
+ * surface on every tab switch, and the panel's draft/transcript must survive
+ * that — so it lives until {@link disposeAgentPanelStore} (the tab closing).
+ */
+export function getAgentPanelStore(
+  workspaceId: WorkspaceId | undefined,
+  panelKey: string,
+): AgentStoreApi {
+  const scope = normalizeAgentWorkspaceId(workspaceId);
+  const key = scopeKey(scope, panelKey);
+  const existing = agentStores.get(key);
+  if (existing) return existing;
+  const created = createAgentStore(scope, true);
+  agentStores.set(key, created);
+  return created;
+}
+
+/** A panel's store if it exists — does NOT create one (tab-close cleanup). */
+export function peekAgentPanelStore(
+  workspaceId: WorkspaceId | undefined,
+  panelKey: string,
+): AgentStoreApi | undefined {
+  return agentStores.get(scopeKey(normalizeAgentWorkspaceId(workspaceId), panelKey));
+}
+
+/** Drop a closed tab's panel store so the registry doesn't grow unbounded. */
+export function disposeAgentPanelStore(
+  workspaceId: WorkspaceId | undefined,
+  panelKey: string,
+): void {
+  agentStores.delete(scopeKey(normalizeAgentWorkspaceId(workspaceId), panelKey));
+}
+
 export function AgentScopeProvider({
   workspaceId,
+  panelKey,
   children,
 }: {
   workspaceId?: WorkspaceId;
+  /** Hosting tab id — set by AgentTab so the surface binds a per-panel store. */
+  panelKey?: string;
   children?: ReactNode;
 }) {
   return createElement(
-    AgentWorkspaceContext.Provider,
-    { value: normalizeAgentWorkspaceId(workspaceId) },
+    AgentScopeContext.Provider,
+    { value: { workspaceId: normalizeAgentWorkspaceId(workspaceId), panelKey } },
     children,
   );
 }
 
 export function useAgentWorkspaceId(): WorkspaceId | undefined {
-  return useContext(AgentWorkspaceContext);
+  return useContext(AgentScopeContext).workspaceId;
+}
+
+/** The hosting tab's id when this surface is a per-panel AI Chat, else undefined. */
+export function useAgentPanelKey(): string | undefined {
+  return useContext(AgentScopeContext).panelKey;
+}
+
+/** The scope's resolved store instance (panel store when panel-scoped). */
+export function useAgentStoreApi(): AgentStoreApi {
+  const { workspaceId, panelKey } = useContext(AgentScopeContext);
+  return panelKey
+    ? getAgentPanelStore(workspaceId, panelKey)
+    : getAgentStoreForWorkspace(workspaceId);
 }
 
 type AgentStoreHook = {
@@ -719,8 +808,11 @@ const defaultAgentStore = getAgentStoreForWorkspace(undefined);
 
 export const useAgentStore = Object.assign(
   <T,>(selector: (state: AgentStore) => T): T => {
-    const workspaceId = useAgentWorkspaceId();
-    return useStore(getAgentStoreForWorkspace(workspaceId), selector);
+    const { workspaceId, panelKey } = useContext(AgentScopeContext);
+    return useStore(
+      panelKey ? getAgentPanelStore(workspaceId, panelKey) : getAgentStoreForWorkspace(workspaceId),
+      selector,
+    );
   },
   {
     getState: defaultAgentStore.getState,
@@ -807,7 +899,16 @@ export async function focusOrOpenAgentTab(workspaceId?: WorkspaceId): Promise<vo
 export async function askAgent(prompt: string): Promise<void> {
   const workspaceId = resolveAgentWorkspaceId();
   await focusOrOpenAgentTab(workspaceId);
-  const store = getAgentStoreForWorkspace(workspaceId).getState();
+  // Hand the prompt to the focused PANEL's store (each AI Chat tab keeps its own
+  // conversation), so the sent draft — and a pre-send failure — land in the chat
+  // the user is now looking at.
+  const tabsState = useTabsStore.getState();
+  const panelTab = tabsState.tabs.find(
+    (t) => t.kind === 'agent' && normalizeAgentWorkspaceId(t.workspaceId) === workspaceId,
+  );
+  const store = (
+    panelTab ? getAgentPanelStore(workspaceId, panelTab.id) : getAgentStoreForWorkspace(workspaceId)
+  ).getState();
   store.setDraft(prompt);
   await store.send();
 }

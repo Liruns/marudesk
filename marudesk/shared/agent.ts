@@ -384,6 +384,12 @@ export type AgentSendInput = {
   model: string;
   prompt: string;
   workspaceId?: WorkspaceId;
+  /**
+   * Target conversation thread. A panel-scoped chat surface (one AI Chat tab)
+   * pins its sends to its own thread; omitted, the send goes to the workspace's
+   * (or the global) ACTIVE thread.
+   */
+  threadId?: string;
   /** Captures selected in the Captures tab, attached as first-turn context. */
   captures: CapturePayload[];
   /** Images pasted/dropped into the composer, forwarded to vision models. */
@@ -398,6 +404,10 @@ export type AgentSendResult =
 
 export type AgentWorkspaceEvent = {
   workspaceId: WorkspaceId;
+  /** The owning thread — a panel pinned to one thread filters the stream by this. */
+  threadId?: string;
+  /** Whether that thread is the workspace's ACTIVE one (active-follower surfaces key off it). */
+  active?: boolean;
   state: AgentChatState;
 };
 
