@@ -1,6 +1,6 @@
 name: Release
 
-# Build and publish marudesk desktop installers.
+# Build and publish marudesk desktop installers and Android APK.
 #
 # Pushing a version tag (e.g. v0.2.0) builds the app on native runners for each
 # target platform/arch and publishes the artifacts to a GitHub release that
@@ -12,9 +12,9 @@ name: Release
 # the installers — useful when a git tag push is not available.
 #
 # Targets: macOS dmg (arm64 + x64), Windows NSIS (x64), Linux AppImage + deb
-# (x64). In-app auto-update stays Windows-only for now (see electron/updater.ts);
-# the macOS dmg is unsigned/download-and-run and the Linux artifacts are
-# download-and-run too.
+# (x64), Android APK (arm64/x86_64). In-app auto-update stays Windows-only for
+# now (see electron/updater.ts); the macOS dmg is unsigned/download-and-run, the
+# Linux artifacts are download-and-run, and the APK is sideload/debug-signed.
 
 on:
   push:
@@ -88,3 +88,83 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # electron-builder reads GH_TOKEN for GitHub publishing.
+
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Read version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Generate Android project
+        run: npx cap add android
+
+      - name: Sync web assets to Android
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+  upload-apk:
+    name: Upload APK to release
+    needs: [build, android]
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+
+      - name: Rename and upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.android.outputs.version }}
+        run: |
+          mv app-debug.apk "marudesk-${VERSION}.apk"
+          gh release upload "v${VERSION}" "marudesk-${VERSION}.apk" \
+            --repo "$GITHUB_REPOSITORY" --clobber
