@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '../features/workspace/store';
 import { useDiagnosticsStore, diagnosticCounts } from '../features/diagnostics/store';
 import { ProblemsPopover } from '../features/diagnostics/ProblemsPopover';
 import { useGitStore } from '../features/git/store';
+import { ContextRing } from '../features/agent/ContextRing';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { providerLabel } from '../../shared/providers';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN, type AgentApprovalMode } from '../../shared/settings';
@@ -187,6 +188,7 @@ export function StatusBar() {
         />
         <span>{t(APPROVAL_LABEL_KEY[approvalMode])}</span>
       </button>
+      <ContextRing />
       <button
         type="button"
         onClick={() => void openSettingsTab('providers')}
