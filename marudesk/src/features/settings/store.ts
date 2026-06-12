@@ -28,6 +28,7 @@ export type SettingsCategory =
   | 'remote'
   | 'window'
   | 'data'
+  | 'usage'
   | 'about';
 
 type SettingsState = {
