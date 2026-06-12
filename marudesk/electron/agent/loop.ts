@@ -483,6 +483,18 @@ async function runLoop(opts: RunOpts): Promise<void> {
     emit();
 
     if (calls.length === 0) {
+      // Empty response: no text, no tools, no reasoning → surface as an error
+      // instead of a silent blank bubble.
+      if (!textPart.text.trim() && !reasoningPart?.text.trim()) {
+        const i = S.state.messages.indexOf(assistantMsg);
+        if (i !== -1) S.state.messages.splice(i, 1);
+        return finish(
+          S,
+          'failed',
+          undefined,
+          `${current.provider} returned an empty response for model "${current.modelId}". The model produced no output — try again or switch models.`,
+        );
+      }
       // Post-edit verify hook: if this turn changed files and a verify command is
       // configured, run it and fold the result into this assistant message (UI +
       // model context) before completing.

@@ -10,6 +10,7 @@ import { fontStack } from '../../../shared/fonts';
 import { applyHljsTheme } from '../../lib/hljsTheme';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { workspaceLeaves } from '../workspaces/layout';
 
 export type { SettingsPatch };
 
@@ -184,16 +185,25 @@ export async function openSettingsTab(
 ): Promise<void> {
   if (category) useSettingsStore.getState().setCategory(category);
   const tabsState = useTabsStore.getState();
+  const deckState = useWorkspaceDeckStore.getState();
+  const focusedWs =
+    deckState.layout && deckState.focusedPaneId
+      ? workspaceLeaves(deckState.layout).find(
+          (l) => l.id === deckState.focusedPaneId,
+        )?.workspaceId
+      : null;
   const activeWorkspaceId =
-    useWorkspaceDeckStore.getState().activeWorkspaceId ??
+    focusedWs ??
+    deckState.activeWorkspaceId ??
     tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.workspaceId;
+  const wsId = activeWorkspaceId ?? undefined;
   const existing = tabsState.tabs.find(
     (t) =>
       t.kind === 'settings' &&
-      (activeWorkspaceId === undefined || t.workspaceId === activeWorkspaceId),
+      (wsId === undefined || t.workspaceId === wsId),
   );
   if (existing) await tabsState.activateTab(existing.id);
-  else await tabsState.newTab('settings', undefined, activeWorkspaceId);
+  else await tabsState.newTab('settings', undefined, wsId);
 }
 
 /**

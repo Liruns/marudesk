@@ -1,7 +1,8 @@
 import { app } from 'electron';
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
-import { isTabGroupColor, type TabGroupColor } from '../../shared/browser';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { isTabGroupColor, type TabGroupColor, type TabKind } from '../../shared/browser';
+import type { WorkspaceId } from '../../shared/workspace';
 import { atomicWriteFile } from '../fs-safe';
 import { getActiveTabId, getTabGroup, tabValues } from './state';
 
@@ -18,15 +19,19 @@ import { getActiveTabId, getTabGroup, tabValues } from './state';
  * (no `groups` array → every tab ungrouped), and an old build reading a new
  * file simply ignores the extra fields.
  *
- * Only kinds with restorable state are saved (web URLs, editor file paths);
- * transient kinds (home/terminal/agent/settings/search) carry nothing to bring
- * back and are skipped. Writes are atomic + fire-and-forget; the launch-time
+ * Web URLs, editor file paths, and feature tabs (agent, terminal) are saved
+ * along with their workspace assignment. Writes are atomic + fire-and-forget;
+ * the launch-time
  * read is synchronous so tabs exist, in order, before the stage paints.
  */
 
+/** Feature tab kinds that carry no payload but are worth restoring. */
+const RESTORABLE_FEATURE_KINDS: ReadonlySet<TabKind> = new Set(['agent', 'terminal']);
+
 export type TabSessionSpec =
-  | { kind: 'web'; url: string; pinned: boolean; group?: number }
-  | { kind: 'editor'; filePath: string; pinned: boolean; group?: number };
+  | { kind: 'web'; url: string; pinned: boolean; group?: number; workspaceId?: WorkspaceId }
+  | { kind: 'editor'; filePath: string; pinned: boolean; group?: number; workspaceId?: WorkspaceId }
+  | { kind: 'agent' | 'terminal'; pinned: boolean; group?: number; workspaceId?: WorkspaceId };
 
 /** A saved tab group; specs reference it by index via their `group` field. */
 export type TabSessionGroup = {
@@ -63,8 +68,11 @@ function sessionFromState(): TabSession {
       spec = { kind: 'web', url: url && url !== 'about:blank' ? url : '', pinned: !!rec.pinned };
     } else if (rec.kind === 'editor' && rec.filePath) {
       spec = { kind: 'editor', filePath: rec.filePath, pinned: !!rec.pinned };
+    } else if (RESTORABLE_FEATURE_KINDS.has(rec.kind)) {
+      spec = { kind: rec.kind as 'agent' | 'terminal', pinned: !!rec.pinned };
     }
     if (!spec) continue;
+    if (rec.workspaceId) spec.workspaceId = rec.workspaceId;
     if (rec.groupId) {
       const group = getTabGroup(rec.groupId);
       if (group) {
@@ -96,13 +104,29 @@ export function saveTabSession(): void {
   }
 }
 
+/**
+ * Synchronous variant for shutdown — ensures the session file lands before the
+ * process exits (the async atomic write may not complete in time).
+ */
+export function saveTabSessionSync(): void {
+  try {
+    const file = sessionFile();
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(sessionFromState()), 'utf8');
+  } catch {
+    // Best-effort
+  }
+}
+
 function isSpec(x: unknown): x is TabSessionSpec {
   if (!x || typeof x !== 'object') return false;
   const o = x as Record<string, unknown>;
   if (typeof o.pinned !== 'boolean') return false;
   if (o.group !== undefined && typeof o.group !== 'number') return false;
+  if (o.workspaceId !== undefined && typeof o.workspaceId !== 'string') return false;
   if (o.kind === 'web') return typeof o.url === 'string';
   if (o.kind === 'editor') return typeof o.filePath === 'string';
+  if (typeof o.kind === 'string' && RESTORABLE_FEATURE_KINDS.has(o.kind as TabKind)) return true;
   return false;
 }
 
@@ -130,17 +154,16 @@ export function loadTabSession(): TabSession {
       (spec): TabSessionSpec => {
         // Keep only trustworthy group references (an integer index into the
         // validated `groups`); anything else restores the tab ungrouped.
-        if (
+        const validGroup =
           spec.group !== undefined &&
           Number.isInteger(spec.group) &&
           spec.group >= 0 &&
-          spec.group < groups.length
-        ) {
-          return spec;
-        }
-        return spec.kind === 'web'
-          ? { kind: 'web', url: spec.url, pinned: spec.pinned }
-          : { kind: 'editor', filePath: spec.filePath, pinned: spec.pinned };
+          spec.group < groups.length;
+        if (validGroup) return spec;
+        const base = { pinned: spec.pinned, ...(spec.workspaceId ? { workspaceId: spec.workspaceId } : {}) };
+        if (spec.kind === 'web') return { kind: 'web', url: spec.url, ...base };
+        if (spec.kind === 'editor') return { kind: 'editor', filePath: spec.filePath, ...base };
+        return { kind: spec.kind as 'agent' | 'terminal', ...base };
       },
     );
     const activeIndex =
