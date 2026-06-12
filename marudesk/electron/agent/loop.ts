@@ -680,7 +680,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
         }
         if (reminders.length > 0) modelText = `${out.text}\n\n${reminders.join('\n\n')}`;
       }
-      return toolResult(call.id, call.name, modelText, out.isError);
+      // An inline image (screenshot tool) rides into the transcript as a
+      // multipart tool result so a vision-capable model can SEE the page.
+      return toolResult(call.id, call.name, modelText, out.isError, out.image);
     };
 
     // Walk the calls in order. A run of CONSECUTIVE spawn_subagent calls is a

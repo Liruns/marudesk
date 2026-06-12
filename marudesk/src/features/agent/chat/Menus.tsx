@@ -3,6 +3,7 @@ import { cn } from '../../../lib/cn';
 import { useI18n } from '../../../i18n/useI18n';
 import type { TranslationKey } from '../../../i18n/messages';
 import { findModel, providerLabel } from '../../../../shared/providers';
+import { estimateCostUsd, formatCostUsd } from '../../../../shared/model-pricing';
 import { SLASH_COMMANDS, type SlashCommand } from '../../../../shared/slash-commands';
 import { useSettingsStore } from '../../settings/store';
 import { useProvidersStore } from '../../providers/store';
@@ -201,6 +202,10 @@ function SlashContextBody() {
   const model = findModel(models, selectedModelKey);
   const ctx = model?.contextWindow;
   const pct = ctx ? Math.min(100, Math.round((usage.inputTokens / ctx) * 100)) : null;
+  // Estimated spend for the conversation (null for local/unknown models → hidden).
+  const cost = model
+    ? estimateCostUsd(model.id, usage.inputTokens, usage.outputTokens)
+    : null;
   const rows: Array<[string, string]> = [
     [t('agent.chat.context.provider'), providerLabel(selectedProvider)],
     [t('agent.chat.context.model'), model ? model.label : '-'],
@@ -208,6 +213,11 @@ function SlashContextBody() {
     [t('agent.chat.context.messages'), String(messages.length)],
     [t('agent.chat.context.inputTokens'), usage.inputTokens.toLocaleString()],
     [t('agent.chat.context.outputTokens'), usage.outputTokens.toLocaleString()],
+    ...(cost !== null
+      ? ([[t('agent.chat.context.estimatedCost'), `≈ ${formatCostUsd(cost)}`]] as Array<
+          [string, string]
+        >)
+      : []),
     [
       t('agent.chat.context.contextWindow'),
       ctx && pct !== null ? formatContextWindow(locale, formatContext(ctx), pct) : t('agent.chat.unknown'),

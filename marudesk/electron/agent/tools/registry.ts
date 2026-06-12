@@ -47,6 +47,10 @@ const TOOL_GROUP: Record<string, McpGroup> = {
   reload_and_verify: 'browser',
   browser_cookies: 'browser',
   browser_storage: 'browser',
+  screenshot: 'browser',
+  get_web_vitals: 'devtools',
+  arm_exception_capture: 'devtools',
+  read_exception_capture: 'devtools',
 };
 const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit', 'run_command', 'run_diagnostics', 'click', 'fill', 'press_key', 'scroll']);
 const WEB_TOOL_NAMES = new Set([
@@ -62,6 +66,10 @@ const WEB_TOOL_NAMES = new Set([
   'reload_and_verify',
   'browser_cookies',
   'browser_storage',
+  'screenshot',
+  'get_web_vitals',
+  'arm_exception_capture',
+  'read_exception_capture',
 ]);
 const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_file', 'multi_edit', 'run_command', 'run_diagnostics', 'read_diagnostics']);
 

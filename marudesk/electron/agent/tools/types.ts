@@ -84,7 +84,19 @@ export type ToolResult = {
   media?: ToolMediaArtifact[];
   /** An interactive HTML artifact produced by this call (create_artifact, §G4/U6). */
   artifact?: { title: string; html: string };
+  /**
+   * An inline image produced by this call (the `screenshot` tool), forwarded to
+   * the model as an image part of the tool result (AI SDK ToolResultOutput
+   * `content` with an `image-data` item — see loop-helpers.toolResult). The
+   * executor only sets this when the active model/provider actually accepts
+   * tool-result images; otherwise it returns a text-only fallback. Base64,
+   * bounded by the executor (downscaled + JPEG-compressed).
+   */
+  image?: ToolResultImage;
 };
+
+/** Base64 image payload riding on a {@link ToolResult} (screenshot tool). */
+export type ToolResultImage = { data: string; mediaType: string };
 
 export type Executor = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
 

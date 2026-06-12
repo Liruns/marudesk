@@ -18,6 +18,7 @@ import {
   isBuiltinProviderId,
   providerLabel,
 } from '../../../../shared/providers';
+import { estimateCostUsd, formatCostUsd } from '../../../../shared/model-pricing';
 import type { AgentStatus } from '../../../../shared/agent';
 import { openSettingsTab } from '../../settings/store';
 import { useProvidersStore } from '../../providers/store';
@@ -98,15 +99,21 @@ export function ContextButton({
  * actually consumed tokens.
  */
 export function UsageMeter() {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const usage = useAgentStore((s) => s.chat.usage);
   const modelKey = useThreadModelKey();
   const models = useProvidersStore((s) => s.models);
   if (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.contextTokens === 0) return null;
-  const ctx = findModel(models, modelKey)?.contextWindow;
+  const model = findModel(models, modelKey);
+  const ctx = model?.contextWindow;
   // The gauge tracks live context-window occupancy (contextTokens), not the
   // cumulative input total — so it falls after a compaction instead of climbing.
   const pct = ctx ? Math.min(100, Math.round((usage.contextTokens / ctx) * 100)) : null;
+  // Estimated conversation spend from published list prices (shared/model-pricing).
+  // null for local/unknown models (e.g. Ollama) → the cost chip simply hides.
+  const cost = model
+    ? estimateCostUsd(model.id, usage.inputTokens, usage.outputTokens)
+    : null;
   return (
     <span
       className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums shrink-0"
@@ -126,6 +133,9 @@ export function UsageMeter() {
       ) : (
         <span>{formatContext(usage.contextTokens || usage.inputTokens)} tok</span>
       )}
+      {cost !== null ? (
+        <span title={t('agent.chat.costEstimateNote')}>≈ {formatCostUsd(cost)}</span>
+      ) : null}
     </span>
   );
 }

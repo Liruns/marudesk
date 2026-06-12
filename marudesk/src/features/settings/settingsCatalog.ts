@@ -61,6 +61,16 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     labelKey: 'settings.font.size.label',
     keywords: 'editor code font size 편집기 코드 글꼴 크기',
   },
+  {
+    categoryId: 'editor',
+    labelKey: 'settings.editor.formatOnSave.label',
+    keywords: 'format on save prettier formatter editor 저장 서식 포맷 정리 편집기',
+  },
+  {
+    categoryId: 'editor',
+    labelKey: 'settings.editor.inlineBlame.label',
+    keywords: 'blame git inline annotation author commit gitlens 블레임 깃 커밋 작성자 줄',
+  },
 
   // Terminal
   {
@@ -173,6 +183,11 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     categoryId: 'remote',
     labelKey: 'settings.remote.relay.enable.label',
     keywords: 'cloud relay account host login 클라우드 릴레이 계정',
+  },
+  {
+    categoryId: 'remote',
+    labelKey: 'settings.sshHostKeys.title',
+    keywords: 'ssh host key fingerprint pinned tofu known hosts 호스트 키 지문 고정',
   },
   {
     categoryId: 'remote',

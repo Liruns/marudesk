@@ -19,7 +19,19 @@ export type ToolResultPartLite = {
   type: 'tool-result';
   toolCallId: string;
   toolName: string;
-  output: { type: 'text'; value: string } | { type: 'error-text'; value: string };
+  output:
+    | { type: 'text'; value: string }
+    | { type: 'error-text'; value: string }
+    // Multipart output (AI SDK v6 ToolResultOutput 'content'): text + an inline
+    // image, so a vision-capable model can SEE a screenshot tool result. Only
+    // the screenshot tool produces this; everything else stays plain text.
+    | {
+        type: 'content';
+        value: Array<
+          | { type: 'text'; text: string }
+          | { type: 'image-data'; data: string; mediaType: string }
+        >;
+      };
 };
 
 export function toolResult(
@@ -27,7 +39,24 @@ export function toolResult(
   toolName: string,
   content: string,
   isError?: boolean,
+  image?: { data: string; mediaType: string },
 ): ToolResultPartLite {
+  // An image only rides on a SUCCESSFUL result — an error keeps the plain
+  // error-text shape every provider understands.
+  if (image && !isError) {
+    return {
+      type: 'tool-result',
+      toolCallId: callId,
+      toolName,
+      output: {
+        type: 'content',
+        value: [
+          { type: 'text', text: content },
+          { type: 'image-data', data: image.data, mediaType: image.mediaType },
+        ],
+      },
+    };
+  }
   return {
     type: 'tool-result',
     toolCallId: callId,
@@ -70,6 +99,16 @@ export function buildUserText(
       if (cap.kind === 'console-error') {
         const loc = cap.source ? ` @ ${scrubText(cap.source.url)}` : '';
         lines.push(`- console error: ${scrubText(cap.message)}${loc}`);
+      } else if (cap.kind === 'terminal-error') {
+        const cwd = cap.cwd ? ` (cwd: ${scrubText(cap.cwd)})` : '';
+        lines.push(`- terminal error${cwd}: ${scrubText(cap.message)}`);
+        lines.push('  Output excerpt (ANSI-stripped):');
+        for (const line of scrubText(cap.excerpt).split('\n')) {
+          lines.push(`    ${line}`);
+        }
+        lines.push(
+          "  The read_terminal tool can pull more of this terminal's output, and run_diagnostics can re-check the project.",
+        );
       } else {
         const attrs = Object.entries(cap.attributes)
           .slice(0, 6)

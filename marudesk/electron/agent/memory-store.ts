@@ -158,12 +158,31 @@ export async function writeMemory(
   }
 }
 
-/** Remove a memory entry (kept for a future memory UI; not yet a tool). */
+/** Remove a memory entry (backs the Settings memory panel's per-entry delete). */
 export async function deleteMemory(name: string): Promise<boolean> {
   try {
     await fs.rm(filePath(name), { force: true });
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Remove ALL memory entries (the panel's clear-all). Returns the count removed. */
+export async function clearMemory(): Promise<number> {
+  try {
+    const names = (await fs.readdir(dir())).filter((n) => n.endsWith('.md'));
+    let removed = 0;
+    for (const n of names) {
+      try {
+        await fs.rm(path.join(dir(), n), { force: true });
+        removed += 1;
+      } catch {
+        // Keep going — a single locked file shouldn't abort the wipe.
+      }
+    }
+    return removed;
+  } catch {
+    return 0;
   }
 }

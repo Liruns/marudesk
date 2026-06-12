@@ -22,6 +22,7 @@ import {
   readWorkspaceFile,
   writeMemoryTool,
 } from './context-executors.ts';
+import { triageNetworkFailure } from './network-triage.ts';
 
 /**
  * The built-in context MCP descriptors (docs/context-mcp-design §2). The executor
@@ -172,6 +173,16 @@ export const CONTEXT_TOOLS: McpTool[] = [
       'Read an integrated terminal\'s recent scrollback. Pass a terminalId (from list_terminals) for a specific one, or omit it for the most recent. ANSI-stripped, secret-scrubbed; requires approval.',
     inputSchema: obj({ terminalId: strProp('Optional terminal id (from list_terminals); defaults to the most recent.') }),
     exec: (input) => readTerminal(input),
+  },
+  {
+    name: 'triage_network_failure',
+    group: 'devtools',
+    gated: true,
+    requiresWeb: true,
+    description:
+      "Correlate one failing request (requestId from read_network) with backend evidence: summarizes the request (url/status), then scans every open terminal's recent scrollback for lines mentioning the request path, 4xx/5xx codes, stack traces, or error keywords, and lists the open workspace roots (the fix may belong in a backend root, not the frontend). Terminal output is secret-scrubbed; requires approval like read_terminal.",
+    inputSchema: obj({ requestId: strProp('requestId from read_network.') }, ['requestId']),
+    exec: (input, ctx) => triageNetworkFailure(input, ctx),
   },
   {
     name: 'read_editor',
