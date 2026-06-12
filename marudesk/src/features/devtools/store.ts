@@ -5,11 +5,16 @@ import type { CompletionResult } from './console/completion';
 // single import surface.
 export type { CompletionKind, CompletionItem, CompletionResult } from './console/completion';
 import {
+  type AppManifest,
   type BoxModel,
   type CacheEntry,
   type CacheInfo,
   type CdpCookie,
   type CdpNode,
+  type FrameTreeNode,
+  type StorageUsage,
+  type SwRegistration,
+  type SwVersion,
   type ComputedStyleProperty,
   type ConsoleEntry,
   type CssStyle,
@@ -258,6 +263,17 @@ export type DevtoolsState = {
   idbDatabases: IdbDatabase[];
   cacheNames: CacheInfo[];
   appLoading: boolean;
+  // Application breadth (read-only, per-page): origin quota snapshot
+  // (Storage.getUsageAndQuota), web-app manifest (Page.getAppManifest), and the
+  // frame tree (Page.getFrameTree) — all pulled by refreshApplication.
+  storageUsage: StorageUsage | null;
+  appManifest: AppManifest | null;
+  frameTree: FrameTreeNode[] | null;
+  // Service-worker registrations/versions of the page, fed by the
+  // ServiceWorker.workerRegistrationUpdated / workerVersionUpdated event stream
+  // (read-only inspection — the mutating ServiceWorker.* methods stay blocked).
+  swRegistrations: Map<string, SwRegistration>;
+  swVersions: Map<string, SwVersion>;
   // rendering panel toggles — sticky preferences, re-applied on (re)attach.
   rendering: RenderingState;
   // performance — live metrics (pulled via Performance.getMetrics) + the CPU

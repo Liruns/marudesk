@@ -229,7 +229,10 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         if (fresh) await get()._applySources();
       } else if (panel === 'application') {
         // DOMStorage for live storage events; Network is needed for getCookies.
-        await get()._ensureDomains(['DOMStorage', 'Network']);
+        // ServiceWorker is enabled lazily here too (its enable replays the
+        // registration/version snapshot as events) — read-only inspection; the
+        // mutating ServiceWorker.* methods are blocked in main's relay.
+        await get()._ensureDomains(['DOMStorage', 'Network', 'ServiceWorker']);
         await get().refreshApplication();
       } else if (panel === 'performance') {
         // Performance.enable starts Chromium's metric collection; the panel
@@ -295,6 +298,13 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         cookies: [],
         idbDatabases: [],
         cacheNames: [],
+        // Quota/manifest/frames/SW are per-document too — the re-enabled
+        // ServiceWorker domain replays registrations for the new page.
+        storageUsage: null,
+        appManifest: null,
+        frameTree: null,
+        swRegistrations: new Map(),
+        swVersions: new Map(),
         // Per-navigation security/metrics snapshots — stale certificate info
         // must never show for the new origin. `profile` (a finished recording)
         // intentionally survives; `profiling` (in-flight) is dropped.

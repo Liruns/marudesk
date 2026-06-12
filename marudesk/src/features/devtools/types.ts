@@ -238,6 +238,16 @@ export type NetworkEntry = {
   timing?: ResourceTiming;
   /** What initiated the request (parser / script / preload …). */
   initiator?: NetworkInitiator;
+  /** True for rows created by `Network.webSocketCreated` (type "WS"). */
+  isWebSocket?: boolean;
+  /** Captured WebSocket frames, oldest-first, capped — see framesDropped. */
+  frames?: WsFrame[];
+  /** Frames evicted from the front of `frames` once past the cap. */
+  framesDropped?: number;
+  /** `Network.eventSourceMessageReceived` messages for this stream, capped. */
+  sseMessages?: SseMessage[];
+  /** SSE messages evicted from the front of `sseMessages` once past the cap. */
+  sseDropped?: number;
 };
 
 /* ── Debugger (Sources) ───────────────────────────────────────────────── */
@@ -451,4 +461,88 @@ export type CssRuleUsage = {
   startOffset: number;
   endOffset: number;
   used: boolean;
+};
+
+/* ── Network: WebSocket frames + SSE messages ─────────────────────────── */
+
+/** `'error'` rows come from `Network.webSocketFrameError` (no direction). */
+export type WsFrameDirection = 'sent' | 'received' | 'error';
+
+/** One captured WebSocket frame (`Network.webSocketFrameSent/Received`). */
+export type WsFrame = {
+  direction: WsFrameDirection;
+  /** CDP monotonic seconds — same clock as `NetworkEntry.startTime`. */
+  timestamp: number;
+  /** WebSocket opcode: 1 text · 2 binary · 8 close · 9 ping · 10 pong. -1 for error rows. */
+  opcode: number;
+  /** Text payload for text frames; the error message for error rows. Bounded. */
+  payloadData: string;
+  payloadTruncated?: boolean;
+  /** Decoded byte size for binary frames (the payload itself is not stored). */
+  payloadBytes?: number;
+};
+
+/** One `Network.eventSourceMessageReceived` message of an SSE stream. */
+export type SseMessage = {
+  eventName: string;
+  /** The stream's `lastEventId` ('' when the server sent none). */
+  eventId: string;
+  data: string;
+  dataTruncated?: boolean;
+  /** CDP monotonic seconds — same clock as `NetworkEntry.startTime`. */
+  timestamp: number;
+};
+
+/* ── Application: quota / manifest / frames / service workers ─────────── */
+
+/** One `Storage.getUsageAndQuota` usageBreakdown entry. */
+export type StorageUsageBreakdown = { storageType: string; usage: number };
+
+/** `Storage.getUsageAndQuota` for the page origin (bytes). */
+export type StorageUsage = {
+  usage: number;
+  quota: number;
+  breakdown: StorageUsageBreakdown[];
+};
+
+/** One `Page.getAppManifest` parse error. */
+export type AppManifestError = {
+  message: string;
+  critical: boolean;
+  line: number;
+  column: number;
+};
+
+/** `Page.getAppManifest` (subset). `data` is the raw manifest text. */
+export type AppManifest = {
+  url: string;
+  errors: AppManifestError[];
+  data?: string;
+};
+
+/** One frame of `Page.getFrameTree`, flattened with its tree depth. */
+export type FrameTreeNode = {
+  id: string;
+  url: string;
+  name?: string;
+  mimeType?: string;
+  depth: number;
+};
+
+/** `ServiceWorker.workerRegistrationUpdated` registration (subset). */
+export type SwRegistration = {
+  registrationId: string;
+  scopeURL: string;
+  isDeleted: boolean;
+};
+
+/** `ServiceWorker.workerVersionUpdated` version (subset). */
+export type SwVersion = {
+  versionId: string;
+  registrationId: string;
+  scriptURL: string;
+  /** 'stopped' | 'starting' | 'running' | 'stopping'. */
+  runningStatus: string;
+  /** 'new' | 'installing' | 'installed' | 'activating' | 'activated' | 'redundant'. */
+  status: string;
 };

@@ -305,7 +305,7 @@ P0 메인 foundation 위에 **렌더러 커스텀 DevTools 전체 + 호스팅 �
 - **P4** — Elements 라이브 편집(`CSS.setStyleTexts`/`DOM.setAttributeValue`) + (A) 노드→`Capture` 훅(`shared/capture.ts`에 `outerHTML?`/`computedStyle?` 추가) + (B) 라이브CSS→`patch:preview`(소스맵 역매핑 한정). **thesis(§15) 검증 단계 — 미착수.**
 - **P5a/P5b** — Sources(transpiled 디버깅 + 소스맵 원본복원). 최대 규모, 미착수.
 - 백그라운드 탭 고볼륨 도메인 pause(§4 M2) — 현재는 rebind 시 detach로 대체.
-- 설정 마이그레이션 단위테스트(§11.7/§12) — 단위 테스트 러너(vitest) 부재로 보류; fallback 동작은 리뷰에서 correct 확인.
+- 설정 마이그레이션 단위테스트(§11.7/§12) — vitest 도입 후 `shared/settings.test.ts`로 완료(레거시 `side`/`popup` → `right` fallback 검증).
 - 나머지 리뷰 LOW(리다이렉트 체인, console.group, base64 body, size-per-orientation)는 v1 수용.
 
 ## 19. P4 — 라이브 편집 + 통합 훅 A/B 구현 (2026-05-30)
@@ -338,4 +338,4 @@ P1~P3 dock 위에 **프로젝트 thesis(§15) 검증 단계**를 구현. `tsc`(a
 
 **e2e**: `devtools.spec.ts`에 hook A 케이스 추가(web 탭→dock→`body` treeitem 선택→"Add to AI context"→"Added to context" 토스트 = 실 CDP `getOuterHTML`/`getBoxModel` end-to-end). 라이브편집·hook B 실 CDP 흐름은 §12대로 수동 GUI 스모크(dev 서버 서빙 자기앱 + 워크스페이스 필요).
 
-**미완(다음)**: P5a/P5b Sources(transpiled 디버깅 + 소스맵 원본복원, 최대 규모·별도 세션). 잔여: 백그라운드 탭 고볼륨 도메인 pause(§4 M2), 설정 마이그레이션 단위테스트(vitest 부재), hook B Layer 2(Vite dev-id/외부 소스맵).
+**미완(다음)**: P5a/P5b Sources(transpiled 디버깅 + 소스맵 원본복원, 최대 규모·별도 세션). 잔여: 백그라운드 탭 고볼륨 도메인 pause(§4 M2), hook B Layer 2(Vite dev-id/외부 소스맵). 설정 마이그레이션 단위테스트는 `shared/settings.test.ts`로 완료.

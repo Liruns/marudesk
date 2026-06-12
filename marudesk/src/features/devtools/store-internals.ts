@@ -21,6 +21,10 @@ export const MAX_NETWORK = 1500;
 // Script-list cap (Debugger.scriptParsed can stream thousands on heavy pages).
 export const MAX_SCRIPTS = 2000;
 const MAX_NETWORK_PAYLOAD = 64_000;
+// Per-connection cap on stored WebSocket frames / SSE messages (drop oldest;
+// the Messages tab shows "N dropped"). A chatty socket can stream forever.
+export const MAX_STREAM_MESSAGES = 500;
+const MAX_FRAME_PAYLOAD = 2048;
 
 /**
  * Scrub a captured request/response body and bound it to {@link MAX_NETWORK_PAYLOAD},
@@ -39,6 +43,22 @@ export function boundedNetworkPayload(value: string | undefined): {
     text: scrubbed.slice(0, MAX_NETWORK_PAYLOAD),
     truncated: true,
   };
+}
+
+/**
+ * Scrub + bound one WebSocket frame / SSE message payload. Much tighter than
+ * {@link boundedNetworkPayload}: up to {@link MAX_STREAM_MESSAGES} of these can
+ * pile up per connection, so each is clipped to {@link MAX_FRAME_PAYLOAD}.
+ */
+export function boundedFramePayload(value: string): {
+  text: string;
+  truncated: boolean;
+} {
+  const scrubbed = scrubText(value);
+  if (scrubbed.length <= MAX_FRAME_PAYLOAD) {
+    return { text: scrubbed, truncated: false };
+  }
+  return { text: scrubbed.slice(0, MAX_FRAME_PAYLOAD), truncated: true };
 }
 
 let entrySeq = 0;
@@ -96,6 +116,11 @@ export function freshSlices(): Pick<
   | 'idbDatabases'
   | 'cacheNames'
   | 'appLoading'
+  | 'storageUsage'
+  | 'appManifest'
+  | 'frameTree'
+  | 'swRegistrations'
+  | 'swVersions'
   | 'dropped'
   | 'navStartTime'
   | 'domContentTime'
@@ -138,6 +163,11 @@ export function freshSlices(): Pick<
     idbDatabases: [],
     cacheNames: [],
     appLoading: false,
+    storageUsage: null,
+    appManifest: null,
+    frameTree: null,
+    swRegistrations: new Map(),
+    swVersions: new Map(),
     dropped: 0,
     navStartTime: null,
     domContentTime: null,

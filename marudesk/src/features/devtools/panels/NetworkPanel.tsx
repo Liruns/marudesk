@@ -12,6 +12,7 @@ import {
   type TypeFilter,
   fileName,
   typeBucket,
+  typeLabel,
   fmtSize,
   fmtTime,
   summarize,
@@ -47,7 +48,7 @@ export function NetworkPanel() {
       if (q && !r.url.toLowerCase().includes(q)) return false;
       if (type === 'all') return true;
       const bucket = typeBucket(r.resourceType);
-      // "Other" catches unknown buckets too (e.g. WebSocket, Manifest, Ping).
+      // "Other" catches unknown buckets too (e.g. Manifest, Ping).
       return type === 'other' ? !KNOWN_TYPES.has(bucket) : bucket === type;
     });
   }, [requests, query, type]);
@@ -128,7 +129,7 @@ export function NetworkPanel() {
                   : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
               )}
             >
-              {t(f.labelKey)}
+              {f.labelKey ? t(f.labelKey) : (f.label ?? f.id)}
             </button>
           ))}
         </div>
@@ -230,7 +231,7 @@ export function NetworkPanel() {
                     {r.failed ? 'fail' : (r.status ?? '·')}
                   </td>
                   <td className="px-1 py-0.5 text-fg-tertiary truncate">
-                    {r.resourceType ?? '—'}
+                    {typeLabel(r)}
                   </td>
                   <td className="px-1 py-0.5 text-right text-fg-tertiary tabular-nums">
                     {fmtSize(r)}

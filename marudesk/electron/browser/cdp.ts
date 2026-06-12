@@ -69,6 +69,12 @@ const ALLOWED_PREFIXES = [
   // methods are subtracted in BLOCKED_METHODS below so the prefix can't
   // re-admit them.
   'Security.',
+  // Application panel: service-worker registration/version INSPECTION only —
+  // enable + the workerRegistrationUpdated/workerVersionUpdated event stream.
+  // Every method that drives or mutates a worker (start/stop/skipWaiting/
+  // unregister/update/push/sync/inspect) is subtracted in BLOCKED_METHODS
+  // below so the prefix can't re-admit them.
+  'ServiceWorker.',
 ];
 // Exact methods outside the allowed domains we still need: auto-attach to
 // out-of-process iframes / workers (Sources). The dangerous Target methods
@@ -131,6 +137,20 @@ const BLOCKED_METHODS = new Set([
   'Security.setIgnoreCertificateErrors',
   'Security.handleCertificateError',
   'Security.setOverrideCertificateErrors',
+  // ServiceWorker driving/mutating methods — the Application panel is
+  // read-only inspection (enable + registration/version status events). A
+  // confused deputy must never be able to start/stop/unregister a worker,
+  // deliver synthetic push/sync events, or force-update registrations.
+  'ServiceWorker.deliverPushMessage',
+  'ServiceWorker.dispatchSyncEvent',
+  'ServiceWorker.dispatchPeriodicSyncEvent',
+  'ServiceWorker.inspectWorker',
+  'ServiceWorker.setForceUpdateOnPageLoad',
+  'ServiceWorker.skipWaiting',
+  'ServiceWorker.startWorker',
+  'ServiceWorker.stopWorker',
+  'ServiceWorker.unregister',
+  'ServiceWorker.updateRegistration',
 ]);
 
 export function isAllowedCdpMethod(method: string): boolean {

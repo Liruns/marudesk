@@ -5,7 +5,8 @@ import type { TranslationKey } from '../../../i18n/messages';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { RemoteValue } from '../components/RemoteValue';
-import type { CacheEntry, CdpCookie, IdbDatabase, IdbEntry } from '../types';
+import { fmtBytes } from './network-utils';
+import type { CacheEntry, CdpCookie, IdbDatabase, IdbEntry, SwVersion } from '../types';
 
 /**
  * Application panel: per-origin storage inspection over CDP. Local/Session
@@ -16,7 +17,16 @@ import type { CacheEntry, CdpCookie, IdbDatabase, IdbEntry } from '../types';
  * origin-scoped deletes the IndexedDB/CacheStorage domains allow.
  */
 
-type Section = 'local' | 'session' | 'cookies' | 'indexeddb' | 'cache';
+type Section =
+  | 'local'
+  | 'session'
+  | 'cookies'
+  | 'indexeddb'
+  | 'cache'
+  | 'quota'
+  | 'manifest'
+  | 'frames'
+  | 'sw';
 // The original sections carry i18n keys; the newer storage sections (IndexedDB
 // / Cache Storage) use registry-style literals, like the Console/Sources copy.
 const SECTIONS: { id: Section; labelKey?: TranslationKey; label?: string }[] = [
@@ -25,6 +35,10 @@ const SECTIONS: { id: Section; labelKey?: TranslationKey; label?: string }[] = [
   { id: 'indexeddb', label: 'IndexedDB' },
   { id: 'cache', label: 'Cache Storage' },
   { id: 'cookies', labelKey: 'devtools.application.cookies' },
+  { id: 'quota', label: 'Storage' },
+  { id: 'manifest', label: 'Manifest' },
+  { id: 'frames', label: 'Frames' },
+  { id: 'sw', label: 'Service Workers' },
 ];
 
 function StorageTable({
@@ -359,6 +373,203 @@ function CacheStorageSection() {
   );
 }
 
+/* ── Storage quota (Storage.getUsageAndQuota) ─────────────────────────── */
+
+function StorageQuotaSection() {
+  const usage = useDevtoolsStore((s) => s.storageUsage);
+  if (!usage) {
+    return (
+      <div className="text-caption text-fg-tertiary px-3 py-2">No quota information</div>
+    );
+  }
+  const fraction = usage.quota > 0 ? Math.min(1, usage.usage / usage.quota) : 0;
+  const maxTypeUsage = Math.max(1, ...usage.breakdown.map((b) => b.usage));
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2">
+      <div className="text-caption text-fg-secondary tabular-nums">
+        {fmtBytes(usage.usage)} used of {fmtBytes(usage.quota)} (
+        {(fraction * 100).toFixed(1)}%)
+      </div>
+      <div className="h-2.5 w-full bg-surface-2 rounded-sm overflow-hidden">
+        <div
+          className="h-full bg-accent/70 rounded-sm"
+          style={{ width: `${usage.usage > 0 ? Math.max(fraction * 100, 0.5) : 0}%` }}
+        />
+      </div>
+      {usage.breakdown.length > 0 ? (
+        <div className="flex flex-col gap-1 pt-1">
+          {usage.breakdown.map((b) => (
+            <div key={b.storageType} className="flex items-center gap-2 text-caption">
+              <span className="w-32 shrink-0 text-fg-tertiary truncate">{b.storageType}</span>
+              <div className="flex-1 h-2 bg-surface-2 rounded-sm overflow-hidden">
+                <div
+                  className="h-full bg-accent/50 rounded-sm"
+                  style={{ width: `${Math.max((b.usage / maxTypeUsage) * 100, 0.5)}%` }}
+                />
+              </div>
+              <span className="w-20 shrink-0 text-right tabular-nums text-fg-secondary">
+                {fmtBytes(b.usage)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ── Manifest (Page.getAppManifest) ───────────────────────────────────── */
+
+/** Manifest text pretty-printed when it parses as JSON (raw otherwise). */
+function prettyManifest(data: string): string {
+  try {
+    return JSON.stringify(JSON.parse(data), null, 2);
+  } catch {
+    return data;
+  }
+}
+
+function ManifestSection() {
+  const manifest = useDevtoolsStore((s) => s.appManifest);
+  const [rawOpen, setRawOpen] = useState(false);
+  if (!manifest || !manifest.url) {
+    return (
+      <div className="text-caption text-fg-tertiary px-3 py-2">No web app manifest</div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2">
+      <div className="font-mono text-caption break-all">
+        <span className="text-fg-tertiary">URL: </span>
+        <span className="text-fg-secondary">{manifest.url}</span>
+      </div>
+      {manifest.errors.length > 0 ? (
+        <div className="flex flex-col gap-0.5">
+          {manifest.errors.map((e, i) => (
+            <div
+              key={i}
+              className={cn(
+                'font-mono text-caption break-words',
+                e.critical ? 'text-error' : 'text-warning',
+              )}
+            >
+              {e.message}{' '}
+              <span className="text-fg-tertiary">
+                ({e.line}:{e.column})
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {manifest.data ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => setRawOpen((o) => !o)}
+            className="flex items-center gap-1 text-caption text-fg-secondary hover:text-fg-primary"
+          >
+            <ChevronRight
+              size={12}
+              className={cn('text-fg-tertiary transition-transform', rawOpen && 'rotate-90')}
+            />
+            Raw manifest
+          </button>
+          {rawOpen ? (
+            <pre className="font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-64 overflow-auto pt-1 pl-4">
+              {prettyManifest(manifest.data)}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ── Frames (Page.getFrameTree) ───────────────────────────────────────── */
+
+function FramesSection() {
+  const frames = useDevtoolsStore((s) => s.frameTree);
+  if (!frames || frames.length === 0) {
+    return (
+      <div className="text-caption text-fg-tertiary px-3 py-2">No frame information</div>
+    );
+  }
+  return (
+    <div className="flex flex-col py-1">
+      {frames.map((f) => (
+        <div
+          key={f.id}
+          className="flex items-baseline gap-2 py-0.5 pr-3 text-caption hover:bg-surface-2"
+          style={{ paddingLeft: `${12 + f.depth * 16}px` }}
+        >
+          <span className="font-mono text-fg-primary break-all">{f.url || '(no url)'}</span>
+          {f.name ? <span className="text-fg-tertiary truncate">name: {f.name}</span> : null}
+          {f.mimeType ? <span className="text-fg-tertiary shrink-0">{f.mimeType}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Service Workers (ServiceWorker registration/version events) ─────── */
+
+function ServiceWorkersSection() {
+  const registrations = useDevtoolsStore((s) => s.swRegistrations);
+  const versions = useDevtoolsStore((s) => s.swVersions);
+  if (registrations.size === 0) {
+    return (
+      <div className="text-caption text-fg-tertiary px-3 py-2">
+        No service worker registrations
+      </div>
+    );
+  }
+  const byRegistration = new Map<string, SwVersion[]>();
+  for (const v of versions.values()) {
+    const list = byRegistration.get(v.registrationId) ?? [];
+    list.push(v);
+    byRegistration.set(v.registrationId, list);
+  }
+  return (
+    <div className="flex flex-col">
+      {[...registrations.values()].map((r) => {
+        const regVersions = byRegistration.get(r.registrationId) ?? [];
+        return (
+          <div
+            key={r.registrationId}
+            className="border-b border-subtle/40 px-3 py-1.5 flex flex-col gap-0.5"
+          >
+            <div className="font-mono text-caption break-all">
+              <span className="text-fg-tertiary">Scope: </span>
+              <span className="text-fg-primary">{r.scopeURL}</span>
+            </div>
+            {regVersions.length === 0 ? (
+              <div className="text-caption text-fg-tertiary">No versions reported yet</div>
+            ) : (
+              regVersions.map((v) => (
+                <div
+                  key={v.versionId}
+                  className="font-mono text-caption break-all flex flex-wrap gap-x-2"
+                >
+                  <span className="text-fg-secondary">{v.scriptURL}</span>
+                  <span className="text-fg-tertiary">#{v.versionId}</span>
+                  <span
+                    className={
+                      v.runningStatus === 'running' ? 'text-accent' : 'text-fg-tertiary'
+                    }
+                  >
+                    {v.runningStatus}
+                  </span>
+                  <span className="text-fg-tertiary">{v.status}</span>
+                </div>
+              ))
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ApplicationPanel() {
   const { t } = useI18n();
   const origin = useDevtoolsStore((s) => s.appOrigin);
@@ -437,6 +648,14 @@ export function ApplicationPanel() {
           <IndexedDbSection />
         ) : section === 'cache' ? (
           <CacheStorageSection />
+        ) : section === 'quota' ? (
+          <StorageQuotaSection />
+        ) : section === 'manifest' ? (
+          <ManifestSection />
+        ) : section === 'frames' ? (
+          <FramesSection />
+        ) : section === 'sw' ? (
+          <ServiceWorkersSection />
         ) : (
           <CookieTable cookies={cookies} />
         )}
