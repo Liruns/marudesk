@@ -68,6 +68,26 @@ export type ResolveSubagentOpts = {
 const refKey = (ref: ModelRef): string => `${ref.provider}::${ref.model}`;
 
 /**
+ * Short-lived connectivity probe cache. A parallel fan-out (several
+ * spawn_subagent calls in one step) resolves each child independently, and a
+ * probe touches secrets/OAuth state — so without this, N children × M chain
+ * candidates re-read the same creds N×M times in the same instant. A few
+ * seconds is long enough to cover one fan-out and short enough that
+ * connecting a provider in Settings is picked up on the next turn.
+ */
+const PROBE_TTL_MS = 5_000;
+const probeCache = new Map<string, { ok: boolean; at: number }>();
+
+async function providerConnected(provider: ProviderId): Promise<boolean> {
+  const hit = probeCache.get(provider);
+  const now = Date.now();
+  if (hit && now - hit.at < PROBE_TTL_MS) return hit.ok;
+  const ok = (await resolveProviderAuth(provider).catch(() => ({ ok: false as const }))).ok;
+  probeCache.set(provider, { ok, at: now });
+  return ok;
+}
+
+/**
  * The model an explicit `provider` with no `model` should mean: the provider's
  * tier pick (when a tier is in play) or its default model.
  */
@@ -164,16 +184,9 @@ export async function resolveSubagentTarget(opts: ResolveSubagentOpts): Promise<
 
   // Probe connectivity in order (one probe per provider — a provider that
   // resolves creds for one model resolves them for all of its models).
-  const probed = new Map<string, boolean>();
   let chosenIndex = -1;
   for (let i = 0; i < candidates.length; i += 1) {
-    const provider = candidates[i].provider;
-    let ok = probed.get(provider);
-    if (ok === undefined) {
-      ok = (await resolveProviderAuth(provider).catch(() => ({ ok: false as const }))).ok;
-      probed.set(provider, ok);
-    }
-    if (ok) {
+    if (await providerConnected(candidates[i].provider)) {
       chosenIndex = i;
       break;
     }
