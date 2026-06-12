@@ -47,6 +47,7 @@ import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
 import type { Spec, SpecInput } from './specs';
 import type { LaneDevState, LaneDevStartResult } from './lanes';
+import type { LaneGithubStatusResult } from './lane-github';
 import type {
   BrowserNativeMenuItem,
   TabGroupColor,
@@ -576,6 +577,12 @@ export interface IpcMap {
   'lanes-dev:start': { args: [payload: { path: string }]; result: LaneDevStartResult };
   'lanes-dev:stop': { args: [payload: { path: string }]; result: boolean };
   'lanes-dev:open': { args: [payload: { path: string }]; result: boolean };
+  // Per-lane GitHub PR/CI status (§3.8) — cached per branch; `force` bypasses
+  // the TTL for the board's manual refresh.
+  'lanes-github:status': {
+    args: [payload: { force?: boolean }];
+    result: LaneGithubStatusResult;
+  };
 
   // search (content search — electron/search.ts)
   'search:content': {

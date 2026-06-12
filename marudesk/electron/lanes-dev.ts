@@ -6,7 +6,8 @@ import { obj, str } from './ipc/validate';
 import { getSettingsSync } from './settings';
 import { inheritedEnv, resolveShell } from './terminal';
 import { listWorktrees } from './git-worktree';
-import { createAndActivateTab } from './browser/tabs';
+import { activateTab, createAndActivateTab } from './browser/tabs';
+import { getTab } from './browser/state';
 import type { LaneDevStartResult, LaneDevState, LaneDevStatus } from '../shared/lanes';
 
 /**
@@ -20,6 +21,8 @@ import type { LaneDevStartResult, LaneDevState, LaneDevStatus } from '../shared/
 type LaneProc = { pty: IPty; state: LaneDevState; output: string };
 
 const procs = new Map<string, LaneProc>();
+/** The one browser tab opened per lane (keyed by resolved worktree path). */
+const laneTabs = new Map<string, { tabId: string; url: string }>();
 const OUTPUT_CAP = 16_000;
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+(?:\/[!-~]*)?/i;
 
@@ -148,9 +151,23 @@ export function registerLaneDevHandlers(deps: { getMainWindow: () => BrowserWind
 
   defineHandler('lanes-dev:open', ([payload]) => {
     const target = str(obj(payload).path, 'path');
-    const rec = procs.get(path.resolve(target));
+    const key = path.resolve(target);
+    const rec = procs.get(key);
     if (!rec || !rec.state.url) return false;
-    createAndActivateTab('web', rec.state.url);
+    // Each lane keeps ONE browser tab: re-clicking focuses it (re-navigating if
+    // the dev server came back on a different URL) instead of stacking tabs.
+    const existing = laneTabs.get(key);
+    const tab = existing ? getTab(existing.tabId) : undefined;
+    if (existing && tab && tab.kind === 'web' && tab.view) {
+      activateTab(existing.tabId);
+      if (existing.url !== rec.state.url) {
+        void tab.view.webContents.loadURL(rec.state.url);
+        laneTabs.set(key, { tabId: existing.tabId, url: rec.state.url });
+      }
+      return true;
+    }
+    const made = createAndActivateTab('web', rec.state.url);
+    laneTabs.set(key, { tabId: made.id, url: rec.state.url });
     return true;
   });
 }

@@ -182,9 +182,15 @@ export const CHANNELS = {
   workflows: ['workflows:list', 'workflows:save', 'workflows:delete', 'workflows:run'],
   // Spec lifecycle (§3.10): per-workspace spec docs + task lists.
   specs: ['specs:list', 'specs:save', 'specs:delete'],
-  // Per-lane dev server (§3.8 Mission Control): run/stop the dev command in a
-  // worktree lane + open its detected URL.
-  lanes: ['lanes-dev:list', 'lanes-dev:start', 'lanes-dev:stop', 'lanes-dev:open'],
+  // Per-lane dev server + GitHub PR/CI status (§3.8 Mission Control): run/stop
+  // the dev command in a worktree lane, open its detected URL, fetch PR/CI.
+  lanes: [
+    'lanes-dev:list',
+    'lanes-dev:start',
+    'lanes-dev:stop',
+    'lanes-dev:open',
+    'lanes-github:status',
+  ],
   // Workspace content search (electron/search.ts). Prefers ripgrep, falls back
   // to a Node walk reusing the workspace IGNORE_DIRS + binary/size skips.
   search: ['search:content'],

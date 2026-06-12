@@ -101,3 +101,32 @@ test('worktree lanes: merge-lane lands the work on the base branch + cleans up',
     fs.rmSync(linked, { recursive: true, force: true });
   }
 });
+
+test('worktree lanes: GitHub status reports why it is unavailable (no network)', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-lanes-gh-'));
+  const git = initRepo(repo);
+
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(
+      (root) => window.marudesk.invoke('workspaces:create', { name: 'R', roots: [{ name: 'R', path: root }] }),
+      repo,
+    );
+
+    // No origin remote at all.
+    const noRemote = await page.evaluate(() =>
+      window.marudesk.invoke('lanes-github:status', { force: true }),
+    );
+    expect(noRemote).toEqual({ ok: false, reason: 'no-remote' });
+
+    // A non-GitHub origin is reported as such (still no network involved).
+    git(['remote', 'add', 'origin', 'git@gitlab.com:x/y.git']);
+    const notGithub = await page.evaluate(() =>
+      window.marudesk.invoke('lanes-github:status', { force: true }),
+    );
+    expect(notGithub).toEqual({ ok: false, reason: 'not-github' });
+  } finally {
+    await app.close();
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

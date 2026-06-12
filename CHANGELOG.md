@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Source Control
+- Worktree lanes board (Mission Control): each lane now shows its GitHub PR
+  (#number with open/draft/merged/closed state) and an aggregated CI verdict
+  from the head commit's check runs, both clickable into an in-app browser
+  tab, with a refresh button on the board. Status is fetched best-effort with
+  whatever auth the environment has (`GITHUB_TOKEN`/`GH_TOKEN`, `gh auth
+  token`, or unauthenticated for public repos) and cached briefly per branch.
+- A lane's "open dev URL" now reuses the lane's one browser tab (re-focusing
+  and re-navigating it) instead of opening a new tab on every click.
+
 ## 0.7.0 - 2026-06-12
 
 ### DevTools (parity expansion, #82)
