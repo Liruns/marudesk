@@ -487,6 +487,8 @@ export const EN_MESSAGES = {
   'agent.chat.context.model': 'Model',
   'agent.chat.context.outputTokens': 'Output tokens',
   'agent.chat.context.provider': 'Provider',
+  'agent.chat.contextNudge.body': 'Context window is almost full.',
+  'agent.chat.contextNudge.compact': 'Compact',
   'agent.chat.contextWindow': 'Context window',
   'agent.chat.copyMessage': 'Copy message',
   'agent.chat.costEstimateNote':

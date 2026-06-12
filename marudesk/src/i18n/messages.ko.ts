@@ -486,6 +486,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.context.model': '모델',
   'agent.chat.context.outputTokens': '출력 토큰',
   'agent.chat.context.provider': '제공자',
+  'agent.chat.contextNudge.body': '컨텍스트 창이 거의 찼습니다.',
+  'agent.chat.contextNudge.compact': '정리하기',
   'agent.chat.contextWindow': '컨텍스트 창',
   'agent.chat.copyMessage': '메시지 복사',
   'agent.chat.costEstimateNote':

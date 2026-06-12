@@ -1,6 +1,12 @@
-import { ListChecks, X } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, ListChecks, X } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
-import { useAgentStore } from '../store';
+import { toast } from '../../../lib/toast';
+import { useAgentBusy, useAgentStore } from '../store';
+import { useContextUsage } from '../useContextUsage';
+
+/** Show the "almost full" compaction nudge at/above this context occupancy. */
+const CONTEXT_NUDGE_PCT = 90;
 
 /**
  * The composer's store-driven notices above the input: a local (client-side)
@@ -15,12 +21,62 @@ export function ComposerBanners() {
   const localError = useAgentStore((s) => s.localError);
   const queuedPrompts = useAgentStore((s) => s.queuedPrompts);
   const removeQueuedPrompt = useAgentStore((s) => s.removeQueuedPrompt);
+  const compact = useAgentStore((s) => s.compact);
+  const busy = useAgentBusy();
+  const usage = useContextUsage();
+  const [compacting, setCompacting] = useState(false);
+
+  // Nudge the user to free context once the window is nearly full. Self-clearing:
+  // a successful compaction drops contextTokens, so the banner vanishes on its own.
+  const showNudge = usage?.pct != null && usage.pct >= CONTEXT_NUDGE_PCT;
+
+  const runCompact = () => {
+    if (busy || compacting) return;
+    setCompacting(true);
+    toast({
+      title: t('agent.chat.toast.compacting.title'),
+      description: t('agent.chat.toast.compacting.description'),
+    });
+    void compact()
+      .then((res) => {
+        if (res.ok) {
+          toast({
+            title: t('agent.chat.toast.compacted.title'),
+            description: t('agent.chat.toast.compacted.description'),
+          });
+        } else {
+          toast({
+            title: t('agent.chat.toast.compactFailed.title'),
+            description: res.reason ?? t('agent.chat.toast.unknownError'),
+            variant: 'error',
+          });
+        }
+      })
+      .finally(() => setCompacting(false));
+  };
 
   return (
     <>
       {localError ? (
         <div className="rounded border border-subtle bg-error-subtle/40 px-3 py-1.5 text-caption text-fg-secondary break-words shadow-highlight">
           {localError}
+        </div>
+      ) : null}
+
+      {showNudge ? (
+        <div className="flex items-center gap-2 rounded border border-warning/40 bg-warning-subtle/40 px-3 py-1.5 text-caption text-fg-secondary shadow-highlight">
+          <AlertTriangle size={12} className="shrink-0 text-warning" />
+          <span className="flex-1 min-w-0">
+            {t('agent.chat.contextNudge.body')} {usage?.pct}%
+          </span>
+          <button
+            type="button"
+            onClick={runCompact}
+            disabled={busy || compacting}
+            className="shrink-0 rounded px-1.5 py-0.5 font-medium text-warning hover:bg-warning-subtle/60 disabled:opacity-40 transition-colors duration-fast"
+          >
+            {t('agent.chat.contextNudge.compact')}
+          </button>
         </div>
       ) : null}
 

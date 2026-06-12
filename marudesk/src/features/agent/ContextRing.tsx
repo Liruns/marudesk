@@ -1,10 +1,8 @@
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
-import { findModel } from '../../../shared/providers';
 import { estimateCostUsd, formatCostUsd } from '../../../shared/model-pricing';
-import { useProvidersStore } from '../providers/store';
 import { useComposerStore } from '../composer/store';
-import { useAgentStore, useThreadModelKey } from './store';
+import { useContextUsage } from './useContextUsage';
 import { formatContext, formatContextWindow, formatUsageTitle } from './chat/format';
 
 /* ── geometry ───────────────────────────────────────────────────────────── */
@@ -33,17 +31,12 @@ function ringHue(pct: number): string {
  */
 export function ContextRing() {
   const { locale, t } = useI18n();
-  const usage = useAgentStore((s) => s.chat.usage);
-  const modelKey = useThreadModelKey();
-  const models = useProvidersStore((s) => s.models);
+  const usage = useContextUsage();
 
-  if (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.contextTokens === 0) {
-    return null;
-  }
+  if (!usage) return null;
 
-  const model = findModel(models, modelKey);
+  const { pct, model } = usage;
   const ctx = model?.contextWindow;
-  const pct = ctx ? Math.min(100, Math.round((usage.contextTokens / ctx) * 100)) : null;
   const cost = model
     ? estimateCostUsd(model.id, usage.inputTokens, usage.outputTokens)
     : null;
