@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-06-12
+
+### DevTools (parity expansion, #82)
+- Sources/debugger panel with source maps, DOM-debugger breakpoints, and
+  watch expressions; performance profiler and security panels; HAR export,
+  coverage, syntax highlighting, and search polish; event listeners,
+  accessibility, DOM editing, and layout overlays; IndexedDB/cache-storage
+  inspection.
 
 ### Agent
 - New runtime verification tools: `screenshot` (vision-capable models receive
