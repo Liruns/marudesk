@@ -231,6 +231,16 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         // DOMStorage for live storage events; Network is needed for getCookies.
         await get()._ensureDomains(['DOMStorage', 'Network']);
         await get().refreshApplication();
+      } else if (panel === 'performance') {
+        // Performance.enable starts Chromium's metric collection; the panel
+        // pulls values on demand (refreshMetrics) — there is no event stream.
+        await get()._ensureDomains(['Performance']);
+        void get().refreshMetrics();
+      } else if (panel === 'security') {
+        // Security.enable makes Chromium emit visibleSecurityStateChanged
+        // immediately (and on every transport change), so the panel populates
+        // through the event relay without a poll.
+        await get()._ensureDomains(['Security']);
       }
       // 'rendering' needs no panel-specific enable — its toggles target the
       // already-enabled Overlay domain + the stateless Emulation setters.
@@ -243,6 +253,11 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
       // new document. Console + network are each kept iff their "Preserve log"
       // toggle is on (DevTools' behavior); DOM/styles always reset — those
       // nodeIds are meaningless on the new document. Page timing always resets.
+      // A CPU profile RECORDING is stopped + discarded (samples spanning two
+      // documents would mislead); a finished processed profile is kept, like
+      // DevTools keeps recorded profiles across reloads.
+      const wasProfiling = get().profiling;
+      const navTabId = get().tabId;
       set({
         enabled: new Set(),
         ...(get().preserveLog ? {} : { console: [] }),
@@ -280,7 +295,16 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         cookies: [],
         idbDatabases: [],
         cacheNames: [],
+        // Per-navigation security/metrics snapshots — stale certificate info
+        // must never show for the new origin. `profile` (a finished recording)
+        // intentionally survives; `profiling` (in-flight) is dropped.
+        securityState: null,
+        perfMetrics: null,
+        perfMetricsAt: null,
+        profiling: false,
       });
+      // Stop (and discard) a recording that straddled the navigation.
+      if (wasProfiling && navTabId) void cdpTry(navTabId, 'Profiler.stop');
       const epoch = get().epoch;
       void (async () => {
         await get()._ensureDomains(['Page', 'Runtime', 'Log']);
@@ -335,8 +359,15 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
     handleDetached: (tabId, reason) => {
       if (get().tabId !== tabId) return;
       // Detaching the debugger auto-resumes the page — drop the pause snapshot
-      // so a later reconnect doesn't show a stale "Paused" banner.
-      set({ session: 'detached', detachReason: reason, picking: false, paused: null });
+      // so a later reconnect doesn't show a stale "Paused" banner. It also kills
+      // a running CPU profiler, so the recording flag resets with it.
+      set({
+        session: 'detached',
+        detachReason: reason,
+        picking: false,
+        paused: null,
+        profiling: false,
+      });
     },
   };
 }

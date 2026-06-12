@@ -64,6 +64,11 @@ const ALLOWED_PREFIXES = [
   // metrics / timezone / locale / sensors) — those are subtracted in
   // BLOCKED_METHODS below so the prefix can't re-admit them.
   'Emulation.',
+  // Security panel: enable + read the visible security state (the
+  // visibleSecurityStateChanged event stream). The certificate-error bypass
+  // methods are subtracted in BLOCKED_METHODS below so the prefix can't
+  // re-admit them.
+  'Security.',
 ];
 // Exact methods outside the allowed domains we still need: auto-attach to
 // out-of-process iframes / workers (Sources). The dangerous Target methods
@@ -119,6 +124,13 @@ const BLOCKED_METHODS = new Set([
   'Emulation.setTimezoneOverride',
   'Emulation.setSensorOverrideEnabled',
   'Emulation.setSensorOverrideReadings',
+  // Security-domain certificate-error bypasses. The custom devtools must NEVER
+  // be able to ignore or override certificate validation — the Security panel
+  // only reads the visible security state. Subtracted so the 'Security.' prefix
+  // can't re-admit them.
+  'Security.setIgnoreCertificateErrors',
+  'Security.handleCertificateError',
+  'Security.setOverrideCertificateErrors',
 ]);
 
 export function isAllowedCdpMethod(method: string): boolean {

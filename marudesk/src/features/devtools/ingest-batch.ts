@@ -247,6 +247,15 @@ export function applyIngestBatch(
               break;
             }
 
+            /* Security */
+            case 'Security.visibleSecurityStateChanged': {
+              // Post-commit effect: parsed through a typed guard in
+              // slice-security (the wire shape is validated there, not here).
+              const securityParams = params;
+              effects.push(() => get()._handleSecurityState(securityParams));
+              break;
+            }
+
             /* Console */
             case 'Runtime.consoleAPICalled': {
               pushConsole({

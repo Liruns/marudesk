@@ -19,12 +19,15 @@ import {
   type NodeId,
   type PauseOnExceptions,
   type PausedInfo,
+  type PerfMetric,
   type RemoteObject,
   type RuleMatch,
   type ScriptInfo,
   type SourceBreakpoint,
   type StyleSheetHeader,
+  type VisibleSecurityState,
 } from './types';
+import type { ProcessedProfile } from './performance-utils';
 import type { PatchOp } from '../../../shared/patch';
 import { loadPrefs } from './store-prefs';
 import type { ToolLocation, DevtoolsTool } from './store-prefs';
@@ -40,6 +43,8 @@ import { createPanelsSlice } from './slice-panels';
 import { createDockSlice } from './slice-dock';
 import { createSessionSlice } from './slice-session';
 import { createSourcesSlice } from './slice-sources';
+import { createPerformanceSlice } from './slice-performance';
+import { createSecuritySlice } from './slice-security';
 
 /**
  * The custom DevTools session store. One dock, bound to the active web tab; it
@@ -62,7 +67,9 @@ export type DevtoolsPanel =
   | 'timeline'
   | 'network'
   | 'application'
-  | 'rendering';
+  | 'rendering'
+  | 'performance'
+  | 'security';
 type Session = 'idle' | 'attaching' | 'attached' | 'detached';
 
 /** Emulated `prefers-color-scheme` (Emulation.setEmulatedMedia features). */
@@ -253,6 +260,18 @@ export type DevtoolsState = {
   appLoading: boolean;
   // rendering panel toggles — sticky preferences, re-applied on (re)attach.
   rendering: RenderingState;
+  // performance — live metrics (pulled via Performance.getMetrics) + the CPU
+  // profiler. `profile` is the last PROCESSED recording: it survives navigation
+  // (a historical snapshot) but resets with the session (freshSlices); a
+  // recording in flight is dropped on navigation/detach.
+  perfMetrics: PerfMetric[] | null;
+  /** Wall-clock ms of the last metrics refresh, for the "Updated" caption. */
+  perfMetricsAt: number | null;
+  profiling: boolean;
+  profile: ProcessedProfile | null;
+  // security — the page's visible security state, strictly per-navigation
+  // (reset in _handleNavigated so stale cert info never shows for a new origin).
+  securityState: VisibleSecurityState | null;
 };
 
 export type DevtoolsActions = {
@@ -366,6 +385,16 @@ export type DevtoolsActions = {
   setRendering: (patch: Partial<RenderingState>) => void;
   /** Push all rendering toggles to the page (on change / re-attach). */
   _applyRendering: () => Promise<void>;
+  // performance
+  /** Pull Performance.getMetrics into the live-metrics snapshot (on demand). */
+  refreshMetrics: () => Promise<void>;
+  /** Profiler.enable + setSamplingInterval + start a sampling CPU profile. */
+  startProfiling: () => Promise<void>;
+  /** Profiler.stop → process into the top-down/bottom-up views. */
+  stopProfiling: () => Promise<void>;
+  // security
+  /** `Security.visibleSecurityStateChanged` → typed per-navigation snapshot. */
+  _handleSecurityState: (params: unknown) => void;
   // event ingestion
   ingestBatch: (
     items: { method: string; params: unknown }[],
@@ -451,6 +480,11 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     /* ── network ─────────────────────────────────────────────────────── */
 
     ...createPanelsSlice(set, get),
+
+    /* ── performance + security ──────────────────────────────────────── */
+
+    ...createPerformanceSlice(set, get),
+    ...createSecuritySlice(set),
 
 
     ingestBatch: (items, dropped) => applyIngestBatch(set, get, items, dropped),

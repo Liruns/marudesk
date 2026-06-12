@@ -31,6 +31,8 @@ export const DEFAULT_TOOLS: DevtoolsTool[] = [
   { id: 'network', location: 'main', order: 4 },
   { id: 'application', location: 'main', order: 5 },
   { id: 'rendering', location: 'main', order: 6 },
+  { id: 'performance', location: 'main', order: 7 },
+  { id: 'security', location: 'main', order: 8 },
 ];
 
 const PANEL_IDS: ReadonlySet<DevtoolsPanel> = new Set<DevtoolsPanel>([
@@ -41,6 +43,8 @@ const PANEL_IDS: ReadonlySet<DevtoolsPanel> = new Set<DevtoolsPanel>([
   'network',
   'application',
   'rendering',
+  'performance',
+  'security',
 ]);
 
 export const DRAWER_MIN = 80;

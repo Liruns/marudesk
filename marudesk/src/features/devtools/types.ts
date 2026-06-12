@@ -296,6 +296,75 @@ export type PausedInfo = {
   frameIndex: number;
 };
 
+/* ── Profiler / Performance ───────────────────────────────────────────── */
+
+/** The `Runtime.CallFrame` embedded in a profile node (subset). */
+export type ProfileCallFrame = {
+  functionName: string;
+  url: string;
+  /** 0-based; -1 when unknown. */
+  lineNumber: number;
+};
+
+/** `Profiler.ProfileNode` (subset) — `children` are node ids. */
+export type CdpProfileNode = {
+  id: number;
+  callFrame: ProfileCallFrame;
+  hitCount?: number;
+  children?: number[];
+};
+
+/**
+ * `Profiler.Profile` as returned by `Profiler.stop`. Times are microseconds:
+ * `samples[i]` is the node id observed at sample i, `timeDeltas[i]` the interval
+ * before it (the first delta is relative to `startTime`).
+ */
+export type CdpProfile = {
+  nodes: CdpProfileNode[];
+  startTime: number;
+  endTime: number;
+  samples?: number[];
+  timeDeltas?: number[];
+};
+
+/** One `Performance.getMetrics` metric (counts, bytes, or seconds by name). */
+export type PerfMetric = { name: string; value: number };
+
+/* ── Security ─────────────────────────────────────────────────────────── */
+
+/** `Security.SecurityState` — the page's overall security verdict. */
+export type SecurityState =
+  | 'unknown'
+  | 'neutral'
+  | 'insecure'
+  | 'secure'
+  | 'info'
+  | 'insecure-broken';
+
+/** `Security.CertificateSecurityState` (subset the panel renders). */
+export type CertificateSecurityState = {
+  protocol: string;
+  keyExchange: string;
+  keyExchangeGroup?: string;
+  cipher: string;
+  subjectName: string;
+  issuer: string;
+  /** Seconds since epoch. */
+  validFrom: number;
+  validTo: number;
+};
+
+/**
+ * The normalized `Security.visibleSecurityStateChanged` snapshot (modern event;
+ * the deprecated securityStateChanged explanations are replaced by issue ids).
+ */
+export type VisibleSecurityState = {
+  securityState: SecurityState;
+  certificate?: CertificateSecurityState;
+  /** `securityStateIssueIds` — e.g. 'displayed-mixed-content'. */
+  issueIds: string[];
+};
+
 /* ── Application (storage) ────────────────────────────────────────────── */
 
 /** One object store of an IndexedDB database (`IndexedDB.ObjectStore` subset). */

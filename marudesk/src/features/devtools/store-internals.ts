@@ -100,6 +100,11 @@ export function freshSlices(): Pick<
   | 'navStartTime'
   | 'domContentTime'
   | 'loadTime'
+  | 'perfMetrics'
+  | 'perfMetricsAt'
+  | 'profiling'
+  | 'profile'
+  | 'securityState'
 > {
   return {
     nodes: new Map(),
@@ -137,6 +142,11 @@ export function freshSlices(): Pick<
     navStartTime: null,
     domContentTime: null,
     loadTime: null,
+    perfMetrics: null,
+    perfMetricsAt: null,
+    profiling: false,
+    profile: null,
+    securityState: null,
   };
 }
 

@@ -6,6 +6,8 @@ import { EvidenceTimeline } from './panels/EvidenceTimeline';
 import { NetworkPanel } from './panels/NetworkPanel';
 import { ApplicationPanel } from './panels/ApplicationPanel';
 import { RenderingPanel } from './panels/RenderingPanel';
+import { PerformancePanel } from './panels/PerformancePanel';
+import { SecurityPanel } from './panels/SecurityPanel';
 
 /**
  * Render one DevTools panel by id. The single panel↔id mapping, used by both the
@@ -32,5 +34,9 @@ export function PanelById({ panel }: { panel: DevtoolsPanel }) {
       return <ApplicationPanel />;
     case 'rendering':
       return <RenderingPanel />;
+    case 'performance':
+      return <PerformancePanel />;
+    case 'security':
+      return <SecurityPanel />;
   }
 }

@@ -17,4 +17,6 @@ export const PANELS: { id: DevtoolsPanel; label: string }[] = [
   { id: 'network', label: 'Network' },
   { id: 'application', label: 'Application' },
   { id: 'rendering', label: 'Rendering' },
+  { id: 'performance', label: 'Performance' },
+  { id: 'security', label: 'Security' },
 ];
