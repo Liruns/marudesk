@@ -307,6 +307,7 @@ export const CHANNELS = {
     'terminal:clear-errors',
   ],
   usage: ['usage:fetch', 'usage:fetch-all'],
+  oauthSlots: ['auth:oauth-slots', 'auth:oauth-add-slot', 'auth:oauth-rotate'],
   clipboard: ['clipboard:write-text', 'clipboard:read-text'],
   app: [
     'app:info',
