@@ -3,7 +3,7 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { atomicWriteFile } from './fs-safe';
 import { defineHandler } from './ipc/define-handler';
-import type { HistoryEntry } from '../shared/history';
+import { frecency, stripUrlPrefix, type HistoryEntry } from '../shared/history';
 
 /**
  * Browsing history: visited URLs, persisted under userData (trusted — outside
@@ -94,11 +94,6 @@ async function persist(): Promise<void> {
   }
 }
 
-/** visitCount dominates; lastVisit breaks ties (newer ranks higher). */
-function frecency(e: HistoryEntry): number {
-  return e.visitCount * 1e13 + e.lastVisit;
-}
-
 /**
  * Flush any pending debounced save to the CURRENT profile's history.json, then
  * drop the in-memory cache so the next load reads the now-active profile's file.
@@ -143,8 +138,12 @@ export function recordTitle(url: string, title: string): void {
   });
 }
 
-function stripScheme(url: string): string {
-  return url.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+/**
+ * Every stored entry, for the suggestion ranker (electron/suggest.ts) — the
+ * ranking itself lives in shared/suggest.ts so it stays pure and testable.
+ */
+export async function allHistoryEntries(): Promise<HistoryEntry[]> {
+  return [...(await load()).values()];
 }
 
 /**
@@ -159,7 +158,7 @@ async function query(raw: string): Promise<HistoryEntry[]> {
   const prefix: HistoryEntry[] = [];
   const substring: HistoryEntry[] = [];
   for (const e of map.values()) {
-    const stripped = stripScheme(e.url).toLowerCase();
+    const stripped = stripUrlPrefix(e.url).toLowerCase();
     if (stripped.startsWith(q) || e.url.toLowerCase().startsWith(q)) {
       prefix.push(e);
     } else if (

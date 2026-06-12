@@ -1,12 +1,20 @@
-import type { ChangeEvent, FormEvent, RefObject } from 'react';
+import type {
+  ChangeEvent,
+  FocusEvent,
+  FormEvent,
+  KeyboardEvent,
+  RefObject,
+} from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  Bookmark,
   Download,
   Globe,
   Lock,
   MousePointerClick,
   RotateCw,
+  Star,
   Volume2,
   VolumeX,
   Wrench,
@@ -28,7 +36,13 @@ type Props = {
   readonly shelfOpen: boolean;
   readonly consoleErrorCount: number;
   readonly devtoolsOpen: boolean;
+  readonly bookmarked: boolean;
+  readonly bookmarksOpen: boolean;
+  readonly onToggleBookmark: () => void;
+  readonly onToggleBookmarksPanel: () => void;
   readonly onAddressChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onAddressKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  readonly onAddressBlur: (event: FocusEvent<HTMLInputElement>) => void;
   readonly onSubmit: (event: FormEvent) => void;
   readonly onGoBack: () => void;
   readonly onGoForward: () => void;
@@ -51,7 +65,13 @@ export function BrowserToolbar({
   shelfOpen,
   consoleErrorCount,
   devtoolsOpen,
+  bookmarked,
+  bookmarksOpen,
+  onToggleBookmark,
+  onToggleBookmarksPanel,
   onAddressChange,
+  onAddressKeyDown,
+  onAddressBlur,
   onSubmit,
   onGoBack,
   onGoForward,
@@ -117,6 +137,8 @@ export function BrowserToolbar({
             placeholder={t('browser.address.placeholder')}
             value={pendingUrl}
             onChange={onAddressChange}
+            onKeyDown={onAddressKeyDown}
+            onBlur={onAddressBlur}
             onFocus={(e) => e.currentTarget.select()}
             className={cn(
               'flex-1 min-w-0 bg-transparent text-body-sm text-fg-primary',
@@ -124,6 +146,28 @@ export function BrowserToolbar({
             )}
             aria-label={t('browser.address.aria')}
           />
+          {hasUrl ? (
+            <button
+              type="button"
+              onClick={onToggleBookmark}
+              aria-label={t(
+                bookmarked ? 'browser.bookmarks.remove' : 'browser.bookmarks.add',
+              )}
+              title={t(
+                bookmarked ? 'browser.bookmarks.remove' : 'browser.bookmarks.add',
+              )}
+              aria-pressed={bookmarked}
+              className={cn(
+                'size-6 rounded-pill flex items-center justify-center shrink-0',
+                'transition-colors duration-fast',
+                bookmarked
+                  ? 'text-accent hover:bg-accent-subtle/40'
+                  : 'text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary',
+              )}
+            >
+              <Star size={14} fill={bookmarked ? 'currentColor' : 'none'} />
+            </button>
+          ) : null}
           {nav.isLoading ? (
             <span
               aria-hidden
@@ -148,6 +192,17 @@ export function BrowserToolbar({
           {zoomPercent}%
         </button>
       ) : null}
+
+      <NavIconButton
+        label={t(
+          bookmarksOpen ? 'browser.bookmarks.hide' : 'browser.bookmarks.show',
+        )}
+        active={bookmarksOpen}
+        aria-pressed={bookmarksOpen}
+        onClick={onToggleBookmarksPanel}
+      >
+        <Bookmark size={16} />
+      </NavIconButton>
 
       <BrowserHistoryMenu />
 
