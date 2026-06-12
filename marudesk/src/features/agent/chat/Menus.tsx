@@ -156,13 +156,16 @@ export function SlashMenu({
             i === activeIndex ? 'bg-surface-3' : 'hover:bg-surface-3/60',
           )}
         >
+          {/* Left-clustered like MentionMenu: name → hint → description read as
+              one phrase instead of a justified row whose description drifts to
+              the far edge of a wide (full-surface) composer. */}
           <span className="font-mono text-body-sm text-fg-primary shrink-0">/{cmd.name}</span>
           {cmd.argHint ? (
-            <span className="font-mono text-caption text-fg-tertiary shrink-0">
+            <span className="font-mono text-caption text-fg-tertiary/70 shrink-0">
               {slashArgHint(cmd.name, t)}
             </span>
           ) : null}
-          <span className="text-caption text-fg-tertiary truncate ml-auto pl-3">
+          <span className="text-caption text-fg-tertiary truncate">
             {slashDescription(cmd.name, t)}
           </span>
         </button>

@@ -2,13 +2,14 @@ import { CheckCircle2, CircleDot, GitBranch, Loader2, XCircle } from 'lucide-rea
 import type { AgentRunTreeNode } from '../../../../shared/agent-orchestration';
 import { Badge } from '../../../components/ui';
 import { cn } from '../../../lib/cn';
+import { hasOrchestrationContent } from './format';
 
 export function OrchestrationTree({
   nodes,
 }: {
   readonly nodes: readonly AgentRunTreeNode[];
 }) {
-  if (nodes.length === 0) return null;
+  if (!hasOrchestrationContent(nodes)) return null;
   return (
     <div className="flex flex-col gap-1.5 rounded border border-subtle bg-surface-2 p-2.5">
       <div className="flex items-center gap-2 text-caption uppercase tracking-wider text-fg-tertiary">

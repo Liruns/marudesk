@@ -20,6 +20,7 @@ import {
   moveLeft,
   pushHistory,
 } from '../../cli/composer.ts';
+import { diffHunk } from '../../cli/diff.ts';
 import { KeyDecoder } from '../../cli/keys.ts';
 import { createMarkdownRenderer } from '../../cli/markdown.ts';
 import { cliSlashCommands, resolveCliSlash } from '../../cli/slash.ts';
@@ -336,6 +337,18 @@ function checkPureModules(): void {
     review?.command.kind === 'prompt' && review.command.expand(review.arg).includes('auth flow'),
   );
   check('slash: unknown command resolves null', resolveCliSlash('/nope') === null);
+
+  // diff: the approval panel's hunk preview trims common context and caps runs.
+  const hunk = diffHunk('a\nold1\nold2\nz', 'a\nnew1\nz');
+  check(
+    'diff: common prefix/suffix lines are trimmed',
+    hunk.removed.join(',') === 'old1,old2' && hunk.added.join(',') === 'new1',
+  );
+  const capped = diffHunk('', 'l1\nl2\nl3\nl4\nl5\nl6', 4);
+  check(
+    'diff: added run is capped with an omitted count',
+    capped.added.length === 4 && capped.addedOmitted === 2 && capped.removed.length === 0,
+  );
 }
 
 /* ── main ─────────────────────────────────────────────────────────────────── */

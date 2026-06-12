@@ -48,6 +48,7 @@ import {
   type HistoryState,
 } from './composer';
 import { saveModelPref } from './config';
+import { diffHunk } from './diff';
 import { KeyDecoder, type KeyEvent } from './keys';
 import { cliSlashQuery, DESKTOP_ONLY, filterCliSlash, resolveCliSlash } from './slash';
 import { createTranscript } from './transcript';
@@ -234,8 +235,12 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     const out = visible.map((c, i) => {
       const idx = start + i;
       const hint = c.argHint ? ` ${dim(`<${c.argHint}>`)}` : '';
-      const label = `  /${c.name}${hint}  ${dim(c.description)}`;
-      return truncate(idx === slashSelected ? inverse(`  /${c.name}`) + hint + `  ${dim(c.description)}` : label, width);
+      if (idx !== slashSelected) {
+        return truncate(`  /${c.name}${hint}  ${dim(c.description)}`, width);
+      }
+      // Selected row: invert the whole line (not just the command token) so the
+      // highlight reads as one row, claude-code style.
+      return inverse(truncate(`  /${c.name}${c.argHint ? ` <${c.argHint}>` : ''}  ${c.description}`, width));
     });
     if (start > 0) out.unshift(dim(`  ↑ ${start} more`));
     const below = matches.length - (start + visible.length);
@@ -255,6 +260,13 @@ export async function runTui(opts: TuiOptions): Promise<number> {
         const before = d.before.length === 0 ? 0 : d.before.split('\n').length;
         const after = d.after.length === 0 ? 0 : d.after.split('\n').length;
         lines.push(`  ${cyan('~')} ${d.path} ${dim(`(${before} → ${after} lines)`)}`);
+        // Inline the changed lines (capped) so the approve/deny decision can be
+        // made from the panel itself, desktop ApprovalCard parity.
+        const hunk = diffHunk(d.before, d.after);
+        for (const l of hunk.removed) lines.push(red(truncate(`    - ${l}`, width)));
+        if (hunk.removedOmitted > 0) lines.push(dim(`      … ${hunk.removedOmitted} more removed`));
+        for (const l of hunk.added) lines.push(green(truncate(`    + ${l}`, width)));
+        if (hunk.addedOmitted > 0) lines.push(dim(`      … ${hunk.addedOmitted} more added`));
       }
     }
     lines.push(`  ${green('[y] approve')}   ${red('[n] deny')}`);
