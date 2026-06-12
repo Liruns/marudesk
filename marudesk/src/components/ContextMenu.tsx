@@ -54,16 +54,21 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     first?.focus();
   }, []);
 
-  // A WebContentsView composites ABOVE the React DOM, so a menu opened over a
-  // browser tab (e.g. the activity-bar gear) would otherwise render *behind* the
-  // page. Hide the embedded view while the menu is open; restore on close. No-op
-  // when the active tab owns no view (feature tabs / no web tab).
+  // A WebContentsView composites ABOVE the React DOM, so a menu that overlaps
+  // the browser stage would otherwise render *behind* the page. Hide the
+  // embedded view while the menu is open — but only when the menu could actually
+  // overlap. Menus anchored to the left-side chrome (activity bar, explorer)
+  // stay clear of the stage, so hiding would just cause a jarring flash.
   useEffect(() => {
+    const stage = document.querySelector<HTMLElement>('[data-stage-region]');
+    const stageLeft = stage?.getBoundingClientRect().left ?? window.innerWidth * 0.25;
+    const menuRight = x + 240;
+    if (menuRight <= stageLeft) return;
     void window.marudesk.invoke('browser:set-visible', false);
     return () => {
       void window.marudesk.invoke('browser:set-visible', true);
     };
-  }, []);
+  }, [x]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {

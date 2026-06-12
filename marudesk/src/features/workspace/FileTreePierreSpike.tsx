@@ -9,6 +9,7 @@ import type {
 } from '@pierre/trees';
 import {
   ClipboardPaste,
+  Columns2,
   Copy,
   ExternalLink,
   File as FileIcon,
@@ -16,10 +17,12 @@ import {
   FolderPlus,
   Link,
   Pencil,
+  Rows2,
   Scissors,
   Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import type { FileEntry } from '../../../shared/workspace';
 import { useWorkspaceStore } from './store';
 import {
@@ -122,9 +125,11 @@ type MenuRow = {
 type Props = {
   files: FileEntry[];
   onOpenFile: (path: string) => void;
+  onSplitFile?: (path: string, dir: 'row' | 'col') => void;
 };
 
-export function FileTreePierreSpike({ files, onOpenFile }: Props) {
+export function FileTreePierreSpike({ files, onOpenFile, onSplitFile }: Props) {
+  const { t } = useI18n();
   const clipboard = useWorkspaceStore((s) => s.clipboard);
   const setClipboard = useWorkspaceStore((s) => s.setClipboard);
 
@@ -233,26 +238,32 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
     const rows: MenuRow[] = [];
     if (isDir) {
       rows.push(
-        { label: 'New File', icon: <FilePlus size={15} />, onSelect: () => beginCreate(item.path, 'file') },
-        { label: 'New Folder', icon: <FolderPlus size={15} />, onSelect: () => beginCreate(item.path, 'dir') },
+        { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate(item.path, 'file') },
+        { label: t('workspace.action.newFolder'), icon: <FolderPlus size={15} />, onSelect: () => beginCreate(item.path, 'dir') },
       );
     } else {
-      rows.push({ label: 'Open', icon: <FileIcon size={15} />, onSelect: () => onOpenFile(item.path) });
+      rows.push({ label: t('workspace.action.open'), icon: <FileIcon size={15} />, onSelect: () => onOpenFile(item.path) });
+      if (onSplitFile) {
+        rows.push(
+          { label: t('workspace.action.splitRight'), icon: <Columns2 size={15} />, onSelect: () => onSplitFile(item.path, 'row') },
+          { label: t('workspace.action.splitBottom'), icon: <Rows2 size={15} />, onSelect: () => onSplitFile(item.path, 'col') },
+        );
+      }
     }
     rows.push(
-      { label: 'Rename', icon: <Pencil size={15} />, onSelect: () => model.startRenaming(item.path) },
-      { label: 'Cut', icon: <Scissors size={15} />, onSelect: () => setClipboard(item.path, 'cut') },
-      { label: 'Copy', icon: <Copy size={15} />, onSelect: () => setClipboard(item.path, 'copy') },
+      { label: t('workspace.action.rename'), icon: <Pencil size={15} />, onSelect: () => model.startRenaming(item.path) },
+      { label: t('workspace.action.cut'), icon: <Scissors size={15} />, onSelect: () => setClipboard(item.path, 'cut') },
+      { label: t('workspace.action.copy'), icon: <Copy size={15} />, onSelect: () => setClipboard(item.path, 'copy') },
       {
-        label: 'Paste',
+        label: t('workspace.action.paste'),
         icon: <ClipboardPaste size={15} />,
         disabled: clipboard === null,
         onSelect: () => void pasteInto(pasteDir),
       },
-      { label: 'Copy Path', icon: <Link size={15} />, onSelect: () => void copyAbsolutePath(item.path) },
-      { label: 'Copy Relative Path', icon: <Copy size={15} />, onSelect: () => void copyRelativePath(item.path) },
-      { label: 'Reveal in File Explorer', icon: <ExternalLink size={15} />, onSelect: () => void revealPath(item.path) },
-      { label: 'Delete', icon: <Trash2 size={15} />, danger: true, onSelect: () => void deletePath(item.path) },
+      { label: t('workspace.action.copyPath'), icon: <Link size={15} />, onSelect: () => void copyAbsolutePath(item.path) },
+      { label: t('workspace.action.copyRelativePath'), icon: <Copy size={15} />, onSelect: () => void copyRelativePath(item.path) },
+      { label: t('workspace.action.revealInFileExplorer'), icon: <ExternalLink size={15} />, onSelect: () => void revealPath(item.path) },
+      { label: t('workspace.action.delete'), icon: <Trash2 size={15} />, danger: true, onSelect: () => void deletePath(item.path) },
     );
 
     return (
@@ -286,7 +297,7 @@ export function FileTreePierreSpike({ files, onOpenFile }: Props) {
   };
 
   return (
-    <div className="h-full min-h-0">
+    <div className="h-full min-h-0" onContextMenu={(e) => e.stopPropagation()}>
       <FileTree
         model={model}
         renderContextMenu={renderContextMenu}

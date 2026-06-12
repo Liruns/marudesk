@@ -6,7 +6,7 @@ import type {
 } from '../shared/agent';
 import type { SessionSummary } from '../shared/context';
 import type { AgentApprovalMode } from '../shared/settings';
-import type { BridgeModelsResult, RemoteHealth } from '../shared/remote';
+import type { BridgeModelsResult, BridgeSessionDetail, BridgeWorkspacesResult, RemoteHealth } from '../shared/remote';
 
 /**
  * Typed REST + SSE client over the bridge's bearer path (chat CLI v2 —
@@ -47,15 +47,22 @@ export function createClient(conn: Connection) {
     health: () => request<RemoteHealth>('/health'),
     snapshot: () => request<AgentChatState>('/agent/snapshot'),
     models: () => request<BridgeModelsResult>('/agent/models'),
-    sessions: () => request<SessionSummary[]>('/agent/sessions'),
-    resumeSession: (id: string) => post<{ ok: boolean }>('/agent/resume-session', { id }),
+    workspaces: () => request<BridgeWorkspacesResult>('/agent/workspaces'),
+    sessionHistory: (id: string) => request<BridgeSessionDetail>(`/agent/session?id=${encodeURIComponent(id)}`),
+    sessions: (workspaceId?: string | null) => {
+      const q = workspaceId === undefined ? '' : `?workspace=${workspaceId ?? ''}`;
+      return request<SessionSummary[]>(`/agent/sessions${q}`);
+    },
+    resumeSession: (id: string, workspaceId?: string) =>
+      post<{ ok: boolean }>('/agent/resume-session', { id, ...(workspaceId ? { workspaceId } : {}) }),
     send: (input: AgentSendInput) => post<AgentSendResult>('/agent/send', input),
     abort: (turnId: string) => post<{ ok: boolean }>('/agent/abort', { turnId }),
     respond: (turnId: string, callId: string, answers: AgentAnswers) =>
       post<{ ok: boolean }>('/agent/respond', { turnId, callId, answers }),
     approve: (turnId: string, callId: string, approved: boolean) =>
       post<{ ok: boolean }>('/agent/approve', { turnId, callId, approved }),
-    reset: () => post<{ ok: boolean }>('/agent/reset', {}),
+    reset: (workspaceId?: string) =>
+      post<{ ok: boolean }>('/agent/reset', workspaceId ? { workspaceId } : {}),
     setApprovalMode: (mode: AgentApprovalMode) =>
       post<{ ok: boolean }>('/agent/set-approval-mode', { mode }),
 
@@ -63,13 +70,14 @@ export function createClient(conn: Connection) {
      * Stream `agent:event` snapshots over SSE. Resolves when the stream ends;
      * abort via the returned controller for a clean shutdown.
      */
-    events(onState: (state: AgentChatState) => void): {
+    events(onState: (state: AgentChatState) => void, workspaceId?: string): {
       done: Promise<void>;
       stop(): void;
     } {
       const controller = new AbortController();
+      const q = workspaceId ? `?workspace=${workspaceId}` : '';
       const done = (async () => {
-        const res = await fetch(`${conn.url}/agent/events`, {
+        const res = await fetch(`${conn.url}/agent/events${q}`, {
           headers,
           signal: controller.signal,
         });

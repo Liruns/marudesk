@@ -65,7 +65,8 @@ const APPROVAL_MODES: AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan']
 type PickerItem =
   | { kind: 'header'; label: string }
   | { kind: 'model'; provider: string; model: string; label: string }
-  | { kind: 'session'; id: string; label: string };
+  | { kind: 'session'; id: string; label: string }
+  | { kind: 'workspace'; id: string; label: string };
 
 type Mode =
   | { name: 'input' }
@@ -94,6 +95,8 @@ export async function runTui(opts: TuiOptions): Promise<number> {
 
   let provider = opts.provider;
   let model = opts.model;
+  let workspaceId: string | undefined;
+  let workspaceName: string | null = null;
   let mode: Mode = { name: 'input' };
   let composer: ComposerState = EMPTY_COMPOSER;
   let history: HistoryState = emptyHistory();
@@ -175,6 +178,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
         : dim('●');
     const ref = provider && model ? `${provider}/${model}` : 'no model — /model';
     const parts = [mark, dim(ref)];
+    if (workspaceName) parts.push(dim(workspaceName));
     if (s) {
       parts.push(dim(`ctx ${fmtTok(s.usage.contextTokens)}`));
       parts.push(dim(`↑${fmtTok(s.usage.inputTokens)} ↓${fmtTok(s.usage.outputTokens)}`));
@@ -406,7 +410,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
   let streamStop: () => void = () => {};
   let stopped = false;
   const connectStream = (): void => {
-    const stream = client.events(onState);
+    const stream = client.events(onState, workspaceId);
     streamStop = stream.stop;
     void stream.done
       .catch(() => {})
@@ -437,6 +441,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
         model,
         prompt,
         captures: [],
+        ...(workspaceId ? { workspaceId } : {}),
       });
       if (!res.ok) commitNotice([red(`✗ not sent: ${res.reason}`)]);
       else turnStartedAt = Date.now();
@@ -500,7 +505,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
   const openSessionsPicker = async (): Promise<void> => {
     let sessions: SessionSummary[];
     try {
-      sessions = await client.sessions();
+      sessions = await client.sessions(workspaceId ?? null);
     } catch (err) {
       commitNotice([red(`✗ could not list sessions: ${(err as Error).message}`)]);
       return;
@@ -515,6 +520,26 @@ export async function runTui(opts: TuiOptions): Promise<number> {
       label: `${s.title || '(untitled)'} · ${s.provider}/${s.model} · ${s.messageCount} msgs · ${new Date(s.updatedAt).toLocaleString()}`,
     }));
     mode = { name: 'picker', title: 'resume a session', items, selected: 0, filter: '' };
+  };
+
+  const openWorkspacePicker = async (): Promise<void> => {
+    let result: import('../shared/remote').BridgeWorkspacesResult;
+    try {
+      result = await client.workspaces();
+    } catch (err) {
+      commitNotice([red(`✗ could not list workspaces: ${(err as Error).message}`)]);
+      return;
+    }
+    if (result.workspaces.length === 0) {
+      commitNotice([dim('no workspaces open on the desktop')]);
+      return;
+    }
+    const items: PickerItem[] = result.workspaces.map((w) => ({
+      kind: 'workspace' as const,
+      id: w.id,
+      label: `${w.id === result.activeWorkspaceId ? '● ' : '  '}${w.name}`,
+    }));
+    mode = { name: 'picker', title: 'switch workspace', items, selected: 0, filter: '' };
   };
 
   const firstSelectable = (items: PickerItem[]): number => {
@@ -549,8 +574,16 @@ export async function runTui(opts: TuiOptions): Promise<number> {
       commitNotice([dim(`model → ${provider}/${model}`)]);
       return;
     }
+    if (item.kind === 'workspace') {
+      workspaceId = item.id;
+      workspaceName = item.label.replace(/^[● ]+/, '');
+      commitNotice([dim(`workspace → ${workspaceName}`)]);
+      streamStop();
+      connectStream();
+      return;
+    }
     try {
-      const res = await client.resumeSession(item.id);
+      const res = await client.resumeSession(item.id, workspaceId);
       if (!res.ok) commitNotice([red('✗ could not resume (busy or other-workspace session?)')]);
     } catch (err) {
       commitNotice([red(`✗ ${(err as Error).message}`)]);
@@ -574,6 +607,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     const s = state;
     const out: string[] = ['', bold('status')];
     out.push(`  bridge      ${dim(client.url)}`);
+    out.push(`  workspace   ${dim(workspaceName ?? '(none — /workspace)')}`);
     out.push(`  model       ${dim(provider && model ? `${provider}/${model}` : 'not set')}`);
     if (s) {
       out.push(`  agent       ${dim(s.status)}`);
@@ -606,7 +640,7 @@ export async function runTui(opts: TuiOptions): Promise<number> {
         return true;
       case 'new':
         try {
-          await client.reset();
+          await client.reset(workspaceId);
         } catch (err) {
           commitNotice([red(`✗ ${(err as Error).message}`)]);
         }
@@ -623,12 +657,30 @@ export async function runTui(opts: TuiOptions): Promise<number> {
           return true;
         }
         try {
-          const res = await client.resumeSession(arg);
+          const res = await client.resumeSession(arg, workspaceId);
           if (!res.ok) commitNotice([red('✗ could not resume that session')]);
         } catch (err) {
           commitNotice([red(`✗ ${(err as Error).message}`)]);
         }
         return true;
+      case 'workspace':
+        await openWorkspacePicker();
+        return true;
+      case 'history': {
+        if (!arg) {
+          commitNotice([yellow('usage: /history <session id> — get the id from /sessions')]);
+          return true;
+        }
+        try {
+          const detail = await client.sessionHistory(arg);
+          const header = `${bold(detail.title || '(untitled)')} · ${dim(`${detail.provider}/${detail.model}`)} · ${dim(`${detail.messageCount} msgs`)}`;
+          const lines = ['', header, dim('─'.repeat(Math.min(60, cols() - 2))), ...detail.transcript.split('\n'), ''];
+          commitNotice(lines);
+        } catch (err) {
+          commitNotice([red(`✗ ${(err as Error).message}`)]);
+        }
+        return true;
+      }
       case 'approval-mode': {
         const m = arg as AgentApprovalMode;
         if (!APPROVAL_MODES.includes(m)) {
@@ -963,10 +1015,23 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     io.on('resize', onResize);
     io.write(enableBracketedPaste);
     paint(banner());
-    connectStream();
-    if (!provider || !model) {
-      void openModelPicker('pick a model').then(() => paint());
-    }
+    void (async () => {
+      try {
+        const result = await client.workspaces();
+        if (result.activeWorkspaceId) {
+          const ws = result.workspaces.find((w) => w.id === result.activeWorkspaceId);
+          if (ws) {
+            workspaceId = ws.id;
+            workspaceName = ws.name;
+          }
+        }
+      } catch { /* companion may not support workspaces yet */ }
+      connectStream();
+      paint();
+      if (!provider || !model) {
+        void openModelPicker('pick a model').then(() => paint());
+      }
+    })();
   });
 
   // Teardown: restore the terminal so the parent shell prompt isn't mangled.

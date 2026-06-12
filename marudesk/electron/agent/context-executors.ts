@@ -41,7 +41,11 @@ import { ago, formatTabLine, resolveWebTab, tabUrl } from './context-helpers.ts'
 
 export async function listTabs(): Promise<ToolResult> {
   const active = getActiveTabId();
-  const tabs = tabValues();
+  const activeWsId = getWorkspaceSnapshot().activeWorkspaceId;
+  const allTabs = tabValues();
+  const tabs = activeWsId
+    ? allTabs.filter((t) => t.workspaceId === activeWsId)
+    : allTabs;
   if (tabs.length === 0) return { summary: 'no tabs', text: 'No tabs are open.' };
   const lines = tabs.map((t) => {
     const mark = t.id === active ? '*' : ' ';
@@ -307,7 +311,7 @@ export async function readPage(input: { tabId?: unknown }, ctx: ToolContext): Pr
  * console buffer is valid regardless of who holds the live client.
  */
 function resolveWebTabId(tabId: unknown, ctx: ToolContext): string {
-  const id = typeof tabId === 'string' && tabId ? tabId : ctx.tabId;
+  const id = typeof tabId === 'string' && tabId ? tabId : ctx.tabId ?? getActiveTabId();
   if (!id) throw new Error('no web tab — open a page, or pass a tabId from list_tabs');
   const rec = getTab(id);
   if (!rec || rec.kind !== 'web') {

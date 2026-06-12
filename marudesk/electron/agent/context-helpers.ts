@@ -1,7 +1,7 @@
 import { scrubText } from '../../shared/scrub';
 import type { WorkspaceRecord } from '../../shared/workspace';
 import { rootById, workspaceById } from '../workspace-helpers';
-import { getTab, type TabRecord } from '../browser/state';
+import { getActiveTabId, getTab, type TabRecord } from '../browser/state';
 import type { ToolContext } from './tools';
 
 /**
@@ -19,7 +19,7 @@ export function ago(ts: number): string {
 
 /** Resolve a web tab to target: the given id, else the turn's active tab. */
 export function resolveWebTab(tabId: unknown, ctx: ToolContext): TabRecord {
-  const id = typeof tabId === 'string' && tabId ? tabId : ctx.tabId;
+  const id = typeof tabId === 'string' && tabId ? tabId : ctx.tabId ?? getActiveTabId();
   if (!id) throw new Error('no web tab — open a page, or pass a tabId from list_tabs');
   const rec = getTab(id);
   if (!rec || rec.kind !== 'web' || !rec.view) {

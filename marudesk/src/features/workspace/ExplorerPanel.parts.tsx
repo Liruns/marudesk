@@ -3,6 +3,7 @@ import { FolderOpen, FolderPlus, Trash2 } from 'lucide-react';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { cn } from '../../lib/cn';
 import type { WorkspaceRecord, WorkspaceRootId } from '../../../shared/workspace';
+import { useI18n } from '../../i18n/useI18n';
 
 export function WorkspaceRootsBar({
   record,
@@ -17,6 +18,7 @@ export function WorkspaceRootsBar({
   onAddRoot: () => void;
   onRemoveRoot: (rootId: WorkspaceRootId) => void;
 }) {
+  const { t } = useI18n();
   const [menu, setMenu] = useState<{
     root: WorkspaceRecord['roots'][number];
     x: number;
@@ -33,18 +35,18 @@ export function WorkspaceRootsBar({
 
   const menuItems = (root: WorkspaceRecord['roots'][number]): MenuItem[] => [
     {
-      label: `Use root ${root.name}`,
+      label: `${t('workspace.roots.useRoot')} ${root.name}`,
       icon: <FolderOpen size={14} />,
       onSelect: () => onSelectRoot(root.id),
     },
     {
-      label: 'Add folder to workspace',
+      label: t('workspace.roots.addFolder'),
       icon: <FolderPlus size={14} />,
       onSelect: onAddRoot,
     },
     { type: 'separator' },
     {
-      label: 'Remove folder from workspace',
+      label: t('workspace.roots.removeFolder'),
       icon: <Trash2 size={14} />,
       danger: true,
       disabled: record.roots.length <= 1,
@@ -87,8 +89,8 @@ export function WorkspaceRootsBar({
       })}
       <button
         type="button"
-        aria-label="Add folder to workspace"
-        title="Add folder to workspace"
+        aria-label={t('workspace.roots.addFolder')}
+        title={t('workspace.roots.addFolder')}
         onClick={onAddRoot}
         className={cn(
           'size-6 shrink-0 rounded border border-subtle bg-surface-2',

@@ -5,6 +5,7 @@ import {
   REMOTE_MAX_BODY_BYTES,
   REMOTE_SSE_PING_MS,
   type BridgeModelsResult,
+  type BridgeSessionDetail,
   type BridgeWorkspacesResult,
   type RelayCommandName,
   type RemoteEvent,
@@ -98,6 +99,8 @@ export type RouterExtras = {
   resumeSession(id: string, workspaceId?: string): Promise<boolean>;
   /** The PC's open workspaces + the active one, for the workspace picker. */
   workspaces(): Promise<BridgeWorkspacesResult>;
+  /** Read a single session's transcript for the CLI `/history` command. */
+  readSession(id: string): Promise<BridgeSessionDetail | null>;
 };
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;
@@ -356,6 +359,15 @@ async function handleAgentRoutes(
     const raw = url.searchParams.get('workspace');
     const filter = raw === null ? undefined : raw === '' ? null : raw;
     return sendResult(res, codec, pathname, await deps.extras.sessions(filter));
+  }
+  if (pathname === '/agent/session') {
+    if (method !== 'GET') return sendError(res, 405, 'method not allowed');
+    if (!deps.extras) return sendError(res, 404, 'not found');
+    const id = url.searchParams.get('id');
+    if (!id) return sendError(res, 400, 'id required');
+    const detail = await deps.extras.readSession(id);
+    if (!detail) return sendError(res, 404, 'session not found');
+    return sendResult(res, codec, pathname, detail);
   }
   if (pathname === '/agent/resume-session') {
     if (method !== 'POST') return sendError(res, 405, 'method not allowed');

@@ -22,6 +22,8 @@ import { useComposerStore } from '../features/composer/store';
 import { useContextSync } from '../features/agent/context-sync';
 import { openCliChatTab } from '../features/agent/store';
 import { ToastHost } from '../components/ToastHost';
+import { toast } from '../lib/toast';
+import { useI18n } from '../i18n/useI18n';
 import { Tour } from '../features/tour/Tour';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
@@ -105,6 +107,8 @@ export function Shell() {
   useDiagnosticsEvents();
   // Mirror editor buffers + explorer state to main for the built-in context MCP.
   useContextSync();
+  const { t } = useI18n();
+  const prevAgentStatusRef = useRef<string>('idle');
   // The left rail shows one panel at a time (VSCode-style): toggling a view
   // button opens that view or collapses the rail if it's already active.
   const [leftPanel, setLeftPanel] = useState<LeftPanel>('explorer');
@@ -327,6 +331,27 @@ export function Shell() {
     return window.marudesk.on('app:tab-shortcut', (p) => runShortcut(p));
   }, []);
 
+  // Agent notification: toast when the AI finishes or asks a question while the
+  // chat surface is not visible, so the user notices from anywhere in the app.
+  useEffect(() => {
+    const handle = (status: string) => {
+      const prev = prevAgentStatusRef.current;
+      prevAgentStatusRef.current = status;
+      const wasBusy = prev === 'thinking' || prev === 'working';
+      if (!wasBusy || (status !== 'completed' && status !== 'waiting_for_user')) return;
+      const tabs = useTabsStore.getState();
+      const active = tabs.tabs.find((tab) => tab.id === tabs.activeTabId);
+      if (drawerOpen || active?.kind === 'agent') return;
+      toast({
+        title: t(status === 'completed' ? 'agent.notify.completed' : 'agent.notify.question'),
+        variant: status === 'completed' ? 'success' : 'warning',
+      });
+    };
+    const off1 = window.marudesk.on('agent:event', (s) => handle(s.status));
+    const off2 = window.marudesk.on('agent:workspace-event', (e) => handle(e.state.status));
+    return () => { off1(); off2(); };
+  }, [drawerOpen, t]);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-surface-page text-fg-primary overflow-hidden">
       <TitleBar />
@@ -356,7 +381,7 @@ export function Shell() {
           open={leftPanel === 'sourceControl'}
           onRequestClose={() => setLeftPanel(null)}
         />
-        <main className="flex-1 min-w-0 flex">
+        <main data-stage-region className="flex-1 min-w-0 flex">
           <WorkspaceStage />
         </main>
         <ContextDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />

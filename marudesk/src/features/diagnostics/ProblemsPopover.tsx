@@ -3,6 +3,7 @@ import { useEditorStore } from '../editor/store';
 import { useDiagnosticsStore, currentDiagnostics } from './store';
 import type { Diagnostic } from '../../../shared/diagnostics';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 
 /**
  * Problems list (docs/workspace-language-support-design.md, Tier 1 #4). Opens
@@ -35,6 +36,7 @@ function groupByFile(diags: readonly Diagnostic[]): [string, Diagnostic[]][] {
 }
 
 export function ProblemsPopover({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const state = useDiagnosticsStore((s) => s.state);
   const run = useDiagnosticsStore((s) => s.run);
   const openFileAt = useEditorStore((s) => s.openFileAt);
@@ -86,7 +88,7 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
           onClick={() => void run()}
           disabled={state.running}
           className="px-2 py-0.5 rounded hover:bg-surface-3 disabled:opacity-60"
-          title="Run the project checker"
+          title={t('diagnostics.runChecker')}
         >
           {state.running ? 'checking…' : 'Run check'}
         </button>
@@ -94,7 +96,7 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
           type="button"
           onClick={openConfig}
           className="px-2 py-0.5 rounded hover:bg-surface-3"
-          title="Edit languages.json (external checker recipes)"
+          title={t('diagnostics.editRecipes')}
         >
           Configure
         </button>

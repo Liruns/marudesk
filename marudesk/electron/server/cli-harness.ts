@@ -153,6 +153,20 @@ const EXTRAS: NonNullable<RouterDeps['extras']> = {
       workspaces: [{ id: 'ws-1', name: 'Mock workspace' }],
       activeWorkspaceId: 'ws-1',
     }),
+  readSession: (id) =>
+    Promise.resolve(
+      id === 'sess-1'
+        ? {
+            title: 'mock session',
+            provider: 'anthropic',
+            model: 'mock-sonnet',
+            messageCount: 2,
+            createdAt: 1,
+            updatedAt: 2,
+            transcript: 'User: hello\n\nAssistant: hi there',
+          }
+        : null,
+    ),
 };
 
 async function fetchJson(

@@ -125,12 +125,11 @@ export function AgentCategory() {
           onCommit={(denyGlobs) => void update({ agent: { denyGlobs } })}
         />
       </Field>
-      <Field
-        label={t('settings.agent.toolGroups.label')}
-        hint={t('settings.agent.toolGroups.hint')}
-      >
-        <AgentToolGroups />
-      </Field>
+      <div className="flex flex-col gap-1 px-4 py-3">
+        <span className="text-body-sm text-fg-primary">{t('settings.agent.toolGroups.label')}</span>
+        <span className="text-caption text-fg-tertiary">{t('settings.agent.toolGroups.hint')}</span>
+      </div>
+      <AgentToolGroups />
       <Field
         label={t('settings.agent.denyTools.label')}
         hint={t('settings.agent.denyTools.hint')}

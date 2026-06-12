@@ -8,6 +8,7 @@ import {
 import {
   ChevronsDownUp,
   ClipboardPaste,
+  Columns2,
   Copy,
   Eye,
   EyeOff,
@@ -20,6 +21,7 @@ import {
   Link,
   Pencil,
   RefreshCw,
+  Rows2,
   Scissors,
   Trash2,
 } from 'lucide-react';
@@ -39,6 +41,7 @@ import { useWorkspaceDeckStore } from '../workspaces/store';
 import { buildFileTree, flattenTree } from './tree';
 import { FileTree, type MenuTarget } from './FileTree';
 import { FileTreePierreSpike } from './FileTreePierreSpike';
+import { useGridStore } from '../tabs/grid';
 import {
   commitCreate,
   commitRename,
@@ -250,6 +253,15 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     };
   };
 
+  const handleSplitFile = async (filePath: string, dir: 'row' | 'col') => {
+    const file = workspaceFile(filePath);
+    const payload = typeof file === 'string'
+      ? { kind: 'editor' as const, path: file }
+      : { kind: 'editor' as const, file, workspaceId: file.workspaceId };
+    const tabId: string = await window.marudesk.invoke('browser:tabs-new', payload);
+    useGridStore.getState().splitWith(null, tabId, dir, 'after');
+  };
+
   const openRowMenu = (e: ReactMouseEvent, target: MenuTarget) => {
     e.preventDefault();
     e.stopPropagation();
@@ -278,7 +290,11 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
     const pasteDir = kind === 'dir' ? path : parentOf(path);
     const items: MenuItem[] = [];
     if (kind === 'file') {
-      items.push({ label: t('workspace.action.open'), icon: <FileIcon size={15} />, onSelect: () => void openFile(workspaceFile(path)) });
+      items.push(
+        { label: t('workspace.action.open'), icon: <FileIcon size={15} />, onSelect: () => void openFile(workspaceFile(path)) },
+        { label: t('workspace.action.splitRight'), icon: <Columns2 size={15} />, onSelect: () => void handleSplitFile(path, 'row') },
+        { label: t('workspace.action.splitBottom'), icon: <Rows2 size={15} />, onSelect: () => void handleSplitFile(path, 'col') },
+      );
     } else {
       items.push(
         { label: t('workspace.action.newFile'), icon: <FilePlus size={15} />, onSelect: () => beginCreate(path, 'file') },
@@ -398,6 +414,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                 <FileTreePierreSpike
                   files={displayFiles}
                   onOpenFile={(p) => void openFile(workspaceFile(p))}
+                  onSplitFile={(p, dir) => void handleSplitFile(p, dir)}
                 />
               ) : rows.length === 0 && !pendingEdit ? (
                 <p className="px-3 py-4 text-body-sm text-fg-tertiary">

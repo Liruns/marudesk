@@ -1,4 +1,4 @@
-import { type ComponentType, type FormEvent, type ReactNode } from 'react';
+import { type ComponentType, type DragEvent as ReactDragEvent, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -18,8 +18,12 @@ import {
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import { useWebPageStore } from '../browser/store';
+import { BrowserMenu } from '../browser/BrowserMenu';
 import { useTabsStore } from './store';
+import { useGridStore } from './grid';
 import type { TabKind, TabState } from '../../../shared/browser';
+
+const TAB_DND_MIME = 'application/x-marudesk-tab';
 
 /**
  * Per-pane chrome for the split grid. In single-tab mode the BrowserCanvas toolbar
@@ -56,14 +60,21 @@ export function PaneHeader({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const setDraggingTab = useGridStore((s) => s.setDraggingTab);
   const maximizeLabel = t(maximized ? 'tabs.pane.restore' : 'tabs.pane.maximize');
+  const onDragStart = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.dataTransfer.setData(TAB_DND_MIME, tab.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingTab(tab.id);
+  };
+  const onDragEnd = () => setDraggingTab(null);
   return (
     <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       className={cn(
-        'chrome-header relative h-7 shrink-0 flex items-center gap-1 pl-2 pr-1',
-        // Focused pane's header lifts a step and grows an accent top edge — the
-        // same grouping cue the strip uses — so the live pane (the one the
-        // omnibox + keyboard drive) is unmistakable among the tiles.
+        'chrome-header relative h-7 shrink-0 flex items-center gap-1 pl-2 pr-1 cursor-grab active:cursor-grabbing',
         focused ? 'bg-surface-2' : 'bg-surface-1',
       )}
     >
@@ -167,6 +178,7 @@ function WebOmnibox() {
           />
         </div>
       </form>
+      <BrowserMenu />
     </>
   );
 }
