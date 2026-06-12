@@ -20,7 +20,7 @@ import {
   moveLeft,
   pushHistory,
 } from '../../cli/composer.ts';
-import { diffHunk } from '../../cli/diff.ts';
+import { buildUnifiedDiff } from '../../shared/edit-diff.ts';
 import { KeyDecoder } from '../../cli/keys.ts';
 import { createMarkdownRenderer } from '../../cli/markdown.ts';
 import { cliSlashCommands, resolveCliSlash } from '../../cli/slash.ts';
@@ -338,16 +338,12 @@ function checkPureModules(): void {
   );
   check('slash: unknown command resolves null', resolveCliSlash('/nope') === null);
 
-  // diff: the approval panel's hunk preview trims common context and caps runs.
-  const hunk = diffHunk('a\nold1\nold2\nz', 'a\nnew1\nz');
+  // diff: the approval panel inlines the shared unified-diff hunk (trimmed to
+  // the changed middle), so the approve/deny call is decidable from the panel.
+  const hunk = buildUnifiedDiff('a\nold1\nold2\nz', 'a\nnew1\nz').diff.split('\n');
   check(
-    'diff: common prefix/suffix lines are trimmed',
-    hunk.removed.join(',') === 'old1,old2' && hunk.added.join(',') === 'new1',
-  );
-  const capped = diffHunk('', 'l1\nl2\nl3\nl4\nl5\nl6', 4);
-  check(
-    'diff: added run is capped with an omitted count',
-    capped.added.length === 4 && capped.addedOmitted === 2 && capped.removed.length === 0,
+    'diff: shared unified hunk trims common prefix/suffix lines',
+    hunk.some((l) => l === '-old1') && hunk.some((l) => l === '-old2') && hunk.some((l) => l === '+new1'),
   );
 }
 

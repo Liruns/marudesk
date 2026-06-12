@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { launchApp, type LaunchedApp } from './helpers/app';
-import type { AgentChatState } from '../shared/agent';
+import { emptyAgentChatState, type AgentChatState } from '../shared/agent';
 
 /**
  * Not a real test — a screenshot harness for the AI Chat surface. Launches the
@@ -21,26 +21,9 @@ const OUT = path.resolve(here, '..', '.screens', 'chat');
 
 test.setTimeout(90_000);
 
-function baseState(): AgentChatState {
-  return {
-    turnId: null,
-    status: 'idle',
-    messages: [],
-    edits: [],
-    pendingApproval: null,
-    approvalQueue: [],
-    pendingQuestions: null,
-    usage: { inputTokens: 0, outputTokens: 0, contextTokens: 0 },
-    error: null,
-    activeSessionId: null,
-    endNote: null,
-    background: [],
-    orchestration: [],
-    plan: null,
-    approvalMode: 'ask',
-    reasoningEffort: 'medium',
-  };
-}
+// The shared factory keeps this harness honest as AgentChatState evolves —
+// hand-built literals here would silently miss new required fields.
+const baseState = (): AgentChatState => emptyAgentChatState();
 
 const ANSWER_MD = [
   'The 401 comes from a stale `Authorization` header: `useSession` memoises the token at mount and never refreshes it after the silent re-auth.',
