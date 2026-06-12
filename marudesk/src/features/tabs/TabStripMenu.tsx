@@ -55,6 +55,13 @@ export function TabStripMenu({
             >
               {Icon ? (
                 <Icon size={13} className="shrink-0" aria-hidden />
+              ) : it.dotClass ? (
+                <span
+                  className="size-[13px] shrink-0 flex items-center justify-center"
+                  aria-hidden
+                >
+                  <span className={cn('size-2 rounded-pill', it.dotClass)} />
+                </span>
               ) : (
                 <span className="size-[13px] shrink-0" aria-hidden />
               )}

@@ -1,8 +1,9 @@
 import { type MouseEvent } from 'react';
 import { X } from 'lucide-react';
-import type { TabState } from '../../../shared/browser';
+import type { TabGroupColor, TabState } from '../../../shared/browser';
 import { cn } from '../../lib/cn';
 import { editorDocKeyForTab, isDirty, useEditorStore } from '../editor/store';
+import { GROUP_COLOR_CLASSES } from './groupColors';
 import { TabIndicator } from './TabIndicator';
 
 const TAB_DND_MIME = 'application/x-marudesk-tab';
@@ -21,6 +22,12 @@ type TabChipProps = {
   readonly attention?: boolean;
   readonly grouped?: boolean;
   readonly pinned?: boolean;
+  /**
+   * The hue of the tab GROUP this tab belongs to (Chrome-style tab groups) —
+   * paints the colored tie bar along the chip's bottom edge. Unrelated to
+   * `grouped`, which is the split-view grouping.
+   */
+  readonly tabGroupColor?: TabGroupColor;
   readonly onActivate: () => void;
   readonly onContextMenu: (x: number, y: number) => void;
   readonly onClose: () => void;
@@ -40,6 +47,7 @@ export function TabChip({
   attention,
   grouped,
   pinned,
+  tabGroupColor,
   onActivate,
   onContextMenu,
   onClose,
@@ -125,6 +133,15 @@ export function TabChip({
         <span
           aria-hidden
           className="pointer-events-none absolute inset-x-2 top-0 h-[1.5px] rounded-b-sm bg-accent/80"
+        />
+      ) : null}
+      {tabGroupColor ? (
+        <span
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute inset-x-1 bottom-0 h-[1.5px] rounded-t-sm',
+            GROUP_COLOR_CLASSES[tabGroupColor].bar,
+          )}
         />
       ) : null}
       {pinned ? (
