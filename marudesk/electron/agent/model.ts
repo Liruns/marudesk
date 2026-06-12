@@ -383,6 +383,11 @@ export async function withStreamRetry<T>(
       lastErr = err;
       if (!isRetryableStreamError(err) || attempt === MAX_STREAM_RETRIES) break;
       const delay = Math.min(1000 * 2 ** attempt, 8000);
+      console.warn(
+        `[agent] ${provider}/${modelId} stream error (attempt ${attempt + 1}/${
+          MAX_STREAM_RETRIES + 1
+        }), retrying in ${delay}ms`,
+      );
       await new Promise((r) => setTimeout(r, delay));
     }
   }

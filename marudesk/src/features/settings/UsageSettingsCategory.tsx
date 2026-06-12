@@ -24,8 +24,6 @@ interface UsageAmount {
   unit: UsageUnit;
 }
 
-type UsageScope = string;
-
 interface UsageWindow {
   id: string;
   label: string;
@@ -35,7 +33,6 @@ interface UsageWindow {
 interface UsageLimit {
   id: string;
   label: string;
-  scope: UsageScope;
   window?: UsageWindow;
   amount: UsageAmount;
   status?: UsageStatus;
