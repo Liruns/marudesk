@@ -5,16 +5,30 @@ import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { DomTree } from '../components/DomTree';
 import { StylesPane } from '../components/StylesPane';
+import { EventListenersPane } from '../components/EventListenersPane';
+import { AccessibilityPane } from '../components/AccessibilityPane';
+import { FontsPane } from '../components/FontsPane';
+import { LayoutOverlays } from '../components/LayoutOverlays';
 
 /** Forceable pseudo-classes (CSS.forcePseudoState), shown as a toggle row. */
 const FORCE_STATES = [':hover', ':active', ':focus', ':focus-within', ':visited'];
 
+/** The side panes under the DOM tree (Styles stays the default). */
+type SideTab = 'styles' | 'listeners' | 'accessibility' | 'fonts';
+const SIDE_TABS: { id: SideTab; label: string }[] = [
+  { id: 'styles', label: 'Styles' },
+  { id: 'listeners', label: 'Event Listeners' },
+  { id: 'accessibility', label: 'Accessibility' },
+  { id: 'fonts', label: 'Fonts' },
+];
+
 /**
  * Elements panel: an element picker (CDP `Overlay.setInspectMode`), a DOM search
- * (DOM.performSearch), a force-pseudo-state row, the DOM tree, and the styles
- * inspector beneath it. The picker draws Chromium's native highlight + "click to
- * select" over the page; the selected node flows back through
- * `Overlay.inspectNodeRequested` (handled in the store).
+ * (DOM.performSearch), a force-pseudo-state row, per-node grid/flex overlay
+ * toggles, the DOM tree, and a tabbed inspector beneath it (Styles · Event
+ * Listeners · Accessibility · Fonts). The picker draws Chromium's native
+ * highlight + "click to select" over the page; the selected node flows back
+ * through `Overlay.inspectNodeRequested` (handled in the store).
  */
 export function ElementsPanel() {
   const { t } = useI18n();
@@ -31,6 +45,7 @@ export function ElementsPanel() {
   // The query the active search session ran with: Enter steps through matches
   // while the input still equals it, and re-runs the search once it differs.
   const [submittedQuery, setSubmittedQuery] = useState('');
+  const [sideTab, setSideTab] = useState<SideTab>('styles');
 
   // Esc cancels picking, matching the page-side inspect overlay.
   useEffect(() => {
@@ -196,11 +211,42 @@ export function ElementsPanel() {
         })}
       </div>
 
+      {/* Grid/flex overlay toggles — only for an applicable selected node. */}
+      <LayoutOverlays />
+
       <div className="flex-[3] min-h-0 border-b border-subtle">
         <DomTree />
       </div>
-      <div className="flex-[2] min-h-0">
-        <StylesPane />
+      <div className="flex-[2] min-h-0 flex flex-col">
+        <div className="shrink-0 h-7 flex items-center gap-0.5 px-1 border-b border-subtle overflow-x-auto">
+          {SIDE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              aria-pressed={sideTab === tab.id}
+              onClick={() => setSideTab(tab.id)}
+              className={cn(
+                'h-5 px-1.5 rounded text-caption whitespace-nowrap transition-colors duration-fast',
+                sideTab === tab.id
+                  ? 'bg-accent-subtle/60 text-accent'
+                  : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 min-h-0">
+          {sideTab === 'styles' ? (
+            <StylesPane />
+          ) : sideTab === 'listeners' ? (
+            <EventListenersPane />
+          ) : sideTab === 'accessibility' ? (
+            <AccessibilityPane />
+          ) : (
+            <FontsPane />
+          )}
+        </div>
       </div>
     </div>
   );

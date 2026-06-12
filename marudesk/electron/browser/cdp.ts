@@ -75,6 +75,8 @@ const ALLOWED_PREFIXES = [
   // unregister/update/push/sync/inspect) is subtracted in BLOCKED_METHODS
   // below so the prefix can't re-admit them.
   'ServiceWorker.',
+  'DOMDebugger.', // Elements: event-listeners pane (getEventListeners; also DOM/XHR breakpoints).
+  'Accessibility.', // Elements: accessibility pane (getPartialAXTree) — read-only domain.
 ];
 // Exact methods outside the allowed domains we still need: auto-attach to
 // out-of-process iframes / workers (Sources). The dangerous Target methods

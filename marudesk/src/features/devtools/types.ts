@@ -546,3 +546,58 @@ export type SwVersion = {
   /** 'new' | 'installing' | 'installed' | 'activating' | 'activated' | 'redundant'. */
   status: string;
 };
+
+/* ── Elements: event listeners / accessibility / fonts ────────────────── */
+
+/** `DOMDebugger.EventListener` (subset the Event Listeners pane renders). */
+export type EventListenerInfo = {
+  type: string;
+  useCapture: boolean;
+  passive: boolean;
+  once: boolean;
+  scriptId: string;
+  /** 0-based location of the handler inside its script. */
+  lineNumber: number;
+  columnNumber: number;
+  /** The listener's backing function (its `description` is the preview). */
+  handler?: RemoteObject;
+};
+
+/** `Accessibility.AXValue` (subset) — a typed value of an AX attribute. */
+export type AXValue = {
+  type: string;
+  value?: unknown;
+};
+
+/** One `Accessibility.AXProperty` (checked / disabled / level / …). */
+export type AXProperty = {
+  name: string;
+  value: AXValue;
+};
+
+/** `Accessibility.AXNode` (subset the Accessibility pane renders). */
+export type AXNode = {
+  nodeId: string;
+  ignored: boolean;
+  ignoredReasons?: AXProperty[];
+  role?: AXValue;
+  name?: AXValue;
+  description?: AXValue;
+  properties?: AXProperty[];
+};
+
+/** `CSS.getBackgroundColors` result — page colors behind the node (contrast). */
+export type BackgroundColorsInfo = {
+  /** CSS color strings; absent when the background can't be determined. */
+  backgroundColors?: string[];
+  computedFontSize?: string;
+  computedFontWeight?: string;
+};
+
+/** `CSS.PlatformFontUsage` — one font actually rendering the node's text. */
+export type PlatformFontUsage = {
+  familyName: string;
+  postScriptName?: string;
+  isCustomFont: boolean;
+  glyphCount: number;
+};
