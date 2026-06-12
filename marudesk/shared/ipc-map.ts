@@ -844,6 +844,13 @@ export interface IpcMap {
     ];
     result: RelayStatus;
   };
+  // Google sign-in via the relay's OAuth web flow: main opens the SYSTEM browser
+  // and waits on a transient loopback for the relay's one-time handoff code; the
+  // resulting Google identity is also linked onto the active profile's meta.
+  'relay:login-google': {
+    args: [payload: { relayUrl: string }];
+    result: RelayStatus;
+  };
   'relay:logout': { args: []; result: RelayStatus };
   'relay:status': { args: []; result: RelayStatus };
 

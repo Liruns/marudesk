@@ -1015,8 +1015,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.remote.relay.enable.label': '클라우드 릴레이 활성화',
   'settings.remote.relay.login': '로그인',
   'settings.remote.relay.logout': '로그아웃',
-  'settings.remote.relay.oauthComing':
-    '릴레이의 OAuth 앱이 구성되면 Google 및 GitHub 로그인이 추가됩니다.',
+  'settings.remote.relay.google': 'Google로 계속하기',
+  'settings.remote.relay.googleHint':
+    '브라우저에서 로그인을 마치면 Google 계정이 이 프로필에 연결됩니다.',
+  'settings.remote.relay.googleWaiting': '브라우저 로그인을 기다리는 중\u2026',
   'settings.remote.relay.password': '비밀번호',
   'settings.remote.relay.signup': '가입',
   'settings.remote.relay.url.hint':

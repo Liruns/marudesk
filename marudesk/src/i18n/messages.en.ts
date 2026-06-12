@@ -1020,8 +1020,10 @@ export const EN_MESSAGES = {
   'settings.remote.relay.enable.label': 'Enable cloud relay',
   'settings.remote.relay.login': 'Log in',
   'settings.remote.relay.logout': 'Log out',
-  'settings.remote.relay.oauthComing':
-    "Google and GitHub sign-in arrive once the relay's OAuth apps are configured.",
+  'settings.remote.relay.google': 'Continue with Google',
+  'settings.remote.relay.googleHint':
+    'Finish signing in in your browser — the Google account is then linked to this profile.',
+  'settings.remote.relay.googleWaiting': 'Waiting for the browser sign-in\u2026',
   'settings.remote.relay.password': 'Password',
   'settings.remote.relay.signup': 'Sign up',
   'settings.remote.relay.url.hint':

@@ -9,6 +9,7 @@ import {
   DEFAULT_PROFILE_ID,
   defaultProfilesState,
   sanitizeProfiles,
+  type ProfileLinkedAccount,
   type ProfileMeta,
   type ProfilesState,
 } from '../shared/profiles';
@@ -24,6 +25,18 @@ import {
 
 // The real userData root, captured at module load before app.setPath redirects it.
 const ROOT = app.getPath('userData');
+
+// The active profile id, kept in memory so per-profile concerns (e.g. the web
+// tabs' session partition) can read it without disk I/O. Set at boot by
+// resolveActiveProfileDir and updated by persistActiveProfile on a live switch
+// (the switch persists the id FIRST, then tears down/re-mounts — so anything
+// created during the re-mount already sees the new id).
+let activeProfileId = DEFAULT_PROFILE_ID;
+
+/** The active profile's id (in-memory mirror of profiles.json). */
+export function getActiveProfileId(): string {
+  return activeProfileId;
+}
 
 function profilesFile(): string {
   return path.join(ROOT, 'profiles.json');
@@ -62,6 +75,7 @@ async function writeAtomic(state: ProfilesState): Promise<void> {
 export function resolveActiveProfileDir(): string {
   const state = readSync();
   writeSync(state); // persist a normalized list on first run
+  activeProfileId = state.activeProfileId;
   const dir = profileDir(state.activeProfileId);
   try {
     mkdirSync(dir, { recursive: true });
@@ -123,7 +137,26 @@ export async function persistActiveProfile(id: string): Promise<boolean> {
   const state = readSync();
   if (id === state.activeProfileId || !state.profiles.some((p) => p.id === id)) return false;
   await writeAtomic({ ...state, activeProfileId: id });
+  activeProfileId = id;
   return true;
+}
+
+/**
+ * Link (or with null, unlink) a cloud account on the ACTIVE profile — the
+ * ProfileSwitcher badge. Called by the relay Google sign-in/sign-out; the link
+ * is a display label only (tokens stay in the encrypted vault, per profile).
+ */
+export async function setActiveProfileAccount(account: ProfileLinkedAccount | null): Promise<void> {
+  const state = readSync();
+  const next: ProfilesState = {
+    ...state,
+    profiles: state.profiles.map((p) => {
+      if (p.id !== state.activeProfileId) return p;
+      const base: ProfileMeta = { id: p.id, name: p.name };
+      return account ? { ...base, account } : base;
+    }),
+  };
+  await writeAtomic(next);
 }
 
 export function registerProfileHandlers(deps: {

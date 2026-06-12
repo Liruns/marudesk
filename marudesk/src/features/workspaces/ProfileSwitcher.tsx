@@ -34,7 +34,9 @@ export function ProfileSwitcher() {
     const list = state?.profiles ?? [];
     const activeId = state?.activeProfileId;
     const out: MenuItem[] = list.map((p) => ({
-      label: p.name,
+      // A linked cloud account (relay Google sign-in) shows as a suffix so the
+      // user can tell same-named work/personal profiles apart.
+      label: p.account ? `${p.name} — ${p.account.email}` : p.name,
       icon: p.id === activeId ? <Check size={14} /> : <span className="size-3.5" />,
       onSelect: () => {
         if (p.id !== activeId) void window.marudesk.invoke('profiles:switch', p.id);
@@ -74,7 +76,9 @@ export function ProfileSwitcher() {
       <button
         type="button"
         aria-label={`Profile: ${active?.name ?? 'Default'}`}
-        title={`Profile: ${active?.name ?? 'Default'} — switch or manage profiles`}
+        title={`Profile: ${active?.name ?? 'Default'}${
+          active?.account ? ` (${active.account.email})` : ''
+        } — switch or manage profiles`}
         onClick={openMenu}
         className="no-drag self-center inline-flex items-center gap-1.5 h-7 rounded-md border border-subtle bg-surface-2 pl-2 pr-1.5 text-caption text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 transition-colors duration-fast"
       >

@@ -102,8 +102,9 @@ Notes:
 | `POST /auth/login` | rate-limited | `{email,password}` | `200 {account, ...tokens}` (generic 401 on failure — no user enumeration) |
 | `POST /auth/refresh` | rate-limited | `{refreshToken}` | `200 {...rotated tokens}` (old refresh becomes invalid) |
 | `GET /me` | `Bearer <accessToken>` | — | `200 {account}` (no secrets) / `401` |
-| `GET /auth/{google,github}` | rate-limited | — | `302` to provider, or `503` if not configured |
-| `GET /auth/{google,github}/callback` | rate-limited | `?code&state` | `200 {account, ...tokens}`, or `503` if not configured |
+| `GET /auth/{google,github}` | rate-limited | — | `302` to provider, or `503` if not configured. `?handoff_port=N` marks a desktop sign-in: the callback then 302s to the app's loopback (`127.0.0.1:N/oauth/relay/callback`) with a one-time code instead of returning JSON |
+| `GET /auth/{google,github}/callback` | rate-limited | `?code&state` | `200 {account, ...tokens}` (or a loopback `302` for a handoff state), or `503` if not configured |
+| `POST /auth/handoff` | rate-limited | `{code}` | `200 {account, ...tokens}` — one-time, short-TTL exchange of the desktop handoff code; `401` on an unknown/expired/replayed code |
 | `GET /health` | none | — | `200 {ok,name}` (liveness) |
 
 ## WebSocket surface

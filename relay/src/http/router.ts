@@ -20,6 +20,7 @@ import {
   exchangeForIdentity,
   type OAuthProvider,
 } from '../oauth/providers.ts';
+import { consumeHandoff, createHandoff } from '../oauth/handoff.ts';
 
 /**
  * Pure, dependency-injected HTTP handler for the relay's auth API. Mirrors the
@@ -34,7 +35,10 @@ import {
  *   POST /auth/logout   {refreshToken} (Bearer opt) → {ok} (invalidate that session)
  *   GET  /me            (Bearer)                    → {account}
  *   GET  /auth/{google,github}                      → 302 to provider (or 503)
+ *     ?handoff_port=N — desktop flow: the callback 302s to the app's loopback
+ *     server (127.0.0.1:N) with a one-time code instead of returning JSON.
  *   GET  /auth/{google,github}/callback?code&state  → {account, ...tokens} (or 503)
+ *   POST /auth/handoff  {code}                      → {account, ...tokens} (one-time)
  *   GET  /health                                    → {ok,name} (unauthenticated liveness)
  *
  * Security: bodies are JSON-only + size-capped; auth routes are per-IP
@@ -212,6 +216,23 @@ function providerConfig(provider: OAuthProvider, config: Config) {
   return provider === 'google' ? config.google : config.github;
 }
 
+/**
+ * Parse `?handoff_port=N` (the desktop app's loopback callback port). Absent →
+ * null (plain web flow). Present but not a valid port → undefined (reject).
+ */
+function parseHandoffPort(url: URL): number | null | undefined {
+  const raw = url.searchParams.get('handoff_port');
+  if (raw === null) return null;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return undefined;
+  return port;
+}
+
+/** The desktop loopback URL a handoff callback redirects to (path fixed app-side). */
+function handoffRedirect(port: number, params: Record<string, string>): string {
+  return `http://127.0.0.1:${port}/oauth/relay/callback?${new URLSearchParams(params)}`;
+}
+
 /** Handle the two OAuth routes for a provider. */
 async function handleOAuth(
   req: IncomingMessage,
@@ -231,7 +252,12 @@ async function handleOAuth(
 
   if (!match.isCallback) {
     if (!rateOk(req, res, deps, cors)) return;
-    const state = createState(match.provider);
+    const handoffPort = parseHandoffPort(url);
+    if (handoffPort === undefined) {
+      sendError(res, 400, 'invalid handoff_port', cors);
+      return;
+    }
+    const state = createState(match.provider, handoffPort);
     res.writeHead(302, { ...cors, location: buildAuthorizeUrl(match.provider, cfg, state) });
     res.end();
     return;
@@ -241,7 +267,8 @@ async function handleOAuth(
   if (!rateOk(req, res, deps, cors)) return;
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
-  if (!consumeState(match.provider, state)) {
+  const stateEntry = consumeState(match.provider, state);
+  if (!stateEntry) {
     sendError(res, 400, 'invalid oauth state', cors);
     return;
   }
@@ -252,9 +279,31 @@ async function handleOAuth(
   try {
     const identity = await exchangeForIdentity(match.provider, cfg, code);
     const { account, tokens } = await loginWithOAuthIdentity(deps.auth, identity);
+    if (stateEntry.handoffPort !== null) {
+      // Desktop flow: hand the browser back to the app's loopback server with a
+      // one-time code (never the tokens — URLs land in history/proxy logs).
+      const handoffCode = createHandoff({ account, tokens });
+      res.writeHead(302, {
+        ...cors,
+        ...NO_STORE_HEADERS,
+        location: handoffRedirect(stateEntry.handoffPort, { code: handoffCode }),
+      });
+      res.end();
+      return;
+    }
     sendJsonNoStore(res, 200, { account, ...tokens }, cors);
   } catch {
-    // Don't leak provider/internal error detail to the browser.
+    // Don't leak provider/internal error detail to the browser. For a desktop
+    // handoff, send the browser to the app's loopback so the waiting sign-in
+    // attempt settles with an error instead of timing out.
+    if (stateEntry.handoffPort !== null) {
+      res.writeHead(302, {
+        ...cors,
+        location: handoffRedirect(stateEntry.handoffPort, { error: 'oauth_failed' }),
+      });
+      res.end();
+      return;
+    }
     sendError(res, 502, 'oauth exchange failed', cors);
   }
 }
@@ -295,6 +344,26 @@ export async function handleRequest(
   const oauth = matchOAuthPath(pathname);
   if (oauth) {
     await handleOAuth(req, res, deps, url, oauth, cors);
+    return;
+  }
+
+  // ── Desktop handoff: exchange a one-time code for the OAuth login result. ──
+  if (pathname === '/auth/handoff') {
+    if (method !== 'POST') return sendError(res, 405, 'method not allowed', cors);
+    if (!rateOk(req, res, deps, cors)) return;
+    let body: unknown;
+    try {
+      body = await readJsonBody(req, res);
+    } catch {
+      return; // readJsonBody already responded
+    }
+    const codeValue = (body as { code?: unknown } | null)?.code;
+    const result = typeof codeValue === 'string' && codeValue ? consumeHandoff(codeValue) : null;
+    if (!result) {
+      sendError(res, 401, 'invalid or expired handoff code', cors);
+      return;
+    }
+    sendJsonNoStore(res, 200, { account: result.account, ...result.tokens }, cors);
     return;
   }
 

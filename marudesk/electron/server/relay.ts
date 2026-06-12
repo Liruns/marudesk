@@ -10,11 +10,19 @@ import {
 } from '../secrets';
 import { defineHandler } from '../ipc/define-handler';
 import { enumOf, nonEmptyStr, obj, str } from '../ipc/validate';
+import { startLoopbackServer } from '../oauth/loopback';
+import { setActiveProfileAccount } from '../profile-store';
+import { openExternalUrl } from '../safe-open';
 import { getSettingsSync } from '../settings';
 import { createApprovalGuard } from './approval-guard';
 import { LOOP_AGENT_API } from './loop-api';
 import { projectRemoteCallback } from './remote-state';
-import { normalizeRelayUrl, relayAuthenticate, relayLogout } from './relay-auth';
+import {
+  normalizeRelayUrl,
+  relayAuthenticate,
+  relayHandoffExchange,
+  relayLogout,
+} from './relay-auth';
 import { startRelayClient, type RelayClient } from './relay-client';
 
 /**
@@ -137,12 +145,74 @@ export async function login(input: {
   return getStatus();
 }
 
+// One Google sign-in attempt at a time: starting a new one aborts the previous
+// waiter (its loopback server closes in that attempt's own finally).
+let googleLoginAbort: AbortController | null = null;
+
+/** How long the loopback waits for the user to finish the browser sign-in. */
+const GOOGLE_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+/** Fixed loopback callback path — must match the relay's handoff redirect. */
+const GOOGLE_HANDOFF_PATH = '/oauth/relay/callback';
+
+/**
+ * Log in to the relay with Google (B4 desktop flow): start a transient loopback
+ * server, send the SYSTEM browser through the relay's OAuth web flow
+ * (`/auth/google?handoff_port=N`), then trade the one-time code the relay
+ * redirected back with for the session. On success the Google identity is also
+ * linked onto the active profile (the ProfileSwitcher badge).
+ */
+export async function loginWithGoogle(input: {
+  relayUrl: string;
+  cloudEnabled: boolean;
+}): Promise<RelayStatus> {
+  const relayUrl = normalizeRelayUrl(input.relayUrl);
+  googleLoginAbort?.abort();
+  const abort = new AbortController();
+  googleLoginAbort = abort;
+  const loopback = await startLoopbackServer({
+    host: '127.0.0.1',
+    ports: [],
+    allowEphemeral: true,
+    path: GOOGLE_HANDOFF_PATH,
+  });
+  try {
+    const port = Number(new URL(loopback.redirectUri).port);
+    const opened = await openExternalUrl(`${relayUrl}/auth/google?handoff_port=${port}`);
+    if (!opened) throw new Error('could not open the browser for Google sign-in');
+    const { code } = await loopback.waitForCallback(GOOGLE_LOGIN_TIMEOUT_MS, abort.signal);
+    const auth = await relayHandoffExchange(relayUrl, code);
+    const session: RelaySession = {
+      relayUrl,
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+      account: auth.account,
+    };
+    await setRelaySession(session);
+    if (auth.account.method === 'google') {
+      await setActiveProfileAccount({
+        provider: 'google',
+        email: auth.account.email,
+        ...(auth.account.displayName ? { displayName: auth.account.displayName } : {}),
+      });
+    }
+    if (input.cloudEnabled) startClient(session);
+    else stopClient();
+    pushStatus();
+    return getStatus();
+  } finally {
+    if (googleLoginAbort === abort) googleLoginAbort = null;
+    loopback.close();
+  }
+}
+
 /** Log out: best-effort relay logout, drop the local session, disconnect. */
 export async function logout(): Promise<RelayStatus> {
   const session = await getRelaySession();
   stopClient();
   await clearRelaySession();
   if (session) await relayLogout(session.relayUrl, session.refreshToken, session.accessToken);
+  // A Google-linked profile badge mirrors the relay session — clear it together.
+  if (session?.account.method === 'google') await setActiveProfileAccount(null);
   pushStatus();
   return getStatus();
 }
@@ -168,6 +238,14 @@ export function registerRelayHandlers(): void {
       mode: enumOf(o.mode, ['login', 'signup'] as const, 'mode'),
       // The auto-connect rule keys off the persisted flag, so read it here rather
       // than trusting the renderer to send it.
+      cloudEnabled: getSettingsSync().server.cloudEnabled,
+    });
+  });
+
+  defineHandler('relay:login-google', async ([payload]) => {
+    const o = obj(payload);
+    return loginWithGoogle({
+      relayUrl: nonEmptyStr(o.relayUrl, 'relayUrl'),
       cloudEnabled: getSettingsSync().server.cloudEnabled,
     });
   });

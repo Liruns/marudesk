@@ -284,7 +284,7 @@ export const CHANNELS = {
   // the sanitized status (logged-in account + connected-as-host). Tokens never
   // cross IPC — only `{account|null, connected}` does. Auto-connect is driven by
   // settings.server.cloudEnabled + login state in electron/server/relay.ts.
-  relay: ['relay:login', 'relay:logout', 'relay:status'],
+  relay: ['relay:login', 'relay:login-google', 'relay:logout', 'relay:status'],
   // LAN/Tailscale bridge status + device pairing (T2 — docs/remote-mobile-bridge-design
   // §3, docs/t2-secure-pairing-design.md). The Settings → Remote panel reads the
   // running flag + reachable URLs, starts a pairing (QR), approves/rejects an

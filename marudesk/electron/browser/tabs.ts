@@ -53,6 +53,8 @@ import { openExternalUrl } from '../safe-open';
 import { resolveAddressBarInput, searchBaseFor } from './url';
 import { getSettingsSync } from '../settings';
 import { getActiveWorkspaceId } from '../workspace';
+import { getActiveProfileId } from '../profile-store';
+import { webTabPartitionForProfile } from '../../shared/profiles';
 
 /**
  * Tab lifecycle: create / activate / close / reorder, plus the mount and dispose
@@ -62,8 +64,18 @@ import { getActiveWorkspaceId } from '../workspace';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const INSPECT_PARTITION = 'persist:inspect-target';
 const NEW_TAB_URL = 'about:blank';
+
+/**
+ * The web tabs' session partition, scoped to the ACTIVE profile. Electron caches
+ * sessions by partition name for the process lifetime, so a fixed name would keep
+ * serving the previous profile's cookies/storage across a live profile switch —
+ * a per-profile name makes the switch actually swap web sign-ins too. Resolved
+ * lazily (not a module constant) because the active profile changes at runtime.
+ */
+function webTabPartition(): string {
+  return webTabPartitionForProfile(getActiveProfileId());
+}
 
 // Recently-closed restorable tabs (Ctrl/Cmd+Shift+T), newest last. Only kinds
 // with meaningful state to bring back are recorded — a web page's URL and a
@@ -118,7 +130,7 @@ export function createTab(
     return rec;
   }
 
-  const inspectSession = session.fromPartition(INSPECT_PARTITION);
+  const inspectSession = session.fromPartition(webTabPartition());
 
   const view = new WebContentsView({
     webPreferences: {
@@ -601,8 +613,8 @@ function restoreTabSession(): boolean {
 
 export function mountBrowserView(win: BrowserWindow): void {
   setHost(win);
-  // Configure inspect-partition once (permission denial).
-  const inspectSession = session.fromPartition(INSPECT_PARTITION);
+  // Configure the active profile's web-tab partition (permission denial).
+  const inspectSession = session.fromPartition(webTabPartition());
   inspectSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(false);
   });
