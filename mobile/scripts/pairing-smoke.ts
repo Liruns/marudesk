@@ -208,6 +208,44 @@ async function testInvalidQr(): Promise<void> {
   });
 }
 
+async function testShortCodePaste(): Promise<void> {
+  await withFetchProbe(async (getCalls) => {
+    // The 8-char check code shown beside the desktop QR can't pair on its own;
+    // the error must point at "Copy pairing code" rather than a generic failure.
+    for (const paste of ['ABCD2345', 'abcd-2345', ' AB CD 23 45 ']) {
+      await expectReject(
+        `short-code paste "${paste}"`,
+        () => runPairing(paste, 'Pixel 9'),
+        'Copy pairing code',
+      );
+    }
+    assert(getCalls() === 0, 'a short-code paste is rejected before any network request');
+  });
+}
+
+async function testWhitespaceMangledPaste(): Promise<void> {
+  const pc = await generateKeyPair();
+  const code = 'pair-code-ws';
+  const server = await startPairServer(async (body, _req, res) => {
+    const keyBytes = await deriveSharedSecret(pc.privateKey, b64urlToBytes(body.phPub), code);
+    const key = await importAesKey(keyBytes);
+    const result = await seal(key, { deviceId: 'device-ws' }, resAad('/pair'));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(result));
+  });
+
+  try {
+    const qr = makeQr(pc.publicKeyRaw, code, [{ label: 'local', url: server.url }], Date.now() + 60_000);
+    // A payload copied through a chat app / terminal often gains line wraps —
+    // pairing must strip ALL whitespace, not just trim the ends.
+    const mangled = `  ${qr.slice(0, 40)}\n${qr.slice(40, 120)} \n ${qr.slice(120)}  `;
+    const creds = await runPairing(mangled, 'Pixel 9');
+    assert(creds.deviceId === 'device-ws', 'a whitespace-mangled payload still pairs');
+  } finally {
+    await server.close();
+  }
+}
+
 async function testExpiredQr(): Promise<void> {
   const pc = await generateKeyPair();
   await withFetchProbe(async (getCalls) => {
@@ -268,6 +306,8 @@ async function main(): Promise<void> {
   await testValidPairing();
   await testTunnelUrl();
   await testInvalidQr();
+  await testShortCodePaste();
+  await testWhitespaceMangledPaste();
   await testExpiredQr();
   await testServerError();
   await testNoUrls();

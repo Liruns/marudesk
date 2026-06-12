@@ -18,7 +18,9 @@ import {
   login as apiLogin,
   signup as apiSignup,
   logout as apiLogout,
+  refresh as apiRefresh,
   normalizeRelayUrl,
+  RelayApiError,
 } from '../auth/relayClient';
 import { StorageKeys, storageGet, storageRemove, storageSet } from '../auth/storage';
 import { messageOf } from '../lib/errorMessage';
@@ -176,7 +178,16 @@ function wire(set: (partial: Partial<AppState>) => void, t: Transport): Transpor
     onAgentState(chat);
     set({ chat });
   });
-  unsubStatus = t.onStatus((status) => set({ status }));
+  unsubStatus = t.onStatus((status) => {
+    const wasConnected = useAppStore.getState().status.status === 'connected';
+    set({ status });
+    // Every fresh connection (first connect, reconnect, candidate-URL failover,
+    // PC restart) re-checks the catalog, so the workspace/model pickers can't be
+    // left empty because one earlier load raced a dead address.
+    if (status.status === 'connected' && !wasConnected && !useAppStore.getState().catalogReady) {
+      void useAppStore.getState().refreshCatalog();
+    }
+  });
   return t;
 }
 
@@ -366,20 +377,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch {
         // The transport reports the failure via onStatus; nothing extra to do here.
       }
-      void get().refreshCatalog();
       return;
     }
     if (!accessToken) {
       set({ route: 'login' });
       return;
     }
+    // Proactively refresh the short-lived access token before dialing — the
+    // websocket upgrade can't refresh mid-flight, so without this every relay
+    // session silently dies at token expiry and demands a fresh sign-in.
+    if (!(await refreshRelaySession(set, get))) return;
     const t = ensureTransport(set);
     try {
-      await t.connect(relayUrl, accessToken);
+      await t.connect(relayUrl, get().accessToken ?? '');
     } catch {
       // The transport reports the failure via onStatus; nothing extra to do here.
     }
-    void get().refreshCatalog();
   },
 
   async reconnect() {
@@ -656,6 +669,48 @@ function parseDirectUrls(raw: string | null): string[] | undefined {
     // fall through — treat an unparsable list as absent
   }
   return undefined;
+}
+
+/**
+ * Refresh the relay tokens before a connect when a refresh token is on hand.
+ * Returns false ONLY when the relay definitively rejected the refresh (the
+ * session is dead): tokens are cleared and the user is routed to sign-in. A
+ * network failure keeps the current tokens — the dial itself may still work.
+ */
+async function refreshRelaySession(
+  set: (partial: Partial<AppState>) => void,
+  get: () => AppState,
+): Promise<boolean> {
+  const { relayUrl, refreshToken } = get();
+  if (!refreshToken) return true;
+  try {
+    const pair = await apiRefresh(relayUrl, refreshToken);
+    await Promise.all([
+      storageSet(StorageKeys.accessToken, pair.accessToken),
+      storageSet(StorageKeys.refreshToken, pair.refreshToken),
+    ]);
+    set({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
+    return true;
+  } catch (err) {
+    // Only an auth rejection kills the session; a relay 5xx/429 or network
+    // failure must not log the user out over a transient server problem.
+    if (err instanceof RelayApiError && (err.status === 401 || err.status === 403)) {
+      await Promise.all([
+        storageRemove(StorageKeys.accessToken),
+        storageRemove(StorageKeys.refreshToken),
+        storageRemove(StorageKeys.account),
+      ]);
+      set({
+        accessToken: null,
+        refreshToken: null,
+        account: null,
+        route: 'login',
+        authError: 'Your session expired — sign in again.',
+      });
+      return false;
+    }
+    return true; // unreachable relay: let the transport surface the connect failure
+  }
 }
 
 async function persistAuth(account: RelayAccount, accessToken: string, refreshToken: string): Promise<void> {

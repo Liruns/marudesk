@@ -53,14 +53,17 @@ interface Transport {
 
 Transport selection has two layers:
 
-- `StubTransport` is the default dev transport. It is an in-memory fake with no
-  relay, no PC, and no network. It fabricates a believable turn so the whole UI
-  remains demoable standalone. All command paths are wired
-  (`approve`/`respond`/`abort`/`reset`/`snapshot`).
-- `RelayTransport` is the real relay-backed transport. Enable it with
-  `VITE_USE_RELAY=true` in `src/transport/index.ts` when you want the phone
-  client to authenticate against the relay and stream PC-owned agent state over
-  the cloud path.
+- `StubTransport` is the default DEV transport only. It is an in-memory fake
+  with no relay, no PC, and no network. It fabricates a believable turn so the
+  whole UI remains demoable standalone. All command paths are wired
+  (`approve`/`respond`/`abort`/`reset`/`snapshot`). Force it in any build with
+  `VITE_USE_STUB=true`.
+- `RelayTransport` is the real relay-backed transport and the DEFAULT in
+  production builds (a shipped app never signs a user into the fake demo).
+  Force it in dev with `VITE_USE_RELAY=true` to authenticate against the relay
+  and stream PC-owned agent state over the cloud path. Before each connect the
+  store refreshes the access token via `/auth/refresh`, so a relay session
+  survives token expiry without a fresh sign-in.
 - `DirectTransport` is installed by the app store when QR or pasted pairing
   credentials are stored locally. Once a host pairing has been completed, direct
   mode is the normal runtime path for direct access to the PC host.
@@ -97,13 +100,17 @@ so in relay mode the pickers hide and the chat stays global-scope.
 ## Pairing and connection modes
 
 - Relay auth: sign in against the relay, then connect through `RelayTransport`
-  when `VITE_USE_RELAY=true`.
+  (the production default; `VITE_USE_RELAY=true` in dev).
 - Direct pairing: scan or paste the host-issued QR payload to persist direct
-  credentials, then reconnect over `DirectTransport`.
-- QR scanning: the app dynamically imports
-  `@capacitor-mlkit/barcode-scanning` when the native plugin is installed and
-  available. Paste entry remains a first-class fallback and is the expected path
-  on web/PWA builds or native shells without the plugin.
+  credentials, then reconnect over `DirectTransport`. Manual entry expects the
+  FULL payload — the desktop's "Copy pairing code" button under the QR — never
+  the short on-screen check code (the phone explains this if the short code is
+  pasted). Pasted payloads tolerate line wraps/whitespace from copy transports.
+- QR scanning (`src/lib/qrScan.ts`), in fallback order: the bundled native ML
+  Kit plugin (`@capacitor-mlkit/barcode-scanning`, Android shells), then the
+  in-app camera scanner (`components/QrScanSheet.tsx`, Shape Detection API —
+  web/PWA and plugin-less shells), then paste entry — each fallback announced
+  in the UI rather than failing silently.
 
 ### Direct mode across networks (no cloud relay)
 
@@ -238,9 +245,9 @@ a device or emulator.
 - Real OAuth token return still needs the app deep-link and one-time code
   exchange path; the relay web callback currently returns tokens in the
   navigation body.
-- Native QR scanner packaging depends on shipping the optional
-  `@capacitor-mlkit/barcode-scanning` plugin in the target shell. When it is not
-  installed or unavailable, paste pairing remains the supported fallback.
+- The native ML Kit `scan()` path relies on Google Play services' code-scanner
+  module; on a device without it the app kicks off the module install and falls
+  back to the in-app camera scanner (or paste) for that attempt.
 - Signed APK packaging still depends on the Android toolchain above.
 - Remote self-approval policy confirmation is still a product decision. This UI
   assumes the phone may approve gated tools; if the PC pins approvals locally,

@@ -223,6 +223,17 @@ export class DirectTransport extends BaseTransport implements Transport {
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {
+        // 401 means the PC no longer knows this device (pairing revoked) — that's
+        // true at every candidate URL, so don't rotate or hammer the host; wait
+        // for an explicit reconnect (or an unpair + fresh pairing).
+        if (res.status === 401) {
+          this.setStatus({
+            status: 'error',
+            hostOnline: false,
+            detail: 'The PC no longer recognizes this pairing. Unpair, then pair again from Settings → Remote.',
+          });
+          return;
+        }
         this.setStatus({ status: 'error', hostOnline: false, detail: `HTTP ${res.status}` });
         this.rotate();
         this.scheduleReconnect();

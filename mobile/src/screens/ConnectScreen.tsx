@@ -8,14 +8,17 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { Brand } from '../components/Brand';
+import { QrScanSheet } from '../components/QrScanSheet';
 import { DEFAULT_RELAY_URL, useAppStore } from '../store/useAppStore';
 import { health, normalizeRelayUrl } from '../auth/relayClient';
+import { scanWithNativePlugin, webCameraScanSupported } from '../lib/qrScan';
 
 export function ConnectScreen() {
   const relayUrl = useAppStore((s) => s.relayUrl);
   const setRelayUrl = useAppStore((s) => s.setRelayUrl);
   const setRoute = useAppStore((s) => s.setRoute);
   const pairWithQr = useAppStore((s) => s.pairWithQr);
+  const clearAuthError = useAppStore((s) => s.clearAuthError);
   const busy = useAppStore((s) => s.busy);
   const authError = useAppStore((s) => s.authError);
 
@@ -25,6 +28,8 @@ export function ConnectScreen() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [tunnelUrl, setTunnelUrl] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanHint, setScanHint] = useState<string | null>(null);
 
   const onContinue = async () => {
     await setRelayUrl(url);
@@ -37,10 +42,31 @@ export function ConnectScreen() {
     setProbe(ok ? 'ok' : 'fail');
   };
 
+  // Scan order: native ML Kit scanner → in-app camera scanner → paste, each
+  // fallback announced (no silent no-op behind the primary button).
   const onScan = async () => {
-    const scanned = await scanQr();
-    if (scanned) await pairWithQr(scanned, deviceName, tunnelUrl);
-    else setPasteOpen(true);
+    clearAuthError();
+    setScanHint(null);
+    const native = await scanWithNativePlugin();
+    if (native.kind === 'scanned') {
+      await pairWithQr(native.value, deviceName, tunnelUrl);
+      return;
+    }
+    if (native.kind === 'cancelled') return;
+    if (webCameraScanSupported()) {
+      setScannerOpen(true);
+      return;
+    }
+    setScanHint('Camera scanning isn’t available here — paste the pairing code instead.');
+    setPasteOpen(true);
+  };
+
+  const onScanned = async (value: string) => {
+    setScannerOpen(false);
+    const ok = await pairWithQr(value, deviceName, tunnelUrl);
+    // A scanned-but-rejected payload (expired QR, PC refused) keeps the error
+    // visible on this screen; reopen paste as the recovery path.
+    if (!ok) setPasteOpen(true);
   };
 
   const onPaste = async () => {
@@ -90,17 +116,17 @@ export function ConnectScreen() {
               className="inline-link-button"
               onClick={() => setPasteOpen(true)}
             >
-              Or paste the pairing data
+              Can&apos;t scan? Paste the pairing code
             </button>
           ) : (
             <div className="field">
-              <label htmlFor="pastedata">Pairing data (from the PC)</label>
+              <label htmlFor="pastedata">Pairing code (from the PC)</label>
               <textarea
                 id="pastedata"
                 className="input"
                 style={{ minHeight: 72, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 12 }}
                 spellCheck={false}
-                placeholder="Paste the code shown under the QR on your PC"
+                placeholder="On the PC, press “Copy pairing code” under the QR, then paste it here"
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
               />
@@ -114,6 +140,11 @@ export function ConnectScreen() {
             </div>
           )}
 
+          {scanHint && !authError ? (
+            <span className="muted" style={{ fontSize: 13 }}>
+              {scanHint}
+            </span>
+          ) : null}
           {authError ? (
             <span className="error-inline">
               <AlertTriangle size={14} /> {authError}
@@ -190,25 +221,10 @@ export function ConnectScreen() {
           </div>
         </details>
       </div>
+
+      {scannerOpen && (
+        <QrScanSheet onScan={(value) => void onScanned(value)} onClose={() => setScannerOpen(false)} />
+      )}
     </div>
   );
-}
-
-async function scanQr(): Promise<string | null> {
-  const spec = '@capacitor-mlkit/barcode-scanning';
-  try {
-    const mod = (await import(/* @vite-ignore */ spec)) as {
-      BarcodeScanner?: {
-        requestPermissions?: () => Promise<unknown>;
-        scan?: () => Promise<{ barcodes?: { rawValue?: string }[] }>;
-      };
-    };
-    const scanner = mod.BarcodeScanner;
-    if (!scanner?.scan) return null;
-    await scanner.requestPermissions?.();
-    const result = await scanner.scan();
-    return result.barcodes?.[0]?.rawValue ?? null;
-  } catch {
-    return null;
-  }
 }

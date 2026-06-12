@@ -63,7 +63,7 @@ export function LoginScreen() {
           style={{ minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0 }}
           onClick={() => setRoute('connect')}
         >
-          <ArrowLeft size={18} /> Relay
+          <ArrowLeft size={18} /> Back
         </button>
       </header>
 

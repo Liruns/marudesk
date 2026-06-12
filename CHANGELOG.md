@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Remote / Mobile
+- Manual pairing entry actually works: the desktop pairing card now has a
+  "Copy pairing code" button that copies the full pairing payload (the short
+  on-screen code alone could never pair), and the phone explains the fix when
+  the short code is pasted. Pasted payloads survive copy line-wrapping.
+- QR scanning works in shipped builds: the native ML Kit scanner plugin is now
+  bundled with the Android app, with an in-app camera scanner (Shape Detection
+  API) as the web/PWA fallback and paste entry as the final, clearly-announced
+  fallback — the scan button no longer fails silently.
+- Production mobile builds default to the real relay transport; the in-memory
+  demo transport is now dev-only (opt-in via `VITE_USE_STUB`). A released app
+  can no longer sign a user into a fake demo chat.
+- Relay sessions refresh their access token before connecting instead of dying
+  at token expiry and demanding a fresh sign-in.
+- A revoked PC pairing now surfaces a clear "unpair and pair again" error on
+  the phone instead of endlessly retrying with `HTTP 401`.
+- The phone reloads the PC catalog (workspaces/models/sessions) after every
+  reconnect or address failover, so the pickers can't be left empty.
+
 ## 0.8.0 - 2026-06-12
 
 ### Auth & Accounts
