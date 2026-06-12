@@ -23,22 +23,28 @@ export type { ConnectCandidate };
 
 /**
  * Collect reachable base-URL candidates for `port`: the user-configured public
- * URL first (a self-hosted tunnel/reverse proxy — it works from ANY network, so
- * it's the best first guess), then Tailscale, then private LAN addresses.
- * De-duplicated by URL, order preserved. Never throws.
+ * URL first (a stable self-hosted tunnel/reverse proxy — it works from ANY
+ * network, so it's the best first guess), then the managed auto-tunnel's URL,
+ * then Tailscale, then private LAN addresses. De-duplicated by URL, order
+ * preserved. Never throws.
  */
-export function getConnectCandidates(port: number, publicUrl?: string): ConnectCandidate[] {
+export function getConnectCandidates(
+  port: number,
+  publicUrl?: string,
+  tunnelUrl?: string,
+): ConnectCandidate[] {
   return dedupe([
-    ...publicUrlCandidates(publicUrl),
+    ...publicUrlCandidates('Public', publicUrl),
+    ...publicUrlCandidates('Tunnel', tunnelUrl),
     ...tailscaleCandidates(port),
     ...lanCandidates(port),
   ]);
 }
 
-/** The Settings → Remote public URL (tunnel/reverse proxy), normalized; '' = none. */
-function publicUrlCandidates(publicUrl?: string): ConnectCandidate[] {
-  const url = publicUrl?.trim().replace(/\/+$/, '');
-  return url ? [{ label: 'Public', url }] : [];
+/** A from-anywhere base URL (Settings public URL / managed tunnel), normalized; '' = none. */
+function publicUrlCandidates(label: string, raw?: string): ConnectCandidate[] {
+  const url = raw?.trim().replace(/\/+$/, '');
+  return url ? [{ label, url }] : [];
 }
 
 /** Tailscale IPs (100.64/10 + IPv6) and the MagicDNS name, if the CLI reports them. */

@@ -22,6 +22,7 @@ import {
 import { getConnectCandidates } from './pairing-urls.ts';
 import { createPairingManager } from './pairing.ts';
 import { handleRequest, type RouterDeps } from './router.ts';
+import { parseTunnelUrl } from './tunnel.ts';
 
 /**
  * Headless harness for the T2 pairing handshake + E2E envelope path
@@ -438,6 +439,26 @@ async function main(): Promise<void> {
       'an empty public URL adds no candidate',
       !withoutPublic.some((c) => c.label === 'Public'),
     );
+    const withBoth = getConnectCandidates(
+      8787,
+      'https://stable.example.com',
+      'https://quick.trycloudflare.com',
+    );
+    check(
+      'the stable public URL outranks the managed tunnel URL',
+      withBoth[0]?.url === 'https://stable.example.com' &&
+        withBoth[1]?.label === 'Tunnel' &&
+        withBoth[1]?.url === 'https://quick.trycloudflare.com',
+    );
+
+    // ── auto tunnel: the cloudflared URL scraper (pure) ─────────────────────────
+    const banner =
+      '2026-06-12T00:00:00Z INF +  https://random-words-here.trycloudflare.com  +\n';
+    check(
+      'parseTunnelUrl extracts the quick-tunnel URL from the cloudflared banner',
+      parseTunnelUrl(banner) === 'https://random-words-here.trycloudflare.com',
+    );
+    check('parseTunnelUrl ignores unrelated output', parseTunnelUrl('INF Starting tunnel') === null);
 
     console.log(`\npairing + E2E harness: ${passed} assertions passed`);
   } finally {

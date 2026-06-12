@@ -449,8 +449,24 @@ export type ServerStatus = {
   running: boolean;
   /** The port it's bound to while running, else null. */
   port: number | null;
-  /** Reachable base URLs (Tailscale-first, then LAN); empty when stopped. */
+  /** Reachable base URLs (public/tunnel first, then Tailscale/LAN); empty when stopped. */
   candidates: ConnectCandidate[];
+  /** The managed auto-tunnel's state, when the feature is enabled (else absent). */
+  tunnel?: TunnelStatus;
+};
+
+/**
+ * The PC-managed cloudflared quick tunnel (Settings → Remote → Advanced → Auto
+ * tunnel): main spawns `cloudflared tunnel --url http://127.0.0.1:<port>`,
+ * captures the public `trycloudflare.com` URL, and feeds it into the connect
+ * candidates so the pairing QR works from any network with zero manual steps.
+ */
+export type TunnelStatus = {
+  state: 'starting' | 'up' | 'unavailable' | 'error';
+  /** The public base URL once the tunnel is up. */
+  url?: string;
+  /** Human-readable detail for the unavailable/error states. */
+  detail?: string;
 };
 
 /* ── device pairing (T2 ③ — docs/t2-secure-pairing-design.md §2/§4) ─────────── */

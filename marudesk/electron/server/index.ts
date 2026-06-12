@@ -17,6 +17,7 @@ import { createPairingManager } from './pairing';
 import { projectRemoteCallback, projectRemoteState } from './remote-state';
 import { handleRequest, type RouterDeps } from './router';
 import { getServerToken } from './token';
+import { getTunnelStatus, getTunnelUrl, setTunnelChangeListener, startTunnel, stopTunnel } from './tunnel';
 
 /**
  * Lifecycle for the PC-side headless bridge server (docs/remote-mobile-bridge-design
@@ -100,11 +101,21 @@ export function getServerStatus(): ServerStatus {
   if (!server || boundPort === null) {
     return { running: false, port: null, candidates: [] };
   }
-  // The user-configured public URL (tunnel/reverse proxy) joins the candidates,
-  // so the pairing QR carries a from-anywhere address with zero phone-side setup.
+  // The user-configured public URL and the managed auto-tunnel join the
+  // candidates, so the pairing QR carries a from-anywhere address with zero
+  // phone-side setup.
   const { publicUrl } = getSettingsSync().server;
-  return { running: true, port: boundPort, candidates: getConnectCandidates(boundPort, publicUrl) };
+  return {
+    running: true,
+    port: boundPort,
+    candidates: getConnectCandidates(boundPort, publicUrl, getTunnelUrl() ?? undefined),
+    tunnel: getTunnelStatus() ?? undefined,
+  };
 }
+
+// A tunnel state change (URL captured, process died, …) changes the reachable
+// candidates — push the refreshed status to the renderer right away.
+setTunnelChangeListener(() => onStatus?.(getServerStatus()));
 
 /**
  * Register the `server:*` IPC handlers. Status + device pairing/management; never
@@ -218,6 +229,8 @@ export async function startServer(port: number): Promise<void> {
 
 /** Stop the bridge server if running. Destroys open sockets so it closes promptly. */
 export function stopServer(): Promise<void> {
+  // The tunnel fronts the server — it never outlives it.
+  stopTunnel();
   const srv = server;
   if (!srv) return Promise.resolve();
   server = null;
@@ -241,21 +254,25 @@ export async function syncServerToSettings(settings: AppSettings): Promise<void>
   if (transitioning) return;
   transitioning = true;
   try {
-    const { enabled, port } = settings.server;
+    const { enabled, port, tunnelEnabled } = settings.server;
     if (!enabled) {
       await stopServer();
       return;
     }
     // Enabled: (re)start if not running, or running on a different port.
     if (server && boundPort === port) {
-      // No restart needed, but a settings edit (e.g. the public URL) may have
-      // changed the reachable candidates — refresh the renderer's view.
+      // No restart needed, but reconcile the tunnel toggle and refresh the
+      // renderer's view — a settings edit (e.g. the public URL) may have
+      // changed the reachable candidates.
+      if (tunnelEnabled) startTunnel(port);
+      else stopTunnel();
       onStatus?.(getServerStatus());
       return;
     }
     if (server) await stopServer();
     try {
       await startServer(port);
+      if (tunnelEnabled) startTunnel(port);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'EADDRINUSE') {

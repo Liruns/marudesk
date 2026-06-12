@@ -286,6 +286,15 @@ export type AppSettings = {
      */
     publicUrl: string;
     /**
+     * Auto tunnel: while the bridge server runs, the app spawns a cloudflared
+     * quick tunnel (`cloudflared tunnel --url http://127.0.0.1:<port>`) and puts
+     * the captured public URL into the pairing QR — no manual tunnel setup at
+     * all. Needs the `cloudflared` binary on PATH; the quick-tunnel URL changes
+     * on each start, so a stable `publicUrl` (named tunnel / reverse proxy) is
+     * still the better fit for long-lived pairings. Off by default.
+     */
+    tunnelEnabled: boolean;
+    /**
      * Unattended mode (T2 — docs/t2-secure-pairing-design.md). When on AND the
      * server is enabled, it skips BOTH human approval gates so a phone can drive
      * the PC hands-free: (1) device pairing auto-approves (no desktop card), and
@@ -386,6 +395,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     relayUrl: DEFAULT_RELAY_URL,
     cloudEnabled: false,
     publicUrl: '',
+    tunnelEnabled: false,
     skipApprovals: false,
   },
   storage: {
@@ -620,6 +630,7 @@ export function sanitizeSettings(
       relayUrl: asRelayUrl(sv.relayUrl, base.server.relayUrl),
       cloudEnabled: asBool(sv.cloudEnabled, base.server.cloudEnabled),
       publicUrl: asOptionalBaseUrl(sv.publicUrl, base.server.publicUrl),
+      tunnelEnabled: asBool(sv.tunnelEnabled, base.server.tunnelEnabled),
       skipApprovals: asBool(sv.skipApprovals, base.server.skipApprovals),
     },
   };
