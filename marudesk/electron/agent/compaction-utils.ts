@@ -7,6 +7,39 @@ import type { ModelMessage } from 'ai';
  * weight, or a head/tail split.
  */
 
+/**
+ * Per-tool-result excerpt budget for the summarization prompt. The compaction
+ * instruction asks the model to keep "error signatures verbatim" — it can only
+ * do that if the serialized trace actually carries a slice of each result, not
+ * just the tool's name. Small enough that a long tool-heavy head stays bounded.
+ */
+const TOOL_RESULT_EXCERPT_CHARS = 300;
+
+/** A clipped, whitespace-collapsed slice of one tool result's textual output. */
+function toolResultExcerpt(output: unknown): string {
+  if (!output || typeof output !== 'object') return '';
+  const o = output as { type?: unknown; value?: unknown };
+  let text = '';
+  if (typeof o.value === 'string') {
+    text = o.value;
+  } else if (Array.isArray(o.value)) {
+    // Multipart ('content') output: keep the text items, skip inline images.
+    text = o.value
+      .map((item) =>
+        item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string'
+          ? (item as { text: string }).text
+          : '',
+      )
+      .filter(Boolean)
+      .join(' ');
+  }
+  text = text.replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const clipped =
+    text.length <= TOOL_RESULT_EXCERPT_CHARS ? text : `${text.slice(0, TOOL_RESULT_EXCERPT_CHARS)}…`;
+  return o.type === 'error-text' ? `ERROR: ${clipped}` : clipped;
+}
+
 /** Flatten the running transcript to plain text for the summarization prompt. */
 export function serializeForCompaction(msgs: ModelMessage[]): string {
   const lines: string[] = [];
@@ -16,14 +49,22 @@ export function serializeForCompaction(msgs: ModelMessage[]): string {
       text = m.content;
     } else {
       // Each part is one of the AI SDK content shapes; we only need a textual
-      // trace (prose + which tools ran), so read just these fields structurally.
-      const parts = m.content as ReadonlyArray<{ type: string; text?: string; toolName?: string }>;
+      // trace (prose + which tools ran and what they returned), so read just
+      // these fields structurally.
+      const parts = m.content as ReadonlyArray<{
+        type: string;
+        text?: string;
+        toolName?: string;
+        output?: unknown;
+      }>;
       const pieces: string[] = [];
       for (const p of parts) {
         if (p.type === 'text' && p.text) pieces.push(p.text);
         else if (p.type === 'tool-call' && p.toolName) pieces.push(`[ran ${p.toolName}]`);
-        else if (p.type === 'tool-result' && p.toolName) pieces.push(`[result of ${p.toolName}]`);
-        else if (p.type === 'image') pieces.push('[image]');
+        else if (p.type === 'tool-result' && p.toolName) {
+          const excerpt = toolResultExcerpt(p.output);
+          pieces.push(excerpt ? `[result of ${p.toolName}] ${excerpt}` : `[result of ${p.toolName}]`);
+        } else if (p.type === 'image') pieces.push('[image]');
       }
       text = pieces.join(' ');
     }

@@ -95,6 +95,7 @@ import {
   toolResult,
   type ToolResultPartLite,
 } from './loop-helpers.ts';
+import { MAX_TURN_STEPS, stepLimitNote, appendNoteToLastToolResult } from './turn-limits.ts';
 export { testProviderConnection } from './loop-helpers.ts';
 
 /**
@@ -364,6 +365,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
 
   for (let step = 0; !opts.signal.aborted; step++) {
     if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
+    // Step-budget backstop (turn-limits.ts): the wind-down notes below told the
+    // model to wrap up; if it kept calling tools anyway, end the turn visibly
+    // instead of looping forever.
+    if (step >= MAX_TURN_STEPS) {
+      return finish(S, 'completed', `Stopped at the ${MAX_TURN_STEPS}-step turn limit`);
+    }
     S.state.status = 'thinking';
 
     // Create the assistant message up front so streamed text deltas render live
@@ -732,6 +739,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
       for (const call of run) toolResultParts.push(settled.get(call.id)!);
     }
 
+    // Near the step budget, ride a wind-down note on the last tool result so
+    // the model wraps up on its own before the hard cutoff above.
+    const limitNote = stepLimitNote(step + 1);
+    if (limitNote) appendNoteToLastToolResult(toolResultParts, limitNote);
     S.transcript.push({ role: 'tool', content: toolResultParts });
     if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
   }

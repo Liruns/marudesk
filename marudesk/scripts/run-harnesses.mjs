@@ -20,9 +20,7 @@ import path from 'node:path';
 const PKG_ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 
 /** Scripts excluded from the default run, with the reason shown in --list. */
-const SKIP = new Map([
-  ['harness:media-gen', 'alias of harness:image-gen (same entry file)'],
-]);
+const SKIP = new Map();
 
 /** Wall-clock cap per harness; a hung harness must not wedge the whole run. */
 const HARNESS_TIMEOUT_MS = 240_000;
