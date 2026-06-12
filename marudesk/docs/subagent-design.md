@@ -22,6 +22,26 @@
 남은 full-scope 작업은 §12의 `AgentRuntime` 추출, `AgentTreeState`, 통합 승인 큐, 병렬 child panel,
 root-mediated child approvals, abort propagation, stale-edit refusal e2e다.
 
+## Phase 2 구현 메모 (2026-06-12) — 에이전트 역할 + provider-aware fallback
+
+oh-my-openagents 패턴을 흡수해 spawn 경로를 "역할 기반 + 연결-provider 기반 자동 모델 선택"으로 확장했다.
+
+- **에이전트 역할** (`agents-store.ts`): 빌트인 5종(`explore`/`researcher`/`reviewer`/`planner`/`general`)
+  + 사용자 정의(`<userData>/agents/<name>.md`, `<workspace>/.marudesk/agents/<name>.md`,
+  SKILL.md와 같은 frontmatter 규약: `name`/`description`/`model`/`tools` + 본문 = 역할 시스템 프롬프트).
+  역할의 tool allowlist는 child-safe read-only envelope에서 **빼기만** 가능하다. 모델은 `fast`/`smart`
+  티어 또는 `provider/model` 고정값. `list_agents` read-only 도구로 모델이 카탈로그를 조회하고,
+  `spawn_subagent`/`spawn_background_agent`의 `agent` 파라미터로 사용한다.
+- **provider-aware 모델 해석** (`subagent-resolve.ts`): 명시 요청 → 역할 선호(티어/고정) → 위임 모델
+  설정 → 부모 모델 → 사용자 fallback 체인 순으로 후보를 만들고, `resolveProviderAuth`로 **실제 연결된**
+  첫 후보를 선택한다. 티어는 provider별 정적 테이블(`TIER_MODELS`)로 구체 모델에 매핑되고, 후보 순서는
+  부모 provider → 위임 provider → fallback 체인 provider 순이다. 아무것도 연결돼 있지 않으면 첫 후보를
+  그대로 써서 기존과 동일한 auth 실패 메시지가 난다.
+- **mid-run fail-over** (`subagent-runtime.ts`): child step이 429/5xx(`isFailoverError`)로 죽으면 남은
+  후보 체인을 걸어 다음 연결된 모델로 그 step을 재시도한다(부모 loop의 `pickNextFallback`과 동일 규칙,
+  같은 (provider,model)은 child run당 1회만). fail-over는 trace 라인으로 부모 카드에 남는다.
+- CLI는 `/agents`·`/skills` 명령(브리지 `GET /agent/catalog`)으로 같은 카탈로그를 보여준다.
+
 ## 0. 한 줄
 
 부모 에이전트가 `spawn_subagent` 도구로 **다른 provider/model의 자식 에이전트를 띄워** 하위 작업을

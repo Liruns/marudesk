@@ -126,6 +126,19 @@ export function wrapText(text: string, cols: number): string[] {
 }
 
 /**
+ * Lay `left` and `right` out on one `cols`-wide line (opencode-style status
+ * bar): left-aligned and right-aligned segments with the gap padded by spaces.
+ * When the two sides don't fit, the right side wins and the left is truncated.
+ */
+export function padBetween(left: string, right: string, cols: number): string {
+  const rw = stringWidth(right);
+  const budget = Math.max(0, cols - rw - 1);
+  const l = stringWidth(left) > budget ? truncate(left, budget) : left;
+  const gap = Math.max(1, cols - stringWidth(l) - rw);
+  return `${l}${' '.repeat(gap)}${right}`;
+}
+
+/**
  * Truncate to at most `cols` display cells, appending `…` when cut.
  * ANSI-aware: escape sequences pass through zero-width, and a cut styled
  * string gets a full reset appended so styles can't bleed past it.

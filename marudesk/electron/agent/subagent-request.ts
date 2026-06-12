@@ -1,6 +1,7 @@
 import type { ProviderId } from '../../shared/providers';
 import { isProviderId } from '../../shared/providers';
-import { getSettingsSync } from '../settings';
+import { agentCatalogLine, findAgent, listAgents, type AgentDef } from './agents-store';
+import { resolveSubagentTarget } from './subagent-resolve';
 import type { ToolContext } from './tools/types';
 import {
   DEFAULT_CHILD_STEPS,
@@ -36,33 +37,75 @@ function isInheritSentinel(value: string): boolean {
   return INHERIT_SENTINELS.has(value.trim().toLowerCase());
 }
 
-export function parseSubagentRequest(
-  input: Record<string, unknown>,
-  ctx: ToolContext,
-): SubagentRunRequest {
+/** The validated raw fields of a spawn input, before model/agent resolution. */
+export type ParsedSubagentInput = {
+  readonly task: string;
+  readonly label: string;
+  readonly maxSteps: number;
+  readonly agentName: string | null;
+  readonly explicitProvider: ProviderId | null;
+  readonly explicitModel: string | null;
+  /** `model: "fast" | "smart"` — a tier request instead of a concrete model id. */
+  readonly tierHint: 'fast' | 'smart' | null;
+};
+
+export function parseSubagentInput(input: Record<string, unknown>): ParsedSubagentInput {
   const task = stringInput(input.task, 'task').trim();
   if (!task) throw new SubagentInputError('spawn_subagent requires a non-empty task.');
-  // Role routing (v6 §G5): when a delegate model is configured, blank/omitted
-  // provider+model inherit IT instead of the parent's model (cheaper subtasks).
-  // The model can still pass an explicit provider/model to override. Falls back to
-  // the parent when the delegate is unset or its provider isn't a known id.
-  const delegate = getSettingsSync().agent.subagentModel;
-  const useDelegate = !!delegate && isProviderId(delegate.provider);
-  const fbProvider = useDelegate ? (delegate!.provider as ProviderId) : ctx.provider;
-  const fbModel = useDelegate ? delegate!.model : ctx.model;
-  const provider = providerInput(input.provider, fbProvider);
-  if (!provider) {
-    throw new SubagentInputError('spawn_subagent requires provider, or a parent provider context.');
-  }
-  const model = modelInput(input.model, fbModel);
-  if (!model) throw new SubagentInputError('spawn_subagent requires model, or a parent model context.');
+  const provider = providerInput(input.provider);
+  const modelRaw = stringInput(input.model, 'model').trim();
+  const tierHint = modelRaw === 'fast' || modelRaw === 'smart' ? modelRaw : null;
+  const model = tierHint || modelRaw === '' || isInheritSentinel(modelRaw) ? null : modelRaw;
+  const agentName = stringInput(input.agent, 'agent').trim() || null;
   const label = stringInput(input.label, 'label', task).trim().slice(0, MAX_LABEL_CHARS);
   return {
     task: task.slice(0, MAX_TASK_CHARS),
     label: label || task.slice(0, MAX_LABEL_CHARS),
-    provider,
-    model,
     maxSteps: boundedSteps(input.maxSteps),
+    agentName,
+    explicitProvider: provider,
+    explicitModel: model,
+    tierHint,
+  };
+}
+
+/**
+ * Parse + resolve a spawn input into a runnable request: look the agent role up
+ * (builtin/user/project), then resolve the provider/model through the
+ * connected-provider fallback chain (subagent-resolve.ts). Throws
+ * {@link SubagentInputError} on bad input or an unknown agent (the error lists
+ * the available roles so the model can self-correct).
+ */
+export async function buildSubagentRequest(
+  input: unknown,
+  ctx: ToolContext,
+): Promise<SubagentRunRequest> {
+  const parsed = parseSubagentInput(recordSubagentInput(input));
+  let agent: AgentDef | null = null;
+  if (parsed.agentName) {
+    agent = await findAgent(parsed.agentName, ctx.ws);
+    if (!agent) {
+      const available = (await listAgents(ctx.ws)).map(agentCatalogLine).join('\n');
+      throw new SubagentInputError(
+        `unknown agent "${parsed.agentName}". Available agents:\n${available}`,
+      );
+    }
+  }
+  const parent = ctx.provider && ctx.model ? { provider: ctx.provider, model: ctx.model } : null;
+  const target = await resolveSubagentTarget({
+    explicit: { provider: parsed.explicitProvider, model: parsed.explicitModel },
+    tierHint: parsed.tierHint,
+    agent,
+    parent,
+  });
+  return {
+    task: parsed.task,
+    label: parsed.label,
+    provider: target.provider,
+    model: target.model,
+    maxSteps: parsed.maxSteps,
+    agent,
+    fallbacks: target.fallbacks,
   };
 }
 
@@ -72,22 +115,13 @@ function stringInput(value: unknown, field: string, fallback = ''): string {
   return value;
 }
 
-function providerInput(value: unknown, fallback: ProviderId | undefined): ProviderId | null {
-  if (value === undefined || value === null || value === '') return fallback ?? null;
+function providerInput(value: unknown): ProviderId | null {
+  if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string') throw new SubagentInputError('provider must be a string.');
   const trimmed = value.trim();
   // A blank or placeholder ("default"/"auto"/…) means "inherit the parent provider".
-  if (trimmed === '' || isInheritSentinel(trimmed)) return fallback ?? null;
+  if (trimmed === '' || isInheritSentinel(trimmed)) return null;
   if (!isProviderId(trimmed)) throw new SubagentInputError(`unknown provider "${trimmed}".`);
-  return trimmed;
-}
-
-function modelInput(value: unknown, fallback: string | undefined): string {
-  if (value === undefined || value === null || value === '') return (fallback ?? '').trim();
-  if (typeof value !== 'string') throw new SubagentInputError('model must be a string.');
-  const trimmed = value.trim();
-  // A blank or placeholder ("default"/"auto"/…) means "inherit the parent model".
-  if (trimmed === '' || isInheritSentinel(trimmed)) return (fallback ?? '').trim();
   return trimmed;
 }
 

@@ -19,6 +19,8 @@ export type CliActionId =
   | 'history'
   | 'status'
   | 'approval-mode'
+  | 'agents'
+  | 'skills'
   | 'exit';
 
 export type CliSlashCommand = {
@@ -79,6 +81,18 @@ const CLI_COMMANDS: CliSlashCommand[] = [
   },
   {
     kind: 'action',
+    name: 'agents',
+    description: 'List subagent roles (built-in + user/project-defined)',
+    action: 'agents',
+  },
+  {
+    kind: 'action',
+    name: 'skills',
+    description: 'List reusable skills the agent can load',
+    action: 'skills',
+  },
+  {
+    kind: 'action',
     name: 'exit',
     aliases: ['quit'],
     description: 'Leave the chat CLI',
@@ -115,9 +129,15 @@ function fromShared(): CliSlashCommand[] {
   return out;
 }
 
-/** Every command the CLI offers, shared prompts first, CLI-locals appended. */
+/**
+ * Every command the CLI offers, shared prompts first, CLI-locals appended.
+ * Both source lists are static, so the merged registry is built once — the
+ * slash menu filters on every keystroke and shouldn't re-merge each time.
+ */
+let cachedCommands: CliSlashCommand[] | null = null;
 export function cliSlashCommands(): CliSlashCommand[] {
-  return [...fromShared(), ...CLI_COMMANDS];
+  cachedCommands ??= [...fromShared(), ...CLI_COMMANDS];
+  return cachedCommands;
 }
 
 /** Filter by the token typed after `/` (prefix match on name/alias). */

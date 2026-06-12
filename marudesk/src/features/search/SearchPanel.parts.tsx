@@ -57,7 +57,7 @@ export function FileGroup({
           {/* Guide line tying a file's matches to its header. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute bottom-1 left-[1.15rem] top-0 w-px bg-subtle/70"
+            className="pointer-events-none absolute bottom-1 left-[1.15rem] top-0 w-px bg-subtle"
           />
           {file.matches.map((m, i) => (
             <button

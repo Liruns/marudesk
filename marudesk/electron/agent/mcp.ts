@@ -15,6 +15,7 @@ import {
 import { CONTEXT_TOOLS } from './context-sources';
 import { PC_CONTROL_TOOLS } from './pc-sources';
 import { SKILL_TOOLS } from './skills-store';
+import { AGENT_LIST_TOOLS } from './agents-store';
 
 /**
  * The MCP registry (docs/context-mcp-design §1.1) — the "one merge point" the v4
@@ -39,7 +40,7 @@ export interface McpServer {
 /** The built-in context server: the original tools + the new context sources. */
 const builtinServer: McpServer = {
   name: 'marudesk',
-  tools: [...BUILTIN_TOOLS, ...CONTEXT_TOOLS, ...PC_CONTROL_TOOLS, ...SKILL_TOOLS],
+  tools: [...BUILTIN_TOOLS, ...CONTEXT_TOOLS, ...PC_CONTROL_TOOLS, ...SKILL_TOOLS, ...AGENT_LIST_TOOLS],
 };
 
 // The built-in `marudesk` server is always first and never replaced/unregistered;

@@ -2,7 +2,7 @@ import { scrubText } from '../../shared/scrub';
 import { toMessage } from '../../shared/to-message';
 import { S } from './loop-state';
 import type { ToolContext, ToolResult } from './tools/types';
-import { parseSubagentRequest, recordSubagentInput } from './subagent-request';
+import { buildSubagentRequest } from './subagent-request';
 import { runChildAgent } from './subagent-runtime';
 import type { SubagentRunRequest, SubagentRunner } from './subagent-types';
 
@@ -21,7 +21,7 @@ export async function runSubagentTool(
 ): Promise<ToolResult> {
   let request: SubagentRunRequest;
   try {
-    request = parseSubagentRequest(recordSubagentInput(input), ctx);
+    request = await buildSubagentRequest(input, ctx);
   } catch (err) {
     return inputErrorResult(err);
   }

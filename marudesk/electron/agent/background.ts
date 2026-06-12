@@ -2,7 +2,7 @@ import { scrubText } from '../../shared/scrub';
 import { toMessage } from '../../shared/to-message';
 import type { BackgroundTask } from '../../shared/agent';
 import { S, uid, containers, emitContainer } from './loop-state';
-import { parseSubagentRequest, recordSubagentInput } from './subagent-request';
+import { buildSubagentRequest } from './subagent-request';
 import { runChildAgent } from './subagent-runtime';
 import type { SubagentRunner } from './subagent-types';
 import type { ToolContext, ToolResult } from './tools/types';
@@ -66,10 +66,10 @@ export function whenBackgroundSettled(id: string): Promise<void> | undefined {
  * running task, kicks the child off DETACHED (no await), and returns immediately
  * with the task id so the parent turn proceeds.
  */
-export function startBackgroundAgentTool(input: unknown, ctx: ToolContext): ToolResult {
+export async function startBackgroundAgentTool(input: unknown, ctx: ToolContext): Promise<ToolResult> {
   let request;
   try {
-    request = parseSubagentRequest(recordSubagentInput(input), ctx);
+    request = await buildSubagentRequest(input, ctx);
   } catch (err) {
     return { summary: 'spawn_background_agent failed', text: scrubText(toMessage(err)), isError: true };
   }
