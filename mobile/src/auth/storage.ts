@@ -132,6 +132,9 @@ export const StorageKeys = {
   directBaseUrl: 'directBaseUrl',
   directDeviceId: 'directDeviceId',
   directKey: 'directKey',
+  // JSON array of every pairing candidate URL (Tailscale/LAN/tunnel), failover
+  // order — lets the transport reach the PC after a network change.
+  directUrls: 'directUrls',
   // Local-only mobile diagnostics flag; never sent to the relay/PC.
   developerMode: 'developerMode',
   // Local notifications toggle ('true'/'false'); never sent to the relay/PC.

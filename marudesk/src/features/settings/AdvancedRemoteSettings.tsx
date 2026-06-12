@@ -6,7 +6,7 @@ import { CopyButton } from '../../components/ui';
 import { useIpcListener } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
-import { Field, Section, Segmented, Stepper } from './SettingsControls';
+import { Field, Section, Segmented, Stepper, TextField } from './SettingsControls';
 import { useSettingsStore } from './store';
 import { useOnOffOptions } from './useLocalizedSettingsOptions';
 
@@ -45,6 +45,17 @@ export function AdvancedRemote() {
                 onChange={(port) => void update({ server: { port } })}
               />
             </Field>
+            <Field
+              label={t('settings.remote.advanced.publicUrl.label')}
+              hint={t('settings.remote.advanced.publicUrl.hint')}
+            >
+              <TextField
+                value={server.publicUrl}
+                placeholder="https://my-pc.example.com"
+                onCommit={(publicUrl) => void update({ server: { publicUrl } })}
+              />
+            </Field>
+            <AutoTunnelField />
           </Section>
           <LocalServerReach />
           <UnattendedToggle />
@@ -52,6 +63,59 @@ export function AdvancedRemote() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * The Auto-tunnel toggle: main spawns a cloudflared quick tunnel alongside the
+ * bridge server and feeds the captured public URL into the pairing QR. The URL
+ * itself shows up in the reachable-address list (label "Tunnel"); this field
+ * surfaces the in-between states (starting / cloudflared missing / crashed).
+ */
+function AutoTunnelField() {
+  const { t } = useI18n();
+  const onOffOptions = useOnOffOptions();
+  const enabled = useSettingsStore((s) => s.settings.server.tunnelEnabled);
+  const update = useSettingsStore((s) => s.update);
+  const tunnel = useServerStatus().tunnel;
+  const stateLine =
+    enabled && tunnel && tunnel.state !== 'up'
+      ? tunnel.detail ??
+        (tunnel.state === 'installing'
+          ? t('settings.remote.advanced.tunnel.installing')
+          : t('settings.remote.advanced.tunnel.starting'))
+      : null;
+  return (
+    <Field
+      label={t('settings.remote.advanced.tunnel.label')}
+      hint={stateLine ?? t('settings.remote.advanced.tunnel.hint')}
+    >
+      <Segmented
+        value={enabled ? 'on' : 'off'}
+        options={onOffOptions}
+        onChange={(value) => void update({ server: { tunnelEnabled: value === 'on' } })}
+      />
+    </Field>
+  );
+}
+
+/** Live bridge-server status (initial pull + `server:status-changed` pushes). */
+function useServerStatus(): ServerStatus {
+  const [status, setStatus] = useState<ServerStatus>({
+    running: false,
+    port: null,
+    candidates: [],
+  });
+  useEffect(() => {
+    let alive = true;
+    void window.marudesk.invoke('server:status').then((next) => {
+      if (alive) setStatus(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useIpcListener('server:status-changed', setStatus);
+  return status;
 }
 
 function UnattendedToggle() {
@@ -97,22 +161,7 @@ function UnattendedToggle() {
 
 function LocalServerReach() {
   const { t } = useI18n();
-  const [status, setStatus] = useState<ServerStatus>({
-    running: false,
-    port: null,
-    candidates: [],
-  });
-
-  useEffect(() => {
-    let alive = true;
-    void window.marudesk.invoke('server:status').then((next) => {
-      if (alive) setStatus(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-  useIpcListener('server:status-changed', setStatus);
+  const status = useServerStatus();
 
   return (
     <div className="flex flex-col gap-4">

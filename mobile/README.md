@@ -105,6 +105,33 @@ so in relay mode the pickers hide and the chat stays global-scope.
   available. Paste entry remains a first-class fallback and is the expected path
   on web/PWA builds or native shells without the plugin.
 
+### Direct mode across networks (no cloud relay)
+
+Direct mode is fully self-hosted — no marudesk cloud in the path. The pairing QR
+carries **every** address the PC may answer at (Tailscale first, then LAN IPs),
+and the phone persists the whole list (`DirectCreds.urls`). `DirectTransport`
+fails over across the candidates whenever a stream open fails, so a phone paired
+on the home LAN keeps reaching the PC from other networks:
+
+- **Auto tunnel (zero setup)**: flip Settings → Remote → Advanced → **Auto
+  tunnel** on the PC. If `cloudflared` isn't present, the PC downloads a pinned,
+  SHA-256-verified release by itself (one time), then spawns a quick tunnel
+  alongside the bridge and puts its public URL into the pairing QR — the phone
+  just scans. Caveat: the quick-tunnel URL changes on every server start, so
+  re-pair (or fall back to another candidate) after a PC restart.
+- **Your own stable URL (PC-only setup)**: run cloudflared (named tunnel),
+  ngrok, or a reverse proxy in front of the bridge and set it as Settings →
+  Remote → Advanced → **Public URL** — it joins the pairing QR as the first
+  candidate and survives restarts. The Connect screen's "Reaching the PC through
+  your own tunnel?" field remains as a phone-side override for a URL the PC
+  didn't advertise.
+- **Tailscale**: install/log in Tailscale on the PC and phone. The QR already
+  includes the PC's Tailscale address; nothing else to configure.
+
+Either way the traffic is application-level end-to-end encrypted (X25519 +
+AES-GCM); possession of the pairing session key is the authentication, so an
+untrusted tunnel/network in the middle never sees plaintext.
+
 ## Auth and storage
 
 - `src/auth/relayClient.ts`: typed fetch wrapper for relay auth REST endpoints

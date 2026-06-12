@@ -58,13 +58,32 @@ export class DirectTransport extends BaseTransport implements Transport {
   private closed = false;
   /** The PC workspace the event stream is pinned to (null = the global chat). */
   private workspaceId: string | null;
+  /**
+   * Every base URL the PC may answer at (pairing candidates: Tailscale/LAN/
+   * tunnel), in failover order. `active` indexes the one currently in use; a
+   * failed stream open rotates to the next, so a phone that left the pairing
+   * network finds the cross-network address by itself.
+   */
+  private readonly urls: string[];
+  private active = 0;
 
   constructor(
     private readonly creds: DirectCreds,
     workspaceId: string | null = null,
   ) {
     super();
+    this.urls = creds.urls?.length ? creds.urls : [creds.baseUrl];
     this.workspaceId = workspaceId;
+  }
+
+  /** The base URL currently in use (commands follow the stream's working address). */
+  private base(): string {
+    return this.urls[this.active];
+  }
+
+  /** Rotate to the next candidate after a failed stream open. */
+  private rotate(): void {
+    this.active = (this.active + 1) % this.urls.length;
   }
 
   async connect(): Promise<void> {
@@ -117,7 +136,7 @@ export class DirectTransport extends BaseTransport implements Transport {
     // `snapshot` is a GET on the host; the SSE already pushes state, but support an
     // explicit pull for parity. Pinned to the same workspace scope as the stream.
     if (cmd === 'snapshot') {
-      const res = await fetch(`${this.creds.baseUrl}/agent/snapshot${this.workspaceQuery()}`, {
+      const res = await fetch(`${this.base()}/agent/snapshot${this.workspaceQuery()}`, {
         headers: { 'x-marudesk-device': this.creds.deviceId },
       });
       if (!res.ok) throw new Error(`snapshot failed (HTTP ${res.status})`);
@@ -132,7 +151,7 @@ export class DirectTransport extends BaseTransport implements Transport {
 
     const path = POST_PATH[cmd as Exclude<TransportCommand, 'snapshot'>];
     const sealed = await seal(key, args, reqAad('POST', path));
-    const res = await fetch(`${this.creds.baseUrl}${path}`, {
+    const res = await fetch(`${this.base()}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-marudesk-device': this.creds.deviceId },
       body: JSON.stringify(sealed),
@@ -163,7 +182,7 @@ export class DirectTransport extends BaseTransport implements Transport {
       const path = '/agent/resume-session';
       const body = workspaceId ? { id, workspaceId } : { id };
       const sealed = await seal(key, body, reqAad('POST', path));
-      const res = await fetch(`${this.creds.baseUrl}${path}`, {
+      const res = await fetch(`${this.base()}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-marudesk-device': this.creds.deviceId },
         body: JSON.stringify(sealed),
@@ -180,7 +199,7 @@ export class DirectTransport extends BaseTransport implements Transport {
   private async getSealed(pathWithQuery: string, aadPath: string): Promise<unknown> {
     const key = this.key;
     if (!key) throw new Error('not connected');
-    const res = await fetch(`${this.creds.baseUrl}${pathWithQuery}`, {
+    const res = await fetch(`${this.base()}${pathWithQuery}`, {
       headers: { 'x-marudesk-device': this.creds.deviceId },
     });
     if (!res.ok) throw new Error(await errorOf(res, `request failed (HTTP ${res.status})`));
@@ -193,16 +212,23 @@ export class DirectTransport extends BaseTransport implements Transport {
     if (!key || this.closed) return;
     const ac = new AbortController();
     this.stream = ac;
+    // Whether this attempt got a live stream. A FAILED OPEN rotates to the next
+    // candidate URL (the address may be network-specific, e.g. a LAN IP after
+    // leaving home); a mid-stream drop doesn't — that address worked, and if it
+    // stopped working the next open fails and rotates anyway.
+    let opened = false;
     try {
-      const res = await fetch(`${this.creds.baseUrl}/agent/events${this.workspaceQuery()}`, {
+      const res = await fetch(`${this.base()}/agent/events${this.workspaceQuery()}`, {
         headers: { 'x-marudesk-device': this.creds.deviceId, accept: 'text/event-stream' },
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {
         this.setStatus({ status: 'error', hostOnline: false, detail: `HTTP ${res.status}` });
+        this.rotate();
         this.scheduleReconnect();
         return;
       }
+      opened = true;
       this.setStatus({ status: 'connected', hostOnline: true });
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -237,6 +263,7 @@ export class DirectTransport extends BaseTransport implements Transport {
     } catch (err) {
       if (ac.signal.aborted || this.closed) return;
       this.setStatus({ status: 'disconnected', hostOnline: false, detail: messageOf(err, 'connection lost') });
+      if (!opened) this.rotate();
       this.scheduleReconnect();
     }
   }

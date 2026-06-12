@@ -156,6 +156,42 @@ async function testValidPairing(): Promise<void> {
     assert(creds.deviceId === expectedDeviceId, 'pairing returns the sealed device id');
     assert(creds.keyB64.length > 0, 'pairing returns a non-empty session key');
     assert(server.getRequestCount() === 1, 'reachable PC receives exactly one /pair request');
+    assert(
+      JSON.stringify(creds.urls) === JSON.stringify([server.url, 'http://127.0.0.1:1']),
+      'pairing returns every candidate URL with the answering one first',
+    );
+  } finally {
+    await server.close();
+  }
+}
+
+async function testTunnelUrl(): Promise<void> {
+  const pc = await generateKeyPair();
+  const code = 'pair-code-tunnel';
+  const server = await startPairServer(async (body, _req, res) => {
+    const keyBytes = await deriveSharedSecret(pc.privateKey, b64urlToBytes(body.phPub), code);
+    const key = await importAesKey(keyBytes);
+    const result = await seal(key, { deviceId: 'device-tunnel' }, resAad('/pair'));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(result));
+  });
+
+  try {
+    // The QR only carries an unreachable LAN candidate; the user-supplied tunnel
+    // URL (with a trailing slash to exercise normalization) is tried FIRST and wins.
+    const qr = makeQr(
+      pc.publicKeyRaw,
+      code,
+      [{ label: 'lan', url: 'http://127.0.0.1:1' }],
+      Date.now() + 60_000,
+    );
+    const creds = await runPairing(qr, 'Pixel 9', `${server.url}/`);
+    assert(creds.baseUrl === server.url, 'a user tunnel URL is tried first and normalized');
+    assert(
+      JSON.stringify(creds.urls) === JSON.stringify([server.url, 'http://127.0.0.1:1']),
+      'the tunnel URL joins the failover candidates ahead of the QR ones',
+    );
+    assert(server.getRequestCount() === 1, 'the tunnel endpoint receives exactly one /pair request');
   } finally {
     await server.close();
   }
@@ -230,6 +266,7 @@ async function testNoUrls(): Promise<void> {
 
 async function main(): Promise<void> {
   await testValidPairing();
+  await testTunnelUrl();
   await testInvalidQr();
   await testExpiredQr();
   await testServerError();

@@ -24,6 +24,7 @@ export function ConnectScreen() {
   const [deviceName, setDeviceName] = useState('');
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [tunnelUrl, setTunnelUrl] = useState('');
 
   const onContinue = async () => {
     await setRelayUrl(url);
@@ -38,12 +39,12 @@ export function ConnectScreen() {
 
   const onScan = async () => {
     const scanned = await scanQr();
-    if (scanned) await pairWithQr(scanned, deviceName);
+    if (scanned) await pairWithQr(scanned, deviceName, tunnelUrl);
     else setPasteOpen(true);
   };
 
   const onPaste = async () => {
-    if (pasteText.trim()) await pairWithQr(pasteText, deviceName);
+    if (pasteText.trim()) await pairWithQr(pasteText, deviceName, tunnelUrl);
   };
 
   return (
@@ -118,6 +119,29 @@ export function ConnectScreen() {
               <AlertTriangle size={14} /> {authError}
             </span>
           ) : null}
+
+          <details className="relay-details">
+            <summary>Reaching the PC through your own tunnel?</summary>
+            <div className="field" style={{ marginTop: 12 }}>
+              <label htmlFor="tunnel">Tunnel URL (optional)</label>
+              <input
+                id="tunnel"
+                className="input"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="https://my-pc.example.com"
+                value={tunnelUrl}
+                onChange={(e) => setTunnelUrl(e.target.value)}
+              />
+              <p className="muted" style={{ fontSize: 13, margin: '6px 0 0' }}>
+                If your PC&apos;s bridge is published through cloudflared, ngrok or a reverse
+                proxy, add that address here before scanning — the phone will keep it as a
+                way to reach the PC from any network. Tailscale needs nothing here.
+              </p>
+            </div>
+          </details>
         </section>
 
         <details className="relay-details">

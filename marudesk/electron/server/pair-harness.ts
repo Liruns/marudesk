@@ -19,8 +19,11 @@ import {
   type Envelope,
   type SessionKey,
 } from '../../shared/e2e.ts';
+import { getConnectCandidates } from './pairing-urls.ts';
 import { createPairingManager } from './pairing.ts';
 import { handleRequest, type RouterDeps } from './router.ts';
+import { assetFor, extractTarEntry } from './tunnel-install.ts';
+import { parseTunnelUrl } from './tunnel.ts';
 
 /**
  * Headless harness for the T2 pairing handshake + E2E envelope path
@@ -425,6 +428,60 @@ async function main(): Promise<void> {
     } finally {
       serverAuto.close();
     }
+
+    // ── connect candidates: a configured public URL leads the QR's address list ──
+    const withPublic = getConnectCandidates(8787, 'https://my-pc.example.com/');
+    check(
+      'a configured public URL is the FIRST connect candidate, normalized',
+      withPublic[0]?.label === 'Public' && withPublic[0]?.url === 'https://my-pc.example.com',
+    );
+    const withoutPublic = getConnectCandidates(8787, '');
+    check(
+      'an empty public URL adds no candidate',
+      !withoutPublic.some((c) => c.label === 'Public'),
+    );
+    const withBoth = getConnectCandidates(
+      8787,
+      'https://stable.example.com',
+      'https://quick.trycloudflare.com',
+    );
+    check(
+      'the stable public URL outranks the managed tunnel URL',
+      withBoth[0]?.url === 'https://stable.example.com' &&
+        withBoth[1]?.label === 'Tunnel' &&
+        withBoth[1]?.url === 'https://quick.trycloudflare.com',
+    );
+
+    // ── auto tunnel: the cloudflared URL scraper (pure) ─────────────────────────
+    const banner =
+      '2026-06-12T00:00:00Z INF +  https://random-words-here.trycloudflare.com  +\n';
+    check(
+      'parseTunnelUrl extracts the quick-tunnel URL from the cloudflared banner',
+      parseTunnelUrl(banner) === 'https://random-words-here.trycloudflare.com',
+    );
+    check('parseTunnelUrl ignores unrelated output', parseTunnelUrl('INF Starting tunnel') === null);
+
+    // ── auto tunnel: the on-demand installer's pure pieces ──────────────────────
+    check(
+      'assetFor maps the supported platforms and rejects the rest',
+      assetFor('linux', 'x64') === 'cloudflared-linux-amd64' &&
+        assetFor('win32', 'x64') === 'cloudflared-windows-amd64.exe' &&
+        assetFor('darwin', 'arm64') === 'cloudflared-darwin-arm64.tgz' &&
+        assetFor('linux', 'ia32') === null,
+    );
+    // A minimal synthetic tar: one regular file "cloudflared" with 5 bytes.
+    const tarBody = Buffer.from('hello');
+    const header = Buffer.alloc(512);
+    header.write('./cloudflared', 0, 'utf8');
+    header.write('0000005\0', 124, 'utf8'); // octal size
+    header.write('0', 156, 'utf8'); // regular file
+    const tar = Buffer.concat([header, tarBody, Buffer.alloc(512 - tarBody.length), Buffer.alloc(1024)]);
+    const extracted = extractTarEntry(tar, 'cloudflared');
+    check(
+      'extractTarEntry pulls the binary entry out of a tar by basename',
+      extracted !== null && extracted.toString('utf8') === 'hello',
+    );
+    check('extractTarEntry misses cleanly on an absent entry', extractTarEntry(tar, 'nope') === null);
 
     console.log(`\npairing + E2E harness: ${passed} assertions passed`);
   } finally {

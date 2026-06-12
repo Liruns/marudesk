@@ -108,8 +108,15 @@ export type Unsubscribe = () => void;
  * device id (public, selects the key on the host), and the b64url AES session key
  * established during pairing. Persisted on the phone (storage.ts); the key is a
  * bearer-equivalent secret for this PC.
+ *
+ * `urls` is every base URL the PC may be reachable at (the pairing QR's
+ * Tailscale/LAN candidates plus any user-supplied tunnel URL), with the one that
+ * answered during pairing first. The transport fails over across them, so a phone
+ * paired over the home LAN still reaches the PC from another network via the
+ * Tailscale/tunnel address. Optional: creds persisted before this field carry
+ * only `baseUrl`.
  */
-export type DirectCreds = { baseUrl: string; deviceId: string; keyB64: string };
+export type DirectCreds = { baseUrl: string; deviceId: string; keyB64: string; urls?: string[] };
 
 export interface Transport {
   /**

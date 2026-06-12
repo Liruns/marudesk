@@ -264,9 +264,15 @@ SSE backpressure 가드(`writableNeedDrain` → 멈춘 클라가 main 메모리 
       거치므로(데스크톱 IPC는 loop를 직접 호출, dispatch 미경유), 서버 노출 중 gated 도구의 원격 *승인*을 거부해
       gated 승인을 **데스크톱 UI에 고정**한다. 원격 *거부*는 fail-safe로 허용. 주입형 가드 `approval-guard.ts`
       (serverExposed=`enabled||cloudEnabled`, isGated=isGatedTool). 검증: harness:pair. (cf. t2 design §8)
-- [ ] **L-2 Host 헤더 allowlist**(DNS-rebinding 차단): `127.0.0.1:<port>`/페어링된 호스트 외 거부.
-- [ ] **M-2 요청 타임아웃**: `headersTimeout`/`requestTimeout`/`keepAliveTimeout` 설정(slowloris).
-- [ ] **M-1+ SSE 동시 연결 상한**(예: ~4) — 백프레셔 가드는 완료, 연결 수 cap은 M5.
+- [ ] **L-2 Host 헤더 allowlist**(DNS-rebinding 차단): 보류(의도적) — 사용자 자가 터널
+      (cloudflared/ngrok/리버스 프록시)을 1급으로 지원하면서 Host가 사용자 도메인이 되므로 고정
+      allowlist와 충돌. 위험 평가: 전 라우트가 인증(bearer/E2E) 뒤에 있고 CORS가 이미 `*`라서
+      rebinding이 일반 cross-origin fetch 이상의 권한을 얻지 못함(`/pair`도 1회용 코드+키 증명 게이트).
+      도입 시 settings 기반 추가 allowlist로.
+- [x] **M-2 요청 타임아웃**: ✅ 해결 — `headersTimeout(15s)/requestTimeout(30s)/keepAliveTimeout(5s)`
+      (server/index.ts). 요청 수신만 제한하므로 장수명 SSE 응답 스트림은 영향 없음.
+- [x] **M-1+ SSE 동시 연결 상한**: ✅ 해결 — router 인스턴스별 cap(기본 8, `maxSseClients` 주입형),
+      초과 연결은 503으로 shed. 검증: harness:server (40 assertions).
 - [ ] (별건) Electron 메이저 업그레이드(현재 dev 프레임워크 advisory는 전부 local-vector, 이 서버로 도달 불가; prod deps 0 vuln).
 
 ## 11. Non-goals (v1)

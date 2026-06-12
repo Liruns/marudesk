@@ -975,6 +975,14 @@ export const EN_MESSAGES = {
     'The TCP port the server listens on (all interfaces).',
   'settings.remote.advanced.port.label': 'Port',
   'settings.remote.advanced.port.name': 'server port',
+  'settings.remote.advanced.publicUrl.hint':
+    'Optional: a tunnel or reverse-proxy address (cloudflared, ngrok, Caddy) you run in front of this PC. It joins the pairing QR, so the phone reaches this PC from any network - no cloud relay, nothing to install on the phone.',
+  'settings.remote.advanced.publicUrl.label': 'Public URL',
+  'settings.remote.advanced.tunnel.hint':
+    'Run a cloudflared quick tunnel automatically while the server is on and put its public URL into the pairing QR - zero setup; cloudflared is downloaded and verified automatically on first use. The URL changes on every start (a stable Public URL above suits long-lived pairings better).',
+  'settings.remote.advanced.tunnel.label': 'Auto tunnel',
+  'settings.remote.advanced.tunnel.installing': 'Downloading cloudflared (verified, one time)…',
+  'settings.remote.advanced.tunnel.starting': 'Starting the tunnel…',
   'settings.remote.advanced.toggle':
     'Advanced - port, network addresses, unattended',
   'settings.remote.cloud.description':

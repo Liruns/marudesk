@@ -80,6 +80,12 @@ export type RouterDeps = {
    * `POST /agent/resume-session`. Omit ⇒ those routes 404.
    */
   extras?: RouterExtras;
+  /**
+   * M-1+ (design §10.1): cap on concurrent SSE streams per server — each one
+   * holds a socket + a loop subscription, so an exposed port must not accept
+   * them unboundedly. Omit ⇒ {@link DEFAULT_MAX_SSE_CLIENTS}.
+   */
+  maxSseClients?: number;
 };
 
 /** The injected backends for the catalog routes — mockable in harnesses. */
@@ -240,10 +246,17 @@ async function sendResult(
   sendJson(res, 200, await codec.encodeResult(result, path));
 }
 
+/** Default for {@link RouterDeps.maxSseClients}: a phone + a CLI + headroom. */
+const DEFAULT_MAX_SSE_CLIENTS = 8;
+
+/** Live SSE stream count per router instance (keyed by its deps object). */
+const sseClientCounts = new WeakMap<RouterDeps, { n: number }>();
+
 /**
  * Stream agent:event snapshots as SSE, encoded per `frame`. Writes are serialized
  * through a tail promise so async (E2E) sealing can't reorder frames, and shed
  * under socket backpressure so a stalled client can't grow main-process memory.
+ * Concurrent streams are capped (M-1+) — past the cap a connect gets a 503.
  */
 function handleSse(
   req: IncomingMessage,
@@ -252,6 +265,17 @@ function handleSse(
   deps: RouterDeps,
   workspaceId?: string,
 ): void {
+  let count = sseClientCounts.get(deps);
+  if (!count) {
+    count = { n: 0 };
+    sseClientCounts.set(deps, count);
+  }
+  if (count.n >= (deps.maxSseClients ?? DEFAULT_MAX_SSE_CLIENTS)) {
+    sendError(res, 503, 'too many event streams — close another client first');
+    return;
+  }
+  count.n += 1;
+
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache, no-transform',
@@ -285,7 +309,11 @@ function handleSse(
   const ping = setInterval(() => res.write(': ping\n\n'), REMOTE_SSE_PING_MS);
   if (typeof ping.unref === 'function') ping.unref();
 
+  let done = false;
   const cleanup = (): void => {
+    if (done) return;
+    done = true;
+    count.n -= 1;
     clearInterval(ping);
     unsubscribe();
   };
