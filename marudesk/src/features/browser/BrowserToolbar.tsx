@@ -2,11 +2,13 @@ import type { ChangeEvent, FormEvent, RefObject } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  BookMarked,
   Download,
   Globe,
   Lock,
   MousePointerClick,
   RotateCw,
+  Star,
   Volume2,
   VolumeX,
   Wrench,
@@ -14,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { BrowserHistoryMenu, BrowserMenu } from './BrowserMenu';
+import { findBookmark, useBookmarksStore } from './bookmarks';
 import { useBrowserStrings } from './browserStrings';
 import type { NavState } from '../../../shared/browser';
 
@@ -133,6 +136,8 @@ export function BrowserToolbar({
         </div>
       </form>
 
+      <BookmarkStarButton nav={nav} currentUrl={currentUrl} />
+
       {nav.zoomFactor !== 1 ? (
         <button
           type="button"
@@ -150,6 +155,8 @@ export function BrowserToolbar({
       ) : null}
 
       <BrowserHistoryMenu />
+
+      <LibraryToggleButton />
 
       {nav.audible || nav.audioMuted ? (
         <NavIconButton
@@ -217,6 +224,61 @@ export function BrowserToolbar({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The address-bar star: outline when the current page isn't bookmarked,
+ * accent-filled when it is. Toggles the bookmark for the active tab's URL,
+ * carrying the tab's live title + inlined favicon into the entry.
+ */
+function BookmarkStarButton({
+  nav,
+  currentUrl,
+}: {
+  nav: NavState;
+  currentUrl: string;
+}) {
+  const { t } = useBrowserStrings();
+  const bookmarks = useBookmarksStore((s) => s.bookmarks);
+  const toggleBookmark = useBookmarksStore((s) => s.toggleBookmark);
+  const pageUrl = nav.url || currentUrl;
+  const bookmarked = !!findBookmark(bookmarks, pageUrl);
+
+  return (
+    <NavIconButton
+      label={t(bookmarked ? 'browser.bookmarks.remove' : 'browser.bookmarks.add')}
+      disabled={!pageUrl}
+      active={bookmarked}
+      aria-pressed={bookmarked}
+      onClick={() =>
+        void toggleBookmark({
+          url: pageUrl,
+          title: nav.title,
+          faviconUrl: nav.favicon || undefined,
+        })
+      }
+    >
+      <Star size={16} fill={bookmarked ? 'currentColor' : 'none'} />
+    </NavIconButton>
+  );
+}
+
+/** Opens/closes the library panel (Bookmarks | History) beside the stage. */
+function LibraryToggleButton() {
+  const { t } = useBrowserStrings();
+  const libraryOpen = useBookmarksStore((s) => s.libraryOpen);
+  const toggleLibrary = useBookmarksStore((s) => s.toggleLibrary);
+
+  return (
+    <NavIconButton
+      label={t('browser.library.button')}
+      active={libraryOpen}
+      aria-pressed={libraryOpen}
+      onClick={toggleLibrary}
+    >
+      <BookMarked size={16} />
+    </NavIconButton>
   );
 }
 

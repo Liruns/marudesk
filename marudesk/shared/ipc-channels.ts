@@ -88,7 +88,21 @@ export const CHANNELS = {
     'ssh:test-connection',
     'ssh:list-dir',
   ],
-  history: ['history:query', 'history:recent'],
+  history: [
+    'history:query',
+    'history:recent',
+    'history:list',
+    'history:delete',
+    'history:clear',
+  ],
+  // Bookmarks (electron/browser/bookmarks.ts). Mutations resolve the fresh
+  // list; live changes also push on the browser:bookmarks event.
+  bookmarks: [
+    'bookmarks:list',
+    'bookmarks:add',
+    'bookmarks:remove',
+    'bookmarks:update',
+  ],
   // Workspace diagnostics (docs/workspace-language-support-design.md, Tier 1).
   // `run` triggers the project's own checker (tsc/eslint/…) and parses its output;
   // `get` is the pull for initial render. Results also push on diagnostics:update.

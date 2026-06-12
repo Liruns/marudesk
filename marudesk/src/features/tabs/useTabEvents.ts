@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useWebPageStore } from '../browser/store';
+import { useBookmarksStore } from '../browser/bookmarks';
 import { useDownloadsStore } from '../browser/downloads';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useComposerStore } from '../composer/store';
@@ -47,12 +48,20 @@ export function useTabEvents(): void {
     const offDownloads = window.marudesk.on('browser:downloads', (list) => {
       useDownloadsStore.getState().setDownloads(list);
     });
+    // Live bookmark list for the star button + library panel.
+    const offBookmarks = window.marudesk.on('browser:bookmarks', (list) => {
+      useBookmarksStore.getState().setBookmarks(list);
+    });
     // Pull the current snapshot once on mount so the tab strip renders
     // immediately even before the first nav event fires.
     void useTabsStore.getState().refreshTabsSnapshot().catch(() => undefined);
     void window.marudesk
       .invoke('browser:downloads-list')
       .then((list) => useDownloadsStore.getState().setDownloads(list))
+      .catch(() => undefined);
+    void window.marudesk
+      .invoke('bookmarks:list')
+      .then((list) => useBookmarksStore.getState().setBookmarks(list))
       .catch(() => undefined);
     return () => {
       offCapture();
@@ -64,6 +73,7 @@ export function useTabEvents(): void {
       offOpenFind();
       offFound();
       offDownloads();
+      offBookmarks();
     };
   }, []);
 }

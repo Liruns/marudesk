@@ -6,6 +6,7 @@ import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
 import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
 import { useWebPageStore } from '../features/browser/store';
+import { useBookmarksStore } from '../features/browser/bookmarks';
 import { useTabEvents } from '../features/tabs/useTabEvents';
 import { useDiagnosticsEvents } from '../features/diagnostics/useDiagnosticsEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
@@ -198,6 +199,14 @@ export function Shell() {
       if (mod && e.shiftKey && e.key.toLowerCase() === 't') {
         e.preventDefault();
         void useTabsStore.getState().reopenClosedTab();
+        return;
+      }
+      // Library panel (Bookmarks | History) — Ctrl/Cmd+Shift+O (Chrome's
+      // bookmark-manager shortcut). The panel renders beside the browser stage,
+      // so it only shows while a web tab's canvas is active.
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        useBookmarksStore.getState().toggleLibrary();
         return;
       }
 
