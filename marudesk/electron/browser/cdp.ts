@@ -52,11 +52,39 @@ const ALLOWED_PREFIXES = [
   // (Storage.clearCookies) are subtracted in BLOCKED_METHODS below.
   'DOMStorage.',
   'Storage.',
+  // Application panel: IndexedDB + Cache Storage inspection. Every method in
+  // BOTH domains is origin/cache scoped (requestDatabaseNames / requestData /
+  // deleteDatabase, requestCacheNames / requestEntries / deleteCache /
+  // deleteEntry …) — read + same-origin delete only, no whole-browser or
+  // cross-origin escape, so no per-method subtraction is needed.
+  'IndexedDB.',
+  'CacheStorage.',
   // Rendering panel: media / vision-deficiency emulation only. The prefix would
   // otherwise also admit environment-override WRITES (UA / geolocation / device
   // metrics / timezone / locale / sensors) — those are subtracted in
   // BLOCKED_METHODS below so the prefix can't re-admit them.
   'Emulation.',
+  // Security panel: enable + read the visible security state (the
+  // visibleSecurityStateChanged event stream). The certificate-error bypass
+  // methods are subtracted in BLOCKED_METHODS below so the prefix can't
+  // re-admit them.
+  'Security.',
+  // Application panel: service-worker registration/version INSPECTION only —
+  // enable + the workerRegistrationUpdated/workerVersionUpdated event stream.
+  // Every method that drives or mutates a worker (start/stop/skipWaiting/
+  // unregister/update/push/sync/inspect) is subtracted in BLOCKED_METHODS
+  // below so the prefix can't re-admit them.
+  'ServiceWorker.',
+  // Sources panel (XHR/fetch + event-listener breakpoints) and Elements
+  // event-listeners pane (getEventListeners). Every DOMDebugger method is
+  // pull/arm-style — it can pause the page but never mutate it, so no
+  // per-method subtraction.
+  'DOMDebugger.',
+  'Accessibility.', // Elements: accessibility pane (getPartialAXTree) — read-only domain.
+  // Sources panel: read external source maps fetched via the page's session
+  // (Network.loadNetworkResource returns an IO stream handle). IO has only
+  // read/close/resolveBlob — read-only stream access, nothing to subtract.
+  'IO.',
 ];
 // Exact methods outside the allowed domains we still need: auto-attach to
 // out-of-process iframes / workers (Sources). The dangerous Target methods
@@ -112,6 +140,27 @@ const BLOCKED_METHODS = new Set([
   'Emulation.setTimezoneOverride',
   'Emulation.setSensorOverrideEnabled',
   'Emulation.setSensorOverrideReadings',
+  // Security-domain certificate-error bypasses. The custom devtools must NEVER
+  // be able to ignore or override certificate validation — the Security panel
+  // only reads the visible security state. Subtracted so the 'Security.' prefix
+  // can't re-admit them.
+  'Security.setIgnoreCertificateErrors',
+  'Security.handleCertificateError',
+  'Security.setOverrideCertificateErrors',
+  // ServiceWorker driving/mutating methods — the Application panel is
+  // read-only inspection (enable + registration/version status events). A
+  // confused deputy must never be able to start/stop/unregister a worker,
+  // deliver synthetic push/sync events, or force-update registrations.
+  'ServiceWorker.deliverPushMessage',
+  'ServiceWorker.dispatchSyncEvent',
+  'ServiceWorker.dispatchPeriodicSyncEvent',
+  'ServiceWorker.inspectWorker',
+  'ServiceWorker.setForceUpdateOnPageLoad',
+  'ServiceWorker.skipWaiting',
+  'ServiceWorker.startWorker',
+  'ServiceWorker.stopWorker',
+  'ServiceWorker.unregister',
+  'ServiceWorker.updateRegistration',
 ]);
 
 export function isAllowedCdpMethod(method: string): boolean {

@@ -1,10 +1,13 @@
 import type { DevtoolsPanel } from './store';
 import { ElementsPanel } from './panels/ElementsPanel';
 import { ConsolePanel } from './panels/ConsolePanel';
+import { SourcesPanel } from './panels/SourcesPanel';
 import { EvidenceTimeline } from './panels/EvidenceTimeline';
 import { NetworkPanel } from './panels/NetworkPanel';
 import { ApplicationPanel } from './panels/ApplicationPanel';
 import { RenderingPanel } from './panels/RenderingPanel';
+import { PerformancePanel } from './panels/PerformancePanel';
+import { SecurityPanel } from './panels/SecurityPanel';
 
 /**
  * Render one DevTools panel by id. The single panel↔id mapping, used by both the
@@ -21,6 +24,8 @@ export function PanelById({ panel }: { panel: DevtoolsPanel }) {
       return <ElementsPanel />;
     case 'console':
       return <ConsolePanel />;
+    case 'sources':
+      return <SourcesPanel />;
     case 'timeline':
       return <EvidenceTimeline />;
     case 'network':
@@ -29,5 +34,9 @@ export function PanelById({ panel }: { panel: DevtoolsPanel }) {
       return <ApplicationPanel />;
     case 'rendering':
       return <RenderingPanel />;
+    case 'performance':
+      return <PerformancePanel />;
+    case 'security':
+      return <SecurityPanel />;
   }
 }

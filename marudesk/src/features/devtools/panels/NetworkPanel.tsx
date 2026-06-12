@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Download, Trash2 } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore, type ThrottlePreset } from '../store';
+import { buildHar } from '../har';
 import { Detail, SummaryBar, Waterfall } from './NetworkPanel.parts';
 import {
   TYPE_FILTERS,
@@ -11,6 +12,7 @@ import {
   type TypeFilter,
   fileName,
   typeBucket,
+  typeLabel,
   fmtSize,
   fmtTime,
   summarize,
@@ -46,7 +48,7 @@ export function NetworkPanel() {
       if (q && !r.url.toLowerCase().includes(q)) return false;
       if (type === 'all') return true;
       const bucket = typeBucket(r.resourceType);
-      // "Other" catches unknown buckets too (e.g. WebSocket, Manifest, Ping).
+      // "Other" catches unknown buckets too (e.g. Manifest, Ping).
       return type === 'other' ? !KNOWN_TYPES.has(bucket) : bucket === type;
     });
   }, [requests, query, type]);
@@ -71,6 +73,23 @@ export function NetworkPanel() {
   );
 
   const selected = requests.find((r) => r.requestId === selectedId) ?? null;
+
+  // Build a HAR 1.2 document from the captured entries and hand it to the
+  // platform as a Blob download (Electron's default will-download save dialog
+  // — this renderer's session has no custom handler). Bodies are not in store
+  // state, so the export carries headers/timings only; no mass body fetch.
+  const exportHar = () => {
+    const json = JSON.stringify(buildHar(requests), null, 2);
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `marudesk-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.har`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    // Revoke after the download manager has had time to open the stream.
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  };
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -110,11 +129,22 @@ export function NetworkPanel() {
                   : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
               )}
             >
-              {t(f.labelKey)}
+              {f.labelKey ? t(f.labelKey) : (f.label ?? f.id)}
             </button>
           ))}
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Export HAR"
+            title="Export HAR"
+            disabled={requests.length === 0}
+            onClick={exportHar}
+            className="h-6 px-1.5 rounded inline-flex items-center gap-1 text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-tertiary"
+          >
+            <Download size={12} />
+            HAR
+          </button>
           <label className="flex items-center gap-1 text-caption text-fg-tertiary cursor-pointer select-none whitespace-nowrap">
             <input
               type="checkbox"
@@ -201,7 +231,7 @@ export function NetworkPanel() {
                     {r.failed ? 'fail' : (r.status ?? '·')}
                   </td>
                   <td className="px-1 py-0.5 text-fg-tertiary truncate">
-                    {r.resourceType ?? '—'}
+                    {typeLabel(r)}
                   </td>
                   <td className="px-1 py-0.5 text-right text-fg-tertiary tabular-nums">
                     {fmtSize(r)}

@@ -49,6 +49,7 @@
     "harness:plugins": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/plugins/plugin-harness.ts",
     "harness:plugin-lifecycle": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/plugins/plugin-lifecycle-harness.ts",
     "harness:browser-menu": "node --experimental-strip-types electron/browser/native-menu-harness.ts",
+    "harness:bookmarks": "node --experimental-strip-types electron/browser/bookmarks-harness.ts",
     "harness:subagent": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/subagent-harness.ts",
     "harness:background": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/background-harness.ts",
     "harness:orchestration": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/orchestration-harness.ts",

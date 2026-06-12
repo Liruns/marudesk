@@ -2,7 +2,18 @@ import type { StoreApi } from 'zustand';
 import { toast } from '../../lib/toast';
 import { cdpTry } from './cdp';
 import { msg } from './store-internals';
-import type { CdpCookie, RemoteObject } from './types';
+import type {
+  AppManifest,
+  AppManifestError,
+  CacheEntry,
+  CacheInfo,
+  CdpCookie,
+  FrameTreeNode,
+  IdbDatabase,
+  IdbEntry,
+  RemoteObject,
+  StorageUsage,
+} from './types';
 import type { DevtoolsState, DevtoolsActions, ThrottlePreset } from './store';
 
 type DevtoolsStore = DevtoolsState & DevtoolsActions;
@@ -42,9 +53,29 @@ type PanelsActions = Pick<
   | 'removeStorageItem'
   | 'clearStorage'
   | 'clearSiteData'
+  | 'loadIdbEntries'
+  | 'deleteIdbDatabase'
+  | 'loadCacheEntries'
+  | 'deleteCache'
+  | 'deleteCacheEntry'
   | 'setRendering'
   | '_applyRendering'
 >;
+
+// IndexedDB/CacheStorage previews are bounded reads — first page only.
+const MAX_IDB_DATABASES = 20;
+const MAX_IDB_ENTRIES = 50;
+const MAX_CACHE_ENTRIES = 100;
+// Frame-tree cap (an ad-heavy page can nest hundreds of iframes).
+const MAX_FRAMES = 100;
+
+/** `IndexedDB.KeyPath` → a display string ('' for out-of-line keys). */
+function keyPathLabel(kp: { type: string; string?: string; array?: string[] } | undefined): string {
+  if (!kp) return '';
+  if (kp.type === 'string') return kp.string ?? '';
+  if (kp.type === 'array') return `[${(kp.array ?? []).join(', ')}]`;
+  return '';
+}
 
 /**
  * The Network / Application(storage) / Rendering panel actions for the devtools
@@ -121,12 +152,127 @@ export function createPanelsSlice(set: SetState, get: GetState): PanelsActions {
         );
         return res?.entries ?? [];
       };
-      const [local, sessionItems, cookieRes] = await Promise.all([
+      // IndexedDB: database names, then each database's object-store metadata
+      // (bounded). Entries are NOT read here — loadIdbEntries pulls on demand.
+      const readIndexedDb = async (): Promise<IdbDatabase[]> => {
+        if (!origin) return [];
+        const names = await cdpTry<{ databaseNames: string[] }>(
+          tabId,
+          'IndexedDB.requestDatabaseNames',
+          { securityOrigin: origin },
+        );
+        const list = (names?.databaseNames ?? []).slice(0, MAX_IDB_DATABASES);
+        return Promise.all(
+          list.map(async (name): Promise<IdbDatabase> => {
+            const res = await cdpTry<{
+              databaseWithObjectStores: {
+                name: string;
+                version: number;
+                objectStores: {
+                  name: string;
+                  keyPath?: { type: string; string?: string; array?: string[] };
+                  autoIncrement?: boolean;
+                }[];
+              };
+            }>(tabId, 'IndexedDB.requestDatabase', {
+              securityOrigin: origin,
+              databaseName: name,
+            });
+            const db = res?.databaseWithObjectStores;
+            if (!db) return { name, version: 0, objectStores: [] };
+            return {
+              name: db.name,
+              version: db.version,
+              objectStores: db.objectStores.map((os) => ({
+                name: os.name,
+                keyPath: keyPathLabel(os.keyPath),
+                autoIncrement: !!os.autoIncrement,
+              })),
+            };
+          }),
+        );
+      };
+      const readCaches = async (): Promise<CacheInfo[]> => {
+        if (!origin) return [];
+        const res = await cdpTry<{ caches: CacheInfo[] }>(
+          tabId,
+          'CacheStorage.requestCacheNames',
+          { securityOrigin: origin },
+        );
+        return res?.caches ?? [];
+      };
+      // Origin quota snapshot (Storage.getUsageAndQuota): bytes used vs granted
+      // plus the per-storage-type breakdown (zero-usage types are noise).
+      const readQuota = async (): Promise<StorageUsage | null> => {
+        if (!origin) return null;
+        const res = await cdpTry<{
+          usage: number;
+          quota: number;
+          usageBreakdown?: { storageType: string; usage: number }[];
+        }>(tabId, 'Storage.getUsageAndQuota', { origin });
+        if (!res) return null;
+        return {
+          usage: res.usage,
+          quota: res.quota,
+          breakdown: (res.usageBreakdown ?? []).filter((b) => b.usage > 0),
+        };
+      };
+      // Web-app manifest. `url` is '' when the page declares none.
+      const readManifest = async (): Promise<AppManifest | null> => {
+        const res = await cdpTry<{
+          url: string;
+          errors?: AppManifestError[];
+          data?: string;
+        }>(tabId, 'Page.getAppManifest');
+        if (!res) return null;
+        return { url: res.url, errors: res.errors ?? [], data: res.data };
+      };
+      // The page's frame tree, flattened with depth for indented rendering.
+      const readFrames = async (): Promise<FrameTreeNode[]> => {
+        type CdpFrameTree = {
+          frame: { id: string; url: string; name?: string; mimeType?: string };
+          childFrames?: CdpFrameTree[];
+        };
+        const res = await cdpTry<{ frameTree: CdpFrameTree }>(
+          tabId,
+          'Page.getFrameTree',
+        );
+        if (!res?.frameTree) return [];
+        const out: FrameTreeNode[] = [];
+        const walk = (node: CdpFrameTree, depth: number) => {
+          if (out.length >= MAX_FRAMES) return;
+          out.push({
+            id: node.frame.id,
+            url: node.frame.url,
+            name: node.frame.name,
+            mimeType: node.frame.mimeType,
+            depth,
+          });
+          for (const child of node.childFrames ?? []) walk(child, depth + 1);
+        };
+        walk(res.frameTree, 0);
+        return out;
+      };
+      const [
+        local,
+        sessionItems,
+        cookieRes,
+        idbDatabases,
+        cacheNames,
+        storageUsage,
+        appManifest,
+        frameTree,
+      ] = await Promise.all([
         readStorage(true),
         readStorage(false),
         cdpTry<{ cookies: CdpCookie[] }>(tabId, 'Network.getCookies', {
           urls: origin ? [origin] : undefined,
         }),
+        readIndexedDb(),
+        readCaches(),
+        readQuota(),
+        readManifest(),
+        readFrames(),
       ]);
       if (get().tabId !== tabId) return;
       set({
@@ -134,6 +280,11 @@ export function createPanelsSlice(set: SetState, get: GetState): PanelsActions {
         localStorageItems: local,
         sessionStorageItems: sessionItems,
         cookies: cookieRes?.cookies ?? [],
+        idbDatabases,
+        cacheNames,
+        storageUsage,
+        appManifest,
+        frameTree,
         appLoading: false,
       });
     },
@@ -182,6 +333,67 @@ export function createPanelsSlice(set: SetState, get: GetState): PanelsActions {
       if (get().tabId !== tabId) return;
       toast({ title: msg('devtools.toast.siteDataCleared'), description: origin, variant: 'success' });
       await get().refreshApplication();
+    },
+
+    /* ── application: IndexedDB + Cache Storage (read + scoped delete) ── */
+
+    loadIdbEntries: async (databaseName, objectStoreName) => {
+      const tabId = get().tabId;
+      const origin = get().appOrigin;
+      if (!tabId || !origin) return [];
+      const res = await cdpTry<{ objectStoreDataEntries: IdbEntry[] }>(
+        tabId,
+        'IndexedDB.requestData',
+        {
+          securityOrigin: origin,
+          databaseName,
+          objectStoreName,
+          indexName: '',
+          skipCount: 0,
+          pageSize: MAX_IDB_ENTRIES,
+        },
+      );
+      return res?.objectStoreDataEntries ?? [];
+    },
+
+    deleteIdbDatabase: async (databaseName) => {
+      const tabId = get().tabId;
+      const origin = get().appOrigin;
+      if (!tabId || !origin) return;
+      await cdpTry(tabId, 'IndexedDB.deleteDatabase', {
+        securityOrigin: origin,
+        databaseName,
+      });
+      if (get().tabId !== tabId) return;
+      await get().refreshApplication();
+    },
+
+    loadCacheEntries: async (cacheId) => {
+      const tabId = get().tabId;
+      if (!tabId) return [];
+      const res = await cdpTry<{ cacheDataEntries: CacheEntry[] }>(
+        tabId,
+        'CacheStorage.requestEntries',
+        { cacheId, skipCount: 0, pageSize: MAX_CACHE_ENTRIES },
+      );
+      return res?.cacheDataEntries ?? [];
+    },
+
+    deleteCache: async (cacheId) => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      await cdpTry(tabId, 'CacheStorage.deleteCache', { cacheId });
+      if (get().tabId !== tabId) return;
+      await get().refreshApplication();
+    },
+
+    deleteCacheEntry: async (cacheId, requestURL) => {
+      const tabId = get().tabId;
+      if (!tabId) return;
+      await cdpTry(tabId, 'CacheStorage.deleteEntry', {
+        cacheId,
+        request: requestURL,
+      });
     },
 
     /* ── rendering ───────────────────────────────────────────────────── */

@@ -35,6 +35,7 @@ import {
   downloadAction,
   getDownloads,
 } from './downloads';
+import { registerBookmarkHandlers } from './bookmarks';
 import { navigateActive } from './navigation';
 import { popupNativeMenu } from './native-menu';
 import type { DownloadAction } from '../../shared/downloads';
@@ -226,6 +227,10 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:downloads-clear', () => {
     clearInactiveDownloads();
   });
+
+  // Bookmarks (electron/browser/bookmarks.ts) — list/add/remove/rename, with
+  // the live set pushed on browser:bookmarks whenever it changes.
+  registerBookmarkHandlers();
 
   // Custom CDP DevTools. `open`/`close` manage the debugger attach lifecycle for
   // the active web tab; the React dock shows/hides on the renderer side.

@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, type ChangeEvent, type FormEvent } from 'react';
 import { cn } from '../../lib/cn';
 import { useWebPageStore } from './store';
+import { useBookmarksStore } from './bookmarks';
 import { useDownloadsStore } from './downloads';
+import { BrowserLibraryPanel } from './BrowserLibraryPanel';
 import { DownloadShelf } from './DownloadShelf';
 import { useTabsStore } from '../tabs/store';
 import {
@@ -72,6 +74,7 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
   const shelfOpen = useDownloadsStore((s) => s.shelfOpen);
   const openShelf = useDownloadsStore((s) => s.openShelf);
   const closeShelf = useDownloadsStore((s) => s.closeShelf);
+  const libraryOpen = useBookmarksStore((s) => s.libraryOpen);
 
   const ensureActiveTab = async (): Promise<void> => {
     if (!tabId || useTabsStore.getState().activeTabId === tabId) return;
@@ -248,21 +251,28 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
           devtoolsOpen && devtoolsSide === 'bottom' ? 'flex-col' : 'flex-row',
         )}
       >
-        <div
-          ref={containerRef}
-          className={cn(
-            'flex-1 min-w-0 min-h-0 relative bg-surface-1',
-            inspectMode ? 'ring-1 ring-inset ring-accent' : '',
-            'transition-shadow duration-fast',
-          )}
-          aria-label={t('browser.stage.aria')}
-        >
-          <BrowserStageOverlays
-            hasUrl={hasUrl}
-            inspectMode={inspectMode}
-            crashed={canvasNav.crashed}
-            onReload={() => runForTab(reloadOrStop)}
-          />
+        {/* Stage + library panel stay a row regardless of the dock side, so the
+            library always reads as a right-hand sidebar. Like the dock, it's a
+            flex sibling of the stage (never an overlay — the native web view
+            paints above React) and the ResizeObserver re-fits the web view. */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-row">
+          <div
+            ref={containerRef}
+            className={cn(
+              'flex-1 min-w-0 min-h-0 relative bg-surface-1',
+              inspectMode ? 'ring-1 ring-inset ring-accent' : '',
+              'transition-shadow duration-fast',
+            )}
+            aria-label={t('browser.stage.aria')}
+          >
+            <BrowserStageOverlays
+              hasUrl={hasUrl}
+              inspectMode={inspectMode}
+              crashed={canvasNav.crashed}
+              onReload={() => runForTab(reloadOrStop)}
+            />
+          </div>
+          {libraryOpen && canvasActive ? <BrowserLibraryPanel /> : null}
         </div>
         {devtoolsOpen ? <DevtoolsDock /> : null}
       </div>
