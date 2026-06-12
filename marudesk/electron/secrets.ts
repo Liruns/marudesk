@@ -198,8 +198,8 @@ export async function setProviderOAuth(
 export async function clearProviderOAuth(provider: ProviderId): Promise<void> {
   const map = await loadCreds().catch(() => ({}) as CredMap);
   const entry = map[provider];
-  if (!entry?.oauth) return;
-  // Mirror clearProviderKey: keep a coexisting API key, drop the entry if empty.
+  if (!entry?.oauth && !entry?.oauthSlots?.length) return;
+  // Clear both the primary OAuth slot and any rotation slots.
   if (entry.apiKey) map[provider] = { apiKey: entry.apiKey };
   else delete map[provider];
   await saveCreds(map);

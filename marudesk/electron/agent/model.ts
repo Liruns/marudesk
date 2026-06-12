@@ -253,44 +253,77 @@ export function buildModel(
       })(modelId);
     }
     case 'google-vertex': {
-      // Vertex AI: ADC-based auth. The access token is resolved externally
-      // (electron/auth/vertex-adc.ts) and passed as an API key to the Vertex
-      // Gemini endpoint. The project and location come from env or defaults.
-      const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT ?? '';
+      // Vertex AI: ADC-based auth with Bearer token. The access token is
+      // resolved externally (electron/auth/vertex-adc.ts). Vertex requires
+      // Authorization: Bearer, not an API key query param — use a custom fetch.
+      const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT;
+      if (!project) throw new Error('google-vertex requires GOOGLE_CLOUD_PROJECT (or GCLOUD_PROJECT) env var');
       const location = process.env.GOOGLE_CLOUD_LOCATION ?? 'us-central1';
       const vertexBase = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google`;
+      const vertexToken = auth.mode === 'oauth' ? auth.accessToken : apiKey;
+      const vertexFetch: typeof globalThis.fetch = (input, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set('Authorization', `Bearer ${vertexToken}`);
+        return globalThis.fetch(input, { ...init, headers });
+      };
       return createGoogleGenerativeAI({
-        apiKey: auth.mode === 'oauth' ? auth.accessToken : apiKey,
+        apiKey: 'vertex-bearer',
+        fetch: vertexFetch,
         baseURL: vertexBase,
       })(modelId);
     }
     case 'amazon-bedrock': {
-      // Bedrock: SigV4-authenticated. The model invocation uses the Converse
-      // API through the OpenAI-compatible shim. Auth is handled at the fetch
-      // layer (electron/auth/aws-sigv4.ts signs each request). For now, the
-      // API key field stores a composite `accessKeyId:secretAccessKey` that
-      // the caller splits, or AWS env vars are used.
-      const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
+      // Bedrock: SigV4-authenticated. Every request is signed at the fetch
+      // layer using the AWS credentials resolved by resolve-auth.
+      const bedrockRegion = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
+      const bedrockBase = `https://bedrock-runtime.${bedrockRegion}.amazonaws.com`;
+      const bedrockFetch: typeof globalThis.fetch = async (input, init) => {
+        const { signBedrockRequest, resolveAwsCredentials } = await import('../auth/aws-sigv4');
+        const creds = await resolveAwsCredentials();
+        if (!creds) throw new Error('no AWS credentials for Bedrock signing');
+        const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+        const parsed = new URL(urlStr);
+        const signed = await signBedrockRequest(
+          init?.method ?? 'POST',
+          parsed.pathname + parsed.search,
+          typeof init?.body === 'string' ? init.body : undefined,
+          creds,
+          bedrockRegion,
+        );
+        const headers = new Headers(init?.headers);
+        for (const [k, v] of Object.entries(signed.headers)) headers.set(k, v);
+        return globalThis.fetch(input, { ...init, headers });
+      };
       return createOpenAICompatible({
         name: 'amazon-bedrock',
-        baseURL: `https://bedrock-runtime.${region}.amazonaws.com`,
-        apiKey: apiKey || undefined,
+        baseURL: bedrockBase,
+        apiKey: 'bedrock-sigv4',
+        fetch: bedrockFetch,
       })(modelId);
     }
     case 'azure-openai': {
-      // Azure OpenAI: endpoint + API key. The deployment name matches the
-      // model id; the base URL comes from the env or custom endpoint config.
+      // Azure OpenAI: endpoint + API key. api-version must be a URL query
+      // param (not a header); the deployment name is in the base URL path so
+      // we use a stub modelId ('_') to prevent the SDK from appending it again.
       const azureEndpoint = baseUrl
         ?? process.env.AZURE_OPENAI_ENDPOINT
         ?? '';
       if (!azureEndpoint) throw new Error('azure-openai requires AZURE_OPENAI_ENDPOINT or a custom base URL');
       const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2025-04-01-preview';
+      const azureBase = `${azureEndpoint.replace(/\/+$/, '')}/openai/deployments/${modelId}`;
+      const azureFetch: typeof globalThis.fetch = (input, init) => {
+        const url = typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL((input as Request).url);
+        url.searchParams.set('api-version', apiVersion);
+        const headers = new Headers(init?.headers);
+        headers.set('api-key', apiKey || '');
+        return globalThis.fetch(url, { ...init, headers });
+      };
       return createOpenAICompatible({
         name: 'azure-openai',
-        baseURL: `${azureEndpoint.replace(/\/+$/, '')}/openai/deployments/${modelId}`,
-        apiKey: apiKey || undefined,
-        headers: { 'api-key': apiKey || '', 'api-version': apiVersion },
-      })(modelId);
+        baseURL: azureBase,
+        apiKey: apiKey || 'azure',
+        fetch: azureFetch,
+      })('_');
     }
     default: {
       // custom:<id> — a user-configured OpenAI-compatible endpoint.

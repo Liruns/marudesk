@@ -119,7 +119,7 @@ type ProvidersActions = {
   // callback lands, and `cancelOAuth` aborts that wait.
   startOAuth: (
     provider: BuiltinProviderId,
-  ) => Promise<{ flow: OAuthFlow; url: string; opened: boolean } | null>;
+  ) => Promise<{ flow: OAuthFlow; url: string; opened: boolean; userCode?: string; verificationUri?: string } | null>;
   completeOAuth: (provider: BuiltinProviderId, pasted?: string) => Promise<boolean>;
   cancelOAuth: (provider: BuiltinProviderId) => Promise<void>;
   disconnectOAuth: (provider: BuiltinProviderId) => Promise<void>;

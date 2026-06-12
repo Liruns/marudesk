@@ -97,7 +97,7 @@ function tokensFromDeviceResponse(json: TokenResponseRaw): OAuthTokens {
       : 28_800; // 8 hours
   return {
     accessToken: json.access_token,
-    refreshToken: json.refresh_token ?? '',
+    refreshToken: json.refresh_token || 'device-flow-no-refresh',
     expiresAt: Date.now() + seconds * 1000,
     scope: typeof json.scope === 'string' ? json.scope : undefined,
   };

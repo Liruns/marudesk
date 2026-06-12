@@ -63,6 +63,11 @@ export const DRIVERS: Record<ProviderId, ProviderDriver> = {
     name: 'Fireworks AI',
     modelsUrl: 'https://api.fireworks.ai/inference/v1/models',
   }),
+  'github-copilot': oauthOnlyDriver,
+  'google-vertex': oauthOnlyDriver,
+  'amazon-bedrock': oauthOnlyDriver,
+  'gitlab-duo': oauthOnlyDriver,
+  'azure-openai': oauthOnlyDriver,
 };
 
 export type { ProviderDriver } from './types';
