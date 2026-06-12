@@ -1127,6 +1127,12 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.providers.oauth.connectedAfter': ' 계정으로 연결됨',
   'settings.providers.oauth.connectedBefore': '',
   'settings.providers.oauth.connecting': '연결 중...',
+  'settings.providers.oauth.deviceCode.copyCode': '코드 복사',
+  'settings.providers.oauth.deviceCode.openFailed':
+    '인증 페이지를 자동으로 열지 못했습니다. 아래 링크를 열고 위에 표시된 코드를 입력하세요.',
+  'settings.providers.oauth.deviceCode.waiting':
+    '브라우저에서 위 코드를 입력한 뒤 접근을 승인하세요.',
+  'settings.providers.oauth.deviceCode.yourCode': '코드:',
   'settings.providers.oauth.copyUrl': 'URL 복사',
   'settings.providers.oauth.didntOpen': '열리지 않았나요?',
   'settings.providers.oauth.disconnect': '연결 해제',

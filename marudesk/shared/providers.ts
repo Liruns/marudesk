@@ -29,7 +29,15 @@ export type BuiltinProviderId =
   | 'mistral'
   | 'deepseek'
   | 'together'
-  | 'fireworks';
+  | 'fireworks'
+  // Enterprise / subscription providers — each has a bespoke auth mechanism
+  // (device flow, ADC, SigV4, direct access token) distinct from the standard
+  // PKCE OAuth or Bearer-key paths above.
+  | 'github-copilot'
+  | 'google-vertex'
+  | 'amazon-bedrock'
+  | 'gitlab-duo'
+  | 'azure-openai';
 
 /**
  * A provider id: either a built-in, or a user-configured custom OpenAI-compatible
@@ -168,7 +176,7 @@ export type OAuthTokens = {
  * redirect (xAI / the OIDC-style providers). The renderer branches its connect UI
  * on this; the value comes back from `auth:oauth-start`.
  */
-export type OAuthFlow = 'manual-paste' | 'loopback';
+export type OAuthFlow = 'manual-paste' | 'loopback' | 'device-code';
 
 /* ── model-first catalog (docs/agentic-chat-v2-design.md §5) ─────────────── */
 

@@ -81,6 +81,9 @@ const OPENAI_COMPAT_PROVIDERS: Partial<
   deepseek: { baseURL: 'https://api.deepseek.com/v1' },
   together: { baseURL: 'https://api.together.xyz/v1' },
   fireworks: { baseURL: 'https://api.fireworks.ai/inference/v1' },
+  // GitLab Duo proxies to underlying providers via its cloud endpoints.
+  // PAT auth is passed as Bearer key.
+  'gitlab-duo': { baseURL: 'https://cloud.gitlab.com/ai/v1' },
 };
 
 /**
@@ -232,6 +235,96 @@ export function buildModel(
       const token = auth.mode === 'oauth' ? auth.accessToken : apiKey;
       return createXai({ baseURL: XAI_BASE_URL, apiKey: token || undefined }).responses(modelId);
     }
+    case 'github-copilot': {
+      // GitHub Copilot: the device-flow access token is exchanged for a
+      // short-lived Copilot token via the integrations API, then used against
+      // the OpenAI-compatible completions endpoint. For now, pass the OAuth
+      // token directly — the Copilot proxy handles the exchange server-side.
+      if (auth.mode !== 'oauth') throw new Error('github-copilot requires an OAuth connection');
+      return createOpenAICompatible({
+        name: 'github-copilot',
+        baseURL: 'https://api.githubcopilot.com',
+        apiKey: auth.accessToken,
+        headers: {
+          'Copilot-Integration-Id': 'vscode-chat',
+          'Editor-Version': 'marudesk/1.0',
+          'Openai-Intent': 'conversation-panel',
+        },
+      })(modelId);
+    }
+    case 'google-vertex': {
+      // Vertex AI: ADC-based auth with Bearer token. The access token is
+      // resolved externally (electron/auth/vertex-adc.ts). Vertex requires
+      // Authorization: Bearer, not an API key query param — use a custom fetch.
+      const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT;
+      if (!project) throw new Error('google-vertex requires GOOGLE_CLOUD_PROJECT (or GCLOUD_PROJECT) env var');
+      const location = process.env.GOOGLE_CLOUD_LOCATION ?? 'us-central1';
+      const vertexBase = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google`;
+      const vertexToken = auth.mode === 'oauth' ? auth.accessToken : apiKey;
+      const vertexFetch: typeof globalThis.fetch = (input, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set('Authorization', `Bearer ${vertexToken}`);
+        return globalThis.fetch(input, { ...init, headers });
+      };
+      return createGoogleGenerativeAI({
+        apiKey: 'vertex-bearer',
+        fetch: vertexFetch,
+        baseURL: vertexBase,
+      })(modelId);
+    }
+    case 'amazon-bedrock': {
+      // Bedrock: SigV4-authenticated. Every request is signed at the fetch
+      // layer using the AWS credentials resolved by resolve-auth.
+      const bedrockRegion = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
+      const bedrockBase = `https://bedrock-runtime.${bedrockRegion}.amazonaws.com`;
+      const bedrockFetch: typeof globalThis.fetch = async (input, init) => {
+        const { signBedrockRequest, resolveAwsCredentials } = await import('../auth/aws-sigv4');
+        const creds = await resolveAwsCredentials();
+        if (!creds) throw new Error('no AWS credentials for Bedrock signing');
+        const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+        const parsed = new URL(urlStr);
+        const signed = await signBedrockRequest(
+          init?.method ?? 'POST',
+          parsed.pathname + parsed.search,
+          typeof init?.body === 'string' ? init.body : undefined,
+          creds,
+          bedrockRegion,
+        );
+        const headers = new Headers(init?.headers);
+        for (const [k, v] of Object.entries(signed.headers)) headers.set(k, v);
+        return globalThis.fetch(input, { ...init, headers });
+      };
+      return createOpenAICompatible({
+        name: 'amazon-bedrock',
+        baseURL: bedrockBase,
+        apiKey: 'bedrock-sigv4',
+        fetch: bedrockFetch,
+      })(modelId);
+    }
+    case 'azure-openai': {
+      // Azure OpenAI: endpoint + API key. api-version must be a URL query
+      // param (not a header); the deployment name is in the base URL path so
+      // we use a stub modelId ('_') to prevent the SDK from appending it again.
+      const azureEndpoint = baseUrl
+        ?? process.env.AZURE_OPENAI_ENDPOINT
+        ?? '';
+      if (!azureEndpoint) throw new Error('azure-openai requires AZURE_OPENAI_ENDPOINT or a custom base URL');
+      const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2025-04-01-preview';
+      const azureBase = `${azureEndpoint.replace(/\/+$/, '')}/openai/deployments/${modelId}`;
+      const azureFetch: typeof globalThis.fetch = (input, init) => {
+        const url = typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL((input as Request).url);
+        url.searchParams.set('api-version', apiVersion);
+        const headers = new Headers(init?.headers);
+        headers.set('api-key', apiKey || '');
+        return globalThis.fetch(url, { ...init, headers });
+      };
+      return createOpenAICompatible({
+        name: 'azure-openai',
+        baseURL: azureBase,
+        apiKey: apiKey || 'azure',
+        fetch: azureFetch,
+      })('_');
+    }
     default: {
       // custom:<id> — a user-configured OpenAI-compatible endpoint.
       if (!baseUrl) throw new Error(`custom provider ${provider} has no base URL`);
@@ -260,4 +353,38 @@ export function aiTools(schemas: ToolSchema[]): ToolSet {
       }),
     ]),
   ) as ToolSet;
+}
+
+/* ── Streaming error recovery ──────────────────────────────────────────── */
+
+const MAX_STREAM_RETRIES = 2;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 529]);
+
+export function isRetryableStreamError(err: unknown): boolean {
+  if (APICallError.isInstance(err)) {
+    return typeof err.statusCode === 'number' && RETRYABLE_STATUS.has(err.statusCode);
+  }
+  if (err instanceof Error && /timeout|ECONNRESET|EPIPE|fetch failed/i.test(err.message)) {
+    return true;
+  }
+  return false;
+}
+
+export async function withStreamRetry<T>(
+  fn: () => Promise<T>,
+  provider: ProviderId,
+  modelId: string,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= MAX_STREAM_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableStreamError(err) || attempt === MAX_STREAM_RETRIES) break;
+      const delay = Math.min(1000 * 2 ** attempt, 8000);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }

@@ -152,11 +152,30 @@ export const GOOGLE_CAA_OAUTH: OAuthProviderConfig = {
   requireState: true,
 };
 
+/**
+ * GitHub Copilot — device-code flow (RFC 8628). Unlike the PKCE-based providers
+ * above, the user authorizes on github.com/login/device by entering a short
+ * user code; a polling loop in the main process exchanges the device code for
+ * tokens once the user approves. No loopback server or paste step needed.
+ * The access token then hits the Copilot chat completions endpoint (OpenAI-compatible).
+ */
+export const GITHUB_COPILOT_OAUTH: OAuthProviderConfig = {
+  provider: 'github-copilot',
+  flow: 'device-code',
+  clientId: 'Iv1.b507a08c87ecfe98',
+  scopes: 'read:user',
+  authorizeUrl: 'https://github.com/login/device/code',
+  tokenUrls: ['https://github.com/login/oauth/access_token'],
+  tokenEncoding: 'json',
+  requireState: false,
+};
+
 const OAUTH_CONFIGS: Partial<Record<BuiltinProviderId, OAuthProviderConfig>> = {
   anthropic: ANTHROPIC_OAUTH,
   xai: XAI_OAUTH,
   'openai-codex': OPENAI_CODEX_OAUTH,
   'google-caa': GOOGLE_CAA_OAUTH,
+  'github-copilot': GITHUB_COPILOT_OAUTH,
 };
 
 /* ── OpenAI Codex request shaping (experimental ChatGPT backend) ─────────── */

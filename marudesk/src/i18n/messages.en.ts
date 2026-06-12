@@ -1132,6 +1132,12 @@ export const EN_MESSAGES = {
   'settings.providers.oauth.connectedAfter': ' account',
   'settings.providers.oauth.connectedBefore': 'Connected - using your ',
   'settings.providers.oauth.connecting': 'Connecting...',
+  'settings.providers.oauth.deviceCode.copyCode': 'Copy code',
+  'settings.providers.oauth.deviceCode.openFailed':
+    "Couldn't open the verification page automatically. Open the link below, then enter the code shown above.",
+  'settings.providers.oauth.deviceCode.waiting':
+    'Enter the code above in your browser, then approve access.',
+  'settings.providers.oauth.deviceCode.yourCode': 'Your code:',
   'settings.providers.oauth.copyUrl': 'Copy URL',
   'settings.providers.oauth.didntOpen': "Didn't open?",
   'settings.providers.oauth.disconnect': 'Disconnect',

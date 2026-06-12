@@ -61,12 +61,13 @@ export function ProviderOAuthConnect({
   const disconnectOAuth = useProvidersStore((s) => s.disconnectOAuth);
   const testConn = useProvidersStore((s) => s.testProviderConnection);
 
-  const [phase, setPhase] = useState<'idle' | 'manual' | 'waiting'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'manual' | 'waiting' | 'device-code'>('idle');
   const [url, setUrl] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
   // The OS refused to open the browser (auth:oauth-start returned opened:false)
   // — lead with the manual link + copy/in-app affordances instead.
   const [openFailed, setOpenFailed] = useState(false);
+  const [userCode, setUserCode] = useState<string | null>(null);
   const [test, setTest] = useState<{
     status: 'idle' | 'testing' | 'ok' | 'error';
     message: string | null;
@@ -87,6 +88,7 @@ export function ProviderOAuthConnect({
     setUrl(null);
     setPasted('');
     setOpenFailed(false);
+    setUserCode(null);
   };
 
   const begin = async () => {
@@ -94,7 +96,13 @@ export function ProviderOAuthConnect({
     if (!started) return;
     setUrl(started.url);
     setOpenFailed(!started.opened);
-    if (started.flow === 'loopback') {
+    if (started.flow === 'device-code') {
+      setUserCode(started.userCode ?? null);
+      setPhase('device-code');
+      const ok = await completeOAuth(providerId);
+      if (ok) reset();
+      else setPhase('idle');
+    } else if (started.flow === 'loopback') {
       setPhase('waiting');
       const ok = await completeOAuth(providerId);
       if (ok) reset();
@@ -186,7 +194,7 @@ export function ProviderOAuthConnect({
           {t('settings.providers.oauth.title')}
         </span>
         <span className="flex-1" />
-        {phase === 'waiting' ? (
+        {phase === 'waiting' || phase === 'device-code' ? (
           <Button variant="ghost" size="sm" onClick={() => void cancel()}>
             {t('settings.providers.cancel')}
           </Button>
@@ -209,7 +217,45 @@ export function ProviderOAuthConnect({
         )}
       </div>
 
-      {phase === 'waiting' ? (
+      {phase === 'device-code' ? (
+        <div className="flex flex-col gap-2">
+          {openFailed && url ? (
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-subtle/30 px-3 py-2 text-caption text-fg-secondary">
+              <AlertCircle size={13} className="mt-0.5 shrink-0 text-warning" />
+              <span>{t('settings.providers.oauth.deviceCode.openFailed')}</span>
+            </div>
+          ) : null}
+          {userCode ? (
+            <div className="flex items-center gap-3 rounded-md bg-surface-raised border border-default px-4 py-3">
+              <span className="text-caption text-fg-tertiary">{t('settings.providers.oauth.deviceCode.yourCode')}</span>
+              <code className="text-heading-md font-mono font-bold text-fg-primary tracking-widest select-all">
+                {userCode}
+              </code>
+              <CopyButton
+                text={userCode}
+                size="md"
+                label={t('settings.providers.oauth.deviceCode.copyCode')}
+                write={(text) => window.marudesk.invoke('clipboard:write-text', text)}
+              />
+            </div>
+          ) : null}
+          <p className="text-caption text-fg-tertiary flex items-center gap-1.5 flex-wrap">
+            <Loader2 size={12} className="animate-spin shrink-0" />
+            {t('settings.providers.oauth.deviceCode.waiting')}
+            {url ? (
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-accent hover:underline"
+              >
+                {t('settings.providers.oauth.reopen')} <ExternalLink size={11} />
+              </a>
+            ) : null}
+          </p>
+          {url ? <OAuthLinkActions url={url} /> : null}
+        </div>
+      ) : phase === 'waiting' ? (
         <div className="flex flex-col gap-2">
           {openFailed ? (
             <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-subtle/30 px-3 py-2 text-caption text-fg-secondary">

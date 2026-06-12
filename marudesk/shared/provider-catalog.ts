@@ -250,6 +250,71 @@ export const PROVIDERS: ProviderDef[] = [
     apiKeyPlaceholder: 'fw_...',
     apiKeyHint: 'fireworks.ai → API Keys (FIREWORKS_API_KEY)',
   },
+  {
+    id: 'github-copilot',
+    label: 'GitHub Copilot',
+    oauth: true,
+    oauthOnly: true,
+    models: [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'gpt-5', label: 'GPT-5' },
+      { id: 'gpt-5-mini', label: 'GPT-5 mini' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { id: 'o4-mini', label: 'o4-mini' },
+    ],
+    defaultModelId: 'claude-sonnet-4-6',
+    apiKeyPlaceholder: '(OAuth only)',
+    apiKeyHint: 'Sign in with your GitHub account — uses your Copilot subscription.',
+  },
+  {
+    id: 'google-vertex',
+    label: 'Google Vertex AI',
+    models: [
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { id: 'claude-sonnet-4-6@anthropic', label: 'Claude Sonnet 4.6 (Anthropic)' },
+    ],
+    defaultModelId: 'gemini-2.5-pro',
+    apiKeyPlaceholder: '(ADC — no key)',
+    apiKeyHint: 'Uses Application Default Credentials (gcloud auth). Set GOOGLE_APPLICATION_CREDENTIALS or run gcloud auth application-default login.',
+  },
+  {
+    id: 'amazon-bedrock',
+    label: 'Amazon Bedrock',
+    models: [
+      { id: 'anthropic.claude-sonnet-4-6-v1:0', label: 'Claude Sonnet 4.6' },
+      { id: 'anthropic.claude-haiku-4-5-v1:0', label: 'Claude Haiku 4.5' },
+      { id: 'amazon.nova-pro-v1:0', label: 'Amazon Nova Pro' },
+    ],
+    defaultModelId: 'anthropic.claude-sonnet-4-6-v1:0',
+    apiKeyPlaceholder: '(AWS credentials)',
+    apiKeyHint: 'Uses AWS credentials (env vars or ~/.aws/credentials). Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY.',
+  },
+  {
+    id: 'gitlab-duo',
+    label: 'GitLab Duo',
+    models: [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+      { id: 'gpt-5', label: 'GPT-5' },
+      { id: 'gpt-5-mini', label: 'GPT-5 mini' },
+    ],
+    defaultModelId: 'claude-sonnet-4-6',
+    apiKeyPlaceholder: 'glpat-...',
+    apiKeyHint: 'GitLab personal access token with api scope. gitlab.com → Settings → Access Tokens.',
+  },
+  {
+    id: 'azure-openai',
+    label: 'Azure OpenAI',
+    models: [
+      { id: 'gpt-5', label: 'GPT-5' },
+      { id: 'gpt-5-mini', label: 'GPT-5 mini' },
+      { id: 'gpt-4.1', label: 'GPT-4.1' },
+    ],
+    defaultModelId: 'gpt-5',
+    apiKeyPlaceholder: '••••••••',
+    apiKeyHint: 'Azure OpenAI API key. Set the endpoint via AZURE_OPENAI_ENDPOINT or custom base URL.',
+  },
 ];
 
 export const MODELS: ModelEntry[] = [
@@ -327,4 +392,27 @@ export const MODELS: ModelEntry[] = [
   { key: 'fireworks:accounts/fireworks/models/deepseek-v3', id: 'accounts/fireworks/models/deepseek-v3', label: 'DeepSeek V3', provider: 'fireworks', contextWindow: 131_072, tools: true },
   { key: 'fireworks:accounts/fireworks/models/qwen2p5-coder-32b-instruct', id: 'accounts/fireworks/models/qwen2p5-coder-32b-instruct', label: 'Qwen2.5 Coder 32B', provider: 'fireworks', contextWindow: 32_768, tools: true },
   { key: 'fireworks:accounts/fireworks/models/kimi-k2-instruct', id: 'accounts/fireworks/models/kimi-k2-instruct', label: 'Kimi K2 Instruct', provider: 'fireworks', contextWindow: 131_072, tools: true },
+  // GitHub Copilot (device-flow OAuth, subscription-routed to multiple backends).
+  { key: 'github-copilot:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'github-copilot', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'github-copilot:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'github-copilot', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  { key: 'github-copilot:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'github-copilot', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  { key: 'github-copilot:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'github-copilot', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
+  { key: 'github-copilot:o4-mini', id: 'o4-mini', label: 'o4-mini', provider: 'github-copilot', contextWindow: 200_000, tools: true, reasoning: true },
+  // Google Vertex AI (ADC-authenticated, enterprise GCP).
+  { key: 'google-vertex:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google-vertex', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
+  { key: 'google-vertex:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google-vertex', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
+  { key: 'google-vertex:claude-sonnet-4-6@anthropic', id: 'claude-sonnet-4-6@anthropic', label: 'Claude Sonnet 4.6 (via Vertex)', provider: 'google-vertex', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  // Amazon Bedrock (AWS SigV4-authenticated).
+  { key: 'amazon-bedrock:anthropic.claude-sonnet-4-6-v1:0', id: 'anthropic.claude-sonnet-4-6-v1:0', label: 'Claude Sonnet 4.6', provider: 'amazon-bedrock', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'amazon-bedrock:anthropic.claude-haiku-4-5-v1:0', id: 'anthropic.claude-haiku-4-5-v1:0', label: 'Claude Haiku 4.5', provider: 'amazon-bedrock', contextWindow: 200_000, tools: true, vision: true, reasoning: true },
+  { key: 'amazon-bedrock:amazon.nova-pro-v1:0', id: 'amazon.nova-pro-v1:0', label: 'Amazon Nova Pro', provider: 'amazon-bedrock', contextWindow: 300_000, tools: true, vision: true },
+  // GitLab Duo (PAT-authenticated, proxied to Anthropic/OpenAI).
+  { key: 'gitlab-duo:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'gitlab-duo', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
+  { key: 'gitlab-duo:claude-haiku-4-5', id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'gitlab-duo', contextWindow: 200_000, tools: true, vision: true, reasoning: true },
+  { key: 'gitlab-duo:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'gitlab-duo', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  { key: 'gitlab-duo:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'gitlab-duo', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  // Azure OpenAI (API-key + endpoint).
+  { key: 'azure-openai:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'azure-openai', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  { key: 'azure-openai:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'azure-openai', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
+  { key: 'azure-openai:gpt-4.1', id: 'gpt-4.1', label: 'GPT-4.1', provider: 'azure-openai', contextWindow: 1_047_576, tools: true, vision: true },
 ];

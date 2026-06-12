@@ -6,6 +6,7 @@ import { clearProviderOAuth, setProviderOAuth } from '../secrets';
 import { openExternalUrl } from '../safe-open';
 import { oauthConfigFor, parsePastedCode, supportsOAuth, type OAuthProviderConfig } from './config';
 import { buildAuthorizeUrl, exchangeCode, generatePkce, type Pkce } from './flow';
+import { requestDeviceCode, pollForToken, type DeviceCodeResponse } from './device-flow';
 import { startLoopbackServer, type LoopbackServer } from './loopback';
 import { clearCodeAssistProject } from './google-code-assist';
 
@@ -33,6 +34,8 @@ type Pending = {
   /** loopback only. */
   server?: LoopbackServer;
   abort?: AbortController;
+  /** device-code only. */
+  deviceCode?: DeviceCodeResponse;
 };
 const pending = new Map<ProviderId, Pending>();
 
@@ -54,7 +57,7 @@ function discardPending(provider: ProviderId): void {
 /** Begin a flow: fresh PKCE, (loopback) a local server, open the browser, return the URL + flow. */
 async function startOAuth(
   provider: ProviderId,
-): Promise<{ flow: OAuthFlow; url: string; opened: boolean }> {
+): Promise<{ flow: OAuthFlow; url: string; opened: boolean; userCode?: string; verificationUri?: string }> {
   const cfg = oauthConfigFor(provider);
   if (!cfg) throw new Error(`${provider} does not support OAuth login`);
   discardPending(provider); // a new attempt supersedes any abandoned one
@@ -63,7 +66,32 @@ async function startOAuth(
   let redirectUri: string;
   const entry: Pending = { cfg, pkce, createdAt: Date.now(), redirectUri: '' };
 
-  if (cfg.flow === 'loopback') {
+  if (cfg.flow === 'device-code') {
+    // Device Authorization Grant (RFC 8628): request a device code, then the
+    // user visits a verification URL and enters a short user code. The main
+    // process polls for token grant in `completeOAuth`.
+    const dcResponse = await requestDeviceCode({
+      provider: cfg.provider,
+      clientId: cfg.clientId,
+      scopes: cfg.scopes,
+      deviceAuthUrl: cfg.authorizeUrl,
+      tokenUrl: cfg.tokenUrls[0],
+    });
+    entry.deviceCode = dcResponse;
+    entry.abort = new AbortController();
+    redirectUri = '';
+    entry.redirectUri = redirectUri;
+    pending.set(provider, entry);
+    const verificationUrl = dcResponse.verificationUriComplete ?? dcResponse.verificationUri;
+    const opened = await openExternalUrl(verificationUrl);
+    return {
+      flow: 'device-code',
+      url: verificationUrl,
+      opened,
+      userCode: dcResponse.userCode,
+      verificationUri: dcResponse.verificationUri,
+    };
+  } else if (cfg.flow === 'loopback') {
     if (!cfg.loopback) throw new Error(`${provider} loopback config missing`);
     const server = await startLoopbackServer({
       host: cfg.loopback.host,
@@ -101,30 +129,49 @@ async function completeOAuth(provider: ProviderId, pasted: string | undefined): 
   }
 
   try {
-    let code: string;
-    let state: string | undefined;
-    if (entry.server && entry.abort) {
-      // Loopback: block until the browser hits 127.0.0.1 (or timeout / cancel).
-      const r = await entry.server.waitForCallback(LOOPBACK_TIMEOUT_MS, entry.abort.signal);
-      code = r.code;
-      state = r.state;
+    let tokens;
+    if (entry.deviceCode && entry.abort) {
+      // Device-code flow: poll the token endpoint until the user authorizes.
+      if (pending.get(provider) !== entry) throw new Error('superseded by a newer login attempt');
+      tokens = await pollForToken(
+        {
+          provider: cfg.provider,
+          clientId: cfg.clientId,
+          scopes: cfg.scopes,
+          deviceAuthUrl: cfg.authorizeUrl,
+          tokenUrl: cfg.tokenUrls[0],
+        },
+        entry.deviceCode.deviceCode,
+        entry.deviceCode.interval,
+        entry.deviceCode.expiresIn,
+        entry.abort.signal,
+      );
     } else {
-      ({ code, state } = parsePastedCode(pasted ?? ''));
-    }
+      let code: string;
+      let state: string | undefined;
+      if (entry.server && entry.abort) {
+        // Loopback: block until the browser hits 127.0.0.1 (or timeout / cancel).
+        const r = await entry.server.waitForCallback(LOOPBACK_TIMEOUT_MS, entry.abort.signal);
+        code = r.code;
+        state = r.state;
+      } else {
+        ({ code, state } = parsePastedCode(pasted ?? ''));
+      }
 
-    // CSRF: state must be present (when the provider issues one) and match.
-    if (cfg.requireState && state === undefined) {
-      throw new Error('paste the full "code#state" shown on the page — the state is required');
-    }
-    if (state !== undefined && state !== entry.pkce.state) {
-      throw new Error('state mismatch — aborting for safety; start the flow again');
-    }
+      // CSRF: state must be present (when the provider issues one) and match.
+      if (cfg.requireState && state === undefined) {
+        throw new Error('paste the full "code#state" shown on the page — the state is required');
+      }
+      if (state !== undefined && state !== entry.pkce.state) {
+        throw new Error('state mismatch — aborting for safety; start the flow again');
+      }
 
-    // A superseding startOAuth (a fresh attempt) would have replaced this entry in
-    // the map and aborted our signal; if we still got here, confirm we're the
-    // active attempt before persisting so we never clobber a newer one's tokens.
-    if (pending.get(provider) !== entry) throw new Error('superseded by a newer login attempt');
-    const tokens = await exchangeCode(cfg, entry.pkce, code, state, entry.redirectUri);
+      // A superseding startOAuth (a fresh attempt) would have replaced this entry in
+      // the map and aborted our signal; if we still got here, confirm we're the
+      // active attempt before persisting so we never clobber a newer one's tokens.
+      if (pending.get(provider) !== entry) throw new Error('superseded by a newer login attempt');
+      tokens = await exchangeCode(cfg, entry.pkce, code, state, entry.redirectUri);
+    }
     await setProviderOAuth(provider, tokens);
     // A fresh google-caa account must re-bootstrap its Code-Assist project.
     if (provider === 'google-caa') clearCodeAssistProject();

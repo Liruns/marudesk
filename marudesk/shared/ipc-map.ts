@@ -88,6 +88,7 @@ import type {
   TerminalInput,
   TerminalResize,
 } from './terminal';
+import type { UsageReport } from '../electron/usage/types';
 import type { TerminalErrorEvent } from './terminal-evidence';
 import type {
   CaptureInput,
@@ -890,6 +891,10 @@ export interface IpcMap {
     result: TerminalErrorEvent[];
   };
   'terminal:clear-errors': { args: [payload: { id: string }]; result: void };
+
+  // usage monitoring (electron/usage/index.ts)
+  'usage:fetch': { args: [provider: ProviderId]; result: UsageReport | null };
+  'usage:fetch-all': { args: []; result: UsageReport[] };
 
   // clipboard (integrated-terminal copy/paste — electron/clipboard.ts)
   'clipboard:write-text': { args: [text: string]; result: void };

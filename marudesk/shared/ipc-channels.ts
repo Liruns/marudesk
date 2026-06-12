@@ -306,6 +306,7 @@ export const CHANNELS = {
     'terminal:pull-errors',
     'terminal:clear-errors',
   ],
+  usage: ['usage:fetch', 'usage:fetch-all'],
   clipboard: ['clipboard:write-text', 'clipboard:read-text'],
   app: [
     'app:info',
