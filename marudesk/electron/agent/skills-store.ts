@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clipText } from '../../shared/text-clip';
 import { BUILTIN_SKILLS } from './builtin-skills';
+import { closestName } from './name-suggest';
 import type { McpTool, ToolContext, ToolResult } from './tools';
 
 /**
@@ -154,9 +155,12 @@ async function skillTool(input: { name?: unknown }, ctx: ToolContext): Promise<T
     skills.find((s) => s.name === wantName) ??
     skills.find((s) => s.name.toLowerCase() === wantName.toLowerCase());
   if (!found) {
+    // A near-miss (typo / fragment) gets a direct suggestion, saving the model
+    // a list round-trip before the retry.
+    const hint = closestName(wantName, skills.map((s) => s.name));
     return {
       summary: `skill ${wantName} not found`,
-      text: `No skill named "${wantName}". Call skill with no arguments to list what's available.`,
+      text: `No skill named "${wantName}".${hint ? ` Did you mean "${hint}"?` : ''} Call skill with no arguments to list what's available.`,
       isError: true,
     };
   }
