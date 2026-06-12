@@ -14,6 +14,9 @@ export function QuestionsCard({ pending }: { pending: PendingQuestions }) {
   const [values, setValues] = useState<Record<string, string>>({});
 
   const submit = () => void answer(pending.callId, values);
+  // Enter submits only once every question has an answer; the button stays
+  // available regardless so a deliberate partial submit is still possible.
+  const complete = pending.questions.every((q) => (values[q.id] ?? '').trim().length > 0);
 
   return (
     <div className="rounded-lg border border-accent/35 bg-accent-subtle/15 p-3 flex flex-col gap-2.5 shadow-card">
@@ -45,14 +48,21 @@ export function QuestionsCard({ pending }: { pending: PendingQuestions }) {
           <input
             value={values[q.id] ?? ''}
             onChange={(e) => setValues((v) => ({ ...v, [q.id]: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && complete) submit();
+            }}
             placeholder={t('agent.chat.answerPlaceholder')}
             className="h-7 rounded-md bg-surface-page border border-default px-2 text-body-sm text-fg-primary focus:outline-none focus:border-accent transition-colors duration-fast"
           />
         </div>
       ))}
-      <Button variant="primary" size="sm" onClick={submit}>
-        {t('agent.chat.sendAnswer')}
-      </Button>
+      {/* Compact, right-aligned action — a full-width primary bar reads heavier
+          than the Send button itself and breaks the card's quiet register. */}
+      <div className="flex justify-end">
+        <Button variant="primary" size="sm" onClick={submit}>
+          {t('agent.chat.sendAnswer')}
+        </Button>
+      </div>
     </div>
   );
 }

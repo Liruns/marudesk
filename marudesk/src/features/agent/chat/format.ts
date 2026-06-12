@@ -26,6 +26,22 @@ import {
 } from 'lucide-react';
 import type { Locale, TranslationKey } from '../../../i18n/messages';
 import type { AgentMessage, AgentStatus } from '../../../../shared/agent';
+import type { AgentRunTreeNode } from '../../../../shared/agent-orchestration';
+
+/* ── orchestration ──────────────────────────────────────────────────────── */
+
+/**
+ * Whether the run tree carries information the transcript doesn't already show.
+ * A single childless thread (the current conversation itself) is the steady
+ * state of every chat — rendering an "Agent tree" card for it is pure noise, so
+ * both the inline card and the Mission Control aside gate on this predicate.
+ */
+export function hasOrchestrationContent(nodes: readonly AgentRunTreeNode[]): boolean {
+  if (nodes.length === 0) return false;
+  if (nodes.length > 1) return true;
+  const root = nodes[0];
+  return root.kind !== 'thread' || root.children.length > 0;
+}
 
 /* ── status ─────────────────────────────────────────────────────────────── */
 

@@ -47,6 +47,7 @@ import {
   type ComposerState,
   type HistoryState,
 } from './composer';
+import { buildUnifiedDiff } from '../shared/edit-diff';
 import { saveModelPref } from './config';
 import { KeyDecoder, type KeyEvent } from './keys';
 import { cliSlashQuery, DESKTOP_ONLY, filterCliSlash, resolveCliSlash } from './slash';
@@ -61,6 +62,8 @@ import { createTranscript } from './transcript';
  */
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+/** Max unified-diff lines inlined per file in the approval panel. */
+const DIFF_PREVIEW_LINES = 12;
 const BUSY = new Set<AgentChatState['status']>(['thinking', 'working', 'waiting_for_user']);
 const APPROVAL_MODES: AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
 
@@ -233,9 +236,13 @@ export async function runTui(opts: TuiOptions): Promise<number> {
     const visible = matches.slice(start, start + SLASH_MENU_ROWS);
     const out = visible.map((c, i) => {
       const idx = start + i;
-      const hint = c.argHint ? ` ${dim(`<${c.argHint}>`)}` : '';
-      const label = `  /${c.name}${hint}  ${dim(c.description)}`;
-      return truncate(idx === slashSelected ? inverse(`  /${c.name}`) + hint + `  ${dim(c.description)}` : label, width);
+      const hint = c.argHint ? ` <${c.argHint}>` : '';
+      // Selected row: invert the whole line (not just the command token) so the
+      // highlight reads as one row, claude-code style. Unselected rows keep the
+      // dim hint/description styling instead.
+      return idx === slashSelected
+        ? inverse(truncate(`  /${c.name}${hint}  ${c.description}`, width))
+        : truncate(`  /${c.name}${hint ? dim(hint) : ''}  ${dim(c.description)}`, width);
     });
     if (start > 0) out.unshift(dim(`  ↑ ${start} more`));
     const below = matches.length - (start + visible.length);
@@ -255,6 +262,20 @@ export async function runTui(opts: TuiOptions): Promise<number> {
         const before = d.before.length === 0 ? 0 : d.before.split('\n').length;
         const after = d.after.length === 0 ? 0 : d.after.split('\n').length;
         lines.push(`  ${cyan('~')} ${d.path} ${dim(`(${before} → ${after} lines)`)}`);
+        // Inline the changed lines (capped) so the approve/deny decision can be
+        // made from the panel itself, desktop ApprovalCard parity. Reuses the
+        // shared unified-diff renderer; the `@@` header is dropped (the line
+        // counts above already say where the edit lands).
+        const body = buildUnifiedDiff(d.before, d.after).diff.split('\n').slice(1);
+        const shown = body.slice(0, DIFF_PREVIEW_LINES);
+        for (const l of shown) {
+          const colored =
+            l.startsWith('+') ? green : l.startsWith('-') ? red : dim;
+          lines.push(colored(truncate(`    ${l}`, width)));
+        }
+        if (body.length > shown.length) {
+          lines.push(dim(`      … ${body.length - shown.length} more lines`));
+        }
       }
     }
     lines.push(`  ${green('[y] approve')}   ${red('[n] deny')}`);

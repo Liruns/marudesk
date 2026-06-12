@@ -17,7 +17,7 @@ import { useSettingsStore } from '../settings/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { useAgentStore, useAgentWorkspaceId, useThreadModelKey } from './store';
 import { ContextPopover } from './ContextPopover';
-import { buildReceipt, isBusy } from './chat/format';
+import { buildReceipt, hasOrchestrationContent, isBusy } from './chat/format';
 import {
   ComposerModelButton,
   ContextButton,
@@ -138,7 +138,9 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
       // ignore — the in-memory state still applies
     }
   };
-  const hasMissionContent = !!(chat.plan?.steps.length || chat.orchestration.length > 0);
+  const hasMissionContent = !!(
+    chat.plan?.steps.length || hasOrchestrationContent(chat.orchestration)
+  );
   // Completion receipt (Antigravity "Walkthrough" parity): a one-line outcome
   // shown when a finished turn actually probed the live app over CDP or ran a
   // verify pass — surfacing the runtime-evidence wedge + the verify verdict.
@@ -248,7 +250,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
             </div>
           ) : null}
 
-          {chat.orchestration.length > 0 ? (
+          {hasOrchestrationContent(chat.orchestration) ? (
             <div className={full ? '@[64rem]:hidden' : undefined}>
               <OrchestrationTree nodes={chat.orchestration} />
             </div>

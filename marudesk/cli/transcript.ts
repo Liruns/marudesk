@@ -5,7 +5,7 @@ import type {
   AgentStatus,
   ToolCall,
 } from '../shared/agent';
-import { bold, cyan, dim, gray, green, red, wrapText, yellow } from './ansi';
+import { bold, cyan, dim, green, red, wrapText, yellow } from './ansi';
 import { createMarkdownRenderer, type MarkdownRenderer } from './markdown';
 
 /**
@@ -141,9 +141,11 @@ export function createTranscript(opts: { cols(): number }) {
       .join('')
       .trimEnd();
     commit.push('');
+    // Cyan prompt — matches the composer's `❯`, so the echoed line reads as
+    // "what I typed there" instead of introducing a third prompt color.
     const lines = wrapText(text, cols - 2);
     for (const [i, l] of lines.entries()) {
-      commit.push(i === 0 ? `${gray('❯')} ${bold(l)}` : `  ${bold(l)}`);
+      commit.push(i === 0 ? `${cyan('❯')} ${bold(l)}` : `  ${bold(l)}`);
     }
   };
 

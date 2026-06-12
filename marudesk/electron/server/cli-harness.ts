@@ -20,6 +20,7 @@ import {
   moveLeft,
   pushHistory,
 } from '../../cli/composer.ts';
+import { buildUnifiedDiff } from '../../shared/edit-diff.ts';
 import { KeyDecoder } from '../../cli/keys.ts';
 import { createMarkdownRenderer } from '../../cli/markdown.ts';
 import { cliSlashCommands, resolveCliSlash } from '../../cli/slash.ts';
@@ -336,6 +337,14 @@ function checkPureModules(): void {
     review?.command.kind === 'prompt' && review.command.expand(review.arg).includes('auth flow'),
   );
   check('slash: unknown command resolves null', resolveCliSlash('/nope') === null);
+
+  // diff: the approval panel inlines the shared unified-diff hunk (trimmed to
+  // the changed middle), so the approve/deny call is decidable from the panel.
+  const hunk = buildUnifiedDiff('a\nold1\nold2\nz', 'a\nnew1\nz').diff.split('\n');
+  check(
+    'diff: shared unified hunk trims common prefix/suffix lines',
+    hunk.some((l) => l === '-old1') && hunk.some((l) => l === '-old2') && hunk.some((l) => l === '+new1'),
+  );
 }
 
 /* ── main ─────────────────────────────────────────────────────────────────── */
