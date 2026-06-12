@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle, ListChecks, X } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
 import { toast } from '../../../lib/toast';
+import { useSettingsStore } from '../../settings/store';
 import { useAgentBusy, useAgentStore } from '../store';
 import { useContextUsage } from '../useContextUsage';
 
@@ -24,11 +25,15 @@ export function ComposerBanners() {
   const compact = useAgentStore((s) => s.compact);
   const busy = useAgentBusy();
   const usage = useContextUsage();
+  const autoCompact = useSettingsStore((s) => s.settings.agent.autoCompact.enabled);
   const [compacting, setCompacting] = useState(false);
 
-  // Nudge the user to free context once the window is nearly full. Self-clearing:
-  // a successful compaction drops contextTokens, so the banner vanishes on its own.
-  const showNudge = usage?.pct != null && usage.pct >= CONTEXT_NUDGE_PCT;
+  // Nudge the user to free context once the window is nearly full — but only in
+  // manual mode: with auto-compact on, the agent already compacts past its own
+  // threshold once a turn settles, so a manual prompt would be redundant noise.
+  // Self-clearing: a successful compaction drops contextTokens, so the banner
+  // vanishes on its own.
+  const showNudge = !autoCompact && usage?.pct != null && usage.pct >= CONTEXT_NUDGE_PCT;
 
   const runCompact = () => {
     if (busy || compacting) return;
