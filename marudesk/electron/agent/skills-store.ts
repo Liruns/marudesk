@@ -2,6 +2,7 @@ import { app } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clipText } from '../../shared/text-clip';
+import { BUILTIN_SKILLS } from './builtin-skills';
 import type { McpTool, ToolContext, ToolResult } from './tools';
 
 /**
@@ -24,15 +25,17 @@ import type { McpTool, ToolContext, ToolResult } from './tools';
 const MAX_SKILL_BODY = 16_000;
 const MAX_SKILLS = 200;
 
-export type SkillScope = 'project' | 'user';
+export type SkillScope = 'builtin' | 'project' | 'user';
 
 export type SkillMeta = {
   name: string;
   description: string;
   scope: SkillScope;
   /** Absolute path to the SKILL.md (or flat .md) file — set from a trusted scan,
-   * never from model input. */
-  file: string;
+   * never from model input. Absent for builtin skills (their body is inline). */
+  file?: string;
+  /** Inline instruction body — builtin skills only. */
+  body?: string;
 };
 
 const strProp = (desc: string) => ({ type: 'string', description: desc });
@@ -105,8 +108,8 @@ function projectSkillsDir(ws: ToolContext['ws']): string | null {
 }
 
 /**
- * All discovered skills. Project skills shadow user skills of the same name; the
- * result is sorted by name. Used by the `skill` tool's list mode.
+ * All discovered skills. Precedence on a name clash: project > user > builtin;
+ * the result is sorted by name. Used by the `skill` tool's list mode.
  */
 export async function listSkills(ws: ToolContext['ws']): Promise<SkillMeta[]> {
   const projectDir = projectSkillsDir(ws);
@@ -115,6 +118,9 @@ export async function listSkills(ws: ToolContext['ws']): Promise<SkillMeta[]> {
     scanDir(userSkillsDir(), 'user'),
   ]);
   const byName = new Map<string, SkillMeta>();
+  for (const s of BUILTIN_SKILLS) {
+    byName.set(s.name, { name: s.name, description: s.description, scope: 'builtin', body: s.body });
+  }
   for (const s of user) byName.set(s.name, s);
   for (const s of project) byName.set(s.name, s); // project wins
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -154,17 +160,24 @@ async function skillTool(input: { name?: unknown }, ctx: ToolContext): Promise<T
       isError: true,
     };
   }
-  let raw: string;
-  try {
-    raw = await fs.readFile(found.file, 'utf8');
-  } catch {
+  let body: string;
+  if (found.body !== undefined) {
+    body = found.body;
+  } else if (found.file) {
+    let raw: string;
+    try {
+      raw = await fs.readFile(found.file, 'utf8');
+    } catch {
+      return { summary: `skill ${found.name} unreadable`, text: `Could not read skill "${found.name}".`, isError: true };
+    }
+    body = parseFrontmatter(raw).body;
+  } else {
     return { summary: `skill ${found.name} unreadable`, text: `Could not read skill "${found.name}".`, isError: true };
   }
-  const { body } = parseFrontmatter(raw);
   const clipped = clipText(body, MAX_SKILL_BODY);
   return {
     summary: `loaded skill "${found.name}"`,
-    text: `## Skill: ${found.name}\n(${found.scope} · ${found.file})\n\nFollow these instructions for this task:\n\n${clipped.trim()}`,
+    text: `## Skill: ${found.name}\n(${found.scope}${found.file ? ` · ${found.file}` : ''})\n\nFollow these instructions for this task:\n\n${clipped.trim()}`,
   };
 }
 
