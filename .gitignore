@@ -11,3 +11,6 @@ Thumbs.db
 # Test/build artifacts
 test-results/
 playwright-report/
+
+# Dependencies (no root package; per-package installs)
+node_modules/
