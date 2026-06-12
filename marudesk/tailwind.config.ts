@@ -1,6 +1,24 @@
 import type { Config } from 'tailwindcss';
 import containerQueries from '@tailwindcss/container-queries';
 
+/**
+ * Alpha-capable token color. The tokens are plain `var(--x)` colors, which
+ * Tailwind 3 can't derive opacity modifiers from — as bare strings,
+ * `bg-surface-1/70` would silently generate no CSS at all. A function color
+ * keeps unmodified utilities on the bare var() while modifiers composite the
+ * alpha via CSS `color-mix()` (always available: the renderer is Chromium).
+ * Tailwind accepts function colors at runtime but its public types only model
+ * strings, so the gap is confined to this helper's cast.
+ */
+function token(cssVar: string): string {
+  const color = ({ opacityValue }: { opacityValue?: string }) =>
+    // No modifier (or Tailwind's own `--tw-*-opacity` plumbing) → bare token.
+    !opacityValue || opacityValue.startsWith('var(')
+      ? `var(${cssVar})`
+      : `color-mix(in srgb, var(${cssVar}) calc(${opacityValue} * 100%), transparent)`;
+  return color as unknown as string;
+}
+
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: 'class',
@@ -8,54 +26,54 @@ const config: Config = {
     extend: {
       colors: {
         surface: {
-          page: 'var(--surface-page)',
-          1: 'var(--surface-1)',
-          2: 'var(--surface-2)',
-          3: 'var(--surface-3)',
+          page: token('--surface-page'),
+          1: token('--surface-1'),
+          2: token('--surface-2'),
+          3: token('--surface-3'),
         },
         fg: {
-          primary: 'var(--text-primary)',
-          secondary: 'var(--text-secondary)',
-          tertiary: 'var(--text-tertiary)',
-          disabled: 'var(--text-disabled)',
+          primary: token('--text-primary'),
+          secondary: token('--text-secondary'),
+          tertiary: token('--text-tertiary'),
+          disabled: token('--text-disabled'),
         },
         accent: {
-          DEFAULT: 'var(--accent)',
-          hover: 'var(--accent-hover)',
-          subtle: 'var(--accent-subtle)',
+          DEFAULT: token('--accent'),
+          hover: token('--accent-hover'),
+          subtle: token('--accent-subtle'),
         },
         success: {
-          DEFAULT: 'var(--success)',
-          subtle: 'var(--success-subtle)',
+          DEFAULT: token('--success'),
+          subtle: token('--success-subtle'),
         },
         warning: {
-          DEFAULT: 'var(--warning)',
-          subtle: 'var(--warning-subtle)',
+          DEFAULT: token('--warning'),
+          subtle: token('--warning-subtle'),
         },
         error: {
-          DEFAULT: 'var(--error)',
-          subtle: 'var(--error-subtle)',
+          DEFAULT: token('--error'),
+          subtle: token('--error-subtle'),
         },
         ai: {
-          thinking: 'var(--ai-thinking)',
-          grep: 'var(--ai-grep)',
-          read: 'var(--ai-read)',
-          edit: 'var(--ai-edit)',
+          thinking: token('--ai-thinking'),
+          grep: token('--ai-grep'),
+          read: token('--ai-read'),
+          edit: token('--ai-edit'),
         },
         diff: {
-          add: 'var(--diff-add-bg)',
-          remove: 'var(--diff-remove-bg)',
+          add: token('--diff-add-bg'),
+          remove: token('--diff-remove-bg'),
         },
       },
       borderColor: {
-        subtle: 'var(--border-subtle)',
-        DEFAULT: 'var(--border-default)',
-        strong: 'var(--border-strong)',
+        subtle: token('--border-subtle'),
+        DEFAULT: token('--border-default'),
+        strong: token('--border-strong'),
       },
       // Hairline fills (`bg-subtle`) — dividers and resting indicator dots ride
       // the same token as the subtle border so they read as one hairline system.
       backgroundColor: {
-        subtle: 'var(--border-subtle)',
+        subtle: token('--border-subtle'),
       },
       fontFamily: {
         display: 'var(--font-display)',
