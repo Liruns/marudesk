@@ -446,6 +446,74 @@ async function main(): Promise<void> {
       globalThis.fetch = realFetch;
     }
 
+    // ── desktop handoff: full Google flow against a CONFIGURED oauth server ──
+    // (provider exchange mocked via the same stubbed fetch; the harness's own
+    // requests use node:http so the stub never intercepts them).
+    process.env.GOOGLE_CLIENT_ID = 'test-client';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
+    const oauthServer = createServer({ config: loadConfig(), store: new MemoryStore() });
+    const oauthPort = await oauthServer.listen();
+    try {
+      const badPort = await http(oauthPort, 'GET', '/auth/google?handoff_port=70000');
+      check('GET /auth/google with an out-of-range handoff_port → 400', badPort.status === 400);
+      const nanPort = await http(oauthPort, 'GET', '/auth/google?handoff_port=abc');
+      check('GET /auth/google with a non-numeric handoff_port → 400', nanPort.status === 400);
+
+      const authorize = await http(oauthPort, 'GET', '/auth/google?handoff_port=43210');
+      const authorizeUrl = new URL(String(authorize.headers.location));
+      check(
+        'GET /auth/google?handoff_port → 302 to the provider authorize URL',
+        authorize.status === 302 && authorizeUrl.hostname === 'accounts.google.com',
+      );
+      const handoffState = authorizeUrl.searchParams.get('state') ?? '';
+
+      globalThis.fetch = mockGoogle(true);
+      try {
+        const cb = await http(
+          oauthPort,
+          'GET',
+          `/auth/google/callback?code=mock-code&state=${handoffState}`,
+        );
+        const cbUrl = new URL(String(cb.headers.location));
+        check(
+          'handoff callback → 302 to the app loopback (127.0.0.1:<port>/oauth/relay/callback)',
+          cb.status === 302 &&
+            cbUrl.origin === 'http://127.0.0.1:43210' &&
+            cbUrl.pathname === '/oauth/relay/callback',
+        );
+        const handoffCode = cbUrl.searchParams.get('code') ?? '';
+        check('the loopback redirect carries a code, never tokens', handoffCode.length > 0 && !String(cb.headers.location).includes('Token'));
+
+        const exch = await http(oauthPort, 'POST', '/auth/handoff', { body: { code: handoffCode } });
+        const exchJson = exch.json as { accessToken?: string; account?: { method?: string; email?: string } };
+        check(
+          'POST /auth/handoff → 200 with tokens + the google account',
+          exch.status === 200 && !!exchJson.accessToken && exchJson.account?.method === 'google',
+        );
+        check('handoff token responses are cache-control: no-store', exch.headers['cache-control'] === 'no-store');
+
+        const replay = await http(oauthPort, 'POST', '/auth/handoff', { body: { code: handoffCode } });
+        check('replaying a consumed handoff code → 401 (one-time use)', replay.status === 401);
+        const bogus = await http(oauthPort, 'POST', '/auth/handoff', { body: { code: 'nope' } });
+        check('a bogus handoff code → 401', bogus.status === 401);
+
+        // The plain web flow (no handoff_port) is unchanged: callback returns JSON.
+        const webAuthorize = await http(oauthPort, 'GET', '/auth/google');
+        const webState = new URL(String(webAuthorize.headers.location)).searchParams.get('state') ?? '';
+        const webCb = await http(oauthPort, 'GET', `/auth/google/callback?code=mock-code&state=${webState}`);
+        check(
+          'callback WITHOUT handoff_port still returns {account, ...tokens} as JSON',
+          webCb.status === 200 && !!(webCb.json as { accessToken?: string }).accessToken,
+        );
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    } finally {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+      await oauthServer.close();
+    }
+
     // ── rate limit: a dedicated server with a tight per-IP budget ───────────
     process.env.AUTH_RATE_BURST = '2';
     const rlServer = createServer({ config: loadConfig(), store: new MemoryStore() });

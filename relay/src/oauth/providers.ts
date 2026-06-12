@@ -43,21 +43,38 @@ const ENDPOINTS: Record<OAuthProvider, Endpoints> = {
 
 /** In-memory CSRF-state store with a TTL; not persistent (dev relay, single proc). */
 const STATE_TTL_MS = 10 * 60 * 1000;
-const pendingStates = new Map<string, { provider: OAuthProvider; expiresAt: number }>();
+const pendingStates = new Map<
+  string,
+  { provider: OAuthProvider; expiresAt: number; handoffPort: number | null }
+>();
 
-export function createState(provider: OAuthProvider, now = Date.now()): string {
+/**
+ * Mint a state nonce. `handoffPort` marks a desktop loopback handoff (the marudesk
+ * app listening on `127.0.0.1:<port>`): the callback then redirects the browser to
+ * that port with a one-time handoff code instead of returning tokens as JSON.
+ */
+export function createState(
+  provider: OAuthProvider,
+  handoffPort: number | null = null,
+  now = Date.now(),
+): string {
   const state = randomBytes(24).toString('hex');
-  pendingStates.set(state, { provider, expiresAt: now + STATE_TTL_MS });
+  pendingStates.set(state, { provider, expiresAt: now + STATE_TTL_MS, handoffPort });
   return state;
 }
 
-/** Consume (one-time) a state for `provider`. Returns true iff valid + unexpired. */
-export function consumeState(provider: OAuthProvider, state: string | null, now = Date.now()): boolean {
-  if (!state) return false;
+/** Consume (one-time) a state for `provider`. Returns the entry iff valid + unexpired. */
+export function consumeState(
+  provider: OAuthProvider,
+  state: string | null,
+  now = Date.now(),
+): { handoffPort: number | null } | null {
+  if (!state) return null;
   const entry = pendingStates.get(state);
-  if (!entry) return false;
+  if (!entry) return null;
   pendingStates.delete(state);
-  return entry.provider === provider && entry.expiresAt > now;
+  if (entry.provider !== provider || entry.expiresAt <= now) return null;
+  return { handoffPort: entry.handoffPort };
 }
 
 /** Build the provider authorize URL to redirect the browser to. */

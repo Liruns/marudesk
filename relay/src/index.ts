@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 
   const oauthStatus = `google=${config.google ? 'on' : 'off'} github=${config.github ? 'on' : 'off'}`;
   console.log(`[relay] listening on http://${config.host}:${port}  (oauth: ${oauthStatus})`);
-  console.log('[relay] HTTP: POST /auth/signup|login|refresh|logout, GET /me, GET /auth/{google,github}[/callback], GET /health');
+  console.log('[relay] HTTP: POST /auth/signup|login|refresh|logout|handoff, GET /me, GET /auth/{google,github}[/callback], GET /health');
   console.log('[relay] WS:   /connect?role=host|client&token=<accessToken>');
 
   const shutdown = (signal: string): void => {

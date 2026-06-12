@@ -13,10 +13,10 @@ import type {
  * generic — no user enumeration), and tokens are returned to the caller (main)
  * only; they're persisted by electron/secrets.ts and never reach the renderer.
  *
- * Google/GitHub OAuth is the relay's standard web flow (a browser redirect to
- * `/auth/{google,github}/callback`); wiring that into the desktop app needs the
- * registered OAuth apps + a deep-link/code exchange and is deferred to B4 — the
- * email/password path is fully wired here for local dev.
+ * Google OAuth (B4): the relay runs its standard web flow in the user's browser
+ * (`/auth/google?handoff_port=N`) and redirects back to the app's transient
+ * loopback server with a one-time code; {@link relayHandoffExchange} trades that
+ * code for the session. GitHub stays web-only for now.
  */
 
 const AUTH_TIMEOUT_MS = 15_000;
@@ -130,6 +130,27 @@ export async function relayAuthenticate(
   const { status, json } = await relayFetch(relayUrl, { method: 'POST', path, body: { email, password } });
   const ok = mode === 'signup' ? status === 201 : status === 200;
   if (!ok) throw new Error(errorMessage(json, `relay ${mode} failed (HTTP ${status})`));
+  const parsed = coerceAuthResponse(json);
+  if (!parsed) throw new Error('relay returned a malformed auth response');
+  return parsed;
+}
+
+/**
+ * `POST /auth/handoff` — exchange the one-time code the relay's OAuth callback
+ * delivered to our loopback server for the account + token pair (B4 desktop flow).
+ */
+export async function relayHandoffExchange(
+  relayUrl: string,
+  code: string,
+): Promise<RelayAuthResponse> {
+  const { status, json } = await relayFetch(relayUrl, {
+    method: 'POST',
+    path: '/auth/handoff',
+    body: { code },
+  });
+  if (status !== 200) {
+    throw new Error(errorMessage(json, `relay sign-in handoff failed (HTTP ${status})`));
+  }
   const parsed = coerceAuthResponse(json);
   if (!parsed) throw new Error('relay returned a malformed auth response');
   return parsed;

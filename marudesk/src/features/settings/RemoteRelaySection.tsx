@@ -19,6 +19,9 @@ export function CloudRelaySection() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  // The Google flow waits on the user's browser (minutes, not seconds), so it has
+  // its own flag — the email form stays usable and shows a distinct waiting hint.
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Initial status + live updates from main (host connect/disconnect, session changes).
@@ -49,6 +52,20 @@ export function CloudRelaySection() {
       setError((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const submitGoogle = async (): Promise<void> => {
+    setGoogleBusy(true);
+    setError(null);
+    try {
+      setStatus(
+        await window.marudesk.invoke('relay:login-google', { relayUrl: server.relayUrl }),
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setGoogleBusy(false);
     }
   };
 
@@ -152,21 +169,30 @@ export function CloudRelaySection() {
           <div className="flex items-center gap-2">
             <Button
               variant="primary"
-              disabled={busy || !email.trim() || !password}
+              disabled={busy || googleBusy || !email.trim() || !password}
               onClick={() => void submit('login')}
             >
               {t('settings.remote.relay.login')}
             </Button>
             <Button
               variant="secondary"
-              disabled={busy || !email.trim() || !password}
+              disabled={busy || googleBusy || !email.trim() || !password}
               onClick={() => void submit('signup')}
             >
               {t('settings.remote.relay.signup')}
             </Button>
+            <Button
+              variant="secondary"
+              disabled={busy || googleBusy}
+              onClick={() => void submitGoogle()}
+            >
+              {googleBusy
+                ? t('settings.remote.relay.googleWaiting')
+                : t('settings.remote.relay.google')}
+            </Button>
           </div>
           <p className="text-caption text-fg-tertiary">
-            {t('settings.remote.relay.oauthComing')}
+            {t('settings.remote.relay.googleHint')}
           </p>
         </div>
       )}
