@@ -73,3 +73,37 @@ export function groupScriptsByOrigin(
   }));
   return groups.sort((a, b) => a.origin.localeCompare(b.origin));
 }
+
+/**
+ * Human label for a `Debugger.paused` reason + its auxiliary data, for the
+ * paused banner ("Paused on …"). Null for the plain 'other' reason (regular
+ * breakpoints/steps), where the banner shows just "Paused".
+ */
+export function pausedReasonLabel(
+  reason: string,
+  data: Record<string, unknown> | undefined,
+): string | null {
+  if (reason === 'XHR') {
+    const url = typeof data?.url === 'string' ? data.url : '';
+    return url ? `XHR/fetch breakpoint "${url}"` : 'XHR/fetch breakpoint';
+  }
+  if (reason === 'EventListener') {
+    const raw = typeof data?.eventName === 'string' ? data.eventName : '';
+    // The backend reports the breakpoint name with its category prefix
+    // (e.g. 'listener:click') even though it's armed with the plain name.
+    const name = raw.startsWith('listener:') ? raw.slice('listener:'.length) : raw;
+    return name ? `"${name}" event listener breakpoint` : 'event listener breakpoint';
+  }
+  if (reason === 'exception' || reason === 'promiseRejection') {
+    const base = reason === 'exception' ? 'exception' : 'promise rejection';
+    // For these reasons `data` is the exception RemoteObject itself.
+    const desc = typeof data?.description === 'string' ? data.description : '';
+    const first = desc.split('\n', 1)[0];
+    return first ? `${base}: ${first}` : base;
+  }
+  if (reason === 'debugCommand') return 'debugger statement';
+  if (reason === 'DOM') return 'DOM breakpoint';
+  if (reason === 'assert') return 'assertion';
+  if (reason === 'OOM') return 'out of memory';
+  return reason && reason !== 'other' ? reason : null;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   groupScriptsByOrigin,
   isInternalScriptUrl,
+  pausedReasonLabel,
   scriptLabel,
   scriptOrigin,
 } from './sources-utils';
@@ -67,5 +68,34 @@ describe('groupScriptsByOrigin', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].scripts).toHaveLength(1);
     expect(groups[0].scripts[0].scriptId).toBe('3');
+  });
+});
+
+describe('pausedReasonLabel', () => {
+  it('labels XHR pauses with the request url when present', () => {
+    expect(pausedReasonLabel('XHR', { url: 'https://api.test/x' })).toBe(
+      'XHR/fetch breakpoint "https://api.test/x"',
+    );
+    expect(pausedReasonLabel('XHR', undefined)).toBe('XHR/fetch breakpoint');
+  });
+
+  it('strips the listener: prefix from event-listener pauses', () => {
+    expect(pausedReasonLabel('EventListener', { eventName: 'listener:click' })).toBe(
+      '"click" event listener breakpoint',
+    );
+    expect(pausedReasonLabel('EventListener', {})).toBe('event listener breakpoint');
+  });
+
+  it('shows the first line of an exception description', () => {
+    expect(
+      pausedReasonLabel('exception', { description: 'Error: boom\n  at x.js:1' }),
+    ).toBe('exception: Error: boom');
+    expect(pausedReasonLabel('promiseRejection', {})).toBe('promise rejection');
+  });
+
+  it('returns null only for the plain pause', () => {
+    expect(pausedReasonLabel('other', undefined)).toBeNull();
+    expect(pausedReasonLabel('', undefined)).toBeNull();
+    expect(pausedReasonLabel('debugCommand', undefined)).toBe('debugger statement');
   });
 });

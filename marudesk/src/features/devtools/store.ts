@@ -31,7 +31,10 @@ import {
   type SourceBreakpoint,
   type StyleSheetHeader,
   type VisibleSecurityState,
+  type WatchResult,
+  type XhrBreakpoint,
 } from './types';
+import type { ScriptSourceMap } from './source-map';
 import type { ProcessedProfile } from './performance-utils';
 import type { PatchOp } from '../../../shared/patch';
 import { loadPrefs } from './store-prefs';
@@ -253,6 +256,23 @@ export type DevtoolsState = {
   pauseOnExceptions: PauseOnExceptions;
   // Non-null while the page is stopped (Debugger.paused → Debugger.resumed).
   paused: PausedInfo | null;
+  // Source maps (P5b): scriptId → resolved map, or null after a failed/absent
+  // resolution (so it's never retried). Per-page — scriptIds die with the doc.
+  sourceMaps: Map<string, ScriptSourceMap | null>;
+  // When non-null the viewer shows this original source of the selected script
+  // instead of the generated text ("Original" mode). `text` null after a failed
+  // content load renders the unavailable notice.
+  original: { srcIndex: number; text: string | null; loading: boolean } | null;
+  // XHR/fetch breakpoints (DOMDebugger.setXHRBreakpoint) — sticky like
+  // url:line breakpoints, re-armed by _applySources on a fresh Debugger enable.
+  xhrBreakpoints: XhrBreakpoint[];
+  // Enabled event-listener breakpoint names (DOMDebugger.setEventListenerBreakpoint,
+  // plain event names) — sticky, re-armed by _applySources.
+  eventBreakpoints: Set<string>;
+  // Watch expressions — the list is sticky (a user preference); the results are
+  // per-page and re-evaluated on pause/resume/frame-selection.
+  watchExpressions: string[];
+  watchResults: Map<string, WatchResult>;
   // application (storage) — resolved from the bound tab's URL on panel open.
   appOrigin: string | null;
   localStorageItems: [string, string][];
@@ -365,12 +385,44 @@ export type DevtoolsActions = {
   // sources (Debugger)
   /** Show a script in the viewer (fetches its source on first selection). */
   selectScript: (scriptId: string) => Promise<void>;
+  /** Sidebar click: select a script, defaulting to its mapped Original view. */
+  openScript: (scriptId: string) => Promise<void>;
   /** Select a script and scroll the viewer to a 0-based line. */
   openScriptAt: (scriptId: string, lineNumber: number) => Promise<void>;
   /** Reveal a breakpoint's location (resolves the script by URL). */
   revealBreakpoint: (bp: SourceBreakpoint) => Promise<void>;
-  /** Gutter click: set/remove a url:line breakpoint (setBreakpointByUrl). */
-  toggleBreakpoint: (url: string, lineNumber: number) => Promise<void>;
+  /** Reveal a generated location, preferring its mapped original source. */
+  revealLocation: (
+    scriptId: string,
+    lineNumber: number,
+    columnNumber?: number,
+  ) => Promise<void>;
+  /** Gutter click: set/remove a url:line breakpoint (setBreakpointByUrl).
+   *  `original` carries the mapped original location for original-mode sets. */
+  toggleBreakpoint: (
+    url: string,
+    lineNumber: number,
+    original?: { url: string; lineNumber: number; columnNumber: number },
+  ) => Promise<void>;
+  /** Gutter click in the Original view: map original→generated and toggle. */
+  toggleOriginalBreakpoint: (lineNumber: number) => Promise<void>;
+  /** Show one of the selected script's mapped original sources. */
+  selectOriginalSource: (scriptId: string, srcIndex: number) => Promise<void>;
+  /** Back to the generated ("Compiled") text of the selected script. */
+  showCompiledSource: () => void;
+  // DOMDebugger breakpoints (XHR/fetch + event listeners)
+  addXhrBreakpoint: (url: string) => void;
+  removeXhrBreakpoint: (url: string) => void;
+  toggleXhrBreakpoint: (url: string, enabled: boolean) => void;
+  toggleEventBreakpoint: (name: string, enabled: boolean) => void;
+  // watch expressions
+  addWatch: (expression: string) => void;
+  removeWatch: (expression: string) => void;
+  /** Re-evaluate every watch against the selected call frame (paused) or the
+   *  page (running). Errors land as muted per-expression results, never throw. */
+  refreshWatches: () => Promise<void>;
+  /** Resolve a script's source map into the per-page cache (best-effort). */
+  _ensureSourceMap: (scriptId: string) => Promise<void>;
   setPauseOnExceptions: (state: PauseOnExceptions) => void;
   pause: () => void;
   resume: () => void;
@@ -469,6 +521,9 @@ export const useDevtoolsStore = create<DevtoolsState & DevtoolsActions>(
     // Sticky debugger preferences — survive freshSlices, re-applied on attach.
     breakpoints: [],
     pauseOnExceptions: 'none',
+    xhrBreakpoints: [],
+    eventBreakpoints: new Set(),
+    watchExpressions: [],
     tabId: null,
     session: 'idle',
     detachReason: null,

@@ -256,6 +256,10 @@ export type NetworkEntry = {
 export type ScriptInfo = {
   scriptId: string;
   url: string;
+  /** From scriptParsed; inline `data:` or a (possibly relative) `.map` URL. */
+  sourceMapURL?: string;
+  /** From scriptParsed's executionContextAuxData — for Network.loadNetworkResource. */
+  frameId?: string;
 };
 
 /** `Debugger.Location` — line/column inside a script (0-based). */
@@ -293,6 +297,11 @@ export type SourceBreakpoint = {
   id: string | null;
   url: string;
   lineNumber: number;
+  /** Generated column the line maps from (original-mode breakpoints). */
+  columnNumber?: number;
+  /** When set from the original-source view: the mapped original url:line the
+   *  marker/list display (the CDP breakpoint itself lives at url:lineNumber). */
+  original?: { url: string; lineNumber: number };
 };
 
 /** `Debugger.setPauseOnExceptions` state. */
@@ -304,6 +313,8 @@ export type PausedInfo = {
   callFrames: DebuggerCallFrame[];
   /** The call-stack frame the viewer/scope pane currently shows. */
   frameIndex: number;
+  /** Reason-specific auxiliary data (XHR url, event name, exception object…). */
+  data?: Record<string, unknown>;
 };
 
 /* ── Profiler / Performance ───────────────────────────────────────────── */
@@ -600,4 +611,31 @@ export type PlatformFontUsage = {
   postScriptName?: string;
   isCustomFont: boolean;
   glyphCount: number;
+};
+
+/* ── DOMDebugger breakpoints + Watch (Sources sidebar) ────────────────── */
+
+/**
+ * One XHR/fetch breakpoint (`DOMDebugger.setXHRBreakpoint`). `url` is a
+ * substring filter; the empty string breaks on ANY XHR/fetch. Sticky across
+ * navigations/re-attach like url:line breakpoints (re-armed in _applySources).
+ */
+export type XhrBreakpoint = {
+  url: string;
+  enabled: boolean;
+};
+
+/** One watch expression's last evaluation. Errors render muted, never throw. */
+export type WatchResult = {
+  value?: RemoteObject;
+  error?: string;
+};
+
+/** `Runtime.evaluate` / `Debugger.evaluateOnCallFrame` result (subset). */
+export type CdpEvalResult = {
+  result: RemoteObject;
+  exceptionDetails?: {
+    text: string;
+    exception?: RemoteObject;
+  };
 };

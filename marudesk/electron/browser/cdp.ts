@@ -75,8 +75,16 @@ const ALLOWED_PREFIXES = [
   // unregister/update/push/sync/inspect) is subtracted in BLOCKED_METHODS
   // below so the prefix can't re-admit them.
   'ServiceWorker.',
-  'DOMDebugger.', // Elements: event-listeners pane (getEventListeners; also DOM/XHR breakpoints).
+  // Sources panel (XHR/fetch + event-listener breakpoints) and Elements
+  // event-listeners pane (getEventListeners). Every DOMDebugger method is
+  // pull/arm-style — it can pause the page but never mutate it, so no
+  // per-method subtraction.
+  'DOMDebugger.',
   'Accessibility.', // Elements: accessibility pane (getPartialAXTree) — read-only domain.
+  // Sources panel: read external source maps fetched via the page's session
+  // (Network.loadNetworkResource returns an IO stream handle). IO has only
+  // read/close/resolveBlob — read-only stream access, nothing to subtract.
+  'IO.',
 ];
 // Exact methods outside the allowed domains we still need: auto-attach to
 // out-of-process iframes / workers (Sources). The dangerous Target methods

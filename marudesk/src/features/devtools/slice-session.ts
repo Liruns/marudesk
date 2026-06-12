@@ -290,6 +290,12 @@ export function createSessionSlice(set: SetState, get: GetState): SessionActions
         selectedScriptId: null,
         scriptSource: null,
         scriptSourceLoading: false,
+        // Source maps + the original view die with the document's scriptIds;
+        // watch RESULTS are per-page (the expression list is sticky and gets
+        // re-evaluated by _applySources on the fresh Debugger enable).
+        sourceMaps: new Map(),
+        original: null,
+        watchResults: new Map(),
         reveal: null,
         paused: null,
         appOrigin: null,

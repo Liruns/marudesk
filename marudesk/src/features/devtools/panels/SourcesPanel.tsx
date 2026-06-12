@@ -5,13 +5,15 @@ import {
   ChevronRight,
   Pause,
   Play,
+  Plus,
   Redo2,
   X,
 } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { RemoteValue } from '../components/RemoteValue';
-import { groupScriptsByOrigin, scriptLabel } from '../sources-utils';
+import { groupScriptsByOrigin, pausedReasonLabel, scriptLabel } from '../sources-utils';
+import { originalPositionFor, type ScriptSourceMap } from '../source-map';
 import { tokenizeLines, type SyntaxTokenKind } from '../syntax';
 import type {
   DebuggerCallFrame,
@@ -22,11 +24,14 @@ import type {
 
 /**
  * Sources panel: a Debugger-domain script browser + breakpoint debugger. The
- * sidebar lists scripts grouped by origin (fed by `Debugger.scriptParsed`),
- * the viewer shows a read-only source with a breakpoint gutter, and the pause
- * machine (`Debugger.paused`/`resumed`, slice-sources) drives the banner, call
- * stack, and scope panes. Everything here speaks only Debugger/Runtime, so the
- * panel stays fully responsive while the page is paused.
+ * sidebar lists scripts grouped by origin (fed by `Debugger.scriptParsed`) with
+ * each script's mapped original sources nested beneath it, plus watch
+ * expressions and XHR/event-listener breakpoints (DOMDebugger). The viewer
+ * shows a read-only source — original (source-mapped) or compiled — with a
+ * breakpoint gutter, and the pause machine (`Debugger.paused`/`resumed`,
+ * slice-sources) drives the banner, call stack, and scope panes. Everything
+ * here speaks only Debugger/Runtime (+ arm-style DOMDebugger), so the panel
+ * stays fully responsive while the page is paused.
  */
 
 // Hard caps so a minified bundle can't melt the renderer: rows beyond the line
@@ -36,6 +41,8 @@ const MAX_VIEW_LINES = 10_000;
 const MAX_LINE_CHARS = 4_000;
 // The global scope can carry thousands of properties — preview the first slice.
 const MAX_SCOPE_PROPS = 200;
+// A bundle's source map can list thousands of original files — cap the tree.
+const MAX_TREE_SOURCES = 200;
 
 const PAUSE_ON_EXCEPTIONS: { id: PauseOnExceptions; label: string }[] = [
   { id: 'none', label: "Don't pause on exceptions" },
@@ -55,11 +62,48 @@ const SCOPE_LABELS: Record<string, string> = {
   'wasm-expression-stack': 'Stack',
 };
 
+/** Curated common DOM events for the Event listener breakpoints section. */
+const EVENT_BREAKPOINT_NAMES = [
+  'click',
+  'dblclick',
+  'mousedown',
+  'mouseup',
+  'keydown',
+  'keyup',
+  'input',
+  'change',
+  'submit',
+  'focus',
+  'blur',
+  'scroll',
+  'load',
+  'error',
+  'pointerdown',
+  'pointerup',
+];
+
 function frameTitle(frame: DebuggerCallFrame): string {
   return frame.functionName || '(anonymous)';
 }
 
-function frameLocation(frame: DebuggerCallFrame): string {
+/**
+ * A frame's display location: the mapped original url:line when the frame's
+ * script has a resolved source map, the generated one otherwise.
+ */
+function frameLocation(
+  frame: DebuggerCallFrame,
+  sourceMaps: ReadonlyMap<string, ScriptSourceMap | null>,
+): string {
+  const rec = sourceMaps.get(frame.location.scriptId);
+  if (rec) {
+    const pos = originalPositionFor(
+      rec.map,
+      frame.location.lineNumber,
+      frame.location.columnNumber ?? 0,
+    );
+    const srcUrl = pos ? rec.sourceUrls[pos.srcIndex] : undefined;
+    if (pos && srcUrl) return `${scriptLabel(srcUrl)}:${pos.line + 1}`;
+  }
   const file = frame.url ? scriptLabel(frame.url) : '(unknown)';
   return `${file}:${frame.location.lineNumber + 1}`;
 }
@@ -76,10 +120,41 @@ function PaneHeader({ label, count }: { label: string; count?: number }) {
   );
 }
 
+/** Collapsible variant of {@link PaneHeader} for the on-demand sections. */
+function CollapsiblePaneHeader({
+  label,
+  count,
+  open,
+  onToggle,
+}: {
+  label: string;
+  count?: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full shrink-0 px-2 py-1 text-caption font-medium text-fg-tertiary bg-surface-2/40 border-y border-subtle/40 flex items-center gap-1.5 hover:text-fg-secondary"
+    >
+      <ChevronRight
+        size={12}
+        className={cn('shrink-0 transition-transform', open && 'rotate-90')}
+      />
+      {label}
+      {count !== undefined && count > 0 ? (
+        <span className="tabular-nums text-[10px]">{count}</span>
+      ) : null}
+    </button>
+  );
+}
+
 /* ── call stack ───────────────────────────────────────────────────────── */
 
 function CallStackPane() {
   const paused = useDevtoolsStore((s) => s.paused);
+  const sourceMaps = useDevtoolsStore((s) => s.sourceMaps);
   if (!paused) return null;
   return (
     <div>
@@ -98,7 +173,7 @@ function CallStackPane() {
         >
           <span className="font-mono truncate">{frameTitle(frame)}</span>
           <span className="ml-auto shrink-0 font-mono text-fg-tertiary tabular-nums">
-            {frameLocation(frame)}
+            {frameLocation(frame, sourceMaps)}
           </span>
         </button>
       ))}
@@ -190,6 +265,85 @@ function ScopePane() {
   );
 }
 
+/* ── watch expressions ────────────────────────────────────────────────── */
+
+function WatchPane() {
+  const watches = useDevtoolsStore((s) => s.watchExpressions);
+  const results = useDevtoolsStore((s) => s.watchResults);
+  const [draft, setDraft] = useState('');
+
+  const submit = () => {
+    const expr = draft.trim();
+    if (!expr) return;
+    useDevtoolsStore.getState().addWatch(expr);
+    setDraft('');
+  };
+
+  return (
+    <div>
+      <PaneHeader label="Watch" count={watches.length || undefined} />
+      <div className="px-1.5 py-1 flex items-center gap-1 border-b border-subtle/40">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit();
+          }}
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="Add watch expression"
+          aria-label="Add watch expression"
+          className="h-6 flex-1 min-w-0 rounded bg-surface-2 px-2 font-mono text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
+        />
+        <button
+          type="button"
+          aria-label="Add watch expression"
+          title="Add watch expression"
+          onClick={submit}
+          className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+      {watches.map((expr) => {
+        const res = results.get(expr);
+        return (
+          <div
+            key={expr}
+            className="group flex items-start gap-1 px-2 py-0.5 hover:bg-surface-2"
+          >
+            <span className="flex-1 min-w-0 flex items-start gap-1 font-mono text-caption">
+              <span className="text-fg-secondary shrink-0 max-w-[50%] truncate" title={expr}>
+                {expr}:
+              </span>
+              {res === undefined ? (
+                <span className="text-fg-tertiary">…</span>
+              ) : res.error !== undefined ? (
+                <span className="text-fg-tertiary truncate" title={res.error}>
+                  {res.error}
+                </span>
+              ) : res.value ? (
+                <RemoteValue obj={res.value} expandable />
+              ) : (
+                <span className="text-fg-tertiary">undefined</span>
+              )}
+            </span>
+            <button
+              type="button"
+              aria-label={`Remove watch ${expr}`}
+              title="Remove watch expression"
+              onClick={() => useDevtoolsStore.getState().removeWatch(expr)}
+              className="size-4 shrink-0 rounded items-center justify-center text-fg-tertiary hover:text-error hidden group-hover:flex"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── breakpoints ──────────────────────────────────────────────────────── */
 
 function BreakpointsPane() {
@@ -201,33 +355,166 @@ function BreakpointsPane() {
   return (
     <div>
       <PaneHeader label="Breakpoints" count={breakpoints.length} />
-      {sorted.map((bp) => (
-        <div
-          key={`${bp.url}:${bp.lineNumber}`}
-          className="group flex items-center gap-1 px-2 py-0.5 hover:bg-surface-2"
-        >
-          <button
-            type="button"
-            onClick={() => void useDevtoolsStore.getState().revealBreakpoint(bp)}
-            title={bp.url}
-            className="flex-1 min-w-0 text-left font-mono text-caption text-fg-secondary truncate hover:text-fg-primary"
+      {sorted.map((bp) => {
+        // Original-mode breakpoints display their mapped original url:line.
+        const displayUrl = bp.original?.url ?? bp.url;
+        const displayLine = (bp.original?.lineNumber ?? bp.lineNumber) + 1;
+        return (
+          <div
+            key={`${bp.url}:${bp.lineNumber}`}
+            className="group flex items-center gap-1 px-2 py-0.5 hover:bg-surface-2"
           >
-            {scriptLabel(bp.url)}
-            <span className="text-fg-tertiary tabular-nums">:{bp.lineNumber + 1}</span>
-          </button>
-          <button
-            type="button"
-            aria-label={`Remove breakpoint ${scriptLabel(bp.url)}:${bp.lineNumber + 1}`}
-            title="Remove breakpoint"
-            onClick={() =>
-              void useDevtoolsStore.getState().toggleBreakpoint(bp.url, bp.lineNumber)
-            }
-            className="size-4 shrink-0 rounded items-center justify-center text-fg-tertiary hover:text-error hidden group-hover:flex"
-          >
-            <X size={11} />
-          </button>
-        </div>
-      ))}
+            <button
+              type="button"
+              onClick={() => void useDevtoolsStore.getState().revealBreakpoint(bp)}
+              title={displayUrl}
+              className="flex-1 min-w-0 text-left font-mono text-caption text-fg-secondary truncate hover:text-fg-primary"
+            >
+              {scriptLabel(displayUrl)}
+              <span className="text-fg-tertiary tabular-nums">:{displayLine}</span>
+            </button>
+            <button
+              type="button"
+              aria-label={`Remove breakpoint ${scriptLabel(displayUrl)}:${displayLine}`}
+              title="Remove breakpoint"
+              onClick={() =>
+                void useDevtoolsStore.getState().toggleBreakpoint(bp.url, bp.lineNumber)
+              }
+              className="size-4 shrink-0 rounded items-center justify-center text-fg-tertiary hover:text-error hidden group-hover:flex"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── XHR/fetch breakpoints (DOMDebugger) ──────────────────────────────── */
+
+function XhrBreakpointsPane() {
+  const xhrBreakpoints = useDevtoolsStore((s) => s.xhrBreakpoints);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const submit = () => {
+    // The empty string is a valid breakpoint: break on ANY XHR/fetch.
+    useDevtoolsStore.getState().addXhrBreakpoint(draft);
+    setDraft('');
+  };
+
+  const enabledCount = xhrBreakpoints.filter((b) => b.enabled).length;
+  return (
+    <div>
+      <CollapsiblePaneHeader
+        label="XHR/fetch breakpoints"
+        count={enabledCount}
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+      />
+      {open ? (
+        <>
+          <div className="px-1.5 py-1 flex items-center gap-1 border-b border-subtle/40">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit();
+              }}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="URL contains (empty = any)"
+              aria-label="Break when URL contains"
+              className="h-6 flex-1 min-w-0 rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
+            <button
+              type="button"
+              aria-label="Add XHR/fetch breakpoint"
+              title="Add XHR/fetch breakpoint"
+              onClick={submit}
+              className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+          {xhrBreakpoints.length === 0 ? (
+            <div className="px-2 py-1 text-caption text-fg-tertiary">
+              No XHR/fetch breakpoints
+            </div>
+          ) : (
+            xhrBreakpoints.map((bp) => (
+              <div
+                key={bp.url}
+                className="group flex items-center gap-1.5 px-2 py-0.5 hover:bg-surface-2"
+              >
+                <input
+                  type="checkbox"
+                  checked={bp.enabled}
+                  onChange={(e) =>
+                    useDevtoolsStore.getState().toggleXhrBreakpoint(bp.url, e.target.checked)
+                  }
+                  aria-label={`Enable breakpoint ${bp.url || 'Any XHR/fetch'}`}
+                  className="accent-accent shrink-0"
+                />
+                <span
+                  className={cn(
+                    'flex-1 min-w-0 font-mono text-caption truncate',
+                    bp.enabled ? 'text-fg-secondary' : 'text-fg-tertiary',
+                  )}
+                  title={bp.url || 'Any XHR/fetch'}
+                >
+                  {bp.url || 'Any XHR/fetch'}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove XHR/fetch breakpoint ${bp.url || 'Any XHR/fetch'}`}
+                  title="Remove breakpoint"
+                  onClick={() => useDevtoolsStore.getState().removeXhrBreakpoint(bp.url)}
+                  className="size-4 shrink-0 rounded items-center justify-center text-fg-tertiary hover:text-error hidden group-hover:flex"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/* ── event listener breakpoints (DOMDebugger) ─────────────────────────── */
+
+function EventBreakpointsPane() {
+  const eventBreakpoints = useDevtoolsStore((s) => s.eventBreakpoints);
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <CollapsiblePaneHeader
+        label="Event listener breakpoints"
+        count={eventBreakpoints.size}
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+      />
+      {open
+        ? EVENT_BREAKPOINT_NAMES.map((name) => (
+            <label
+              key={name}
+              className="flex items-center gap-1.5 px-2 py-0.5 text-caption text-fg-secondary cursor-pointer select-none hover:bg-surface-2"
+            >
+              <input
+                type="checkbox"
+                checked={eventBreakpoints.has(name)}
+                onChange={(e) =>
+                  useDevtoolsStore.getState().toggleEventBreakpoint(name, e.target.checked)
+                }
+                className="accent-accent shrink-0"
+              />
+              <span className="font-mono truncate">{name}</span>
+            </label>
+          ))
+        : null}
     </div>
   );
 }
@@ -236,7 +523,9 @@ function BreakpointsPane() {
 
 function ScriptsPane() {
   const scripts = useDevtoolsStore((s) => s.scripts);
+  const sourceMaps = useDevtoolsStore((s) => s.sourceMaps);
   const selectedScriptId = useDevtoolsStore((s) => s.selectedScriptId);
+  const original = useDevtoolsStore((s) => s.original);
   const [filter, setFilter] = useState('');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
@@ -290,22 +579,56 @@ function ScriptsPane() {
                 <span className="truncate">{g.origin}</span>
               </button>
               {!collapsed.has(g.origin)
-                ? g.scripts.map((s) => (
-                    <button
-                      key={s.scriptId}
-                      type="button"
-                      onClick={() => void useDevtoolsStore.getState().selectScript(s.scriptId)}
-                      title={s.url}
-                      className={cn(
-                        'w-full text-left pl-6 pr-2 py-0.5 font-mono text-caption truncate',
-                        s.scriptId === selectedScriptId
-                          ? 'bg-accent-subtle/50 text-fg-primary'
-                          : 'text-fg-secondary hover:bg-surface-2',
-                      )}
-                    >
-                      {scriptLabel(s.url)}
-                    </button>
-                  ))
+                ? g.scripts.map((s) => {
+                    const rec = sourceMaps.get(s.scriptId);
+                    const isSelected = s.scriptId === selectedScriptId;
+                    return (
+                      <div key={s.scriptId}>
+                        <button
+                          type="button"
+                          onClick={() => void useDevtoolsStore.getState().openScript(s.scriptId)}
+                          title={s.url}
+                          className={cn(
+                            'w-full text-left pl-6 pr-2 py-0.5 font-mono text-caption truncate',
+                            isSelected && original === null
+                              ? 'bg-accent-subtle/50 text-fg-primary'
+                              : 'text-fg-secondary hover:bg-surface-2',
+                          )}
+                        >
+                          {scriptLabel(s.url)}
+                        </button>
+                        {/* Mapped original sources, nested under their bundle. */}
+                        {rec
+                          ? rec.map.sources.slice(0, MAX_TREE_SOURCES).map((src, idx) => (
+                              <button
+                                key={`${s.scriptId}:${idx}`}
+                                type="button"
+                                onClick={() =>
+                                  void useDevtoolsStore
+                                    .getState()
+                                    .selectOriginalSource(s.scriptId, idx)
+                                }
+                                title={rec.sourceUrls[idx] ?? src}
+                                className={cn(
+                                  'w-full text-left pl-9 pr-2 py-0.5 font-mono text-caption truncate',
+                                  isSelected && original?.srcIndex === idx
+                                    ? 'bg-accent-subtle/50 text-fg-primary'
+                                    : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
+                                )}
+                              >
+                                {scriptLabel(rec.sourceUrls[idx] ?? src)}
+                              </button>
+                            ))
+                          : null}
+                        {rec && rec.map.sources.length > MAX_TREE_SOURCES ? (
+                          <div className="pl-9 pr-2 py-0.5 text-caption text-fg-tertiary tabular-nums">
+                            Showing the first {MAX_TREE_SOURCES} of {rec.map.sources.length}{' '}
+                            sources.
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
                 : null}
             </div>
           ))
@@ -336,6 +659,8 @@ function SourceViewer() {
   const scripts = useDevtoolsStore((s) => s.scripts);
   const source = useDevtoolsStore((s) => s.scriptSource);
   const loading = useDevtoolsStore((s) => s.scriptSourceLoading);
+  const sourceMaps = useDevtoolsStore((s) => s.sourceMaps);
+  const original = useDevtoolsStore((s) => s.original);
   const breakpoints = useDevtoolsStore((s) => s.breakpoints);
   const paused = useDevtoolsStore((s) => s.paused);
   const reveal = useDevtoolsStore((s) => s.reveal);
@@ -343,13 +668,21 @@ function SourceViewer() {
 
   const script = selectedScriptId ? (scripts.get(selectedScriptId) ?? null) : null;
   const url = script?.url ?? '';
+  const mapRec = selectedScriptId ? (sourceMaps.get(selectedScriptId) ?? null) : null;
+  const hasMap = mapRec !== null && mapRec.map.sources.length > 0;
+  // Original mode is only meaningful once the map is resolved.
+  const showingOriginal = original !== null && mapRec !== null;
+  const displayUrl =
+    showingOriginal && mapRec ? (mapRec.sourceUrls[original.srcIndex] ?? '') : url;
+  const text = showingOriginal ? original.text : source;
+  const textLoading = showingOriginal ? original.loading : loading;
 
   const { lines, truncatedLines } = useMemo(() => {
-    if (source === null) return { lines: [] as string[], truncatedLines: false };
-    const all = source.split('\n');
+    if (text === null) return { lines: [] as string[], truncatedLines: false };
+    const all = text.split('\n');
     if (all.length <= MAX_VIEW_LINES) return { lines: all, truncatedLines: false };
     return { lines: all.slice(0, MAX_VIEW_LINES), truncatedLines: true };
-  }, [source]);
+  }, [text]);
 
   // Per-line syntax tokens over the DISPLAYED text (lines clipped to
   // MAX_LINE_CHARS), so the concatenated token texts equal what's rendered.
@@ -363,28 +696,43 @@ function SourceViewer() {
     [lines],
   );
 
+  // Breakpoint gutter markers: in original mode the lines of breakpoints set
+  // from THIS original source; in compiled mode every breakpoint on the url
+  // (including ones set from an original view, at their generated lines).
   const bpLines = useMemo(() => {
     const set = new Set<number>();
-    if (url) {
+    if (showingOriginal) {
+      for (const bp of breakpoints) {
+        if (bp.original && bp.original.url === displayUrl) set.add(bp.original.lineNumber);
+      }
+    } else if (url) {
       for (const bp of breakpoints) if (bp.url === url) set.add(bp.lineNumber);
     }
     return set;
-  }, [breakpoints, url]);
+  }, [breakpoints, url, displayUrl, showingOriginal]);
 
-  // The line the debugger is stopped at, when it's in the visible script.
+  // The line the debugger is stopped at, when it's in the visible text —
+  // mapped through the source map in original mode.
   const activeFrame = paused?.callFrames[paused.frameIndex];
-  const pausedLine =
-    activeFrame && activeFrame.location.scriptId === selectedScriptId
-      ? activeFrame.location.lineNumber
-      : null;
+  const pausedLine = useMemo(() => {
+    if (!activeFrame || activeFrame.location.scriptId !== selectedScriptId) return null;
+    if (!showingOriginal) return activeFrame.location.lineNumber;
+    if (!mapRec || original === null) return null;
+    const pos = originalPositionFor(
+      mapRec.map,
+      activeFrame.location.lineNumber,
+      activeFrame.location.columnNumber ?? 0,
+    );
+    return pos && pos.srcIndex === original.srcIndex ? pos.line : null;
+  }, [activeFrame, selectedScriptId, showingOriginal, mapRec, original]);
 
   // Scroll-to-reveal (pause location / call-stack click / breakpoint click).
   // `reveal.seq` bumps per request so the same line re-centers when asked again.
   useEffect(() => {
-    if (!reveal || source === null) return;
+    if (!reveal || text === null) return;
     const el = scrollRef.current?.querySelector(`[data-line="${reveal.line}"]`);
     if (el) el.scrollIntoView({ block: 'center' });
-  }, [reveal, source]);
+  }, [reveal, text]);
 
   if (!selectedScriptId) {
     return (
@@ -393,26 +741,78 @@ function SourceViewer() {
       </div>
     );
   }
-  if (loading) {
+
+  const header = (
+    <div className="shrink-0 flex items-center gap-2 px-2 py-0.5 border-b border-subtle/40">
+      <span className="flex-1 min-w-0 text-caption text-fg-tertiary font-mono truncate">
+        {displayUrl || '(unnamed script)'}
+      </span>
+      {hasMap ? (
+        <div className="shrink-0 flex items-center rounded bg-surface-2 p-px">
+          <button
+            type="button"
+            onClick={() => {
+              const s = useDevtoolsStore.getState();
+              if (s.original === null && s.selectedScriptId) {
+                void s.selectOriginalSource(
+                  s.selectedScriptId,
+                  // Default to the first mapped source of the bundle.
+                  mapRec && mapRec.map.mappings.length > 0
+                    ? mapRec.map.mappings[0].srcIndex
+                    : 0,
+                );
+              }
+            }}
+            className={cn(
+              'h-4 px-1.5 rounded text-caption',
+              showingOriginal
+                ? 'bg-surface-3 text-fg-primary'
+                : 'text-fg-tertiary hover:text-fg-secondary',
+            )}
+          >
+            Original
+          </button>
+          <button
+            type="button"
+            onClick={() => useDevtoolsStore.getState().showCompiledSource()}
+            className={cn(
+              'h-4 px-1.5 rounded text-caption',
+              !showingOriginal
+                ? 'bg-surface-3 text-fg-primary'
+                : 'text-fg-tertiary hover:text-fg-secondary',
+            )}
+          >
+            Compiled
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (textLoading) {
     return (
-      <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Loading source…
+      <div className="h-full flex flex-col min-h-0">
+        {header}
+        <div className="flex-1 flex items-center justify-center text-caption text-fg-tertiary">
+          Loading source…
+        </div>
       </div>
     );
   }
-  if (source === null) {
+  if (text === null) {
     return (
-      <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Source unavailable
+      <div className="h-full flex flex-col min-h-0">
+        {header}
+        <div className="flex-1 flex items-center justify-center text-caption text-fg-tertiary">
+          {showingOriginal ? 'Original source unavailable' : 'Source unavailable'}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="shrink-0 px-2 py-0.5 text-caption text-fg-tertiary font-mono truncate border-b border-subtle/40">
-        {url || '(unnamed script)'}
-      </div>
+      {header}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
         {lines.map((line, i) => (
           <div
@@ -429,7 +829,11 @@ function SourceViewer() {
             <button
               type="button"
               disabled={!url}
-              onClick={() => void useDevtoolsStore.getState().toggleBreakpoint(url, i)}
+              onClick={() =>
+                showingOriginal
+                  ? void useDevtoolsStore.getState().toggleOriginalBreakpoint(i)
+                  : void useDevtoolsStore.getState().toggleBreakpoint(url, i)
+              }
               title={
                 url
                   ? bpLines.has(i)
@@ -445,7 +849,7 @@ function SourceViewer() {
                   : 'text-fg-tertiary hover:text-fg-secondary',
               )}
             >
-              {bpLines.has(i) ? '● ' : ''}
+              {bpLines.has(i) ? '● ' : ''}
               {i + 1}
             </button>
             <pre className="flex-1 px-2 m-0 font-mono text-caption whitespace-pre text-fg-primary">
@@ -503,6 +907,7 @@ export function SourcesPanel() {
   const paused = useDevtoolsStore((s) => s.paused);
   const pauseOnExceptions = useDevtoolsStore((s) => s.pauseOnExceptions);
   const s = () => useDevtoolsStore.getState();
+  const pausedLabel = paused ? pausedReasonLabel(paused.reason, paused.data) : null;
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -543,9 +948,8 @@ export function SourcesPanel() {
 
       {paused ? (
         <div className="shrink-0 flex items-center gap-2 px-2 py-1 bg-warning/10 border-b border-subtle text-caption text-warning">
-          <span>
-            Paused
-            {paused.reason && paused.reason !== 'other' ? ` on ${paused.reason}` : ''}.
+          <span className="min-w-0 truncate" title={pausedLabel ?? undefined}>
+            Paused{pausedLabel ? ` on ${pausedLabel}` : ''}.
           </span>
           <button
             type="button"
@@ -561,7 +965,10 @@ export function SourcesPanel() {
         <div className="w-56 shrink-0 border-r border-subtle flex flex-col min-h-0 overflow-y-auto">
           <CallStackPane />
           <ScopePane />
+          <WatchPane />
           <BreakpointsPane />
+          <XhrBreakpointsPane />
+          <EventBreakpointsPane />
           <ScriptsPane />
         </div>
         <div className="flex-1 min-w-0">

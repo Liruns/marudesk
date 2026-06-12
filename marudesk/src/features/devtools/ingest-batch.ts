@@ -266,6 +266,16 @@ export function applyIngestBatch(
               if (scripts.size >= MAX_SCRIPTS && !scripts.has(scriptId)) break;
               ensureScripts();
               const info: ScriptInfo = { scriptId, url };
+              // Source-map plumbing (P5b): the map URL plus the frame to fetch
+              // an external .map through (Network.loadNetworkResource).
+              const sourceMapURL = pAny.sourceMapURL;
+              if (typeof sourceMapURL === 'string' && sourceMapURL) {
+                info.sourceMapURL = sourceMapURL;
+              }
+              const aux = pAny.executionContextAuxData as
+                | { frameId?: unknown }
+                | undefined;
+              if (aux && typeof aux.frameId === 'string') info.frameId = aux.frameId;
               scripts.set(scriptId, info);
               break;
             }

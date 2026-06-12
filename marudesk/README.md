@@ -117,11 +117,15 @@ npm run harness:prompt-injection
   The renderer's library panel (`src/features/browser/BrowserLibraryPanel.tsx`,
   Ctrl/Cmd+Shift+O) surfaces bookmarks and full browsing history. The custom
   DevTools dock includes a Sources panel (Debugger-domain breakpoints, stepping,
-  call stack, scopes, lightweight syntax highlighting), a Performance panel
-  (live metrics + CPU profiler with top-down/bottom-up views), a Security panel
-  (connection/certificate state; certificate-bypass CDP methods stay blocked),
-  Application-panel IndexedDB / Cache Storage inspection, Network HAR export +
-  copy-as-fetch, and JS/CSS coverage in the Rendering panel.
+  call stack, scopes, lightweight syntax highlighting, source-map original-source
+  restoration, XHR/event-listener breakpoints, watch expressions), a Performance
+  panel (live metrics + CPU profiler with top-down/bottom-up views), a Security
+  panel (connection/certificate state; certificate-bypass CDP methods stay
+  blocked), Elements event-listeners/accessibility/fonts panes + DOM editing +
+  grid/flex overlays, Application-panel IndexedDB / Cache Storage / quota /
+  manifest / frames / service-worker inspection, Network HAR export,
+  copy-as-fetch, WebSocket/SSE message inspection, initiator + cookies tabs,
+  and JS/CSS coverage in the Rendering panel.
 - `electron/workspace-*.ts`, `shared/workspace.ts`, and
   `src/features/workspaces/*` own the multi-workspace deck: named workspaces,
   multiple folder roots per workspace, workspace split panes, workspace-scoped

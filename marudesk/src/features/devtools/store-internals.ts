@@ -107,6 +107,9 @@ export function freshSlices(): Pick<
   | 'selectedScriptId'
   | 'scriptSource'
   | 'scriptSourceLoading'
+  | 'sourceMaps'
+  | 'original'
+  | 'watchResults'
   | 'reveal'
   | 'paused'
   | 'appOrigin'
@@ -154,6 +157,9 @@ export function freshSlices(): Pick<
     selectedScriptId: null,
     scriptSource: null,
     scriptSourceLoading: false,
+    sourceMaps: new Map(),
+    original: null,
+    watchResults: new Map(),
     reveal: null,
     paused: null,
     appOrigin: null,
