@@ -19,6 +19,10 @@ type CredEntry = {
   apiKey?: string;
   /** OAuth subscription tokens (Claude Pro/Max) — docs/oauth-providers-design.md. */
   oauth?: OAuthTokens;
+  /** Additional OAuth slots for multi-account rotation. The primary slot is
+   * `oauth`; extras are appended here and rotated when the primary is
+   * rate-limited or exhausted. */
+  oauthSlots?: OAuthTokens[];
 };
 
 type CredMap = Partial<Record<ProviderId, CredEntry>>;
@@ -81,7 +85,10 @@ async function loadCreds(): Promise<CredMap> {
       typeof entry.apiKey === 'string' && entry.apiKey.length > 0
         ? entry.apiKey
         : undefined;
-    map[k] = { apiKey, oauth: coerceOAuth(entry.oauth) };
+    const oauthSlots = Array.isArray(entry.oauthSlots)
+      ? (entry.oauthSlots as unknown[]).map(coerceOAuth).filter((t): t is OAuthTokens => !!t)
+      : undefined;
+    map[k] = { apiKey, oauth: coerceOAuth(entry.oauth), ...(oauthSlots?.length ? { oauthSlots } : {}) };
   }
   return map;
 }
@@ -196,6 +203,50 @@ export async function clearProviderOAuth(provider: ProviderId): Promise<void> {
   if (entry.apiKey) map[provider] = { apiKey: entry.apiKey };
   else delete map[provider];
   await saveCreds(map);
+}
+
+/* ── Multi-credential rotation helpers ─────────────────────────────────── */
+
+export async function getAllProviderOAuth(
+  provider: ProviderId,
+): Promise<OAuthTokens[]> {
+  const map = await loadCreds();
+  const entry = map[provider];
+  const slots: OAuthTokens[] = [];
+  if (entry?.oauth) slots.push(entry.oauth);
+  if (entry?.oauthSlots) slots.push(...entry.oauthSlots);
+  return slots;
+}
+
+export async function addProviderOAuthSlot(
+  provider: ProviderId,
+  tokens: OAuthTokens,
+): Promise<void> {
+  const map = await loadCreds().catch(() => ({}) as CredMap);
+  const entry = map[provider] ?? {};
+  if (!entry.oauth) {
+    entry.oauth = tokens;
+  } else {
+    const slots = entry.oauthSlots ?? [];
+    slots.push(tokens);
+    entry.oauthSlots = slots;
+  }
+  map[provider] = entry;
+  await saveCreds(map);
+}
+
+export async function rotateProviderOAuth(provider: ProviderId): Promise<OAuthTokens | null> {
+  const map = await loadCreds().catch(() => ({}) as CredMap);
+  const entry = map[provider];
+  if (!entry?.oauth) return null;
+  const slots = entry.oauthSlots ?? [];
+  if (slots.length === 0) return null;
+  const [next, ...rest] = slots;
+  entry.oauthSlots = [...rest, entry.oauth];
+  entry.oauth = next;
+  map[provider] = entry;
+  await saveCreds(map);
+  return next;
 }
 
 /* ── bridge-server token (docs/remote-mobile-bridge-design §M4) ──────────── */

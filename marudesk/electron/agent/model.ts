@@ -81,6 +81,9 @@ const OPENAI_COMPAT_PROVIDERS: Partial<
   deepseek: { baseURL: 'https://api.deepseek.com/v1' },
   together: { baseURL: 'https://api.together.xyz/v1' },
   fireworks: { baseURL: 'https://api.fireworks.ai/inference/v1' },
+  // GitLab Duo proxies to underlying providers via its cloud endpoints.
+  // PAT auth is passed as Bearer key.
+  'gitlab-duo': { baseURL: 'https://cloud.gitlab.com/ai/v1' },
 };
 
 /**
@@ -232,6 +235,63 @@ export function buildModel(
       const token = auth.mode === 'oauth' ? auth.accessToken : apiKey;
       return createXai({ baseURL: XAI_BASE_URL, apiKey: token || undefined }).responses(modelId);
     }
+    case 'github-copilot': {
+      // GitHub Copilot: the device-flow access token is exchanged for a
+      // short-lived Copilot token via the integrations API, then used against
+      // the OpenAI-compatible completions endpoint. For now, pass the OAuth
+      // token directly — the Copilot proxy handles the exchange server-side.
+      if (auth.mode !== 'oauth') throw new Error('github-copilot requires an OAuth connection');
+      return createOpenAICompatible({
+        name: 'github-copilot',
+        baseURL: 'https://api.githubcopilot.com',
+        apiKey: auth.accessToken,
+        headers: {
+          'Copilot-Integration-Id': 'vscode-chat',
+          'Editor-Version': 'marudesk/1.0',
+          'Openai-Intent': 'conversation-panel',
+        },
+      })(modelId);
+    }
+    case 'google-vertex': {
+      // Vertex AI: ADC-based auth. The access token is resolved externally
+      // (electron/auth/vertex-adc.ts) and passed as an API key to the Vertex
+      // Gemini endpoint. The project and location come from env or defaults.
+      const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT ?? '';
+      const location = process.env.GOOGLE_CLOUD_LOCATION ?? 'us-central1';
+      const vertexBase = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google`;
+      return createGoogleGenerativeAI({
+        apiKey: auth.mode === 'oauth' ? auth.accessToken : apiKey,
+        baseURL: vertexBase,
+      })(modelId);
+    }
+    case 'amazon-bedrock': {
+      // Bedrock: SigV4-authenticated. The model invocation uses the Converse
+      // API through the OpenAI-compatible shim. Auth is handled at the fetch
+      // layer (electron/auth/aws-sigv4.ts signs each request). For now, the
+      // API key field stores a composite `accessKeyId:secretAccessKey` that
+      // the caller splits, or AWS env vars are used.
+      const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
+      return createOpenAICompatible({
+        name: 'amazon-bedrock',
+        baseURL: `https://bedrock-runtime.${region}.amazonaws.com`,
+        apiKey: apiKey || undefined,
+      })(modelId);
+    }
+    case 'azure-openai': {
+      // Azure OpenAI: endpoint + API key. The deployment name matches the
+      // model id; the base URL comes from the env or custom endpoint config.
+      const azureEndpoint = baseUrl
+        ?? process.env.AZURE_OPENAI_ENDPOINT
+        ?? '';
+      if (!azureEndpoint) throw new Error('azure-openai requires AZURE_OPENAI_ENDPOINT or a custom base URL');
+      const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2025-04-01-preview';
+      return createOpenAICompatible({
+        name: 'azure-openai',
+        baseURL: `${azureEndpoint.replace(/\/+$/, '')}/openai/deployments/${modelId}`,
+        apiKey: apiKey || undefined,
+        headers: { 'api-key': apiKey || '', 'api-version': apiVersion },
+      })(modelId);
+    }
     default: {
       // custom:<id> — a user-configured OpenAI-compatible endpoint.
       if (!baseUrl) throw new Error(`custom provider ${provider} has no base URL`);
@@ -260,4 +320,38 @@ export function aiTools(schemas: ToolSchema[]): ToolSet {
       }),
     ]),
   ) as ToolSet;
+}
+
+/* ── Streaming error recovery ──────────────────────────────────────────── */
+
+const MAX_STREAM_RETRIES = 2;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 529]);
+
+export function isRetryableStreamError(err: unknown): boolean {
+  if (APICallError.isInstance(err)) {
+    return typeof err.statusCode === 'number' && RETRYABLE_STATUS.has(err.statusCode);
+  }
+  if (err instanceof Error && /timeout|ECONNRESET|EPIPE|fetch failed/i.test(err.message)) {
+    return true;
+  }
+  return false;
+}
+
+export async function withStreamRetry<T>(
+  fn: () => Promise<T>,
+  provider: ProviderId,
+  modelId: string,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= MAX_STREAM_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableStreamError(err) || attempt === MAX_STREAM_RETRIES) break;
+      const delay = Math.min(1000 * 2 ** attempt, 8000);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
