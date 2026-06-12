@@ -7,19 +7,23 @@ export { StubTransport } from './StubTransport';
 export { RelayTransport } from './RelayTransport';
 
 /**
- * The single switch between the demo fake and the real relay client.
+ * Which transport backs the relay sign-in path. (Direct mode is unaffected —
+ * the store installs `DirectTransport` itself once a PC pairing is stored.)
  *
- * DEFAULT = StubTransport so the whole app stays runnable/demoable (and the smoke
- * test deterministic) with no relay or PC. Set `VITE_USE_RELAY=true` to use the
- * live {@link RelayTransport} against a running relay + PC host (Bridge Model B).
- * Reading it from the env (rather than a hardcoded flag) lets a real build opt in
- * without a code edit, while dev/test keep the fake.
+ *  - `VITE_USE_STUB=true`  → the in-memory demo fake, regardless of build mode.
+ *  - `VITE_USE_RELAY=true` → the live relay client, regardless of build mode.
+ *  - otherwise             → dev serves the stub (demoable with no relay/PC);
+ *                            a production build uses the REAL relay client, so
+ *                            a shipped app can never sign a user into a fake
+ *                            demo chat.
  */
-function useRelay(): boolean {
-  const env = import.meta.env as Record<string, string | undefined>;
-  return env.VITE_USE_RELAY === 'true' || env.VITE_USE_RELAY === '1';
+function flag(value: string | undefined): boolean {
+  return value === 'true' || value === '1';
 }
 
 export function createTransport(): Transport {
-  return useRelay() ? new RelayTransport() : new StubTransport();
+  const env = import.meta.env as Record<string, string | undefined>;
+  if (flag(env.VITE_USE_STUB)) return new StubTransport();
+  if (flag(env.VITE_USE_RELAY)) return new RelayTransport();
+  return import.meta.env.PROD ? new RelayTransport() : new StubTransport();
 }

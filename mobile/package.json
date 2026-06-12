@@ -20,6 +20,7 @@
     "android:build": "npm run build && cap sync android"
   },
   "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^6.2.0",
     "@capacitor/android": "^6.2.1",
     "@capacitor/app": "^6.0.2",
     "@capacitor/core": "^6.2.1",

@@ -999,6 +999,9 @@ export const EN_MESSAGES = {
   'settings.remote.pairing.approveAfter': '?',
   'settings.remote.pairing.approveBefore': 'Pair "',
   'settings.remote.pairing.close': 'Close',
+  'settings.remote.pairing.copy': 'Copy pairing code',
+  'settings.remote.pairing.copyHint':
+    'Can’t scan? Copy the pairing code and paste it on your phone',
   'settings.remote.pairing.daysAgo': 'd ago',
   'settings.remote.pairing.description':
     'Tap below, scan the QR from the marudesk app, and approve it here. Pairing exchanges an encryption key, so traffic stays end-to-end encrypted even over plain Wi-Fi.',
@@ -1012,7 +1015,6 @@ export const EN_MESSAGES = {
   'settings.remote.pairing.hoursAgo': 'h ago',
   'settings.remote.pairing.justNow': 'just now',
   'settings.remote.pairing.lastSeen': 'last seen',
-  'settings.remote.pairing.manualCode': 'Or enter this code on your phone',
   'settings.remote.pairing.minutesAgo': 'm ago',
   'settings.remote.pairing.notConnected': 'not connected yet',
   'settings.remote.pairing.pairDevice': 'Pair a device',

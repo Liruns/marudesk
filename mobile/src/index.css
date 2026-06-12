@@ -420,6 +420,66 @@ textarea {
   gap: 10px;
 }
 
+/* In-app camera QR scanner (the web fallback for pairing) */
+.qr-scan {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #000;
+}
+.qr-scan__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.qr-scan__chrome {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(var(--safe-top) + 12px) 16px calc(var(--safe-bottom) + 24px);
+}
+.qr-scan__top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #fff;
+  font-size: 14px;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
+}
+.qr-scan__top .icon-button {
+  color: #fff;
+  background: rgb(0 0 0 / 35%);
+}
+.qr-scan__frame {
+  margin: auto;
+  width: min(68vw, 280px);
+  aspect-ratio: 1;
+  border: 2px solid rgb(255 255 255 / 85%);
+  border-radius: 18px;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 35%);
+}
+.qr-scan__error {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 300px;
+  text-align: center;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.qr-scan__error p {
+  margin: 0;
+}
+
 .chat-screen {
   height: 100%;
   min-height: 0;

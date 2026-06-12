@@ -18,7 +18,9 @@ import {
   login as apiLogin,
   signup as apiSignup,
   logout as apiLogout,
+  refresh as apiRefresh,
   normalizeRelayUrl,
+  RelayApiError,
 } from '../auth/relayClient';
 import { StorageKeys, storageGet, storageRemove, storageSet } from '../auth/storage';
 import { messageOf } from '../lib/errorMessage';
@@ -161,6 +163,8 @@ type AppState = {
 let transport: Transport | null = null;
 let unsubState: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
+/** Collapses overlapping catalog loads (reconnect storms re-trigger refreshes). */
+let catalogRefreshInFlight = false;
 
 /** Install `t` as the active transport (disposing any previous one) and wire its streams. */
 function wire(set: (partial: Partial<AppState>) => void, t: Transport): Transport {
@@ -168,6 +172,9 @@ function wire(set: (partial: Partial<AppState>) => void, t: Transport): Transpor
   unsubStatus?.();
   transport?.disconnect();
   transport = t;
+  // A new transport's catalog is unknown until it reconnects and reloads — a
+  // re-pair to a different PC must not keep (or trust) the old PC's pickers.
+  set({ catalogReady: false });
   // A fresh transport's first snapshot is a baseline, not a transition.
   resetNotificationBaseline();
   unsubState = t.onState((chat) => {
@@ -176,7 +183,16 @@ function wire(set: (partial: Partial<AppState>) => void, t: Transport): Transpor
     onAgentState(chat);
     set({ chat });
   });
-  unsubStatus = t.onStatus((status) => set({ status }));
+  unsubStatus = t.onStatus((status) => {
+    const wasConnected = useAppStore.getState().status.status === 'connected';
+    set({ status });
+    // Every fresh connection (first connect, reconnect, candidate-URL failover,
+    // PC restart) re-checks the catalog, so the workspace/model pickers can't be
+    // left empty because one earlier load raced a dead address.
+    if (status.status === 'connected' && !wasConnected && !useAppStore.getState().catalogReady) {
+      void useAppStore.getState().refreshCatalog();
+    }
+  });
   return t;
 }
 
@@ -334,11 +350,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { relayUrl, refreshToken, accessToken } = get();
     if (refreshToken) await apiLogout(relayUrl, refreshToken, accessToken ?? undefined);
     transport?.disconnect();
-    await Promise.all([
-      storageRemove(StorageKeys.accessToken),
-      storageRemove(StorageKeys.refreshToken),
-      storageRemove(StorageKeys.account),
-    ]);
+    await clearStoredAuth();
     set({
       account: null,
       accessToken: null,
@@ -366,20 +378,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch {
         // The transport reports the failure via onStatus; nothing extra to do here.
       }
-      void get().refreshCatalog();
       return;
     }
     if (!accessToken) {
       set({ route: 'login' });
       return;
     }
+    // Proactively refresh the short-lived access token before dialing — the
+    // websocket upgrade can't refresh mid-flight, so without this every relay
+    // session silently dies at token expiry and demands a fresh sign-in.
+    if (!(await refreshRelaySession(set, get))) return;
     const t = ensureTransport(set);
     try {
-      await t.connect(relayUrl, accessToken);
+      await t.connect(relayUrl, get().accessToken ?? '');
     } catch {
       // The transport reports the failure via onStatus; nothing extra to do here.
     }
-    void get().refreshCatalog();
   },
 
   async reconnect() {
@@ -535,6 +549,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ catalogReady: false });
       return;
     }
+    // One load at a time: rapid connected-transitions (failover storms) must
+    // not stack concurrent catalog fetches against the PC.
+    if (catalogRefreshInFlight) return;
+    catalogRefreshInFlight = true;
     try {
       const [ws, models] = await Promise.all([t.catalog.workspaces(), t.catalog.models()]);
       const state = get();
@@ -582,6 +600,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         .catch(() => {});
     } catch (err) {
       set({ catalogReady: false, commandError: messageOf(err) });
+    } finally {
+      catalogRefreshInFlight = false;
     }
   },
 
@@ -658,11 +678,58 @@ function parseDirectUrls(raw: string | null): string[] | undefined {
   return undefined;
 }
 
+/**
+ * Refresh the relay tokens before a connect when a refresh token is on hand.
+ * Returns false ONLY when the relay definitively rejected the refresh (the
+ * session is dead): tokens are cleared and the user is routed to sign-in. A
+ * network failure keeps the current tokens — the dial itself may still work.
+ */
+async function refreshRelaySession(
+  set: (partial: Partial<AppState>) => void,
+  get: () => AppState,
+): Promise<boolean> {
+  const { relayUrl, refreshToken } = get();
+  if (!refreshToken) return true;
+  try {
+    const pair = await apiRefresh(relayUrl, refreshToken);
+    await Promise.all([
+      storageSet(StorageKeys.accessToken, pair.accessToken),
+      storageSet(StorageKeys.refreshToken, pair.refreshToken),
+    ]);
+    set({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
+    return true;
+  } catch (err) {
+    // Only an auth rejection kills the session; a relay 5xx/429 or network
+    // failure must not log the user out over a transient server problem.
+    if (err instanceof RelayApiError && (err.status === 401 || err.status === 403)) {
+      await clearStoredAuth();
+      set({
+        accessToken: null,
+        refreshToken: null,
+        account: null,
+        route: 'login',
+        authError: 'Your session expired — sign in again.',
+      });
+      return false;
+    }
+    return true; // unreachable relay: let the transport surface the connect failure
+  }
+}
+
 async function persistAuth(account: RelayAccount, accessToken: string, refreshToken: string): Promise<void> {
   await Promise.all([
     storageSet(StorageKeys.accessToken, accessToken),
     storageSet(StorageKeys.refreshToken, refreshToken),
     storageSet(StorageKeys.account, JSON.stringify(account)),
+  ]);
+}
+
+/** Drop every persisted relay-auth credential (logout + dead-session paths). */
+async function clearStoredAuth(): Promise<void> {
+  await Promise.all([
+    storageRemove(StorageKeys.accessToken),
+    storageRemove(StorageKeys.refreshToken),
+    storageRemove(StorageKeys.account),
   ]);
 }
 

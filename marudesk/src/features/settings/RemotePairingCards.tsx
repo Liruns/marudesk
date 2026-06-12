@@ -6,7 +6,7 @@ import type {
   PairingRequestInfo,
   PairingStartInfo,
 } from '../../../shared/remote';
-import { Button } from '../../components/ui';
+import { Button, CopyButton } from '../../components/ui';
 import { useCountdown } from '../../hooks';
 import { useI18n, type I18nContextValue } from '../../i18n/useI18n';
 import { Section } from './SettingsControls';
@@ -73,18 +73,29 @@ export function QrCard({
           </div>
         )}
         <div className="flex flex-col items-center gap-1">
-          <span className="text-caption text-fg-tertiary">
-            {t('settings.remote.pairing.manualCode')}
-          </span>
-          <span className="font-mono text-section tracking-[0.25em] text-fg-primary">
-            {start.code}
-          </span>
           {!expired ? (
-            <span className="text-caption text-fg-tertiary">
-              {t('settings.remote.pairing.expiresBefore')}
-              {remaining}
-              {t('settings.remote.pairing.expiresAfter')}
-            </span>
+            <>
+              {/* The full QR payload IS the manual-entry pairing code — the
+                  phone's paste box needs all of it (PC public key + addresses),
+                  not the short check code. Copy rides the IPC clipboard bridge
+                  (navigator.clipboard is unreliable in the main window). */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-caption text-fg-tertiary">
+                  {t('settings.remote.pairing.copyHint')}
+                </span>
+                <CopyButton
+                  text={start.qr}
+                  label={t('settings.remote.pairing.copy')}
+                  size="md"
+                  write={(text) => window.marudesk.invoke('clipboard:write-text', text)}
+                />
+              </div>
+              <span className="text-caption text-fg-tertiary">
+                {t('settings.remote.pairing.expiresBefore')}
+                {remaining}
+                {t('settings.remote.pairing.expiresAfter')}
+              </span>
+            </>
           ) : null}
         </div>
       </div>

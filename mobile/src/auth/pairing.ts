@@ -30,8 +30,21 @@ export async function runPairing(
   deviceName: string,
   extraUrl?: string,
 ): Promise<DirectCreds> {
-  const payload = decodeQrPayload(qrString.trim());
-  if (!payload) throw new Error('That isn’t a valid marudesk pairing QR.');
+  // A pasted payload survives copy-mangling: strip ALL whitespace (line wraps
+  // from chat apps / terminals) before decoding — base64url never contains any.
+  const compact = qrString.replace(/\s+/g, '');
+  const payload = decodeQrPayload(compact);
+  if (!payload) {
+    // The most common dead end: the user typed the short on-screen check code
+    // instead of the full pairing payload. Name the fix instead of a generic error.
+    if (looksLikeShortCode(compact)) {
+      throw new Error(
+        'That looks like the short check code — it can’t pair on its own. ' +
+          'On the PC, use “Copy pairing code” under the QR and paste the full code here.',
+      );
+    }
+    throw new Error('That isn’t a valid marudesk pairing QR.');
+  }
   if (payload.exp < Date.now()) {
     throw new Error('This pairing code expired — regenerate it on your PC.');
   }
@@ -90,6 +103,18 @@ export async function runPairing(
       ? `Couldn’t reach your PC (${lastNetErr.message}). Same Wi-Fi, or Tailscale up on both?`
       : 'The QR had no addresses to connect to.',
   );
+}
+
+/**
+ * Heuristic for "the user pasted the 8-character code shown beside the QR, not
+ * the payload": short, and made only of the PC's no-ambiguity code alphabet
+ * (A–Z without I/L/O, digits 2–9), case-insensitive, dashes tolerated (the
+ * caller has already stripped whitespace). A real payload is base64url JSON —
+ * hundreds of characters.
+ */
+function looksLikeShortCode(compact: string): boolean {
+  const bare = compact.replace(/-/g, '');
+  return bare.length > 0 && bare.length <= 16 && /^[a-hj-km-np-z2-9]+$/i.test(bare);
 }
 
 /**

@@ -994,6 +994,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.remote.pairing.approveAfter': ' 페어링?',
   'settings.remote.pairing.approveBefore': '',
   'settings.remote.pairing.close': '닫기',
+  'settings.remote.pairing.copy': '페어링 코드 복사',
+  'settings.remote.pairing.copyHint':
+    '스캔이 어려우면 페어링 코드를 복사해 휴대폰에 붙여넣으세요',
   'settings.remote.pairing.daysAgo': '일 전',
   'settings.remote.pairing.description':
     '아래 버튼을 누르고 marudesk 앱에서 QR을 스캔한 뒤 여기에서 승인하세요. 페어링은 암호화 키를 교환하므로 일반 Wi-Fi에서도 트래픽이 종단 간 암호화됩니다.',
@@ -1007,7 +1010,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.remote.pairing.hoursAgo': '시간 전',
   'settings.remote.pairing.justNow': '방금',
   'settings.remote.pairing.lastSeen': '마지막 접속',
-  'settings.remote.pairing.manualCode': '또는 휴대폰에 이 코드를 입력하세요',
   'settings.remote.pairing.minutesAgo': '분 전',
   'settings.remote.pairing.notConnected': '아직 연결되지 않음',
   'settings.remote.pairing.pairDevice': '기기 페어링',
