@@ -1,8 +1,7 @@
-import { memo, useState } from 'react';
+import { memo, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   Brain,
-  Check,
   ChevronDown,
   ChevronRight,
   Layers,
@@ -15,7 +14,7 @@ import { useElapsedTimer, formatElapsed } from '../../../hooks';
 import { useI18n } from '../../../i18n/useI18n';
 import { cn } from '../../../lib/cn';
 import { Markdown } from '../../../lib/markdown';
-import type { AgentMessage, AgentStatus, ToolCall } from '../../../../shared/agent';
+import type { AgentMessage, ToolCall } from '../../../../shared/agent';
 import type { TranscriptVerbosity } from '../store';
 import {
   formatContext,
@@ -69,36 +68,6 @@ function CompactionDivider({ summary, freedTokens }: { summary: string; freedTok
   );
 }
 
-/**
- * The transcript body. Memoised on `(messages, status, verbosity)` so an
- * unrelated re-render of the composer (every keystroke writes the draft to the
- * store) doesn't re-run the whole map — only a new turn, a status change, or a
- * verbosity flip rebuilds the list. Each row is itself memoised by message id,
- * so streaming only re-renders the live message.
- */
-export const MessageList = memo(function MessageList({
-  messages,
-  status,
-  verbosity,
-}: {
-  messages: AgentMessage[];
-  status: AgentStatus;
-  verbosity: TranscriptVerbosity;
-}) {
-  return (
-    <>
-      {messages.map((m, i) => (
-        <MessageView
-          key={m.id}
-          message={m}
-          streaming={status === 'thinking' && i === messages.length - 1}
-          verbosity={verbosity}
-        />
-      ))}
-    </>
-  );
-});
-
 export const MessageView = memo(function MessageView({
   message,
   streaming,
@@ -150,6 +119,98 @@ export const MessageView = memo(function MessageView({
   // the Thinking block is the live edge — it auto-opens + holds the caret, and
   // we suppress the empty text part's caret so there's only one.
   const reasoningStreaming = streaming && hasReasoning && answerText.trim().length === 0;
+  const verbose = verbosity === 'verbose';
+
+  // Assemble the visible blocks, merging consecutive tool calls into one
+  // segmented card: a multi-step turn reads as a single activity timeline
+  // instead of a stack of separate bordered cards. Parts that render nothing
+  // (step-seeded empty text, hidden reasoning, update_plan) don't split a run.
+  const blocks: ReactNode[] = [];
+  let toolRun: { call: ToolCall; key: string }[] = [];
+  const flushToolRun = () => {
+    if (toolRun.length === 0) return;
+    const cards = toolRun;
+    toolRun = [];
+    if (cards.length === 1) {
+      blocks.push(<ToolCardView key={cards[0].key} call={cards[0].call} defaultOpen={verbose} />);
+      return;
+    }
+    blocks.push(
+      <div
+        key={cards[0].key}
+        className="rounded-lg overflow-hidden border border-subtle/80 bg-surface-1/70 shadow-card divide-y divide-subtle"
+      >
+        {cards.map((c) => (
+          <ToolCardView key={c.key} call={c.call} defaultOpen={verbose} grouped />
+        ))}
+      </div>,
+    );
+  };
+
+  message.parts.forEach((part, i) => {
+    const key = `p${i}`;
+    if (part.type === 'reasoning') {
+      // Summary hides intermediate reasoning; Verbose opens every Thinking
+      // block; Normal keeps them collapsed.
+      if (verbosity === 'summary') return;
+      flushToolRun();
+      blocks.push(
+        <ThinkingBlock key={key} text={part.text} streaming={reasoningStreaming} defaultOpen={verbose} />,
+      );
+      return;
+    }
+    if (part.type === 'text') {
+      const caret = streaming && i === lastTextIdx && !reasoningStreaming;
+      if (!part.text.trim() && !caret) return;
+      flushToolRun();
+      // Assistant answers are rendered as markdown (GFM + highlighted code
+      // + copy buttons) via the shared renderer. The streaming caret rides
+      // the live edge: it sits inline right after the rendered prose.
+      blocks.push(
+        <div key={key} className="text-body-sm text-fg-secondary">
+          <Markdown source={part.text} className="md-compact" />
+          {caret ? <StreamCaret /> : null}
+        </div>,
+      );
+      return;
+    }
+    if (part.type === 'image') {
+      flushToolRun();
+      blocks.push(
+        <div key={key}>
+          <ChatImage mediaType={part.mediaType} data={part.data} />
+        </div>,
+      );
+      return;
+    }
+    // Compaction dividers are handled by the early return above; nothing
+    // else renders them inline.
+    if (part.type !== 'tool') return;
+    // The plan tool's state lives in the Taskboard (a dedicated surface), so
+    // don't also render a redundant tool card per update_plan call.
+    if (part.call.name === 'update_plan') return;
+    const media = part.call.media;
+    const artifact = part.call.artifact;
+    if (media?.length || artifact) {
+      // Generated media and interactive artifacts render inline regardless of
+      // verbosity (the result, not just a tool card / file path) — this call
+      // stands alone so the result sits right under its card.
+      flushToolRun();
+      blocks.push(
+        <div key={key} className="flex flex-col gap-2">
+          {verbosity === 'summary' ? null : <ToolCardView call={part.call} defaultOpen={verbose} />}
+          {media?.length ? <MediaGallery media={media} /> : null}
+          {artifact ? <ArtifactView artifact={artifact} /> : null}
+        </div>,
+      );
+      return;
+    }
+    // Tool cards: hidden in Summary, auto-expanded in Verbose.
+    if (verbosity === 'summary') return;
+    toolRun.push({ call: part.call, key });
+  });
+  flushToolRun();
+
   return (
     <div id={`agent-msg-${message.id}`} className="group/msg relative flex flex-col gap-3">
       {/* Copy the assistant's prose — appears on hover, hidden mid-stream. */}
@@ -158,66 +219,7 @@ export const MessageView = memo(function MessageView({
           <CopyButton text={answerText} label={t('agent.chat.copyMessage')} />
         </div>
       ) : null}
-      {message.parts.map((part, i) => {
-        if (part.type === 'reasoning') {
-          // Summary hides intermediate reasoning; Verbose opens every Thinking
-          // block; Normal keeps them collapsed.
-          if (verbosity === 'summary') return null;
-          return (
-            <ThinkingBlock
-              key={i}
-              text={part.text}
-              streaming={reasoningStreaming}
-              defaultOpen={verbosity === 'verbose'}
-            />
-          );
-        }
-        if (part.type === 'text') {
-          const caret = streaming && i === lastTextIdx && !reasoningStreaming;
-          if (!part.text.trim() && !caret) return null;
-          // Assistant answers are rendered as markdown (GFM + highlighted code
-          // + copy buttons) via the shared renderer. The streaming caret rides
-          // the live edge: it sits inline right after the rendered prose.
-          return (
-            <div key={i} className="text-body-sm text-fg-secondary">
-              <Markdown source={part.text} className="md-compact" />
-              {caret ? <StreamCaret /> : null}
-            </div>
-          );
-        }
-        if (part.type === 'image') {
-          return (
-            <div key={i}>
-              <ChatImage mediaType={part.mediaType} data={part.data} />
-            </div>
-          );
-        }
-        // Compaction dividers are handled by the early return above; nothing
-        // else renders them inline.
-        if (part.type !== 'tool') return null;
-        // The plan tool's state lives in the Taskboard (a dedicated surface), so
-        // don't also render a redundant tool card per update_plan call.
-        if (part.call.name === 'update_plan') return null;
-        // Tool cards: hidden in Summary, auto-expanded in Verbose. Generated
-        // media (images/videos) renders inline regardless of verbosity so a
-        // "make me an image" turn always shows the result, not just a file path.
-        const media = part.call.media;
-        const artifact = part.call.artifact;
-        const card =
-          verbosity === 'summary' ? null : (
-            <ToolCardView call={part.call} defaultOpen={verbosity === 'verbose'} />
-          );
-        // Generated media and interactive artifacts render inline regardless of
-        // verbosity (the result, not just a tool card / file path).
-        if (!media?.length && !artifact) return card ? <div key={i}>{card}</div> : null;
-        return (
-          <div key={i} className="flex flex-col gap-2">
-            {card}
-            {media?.length ? <MediaGallery media={media} /> : null}
-            {artifact ? <ArtifactView artifact={artifact} /> : null}
-          </div>
-        );
-      })}
+      {blocks}
     </div>
   );
 });
@@ -274,10 +276,6 @@ function ThinkingBlock({
           <span className="text-ai-thinking/70 tabular-nums text-[10px] font-medium">
             {formatElapsed(thinkingElapsed)}
           </span>
-        ) : !streaming && text.trim() ? (
-          <span className="text-fg-tertiary/50 text-[10px] tabular-nums">
-            {Math.ceil(text.length / 200)}s
-          </span>
         ) : null}
         <ChevronRight
           size={11}
@@ -315,9 +313,13 @@ const TIMELINE_ICON: Record<'thinking' | 'grep' | 'read' | 'edit', string> = {
 const ToolCardView = memo(function ToolCardView({
   call,
   defaultOpen,
+  grouped,
 }: {
   call: ToolCall;
   defaultOpen?: boolean;
+  /** Rendered as a row inside a merged tool-run card: the wrapper owns the
+   * border/background/shadow, the row keeps only its hue spine. */
+  grouped?: boolean;
 }) {
   const { t } = useI18n();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
@@ -343,13 +345,17 @@ const ToolCardView = memo(function ToolCardView({
   return (
     <div
       className={cn(
-        'rounded-lg overflow-hidden border border-subtle/80 bg-surface-1/70 text-caption shadow-card',
-        // Left accent spine: AI timeline hue if categorised; accent tint for runtime; plain for others
+        'overflow-hidden text-caption',
+        grouped ? '' : 'rounded-lg border border-subtle/80 bg-surface-1/70 shadow-card',
+        // Left accent spine: AI timeline hue if categorised; accent tint for
+        // runtime; transparent inside a group so the rows stay aligned.
         hue
           ? cn('border-l-2', TIMELINE_BORDER[hue])
           : meta?.runtime
             ? 'border-l-2 border-l-accent/40'
-            : '',
+            : grouped
+              ? 'border-l-2 border-l-transparent'
+              : '',
       )}
     >
       <button
@@ -357,14 +363,20 @@ const ToolCardView = memo(function ToolCardView({
         onClick={() => setUserOpen(!open)}
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-2/40 transition-colors duration-fast"
       >
-        <ToolStateIcon state={call.state} />
-        <Icon
-          size={12}
-          className={cn(
-            'shrink-0',
-            hue ? TIMELINE_ICON[hue] : meta?.runtime ? 'text-accent' : 'text-fg-tertiary/70',
-          )}
-        />
+        {/* One icon slot: the tool glyph by default; the state icon takes over
+            only while the call needs attention (running / approval / failure).
+            Quiet success — no per-row checkmark noise. */}
+        {call.state === 'ok' ? (
+          <Icon
+            size={12}
+            className={cn(
+              'shrink-0',
+              hue ? TIMELINE_ICON[hue] : meta?.runtime ? 'text-accent' : 'text-fg-tertiary/70',
+            )}
+          />
+        ) : (
+          <ToolStateIcon state={call.state} />
+        )}
         <span className="text-fg-secondary truncate flex-1 text-[0.75rem]">{call.summary ?? label}</span>
         {badge ? <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge> : null}
         {hasBody ? (
@@ -417,10 +429,11 @@ const ToolCardView = memo(function ToolCardView({
   );
 });
 
+/** Attention-state icon for a tool row. `ok` never reaches here — a finished
+ * call shows its tool glyph instead (see the icon slot in ToolCardView). */
 function ToolStateIcon({ state }: { state: ToolCall['state'] }) {
   if (state === 'running') return <Loader2 size={12} className="text-accent animate-spin shrink-0" />;
   if (state === 'awaiting_approval') return <AlertCircle size={12} className="text-warning shrink-0" />;
-  if (state === 'ok') return <Check size={12} className="text-accent shrink-0" />;
   if (state === 'denied' || state === 'aborted') return <X size={12} className="text-fg-tertiary shrink-0" />;
   if (state === 'error') return <AlertCircle size={12} className="text-error shrink-0" />;
   return <Wrench size={12} className="text-fg-tertiary shrink-0" />;
