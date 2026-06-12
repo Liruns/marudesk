@@ -368,8 +368,12 @@ browser-differentiated, net-new ones are fuller. Priority tags: **P0** (Now),
   (roadmap §2) — worktrees isolate from the watched folder. Keep worktree mode
   *opt-in* per lane; default lane = the user's folder.
 - **MVP.** Lane list + per-lane session + branch; manual worktree.
-- **Later.** Per-lane dev server + browser tab + PR/CI status; promote
-  background-agent tray into the board.
+- **Later.** Per-lane dev server + browser tab + PR/CI status — **SHIPPED
+  (2026-06-12):** each lane shows its GitHub PR (#number + open/draft/merged/
+  closed) and aggregated check-run verdict (`lanes-github:status`, cached,
+  token from env/`gh auth token`, unauthenticated fallback), both opening
+  in-app tabs, and `lanes-dev:open` reuses ONE browser tab per lane instead of
+  stacking new ones. Remaining: promote background-agent tray into the board.
 
 ### 3.9 Git diff / hunk review — **P1** · partially shipped · refs: Terax, Zed, Codex
 
@@ -521,8 +525,8 @@ browser differentiator and reuses shipped assets.
 > (`lanes-dev:*`, pushed on `lanes:dev-state`) — and per-lane **Open PR**
 > (`git:worktree-open-pr`: push the branch + open the GitHub compare/create-PR page,
 > no in-app GitHub API). Specs gained a draft → active → review → done **status
-> lifecycle**. The only piece left is live per-lane **CI status**, which needs
-> GitHub API polling (out of the app's current scope — no `gh`).
+> lifecycle**. Live per-lane **PR/CI status** shipped 2026-06-12
+> (`lanes-github:status` — see §3.8 Later), closing the last §3.8 gap.
 >
 > **Verified:** full Playwright e2e **125/125** (timeline + filter + edit
 > provenance, receipt snapshot, worktree lanes + merge + discard, **per-lane dev

@@ -36,6 +36,7 @@ import { registerAgentHandlers } from './agent/handlers';
 import { registerWorkflowHandlers } from './workflows/handlers';
 import { registerSpecHandlers } from './specs/handlers';
 import { disposeAllLaneDevServers, registerLaneDevHandlers } from './lanes-dev';
+import { registerLaneGithubHandlers } from './lanes-github';
 import { registerStorageHandlers } from './storage-handlers';
 import { registerAppInfoHandlers } from './app-info';
 import { registerAutoUpdater } from './updater';
@@ -475,6 +476,7 @@ void app.whenReady().then(() => {
   registerWorkflowHandlers();
   registerSpecHandlers();
   registerLaneDevHandlers({ getMainWindow });
+  registerLaneGithubHandlers();
   registerStorageHandlers();
   registerAppInfoHandlers();
   // Windows in-app auto-update: registers its IPC handlers always and, on a

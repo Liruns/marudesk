@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  AlertTriangle,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -8,13 +10,16 @@ import {
   GitPullRequest,
   Loader2,
   Play,
+  RefreshCw,
   Square,
   Trash2,
+  XCircle,
 } from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import type { LaneDevState } from '../../../shared/lanes';
+import type { LaneGithubStatus, LanePrState } from '../../../shared/lane-github';
 import { isAgentWorktreeBranch, type WorktreeLane } from '../../../shared/worktree';
 
 /**
@@ -22,9 +27,10 @@ import { isAgentWorktreeBranch, type WorktreeLane } from '../../../shared/worktr
  * Control) — lists every git worktree of the active repo with its pending-change
  * count, shown beside the single-worktree isolation bar. Each lane can:
  *   - run/stop its dev server (`settings.lanes.devCommand` in the lane's dir) and
- *     open the detected localhost URL in a browser tab, and
+ *     open the detected localhost URL in its (reused) browser tab,
+ *   - show its GitHub PR (#number + state) and aggregated CI verdict, each
+ *     opening the matching GitHub page in an in-app tab, and
  *   - (agent lanes only) merge back into the base branch or be discarded.
- * Per-lane PR/CI orchestration remains the larger follow-on.
  */
 function laneLabel(lane: WorktreeLane): string {
   if (lane.branch) return lane.branch;
@@ -32,11 +38,36 @@ function laneLabel(lane: WorktreeLane): string {
   return parts[parts.length - 1] || lane.path;
 }
 
+const PR_STATE_COLOR: Record<LanePrState, string> = {
+  open: 'text-accent',
+  draft: 'text-fg-tertiary',
+  merged: 'text-success',
+  closed: 'text-error',
+};
+
 export function WorktreeLanes() {
   const { t } = useI18n();
   const [lanes, setLanes] = useState<WorktreeLane[] | null>(null);
   const [dev, setDev] = useState<Record<string, LaneDevState>>({});
   const [open, setOpen] = useState(false);
+  // GitHub PR/CI status per lane branch (empty when the repo has no GitHub remote).
+  const [gh, setGh] = useState<Record<string, LaneGithubStatus>>({});
+  const [ghLoading, setGhLoading] = useState(false);
+
+  const fetchGh = useCallback(async (force: boolean) => {
+    setGhLoading(true);
+    try {
+      const res = await window.marudesk.invoke('lanes-github:status', { force });
+      if (res.ok) setGh(Object.fromEntries(res.statuses.map((s) => [s.branch, s])));
+    } catch {
+      // best-effort: the board still works without GitHub status
+    } finally {
+      setGhLoading(false);
+    }
+  }, []);
+
+  const openUrl = (url: string) =>
+    void window.marudesk.invoke('browser:tabs-new', { kind: 'web', url });
 
   // Live per-lane dev-server state, keyed by worktree path.
   useEffect(() => {
@@ -110,16 +141,35 @@ export function WorktreeLanes() {
 
   return (
     <div className="shrink-0 border-b border-subtle">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-3 h-7 text-caption uppercase tracking-wide text-fg-tertiary hover:text-fg-secondary"
-      >
-        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        <GitBranch size={12} />
-        <span>{t('git.worktrees.title')}</span>
-        <span className="tabular-nums">{lanes.length}</span>
-      </button>
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={() => {
+            setOpen((v) => !v);
+            // Fetch GitHub status lazily, on expand (cached server-side).
+            if (!open) void fetchGh(false);
+          }}
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-3 h-7 text-caption uppercase tracking-wide text-fg-tertiary hover:text-fg-secondary"
+        >
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <GitBranch size={12} />
+          <span>{t('git.worktrees.title')}</span>
+          <span className="tabular-nums">{lanes.length}</span>
+        </button>
+        {open ? (
+          <button
+            type="button"
+            onClick={() => {
+              refresh();
+              void fetchGh(true);
+            }}
+            title={t('git.worktrees.ghRefresh')}
+            className="mr-2 shrink-0 rounded p-0.5 text-fg-tertiary hover:bg-accent-subtle hover:text-fg-secondary"
+          >
+            <RefreshCw size={12} className={ghLoading ? 'animate-spin' : undefined} />
+          </button>
+        ) : null}
+      </div>
       {open ? (
         <ul className="pb-1">
           {lanes.map((lane) => (
@@ -142,6 +192,70 @@ export function WorktreeLanes() {
                   {lane.changes}
                 </span>
               ) : null}
+              {(() => {
+                const s = lane.branch ? gh[lane.branch] : undefined;
+                if (!s) return null;
+                const { pr, ci } = s;
+                const prLabel = (state: LanePrState): string =>
+                  state === 'open'
+                    ? t('git.worktrees.prOpenState')
+                    : state === 'draft'
+                      ? t('git.worktrees.prDraft')
+                      : state === 'merged'
+                        ? t('git.worktrees.prMerged')
+                        : t('git.worktrees.prClosed');
+                return (
+                  <>
+                    {pr ? (
+                      <button
+                        type="button"
+                        onClick={() => openUrl(pr.url)}
+                        title={`${prLabel(pr.state)} · ${pr.title}`}
+                        className={cn(
+                          'shrink-0 rounded-pill bg-surface-2 px-1.5 tabular-nums hover:bg-accent-subtle',
+                          PR_STATE_COLOR[pr.state],
+                        )}
+                      >
+                        #{pr.number}
+                      </button>
+                    ) : null}
+                    {ci ? (
+                      <button
+                        type="button"
+                        onClick={() => (ci.url ? openUrl(ci.url) : undefined)}
+                        title={
+                          ci.state === 'failure'
+                            ? `${t('git.worktrees.ciFailure')} (${ci.failed}/${ci.total})`
+                            : ci.state === 'pending'
+                              ? t('git.worktrees.ciPending')
+                              : `${t('git.worktrees.ciSuccess')} (${ci.total})`
+                        }
+                        className="shrink-0 rounded p-0.5 hover:bg-accent-subtle"
+                      >
+                        {ci.state === 'failure' ? (
+                          <XCircle size={12} className="text-error" />
+                        ) : ci.state === 'pending' ? (
+                          <Loader2 size={12} className="animate-spin text-fg-tertiary" />
+                        ) : (
+                          <CheckCircle2 size={12} className="text-success" />
+                        )}
+                      </button>
+                    ) : null}
+                    {s.error ? (
+                      <span
+                        title={
+                          s.error === 'rate-limited'
+                            ? t('git.worktrees.ghRateLimited')
+                            : t('git.worktrees.ghError')
+                        }
+                        className="shrink-0 p-0.5"
+                      >
+                        <AlertTriangle size={12} className="text-warning" />
+                      </span>
+                    ) : null}
+                  </>
+                );
+              })()}
               {(() => {
                 const d = dev[lane.path];
                 const running = d && (d.status === 'running' || d.status === 'starting');
