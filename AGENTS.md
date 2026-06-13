@@ -9,11 +9,12 @@ workspace. More specific instructions in subdirectories override this file.
   panels, workspace file access, patch flow, agent chat, runtime evidence, the
   user plugin runtime (isolated-worker tools + slash commands), and desktop
   packaging.
-- `mobile/`: Capacitor thin client for the Model-B bridge. It sends commands and
-  renders the PC-owned agent state; it must not run model, tool, or workspace
-  logic locally.
 - `relay/`: Node TypeScript relay and auth service. It brokers same-account
   host/client WebSocket traffic and exposes auth/OAuth endpoints.
+- `mobile/` (archived): the Capacitor thin client has been removed from the
+  active workspace. Its full source is preserved on the `archive/mobile` branch
+  and the `archive/mobile-v0.8.0` tag. Do not recreate it here; restore from the
+  archive ref (`git checkout archive/mobile -- mobile/`) if it is ever revived.
 
 ## Default Workflow
 
@@ -62,19 +63,6 @@ Use `npm run harness:*` scripts for targeted Electron/main-process coverage,
 or `npm run harness:all` to run the whole headless-harness suite with one
 summary (new harnesses go in `electron/harness-kit.ts` helpers and are
 auto-discovered by the runner).
-
-### mobile
-
-```bash
-npm install
-npm run dev
-npm run typecheck
-npm run build
-npm run smoke
-```
-
-Keep `src/types.ts` and transport types aligned with the desktop/relay protocol
-without importing across package boundaries.
 
 ### relay
 

@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="marudesk/src/assets/logo-full.png" alt="MaruDesk" width="360">
+  <img src="marudesk/src/assets/logo-full.png" alt="Maru" width="360">
 </p>
 
 <p align="center">
-  <strong>An agentic workspace where AI sees your <em>running</em> app — not just your source.</strong><br>
-  A desktop app that fuses a real web browser, a code editor and terminal, and a multi-provider AI agent.
+  <strong>An infinite canvas where AI sees your <em>running</em> app — not just your source.</strong><br>
+  A desktop app that arranges a real web browser, a code editor and terminal, and a multi-provider AI agent as freeform cards on a pannable, zoomable canvas.
 </p>
 
 <p align="center">
@@ -16,10 +16,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/home.png" alt="MaruDesk — the new-tab shell with the activity bar, explorer, and surface cards" width="860">
+  <img src="docs/home.png" alt="Maru — the new-tab shell with the activity bar, explorer, and surface cards" width="860">
 </p>
 
-MaruDesk is a desktop application (Electron) for building and debugging web software. Unlike source-only AI coding tools, it embeds a real Chromium browser and speaks the Chrome DevTools Protocol (CDP) in-process, so the agent can read the live DOM, console, and network of the app you are running and act on that runtime evidence — for example, turning a console error into a source fix and confirming the fix by reloading the page.
+Maru is a desktop application (Electron) for building and debugging web software. Unlike source-only AI coding tools, it embeds a real Chromium browser and speaks the Chrome DevTools Protocol (CDP) in-process, so the agent can read the live DOM, console, and network of the app you are running and act on that runtime evidence — for example, turning a console error into a source fix and confirming the fix by reloading the page.
 
 > Status: in active development — built as a daily driver and portfolio project. See [Project status](#project-status).
 
@@ -38,7 +38,7 @@ Prefer to build from source? See [Getting started](#getting-started).
 
 ## The idea
 
-Most AI coding assistants only see your source files. MaruDesk co-locates the surfaces a developer actually moves between — browser, DevTools, editor, terminal, and the agent — inside one process, and connects the *seams* between them:
+Most AI coding assistants only see your source files. Maru co-locates the surfaces a developer actually moves between — browser, DevTools, editor, terminal, and the agent — inside one process, and connects the *seams* between them:
 
 - A console error in the embedded DevTools carries a one-click **Fix this**: the agent maps the stack frame back to your source file, edits it, reloads the page, and verifies the error is gone (`get_console_errors → edit → reload_and_verify`).
 - The agent can click, type, and scroll the live page, read network requests, and evaluate expressions — the same things you would do by hand in DevTools.
@@ -104,12 +104,12 @@ Drive your PC's agent from your phone. QR-code pairing, application-level end-to
 
 ## Repository layout
 
-MaruDesk is a three-package workspace.
+Maru is a three-package workspace.
 
 | Path | Role |
 |---|---|
 | `marudesk/` | Electron desktop app — browser stage, DevTools, agent loop, editor/terminal, workspace integration, packaging. Owns the model/tool/workspace loop. |
-| `mobile/` | Capacitor thin client — phone UI that sends commands and renders PC-owned agent state. Runs no model or tools locally. |
+| `mobile/` _(archived)_ | Capacitor thin client — removed from the active workspace; preserved on the `archive/mobile` branch and `archive/mobile-v0.8.0` tag. |
 | `relay/` | Node/TypeScript relay and auth service — brokers same-account host/client WebSocket traffic for the cloud-relay path. |
 
 Inside `marudesk/`:
@@ -138,10 +138,9 @@ npm install
 npm run dev        # starts the Vite renderer + Electron shell
 ```
 
-Optional companion packages:
+Optional companion package:
 
 ```bash
-cd mobile && npm install && npm run dev    # phone client (web/PWA in dev)
 cd relay  && npm install && npm start      # cloud relay (defaults to port 8788)
 ```
 
@@ -220,10 +219,10 @@ UI work follows `marudesk/DESIGN.md`: dark-first, restrained, token-based colors
 
 ## Project status
 
-MaruDesk is a personal, in-development project used as a daily driver and portfolio piece. Expect rough edges.
+Maru is a personal, in-development project used as a daily driver and portfolio piece. Expect rough edges.
 
 - Subscription OAuth for **ChatGPT** and **Gemini** uses undocumented backends and is **experimental**; API-key access and Claude / xAI OAuth are the stable paths.
-- MaruDesk is not affiliated with any model provider. Using subscription logins in a third-party client may be subject to each provider's terms — use at your own discretion.
+- Maru is not affiliated with any model provider. Using subscription logins in a third-party client may be subject to each provider's terms — use at your own discretion.
 - Released under the [MIT License](LICENSE).
 
 ## Documentation
@@ -232,7 +231,7 @@ MaruDesk is a personal, in-development project used as a daily driver and portfo
 - `marudesk/README.md` — desktop package details
 - `marudesk/DESIGN.md` — design system
 - `marudesk/docs/` — product roadmap and architecture / design notes
-- `mobile/README.md`, `relay/README.md` — companion packages
+- `relay/README.md` — companion package
 
 ## License
 

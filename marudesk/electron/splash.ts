@@ -19,7 +19,7 @@ const SPLASH_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
   @keyframes spin{to{transform:rotate(360deg)}}
 </style></head><body><div class="wrap">
   <div class="ring"></div>
-  <div class="title">marudesk</div>
+  <div class="title">Maru</div>
   <div class="sub">Loading…</div>
 </div></body></html>`;
 

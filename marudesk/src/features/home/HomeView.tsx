@@ -61,7 +61,7 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
             <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-12 select-none" />
           </div>
           <div className="flex flex-col items-center gap-1">
-            <h1 className="text-title font-display text-fg-primary">marudesk</h1>
+            <h1 className="text-title font-display text-fg-primary">Maru</h1>
             <p className="text-body-sm text-fg-tertiary">{t('home.subtitle')}</p>
           </div>
         </div>

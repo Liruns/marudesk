@@ -2,6 +2,7 @@ import { useState, type MouseEvent, type ReactNode } from 'react';
 import {
   Bot,
   Files,
+  Frame,
   GitBranch,
   KeyRound,
   MessageSquareText,
@@ -114,6 +115,14 @@ export function ActivityBar({
         <MessageSquareText size={18} />
       </ActivityButton>
       <span className="flex-1" aria-hidden />
+      <ActivityButton
+        label="Canvas (beta)"
+        onClick={() => {
+          window.location.hash = '/canvas';
+        }}
+      >
+        <Frame size={18} />
+      </ActivityButton>
       <ActivityButton
         label={t('activity.settings')}
         active={!!menu}
