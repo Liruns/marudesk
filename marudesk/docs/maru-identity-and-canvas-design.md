@@ -119,11 +119,14 @@ mounting the canvas with only feature cards is safe today.
   on each surface root + the compact value in the base class, full-size gated
   behind `@[…rem]:` min-width variants — so panes/splits are byte-identical and
   only small cards collapse (md split→stack, settings sidebar→top strip, grids→1
-  col, chrome labels/buttons hide, menus/popovers cap to card width). *Remaining:*
-  web-card content zoom-scaling (page is 1:1 now, cropped when zoomed out), card
-  grouping/alignment/snap, **full keyboard navigation** (cards/edges are
-  pointer-first by design — confirmed WCAG gap, tracked), and an in-canvas
-  workspace switcher.
+  col, chrome labels/buttons hide, menus/popovers cap to card width). **Also done:**
+  **web-card content zoom-scaling** (the canvas sends its `scale` with the pane
+  bounds; main `setZoomFactor`s each canvas web view so the live page scales with
+  the canvas — classic grid omits `scale`, untouched), **keyboard navigation**
+  (focusable card frame, arrow-nudge, Delete-close), **alignment snap** (drag snaps
+  a card's edges to nearby cards within 6px), and an **in-canvas workspace
+  switcher**. *Remaining:* card multi-select / grouping, keyboard selection of
+  edges, and alignment guide lines.
 
 ## 5. Open questions / deferred
 
