@@ -103,15 +103,20 @@ mounting the canvas with only feature cards is safe today.
   classic-shell e2e specs are unaffected.
 - **Phase 2D — Spatial polish + node connections. 🟡 in progress.** Done: layout
   persistence (`localStorage maru.canvas.v1`), zoom-to-fit (Fit), workspace
-  scoping, a "New card" affordance, **web-card resize** (handle/port sit on the
-  card frame outside the native view), a **minimap** (cate parity, ⌘/Ctrl+Shift+M,
-  click-to-recenter), and **node connections** — a Maru addition beyond cate
-  (cate has no inter-panel links): drag a card's port onto another card to wire
-  them; bezier edges in an SVG overlay, click-select, ×/Delete to remove, edges
-  persisted + pruned. *Remaining:* web-card content zoom-scaling (page is 1:1 now,
-  cropped when zoomed out), card grouping/alignment/snap, full keyboard navigation,
-  and an in-canvas workspace switcher (multi-workspace switching needs the classic
-  toggle for now).
+  scoping, "New card", **web-card resize** + **multi-handle resize** (right/bottom/
+  corner; handle + port sit on the card frame outside the native view and fade in
+  on hover/focus), a **minimap** (cate parity, ⌘/Ctrl+Shift+M, click-to-recenter),
+  **node connections** (a Maru addition beyond cate — drag a card's port to another
+  card; bezier SVG edges, click-select, ×/Delete, persisted + pruned; drop target
+  found by canvas geometry so it works over native web views), **right-click
+  context menus** (empty canvas / card header / edge; bodies keep their own menus),
+  **Figma-style wheel** (⌘/Ctrl = zoom-at-cursor + pinch, Shift = horizontal pan,
+  plain = two-axis), double-click-to-create, and card-chrome polish (hover lift,
+  focus ring, `:active` settle, hover-revealed controls). z is rebalanced to 1..N
+  so layering never grows unbounded. *Remaining:* web-card content zoom-scaling
+  (page is 1:1 now, cropped when zoomed out), card grouping/alignment/snap, **full
+  keyboard navigation** (cards/edges are pointer-first by design — confirmed WCAG
+  gap, tracked), and an in-canvas workspace switcher.
 
 ## 5. Open questions / deferred
 
