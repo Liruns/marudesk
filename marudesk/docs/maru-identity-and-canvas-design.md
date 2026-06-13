@@ -145,8 +145,8 @@ mounting the canvas with only feature cards is safe today.
   reconcile to the tabs the main session restores by matching descriptors in
   order. Migrates `maru.canvas.v1` positions via a one-time by-tab-id pool.
   e2e: `e2e/canvas.spec.ts` (switch/delete + full-restart persistence).
-  *Deferred:* "duplicate canvas" (branch the open arrangement into a new one) —
-  the unified model doesn't require it, but it's a natural follow-up.
+  **Duplicate canvas** ("save the current arrangement as a new canvas") recreates
+  the open canvas's panels as fresh tabs at the same coords + edges.
 
 ## 5. Open questions / deferred
 
