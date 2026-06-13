@@ -101,12 +101,17 @@ mounting the canvas with only feature cards is safe today.
   canvas ⇄ classic (persisted in `useSurfaceStore`). The standalone `#/canvas`
   route + `CanvasShell` were removed. Tests seed `maru.surface=classic` so the
   classic-shell e2e specs are unaffected.
-- **Phase 2D — Spatial polish. 🟡 in progress.** Done: layout persistence
-  (`localStorage maru.canvas.v1`), zoom-to-fit (Fit), workspace scoping, a
-  "New card" affordance. *Remaining:* minimap, card grouping/alignment/snap,
-  keyboard navigation, web-card content zoom-scaling + corner-resize, and a
-  workspace switcher within canvas mode (multi-workspace switching currently
-  needs the classic toggle).
+- **Phase 2D — Spatial polish + node connections. 🟡 in progress.** Done: layout
+  persistence (`localStorage maru.canvas.v1`), zoom-to-fit (Fit), workspace
+  scoping, a "New card" affordance, **web-card resize** (handle/port sit on the
+  card frame outside the native view), a **minimap** (cate parity, ⌘/Ctrl+Shift+M,
+  click-to-recenter), and **node connections** — a Maru addition beyond cate
+  (cate has no inter-panel links): drag a card's port onto another card to wire
+  them; bezier edges in an SVG overlay, click-select, ×/Delete to remove, edges
+  persisted + pruned. *Remaining:* web-card content zoom-scaling (page is 1:1 now,
+  cropped when zoomed out), card grouping/alignment/snap, full keyboard navigation,
+  and an in-canvas workspace switcher (multi-workspace switching needs the classic
+  toggle for now).
 
 ## 5. Open questions / deferred
 
