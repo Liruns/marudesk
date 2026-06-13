@@ -8,12 +8,15 @@ import type { TabState } from '../../../shared/browser';
 /**
  * One card on the infinite canvas: a draggable / resizable frame whose body is a
  * tab's surface, resolved through the shared `tabKinds` registry (so editor,
- * terminal, agent, home, settings all render exactly as they do in a pane). Web
- * cards show a placeholder in Phase 2A — the live WebContentsView is composited
- * onto the canvas in Phase 2B (see docs/maru-identity-and-canvas-design.md).
+ * terminal, agent, home, settings render exactly as they do in a pane). Web cards
+ * render an empty measured surface that the main process composites the live
+ * WebContentsView over.
  *
- * Pointer math: the canvas plane is CSS-scaled, so a pointer delta in screen px
- * is divided by `scale` to get the canvas-space delta for move/resize.
+ * Because a native web view composites OVER the React body, the resize handle and
+ * the connection port live on the card frame just OUTSIDE the body (the root is
+ * not `overflow-hidden`; the body clips itself), so they stay clickable on web
+ * cards. Pointer math: the plane is CSS-scaled, so a screen-px delta is divided
+ * by `scale` to get the canvas-space delta for move/resize.
  */
 export function CanvasCard({
   tab,
@@ -27,6 +30,7 @@ export function CanvasCard({
   registerWebEl,
   onNavigate,
   onOpenDevtools,
+  onStartConnect,
 }: {
   tab: TabState;
   rect: CardRect;
@@ -36,16 +40,11 @@ export function CanvasCard({
   onClose: () => void;
   onMove: (x: number, y: number) => void;
   onResize: (w: number, h: number) => void;
-  /**
-   * For web cards: receives the body element so the canvas can measure its
-   * (post-transform) screen rect and position the native WebContentsView there
-   * via the shared pane-bounds pipeline. Undefined for feature cards.
-   */
   registerWebEl?: (el: HTMLDivElement | null) => void;
-  /** For web cards: navigate this card's tab to a URL / search term. */
   onNavigate?: (input: string) => void;
-  /** For web cards: pop out the runtime-aware DevTools for this card's tab. */
   onOpenDevtools?: () => void;
+  /** Begin dragging a connection from this card (screen coords of the pointer). */
+  onStartConnect?: (clientX: number, clientY: number) => void;
 }) {
   const isWeb = tab.kind === 'web';
   // Web-card address bar: a controlled input seeded from the tab's URL, kept in
@@ -57,33 +56,15 @@ export function CanvasCard({
   }, [tab.url]);
   const Icon = tabKinds[tab.kind]?.icon ?? Globe;
   const title = tab.title?.trim() || tab.url || tabKinds[tab.kind]?.title || 'Card';
-  const dragState = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    origX: number;
-    origY: number;
-  } | null>(null);
-  const resizeState = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    origW: number;
-    origH: number;
-  } | null>(null);
+  const dragState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const resizeState = useRef<{ pointerId: number; startX: number; startY: number; origW: number; origH: number } | null>(null);
 
   const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     onFocus();
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragState.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: rect.x,
-      origY: rect.y,
-    };
+    dragState.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origX: rect.x, origY: rect.y };
   };
   const onHeaderPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = dragState.current;
@@ -99,13 +80,7 @@ export function CanvasCard({
     e.stopPropagation();
     onFocus();
     e.currentTarget.setPointerCapture(e.pointerId);
-    resizeState.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      origW: rect.w,
-      origH: rect.h,
-    };
+    resizeState.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origW: rect.w, origH: rect.h };
   };
   const onResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = resizeState.current;
@@ -119,18 +94,19 @@ export function CanvasCard({
   return (
     <div
       data-canvas-card
+      data-tab-id={tab.id}
       className={cn(
-        'absolute flex flex-col overflow-hidden rounded-lg chrome-panel transition-shadow duration-fast',
+        'absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
         focused ? 'ring-1 ring-accent/50 shadow-lifted' : 'shadow-card',
       )}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: rect.z }}
       onPointerDown={onFocus}
     >
-      {/* Header: drag handle + title + close. */}
+      {/* Header: drag handle + title/omnibox + actions. */}
       <div
         className={cn(
           'flex items-center gap-2 h-9 shrink-0 px-2.5 cursor-grab active:cursor-grabbing select-none',
-          'border-b border-subtle bg-surface-2',
+          'rounded-t-lg border-b border-subtle bg-surface-2',
         )}
         onPointerDown={onHeaderPointerDown}
         onPointerMove={onHeaderPointerMove}
@@ -156,7 +132,6 @@ export function CanvasCard({
               addrFocused.current = false;
               setAddr(tab.url);
             }}
-            // Don't let a click/drag in the field start a card drag.
             onPointerDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -199,16 +174,12 @@ export function CanvasCard({
         </button>
       </div>
 
-      {/* Body. Web cards render an empty measured surface — the live
-          WebContentsView is composited over it by the main process (positioned
-          from this element's screen rect). Feature cards render their real
-          React surface from the shared registry. */}
-      <div className="relative flex-1 min-h-0 bg-surface-page">
+      {/* Body. Clips itself (the root is not overflow-hidden so the frame
+          controls can sit just outside it). Web cards render an empty measured
+          surface the main process composites the live WebContentsView over. */}
+      <div className="relative flex-1 min-h-0 overflow-hidden rounded-b-lg bg-surface-page">
         {isWeb ? (
           <div ref={registerWebEl} className="relative h-full w-full bg-surface-1" aria-label="Web card">
-            {/* Fallback shown only when the native web view isn't composited over
-                this card (e.g. while it loads); the live page covers it once the
-                main process positions the view at this element's rect. */}
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
               <Globe size={22} className="text-fg-tertiary" aria-hidden />
               <p className="max-w-full truncate text-body text-fg-secondary">{title}</p>
@@ -222,22 +193,40 @@ export function CanvasCard({
         )}
       </div>
 
-      {/* Resize handle (bottom-right). Hidden on web cards: the native view
-          composites over this corner and would swallow the pointer, so web
-          cards move via the header and resize is a follow-up. */}
-      {isWeb ? null : (
-        <div
-          role="separator"
-          aria-label="Resize card"
-          className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
-          onPointerDown={onResizePointerDown}
-          onPointerMove={onResizePointerMove}
-          onPointerUp={onResizePointerUp}
-          onPointerCancel={onResizePointerUp}
-        >
-          <span aria-hidden className="absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-strong" />
-        </div>
-      )}
+      {/* Connection port (right-center, just outside the body). Drag to another
+          card to wire them together. */}
+      {onStartConnect ? (
+        <button
+          type="button"
+          aria-label="Connect to another card"
+          title="Drag to another card to connect"
+          className={cn(
+            'absolute top-1/2 -right-2 z-10 h-3.5 w-3.5 -translate-y-1/2 rounded-pill',
+            'border border-accent bg-surface-1 hover:bg-accent cursor-crosshair',
+          )}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            e.preventDefault();
+            onStartConnect(e.clientX, e.clientY);
+          }}
+        />
+      ) : null}
+
+      {/* Resize handle (bottom-right). Sits just outside the body corner so it
+          stays clickable on web cards (clear of the native view); pointer capture
+          keeps the drag alive once it moves over the view. */}
+      <div
+        role="separator"
+        aria-label="Resize card"
+        className="absolute -bottom-1.5 -right-1.5 z-10 h-5 w-5 cursor-nwse-resize"
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+      >
+        <span aria-hidden className="absolute bottom-2 right-2 h-2 w-2 border-b-2 border-r-2 border-strong" />
+      </div>
     </div>
   );
 }

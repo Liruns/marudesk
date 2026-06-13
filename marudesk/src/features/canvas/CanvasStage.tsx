@@ -12,6 +12,7 @@ import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { CanvasCard } from './CanvasCard';
+import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { useCanvasStore } from './store';
 
 /**
@@ -28,6 +29,8 @@ export function CanvasStage() {
   const tabs = useTabsStore((s) => s.tabs);
   const activateTab = useTabsStore((s) => s.activateTab);
   const placements = useCanvasStore((s) => s.placements);
+  const edges = useCanvasStore((s) => s.edges);
+  const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
   const focusedTabId = useCanvasStore((s) => s.focusedTabId);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
@@ -38,6 +41,12 @@ export function CanvasStage() {
   const visibleTabs = activeWorkspaceId
     ? tabs.filter((t) => t.workspaceId === activeWorkspaceId)
     : tabs;
+  // Only draw edges whose both endpoints are visible on this canvas.
+  const visibleIds = new Set(visibleTabs.map((t) => t.id));
+  const visibleEdges = edges.filter((e) => visibleIds.has(e.from) && visibleIds.has(e.to));
+
+  // Live connection-drag preview (canvas coords of the loose end), or null.
+  const [connect, setConnect] = useState<ConnectPreview | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -144,8 +153,9 @@ export function CanvasStage() {
     // Only the empty canvas initiates a pan — never a card or an on-canvas
     // control (New card, zoom). Capturing the pointer here would otherwise
     // swallow their clicks.
-    if ((e.target as HTMLElement).closest('[data-canvas-card], button')) return;
+    if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
     useCanvasStore.getState().setFocused(null);
+    useCanvasStore.getState().selectEdge(null);
     e.currentTarget.setPointerCapture(e.pointerId);
     panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
     setPanning(true);
@@ -186,6 +196,54 @@ export function CanvasStage() {
     useCanvasStore.getState().fitToContent(r.width, r.height);
   };
 
+  // Screen px → canvas coords (inverse of the plane's translate+scale).
+  const toCanvas = useCallback((clientX: number, clientY: number) => {
+    const el = containerRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const r = el.getBoundingClientRect();
+    const { panX, panY, scale } = useCanvasStore.getState().viewport;
+    return { x: (clientX - r.left - panX) / scale, y: (clientY - r.top - panY) / scale };
+  }, []);
+
+  // Drag a connection from a card's port to another card. Window listeners (the
+  // drag crosses the whole canvas); the drop target is hit-tested by [data-tab-id].
+  const startConnect = useCallback(
+    (fromTabId: string, clientX: number, clientY: number) => {
+      const p = toCanvas(clientX, clientY);
+      setConnect({ from: fromTabId, x: p.x, y: p.y });
+      const onMove = (ev: PointerEvent) => {
+        const q = toCanvas(ev.clientX, ev.clientY);
+        setConnect((c) => (c ? { from: c.from, x: q.x, y: q.y } : c));
+      };
+      const onUp = (ev: PointerEvent) => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        setConnect(null);
+        const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+        const target = el?.closest('[data-tab-id]')?.getAttribute('data-tab-id');
+        if (target && target !== fromTabId) useCanvasStore.getState().addEdge(fromTabId, target);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [toCanvas],
+  );
+
+  // Delete the selected connection with the Delete key (not while typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const sel = useCanvasStore.getState().selectedEdgeId;
+      if (!sel) return;
+      e.preventDefault();
+      useCanvasStore.getState().removeEdge(sel);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div
       ref={containerRef}
@@ -210,6 +268,15 @@ export function CanvasStage() {
           transform: `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`,
         }}
       >
+        {/* Node connections, drawn behind the cards. */}
+        <CanvasEdges
+          placements={placements}
+          edges={visibleEdges}
+          selectedEdgeId={selectedEdgeId}
+          preview={connect}
+          onSelectEdge={(id) => useCanvasStore.getState().selectEdge(id)}
+          onRemoveEdge={(id) => useCanvasStore.getState().removeEdge(id)}
+        />
         {visibleTabs.map((tab) => {
           const rect = placements[tab.id];
           if (!rect) return null;
@@ -245,6 +312,7 @@ export function CanvasStage() {
                   ? () => void window.marudesk.invoke('devtools:popout-open', { tabId: tab.id })
                   : undefined
               }
+              onStartConnect={(cx, cy) => startConnect(tab.id, cx, cy)}
             />
           );
         })}

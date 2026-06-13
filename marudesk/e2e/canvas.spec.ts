@@ -38,3 +38,55 @@ test('canvas: default surface renders cards and toggles to/from classic', async 
     await app.close();
   }
 });
+
+test('canvas: cards can be wired together with a connection, then disconnected', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    // Two cards, both brought on-screen so their boxes are hittable.
+    await page.getByRole('button', { name: 'New card' }).click();
+    const cards = page.locator('[data-canvas-card]');
+    await expect(cards).toHaveCount(2);
+    await page.getByRole('button', { name: 'Fit to content' }).click();
+
+    // Drag from the first card's connection port onto the second card.
+    const port = page.getByRole('button', { name: 'Connect to another card' }).first();
+    const pb = await port.boundingBox();
+    const c2 = await cards.nth(1).boundingBox();
+    if (!pb || !c2) throw new Error('missing bounding boxes');
+    await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(c2.x + c2.width / 2, c2.y + c2.height / 2, { steps: 10 });
+    await page.mouse.up();
+
+    // An edge now exists and is auto-selected (its remove control shows).
+    await expect(page.locator('[data-edge-id]')).toHaveCount(1);
+    const remove = page.getByRole('button', { name: 'Remove connection' });
+    await expect(remove).toBeVisible();
+    await page.screenshot({ path: 'test-results/maru-canvas-edges.png' });
+    await remove.click();
+    await expect(page.locator('[data-edge-id]')).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('canvas: a card can be resized by its corner handle', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const card = page.locator('[data-canvas-card]').first();
+    const before = await card.boundingBox();
+    const handle = page.getByRole('separator', { name: 'Resize card' }).first();
+    const hb = await handle.boundingBox();
+    if (!before || !hb) throw new Error('missing bounding boxes');
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(hb.x + 140, hb.y + 100, { steps: 8 });
+    await page.mouse.up();
+    const after = await card.boundingBox();
+    if (!after) throw new Error('missing bounding box');
+    expect(after.width).toBeGreaterThan(before.width + 60);
+    expect(after.height).toBeGreaterThan(before.height + 40);
+  } finally {
+    await app.close();
+  }
+});
