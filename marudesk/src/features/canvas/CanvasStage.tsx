@@ -217,18 +217,25 @@ export function CanvasStage() {
   // Snap a moving card's edges (left/right/center + adjacency) to nearby cards
   // within a small threshold — Figma-style alignment; free placement elsewhere.
   const snapMove = (tabId: string, x: number, y: number) => {
-    const pl = useCanvasStore.getState().placements;
+    const store = useCanvasStore.getState();
+    const pl = store.placements;
     const cur = pl[tabId];
     if (!cur) {
       return;
     }
     const { w, h } = cur;
-    const SNAP = 6;
+    // Constant in screen px (so the feel is the same at any zoom).
+    const SNAP = 6 / store.viewport.scale;
+    // Read the visible set fresh (a mid-drag workspace switch shouldn't snap to
+    // the previous workspace's cards).
+    const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
+    const tabsNow = useTabsStore.getState().tabs;
+    const vis = aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow;
     let sx = x;
     let sy = y;
     let dx = SNAP;
     let dy = SNAP;
-    for (const t of visibleTabs) {
+    for (const t of vis) {
       if (t.id === tabId) continue;
       const r = pl[t.id];
       if (!r) continue;
@@ -450,6 +457,7 @@ export function CanvasStage() {
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
       aria-label="Canvas"
+      tabIndex={-1}
     >
       <div
         className="absolute inset-0 origin-top-left"
@@ -477,8 +485,12 @@ export function CanvasStage() {
               scale={viewport.scale}
               focused={focusedTabId === tab.id}
               onFocus={() => focusCard(tab.id)}
-              onClose={() => void useTabsStore.getState().closeTab(tab.id)}
+              onClose={() => {
+                void useTabsStore.getState().closeTab(tab.id);
+                containerRef.current?.focus(); // keep keyboard focus on the canvas
+              }}
               onMove={(x, y) => snapMove(tab.id, x, y)}
+              onNudge={(x, y) => useCanvasStore.getState().setPos(tab.id, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(tab.id, w, h)}
               registerWebEl={
                 tab.kind === 'web' ? (el) => registerWebEl(tab.id, el) : undefined

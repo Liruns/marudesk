@@ -38,6 +38,10 @@ function nearestIndex(factor: number): number {
 export function zoomActive(direction: 'in' | 'out' | 'reset'): number {
   const active = getActive();
   if (!active || !active.view) return 1;
+  // On the canvas the canvas zoom owns the page scale — per-page zoom would just
+  // be overwritten on the next layout, so make it a no-op there.
+  const paneScale = getPaneScale();
+  if (paneScale != null && getPaneBounds()?.has(active.id)) return paneScale;
   let next: number;
   if (direction === 'reset') {
     next = 1;

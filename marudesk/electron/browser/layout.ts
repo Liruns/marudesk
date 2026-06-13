@@ -162,15 +162,19 @@ export function setBrowserPaneBounds(
 
 /** Leave grid mode and restore the single active-tab view. */
 export function clearBrowserPaneBounds(): void {
-  if (!getPaneBounds()) return;
+  const prior = getPaneBounds();
+  if (!prior) return;
   // If the canvas had imposed a zoom factor, undo it so classic surfaces show
-  // each tab's own page zoom again.
-  const hadScale = getPaneScale() != null;
+  // each tab's own page zoom again — only for the views the canvas actually
+  // zoomed (those in the prior pane map).
+  const restoreZoom = getPaneScale() != null;
   setPaneBounds(null);
   setPaneScale(null);
   // Hide every web view first so nothing is left stranded.
   for (const rec of tabValues()) {
-    if (hadScale && rec.view) rec.view.webContents.setZoomFactor(rec.zoomFactor ?? 1);
+    if (restoreZoom && rec.view && prior.has(rec.id)) {
+      rec.view.webContents.setZoomFactor(rec.zoomFactor ?? 1);
+    }
     hideTab(rec);
   }
   // Reveal the active tab's web view. MUST go through showTab (not

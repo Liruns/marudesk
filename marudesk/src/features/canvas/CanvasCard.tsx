@@ -34,6 +34,7 @@ export function CanvasCard({
   onFocus,
   onClose,
   onMove,
+  onNudge,
   onResize,
   registerWebEl,
   onNavigate,
@@ -47,6 +48,8 @@ export function CanvasCard({
   onFocus: () => void;
   onClose: () => void;
   onMove: (x: number, y: number) => void;
+  /** Keyboard move (no snap), so arrow-nudge stays precise. Falls back to onMove. */
+  onNudge?: (x: number, y: number) => void;
   onResize: (w: number, h: number) => void;
   registerWebEl?: (el: HTMLDivElement | null) => void;
   onNavigate?: (input: string) => void;
@@ -107,18 +110,19 @@ export function CanvasCard({
   const onRootKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
     const step = e.shiftKey ? 1 : 8;
+    const move = onNudge ?? onMove; // free placement for keyboard (no snap)
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      onMove(rect.x - step, rect.y);
+      move(rect.x - step, rect.y);
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
-      onMove(rect.x + step, rect.y);
+      move(rect.x + step, rect.y);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      onMove(rect.x, rect.y - step);
+      move(rect.x, rect.y - step);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      onMove(rect.x, rect.y + step);
+      move(rect.x, rect.y + step);
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       onClose();
