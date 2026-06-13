@@ -45,6 +45,7 @@ export function CanvasStage() {
   const edges = useCanvasStore((s) => s.edges);
   const edgeStyle = useCanvasStore((s) => s.edgeStyle);
   const groups = useCanvasStore((s) => s.groups);
+  const selection = useCanvasStore((s) => s.selection);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
   const focusedTabId = useCanvasStore((s) => s.focusedTabId);
@@ -81,9 +82,16 @@ export function CanvasStage() {
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
   // Workspace-switcher dropdown anchor (canvas mode has no workspace rail).
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
+  // Marquee (drag-box) selection rect in canvas coords while dragging, or null.
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // True while Space is held → empty-canvas left-drag pans instead of marqueeing.
+  const [spacePan, setSpacePan] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  // Marquee anchor (canvas coords) + the multi-selection store keys it began with.
+  const marqueeRef = useRef<{ pointerId: number; ox: number; oy: number } | null>(null);
+  const spaceDownRef = useRef(false);
   const [panning, setPanning] = useState(false);
   // Live element refs for web cards, keyed by tab id, so we can measure their
   // screen rects and position the matching native WebContentsViews.
@@ -211,30 +219,77 @@ export function CanvasStage() {
   }, []);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    // Only the empty canvas initiates a pan — never a card or an on-canvas
-    // control (New card, zoom). Capturing the pointer here would otherwise
+    // Never start on a card or an on-canvas control — capturing here would
     // swallow their clicks.
     if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
-    useCanvasStore.getState().setFocused(null);
-    useCanvasStore.getState().selectEdge(null);
+    // Pan with the middle button or Space+left (Figma); plain left marquee-selects
+    // empty canvas; right opens the context menu.
+    const pan = e.button === 1 || (e.button === 0 && spaceDownRef.current);
+    if (pan) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      setPanning(true);
+      return;
+    }
+    if (e.button !== 0) return;
+    const store = useCanvasStore.getState();
+    store.setFocused(null);
+    store.selectEdge(null);
+    store.clearSelection();
     e.currentTarget.setPointerCapture(e.pointerId);
-    panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
-    setPanning(true);
+    const pt = toCanvas(e.clientX, e.clientY);
+    marqueeRef.current = { pointerId: e.pointerId, ox: pt.x, oy: pt.y };
+    setMarquee({ x: pt.x, y: pt.y, w: 0, h: 0 });
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const p = panRef.current;
-    if (!p || p.pointerId !== e.pointerId) return;
-    const dx = e.clientX - p.x;
-    const dy = e.clientY - p.y;
-    p.x = e.clientX;
-    p.y = e.clientY;
-    useCanvasStore.getState().panBy(dx, dy);
+    if (p && p.pointerId === e.pointerId) {
+      const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
+      p.x = e.clientX;
+      p.y = e.clientY;
+      useCanvasStore.getState().panBy(dx, dy);
+      return;
+    }
+    const m = marqueeRef.current;
+    if (m && m.pointerId === e.pointerId) {
+      const pt = toCanvas(e.clientX, e.clientY);
+      setMarquee({
+        x: Math.min(m.ox, pt.x),
+        y: Math.min(m.oy, pt.y),
+        w: Math.abs(pt.x - m.ox),
+        h: Math.abs(pt.y - m.oy),
+      });
+    }
   };
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (panRef.current?.pointerId === e.pointerId) {
       panRef.current = null;
       setPanning(false);
+      return;
+    }
+    const m = marqueeRef.current;
+    if (m && m.pointerId === e.pointerId) {
+      marqueeRef.current = null;
+      const pt = toCanvas(e.clientX, e.clientY);
+      const minX = Math.min(m.ox, pt.x);
+      const minY = Math.min(m.oy, pt.y);
+      const maxX = Math.max(m.ox, pt.x);
+      const maxY = Math.max(m.oy, pt.y);
+      setMarquee(null);
+      if (maxX - minX < 4 && maxY - minY < 4) return; // a click, not a drag
+      const store = useCanvasStore.getState();
+      const grouped = new Set(groups.flatMap((g) => g.tabIds));
+      const sel: string[] = [];
+      for (const [key, r] of Object.entries(store.placements)) {
+        const grp = groups.find((g) => g.id === key);
+        const rendered = grp
+          ? grp.tabIds.some((id) => visibleIds.has(id))
+          : visibleIds.has(key) && !grouped.has(key);
+        if (!rendered) continue;
+        if (r.x < maxX && r.x + r.w > minX && r.y < maxY && r.y + r.h > minY) sel.push(key);
+      }
+      store.setSelection(sel);
     }
   };
 
@@ -288,6 +343,71 @@ export function CanvasStage() {
       }
     }
     useCanvasStore.getState().setPos(tabId, sx, sy);
+  };
+
+  // Header drag: if the dragged card is part of a multi-selection, move the whole
+  // selection together (per-frame delta, no snap); otherwise snap the single card.
+  const handleMove = (key: string, x: number, y: number) => {
+    const store = useCanvasStore.getState();
+    const sel = store.selection;
+    if (sel.length > 1 && sel.includes(key)) {
+      const pl = store.placements;
+      const cur = pl[key];
+      if (!cur) return;
+      const dx = x - cur.x;
+      const dy = y - cur.y;
+      for (const k of sel) {
+        const r = pl[k];
+        if (!r || r.locked) continue;
+        if (k === key) store.setPos(k, x, y);
+        else store.setPos(k, r.x + dx, r.y + dy);
+      }
+    } else {
+      snapMove(key, x, y);
+    }
+  };
+
+  // Card click: shift toggles the multi-selection; a plain click keeps an existing
+  // multi-selection that includes this card (so a drag moves the group), else
+  // selects just this one. Always focuses + raises it.
+  const handleCardSelect = (tabId: string, key: string, additive?: boolean) => {
+    const store = useCanvasStore.getState();
+    if (additive) {
+      store.toggleSelection(key);
+    } else if (!store.selection.includes(key)) {
+      store.setSelection([key]);
+    }
+    focusCard(tabId, key);
+  };
+
+  // Placement keys for every card currently rendered (ungrouped visible tabs +
+  // visible groups) — read fresh so it's safe from a []-dep keyboard handler.
+  const renderedKeys = (): string[] => {
+    const cs = useCanvasStore.getState();
+    const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
+    const tabsNow = useTabsStore.getState().tabs;
+    const vis = new Set((aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow).map((t) => t.id));
+    const grouped = new Set(cs.groups.flatMap((g) => g.tabIds));
+    const keys: string[] = [];
+    for (const key of Object.keys(cs.placements)) {
+      const grp = cs.groups.find((g) => g.id === key);
+      const rendered = grp ? grp.tabIds.some((id) => vis.has(id)) : vis.has(key) && !grouped.has(key);
+      if (rendered) keys.push(key);
+    }
+    return keys;
+  };
+
+  // Close every selected card (a group key closes all its member tabs).
+  const closeSelection = (): void => {
+    const cs = useCanvasStore.getState();
+    if (cs.selection.length === 0) return;
+    const tabsStore = useTabsStore.getState();
+    for (const key of cs.selection) {
+      const grp = cs.groups.find((g) => g.id === key);
+      if (grp) for (const id of grp.tabIds) void tabsStore.closeTab(id);
+      else void tabsStore.closeTab(key);
+    }
+    cs.clearSelection();
   };
 
   // Use the tracked container `size` (not the ref) so these stay callable from
@@ -564,26 +684,66 @@ export function CanvasStage() {
     ];
   };
 
-  // Canvas keyboard: ⌘/Ctrl+Shift+M toggles the minimap (cate parity); Delete
-  // removes the selected connection (not while typing in a field).
+  // Canvas keyboard (Figma-style): ⌘/Ctrl+Shift+M minimap; Space holds pan; ⌘/Ctrl+A
+  // select all; Esc clears; Delete removes the selected edge or closes the
+  // selection. All gated off text fields / controls.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       const editable =
-        !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+        !!t &&
+        (t.tagName === 'INPUT' ||
+          t.tagName === 'TEXTAREA' ||
+          t.isContentEditable ||
+          !!t.closest('input, textarea, [contenteditable], button'));
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         setMinimapOpen((v) => !v);
         return;
       }
-      if (e.key !== 'Delete' || editable) return;
-      const sel = useCanvasStore.getState().selectedEdgeId;
-      if (!sel) return;
-      e.preventDefault();
-      useCanvasStore.getState().removeEdge(sel);
+      if (e.code === 'Space' && !editable) {
+        if (!spaceDownRef.current) {
+          spaceDownRef.current = true;
+          setSpacePan(true);
+        }
+        e.preventDefault();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !editable) {
+        e.preventDefault();
+        useCanvasStore.getState().setSelection(renderedKeys());
+        return;
+      }
+      if (e.key === 'Escape') {
+        const cs = useCanvasStore.getState();
+        cs.clearSelection();
+        cs.setFocused(null);
+        cs.selectEdge(null);
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !editable) {
+        const cs = useCanvasStore.getState();
+        if (cs.selectedEdgeId) {
+          e.preventDefault();
+          cs.removeEdge(cs.selectedEdgeId);
+        } else if (cs.selection.length > 0) {
+          e.preventDefault();
+          closeSelection();
+        }
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        spaceDownRef.current = false;
+        setSpacePan(false);
+      }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, []);
 
   // What to render: each ungrouped visible tab as a card, plus one card per group
@@ -607,7 +767,7 @@ export function CanvasStage() {
       ref={containerRef}
       className={cn(
         'relative h-full w-full overflow-hidden bg-surface-page',
-        panning ? 'cursor-grabbing' : 'cursor-grab',
+        panning ? 'cursor-grabbing' : spacePan ? 'cursor-grab' : 'cursor-default',
       )}
       style={{
         backgroundImage: 'radial-gradient(var(--border-subtle) 1px, transparent 1.6px)',
@@ -674,16 +834,17 @@ export function CanvasStage() {
               focused={focusedTabId === tab.id}
               group={group}
               mergeHighlight={mergeTarget === key}
+              selected={selection.includes(key)}
               locked={rect.locked}
               maximized={!!rect.preMax}
               onToggleLock={() => useCanvasStore.getState().toggleLock(key)}
               onToggleMaximize={() => useCanvasStore.getState().toggleMaximize(key, maximizeRect())}
-              onFocus={() => focusCard(tab.id, key)}
+              onFocus={(additive) => handleCardSelect(tab.id, key, additive)}
               onClose={() => {
                 void useTabsStore.getState().closeTab(tab.id);
                 containerRef.current?.focus(); // keep keyboard focus on the canvas
               }}
-              onMove={(x, y) => snapMove(key, x, y)}
+              onMove={(x, y) => handleMove(key, x, y)}
               onNudge={(x, y) => useCanvasStore.getState().setPos(key, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(key, w, h)}
               // Merge only by dragging an ungrouped card (its key === tab id);
@@ -742,6 +903,15 @@ export function CanvasStage() {
             </button>
           );
         })()}
+
+        {/* Marquee (drag-box) selection rectangle, in canvas coords. */}
+        {marquee ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute rounded-sm border border-accent bg-accent/10"
+            style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, zIndex: 99999 }}
+          />
+        ) : null}
       </div>
 
       {/* Minimap (cate parity — ⌘/Ctrl+Shift+M). */}

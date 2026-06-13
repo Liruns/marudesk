@@ -244,3 +244,45 @@ test('canvas: a card can be locked (no move/resize) and maximized', async () => 
     await app.close();
   }
 });
+
+test('canvas: marquee selects multiple cards and they move together', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    await page.getByRole('button', { name: 'New card' }).click();
+    const cards = page.locator('[data-canvas-card]');
+    await expect(cards).toHaveCount(2);
+    await page.getByRole('button', { name: 'Fit to content' }).click();
+
+    const canvas = page.locator('[aria-label="Canvas"]');
+    const cb = await canvas.boundingBox();
+    if (!cb) throw new Error('no canvas box');
+
+    // Marquee from the empty top-left corner across the whole canvas → both cards.
+    await page.mouse.move(cb.x + 4, cb.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(cb.x + cb.width - 4, cb.y + cb.height - 4, { steps: 12 });
+    await page.mouse.up();
+
+    // Both cards show the selection ring.
+    await expect(cards.nth(0)).toHaveClass(/ring-accent/);
+    await expect(cards.nth(1)).toHaveClass(/ring-accent/);
+
+    // Dragging one selected card's header moves the whole selection together.
+    const before0 = await cards.nth(0).boundingBox();
+    const before1 = await cards.nth(1).boundingBox();
+    const header0 = page.locator('[data-card-header]').nth(0);
+    const hb = await header0.boundingBox();
+    if (!before0 || !before1 || !hb) throw new Error('missing boxes');
+    await page.mouse.move(hb.x + hb.width * 0.4, hb.y + hb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(hb.x + hb.width * 0.4 + 80, hb.y + hb.height / 2 + 60, { steps: 10 });
+    await page.mouse.up();
+    const after0 = await cards.nth(0).boundingBox();
+    const after1 = await cards.nth(1).boundingBox();
+    if (!after0 || !after1) throw new Error('missing boxes');
+    expect(after0.x - before0.x).toBeGreaterThan(30);
+    expect(after1.x - before1.x).toBeGreaterThan(30); // the non-dragged card moved too
+  } finally {
+    await app.close();
+  }
+});

@@ -237,6 +237,8 @@ type CanvasState = {
   groups: CardGroup[];
   viewport: Viewport;
   focusedTabId: string | null;
+  /** Multi-selected placement keys (Figma marquee / shift-click); in-memory. */
+  selection: string[];
   /** The currently-selected edge (for delete), or null. */
   selectedEdgeId: string | null;
   /** Monotonic z allocator so bringToFront always wins. */
@@ -251,6 +253,14 @@ type CanvasActions = {
   bringToFront: (tabId: string) => void;
   sendToBack: (tabId: string) => void;
   setFocused: (tabId: string | null) => void;
+  /** Replace the multi-selection (placement keys). */
+  setSelection: (keys: string[]) => void;
+  /** Add/remove one key from the multi-selection (shift-click). */
+  toggleSelection: (key: string) => void;
+  /** Clear the multi-selection. */
+  clearSelection: () => void;
+  /** Nudge every selected card by (dx,dy) in canvas units (skips locked). */
+  moveSelectionBy: (keys: string[], base: Record<string, { x: number; y: number }>, dx: number, dy: number) => void;
   /** Connect two cards (no-op on self / duplicate, either direction). Sides pin
       each end to a face; omit for auto (center-ray) anchoring. */
   addEdge: (from: string, to: string, fromSide?: EdgeSide, toSide?: EdgeSide) => void;
@@ -296,6 +306,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   groups: persisted.groups,
   viewport: persisted.viewport,
   focusedTabId: null,
+  selection: [],
   selectedEdgeId: null,
   topZ: persisted.topZ,
 
@@ -429,6 +440,28 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     }),
 
   setFocused: (tabId) => set({ focusedTabId: tabId }),
+
+  setSelection: (keys) => set({ selection: [...new Set(keys)] }),
+  toggleSelection: (key) =>
+    set((s) => ({
+      selection: s.selection.includes(key)
+        ? s.selection.filter((k) => k !== key)
+        : [...s.selection, key],
+    })),
+  clearSelection: () => set((s) => (s.selection.length ? { selection: [] } : {})),
+  moveSelectionBy: (keys, base, dx, dy) =>
+    set((s) => {
+      const next = { ...s.placements };
+      let changed = false;
+      for (const key of keys) {
+        const cur = next[key];
+        const b = base[key];
+        if (!cur || cur.locked || !b) continue;
+        next[key] = { ...cur, x: b.x + dx, y: b.y + dy };
+        changed = true;
+      }
+      return changed ? { placements: next } : {};
+    }),
 
   addEdge: (from, to, fromSide, toSide) =>
     set((s) => {

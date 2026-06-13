@@ -67,6 +67,7 @@ export function CanvasCard({
   rect,
   scale,
   focused,
+  selected,
   onFocus,
   onClose,
   onMove,
@@ -89,7 +90,10 @@ export function CanvasCard({
   rect: CardRect;
   scale: number;
   focused: boolean;
-  onFocus: () => void;
+  /** Part of the multi-selection (marquee / shift-click) — shows a select ring. */
+  selected?: boolean;
+  /** `additive` (shift) toggles this card in the multi-selection. */
+  onFocus: (additive?: boolean) => void;
   onClose: () => void;
   onMove: (x: number, y: number) => void;
   /** Keyboard move (no snap), so arrow-nudge stays precise. Falls back to onMove. */
@@ -129,7 +133,7 @@ export function CanvasCard({
   const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    onFocus();
+    onFocus(e.shiftKey);
     rootRef.current?.focus(); // so arrow-nudge / Delete work after a click
     if (locked) return; // locked cards can be selected but not dragged
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -152,7 +156,7 @@ export function CanvasCard({
   const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || locked) return;
     e.stopPropagation();
-    onFocus();
+    onFocus(false);
     e.currentTarget.setPointerCapture(e.pointerId);
     const dir = (e.currentTarget.dataset.resizeDir as ResizeDir | undefined) ?? 'se';
     resizeState.current = {
@@ -246,12 +250,14 @@ export function CanvasCard({
         'group @container absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
         mergeHighlight
           ? 'ring-2 ring-accent shadow-lifted'
-          : focused
-            ? 'ring-1 ring-accent/60 shadow-lifted'
-            : 'shadow-card hover:shadow-lifted',
+          : selected
+            ? 'ring-2 ring-accent/80 shadow-lifted'
+            : focused
+              ? 'ring-1 ring-accent/60 shadow-lifted'
+              : 'shadow-card hover:shadow-lifted',
       )}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: rect.z }}
-      onPointerDown={onFocus}
+      onPointerDown={(e) => onFocus(e.shiftKey)}
       onKeyDown={onRootKeyDown}
     >
       <div
