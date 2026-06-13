@@ -359,6 +359,34 @@ test('canvas: named canvases + panel positions persist across a full restart', a
   }
 });
 
+test('canvas: AI task graph — generate, render Task nodes, run to done', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    // Open the Work-OS panel and generate a graph from a goal (offline sample
+    // when no provider is configured — deterministic 4-task DAG).
+    await page.getByRole('button', { name: 'Toggle task graph' }).click();
+    const goal = page.getByPlaceholder('Describe a goal…');
+    await goal.fill('Build the orders feature');
+    await page.getByRole('button', { name: 'Generate', exact: true }).click();
+
+    // Task nodes render on the canvas (not tab cards).
+    const nodes = page.locator('[data-task-node]');
+    await expect(nodes).toHaveCount(4);
+    await expect(page.getByText(/4 tasks/)).toBeVisible();
+    await page.screenshot({ path: 'test-results/maru-task-graph.png' });
+
+    // Run drives the dependency-ordered scheduler to completion (all done/green).
+    await page.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(page.getByText(/4 done/)).toBeVisible({ timeout: 10_000 });
+
+    // Reset re-arms the graph (nothing done).
+    await page.getByRole('button', { name: 'Reset', exact: true }).click();
+    await expect(page.getByText(/0 done/)).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
 test('canvas: marquee selects multiple cards and they move together', async () => {
   const { app, page } = await launchApp({ surface: 'canvas' });
   try {
