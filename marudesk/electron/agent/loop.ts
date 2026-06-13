@@ -58,6 +58,7 @@ import {
   emitContainer,
   currentContainer,
   containerForWorkspace,
+  containerForThread,
   containerBusy,
   uid,
   type ApprovalDecision,
@@ -953,7 +954,11 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
   // it up front means the turn sets up + runs on the thread the user sent to even
   // if they switch away during the async auth resolve below. `busy()` checks the
   // active thread — a turn already running on ANOTHER thread doesn't block this.
-  const S = input.workspaceId ? containerForWorkspace(input.workspaceId) : currentContainer();
+  // Bind to a SPECIFIC thread when one is named (canvas cards each own a thread,
+  // all live at once); otherwise the workspace's active thread, then the global.
+  const S =
+    (input.threadId ? containerForThread(input.threadId) : null) ??
+    (input.workspaceId ? containerForWorkspace(input.workspaceId) : currentContainer());
   // `S.starting` closes the window between this check and `S.state.status` going
   // busy (there's an auth-resolution await before we set it), so two
   // near-simultaneous sends can't both set up a turn and clobber `S.controller`.

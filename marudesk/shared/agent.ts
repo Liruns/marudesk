@@ -396,6 +396,12 @@ export type AgentSendInput = {
   images?: AgentImageInput[];
   /** The active web tab, so runtime tools (console/dom/network) have a target. */
   tabId?: string;
+  /**
+   * Run this turn on a SPECIFIC thread (canvas: each AI Chat card is its own
+   * thread, all live + independent at once). Omitted ⇒ the workspace's active
+   * thread (classic single-view behaviour).
+   */
+  threadId?: string;
 };
 
 export type AgentSendResult =
@@ -404,6 +410,17 @@ export type AgentSendResult =
 
 export type AgentWorkspaceEvent = {
   workspaceId: WorkspaceId;
+  state: AgentChatState;
+};
+
+/**
+ * A specific thread's live state push (canvas: many independent chats at once).
+ * Carries the threadId so a renderer card bound to one thread ingests only its
+ * own stream, regardless of which thread is the workspace "active" one.
+ */
+export type AgentThreadEvent = {
+  workspaceId?: WorkspaceId;
+  threadId: string;
   state: AgentChatState;
 };
 

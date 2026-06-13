@@ -733,8 +733,12 @@ export interface IpcMap {
     ];
     result: boolean;
   };
-  // Pull the current chat state (initial render / re-mount).
-  'agent:snapshot': { args: [payload?: { workspaceId?: WorkspaceId }]; result: AgentChatState };
+  // Pull the current chat state (initial render / re-mount). `threadId` pulls a
+  // specific thread (canvas cards); omitted ⇒ the workspace's active thread.
+  'agent:snapshot': {
+    args: [payload?: { workspaceId?: WorkspaceId; threadId?: string }];
+    result: AgentChatState;
+  };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: [payload?: { workspaceId?: WorkspaceId }]; result: boolean };
   // Compact the conversation: summarize the transcript for the model while

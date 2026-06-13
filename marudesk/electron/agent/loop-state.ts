@@ -125,6 +125,12 @@ export function containers(): ThreadContainer[] {
   return [...threads.values()];
 }
 
+/** The container for a specific thread id, or null if it's gone (canvas: each
+ *  AI Chat card binds to its own thread and runs/streams independently). */
+export function containerForThread(id: string): ThreadContainer | null {
+  return threads.get(id) ?? null;
+}
+
 export function refreshOrchestrationProjection(): void {
   refreshOrchestrationState(threadProjectionEntries());
 }
@@ -445,7 +451,41 @@ function emitWorkspaceContainer(c: ThreadContainer): void {
  * coalesced flushes (once per tick), never synchronously here. Synchronous
  * readers that need a fresh projection (snapshot()) refresh it themselves.
  */
+// Per-container coalesced flush of the THREAD-scoped event. Unlike the workspace
+// twin, this fires for EVERY container (active or background) carrying its
+// threadId, so a canvas card bound to that thread streams independently — many
+// chats live at once. Coalesced per container so a token burst crosses IPC once
+// per tick; cached in a WeakMap so closed containers don't leak.
+const threadEventFlushes = new WeakMap<ThreadContainer, () => void>();
+
+function emitThreadContainer(c: ThreadContainer): void {
+  let flush = threadEventFlushes.get(c);
+  if (!flush) {
+    flush = coalesced(() => {
+      const threadId = idForContainer(c);
+      if (!threadId) return;
+      refreshOrchestrationProjection();
+      const agentSettings = getSettingsSync().agent;
+      c.state.approvalMode = agentSettings.approvalMode;
+      c.state.reasoningEffort = agentSettings.reasoningEffort;
+      const host = getHost();
+      if (host && !host.isDestroyed()) {
+        host.webContents.send('agent:thread-event', {
+          ...(c.workspaceId ? { workspaceId: c.workspaceId } : {}),
+          threadId,
+          state: c.state,
+        });
+      }
+    });
+    threadEventFlushes.set(c, flush);
+  }
+  flush();
+}
+
 export function emitContainer(c: ThreadContainer): void {
+  // Every container streams its own thread event (canvas independence), then the
+  // existing workspace/global active-thread pushes for classic single-view.
+  emitThreadContainer(c);
   emitWorkspaceContainer(c);
   if (c === S) {
     emit();

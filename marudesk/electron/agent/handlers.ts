@@ -137,7 +137,11 @@ export function registerAgentHandlers(): void {
     return editPlanStep(id, op);
   });
 
-  defineHandler('agent:snapshot', ([payload]) => snapshot(workspaceIdOf(payload)));
+  defineHandler('agent:snapshot', ([payload]) => {
+    const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+    const threadId = typeof p.threadId === 'string' ? p.threadId : undefined;
+    return snapshot(workspaceIdOf(payload), threadId);
+  });
 
   defineHandler('agent:reset', ([payload]) => reset(containerForWorkspace(workspaceIdOf(payload))));
 

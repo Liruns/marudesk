@@ -11,11 +11,11 @@ import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { findModel } from '../../../shared/providers';
-import type { AgentChatState, AgentWorkspaceEvent } from '../../../shared/agent';
+import type { AgentChatState, AgentThreadEvent, AgentWorkspaceEvent } from '../../../shared/agent';
 import { useProvidersStore } from '../providers/store';
 import { useSettingsStore } from '../settings/store';
 import { useWorkspaceStore } from '../workspace/store';
-import { useAgentStore, useAgentWorkspaceId, useThreadModelKey } from './store';
+import { useAgentStore, useAgentThreadId, useAgentWorkspaceId, useThreadModelKey } from './store';
 import { ContextPopover } from './ContextPopover';
 import { buildReceipt, hasOrchestrationContent, isBusy } from './chat/format';
 import {
@@ -77,6 +77,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const dequeuePrompt = useAgentStore((s) => s.dequeuePrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
   const workspaceId = useAgentWorkspaceId();
+  const boundThreadId = useAgentThreadId();
 
   const summary = useWorkspaceStore((s) => s.summary);
   // Reading-comfort scale for the transcript only (settings → Appearance). CSS
@@ -104,6 +105,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // we catch up on whatever happened while the panel was on another tab.
   useEffect(() => {
     void hydrate();
+    // Canvas card: bound to one thread → ingest only THAT thread's live stream,
+    // so many chats run independently at once. Classic/drawer: no bound thread →
+    // follow the workspace's active thread (or the global one with no workspace).
+    if (boundThreadId) {
+      return window.marudesk.on('agent:thread-event', (event: AgentThreadEvent) => {
+        if (event.threadId === boundThreadId) ingest(event.state);
+      });
+    }
     if (workspaceId) {
       return window.marudesk.on('agent:workspace-event', (event: AgentWorkspaceEvent) => {
         if (event.workspaceId === workspaceId) ingest(event.state);
@@ -111,7 +120,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     }
     const off = window.marudesk.on('agent:event', (s: AgentChatState) => ingest(s));
     return off;
-  }, [hydrate, ingest, workspaceId]);
+  }, [hydrate, ingest, workspaceId, boundThreadId]);
 
   useEffect(() => {
     if (!statusChecked) void refreshStatus();

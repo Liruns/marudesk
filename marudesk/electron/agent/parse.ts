@@ -67,6 +67,7 @@ export function parseSendInput(payload: unknown): AgentSendInput {
     captures: captures as CapturePayload[],
     images: parseImages(o.images),
     tabId: optStr(o.tabId, 'tabId'),
+    threadId: optStr(o.threadId, 'threadId'),
   };
 }
 
