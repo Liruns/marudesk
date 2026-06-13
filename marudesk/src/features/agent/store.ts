@@ -179,8 +179,19 @@ type AgentActions = {
   restoreTurnPage: (turnId: string) => Promise<void>;
   restoreCheckpoint: (turnId: string) => Promise<CheckpointRestore>;
   cancelBackground: (id: string) => Promise<void>;
-  /** Steerable plan (v6 §U5): toggle a step's status or remove it. */
-  editPlanStep: (id: string, op: { status?: string; remove?: boolean }) => Promise<void>;
+  /**
+   * Steerable plan (v6 §U5): toggle a step's status, rename or remove it, or
+   * insert a person-authored step (`add`) that survives the model's next replace.
+   */
+  editPlanStep: (
+    id: string,
+    op: {
+      status?: string;
+      remove?: boolean;
+      title?: string;
+      add?: { title: string; after?: string };
+    },
+  ) => Promise<void>;
   resetChat: () => Promise<void>;
   /**
    * Summarize the transcript for the model to free context while keeping the

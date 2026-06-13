@@ -51,8 +51,8 @@ test('canvas: cards can be wired together with a connection, then disconnected',
     await expect(cards).toHaveCount(2);
     await page.getByRole('button', { name: 'Fit to content' }).click();
 
-    // Drag from the first card's connection port onto the second card.
-    const port = page.getByRole('button', { name: 'Connect to another card' }).first();
+    // Drag from the first card's right-edge connection port onto the second card.
+    const port = page.getByRole('button', { name: 'Connect from right edge' }).first();
     const pb = await port.boundingBox();
     const c2 = await cards.nth(1).boundingBox();
     if (!pb || !c2) throw new Error('missing bounding boxes');
@@ -168,6 +168,39 @@ test('canvas: a card can be resized by its corner handle', async () => {
     if (!after) throw new Error('missing bounding box');
     expect(after.width).toBeGreaterThan(before.width + 60);
     expect(after.height).toBeGreaterThan(before.height + 40);
+  } finally {
+    await app.close();
+  }
+});
+
+test('canvas: dragging a card onto another merges them into a tab group, then pops out', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    await page.getByRole('button', { name: 'New card' }).click();
+    const cards = page.locator('[data-canvas-card]');
+    await expect(cards).toHaveCount(2);
+    await page.getByRole('button', { name: 'Fit to content' }).click();
+
+    // Drag the first card's header onto the second card's header → merge.
+    const headers = page.locator('[data-card-header]');
+    const h1 = await headers.nth(0).boundingBox();
+    const h2 = await headers.nth(1).boundingBox();
+    if (!h1 || !h2) throw new Error('missing header boxes');
+    await page.mouse.move(h1.x + h1.width / 2, h1.y + h1.height / 2);
+    await page.mouse.down();
+    // Move in steps so the drag registers, landing on the target's header band.
+    await page.mouse.move(h2.x + h2.width / 2, h2.y + h2.height / 2, { steps: 12 });
+    await page.mouse.up();
+
+    // Two cards became one group card with a 2-tab strip.
+    await expect(cards).toHaveCount(1);
+    await expect(page.getByRole('tab')).toHaveCount(2);
+    await page.screenshot({ path: 'test-results/maru-canvas-merge.png' });
+
+    // Pop the active tab back out → two cards again.
+    await page.locator('[data-card-header]').first().click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Pop out tab' }).click();
+    await expect(cards).toHaveCount(2);
   } finally {
     await app.close();
   }

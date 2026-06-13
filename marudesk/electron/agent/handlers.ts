@@ -133,8 +133,8 @@ export function registerAgentHandlers(): void {
   // Steerable plan (v6 §U5): the user toggles a step's status or removes it.
   // Shares parseEditPlanStep with the bridge path so IPC + relay validate alike.
   defineHandler('agent:edit-plan-step', ([payload]) => {
-    const { id, status, remove } = parseEditPlanStep(payload);
-    return editPlanStep(id, { status, remove });
+    const { id, ...op } = parseEditPlanStep(payload);
+    return editPlanStep(id, op);
   });
 
   defineHandler('agent:snapshot', ([payload]) => snapshot(workspaceIdOf(payload)));

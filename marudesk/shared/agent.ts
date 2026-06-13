@@ -290,6 +290,12 @@ export type AgentPlanStep = {
   /** Optional one-line detail or result for the step. */
   note?: string;
   /**
+   * True when a *person* inserted this step (not the model). Such steps survive
+   * the model's next `update_plan` (which otherwise replaces the whole plan), so
+   * a human can steer the agent's process by adding a node it must keep.
+   */
+  userAdded?: boolean;
+  /**
    * The transcript message the agent was at when this step became active, so the
    * Taskboard can jump there (v5 §G2). Set once on the first in_progress/done
    * transition and preserved across plan updates.

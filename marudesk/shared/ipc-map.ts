@@ -719,9 +719,18 @@ export interface IpcMap {
   'agent:list-tools': { args: []; result: AgentToolInfo[] };
   // User-initiated cancel of a running background agent from the tray (audit H6).
   'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
-  // Steerable plan (v6 §U5): user toggles a step's status or removes it.
+  // Steerable plan (v6 §U5): user toggles a step's status, renames or removes it,
+  // or inserts a person-authored step (`add`) that survives the model's replace.
   'agent:edit-plan-step': {
-    args: [payload: { id: string; status?: string; remove?: boolean }];
+    args: [
+      payload: {
+        id?: string;
+        status?: string;
+        remove?: boolean;
+        title?: string;
+        add?: { title: string; after?: string };
+      },
+    ];
     result: boolean;
   };
   // Pull the current chat state (initial render / re-mount).

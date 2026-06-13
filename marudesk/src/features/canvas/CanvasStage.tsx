@@ -8,16 +8,19 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { ChevronDown, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
+import { ChevronDown, Globe, ListTree, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
-import type { TabKind } from '../../../shared/browser';
+import type { TabKind, TabState } from '../../../shared/browser';
 import { useTabsStore } from '../tabs/store';
+import { tabKinds } from '../tabs/registry';
 import { useWorkspaceDeckStore } from '../workspaces/store';
-import { CanvasCard } from './CanvasCard';
+import { CanvasCard, type CardGroupProps } from './CanvasCard';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
-import { useCanvasStore } from './store';
+import { CanvasPlanFlow } from './CanvasPlanFlow';
+import { edgeEndpoints, nearestSide } from './edgeGeometry';
+import { placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
 
 type CanvasMenu =
   | { x: number; y: number; kind: 'canvas' }
@@ -39,6 +42,8 @@ export function CanvasStage() {
   const activateTab = useTabsStore((s) => s.activateTab);
   const placements = useCanvasStore((s) => s.placements);
   const edges = useCanvasStore((s) => s.edges);
+  const edgeStyle = useCanvasStore((s) => s.edgeStyle);
+  const groups = useCanvasStore((s) => s.groups);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
   const focusedTabId = useCanvasStore((s) => s.focusedTabId);
@@ -47,13 +52,19 @@ export function CanvasStage() {
 
   // Scope cards to the active workspace so multiple workspaces don't pile onto
   // one canvas; fall back to all tabs when no workspace is active. Placements are
-  // keyed by (unique) tab id, so the shared store needs no per-workspace split.
+  // keyed by (unique) tab id (or a group id), so the shared store needs no
+  // per-workspace split.
   const visibleTabs = activeWorkspaceId
     ? tabs.filter((t) => t.workspaceId === activeWorkspaceId)
     : tabs;
-  // Only draw edges whose both endpoints are visible on this canvas.
   const visibleIds = new Set(visibleTabs.map((t) => t.id));
-  const visibleEdges = edges.filter((e) => visibleIds.has(e.from) && visibleIds.has(e.to));
+  // Map a tab to its placement key (group id when merged) for edge anchoring.
+  const keyOf = (tabId: string): string => placementKey(groups, tabId);
+  // Only draw edges whose both endpoints are visible; skip intra-group edges
+  // (both ends resolve to the same card).
+  const visibleEdges = edges.filter(
+    (e) => visibleIds.has(e.from) && visibleIds.has(e.to) && keyOf(e.from) !== keyOf(e.to),
+  );
   const activeWsName = workspaces.find((w) => w.id === activeWorkspaceId)?.name;
 
   // Live connection-drag preview (canvas coords of the loose end), or null.
@@ -61,6 +72,10 @@ export function CanvasStage() {
   // Container size (px) for the minimap's viewport overlay, and minimap toggle.
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [minimapOpen, setMinimapOpen] = useState(true);
+  // The AI process-flow overlay (the focused chat's plan as a node graph).
+  const [planFlowOpen, setPlanFlowOpen] = useState(true);
+  // Placement key of the card highlighted as a merge drop-target mid-drag, or null.
+  const [mergeTarget, setMergeTarget] = useState<string | null>(null);
   // Right-click context menu (canvas / card / edge), or null.
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
   // Workspace-switcher dropdown anchor (canvas mode has no workspace rail).
@@ -207,10 +222,12 @@ export function CanvasStage() {
     }
   };
 
-  const focusCard = (tabId: string) => {
+  // `placeKey` is the placement key to raise (a group id when the card is a
+  // merged group); `tabId` is the surface that gets focus + activation.
+  const focusCard = (tabId: string, placeKey: string = tabId) => {
     const store = useCanvasStore.getState();
     store.setFocused(tabId);
-    store.bringToFront(tabId);
+    store.bringToFront(placeKey);
     void activateTab(tabId);
   };
 
@@ -278,12 +295,12 @@ export function CanvasStage() {
   // Drag a connection from a card's port to another card. Window listeners (the
   // drag crosses the whole canvas); the drop target is hit-tested by [data-tab-id].
   const startConnect = useCallback(
-    (fromTabId: string, clientX: number, clientY: number) => {
+    (fromTabId: string, fromSide: EdgeSide, clientX: number, clientY: number) => {
       const p = toCanvas(clientX, clientY);
-      setConnect({ from: fromTabId, x: p.x, y: p.y });
+      setConnect({ from: fromTabId, fromSide, x: p.x, y: p.y });
       const onMove = (ev: PointerEvent) => {
         const q = toCanvas(ev.clientX, ev.clientY);
-        setConnect((c) => (c ? { from: c.from, x: q.x, y: q.y } : c));
+        setConnect((c) => (c ? { ...c, x: q.x, y: q.y } : c));
       };
       const onUp = (ev: PointerEvent) => {
         window.removeEventListener('pointermove', onMove);
@@ -291,30 +308,95 @@ export function CanvasStage() {
         setConnect(null);
         // Geometry hit-test, NOT document.elementFromPoint: a web card's native
         // WebContentsView composites over the React body, so elementFromPoint
-        // would return that view (no [data-tab-id]) and the drop would be lost.
-        // Find the topmost visible card whose rect contains the drop point.
+        // would return that view and the drop would be lost. Find the topmost
+        // visible card/group whose rect contains the drop point.
         const pt = toCanvas(ev.clientX, ev.clientY);
-        const { placements: pl } = useCanvasStore.getState();
+        const { placements: pl, groups: gs } = useCanvasStore.getState();
+        const fromKey = placementKey(gs, fromTabId);
         const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
-        let target: string | null = null;
+        const visSet = new Set(
+          (aws ? useTabsStore.getState().tabs.filter((t) => t.workspaceId === aws) : useTabsStore.getState().tabs).map(
+            (t) => t.id,
+          ),
+        );
+        let targetKey: string | null = null;
+        let targetRect: CardRect | null = null;
         let bestZ = -Infinity;
-        for (const tab of useTabsStore.getState().tabs) {
-          if (tab.id === fromTabId) continue;
-          if (aws && tab.workspaceId !== aws) continue;
-          const r = pl[tab.id];
-          if (!r) continue;
+        for (const [key, r] of Object.entries(pl)) {
+          if (key === fromKey) continue;
+          const grp = gs.find((g) => g.id === key);
+          const visible = grp ? grp.tabIds.some((id) => visSet.has(id)) : visSet.has(key);
+          if (!visible) continue;
           if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h && r.z > bestZ) {
             bestZ = r.z;
-            target = tab.id;
+            targetKey = key;
+            targetRect = r;
           }
         }
-        if (target) useCanvasStore.getState().addEdge(fromTabId, target);
+        // Pin the target end to the face nearest the drop point (4-directional);
+        // a group target connects to its active member (edges are tab-keyed).
+        if (targetKey && targetRect) {
+          const grp = gs.find((g) => g.id === targetKey);
+          const targetTabId = grp ? grp.activeId : targetKey;
+          useCanvasStore.getState().addEdge(fromTabId, targetTabId, fromSide, nearestSide(targetRect, pt));
+        }
       };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
     [toCanvas],
   );
+
+  // Drag-to-merge: the topmost OTHER card/group whose HEADER band sits under the
+  // drop point — a narrow band (≈ header height) so a merge is intentional, not
+  // triggered by overlapping bodies. Returns its placement key, or null.
+  const mergeHitTest = (draggedKey: string, clientX: number, clientY: number): string | null => {
+    const pt = toCanvas(clientX, clientY);
+    const { placements: pl } = useCanvasStore.getState();
+    let target: string | null = null;
+    let bestZ = -Infinity;
+    for (const [key, r] of Object.entries(pl)) {
+      if (key === draggedKey) continue;
+      if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + 44 && r.z > bestZ) {
+        bestZ = r.z;
+        target = key;
+      }
+    }
+    return target;
+  };
+  // Only ungrouped cards report these (their key === tab id), so dragging a card
+  // onto another card/group merges it; dragging a group just moves it.
+  const headerDragMove = (draggedTabId: string, cx: number, cy: number) => {
+    setMergeTarget(mergeHitTest(draggedTabId, cx, cy));
+  };
+  const headerDrop = (draggedTabId: string, cx: number, cy: number) => {
+    const t = mergeHitTest(draggedTabId, cx, cy);
+    setMergeTarget(null);
+    if (t) useCanvasStore.getState().mergeInto(t, draggedTabId);
+  };
+
+  // Resolve a group's members into the tab-strip shape CanvasCard renders.
+  const groupProps = (groupId: string): CardGroupProps | undefined => {
+    const g = groups.find((gr) => gr.id === groupId);
+    if (!g) return undefined;
+    const members = g.tabIds
+      .map((id) => tabs.find((t) => t.id === id))
+      .filter((t): t is TabState => !!t)
+      .map((t) => ({
+        id: t.id,
+        title: t.title?.trim() || tabKinds[t.kind]?.title || 'Tab',
+        icon: tabKinds[t.kind]?.icon ?? Globe,
+      }));
+    return {
+      members,
+      activeId: g.activeId,
+      onSelect: (tabId) => {
+        useCanvasStore.getState().setGroupActive(g.id, tabId);
+        focusCard(tabId, g.id);
+      },
+      onCloseMember: (tabId) => void useTabsStore.getState().closeTab(tabId),
+    };
+  };
 
   // Recenter the viewport on a canvas point (minimap click). Uses `size` state
   // rather than the container ref so it's safe to build from render.
@@ -325,7 +407,16 @@ export function CanvasStage() {
 
   const newCard = useCallback(
     (kind: TabKind = 'home') => {
-      void useTabsStore.getState().newTab(kind, undefined, activeWorkspaceId ?? undefined);
+      void (async () => {
+        await useTabsStore.getState().newTab(kind, undefined, activeWorkspaceId ?? undefined);
+        // Focus the new card (it became the active tab) so it's the live surface
+        // immediately — matters for agent cards, which only run live when focused.
+        const id = useTabsStore.getState().activeTabId;
+        if (id && useCanvasStore.getState().placements[id]) {
+          useCanvasStore.getState().setFocused(id);
+          useCanvasStore.getState().bringToFront(id);
+        }
+      })();
     },
     [activeWorkspaceId],
   );
@@ -347,7 +438,7 @@ export function CanvasStage() {
       const id = headerEl.closest('[data-tab-id]')?.getAttribute('data-tab-id');
       if (id) {
         e.preventDefault();
-        focusCard(id);
+        focusCard(id, keyOf(id));
         setMenu({ x: e.clientX, y: e.clientY, kind: 'card', tabId: id });
         return;
       }
@@ -367,14 +458,27 @@ export function CanvasStage() {
   const menuItems = (m: CanvasMenu): MenuItem[] => {
     const store = useCanvasStore.getState();
     if (m.kind === 'edge') {
-      return [{ label: 'Remove connection', danger: true, onSelect: () => store.removeEdge(m.edgeId) }];
+      return [
+        {
+          label: edgeStyle === 'curve' ? 'Square connections' : 'Curved connections',
+          onSelect: () => store.toggleEdgeStyle(),
+        },
+        { type: 'separator' },
+        { label: 'Remove connection', danger: true, onSelect: () => store.removeEdge(m.edgeId) },
+      ];
     }
     if (m.kind === 'card') {
       const tab = tabs.find((t) => t.id === m.tabId);
+      // For a grouped card the placement key is the group id; raise/lower that.
+      const placeKey = keyOf(m.tabId);
+      const inGroup = placeKey !== m.tabId;
       const items: MenuItem[] = [
-        { label: 'Bring to front', onSelect: () => store.bringToFront(m.tabId) },
-        { label: 'Send to back', onSelect: () => store.sendToBack(m.tabId) },
+        { label: 'Bring to front', onSelect: () => store.bringToFront(placeKey) },
+        { label: 'Send to back', onSelect: () => store.sendToBack(placeKey) },
       ];
+      if (inGroup) {
+        items.push({ label: 'Pop out tab', onSelect: () => store.popOutTab(m.tabId) });
+      }
       if (tab?.kind === 'web') {
         items.push(
           { type: 'separator' },
@@ -412,7 +516,12 @@ export function CanvasStage() {
       { label: 'Fit to content', onSelect: () => fit() },
       { label: 'Reset zoom', onSelect: () => store.resetView() },
       { type: 'separator' },
+      {
+        label: edgeStyle === 'curve' ? 'Square connections' : 'Curved connections',
+        onSelect: () => store.toggleEdgeStyle(),
+      },
       { label: minimapOpen ? 'Hide minimap' : 'Show minimap', onSelect: () => setMinimapOpen((v) => !v) },
+      { label: planFlowOpen ? 'Hide process' : 'Show process', onSelect: () => setPlanFlowOpen((v) => !v) },
     ];
   };
 
@@ -437,6 +546,22 @@ export function CanvasStage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // What to render: each ungrouped visible tab as a card, plus one card per group
+  // (showing its active member with a tab strip). Grouped members aren't drawn
+  // individually — the group owns the frame.
+  const grouped = new Set(groups.flatMap((g) => g.tabIds));
+  const cardItems: { key: string; tab: TabState; group?: CardGroupProps }[] = [];
+  for (const tab of visibleTabs) {
+    if (grouped.has(tab.id) || !placements[tab.id]) continue;
+    cardItems.push({ key: tab.id, tab });
+  }
+  for (const g of groups) {
+    if (!placements[g.id]) continue;
+    const activeTab =
+      visibleTabs.find((t) => t.id === g.activeId) ?? visibleTabs.find((t) => g.tabIds.includes(t.id));
+    if (activeTab) cardItems.push({ key: g.id, tab: activeTab, group: groupProps(g.id) });
+  }
 
   return (
     <div
@@ -469,34 +594,40 @@ export function CanvasStage() {
         <CanvasEdges
           placements={placements}
           edges={visibleEdges}
+          edgeStyle={edgeStyle}
           selectedEdgeId={selectedEdgeId}
           preview={connect}
           onSelectEdge={(id) => useCanvasStore.getState().selectEdge(id)}
-          onRemoveEdge={(id) => useCanvasStore.getState().removeEdge(id)}
+          keyOf={keyOf}
         />
-        {visibleTabs.map((tab) => {
-          const rect = placements[tab.id];
+        {cardItems.map(({ key, tab, group }) => {
+          const rect = placements[key];
           if (!rect) return null;
+          const isWeb = tab.kind === 'web';
           return (
             <CanvasCard
-              key={tab.id}
+              key={key}
               tab={tab}
               rect={rect}
               scale={viewport.scale}
               focused={focusedTabId === tab.id}
-              onFocus={() => focusCard(tab.id)}
+              group={group}
+              mergeHighlight={mergeTarget === key}
+              onFocus={() => focusCard(tab.id, key)}
               onClose={() => {
                 void useTabsStore.getState().closeTab(tab.id);
                 containerRef.current?.focus(); // keep keyboard focus on the canvas
               }}
-              onMove={(x, y) => snapMove(tab.id, x, y)}
-              onNudge={(x, y) => useCanvasStore.getState().setPos(tab.id, x, y)}
-              onResize={(w, h) => useCanvasStore.getState().setSize(tab.id, w, h)}
-              registerWebEl={
-                tab.kind === 'web' ? (el) => registerWebEl(tab.id, el) : undefined
-              }
+              onMove={(x, y) => snapMove(key, x, y)}
+              onNudge={(x, y) => useCanvasStore.getState().setPos(key, x, y)}
+              onResize={(w, h) => useCanvasStore.getState().setSize(key, w, h)}
+              // Merge only by dragging an ungrouped card (its key === tab id);
+              // dragging a group just moves it.
+              onHeaderDragMove={group ? undefined : (cx, cy) => headerDragMove(tab.id, cx, cy)}
+              onHeaderDrop={group ? undefined : (cx, cy) => headerDrop(tab.id, cx, cy)}
+              registerWebEl={isWeb ? (el) => registerWebEl(tab.id, el) : undefined}
               onNavigate={
-                tab.kind === 'web'
+                isWeb
                   ? (input) => {
                       // Navigate targets the active tab, so activate this card's
                       // tab first, then hand the input to the browser (it
@@ -509,14 +640,43 @@ export function CanvasStage() {
                   : undefined
               }
               onOpenDevtools={
-                tab.kind === 'web'
+                isWeb
                   ? () => void window.marudesk.invoke('devtools:popout-open', { tabId: tab.id })
                   : undefined
               }
-              onStartConnect={(cx, cy) => startConnect(tab.id, cx, cy)}
+              onStartConnect={(side, cx, cy) => startConnect(tab.id, side, cx, cy)}
             />
           );
         })}
+
+        {/* Delete control for the selected edge — rendered ABOVE the cards (high
+            z) so it's clickable even when the edge's midpoint falls over a card
+            (a side-anchored wire often does). */}
+        {(() => {
+          if (!selectedEdgeId) return null;
+          const sel = visibleEdges.find((e) => e.id === selectedEdgeId);
+          if (!sel) return null;
+          const a = placements[keyOf(sel.from)];
+          const b = placements[keyOf(sel.to)];
+          if (!a || !b) return null;
+          const { p1, p2 } = edgeEndpoints(a, b, sel);
+          return (
+            <button
+              type="button"
+              aria-label="Remove connection"
+              title="Remove connection"
+              style={{ left: (p1.x + p2.x) / 2 - 11, top: (p1.y + p2.y) / 2 - 11, zIndex: 100000 }}
+              className="absolute grid h-[22px] w-[22px] place-items-center rounded-pill border border-default bg-surface-2 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+              onPointerDown={(ev) => ev.stopPropagation()}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                useCanvasStore.getState().removeEdge(sel.id);
+              }}
+            >
+              <span aria-hidden>×</span>
+            </button>
+          );
+        })()}
       </div>
 
       {/* Minimap (cate parity — ⌘/Ctrl+Shift+M). */}
@@ -527,6 +687,15 @@ export function CanvasStage() {
           width={size.w}
           height={size.h}
           onJump={centerOn}
+        />
+      ) : null}
+
+      {/* AI process flow — the focused chat's plan as a steerable node graph,
+          distinct from the spatial tool cards (it self-hides with no plan). */}
+      {planFlowOpen ? (
+        <CanvasPlanFlow
+          workspaceId={activeWorkspaceId ?? undefined}
+          onClose={() => setPlanFlowOpen(false)}
         />
       ) : null}
 
@@ -585,6 +754,12 @@ export function CanvasStage() {
           onClick={() => setMinimapOpen((v) => !v)}
         >
           <MapIcon size={15} />
+        </CtrlButton>
+        <CtrlButton
+          label={planFlowOpen ? 'Hide process' : 'Show process'}
+          onClick={() => setPlanFlowOpen((v) => !v)}
+        >
+          <ListTree size={15} />
         </CtrlButton>
       </div>
 
