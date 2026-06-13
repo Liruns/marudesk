@@ -45,6 +45,7 @@ export function parseTabSpec(payload: unknown): {
   editorFile: WorkspaceFileRef | undefined;
   pluginPanel: { id: string; entry: string } | undefined;
   terminalProfile: 'agent-cli' | undefined;
+  devtoolsTargetTabId: string | undefined;
 } {
   let kind: TabKind = 'home';
   let url: string | undefined;
@@ -52,8 +53,9 @@ export function parseTabSpec(payload: unknown): {
   let editorFile: WorkspaceFileRef | undefined;
   let pluginPanel: { id: string; entry: string } | undefined;
   let terminalProfile: 'agent-cli' | undefined;
+  let devtoolsTargetTabId: string | undefined;
   if (typeof payload === 'string') {
-    return { kind: 'web', url: payload, workspaceId, editorFile, pluginPanel, terminalProfile };
+    return { kind: 'web', url: payload, workspaceId, editorFile, pluginPanel, terminalProfile, devtoolsTargetTabId };
   }
   if (payload && typeof payload === 'object') {
     const p = payload as {
@@ -62,6 +64,7 @@ export function parseTabSpec(payload: unknown): {
       path?: unknown;
       pluginPanel?: unknown;
       terminalProfile?: unknown;
+      devtoolsTargetTabId?: unknown;
     };
     if (isTabKind(p.kind)) kind = p.kind;
     else if (typeof p.url === 'string') kind = 'web';
@@ -75,8 +78,9 @@ export function parseTabSpec(payload: unknown): {
     if (kind === 'plugin') pluginPanel = parsePluginPanel(p.pluginPanel);
     // Untrusted renderer input: only the known profile name passes through.
     if (kind === 'terminal' && p.terminalProfile === 'agent-cli') terminalProfile = 'agent-cli';
+    if (kind === 'devtools' && typeof p.devtoolsTargetTabId === 'string') devtoolsTargetTabId = p.devtoolsTargetTabId;
   }
-  return { kind, url, workspaceId, editorFile, pluginPanel, terminalProfile };
+  return { kind, url, workspaceId, editorFile, pluginPanel, terminalProfile, devtoolsTargetTabId };
 }
 
 /** Validate the renderer-supplied plugin-panel ref (untrusted): id slug + safe entry. */

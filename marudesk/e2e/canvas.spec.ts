@@ -387,6 +387,32 @@ test('canvas: AI task graph — generate, render Task nodes, run to done', async
   }
 });
 
+test('canvas: a web card opens DevTools as a card (not a separate window)', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const canvas = page.locator('[aria-label="Canvas"]');
+    const cards = page.locator('[data-canvas-card]');
+    const cb = await canvas.boundingBox();
+    if (!cb) throw new Error('no canvas box');
+
+    // A web card (its native view isn't visible in e2e, but the card frame is).
+    await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.82, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'New browser tab' }).click();
+    await expect(cards).toHaveCount(2);
+
+    // Right-click the web card's header → Open DevTools → a DevTools card appears
+    // (the 'devtools' tab kind), rather than the pop-out window.
+    const header = page.locator('[data-card-header]').last();
+    const hb = await header.boundingBox();
+    if (!hb) throw new Error('no header box');
+    await page.mouse.click(hb.x + hb.width * 0.3, hb.y + hb.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Open DevTools' }).click();
+    await expect(cards).toHaveCount(3);
+  } finally {
+    await app.close();
+  }
+});
+
 test('canvas: marquee selects multiple cards and they move together', async () => {
   const { app, page } = await launchApp({ surface: 'canvas' });
   try {

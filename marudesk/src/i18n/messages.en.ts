@@ -1496,6 +1496,7 @@ export const EN_MESSAGES = {
   'tabs.kind.editor': 'Editor',
   'tabs.kind.home': 'New Tab',
   'tabs.kind.plugin': 'Plugin',
+  'tabs.kind.devtools': 'DevTools',
   'tabs.kind.settings': 'Settings',
   'tabs.kind.terminal': 'Terminal',
   'tabs.kind.web': 'New tab',

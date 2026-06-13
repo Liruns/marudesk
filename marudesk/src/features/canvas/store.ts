@@ -107,6 +107,7 @@ const CARD_SIZE: Record<TabKind, { def: CardSize; min: CardSize }> = {
   home: { def: { w: 520, h: 380 }, min: { w: 300, h: 220 } },
   settings: { def: { w: 640, h: 520 }, min: { w: 420, h: 360 } },
   plugin: { def: { w: 520, h: 400 }, min: { w: 320, h: 240 } },
+  devtools: { def: { w: 720, h: 480 }, min: { w: 420, h: 300 } },
 };
 
 /** Minimum card size for a tab kind (falls back to the generic floor). */
@@ -258,7 +259,8 @@ export type PanelDescriptor =
   | { kind: 'agent' }
   | { kind: 'home' }
   | { kind: 'settings' }
-  | { kind: 'plugin'; pluginId?: string; entry?: string };
+  | { kind: 'plugin'; pluginId?: string; entry?: string }
+  | { kind: 'devtools'; targetTabId?: string };
 
 function descriptorOf(tab: TabState): PanelDescriptor {
   switch (tab.kind) {
@@ -274,6 +276,10 @@ function descriptorOf(tab: TabState): PanelDescriptor {
       return tab.pluginPanel
         ? { kind: 'plugin', pluginId: tab.pluginPanel.id, entry: tab.pluginPanel.entry }
         : { kind: 'plugin' };
+    case 'devtools':
+      return tab.devtoolsTargetTabId
+        ? { kind: 'devtools', targetTabId: tab.devtoolsTargetTabId }
+        : { kind: 'devtools' };
     default:
       return { kind: tab.kind };
   }
@@ -290,6 +296,8 @@ function descriptorKey(d: PanelDescriptor): string {
       return `terminal|${d.terminalProfile ?? ''}`;
     case 'plugin':
       return `plugin|${d.pluginId ?? ''}|${d.entry ?? ''}`;
+    case 'devtools':
+      return `devtools|${d.targetTabId ?? ''}`;
     default:
       return d.kind;
   }
@@ -311,6 +319,8 @@ function parseDescriptor(raw: unknown): PanelDescriptor | null {
         ...(isStr(r.pluginId) ? { pluginId: r.pluginId } : {}),
         ...(isStr(r.entry) ? { entry: r.entry } : {}),
       };
+    case 'devtools':
+      return { kind: 'devtools', ...(isStr(r.targetTabId) ? { targetTabId: r.targetTabId } : {}) };
     case 'agent':
     case 'home':
     case 'settings':

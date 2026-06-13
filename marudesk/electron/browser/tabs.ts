@@ -99,6 +99,7 @@ export function createTab(
     editorFile?: WorkspaceFileRef;
     pluginPanel?: { id: string; entry: string };
     terminalProfile?: 'agent-cli';
+    devtoolsTargetTabId?: string;
   },
 ): TabRecord {
   const host = getHost();
@@ -121,6 +122,7 @@ export function createTab(
       editorFile: opts?.editorFile,
       pluginPanel: kind === 'plugin' ? opts?.pluginPanel : undefined,
       terminalProfile: kind === 'terminal' ? opts?.terminalProfile : undefined,
+      devtoolsTargetTabId: kind === 'devtools' ? opts?.devtoolsTargetTabId : undefined,
       untitledName:
         kind === 'editor' && !filePath && !opts?.editorFile
           ? `Untitled-${nextUntitledSeq()}`
@@ -322,6 +324,7 @@ export function createAndActivateTab(
     editorFile?: WorkspaceFileRef;
     pluginPanel?: { id: string; entry: string };
     terminalProfile?: 'agent-cli';
+    devtoolsTargetTabId?: string;
   },
 ): TabRecord {
   const rec = createTab(kind, initialUrl, opts);

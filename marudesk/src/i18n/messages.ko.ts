@@ -1471,6 +1471,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'tabs.kind.editor': '편집기',
   'tabs.kind.home': '새 탭',
   'tabs.kind.plugin': '플러그인',
+  'tabs.kind.devtools': '개발자 도구',
   'tabs.kind.settings': '설정',
   'tabs.kind.terminal': '터미널',
   'tabs.kind.web': '새 탭',

@@ -608,6 +608,35 @@ export function CanvasStage() {
     [activeWorkspaceId],
   );
 
+  // Open DevTools for a web card as a canvas card (the 'devtools' tab kind),
+  // not the pop-out window — focus an existing one bound to this web tab, else
+  // create one. The new card is placed by syncPlacements; we focus + raise it.
+  const openDevtoolsFor = useCallback(
+    (webTabId: string) => {
+      void (async () => {
+        const tabsStore = useTabsStore.getState();
+        const existing = tabsStore.tabs.find(
+          (t) => t.kind === 'devtools' && t.devtoolsTargetTabId === webTabId,
+        );
+        if (existing) {
+          await tabsStore.activateTab(existing.id);
+        } else {
+          await window.marudesk.invoke('browser:tabs-new', {
+            kind: 'devtools',
+            devtoolsTargetTabId: webTabId,
+            ...(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {}),
+          });
+        }
+        const id = useTabsStore.getState().activeTabId;
+        if (!id) return;
+        const store = useCanvasStore.getState();
+        store.setFocused(id);
+        store.bringToFront(id);
+      })();
+    },
+    [activeWorkspaceId],
+  );
+
   // Delete a canvas and close the panels that lived on it: a canvas owns its
   // panels, so orphaned tabs would otherwise be re-adopted by the open canvas.
   const deleteCanvas = (id: string) => {
@@ -720,7 +749,7 @@ export function CanvasStage() {
           },
           {
             label: 'Open DevTools',
-            onSelect: () => void window.marudesk.invoke('devtools:popout-open', { tabId: m.tabId }),
+            onSelect: () => openDevtoolsFor(m.tabId),
           },
           {
             label: 'Copy link',
@@ -938,11 +967,7 @@ export function CanvasStage() {
                     }
                   : undefined
               }
-              onOpenDevtools={
-                isWeb
-                  ? () => void window.marudesk.invoke('devtools:popout-open', { tabId: tab.id })
-                  : undefined
-              }
+              onOpenDevtools={isWeb ? () => openDevtoolsFor(tab.id) : undefined}
               onStartConnect={(side, cx, cy) => startConnect(tab.id, side, cx, cy)}
             />
           );

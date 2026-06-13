@@ -196,6 +196,8 @@ export interface IpcMap {
         pluginPanel?: { id: string; entry: string };
         /** For a `terminal` tab: the PTY command profile (chat CLI v2 §6.1). */
         terminalProfile?: 'agent-cli';
+        /** For a `devtools` tab: the web tab id this DevTools surface inspects. */
+        devtoolsTargetTabId?: string;
       },
     ];
     result: string;
