@@ -34,10 +34,14 @@ export function CanvasMinimap({
   const viewX = -viewport.panX / viewport.scale;
   const viewY = -viewport.panY / viewport.scale;
 
-  const minX = Math.min(viewX, ...rects.map((r) => r.x));
-  const minY = Math.min(viewY, ...rects.map((r) => r.y));
-  const maxX = Math.max(viewX + visW, ...rects.map((r) => r.x + r.w));
-  const maxY = Math.max(viewY + visH, ...rects.map((r) => r.y + r.h));
+  // Scale to fit the CONTENT bounds only (so the map stays a stable overview as
+  // you pan/zoom); the viewport rect is drawn on top and clipped by the <svg>
+  // when it extends past the content. (Including the viewport here was the bug:
+  // zooming in shrank the whole map down to the tiny viewport.)
+  const minX = Math.min(...rects.map((r) => r.x));
+  const minY = Math.min(...rects.map((r) => r.y));
+  const maxX = Math.max(...rects.map((r) => r.x + r.w));
+  const maxY = Math.max(...rects.map((r) => r.y + r.h));
   const bw = Math.max(1, maxX - minX);
   const bh = Math.max(1, maxY - minY);
 
@@ -53,7 +57,13 @@ export function CanvasMinimap({
   };
 
   return (
-    <div className="absolute bottom-4 left-3 z-40 rounded-lg chrome-panel p-1 shadow-card" aria-label="Canvas minimap">
+    <div
+      className="absolute bottom-4 left-3 z-40 rounded-lg chrome-panel p-1 shadow-card"
+      aria-label="Canvas minimap"
+      // Don't let a minimap click bubble to the canvas (which would start a pan
+      // and clear focus/selection); the svg's onClick handles navigation.
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <svg width={MM_W} height={MM_H} className="block cursor-pointer rounded" onClick={onClick}>
         <rect x={0} y={0} width={MM_W} height={MM_H} rx={4} fill="var(--surface-page)" />
         {entries.map(([id, r]) => (

@@ -112,6 +112,10 @@ export function CanvasStage() {
       const panes: { tabId: string; rect: { x: number; y: number; width: number; height: number } }[] = [];
       for (const [tabId, el] of webEls.current) {
         const r = el.getBoundingClientRect();
+        // Skip a not-yet-laid-out element (0×0): sending it would size the native
+        // view to nothing (blank). The ResizeObserver re-measures once it has a
+        // real size, so the view appears as soon as layout settles.
+        if (r.width < 1 || r.height < 1) continue;
         panes.push({
           tabId,
           rect: {
@@ -141,6 +145,17 @@ export function CanvasStage() {
   useLayoutEffect(() => {
     measureWeb();
   }, [measureWeb, viewport, placements, tabIdsKey]);
+
+  // Observe each web card's measured element so its native view gets real bounds
+  // the moment layout settles — the ref callback can fire before the browser has
+  // laid the element out (getBoundingClientRect → 0×0), which left the web view
+  // sized 0×0 and blank. A ResizeObserver fires post-layout with the true size
+  // (and again on card resize), so the WebContentsView always tracks the card.
+  useEffect(() => {
+    const ro = new ResizeObserver(() => measureWeb());
+    for (const el of webEls.current.values()) ro.observe(el);
+    return () => ro.disconnect();
+  }, [measureWeb, tabIdsKey]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -406,16 +421,21 @@ export function CanvasStage() {
   };
 
   const newCard = useCallback(
-    (kind: TabKind = 'home') => {
+    (kind: TabKind = 'home', at?: { x: number; y: number }) => {
       void (async () => {
         await useTabsStore.getState().newTab(kind, undefined, activeWorkspaceId ?? undefined);
+        const id = useTabsStore.getState().activeTabId;
+        if (!id) return;
+        const store = useCanvasStore.getState();
+        const rect = store.placements[id];
+        if (!rect) return;
+        // Place the card centered on the cursor / drop point when given one
+        // (right-click + double-click), instead of the default grid slot.
+        if (at) store.setPos(id, Math.round(at.x - rect.w / 2), Math.round(at.y - rect.h / 2));
         // Focus the new card (it became the active tab) so it's the live surface
         // immediately — matters for agent cards, which only run live when focused.
-        const id = useTabsStore.getState().activeTabId;
-        if (id && useCanvasStore.getState().placements[id]) {
-          useCanvasStore.getState().setFocused(id);
-          useCanvasStore.getState().bringToFront(id);
-        }
+        store.setFocused(id);
+        store.bringToFront(id);
       })();
     },
     [activeWorkspaceId],
@@ -452,7 +472,7 @@ export function CanvasStage() {
   // Double-click empty canvas creates a card (Figma-style).
   const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
-    newCard('home');
+    newCard('home', toCanvas(e.clientX, e.clientY));
   };
 
   const menuItems = (m: CanvasMenu): MenuItem[] => {
@@ -508,10 +528,10 @@ export function CanvasStage() {
       return items;
     }
     return [
-      { label: 'New browser tab', onSelect: () => newCard('web') },
-      { label: 'New terminal', onSelect: () => newCard('terminal') },
-      { label: 'New editor', onSelect: () => newCard('editor') },
-      { label: 'New AI chat', onSelect: () => newCard('agent') },
+      { label: 'New browser tab', onSelect: () => newCard('web', toCanvas(m.x, m.y)) },
+      { label: 'New terminal', onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
+      { label: 'New editor', onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
+      { label: 'New AI chat', onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
       { type: 'separator' },
       { label: 'Fit to content', onSelect: () => fit() },
       { label: 'Reset zoom', onSelect: () => store.resetView() },

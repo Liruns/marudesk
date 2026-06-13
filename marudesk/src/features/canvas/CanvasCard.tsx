@@ -9,7 +9,7 @@ import {
 import { ExternalLink, Globe, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { tabKinds } from '../tabs/registry';
-import { EDGE_SIDES, type CardRect, type EdgeSide } from './store';
+import { cardMinSize, EDGE_SIDES, type CardRect, type EdgeSide } from './store';
 import type { TabState } from '../../../shared/browser';
 
 /** A member of a merged card (tab group), for the in-header tab strip. */
@@ -35,7 +35,7 @@ export type CardGroupProps = {
  * hover / focus (Figma-style). Pointer math: the plane is CSS-scaled, so a
  * screen-px delta is divided by `scale` to get the canvas-space delta.
  */
-type ResizeDir = 'e' | 's' | 'se';
+type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 /** Where each face's connection port sits, centered just outside the frame. */
 const PORT_POS: Record<EdgeSide, string> = {
@@ -44,6 +44,23 @@ const PORT_POS: Record<EdgeSide, string> = {
   bottom: '-bottom-2 left-1/2 -translate-x-1/2',
   left: '-left-2 top-1/2 -translate-y-1/2',
 };
+
+/**
+ * The 8 resize hit-strips, mounted just OUTSIDE the frame (negative offsets) so
+ * they clear a web card's native view + inner scrollbars (cate's NodeResizeOverlay
+ * approach). Edges are thin strips between the corners; corners are small squares.
+ * Each carries its `data-resize-dir`; the cursor signals the axis.
+ */
+const RESIZE_HANDLES: { dir: ResizeDir; cls: string }[] = [
+  { dir: 'n', cls: '-top-1 left-4 right-4 h-2 cursor-ns-resize' },
+  { dir: 's', cls: '-bottom-1 left-4 right-4 h-2 cursor-ns-resize' },
+  { dir: 'w', cls: '-left-1 top-4 bottom-4 w-2 cursor-ew-resize' },
+  { dir: 'e', cls: '-right-1 top-4 bottom-4 w-2 cursor-ew-resize' },
+  { dir: 'nw', cls: '-top-1.5 -left-1.5 h-4 w-4 cursor-nwse-resize' },
+  { dir: 'ne', cls: '-top-1.5 -right-1.5 h-4 w-4 cursor-nesw-resize' },
+  { dir: 'sw', cls: '-bottom-1.5 -left-1.5 h-4 w-4 cursor-nesw-resize' },
+  { dir: 'se', cls: '-bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize' },
+];
 
 export function CanvasCard({
   tab,
@@ -97,7 +114,7 @@ export function CanvasCard({
   const Icon = tabKinds[tab.kind]?.icon ?? Globe;
   const title = tab.title?.trim() || tab.url || tabKinds[tab.kind]?.title || 'Card';
   const dragState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
-  const resizeState = useRef<{ pointerId: number; startX: number; startY: number; origW: number; origH: number; dir: ResizeDir } | null>(null);
+  const resizeState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number; dir: ResizeDir } | null>(null);
 
   const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -127,14 +144,52 @@ export function CanvasCard({
     onFocus();
     e.currentTarget.setPointerCapture(e.pointerId);
     const dir = (e.currentTarget.dataset.resizeDir as ResizeDir | undefined) ?? 'se';
-    resizeState.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origW: rect.w, origH: rect.h, dir };
+    resizeState.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: rect.x,
+      origY: rect.y,
+      origW: rect.w,
+      origH: rect.h,
+      dir,
+    };
   };
   const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = resizeState.current;
     if (!s || s.pointerId !== e.pointerId) return;
-    const dw = (e.clientX - s.startX) / scale;
-    const dh = (e.clientY - s.startY) / scale;
-    onResize(s.dir === 's' ? s.origW : s.origW + dw, s.dir === 'e' ? s.origH : s.origH + dh);
+    const dx = (e.clientX - s.startX) / scale;
+    const dy = (e.clientY - s.startY) / scale;
+    const min = cardMinSize(tab.kind);
+    let x = s.origX;
+    let y = s.origY;
+    let w = s.origW;
+    let h = s.origH;
+    // East/south edges grow size; west/north edges move the origin and shrink,
+    // keeping the opposite edge fixed.
+    if (s.dir.includes('e')) w = s.origW + dx;
+    if (s.dir.includes('s')) h = s.origH + dy;
+    if (s.dir.includes('w')) {
+      w = s.origW - dx;
+      x = s.origX + dx;
+    }
+    if (s.dir.includes('n')) {
+      h = s.origH - dy;
+      y = s.origY + dy;
+    }
+    // Clamp to the kind's minimum, pinning the opposite (right/bottom) edge when
+    // resizing from the west/north so the card doesn't slide past its own edge.
+    if (w < min.w) {
+      if (s.dir.includes('w')) x -= min.w - w;
+      w = min.w;
+    }
+    if (h < min.h) {
+      if (s.dir.includes('n')) y -= min.h - h;
+      h = min.h;
+    }
+    onResize(w, h);
+    // Free placement (no snap) for the moved edge during resize.
+    if (x !== s.origX || y !== s.origY) (onNudge ?? onMove)(x, y);
   };
   const onResizeEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (resizeState.current?.pointerId === e.pointerId) resizeState.current = null;
@@ -316,45 +371,34 @@ export function CanvasCard({
           ))
         : null}
 
-      {/* Resize handles — width (E), height (S), both (SE). Transparent hit
-          strips on the frame edges (clear of the native web view); the corner
-          shows a grip on hover/focus. */}
-      <div
-        aria-hidden
-        data-resize-dir="e"
-        className="absolute top-9 -right-1 bottom-3 z-10 w-2 cursor-ew-resize"
-        onPointerDown={onResizeDown}
-        onPointerMove={onResizeMove}
-        onPointerUp={onResizeEnd}
-        onPointerCancel={onResizeEnd}
-      />
-      <div
-        aria-hidden
-        data-resize-dir="s"
-        className="absolute -bottom-1 left-3 right-3 z-10 h-2 cursor-ns-resize"
-        onPointerDown={onResizeDown}
-        onPointerMove={onResizeMove}
-        onPointerUp={onResizeEnd}
-        onPointerCancel={onResizeEnd}
-      />
-      <div
-        role="separator"
-        aria-label="Resize card"
-        data-resize-dir="se"
-        className="absolute -bottom-1.5 -right-1.5 z-10 h-5 w-5 cursor-nwse-resize"
-        onPointerDown={onResizeDown}
-        onPointerMove={onResizeMove}
-        onPointerUp={onResizeEnd}
-        onPointerCancel={onResizeEnd}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            'absolute bottom-2 right-2 h-2 w-2 border-b-2 border-r-2 border-strong transition-opacity duration-fast',
-            reveal,
-          )}
-        />
-      </div>
+      {/* Resize handles — 8 directions (edges + corners). Transparent hit-strips
+          mounted just outside the frame (clear of a web card's native view +
+          inner scrollbars); the SE corner shows a grip on hover/focus and keeps
+          the "Resize card" accessible name. */}
+      {RESIZE_HANDLES.map(({ dir, cls }) => (
+        <div
+          key={dir}
+          {...(dir === 'se'
+            ? { role: 'separator' as const, 'aria-label': 'Resize card' }
+            : { 'aria-hidden': true })}
+          data-resize-dir={dir}
+          className={cn('absolute z-10', cls)}
+          onPointerDown={onResizeDown}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeEnd}
+          onPointerCancel={onResizeEnd}
+        >
+          {dir === 'se' ? (
+            <span
+              aria-hidden
+              className={cn(
+                'absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-strong transition-opacity duration-fast',
+                reveal,
+              )}
+            />
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }

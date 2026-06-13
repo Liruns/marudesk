@@ -399,9 +399,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   addEdge: (from, to, fromSide, toSide) =>
     set((s) => {
       if (from === to || !s.placements[from] || !s.placements[to]) return {};
+      // Directed: A→B and B→A are distinct edges (n:n). Only dedup the exact
+      // ordered pair so a node can fan out to / in from many others.
       const id = edgeId(from, to);
-      const rev = edgeId(to, from);
-      if (s.edges.some((e) => e.id === id || e.id === rev)) return {};
+      if (s.edges.some((e) => e.id === id)) return {};
       const edge: Edge = {
         id,
         from,
