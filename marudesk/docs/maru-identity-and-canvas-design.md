@@ -113,10 +113,17 @@ mounting the canvas with only feature cards is safe today.
   **Figma-style wheel** (⌘/Ctrl = zoom-at-cursor + pinch, Shift = horizontal pan,
   plain = two-axis), double-click-to-create, and card-chrome polish (hover lift,
   focus ring, `:active` settle, hover-revealed controls). z is rebalanced to 1..N
-  so layering never grows unbounded. *Remaining:* web-card content zoom-scaling
-  (page is 1:1 now, cropped when zoomed out), card grouping/alignment/snap, **full
-  keyboard navigation** (cards/edges are pointer-first by design — confirmed WCAG
-  gap, tracked), and an in-canvas workspace switcher.
+  so layering never grows unbounded. **Responsive panels:** every surface
+  (editor, settings, home, terminal, AI chat) + the card chrome now reflows for
+  small cards (240–320px) using the codebase's container-query idiom — `@container`
+  on each surface root + the compact value in the base class, full-size gated
+  behind `@[…rem]:` min-width variants — so panes/splits are byte-identical and
+  only small cards collapse (md split→stack, settings sidebar→top strip, grids→1
+  col, chrome labels/buttons hide, menus/popovers cap to card width). *Remaining:*
+  web-card content zoom-scaling (page is 1:1 now, cropped when zoomed out), card
+  grouping/alignment/snap, **full keyboard navigation** (cards/edges are
+  pointer-first by design — confirmed WCAG gap, tracked), and an in-canvas
+  workspace switcher.
 
 ## 5. Open questions / deferred
 
