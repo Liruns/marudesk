@@ -240,9 +240,26 @@ export function CanvasStage() {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         setConnect(null);
-        const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
-        const target = el?.closest('[data-tab-id]')?.getAttribute('data-tab-id');
-        if (target && target !== fromTabId) useCanvasStore.getState().addEdge(fromTabId, target);
+        // Geometry hit-test, NOT document.elementFromPoint: a web card's native
+        // WebContentsView composites over the React body, so elementFromPoint
+        // would return that view (no [data-tab-id]) and the drop would be lost.
+        // Find the topmost visible card whose rect contains the drop point.
+        const pt = toCanvas(ev.clientX, ev.clientY);
+        const { placements: pl } = useCanvasStore.getState();
+        const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
+        let target: string | null = null;
+        let bestZ = -Infinity;
+        for (const tab of useTabsStore.getState().tabs) {
+          if (tab.id === fromTabId) continue;
+          if (aws && tab.workspaceId !== aws) continue;
+          const r = pl[tab.id];
+          if (!r) continue;
+          if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h && r.z > bestZ) {
+            bestZ = r.z;
+            target = tab.id;
+          }
+        }
+        if (target) useCanvasStore.getState().addEdge(fromTabId, target);
       };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
@@ -464,7 +481,7 @@ export function CanvasStage() {
       <button
         type="button"
         onClick={() => newCard('home')}
-        className="absolute left-3 top-3 z-50 inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card hover:text-fg-primary"
+        className="absolute left-3 top-3 z-50 inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
       >
         <Plus size={14} />
         New card
@@ -523,7 +540,7 @@ function CtrlButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="grid h-7 w-7 place-items-center rounded text-fg-secondary hover:bg-surface-3 hover:text-fg-primary"
+      className="grid h-7 w-7 place-items-center rounded text-fg-secondary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary active:translate-y-px"
     >
       {children}
     </button>

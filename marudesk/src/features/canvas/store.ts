@@ -169,12 +169,21 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     // Drop edges whose endpoints have closed.
     const liveEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
     const edgesChanged = liveEdges.length !== edges.length;
-    if (changed || edgesChanged) {
+    if (changed) {
+      // Rebalance z to a compact 1..N range (by current stacking order) so
+      // repeated bring-to-front / send-to-back never grows the z spread (or the
+      // persisted state) without bound.
+      const ordered = Object.entries(next).sort((a, b) => a[1].z - b[1].z);
+      ordered.forEach(([id], i) => {
+        next[id] = { ...next[id], z: i + 1 };
+      });
       set({
         placements: next,
-        topZ,
+        topZ: ordered.length || 1,
         ...(edgesChanged ? { edges: liveEdges } : {}),
       });
+    } else if (edgesChanged) {
+      set({ edges: liveEdges });
     }
   },
 

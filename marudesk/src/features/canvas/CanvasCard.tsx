@@ -157,7 +157,7 @@ export function CanvasCard({
             type="button"
             aria-label="Open DevTools"
             title="Open DevTools"
-            className="grid place-items-center h-6 w-6 rounded hover:bg-surface-3 text-fg-tertiary hover:text-fg-primary"
+            className="grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
@@ -170,7 +170,7 @@ export function CanvasCard({
         <button
           type="button"
           aria-label="Close card"
-          className="grid place-items-center h-6 w-6 rounded hover:bg-surface-3 text-fg-tertiary hover:text-fg-primary"
+          className="grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
