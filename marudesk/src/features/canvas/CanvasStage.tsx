@@ -21,6 +21,7 @@ import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
 import { placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
+import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
 type CanvasMenu =
   | { x: number; y: number; kind: 'canvas' }
@@ -619,6 +620,28 @@ export function CanvasStage() {
       onPointerCancel={onPointerUp}
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(FILE_DND_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes(FILE_DND_MIME)) return;
+        e.preventDefault();
+        const payload = parseFileDrag(e.dataTransfer.getData(FILE_DND_MIME));
+        if (!payload) return;
+        const pt = toCanvas(e.clientX, e.clientY);
+        void (async () => {
+          const id = await openFileDragAsTab(payload);
+          const store = useCanvasStore.getState();
+          const rect = id ? store.placements[id] : undefined;
+          if (id && rect) {
+            store.setPos(id, Math.round(pt.x - rect.w / 2), Math.round(pt.y - rect.h / 2));
+            store.setFocused(id);
+            store.bringToFront(id);
+          }
+        })();
+      }}
       aria-label="Canvas"
       tabIndex={-1}
     >

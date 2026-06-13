@@ -17,6 +17,7 @@ import { useGridStore } from './grid';
 import { leaves, type LayoutNode, type PaneId } from './layout';
 import { pickZone, zoneToSplit, type DropZone } from './dnd';
 import { PaneHeader } from './PaneHeader';
+import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 import type { TabState } from '../../../shared/browser';
 import {
   clearBrowserPaneBoundsSource,
@@ -266,9 +267,11 @@ function PaneLeaf({
   const maximized = maximizedPaneId === leaf.id;
 
   const onDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
-    if (!e.dataTransfer.types.includes(TAB_DND_MIME)) return;
+    const isTab = e.dataTransfer.types.includes(TAB_DND_MIME);
+    const isFile = e.dataTransfer.types.includes(FILE_DND_MIME);
+    if (!isTab && !isFile) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = isFile ? 'copy' : 'move';
     const rect = e.currentTarget.getBoundingClientRect();
     setDropZone(pickZone(rect, e.clientX, e.clientY));
   };
@@ -278,17 +281,27 @@ function PaneLeaf({
     setDropZone(null);
   };
   const onDrop = (e: ReactDragEvent<HTMLDivElement>) => {
-    if (!e.dataTransfer.types.includes(TAB_DND_MIME)) return;
+    const isTab = e.dataTransfer.types.includes(TAB_DND_MIME);
+    const isFile = e.dataTransfer.types.includes(FILE_DND_MIME);
+    if (!isTab && !isFile) return;
     e.preventDefault();
-    const draggedId = e.dataTransfer.getData(TAB_DND_MIME);
-    const zone = dropZone ?? pickZone(
-      e.currentTarget.getBoundingClientRect(),
-      e.clientX,
-      e.clientY,
-    );
+    const zone =
+      dropZone ?? pickZone(e.currentTarget.getBoundingClientRect(), e.clientX, e.clientY);
     setDropZone(null);
-    if (!draggedId) return;
     const { dir, side } = zoneToSplit(zone);
+    if (isFile) {
+      // A file dragged from the explorer → open it as an editor and split this
+      // pane toward the drop zone.
+      const payload = parseFileDrag(e.dataTransfer.getData(FILE_DND_MIME));
+      if (!payload) return;
+      void (async () => {
+        const id = await openFileDragAsTab(payload);
+        if (id) splitWith(leaf.id, id, dir, side);
+      })();
+      return;
+    }
+    const draggedId = e.dataTransfer.getData(TAB_DND_MIME);
+    if (!draggedId) return;
     splitWith(leaf.id, draggedId, dir, side);
   };
 
