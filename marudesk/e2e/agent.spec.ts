@@ -200,7 +200,7 @@ test('agent: Home launcher opens the full-surface AI Chat tab (v3 §5-B)', async
   try {
     // The New Tab launcher has an "AI Chat" card that converts the tab in place
     // into the full-surface `agent` tab kind.
-    await page.getByRole('button', { name: /AI Chat/ }).click();
+    await page.getByRole('button', { name: /^AI Chat(?! \(CLI\))/ }).click();
     // The tab strip shows the AI Chat tab, and the full surface renders the same
     // chat (the prompt composer) — proving the new kind registered end to end.
     // Scope to <main> (the stage): the always-mounted ContextDrawer companion
@@ -248,7 +248,7 @@ test('agent: session IPC round-trips — list / resume-missing / delete (§5-C)'
 test('agent: full surface shows the session history rail (§5-C)', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: /AI Chat/ }).click();
+    await page.getByRole('button', { name: /^AI Chat(?! \(CLI\))/ }).click();
     await expect(page.getByRole('tab', { name: 'AI Chat' })).toBeVisible();
     // The left rail renders its header + the New chat affordance.
     await expect(page.getByRole('main').getByText('History')).toBeVisible();
@@ -382,7 +382,7 @@ test('agent: workspace AI Chat tabs keep scoped chat and history', async ({}, te
 test('agent: streaming transcript does not re-pin after a small upward scroll', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: /AI Chat/ }).click();
+    await page.getByRole('button', { name: /^AI Chat(?! \(CLI\))/ }).click();
 
     const baseText = longAssistantText('scroll-regression-start');
     await emitAgentState(app, chatStateWithAssistantText(baseText));
@@ -438,7 +438,7 @@ test('agent: composer attaches a selected file, sends bounded content, and resto
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
 
-    await page.getByRole('button', { name: /AI Chat/ }).click();
+    await page.getByRole('button', { name: /^AI Chat(?! \(CLI\))/ }).click();
     const main = page.getByRole('main');
     await main.locator('input[aria-label="Attach files"]').setInputFiles(attachmentPath);
     await expect(main.getByText('agent-attachment.txt')).toBeVisible();
@@ -472,7 +472,7 @@ test('agent: composer attaches a selected file, sends bounded content, and resto
 test('agent: composer accepts dropped text files as attachments', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: /AI Chat/ }).click();
+    await page.getByRole('button', { name: /^AI Chat(?! \(CLI\))/ }).click();
     const main = page.getByRole('main');
     await main.getByLabel('Agent prompt').dispatchEvent('drop', {
       dataTransfer: await page.evaluateHandle(() => {
@@ -518,7 +518,7 @@ test('agent: file attachments are count-limited and clipped before sending', asy
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
 
-    await page.getByRole('button', { name: /AI Chat/ }).click();
+    await page.getByRole('button', { name: /^AI Chat(?! \(CLI\))/ }).click();
     const main = page.getByRole('main');
     await main.locator('input[aria-label="Attach files"]').setInputFiles(paths);
     await expect(main.getByText('bounded-0.txt')).toBeVisible();

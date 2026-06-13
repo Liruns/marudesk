@@ -2,6 +2,7 @@ import { CHANNELS } from './ipc-channels.ts';
 import type { Capture } from './capture';
 import type {
   AgentChatState,
+  AgentThreadEvent,
   AgentWorkspaceEvent,
   AgentWorkspaceThreadsEvent,
   ThreadSummary,
@@ -100,6 +101,9 @@ export interface EventPayloadMap {
   // wholesale — see docs/agentic-chat-design.md §8.
   'agent:event': AgentChatState;
   'agent:workspace-event': AgentWorkspaceEvent;
+  // Per-thread live state (canvas: many independent chats). Carries threadId so a
+  // card bound to one thread ingests only its own stream.
+  'agent:thread-event': AgentThreadEvent;
   'agent:workspace-threads': AgentWorkspaceThreadsEvent;
   // Open conversation threads (Stage 12-B-2), pushed on every agent emit + on
   // thread create/switch/close so the thread switcher stays live.
@@ -173,6 +177,7 @@ export const EVENT_CHANNELS = [
   'devtools:error-count',
   'agent:event',
   'agent:workspace-event',
+  'agent:thread-event',
   'agent:workspace-threads',
   'agent:threads',
   'lanes:dev-state',

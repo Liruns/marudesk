@@ -5,6 +5,8 @@ import { TitleBar } from '../components/TitleBar';
 import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
 import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
+import { CanvasStage } from '../features/canvas/CanvasStage';
+import { useSurfaceStore } from '../features/canvas/surface';
 import { useWebPageStore } from '../features/browser/store';
 import { useBookmarksStore } from '../features/browser/bookmarks';
 import { useTabEvents } from '../features/tabs/useTabEvents';
@@ -115,6 +117,8 @@ export function Shell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [tabPalette, setTabPalette] = useState(false);
+  // The stage centre: Maru's infinite canvas (default) or the classic tab grid.
+  const surfaceMode = useSurfaceStore((s) => s.mode);
 
   // Toggle a left-rail view: clicking the active view collapses the rail.
   const toggleLeft = (panel: Exclude<LeftPanel, null>) =>
@@ -379,7 +383,7 @@ export function Shell() {
           onRequestClose={() => setLeftPanel(null)}
         />
         <main data-stage-region className="flex-1 min-w-0 flex">
-          <WorkspaceStage />
+          {surfaceMode === 'canvas' ? <CanvasStage /> : <WorkspaceStage />}
         </main>
         <ContextDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
       </div>

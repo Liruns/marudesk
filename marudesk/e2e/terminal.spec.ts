@@ -10,7 +10,7 @@ import { launchApp, makeTempUserDataDir } from './helpers/app';
 test('terminal: shell starts and echoes input (node-pty round-trip)', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: 'Terminal' }).click();
+    await page.getByRole('button', { name: 'Shell in a tab' }).click();
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('.xterm-screen').click();
@@ -38,7 +38,7 @@ test('terminal: an invalid configured shell falls back instead of failing', asyn
   );
   const { app, page } = await launchApp({ userDataDir: dir });
   try {
-    await page.getByRole('button', { name: 'Terminal' }).click();
+    await page.getByRole('button', { name: 'Shell in a tab' }).click();
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('.xterm-screen').click();
@@ -58,7 +58,7 @@ test('terminal: an invalid configured shell falls back instead of failing', asyn
 test('terminal: context menu copy/paste round-trips through the OS clipboard', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: 'Terminal' }).click();
+    await page.getByRole('button', { name: 'Shell in a tab' }).click();
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
     const screen = page.locator('.xterm-screen');
 
@@ -93,7 +93,7 @@ test('terminal: context menu copy/paste round-trips through the OS clipboard', a
 test('terminal: find bar opens via the menu and Ctrl/Cmd+F, closes on Esc', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: 'Terminal' }).click();
+    await page.getByRole('button', { name: 'Shell in a tab' }).click();
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
     const screen = page.locator('.xterm-screen');
     const find = page.getByPlaceholder('Find');

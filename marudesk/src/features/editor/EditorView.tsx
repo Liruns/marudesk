@@ -122,10 +122,10 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
   const HeaderIcon = buf.kind === 'image' ? FileImage : FileCode2;
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
+    <div className="@container flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
       {/* Header on surface-2 — the active tab's tone — so the editor's chrome
           reads as one surface flowing out of its tab, matching the browser. */}
-      <header className="h-7 shrink-0 flex items-center gap-2 px-3 border-b border-subtle text-caption bg-surface-2">
+      <header className="h-7 shrink-0 flex items-center gap-1 px-2 @[18rem]:gap-2 @[18rem]:px-3 border-b border-subtle text-caption bg-surface-2">
         <HeaderIcon size={13} className="shrink-0 text-fg-tertiary" aria-hidden />
         <span
           className="truncate text-fg-secondary"
@@ -135,7 +135,9 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
         </span>
         <span className="flex-1" aria-hidden />
         {isMd && (
-          <EditorMarkdownModeToggle mode={mode} onChange={setMdMode} />
+          <span className="hidden @[20rem]:flex">
+            <EditorMarkdownModeToggle mode={mode} onChange={setMdMode} />
+          </span>
         )}
         {buf.kind === 'image' ? (
           <span className="text-fg-tertiary">{t('editor.image.preview')}</span>
@@ -154,13 +156,15 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
       {buf.kind === 'image' ? (
         <ImagePreview path={filePath ?? docKey} dataUrl={buf.dataUrl} />
       ) : (
-        <div className="flex-1 min-h-0 min-w-0 flex">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col @[30rem]:flex-row">
           {(mode === 'edit' || mode === 'split') && (
             <div
               ref={editorPaneRef}
               className={cn(
                 'flex min-h-0 min-w-0',
-                mode === 'split' ? 'w-1/2 border-r border-subtle' : 'flex-1',
+                mode === 'split'
+                  ? 'w-full @[30rem]:w-1/2 @[30rem]:border-r @[30rem]:border-subtle'
+                  : 'flex-1',
               )}
             >
               <Suspense
@@ -188,7 +192,7 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
               onScrollRatio={mode === 'split' ? setEditorScrollRatio : undefined}
               className={cn(
                 'min-h-0 bg-surface-page',
-                mode === 'split' ? 'w-1/2' : 'flex-1',
+                mode === 'split' ? 'hidden @[30rem]:block @[30rem]:w-1/2' : 'flex-1',
               )}
             />
           )}

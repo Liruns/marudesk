@@ -15,8 +15,10 @@ from source files alone.
 - Design system rules in `DESIGN.md`
 
 The desktop app is the only package that owns local workspace access, browser
-runtime capture, model/provider configuration, and patch application. The mobile
-client and relay should treat the PC host as the owner of that state.
+runtime capture, model/provider configuration, and patch application. Any remote
+client (over the relay or the desktop bridge) treats the PC host as the owner of
+that state. The former Capacitor mobile client is archived on the
+`archive/mobile` branch and removed from the active workspace.
 
 ## Stack
 
@@ -211,4 +213,6 @@ Follow `DESIGN.md` and `src/styles/tokens.css`.
 ## Related packages
 
 - `../relay`: auth and same-account host/client WebSocket relay.
-- `../mobile`: Capacitor thin client that renders PC-owned agent state.
+
+The `../mobile` Capacitor thin client is archived (`archive/mobile` branch, tag
+`archive/mobile-v0.8.0`) and is no longer part of the active workspace.

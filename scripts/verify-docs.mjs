@@ -30,7 +30,7 @@ const checks = [
     run() {
       const readme = read("README.md");
 
-      mustInclude(readme, "MaruDesk");
+      mustInclude(readme, "Maru");
       mustInclude(readme, "marudesk");
       mustInclude(readme, "mobile");
       mustInclude(readme, "relay");
@@ -51,21 +51,6 @@ const checks = [
       mustInclude(readme, "runtime");
       mustInclude(readme, "npm run typecheck");
       mustNotInclude(readme, "React + TypeScript + Vite");
-    },
-  },
-  {
-    id: "docs-mobile-readme-bridge-boundary",
-    run() {
-      const readme = read("mobile/README.md");
-
-      mustInclude(readme, "# marudesk-mobile");
-      mustInclude(readme, "does not run the model or tools");
-      mustInclude(readme, "StubTransport");
-      mustInclude(readme, "RelayTransport");
-      mustInclude(readme, "npm run typecheck");
-      mustInclude(readme, "npm run build");
-      mustInclude(readme, "npm run smoke");
-      mustNotContainMojibake(readme);
     },
   },
   {

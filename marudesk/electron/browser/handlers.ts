@@ -96,7 +96,13 @@ export function registerBrowserHandlers(deps: {
       },
       'panes',
     );
-    setBrowserPaneBounds(panes);
+    // Optional canvas zoom (web views render their page at this factor so content
+    // scales with the canvas). Absent/invalid → undefined (classic grid path).
+    const scale =
+      typeof p.scale === 'number' && Number.isFinite(p.scale) && p.scale > 0
+        ? p.scale
+        : undefined;
+    setBrowserPaneBounds(panes, scale);
   });
 
   defineHandler('browser:clear-pane-bounds', () => {

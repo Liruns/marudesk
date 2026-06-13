@@ -58,6 +58,7 @@ import {
   emitContainer,
   currentContainer,
   containerForWorkspace,
+  containerForThread,
   containerBusy,
   uid,
   type ApprovalDecision,
@@ -281,7 +282,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
   }): ActiveTurnModel => {
     const baseSystem =
       a.auth.mode === 'oauth' && a.provider === 'anthropic'
-        ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n(The line above is an API routing requirement. Your name is Marudesk — identify yourself as such, never as "Claude Code".)\n\n${SYSTEM_PROMPT}`
+        ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n(The line above is an API routing requirement. Your name is Maru — identify yourself as such, never as "Claude Code".)\n\n${SYSTEM_PROMPT}`
         : SYSTEM_PROMPT;
     const planAddendum = opts.approvalMode === 'plan' ? PLAN_MODE_SYSTEM : null;
     // Trust ordering (review: trust-boundary): base rules first, then our own
@@ -953,7 +954,11 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
   // it up front means the turn sets up + runs on the thread the user sent to even
   // if they switch away during the async auth resolve below. `busy()` checks the
   // active thread — a turn already running on ANOTHER thread doesn't block this.
-  const S = input.workspaceId ? containerForWorkspace(input.workspaceId) : currentContainer();
+  // Bind to a SPECIFIC thread when one is named (canvas cards each own a thread,
+  // all live at once); otherwise the workspace's active thread, then the global.
+  const S =
+    (input.threadId ? containerForThread(input.threadId) : null) ??
+    (input.workspaceId ? containerForWorkspace(input.workspaceId) : currentContainer());
   // `S.starting` closes the window between this check and `S.state.status` going
   // busy (there's an auth-resolution await before we set it), so two
   // near-simultaneous sends can't both set up a turn and clobber `S.controller`.

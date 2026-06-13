@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { listMcpTools } from './mcp.ts';
-import { updatePlanTool } from './plan.ts';
+import { editPlanStep, updatePlanTool } from './plan.ts';
 import { S } from './loop-state.ts';
 import { emptyAgentChatState } from '../../shared/agent.ts';
 
@@ -72,6 +72,41 @@ check('an active step anchors to the latest message', S.state.plan!.steps[0].anc
 S.state.messages = [{ id: 'm-3', role: 'assistant', parts: [], timestamp: 3 }];
 updatePlanTool({ steps: [{ title: 'Plan a thing', status: 'done' }] });
 check('the anchor is preserved across later updates', S.state.plan!.steps[0].anchorMessageId === 'm-2');
+
+/* ── steerable plan: status toggle / rename / remove (U5) ─────────────── */
+S.state = emptyAgentChatState();
+updatePlanTool({ steps: [{ title: 'Alpha' }, { title: 'Beta' }] });
+const alphaId = S.state.plan!.steps[0].id;
+check('editPlanStep toggles status', editPlanStep(alphaId, { status: 'done' }) &&
+  S.state.plan!.steps[0].status === 'done');
+check('editPlanStep renames a step', editPlanStep(alphaId, { title: 'Alpha renamed' }) &&
+  S.state.plan!.steps[0].title === 'Alpha renamed');
+check('editPlanStep on a missing id is a no-op', editPlanStep('nope', { status: 'done' }) === false);
+check('editPlanStep removes a step', editPlanStep(alphaId, { remove: true }) &&
+  S.state.plan!.steps.length === 1);
+
+/* ── steerable plan: human-added node persists across update_plan ──────── */
+S.state = emptyAgentChatState();
+updatePlanTool({ steps: [{ title: 'Step one' }, { title: 'Step two' }] });
+const stepOneId = S.state.plan!.steps[0].id;
+check('add with no plan/anchor appends a user step',
+  editPlanStep('', { add: { title: 'My step' } }) &&
+  S.state.plan!.steps.length === 3 &&
+  S.state.plan!.steps[2].userAdded === true);
+check('add after an anchor inserts in place',
+  editPlanStep('', { add: { title: 'After one', after: stepOneId } }) &&
+  S.state.plan!.steps[1].title === 'After one' &&
+  S.state.plan!.steps[1].userAdded === true);
+// The model replaces the whole plan and lists none of the user's steps…
+updatePlanTool({ steps: [{ title: 'Step one' }, { title: 'Step two' }, { title: 'Step three' }] });
+const titles = S.state.plan!.steps.map((s) => s.title);
+check('model replace keeps the user steps', titles.includes('My step') && titles.includes('After one'));
+check('user steps sink to the end on replace', titles.slice(-2).every((tl) => tl === 'My step' || tl === 'After one'));
+check('user steps stay flagged after replace',
+  S.state.plan!.steps.filter((s) => s.userAdded).length === 2);
+const addOnly = updatePlanTool({ steps: [{ title: 'My step' }] });
+check('a model step matching a user title takes over (sheds userAdded)',
+  addOnly.isError !== true && S.state.plan!.steps.some((s) => s.title === 'My step' && !s.userAdded));
 
 S.state = emptyAgentChatState();
 console.log(`\nplan harness: ${passed} assertions passed`);

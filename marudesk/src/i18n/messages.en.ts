@@ -529,6 +529,17 @@ export const EN_MESSAGES = {
   'agent.chat.new': 'New',
   'agent.chat.newConversation': 'Start a new conversation',
   'agent.chat.jumpToLatest': 'Jump to latest',
+  'agent.card.title': 'AI Chat',
+  'agent.card.previewHint': 'Click to open this conversation',
+  'agent.flow.title': 'Process',
+  'agent.flow.addPlaceholder': 'Add a step…',
+  'agent.flow.newStep': 'New step',
+  'agent.flow.cycle': 'Change status',
+  'agent.flow.remove': 'Remove step',
+  'agent.flow.addAfter': 'Add a step after this',
+  'agent.flow.userAdded': 'Added by you',
+  'agent.flow.show': 'Show process',
+  'agent.flow.hide': 'Hide process',
   'agent.chat.noApiKeyAfter': '.',
   'agent.chat.noApiKeyBefore': 'No API key for ',
   'agent.chat.plan.jump': 'Jump to where this step was worked on',
@@ -707,7 +718,7 @@ export const EN_MESSAGES = {
   'settings.appearance.accent.hint':
     'Recolors active states, buttons, links, and focus rings.',
   'settings.appearance.language.hint':
-    'Display language for the marudesk interface.',
+    'Display language for the Maru interface.',
   'settings.categoriesLabel': 'Settings categories',
   'settings.font.custom': 'Custom...',
   'settings.font.notDetectedAfter':
@@ -782,7 +793,7 @@ export const EN_MESSAGES = {
     'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.',
   'settings.category.providers.label': 'AI Providers',
   'settings.category.remote.blurb':
-    'A local server so a future companion app can drive the AI Chat.',
+    'A local bridge so another device on your network can drive the AI Chat.',
   'settings.category.remote.label': 'Remote access',
   'settings.category.terminal.blurb': 'Integrated terminal font and shell.',
   'settings.category.terminal.label': 'Terminal',
@@ -803,7 +814,7 @@ export const EN_MESSAGES = {
   'settings.usage.title': 'Provider Usage',
   'settings.usage.used': 'used',
   'settings.window.closeBehavior.hint':
-    'Quit ends the app. Keep in tray hides the window and keeps marudesk running in the background - reopen or quit it from the tray icon.',
+    'Quit ends the app. Keep in tray hides the window and keeps Maru running in the background - reopen or quit it from the tray icon.',
   'settings.window.closeBehavior.label': 'When the window closes',
   'settings.window.closeBehavior.quit': 'Quit',
   'settings.window.closeBehavior.tray': 'Keep in tray',
@@ -980,7 +991,7 @@ export const EN_MESSAGES = {
   'settings.remote.advanced.port.label': 'Port',
   'settings.remote.advanced.port.name': 'server port',
   'settings.remote.advanced.publicUrl.hint':
-    'Optional: a tunnel or reverse-proxy address (cloudflared, ngrok, Caddy) you run in front of this PC. It joins the pairing QR, so the phone reaches this PC from any network - no cloud relay, nothing to install on the phone.',
+    'Optional: a tunnel or reverse-proxy address (cloudflared, ngrok, Caddy) you run in front of this PC. It joins the pairing details, so a remote device reaches this PC from any network - no cloud relay required.',
   'settings.remote.advanced.publicUrl.label': 'Public URL',
   'settings.remote.advanced.tunnel.hint':
     'Run a cloudflared quick tunnel automatically while the server is on and put its public URL into the pairing QR - zero setup; cloudflared is downloaded and verified automatically on first use. The URL changes on every start (a stable Public URL above suits long-lived pairings better).',
@@ -990,28 +1001,28 @@ export const EN_MESSAGES = {
   'settings.remote.advanced.toggle':
     'Advanced - port, network addresses, unattended',
   'settings.remote.cloud.description':
-    "Log in to a marudesk relay so a phone on the same account can drive this PC's AI Chat from anywhere - both sides connect out to the cloud (no port-forwarding). The relay only brokers your account's messages; your code, credentials, and the agent stay on this PC.",
+    "Log in to a marudesk relay so another device on the same account can drive this PC's AI Chat from anywhere - both sides connect out to the cloud (no port-forwarding). The relay only brokers your account's messages; your code, credentials, and the agent stay on this PC.",
   'settings.remote.cloud.title': 'Cloud relay',
   'settings.remote.phoneAccess.hint':
-    'Run a small server on this PC so the marudesk phone app can pair over your Wi-Fi/LAN (or Tailscale) and drive the AI Chat. You just scan a QR to connect - no addresses to type. Off by default.',
-  'settings.remote.phoneAccess.label': 'Phone access',
+    'Run a small bridge on this PC so another device on your Wi-Fi/LAN (or Tailscale) can pair and drive the AI Chat. Scan the pairing code to connect - no addresses to type. Off by default.',
+  'settings.remote.phoneAccess.label': 'Remote device access',
   'settings.remote.pairing.approve': 'Approve',
   'settings.remote.pairing.approveAfter': '?',
   'settings.remote.pairing.approveBefore': 'Pair "',
   'settings.remote.pairing.close': 'Close',
   'settings.remote.pairing.copy': 'Copy pairing code',
   'settings.remote.pairing.copyHint':
-    'Can’t scan? Copy the pairing code and paste it on your phone',
+    'Can’t scan? Copy the pairing code and paste it on the other device',
   'settings.remote.pairing.daysAgo': 'd ago',
   'settings.remote.pairing.description':
-    'Tap below, scan the QR from the marudesk app, and approve it here. Pairing exchanges an encryption key, so traffic stays end-to-end encrypted even over plain Wi-Fi.',
+    'Tap below, scan the QR from the device you are pairing, and approve it here. Pairing exchanges an encryption key, so traffic stays end-to-end encrypted even over plain Wi-Fi.',
   'settings.remote.pairing.expired':
     'Code expired. Close this and tap "Pair a device" again.',
   'settings.remote.pairing.expiresAfter': 's',
   'settings.remote.pairing.expiresBefore': 'Expires in ',
   'settings.remote.pairing.fingerprint': 'Fingerprint',
   'settings.remote.pairing.fingerprintHint':
-    ' - approve only if it matches your phone.',
+    ' - approve only if it matches the device you are pairing.',
   'settings.remote.pairing.hoursAgo': 'h ago',
   'settings.remote.pairing.justNow': 'just now',
   'settings.remote.pairing.lastSeen': 'last seen',
@@ -1025,8 +1036,8 @@ export const EN_MESSAGES = {
   'settings.remote.pairing.revokeConfirmAfter':
     '"? It will lose access until paired again.',
   'settings.remote.pairing.revokeConfirmBefore': 'Revoke "',
-  'settings.remote.pairing.scan': 'Scan from your phone',
-  'settings.remote.pairing.title': 'Pair your phone',
+  'settings.remote.pairing.scan': 'Scan from the other device',
+  'settings.remote.pairing.title': 'Pair a device',
   'settings.remote.reach.copyBefore': 'Copy ',
   'settings.remote.reach.none':
     'No Wi-Fi/LAN or Tailscale address detected yet. Connect to a network (or start Tailscale), then reopen Settings.',
@@ -1060,7 +1071,7 @@ export const EN_MESSAGES = {
     'The base URL of your marudesk relay (http or https).',
   'settings.remote.relay.url.label': 'Relay URL',
   'settings.remote.unattended.hint':
-    'Let a paired phone drive this PC hands-free: auto-approve new device pairings AND run sensitive tools (run code, cookies, storage, terminal) without asking. Off by default.',
+    'Let a paired device drive this PC hands-free: auto-approve new device pairings AND run sensitive tools (run code, cookies, storage, terminal) without asking. Off by default.',
   'settings.remote.unattended.label': 'Skip approvals (unattended)',
   'settings.remote.unattended.warningAfter':
     ' agent mode still blocks edits and code regardless.',
@@ -1079,9 +1090,9 @@ export const EN_MESSAGES = {
   'settings.mcp.presets.label': 'Add a server',
   'settings.mcp.presets.added': 'Already added',
   'settings.mcp.embedded.restart':
-    'Chrome DevTools is set to control marudesk’s built-in browser tabs. Restart marudesk to apply — until then it can’t attach to the embedded browser.',
+    'Chrome DevTools is set to control Maru’s built-in browser tabs. Restart Maru to apply — until then it can’t attach to the embedded browser.',
   'settings.mcp.embedded.active':
-    'Chrome DevTools controls marudesk’s built-in browser tabs (attached over CDP — no separate Chrome window).',
+    'Chrome DevTools controls Maru’s built-in browser tabs (attached over CDP — no separate Chrome window).',
   'settings.mcp.status.connecting': 'Connecting',
   'settings.mcp.status.reconnecting': 'Reconnecting',
   'settings.mcp.status.disabled': 'Disabled',
@@ -1202,38 +1213,38 @@ export const EN_MESSAGES = {
   'settings.providers.testing': 'Testing...',
   'settings.remoteGuide.qr.after': '.',
   'settings.remoteGuide.qr.before':
-    'This QR is a secure pairing token, not a web link. Scanning it with your phone’s normal camera will just show text - use the ',
-  'settings.remoteGuide.qr.scanner': 'marudesk app’s scanner',
+    'This QR is a secure pairing token, not a web link. Scanning it with a normal camera app will just show text - use the ',
+  'settings.remoteGuide.qr.scanner': 'pairing scanner on the other device',
   'settings.remoteGuide.requirements':
     'Requirements: both devices on the same Wi-Fi / LAN, or Tailscale running on both.',
   'settings.remoteGuide.security.identity':
     'Holding the key is the proof of identity - there are no passwords to steal. The approval step on this PC, where you check the fingerprint, is what stops an impostor in the middle from slipping in during the first handshake.',
   'settings.remoteGuide.security.revoke':
-    'You can revoke any paired phone from the list below at any time; it loses access immediately until you pair it again.',
+    'You can revoke any paired device from the list below at any time; it loses access immediately until you pair it again.',
   'settings.remoteGuide.security.title': 'How the security works',
   'settings.remoteGuide.security.transport':
     'Pairing runs an X25519 key exchange and then encrypts every message with AES-GCM. Only your two devices hold the shared key, so the link is end-to-end encrypted - even on open Wi-Fi, nobody on the network can read it.',
   'settings.remoteGuide.step1.after': ' ',
   'settings.remoteGuide.step1.before':
-    'Install the marudesk phone app, then open it. ',
-  'settings.remoteGuide.step1.devBuild': '(a dev build for now).',
-  'settings.remoteGuide.step1.link': 'Where to get it',
-  'settings.remoteGuide.step1.title': 'Get the marudesk companion app on your phone',
+    'On another device on the same network, open the pairing screen for this bridge. ',
+  'settings.remoteGuide.step1.devBuild': '',
+  'settings.remoteGuide.step1.link': '',
+  'settings.remoteGuide.step1.title': 'Open the remote bridge on the other device',
   'settings.remoteGuide.step2.body':
-    'It opens the scanner and asks for a name to show on this PC.',
-  'settings.remoteGuide.step2.title': 'In the app, tap “Pair with your PC”',
+    'Open the pairing scanner and enter a name to show on this PC.',
+  'settings.remoteGuide.step2.title': 'On the other device, start “Pair with your PC”',
   'settings.remoteGuide.step3.body':
-    'Point the app’s scanner at the QR on this screen. No camera? Type the code shown under it instead.',
+    'Point the other device’s pairing scanner at the QR on this screen. No camera? Type the code shown under it instead.',
   'settings.remoteGuide.step3.title': 'Scan the QR above - or type the 8-character code',
   'settings.remoteGuide.step4.body':
-    'A request appears here with your phone’s name and a short fingerprint. Approve it only if they match your phone.',
+    'A request appears here with the device’s name and a short fingerprint. Approve it only if they match the device you are pairing.',
   'settings.remoteGuide.step4.title': 'Come back to this PC and tap Approve',
   'settings.remoteGuide.step5.body':
     'The link is end-to-end encrypted, so it stays private even on open Wi-Fi.',
-  'settings.remoteGuide.step5.title': 'Done - your phone can now drive AI Chat',
+  'settings.remoteGuide.step5.title': 'Done - the paired device can now drive AI Chat',
   'settings.remoteGuide.subtitle':
-    'A one-time pairing per device. After that your phone reconnects on its own.',
-  'settings.remoteGuide.title': 'How to connect your phone',
+    'A one-time pairing per device. After that it reconnects on its own.',
+  'settings.remoteGuide.title': 'How to connect a remote device',
   'settings.search.aria': 'Search settings',
   'settings.search.placeholder': 'Search settings',
   'settings.search.resultsTitle': 'Search results',
@@ -1280,7 +1291,7 @@ export const EN_MESSAGES = {
   'tour.step.tabs.body': 'Open web pages, editors, terminals, and the AI chat as tabs — drag one onto another to split.',
   'tour.step.tabs.title': 'Tabs & splits',
   'tour.step.welcome.body': 'A quick four-step tour of the workspace.',
-  'tour.step.welcome.title': 'Welcome to MaruDesk',
+  'tour.step.welcome.title': 'Welcome to Maru',
   'tour.step.workspaces.body': 'Switch or create workspaces here. Each keeps its own folders, tabs, and splits.',
   'tour.step.workspaces.title': 'Workspaces',
   'stage.empty.newEditor': 'New file',
@@ -1293,8 +1304,8 @@ export const EN_MESSAGES = {
   'home.guide.card.browse.label': 'Browse the web',
   'home.guide.card.edit.desc': 'Open a file from a workspace and edit it in the built-in code editor.',
   'home.guide.card.edit.label': 'Edit code',
-  'home.guide.card.remote.desc': 'Pair your phone to drive this PC remotely from Settings → Remote.',
-  'home.guide.card.remote.label': 'Control from your phone',
+  'home.guide.card.remote.desc': 'Pair another device on your network to drive this PC remotely from Settings → Remote.',
+  'home.guide.card.remote.label': 'Control from another device',
   'home.guide.card.terminal.desc': 'Run shell commands in an integrated terminal tab.',
   'home.guide.card.terminal.label': 'Run a terminal',
   'home.guide.card.workspace.desc': 'Open a project folder to unlock file tools, search, and the editor.',
@@ -1303,7 +1314,7 @@ export const EN_MESSAGES = {
   'home.guide.noWorkspace': 'No workspace open — browsing and AI chat work right now; open a folder to add file tools.',
   'home.guide.reopen': 'What can I do?',
   'home.guide.subtitle': 'A few things you can do right now.',
-  'home.guide.title': 'What can you do with MaruDesk?',
+  'home.guide.title': 'What can you do with Maru?',
   'home.launcher.agent.hint': 'Agent that sees the running app',
   'home.launcher.agent.label': 'AI Chat',
   'home.launcher.browser.hint': 'Open a blank page',
@@ -1412,7 +1423,7 @@ export const EN_MESSAGES = {
   'browser.zoom.resetAriaAfter': ' percent - reset',
   'browser.zoom.resetAriaBefore': 'Zoom ',
   'home.shortcut.newTab': 'opens a new tab',
-  'home.subtitle': 'Browser-native AI IDE',
+  'home.subtitle': 'An infinite canvas where AI sees your running app',
   'palette.hint.close': 'close',
   'palette.hint.move': 'move',
   'quickOpen.dialogLabel': 'Go to file',

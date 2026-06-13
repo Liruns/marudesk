@@ -2,7 +2,7 @@
   "name": "marudesk",
   "private": true,
   "version": "0.8.0",
-  "description": "Code-aware desktop agent with a browser stage, editor, and terminal.",
+  "description": "Maru — an infinite canvas where AI sees your running app.",
   "author": "Liruns",
   "homepage": "https://github.com/Liruns/marudesk",
   "type": "module",
@@ -61,7 +61,7 @@
   },
   "build": {
     "appId": "com.marudesk.app",
-    "productName": "marudesk",
+    "productName": "Maru",
     "asar": true,
     "asarUnpack": [
       "**/node_modules/node-pty/**",
@@ -138,7 +138,7 @@
         }
       ],
       "category": "Development",
-      "synopsis": "Code-aware desktop agent with a browser stage, editor, and terminal.",
+      "synopsis": "An infinite canvas where AI sees your running app.",
       "maintainer": "Liruns <duct1235@gmail.com>"
     }
   },

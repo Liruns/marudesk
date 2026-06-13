@@ -1,4 +1,4 @@
-import { getActive, type TabRecord } from './state';
+import { getActive, getPaneBounds, getPaneScale, type TabRecord } from './state';
 
 /**
  * Per-tab page zoom (Ctrl +/-/0). The chosen factor is stored on the tab record
@@ -38,6 +38,10 @@ function nearestIndex(factor: number): number {
 export function zoomActive(direction: 'in' | 'out' | 'reset'): number {
   const active = getActive();
   if (!active || !active.view) return 1;
+  // On the canvas the canvas zoom owns the page scale — per-page zoom would just
+  // be overwritten on the next layout, so make it a no-op there.
+  const paneScale = getPaneScale();
+  if (paneScale != null && getPaneBounds()?.has(active.id)) return paneScale;
   let next: number;
   if (direction === 'reset') {
     next = 1;
@@ -54,6 +58,13 @@ export function zoomActive(direction: 'in' | 'out' | 'reset'): number {
 /** Re-apply a tab's stored zoom (called after navigation resets it). */
 export function reapplyZoom(rec: TabRecord): void {
   if (!rec.view) return;
+  // On the canvas, a card's view renders at the canvas zoom; keep it after a
+  // navigation resets Chromium's zoom, rather than the tab's own page zoom.
+  const paneScale = getPaneScale();
+  if (paneScale != null && getPaneBounds()?.has(rec.id)) {
+    rec.view.webContents.setZoomFactor(paneScale);
+    return;
+  }
   const factor = rec.zoomFactor ?? 1;
   if (factor !== 1) rec.view.webContents.setZoomFactor(factor);
 }

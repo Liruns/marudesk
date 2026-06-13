@@ -67,6 +67,7 @@ export function parseSendInput(payload: unknown): AgentSendInput {
     captures: captures as CapturePayload[],
     images: parseImages(o.images),
     tabId: optStr(o.tabId, 'tabId'),
+    threadId: optStr(o.threadId, 'threadId'),
   };
 }
 
@@ -109,13 +110,31 @@ export function parseEditPlanStep(payload: unknown): {
   id: string;
   status?: AgentPlanStepStatus;
   remove?: boolean;
+  title?: string;
+  add?: { title: string; after?: string };
 } {
   const o = obj(payload);
+  // Add op (steering): insert a person-authored step. Needs no existing id.
+  if (o.add && typeof o.add === 'object') {
+    const a = o.add as Record<string, unknown>;
+    const title = typeof a.title === 'string' ? a.title : '';
+    if (!title.trim()) throw new Error('add.title is required');
+    return {
+      id: '',
+      add: { title, ...(typeof a.after === 'string' && a.after ? { after: a.after } : {}) },
+    };
+  }
   const status =
     typeof o.status === 'string' && (PLAN_STEP_STATUSES as readonly string[]).includes(o.status)
       ? (o.status as AgentPlanStepStatus)
       : undefined;
-  return { id: nonEmptyStr(o.id, 'id'), status, remove: o.remove === true };
+  const title = typeof o.title === 'string' ? o.title : undefined;
+  return {
+    id: nonEmptyStr(o.id, 'id'),
+    status,
+    remove: o.remove === true,
+    ...(title !== undefined ? { title } : {}),
+  };
 }
 
 /**

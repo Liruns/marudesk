@@ -31,8 +31,33 @@ function slugId(title: string): string {
  */
 export function editPlanStep(
   id: string,
-  op: { status?: AgentPlanStepStatus; remove?: boolean },
+  op: {
+    status?: AgentPlanStepStatus;
+    remove?: boolean;
+    /** Rename an existing step's title. */
+    title?: string;
+    /** Insert a person-authored step (steering); persists across update_plan. */
+    add?: { title: string; after?: string };
+  },
 ): boolean {
+  // Add a user step: works even with no plan yet (creates one). Inserted after
+  // `after` when given, else appended. Marked userAdded so the model's next
+  // update_plan keeps it instead of replacing it away.
+  if (op.add) {
+    const title = op.add.title.trim().slice(0, MAX_TITLE);
+    if (!title) return false;
+    const steps = S.state.plan ? [...S.state.plan.steps] : [];
+    let stepId = slugId(title);
+    while (steps.some((s) => s.id === stepId)) stepId = `${stepId}-x`;
+    const node: AgentPlanStep = { id: stepId, title, status: 'pending', userAdded: true };
+    const afterIdx = op.add.after ? steps.findIndex((s) => s.id === op.add!.after) : -1;
+    if (afterIdx >= 0) steps.splice(afterIdx + 1, 0, node);
+    else steps.push(node);
+    S.state.plan = { steps, updatedAt: Date.now() };
+    emit();
+    return true;
+  }
+
   const plan = S.state.plan;
   if (!plan) return false;
   let steps = plan.steps;
@@ -40,6 +65,16 @@ export function editPlanStep(
     const next = steps.filter((s) => s.id !== id);
     if (next.length === steps.length) return false;
     steps = next;
+  } else if (op.title !== undefined) {
+    const title = op.title.trim().slice(0, MAX_TITLE);
+    if (!title) return false;
+    let found = false;
+    steps = steps.map((s) => {
+      if (s.id !== id) return s;
+      found = true;
+      return { ...s, title };
+    });
+    if (!found) return false;
   } else if (op.status && STATUSES.includes(op.status)) {
     let found = false;
     steps = steps.map((s) => {
@@ -99,8 +134,12 @@ export function updatePlanTool(input: unknown, ctx?: ToolContext): ToolResult {
   if (steps.length === 0) {
     return { summary: 'update_plan failed', text: 'No valid steps provided.', isError: true };
   }
-  T.state.plan = { steps, updatedAt: Date.now() };
+  // Keep any person-authored steps the model didn't re-list (steering survives a
+  // full plan replace) — appended after the model's, so they never vanish.
+  const userSteps = (T.state.plan?.steps ?? []).filter((s) => s.userAdded && !seen.has(s.id));
+  const merged = userSteps.length > 0 ? [...steps, ...userSteps] : steps;
+  T.state.plan = { steps: merged, updatedAt: Date.now() };
   emitContainer(T);
-  const done = steps.filter((s) => s.status === 'done').length;
-  return { summary: `plan: ${done}/${steps.length} done`, text: `Plan updated (${steps.length} steps, ${done} done).` };
+  const done = merged.filter((s) => s.status === 'done').length;
+  return { summary: `plan: ${done}/${merged.length} done`, text: `Plan updated (${merged.length} steps, ${done} done).` };
 }

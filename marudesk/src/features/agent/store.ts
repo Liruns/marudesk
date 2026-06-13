@@ -1,4 +1,4 @@
-import { createContext, createElement, useContext, type ReactNode } from 'react';
+import { createContext, createElement, useContext, useMemo, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type {
@@ -179,8 +179,19 @@ type AgentActions = {
   restoreTurnPage: (turnId: string) => Promise<void>;
   restoreCheckpoint: (turnId: string) => Promise<CheckpointRestore>;
   cancelBackground: (id: string) => Promise<void>;
-  /** Steerable plan (v6 §U5): toggle a step's status or remove it. */
-  editPlanStep: (id: string, op: { status?: string; remove?: boolean }) => Promise<void>;
+  /**
+   * Steerable plan (v6 §U5): toggle a step's status, rename or remove it, or
+   * insert a person-authored step (`add`) that survives the model's next replace.
+   */
+  editPlanStep: (
+    id: string,
+    op: {
+      status?: string;
+      remove?: boolean;
+      title?: string;
+      add?: { title: string; after?: string };
+    },
+  ) => Promise<void>;
   resetChat: () => Promise<void>;
   /**
    * Summarize the transcript for the model to free context while keeping the
@@ -220,12 +231,20 @@ function maybeRefreshGitForEdits(chat: AgentChatState): void {
 type AgentStore = AgentState & AgentActions;
 type AgentStoreApi = StoreApi<AgentStore>;
 
-const AgentWorkspaceContext = createContext<WorkspaceId | undefined>(undefined);
+/**
+ * Renderer scope for an agent surface: its workspace AND (optionally) the
+ * specific thread it's bound to. On the canvas each AI Chat card binds to its
+ * own thread, so all cards stream + send independently at once; classic/drawer
+ * leave threadId undefined and follow the workspace's active thread.
+ */
+type AgentScope = { workspaceId?: WorkspaceId; threadId?: string };
+const AgentScopeContext = createContext<AgentScope>({});
 const GLOBAL_AGENT_SCOPE = '__global__';
 const agentStores = new Map<string, AgentStoreApi>();
 
-function scopeKey(workspaceId: WorkspaceId | undefined): string {
-  return normalizeAgentWorkspaceId(workspaceId) ?? GLOBAL_AGENT_SCOPE;
+function scopeKey(workspaceId: WorkspaceId | undefined, threadId: string | undefined): string {
+  const ws = normalizeAgentWorkspaceId(workspaceId) ?? GLOBAL_AGENT_SCOPE;
+  return threadId ? `${ws}::${threadId}` : ws;
 }
 
 function scopedPayload(workspaceId: WorkspaceId | undefined): { workspaceId?: WorkspaceId } {
@@ -244,8 +263,13 @@ function hasAuthFor(status: ProviderStatus[], provider: ProviderId): boolean {
 }
 
 
-function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
+function createAgentStore(
+  workspaceId: WorkspaceId | undefined,
+  threadId?: string,
+): AgentStoreApi {
   const scope = normalizeAgentWorkspaceId(workspaceId);
+  // History/verbosity stay workspace-scoped (shared recall across the workspace's
+  // chats); only turn routing + hydration are thread-specific.
   const historyKey = scopedStorageKey(HISTORY_KEY, scope);
   const verbosityKey = scopedStorageKey(VERBOSITY_KEY, scope);
 
@@ -383,7 +407,10 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
 
   hydrate: async () => {
     try {
-      const chat = await window.marudesk.invoke('agent:snapshot', scopedPayload(workspaceId));
+      const chat = await window.marudesk.invoke('agent:snapshot', {
+        ...scopedPayload(workspaceId),
+        ...(threadId ? { threadId } : {}),
+      });
       set({ chat });
     } catch {
       // best-effort; the next agent:event will populate it
@@ -476,6 +503,7 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
         model,
         prompt,
         ...scopedPayload(scope),
+        ...(threadId ? { threadId } : {}),
         captures,
         images: images && images.length > 0 ? images : undefined,
         tabId: activeWebTabId(),
@@ -680,32 +708,47 @@ function createAgentStore(workspaceId: WorkspaceId | undefined): AgentStoreApi {
   }));
 }
 
-export function getAgentStoreForWorkspace(workspaceId: WorkspaceId | undefined): AgentStoreApi {
+/** The store for a (workspace, thread) pair — a per-thread instance when a
+ *  threadId is given (canvas cards), else the workspace's active-thread store. */
+export function getAgentStore(
+  workspaceId: WorkspaceId | undefined,
+  threadId?: string,
+): AgentStoreApi {
   const scope = normalizeAgentWorkspaceId(workspaceId);
-  const key = scopeKey(scope);
+  const key = scopeKey(scope, threadId);
   const existing = agentStores.get(key);
   if (existing) return existing;
-  const created = createAgentStore(scope);
+  const created = createAgentStore(scope, threadId);
   agentStores.set(key, created);
   return created;
 }
 
+/** The workspace's active-thread store (classic/drawer + the "Fix this" flows). */
+export function getAgentStoreForWorkspace(workspaceId: WorkspaceId | undefined): AgentStoreApi {
+  return getAgentStore(workspaceId, undefined);
+}
+
 export function AgentScopeProvider({
   workspaceId,
+  threadId,
   children,
 }: {
   workspaceId?: WorkspaceId;
+  threadId?: string;
   children?: ReactNode;
 }) {
-  return createElement(
-    AgentWorkspaceContext.Provider,
-    { value: normalizeAgentWorkspaceId(workspaceId) },
-    children,
-  );
+  const ws = normalizeAgentWorkspaceId(workspaceId);
+  const value = useMemo<AgentScope>(() => ({ workspaceId: ws, threadId }), [ws, threadId]);
+  return createElement(AgentScopeContext.Provider, { value }, children);
 }
 
 export function useAgentWorkspaceId(): WorkspaceId | undefined {
-  return useContext(AgentWorkspaceContext);
+  return useContext(AgentScopeContext).workspaceId;
+}
+
+/** The thread this surface is bound to (canvas card), or undefined (classic). */
+export function useAgentThreadId(): string | undefined {
+  return useContext(AgentScopeContext).threadId;
 }
 
 type AgentStoreHook = {
@@ -719,8 +762,8 @@ const defaultAgentStore = getAgentStoreForWorkspace(undefined);
 
 export const useAgentStore = Object.assign(
   <T,>(selector: (state: AgentStore) => T): T => {
-    const workspaceId = useAgentWorkspaceId();
-    return useStore(getAgentStoreForWorkspace(workspaceId), selector);
+    const { workspaceId, threadId } = useContext(AgentScopeContext);
+    return useStore(getAgentStore(workspaceId, threadId), selector);
   },
   {
     getState: defaultAgentStore.getState,

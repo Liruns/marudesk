@@ -93,10 +93,10 @@ export function EditorFooter({
       : `${t('editor.status.line')} ${line}, ${t('editor.status.column')} ${column}`;
 
   return (
-    <footer className="h-6 shrink-0 flex items-center gap-3 px-3 border-t border-subtle bg-surface-2 text-caption text-fg-tertiary tabular-nums select-none">
+    <footer className="h-6 shrink-0 flex items-center gap-2 @[20rem]:gap-3 px-3 border-t border-subtle bg-surface-2 text-caption text-fg-tertiary tabular-nums select-none">
       <span>{lineCol}</span>
-      <span className="uppercase tracking-wide">{language}</span>
-      <span>{t('editor.status.spaces')}</span>
+      <span className="hidden @[22rem]:inline uppercase tracking-wide">{language}</span>
+      <span className="hidden @[22rem]:inline">{t('editor.status.spaces')}</span>
       <span className="flex-1" aria-hidden />
       <button
         type="button"

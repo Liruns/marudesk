@@ -1,4 +1,4 @@
-import { Code2, FolderOpen, Globe, Smartphone, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
+import { Code2, FolderOpen, Globe, MonitorSmartphone, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
 import { useState } from 'react';
 import type { TabKind } from '../../../shared/browser';
 import logoUrl from '../../assets/logo-mark.png';
@@ -46,11 +46,11 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
     { key: 'workspace', icon: <FolderOpen size={18} />, label: 'home.guide.card.workspace.label', desc: 'home.guide.card.workspace.desc', onOpen: () => void createWorkspace('', []) },
     { key: 'terminal', icon: <SquareTerminal size={18} />, label: 'home.guide.card.terminal.label', desc: 'home.guide.card.terminal.desc', onOpen: () => open('terminal') },
     { key: 'edit', icon: <Code2 size={18} />, label: 'home.guide.card.edit.label', desc: 'home.guide.card.edit.desc', onOpen: () => open('editor') },
-    { key: 'remote', icon: <Smartphone size={18} />, label: 'home.guide.card.remote.label', desc: 'home.guide.card.remote.desc', onOpen: () => open('settings') },
+    { key: 'remote', icon: <MonitorSmartphone size={18} />, label: 'home.guide.card.remote.label', desc: 'home.guide.card.remote.desc', onOpen: () => open('settings') },
   ];
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
+    <div className="@container flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
       <div className="min-h-full flex flex-col items-center justify-start px-8 py-12 gap-7">
         <div className="flex flex-col items-center gap-3 animate-fade-rise">
           <div className="relative">
@@ -61,7 +61,7 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
             <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-12 select-none" />
           </div>
           <div className="flex flex-col items-center gap-1">
-            <h1 className="text-title font-display text-fg-primary">marudesk</h1>
+            <h1 className="text-title font-display text-fg-primary">Maru</h1>
             <p className="text-body-sm text-fg-tertiary">{t('home.subtitle')}</p>
           </div>
         </div>
@@ -79,7 +79,7 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
           // compact launcher grid while it's open to avoid duplicate cards.
           <HomeGuide scenarios={scenarios} onDismiss={dismissGuide} />
         ) : (
-          <div className="w-full max-w-2xl grid grid-cols-1 xl:grid-cols-2 gap-2.5 animate-fade-rise [animation-delay:120ms]">
+          <div className="w-full max-w-2xl grid grid-cols-1 @lg:grid-cols-2 gap-2.5 animate-fade-rise [animation-delay:120ms]">
             <HomeLauncherCard
               label={t('home.launcher.agent.label')}
               hint={t('home.launcher.agent.hint')}

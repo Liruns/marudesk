@@ -36,6 +36,7 @@ import type {
 } from '../../../shared/workspace';
 import { IconButton, WorkspaceRootsBar } from './ExplorerPanel.parts';
 import { useWorkspaceStore } from './store';
+import { serializeFileDrag } from './fileDrag';
 import { useEditorStore } from '../editor/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { buildFileTree, flattenTree } from './tree';
@@ -430,6 +431,7 @@ export function ExplorerPanel({ open, onRequestClose }: Props) {
                   onToggleDir={toggleDir}
                   onSelectFile={selectFile}
                   onOpenFile={(p) => void openFile(workspaceFile(p))}
+                  getDragData={(p) => serializeFileDrag(workspaceFile(p))}
                   onContextMenu={openRowMenu}
                   onCommitRename={(p, n) => commitRename(p, n).then((r) => r !== null)}
                   onCommitCreate={(dir, n, k) =>

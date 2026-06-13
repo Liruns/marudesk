@@ -25,6 +25,9 @@ export function SshHostKeysSettings() {
   }, []);
 
   useEffect(() => {
+    // Initial load: refresh() only setState's after an awaited IPC round-trip,
+    // so this is a legitimate external-system fetch, not a synchronous cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
   }, [refresh]);
 

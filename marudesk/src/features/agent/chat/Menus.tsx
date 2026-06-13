@@ -46,7 +46,7 @@ export function MentionMenu({
       ref={listRef}
       role="listbox"
       aria-label={t('agent.chat.workspaceFiles')}
-      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
+      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-w-[calc(100%-16px)] @[20rem]:max-w-[13rem] max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
     >
       {items.map((path, i) => {
         const base = path.slice(path.lastIndexOf('/') + 1);
@@ -136,7 +136,7 @@ export function SlashMenu({
       ref={listRef}
       role="listbox"
       aria-label={t('agent.chat.slashCommands')}
-      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
+      className="absolute bottom-full left-0 right-0 mb-2 z-20 max-w-[calc(100%-16px)] @[20rem]:max-w-[13rem] max-h-64 overflow-y-auto rounded border border-default bg-surface-2 shadow-lifted py-1"
     >
       {items.map((cmd, i) => (
         <button

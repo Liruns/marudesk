@@ -102,9 +102,24 @@ export function MonacoView({
     // codelenses whenever the buffer contains conflict markers.
     const conflictAid = new ConflictEditorAid(editor);
     conflictAidRef.current = conflictAid;
+    // Save on Ctrl/Cmd+S. Registered as a window keydown (not just a Monaco
+    // command) so it fires even when Monaco is mounted inside the CSS-transformed
+    // canvas plane, where Monaco's own keybinding delivery is unreliable. Guarded
+    // to fire only when THIS editor holds focus, so multiple editor cards don't
+    // all save. preventDefault stops the browser's Save dialog.
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       void formatAndSave(editor, pathRef.current);
     });
+    const onWindowSaveKey = (e: KeyboardEvent): void => {
+      if (e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() !== 's') return;
+      const host = hostRef.current;
+      const active = document.activeElement;
+      if (!host || !active || !(active === host || host.contains(active))) return;
+      e.preventDefault();
+      void formatAndSave(editor, pathRef.current);
+    };
+    window.addEventListener('keydown', onWindowSaveKey);
     // Report cursor position up for the status bar (language is reported on each
     // model bind below, where it's known).
     const cursorSub = editor.onDidChangeCursorPosition((e) => {
@@ -131,6 +146,7 @@ export function MonacoView({
       gitDecorations.setBlameEnabled(s.settings.editor.inlineBlame);
     });
     return () => {
+      window.removeEventListener('keydown', onWindowSaveKey);
       cursorSub.dispose();
       unsubGit();
       unsubSettings();

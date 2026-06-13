@@ -197,6 +197,19 @@ export function setPaneBounds(bounds: Map<string, Bounds> | null): void {
   paneBounds = bounds;
 }
 
+// The canvas surface's zoom (1 = 100%); web views in the pane map render their
+// page at this factor so content scales with the canvas. null when not driven by
+// the canvas (e.g. the classic split grid, which leaves per-tab user zoom alone).
+let paneScale: number | null = null;
+
+export function getPaneScale(): number | null {
+  return paneScale;
+}
+
+export function setPaneScale(scale: number | null): void {
+  paneScale = scale;
+}
+
 /* ── untitled editor sequence ───────────────────────────────────────────── */
 
 export function nextUntitledSeq(): number {

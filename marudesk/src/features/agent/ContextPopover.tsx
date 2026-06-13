@@ -195,7 +195,7 @@ export function ContextPopover({ anchorRef, onClose, onInsertMention, onAddPhoto
       onKeyDown={onKeyDown}
       style={{ left: pos?.left ?? 8, top: pos?.top, visibility: pos ? undefined : 'hidden' }}
       className={cn(
-        'fixed z-50 w-72 max-w-[calc(100vw-16px)] -translate-y-full mb-1',
+        'fixed z-50 w-[calc(100%-16px)] @[20rem]:w-72 @[20rem]:max-w-[calc(100vw-16px)] -translate-y-full mb-1',
         // L2 "soft glow" is the design system's popover elevation (§6); shadow-xl
         // was an off-system Tailwind default.
         'rounded-lg border border-default bg-surface-1 shadow-glow',

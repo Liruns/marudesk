@@ -147,8 +147,8 @@ export async function dispatchAgentCommand(
         return { ok: true, result: agent.snapshot(workspaceId) };
       }
       case 'edit-plan-step': {
-        const { id, status, remove } = parseEditPlanStep(args);
-        return { ok: true, result: { ok: agent.editPlanStep(id, { status, remove }) } };
+        const { id, ...op } = parseEditPlanStep(args);
+        return { ok: true, result: { ok: agent.editPlanStep(id, op) } };
       }
       case 'set-approval-mode': {
         const { mode } = parseSetApprovalMode(args);

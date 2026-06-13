@@ -32,7 +32,7 @@ export function HomeRecents() {
             placeholder={t('home.recents.filter.placeholder')}
             spellCheck={false}
             aria-label={t('home.recents.filter.aria')}
-            className="ml-auto h-6 w-32 rounded bg-surface-page border border-subtle px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent shadow-inset-soft"
+            className="ml-auto h-6 flex-1 max-w-xs rounded bg-surface-page border border-subtle px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent shadow-inset-soft"
           />
         ) : null}
       </div>

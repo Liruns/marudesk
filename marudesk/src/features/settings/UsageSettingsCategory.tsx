@@ -235,6 +235,10 @@ export function UsageCategory() {
   }, []);
 
   useEffect(() => {
+    // Initial load: fetchUsage() setState's a loading flag then awaits IPC, so
+    // this fetch-on-mount synchronizes with an external system rather than
+    // triggering a synchronous render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchUsage();
   }, [fetchUsage]);
 

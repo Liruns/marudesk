@@ -1,80 +1,84 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
+import { Spinner } from '../../components/ui';
 import { AgentChat } from './AgentChat';
 import { SessionRail } from './SessionRail';
 import { AgentScopeProvider, getAgentStoreForWorkspace } from './store';
+import { acquireCardThread } from './cardThreads';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
+import { useSurfaceStore } from '../canvas/surface';
 
 /**
- * The full-surface AI Chat — the `agent` tab kind (v3 §5-B, Antigravity/Claude/
- * Codex Desktop parity). Hosts {@link AgentChat} in its wide, centered `full`
- * variant. Each tab auto-creates its own thread so multiple AI Chat tabs in the
- * same workspace keep separate conversations and independent input state.
+ * The full-surface AI Chat — the `agent` tab kind. Hosts {@link AgentChat} in its
+ * wide `full` variant. Each tab owns its own conversation thread (via
+ * {@link acquireCardThread}, reused across remounts so a workspace/surface switch
+ * never loses the conversation).
+ *
+ * **Canvas independence:** on the canvas every AI Chat card is mounted at once, so
+ * each BINDS to its own thread (`AgentScopeProvider threadId`) — they stream,
+ * type, and run turns fully independently and simultaneously. Classic/grid shows
+ * one surface at a time and follows the workspace's active thread (threadId
+ * unbound), so its behaviour is unchanged.
  */
 export function AgentTab({ tabId, workspaceId }: { tabId?: string; workspaceId?: WorkspaceId }) {
-  const threadRef = useRef<string | null>(null);
-  const mountedRef = useRef(true);
+  const surface = useSurfaceStore((s) => s.mode);
+  const [threadId, setThreadId] = useState<string | null>(null);
 
+  // Acquire (once) this tab's thread; kept alive across remounts by the registry,
+  // closed only when the tab itself closes.
   useEffect(() => {
-    mountedRef.current = true;
     if (!tabId) return;
-
     let cancelled = false;
-    void (async () => {
-      try {
-        const threads = await window.marudesk.invoke('agent:new-thread', { workspaceId });
-        if (cancelled) return;
-        const active = (threads as { id: string; active: boolean }[]).find((t) => t.active);
-        if (active) {
-          threadRef.current = active.id;
-          getAgentStoreForWorkspace(workspaceId).getState().setActiveThreadId(active.id);
-        }
-      } catch {
-        // best-effort — falls back to the workspace's current active thread
-      }
-    })();
-
+    void acquireCardThread(tabId, workspaceId).then((id) => {
+      if (cancelled || !id) return;
+      setThreadId(id);
+      getAgentStoreForWorkspace(workspaceId).getState().setActiveThreadId(id);
+    });
     return () => {
       cancelled = true;
-      mountedRef.current = false;
-      // Close the tab's thread when unmounting (tab close). Silently fails if
-      // it's the last thread in the workspace (main refuses to close the last one).
-      if (threadRef.current) {
-        void window.marudesk.invoke('agent:close-thread', {
-          id: threadRef.current,
-          workspaceId,
-        }).catch(() => {});
-      }
     };
   }, [tabId, workspaceId]);
 
-  // When this tab becomes the active tab, switch to its thread.
+  // When this tab becomes active, point the workspace's active thread at it so the
+  // classic single-view + workspace-scoped store follow. Canvas cards bind to
+  // their own thread directly, so this only matters off-canvas.
   useEffect(() => {
-    if (!tabId) return;
+    if (!tabId || !threadId) return;
     return useTabsStore.subscribe((state) => {
-      if (state.activeTabId === tabId && threadRef.current) {
-        void window.marudesk.invoke('agent:switch-thread', {
-          id: threadRef.current,
-          workspaceId,
-        }).then((threads) => {
+      if (state.activeTabId !== tabId) return;
+      void window.marudesk
+        .invoke('agent:switch-thread', { id: threadId, workspaceId })
+        .then((threads) => {
           const active = (threads as { id: string; active: boolean }[]).find((t) => t.active);
-          if (active) {
-            getAgentStoreForWorkspace(workspaceId).getState().setActiveThreadId(active.id);
-          }
-        }).catch(() => {});
-      }
+          if (active) getAgentStoreForWorkspace(workspaceId).getState().setActiveThreadId(active.id);
+        })
+        .catch(() => {});
     });
-  }, [tabId, workspaceId]);
+  }, [tabId, workspaceId, threadId]);
+
+  // Bind to this card's thread on the canvas (independent live chats); off-canvas
+  // stay unbound (workspace-active). Wait for the thread before mounting the chat
+  // on the canvas so a card never briefly shows another thread's transcript.
+  const boundThreadId = surface === 'canvas' ? (threadId ?? undefined) : undefined;
+  const waiting = surface === 'canvas' && !!tabId && !threadId;
 
   return (
-    <AgentScopeProvider workspaceId={workspaceId}>
-      {/* @container: the chat surface adapts to its PANE width (split view /
-          divider drags), not the viewport — children use @[…rem]: variants. */}
+    <AgentScopeProvider workspaceId={workspaceId} threadId={boundThreadId}>
+      {/* @container: the chat surface adapts to its PANE width — children use
+          @[…rem]: variants. */}
       <div className="flex-1 min-w-0 flex flex-row min-h-0 bg-surface-page @container">
-        <SessionRail />
-        <div className="flex-1 min-w-0 flex flex-col min-h-0">
-          <AgentChat variant="full" />
-        </div>
+        {waiting ? (
+          <div className="flex-1 min-w-0 min-h-0 grid place-items-center bg-surface-page">
+            <Spinner size={18} />
+          </div>
+        ) : (
+          <>
+            <SessionRail />
+            <div className="flex-1 min-w-0 flex flex-col min-h-0">
+              <AgentChat variant="full" />
+            </div>
+          </>
+        )}
       </div>
     </AgentScopeProvider>
   );

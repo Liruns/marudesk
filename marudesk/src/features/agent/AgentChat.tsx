@@ -11,11 +11,11 @@ import { useElapsedTimer } from '../../hooks';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { findModel } from '../../../shared/providers';
-import type { AgentChatState, AgentWorkspaceEvent } from '../../../shared/agent';
+import type { AgentChatState, AgentThreadEvent, AgentWorkspaceEvent } from '../../../shared/agent';
 import { useProvidersStore } from '../providers/store';
 import { useSettingsStore } from '../settings/store';
 import { useWorkspaceStore } from '../workspace/store';
-import { useAgentStore, useAgentWorkspaceId, useThreadModelKey } from './store';
+import { useAgentStore, useAgentThreadId, useAgentWorkspaceId, useThreadModelKey } from './store';
 import { ContextPopover } from './ContextPopover';
 import { buildReceipt, hasOrchestrationContent, isBusy } from './chat/format';
 import {
@@ -77,6 +77,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   const dequeuePrompt = useAgentStore((s) => s.dequeuePrompt);
   const verbosity = useAgentStore((s) => s.verbosity);
   const workspaceId = useAgentWorkspaceId();
+  const boundThreadId = useAgentThreadId();
 
   const summary = useWorkspaceStore((s) => s.summary);
   // Reading-comfort scale for the transcript only (settings → Appearance). CSS
@@ -104,6 +105,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
   // we catch up on whatever happened while the panel was on another tab.
   useEffect(() => {
     void hydrate();
+    // Canvas card: bound to one thread → ingest only THAT thread's live stream,
+    // so many chats run independently at once. Classic/drawer: no bound thread →
+    // follow the workspace's active thread (or the global one with no workspace).
+    if (boundThreadId) {
+      return window.marudesk.on('agent:thread-event', (event: AgentThreadEvent) => {
+        if (event.threadId === boundThreadId) ingest(event.state);
+      });
+    }
     if (workspaceId) {
       return window.marudesk.on('agent:workspace-event', (event: AgentWorkspaceEvent) => {
         if (event.workspaceId === workspaceId) ingest(event.state);
@@ -111,7 +120,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     }
     const off = window.marudesk.on('agent:event', (s: AgentChatState) => ingest(s));
     return off;
-  }, [hydrate, ingest, workspaceId]);
+  }, [hydrate, ingest, workspaceId, boundThreadId]);
 
   useEffect(() => {
     if (!statusChecked) void refreshStatus();
@@ -220,7 +229,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         <div
           className={cn(
             'flex flex-col gap-5',
-            full ? 'mx-auto w-full max-w-3xl px-5 py-6' : 'px-3 py-4',
+            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-6' : 'px-3 py-4',
             empty && 'min-h-full justify-center',
           )}
           style={chatZoom !== 100 ? { zoom: chatZoom / 100 } : undefined}
@@ -337,14 +346,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         <div
           className={cn(
             'flex flex-col gap-2',
-            full ? 'mx-auto w-full max-w-3xl px-5 py-3' : 'px-3 py-2',
+            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-3' : 'px-3 py-2',
           )}
         >
           {/* Status row: left = pill + usage; right = toggle cluster. Wraps the
               toggle pill to its own line on a narrow drawer instead of overflowing. */}
           <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
             {/* Left: status + usage */}
-            <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
               <StatusPill status={chat.status} elapsed={elapsed} />
               <UsageMeter />
             </div>

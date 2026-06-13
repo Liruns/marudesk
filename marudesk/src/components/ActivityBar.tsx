@@ -2,6 +2,7 @@ import { useState, type MouseEvent, type ReactNode } from 'react';
 import {
   Bot,
   Files,
+  Frame,
   GitBranch,
   KeyRound,
   MessageSquareText,
@@ -15,6 +16,7 @@ import {
 import { cn } from '../lib/cn';
 import { useWebPageStore } from '../features/browser/store';
 import { useAgentStore } from '../features/agent/store';
+import { useSurfaceStore } from '../features/canvas/surface';
 import { openSettingsTab } from '../features/settings/store';
 import { ContextMenu } from './ContextMenu';
 import { AppearancePopover } from '../features/theme/AppearancePopover';
@@ -61,6 +63,7 @@ export function ActivityBar({
   // The agent parks on approvals/questions in the drawer; surface that as a
   // persistent attention dot on the rail so it's visible from any tab.
   const agentWaiting = useAgentStore((s) => s.chat.status === 'waiting_for_user');
+  const surfaceMode = useSurfaceStore((s) => s.mode);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const { t } = useI18n();
@@ -114,6 +117,13 @@ export function ActivityBar({
         <MessageSquareText size={18} />
       </ActivityButton>
       <span className="flex-1" aria-hidden />
+      <ActivityButton
+        label={surfaceMode === 'canvas' ? 'Switch to classic view' : 'Switch to canvas'}
+        active={surfaceMode === 'canvas'}
+        onClick={() => useSurfaceStore.getState().toggle()}
+      >
+        <Frame size={18} />
+      </ActivityButton>
       <ActivityButton
         label={t('activity.settings')}
         active={!!menu}

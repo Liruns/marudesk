@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
+import { FILE_DND_MIME } from './fileDrag';
 import type { FlatNode } from './tree';
 import type { Clipboard, PendingEdit } from './store';
 
@@ -36,6 +37,8 @@ type Props = {
   onToggleDir: (path: string) => void;
   onSelectFile: (path: string) => void;
   onOpenFile: (path: string) => void;
+  /** Drag payload for a file row (serialized file ref) — enables drag-to-panel. */
+  getDragData?: (path: string) => string;
   onContextMenu: (e: ReactMouseEvent, target: MenuTarget) => void;
   onCommitRename: (path: string, newName: string) => Promise<boolean>;
   onCommitCreate: (
@@ -63,6 +66,7 @@ export function FileTree({
   onToggleDir,
   onSelectFile,
   onOpenFile,
+  getDragData,
   onContextMenu,
   onCommitRename,
   onCommitCreate,
@@ -123,6 +127,7 @@ export function FileTree({
                 onToggleDir={onToggleDir}
                 onSelectFile={onSelectFile}
                 onOpenFile={onOpenFile}
+                getDragData={getDragData}
                 onContextMenu={onContextMenu}
               />
             )}
@@ -160,6 +165,7 @@ function TreeRow({
   onToggleDir,
   onSelectFile,
   onOpenFile,
+  getDragData,
   onContextMenu,
 }: {
   node: FlatNode;
@@ -169,6 +175,7 @@ function TreeRow({
   onToggleDir: (path: string) => void;
   onSelectFile: (path: string) => void;
   onOpenFile: (path: string) => void;
+  getDragData?: (path: string) => string;
   onContextMenu: (e: ReactMouseEvent, target: MenuTarget) => void;
 }) {
   const isDir = node.kind === 'dir';
@@ -176,6 +183,16 @@ function TreeRow({
     <li role="treeitem" aria-level={node.depth + 1} aria-expanded={isDir ? open : undefined} aria-selected={selected}>
       <button
         type="button"
+        // Files are draggable onto the canvas / a grid pane to open as an editor.
+        draggable={!isDir && !!getDragData}
+        onDragStart={
+          !isDir && getDragData
+            ? (e) => {
+                e.dataTransfer.setData(FILE_DND_MIME, getDragData(node.path));
+                e.dataTransfer.effectAllowed = 'copy';
+              }
+            : undefined
+        }
         onClick={() => {
           if (isDir) {
             onToggleDir(node.path);

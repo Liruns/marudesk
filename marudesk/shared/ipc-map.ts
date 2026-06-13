@@ -129,7 +129,9 @@ export interface IpcMap {
   'browser:navigate': { args: [url: string]; result: void };
   'browser:set-bounds': { args: [bounds: Rect]; result: void };
   'browser:set-pane-bounds': {
-    args: [payload: { panes: { tabId: string; rect: Rect }[] }];
+    // `scale` (optional) is the canvas zoom; web views render their page at it so
+    // content scales with the canvas. Omitted by the classic split grid.
+    args: [payload: { panes: { tabId: string; rect: Rect }[]; scale?: number }];
     result: void;
   };
   'browser:clear-pane-bounds': { args: []; result: void };
@@ -717,13 +719,26 @@ export interface IpcMap {
   'agent:list-tools': { args: []; result: AgentToolInfo[] };
   // User-initiated cancel of a running background agent from the tray (audit H6).
   'agent:cancel-background': { args: [payload: { id: string }]; result: boolean };
-  // Steerable plan (v6 §U5): user toggles a step's status or removes it.
+  // Steerable plan (v6 §U5): user toggles a step's status, renames or removes it,
+  // or inserts a person-authored step (`add`) that survives the model's replace.
   'agent:edit-plan-step': {
-    args: [payload: { id: string; status?: string; remove?: boolean }];
+    args: [
+      payload: {
+        id?: string;
+        status?: string;
+        remove?: boolean;
+        title?: string;
+        add?: { title: string; after?: string };
+      },
+    ];
     result: boolean;
   };
-  // Pull the current chat state (initial render / re-mount).
-  'agent:snapshot': { args: [payload?: { workspaceId?: WorkspaceId }]; result: AgentChatState };
+  // Pull the current chat state (initial render / re-mount). `threadId` pulls a
+  // specific thread (canvas cards); omitted ⇒ the workspace's active thread.
+  'agent:snapshot': {
+    args: [payload?: { workspaceId?: WorkspaceId; threadId?: string }];
+    result: AgentChatState;
+  };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: [payload?: { workspaceId?: WorkspaceId }]; result: boolean };
   // Compact the conversation: summarize the transcript for the model while

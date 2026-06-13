@@ -1,6 +1,6 @@
 # Support
 
-MaruDesk is a personal, in-development project. Support is best-effort.
+Maru is a personal, in-development project. Support is best-effort.
 
 ## Where to ask
 
@@ -11,9 +11,10 @@ MaruDesk is a personal, in-development project. Support is best-effort.
 
 ## Good support requests include
 
-- The package or surface involved: desktop app, mobile client, relay, provider,
-  DevTools, browser, plugins, MCP, or remote pairing.
-- Operating system and MaruDesk version or commit.
+- The package or surface involved: desktop app, relay, provider, DevTools,
+  browser, plugins, MCP, or remote pairing. (The mobile client is archived on
+  the `archive/mobile` branch and is no longer actively supported.)
+- Operating system and Maru version or commit.
 - Clear reproduction steps.
 - Expected behavior and actual behavior.
 - Relevant logs or screenshots with secrets removed.
