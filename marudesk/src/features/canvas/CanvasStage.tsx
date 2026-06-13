@@ -297,6 +297,18 @@ export function CanvasStage() {
   const fit = () => {
     useCanvasStore.getState().fitToContent(size.w, size.h);
   };
+  // The current visible viewport as a canvas-space rect (for maximize), inset a
+  // little so a maximized card doesn't butt against the very edges.
+  const maximizeRect = () => {
+    const { panX, panY, scale } = useCanvasStore.getState().viewport;
+    const pad = 24 / scale;
+    return {
+      x: -panX / scale + pad,
+      y: -panY / scale + pad,
+      w: Math.max(120, size.w / scale - pad * 2),
+      h: Math.max(80, size.h / scale - pad * 2),
+    };
+  };
 
   // Screen px → canvas coords (inverse of the plane's translate+scale).
   const toCanvas = useCallback((clientX: number, clientY: number) => {
@@ -492,9 +504,15 @@ export function CanvasStage() {
       // For a grouped card the placement key is the group id; raise/lower that.
       const placeKey = keyOf(m.tabId);
       const inGroup = placeKey !== m.tabId;
+      const rect = placements[placeKey];
       const items: MenuItem[] = [
         { label: 'Bring to front', onSelect: () => store.bringToFront(placeKey) },
         { label: 'Send to back', onSelect: () => store.sendToBack(placeKey) },
+        {
+          label: rect?.preMax ? 'Restore size' : 'Maximize',
+          onSelect: () => store.toggleMaximize(placeKey, maximizeRect()),
+        },
+        { label: rect?.locked ? 'Unlock' : 'Lock', onSelect: () => store.toggleLock(placeKey) },
       ];
       if (inGroup) {
         items.push({ label: 'Pop out tab', onSelect: () => store.popOutTab(m.tabId) });
@@ -633,6 +651,10 @@ export function CanvasStage() {
               focused={focusedTabId === tab.id}
               group={group}
               mergeHighlight={mergeTarget === key}
+              locked={rect.locked}
+              maximized={!!rect.preMax}
+              onToggleLock={() => useCanvasStore.getState().toggleLock(key)}
+              onToggleMaximize={() => useCanvasStore.getState().toggleMaximize(key, maximizeRect())}
               onFocus={() => focusCard(tab.id, key)}
               onClose={() => {
                 void useTabsStore.getState().closeTab(tab.id);

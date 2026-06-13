@@ -6,7 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { ExternalLink, Globe, X } from 'lucide-react';
+import { ExternalLink, Globe, Lock, LockOpen, Maximize2, Minimize2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { tabKinds } from '../tabs/registry';
 import { cardMinSize, EDGE_SIDES, type CardRect, type EdgeSide } from './store';
@@ -80,6 +80,10 @@ export function CanvasCard({
   mergeHighlight,
   onHeaderDragMove,
   onHeaderDrop,
+  locked,
+  maximized,
+  onToggleLock,
+  onToggleMaximize,
 }: {
   tab: TabState;
   rect: CardRect;
@@ -103,6 +107,12 @@ export function CanvasCard({
   onHeaderDragMove?: (clientX: number, clientY: number) => void;
   /** Header drag released — report the drop point so the stage can merge. */
   onHeaderDrop?: (clientX: number, clientY: number) => void;
+  /** Locked: no move/resize/connect; the lock toggle stays available. */
+  locked?: boolean;
+  /** Whether the card is currently maximized (shows the restore icon). */
+  maximized?: boolean;
+  onToggleLock?: () => void;
+  onToggleMaximize?: () => void;
 }) {
   const isWeb = tab.kind === 'web';
   const rootRef = useRef<HTMLDivElement>(null);
@@ -121,6 +131,7 @@ export function CanvasCard({
     e.stopPropagation();
     onFocus();
     rootRef.current?.focus(); // so arrow-nudge / Delete work after a click
+    if (locked) return; // locked cards can be selected but not dragged
     e.currentTarget.setPointerCapture(e.pointerId);
     dragState.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origX: rect.x, origY: rect.y, moved: false };
   };
@@ -139,7 +150,7 @@ export function CanvasCard({
   };
 
   const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || locked) return;
     e.stopPropagation();
     onFocus();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -310,6 +321,39 @@ export function CanvasCard({
             <ExternalLink size={13} />
           </button>
         ) : null}
+        {onToggleMaximize ? (
+          <button
+            type="button"
+            aria-label={maximized ? 'Restore card' : 'Maximize card'}
+            title={maximized ? 'Restore' : 'Maximize'}
+            className="hidden @[18rem]:grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMaximize();
+            }}
+          >
+            {maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+        ) : null}
+        {onToggleLock ? (
+          <button
+            type="button"
+            aria-label={locked ? 'Unlock card' : 'Lock card'}
+            title={locked ? 'Unlock' : 'Lock (prevent move/resize)'}
+            className={cn(
+              'grid place-items-center h-6 w-6 rounded transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary',
+              locked ? 'text-accent' : 'text-fg-tertiary',
+            )}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleLock();
+            }}
+          >
+            {locked ? <Lock size={13} /> : <LockOpen size={13} />}
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label="Close card"
@@ -348,7 +392,7 @@ export function CanvasCard({
           the body so they clear a web card's native view. z-20 so each wins its
           overlap with the resize hit-strips (z-10). Drag a port onto another card
           to wire them; the port's side pins that end of the edge. */}
-      {onStartConnect
+      {onStartConnect && !locked
         ? EDGE_SIDES.map((side) => (
             <button
               key={side}
@@ -374,8 +418,9 @@ export function CanvasCard({
       {/* Resize handles — 8 directions (edges + corners). Transparent hit-strips
           mounted just outside the frame (clear of a web card's native view +
           inner scrollbars); the SE corner shows a grip on hover/focus and keeps
-          the "Resize card" accessible name. */}
-      {RESIZE_HANDLES.map(({ dir, cls }) => (
+          the "Resize card" accessible name. Hidden while locked. */}
+      {!locked &&
+        RESIZE_HANDLES.map(({ dir, cls }) => (
         <div
           key={dir}
           {...(dir === 'se'

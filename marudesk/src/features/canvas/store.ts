@@ -14,7 +14,17 @@ import { useTabsStore } from '../tabs/store';
  * for closed tabs are pruned on the tab set.
  */
 
-export type CardRect = { x: number; y: number; w: number; h: number; z: number };
+export type CardRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+  /** Locked cards can't be moved or resized (guards accidental edits). */
+  locked?: boolean;
+  /** Pre-maximize rect; present iff the card is currently maximized. */
+  preMax?: { x: number; y: number; w: number; h: number };
+};
 export type Viewport = { panX: number; panY: number; scale: number };
 
 /** Which face of a card an edge attaches to (4-directional ports). */
@@ -141,7 +151,27 @@ function loadPersisted(): Persisted {
         if (typeof val !== 'object' || val === null) continue;
         const v = val as Record<string, unknown>;
         if (isNum(v.x) && isNum(v.y) && isNum(v.w) && isNum(v.h)) {
-          placements[id] = { x: v.x, y: v.y, w: v.w, h: v.h, z: isNum(v.z) ? v.z : 1 };
+          const pm = v.preMax;
+          const preMax =
+            pm && typeof pm === 'object' && isNum((pm as Record<string, unknown>).x) &&
+            isNum((pm as Record<string, unknown>).y) && isNum((pm as Record<string, unknown>).w) &&
+            isNum((pm as Record<string, unknown>).h)
+              ? {
+                  x: (pm as Record<string, number>).x,
+                  y: (pm as Record<string, number>).y,
+                  w: (pm as Record<string, number>).w,
+                  h: (pm as Record<string, number>).h,
+                }
+              : undefined;
+          placements[id] = {
+            x: v.x,
+            y: v.y,
+            w: v.w,
+            h: v.h,
+            z: isNum(v.z) ? v.z : 1,
+            ...(v.locked === true ? { locked: true } : {}),
+            ...(preMax ? { preMax } : {}),
+          };
         }
       }
     }
@@ -229,6 +259,10 @@ type CanvasActions = {
   /** Set / toggle how edges render (curve ⇄ orthogonal); persisted. */
   setEdgeStyle: (style: EdgeStyle) => void;
   toggleEdgeStyle: () => void;
+  /** Lock / unlock a card or group (locked = no move/resize). */
+  toggleLock: (key: string) => void;
+  /** Maximize a card to fill `viewport` (canvas coords) / restore. */
+  toggleMaximize: (key: string, viewport: { x: number; y: number; w: number; h: number }) => void;
   /** Merge `draggedTabId` into the card/group identified by `targetKey` (a tab id
       or a group id), forming/extending a tab group. The group inherits the
       target's rect; the dragged tab loses its standalone placement. */
@@ -353,14 +387,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   setPos: (tabId, x, y) =>
     set((s) => {
       const cur = s.placements[tabId];
-      if (!cur) return {};
+      if (!cur || cur.locked) return {};
       return { placements: { ...s.placements, [tabId]: { ...cur, x, y } } };
     }),
 
   setSize: (tabId, w, h) =>
     set((s) => {
       const cur = s.placements[tabId];
-      if (!cur) return {};
+      if (!cur || cur.locked) return {};
       const kind = useTabsStore.getState().tabs.find((t) => t.id === tabId)?.kind;
       const min = cardMinSize(kind);
       return {
@@ -424,6 +458,43 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   setEdgeStyle: (style) => set({ edgeStyle: style }),
   toggleEdgeStyle: () =>
     set((s) => ({ edgeStyle: s.edgeStyle === 'curve' ? 'orthogonal' : 'curve' })),
+
+  toggleLock: (key) =>
+    set((s) => {
+      const cur = s.placements[key];
+      if (!cur) return {};
+      return { placements: { ...s.placements, [key]: { ...cur, locked: !cur.locked } } };
+    }),
+
+  toggleMaximize: (key, vp) =>
+    set((s) => {
+      const cur = s.placements[key];
+      if (!cur) return {};
+      if (cur.preMax) {
+        // Restore the pre-maximize rect.
+        const { preMax, ...rest } = cur;
+        return {
+          placements: {
+            ...s.placements,
+            [key]: { ...rest, x: preMax.x, y: preMax.y, w: preMax.w, h: preMax.h },
+          },
+        };
+      }
+      // Maximize: fill the viewport, remembering the prior rect to restore to.
+      return {
+        placements: {
+          ...s.placements,
+          [key]: {
+            ...cur,
+            preMax: { x: cur.x, y: cur.y, w: cur.w, h: cur.h },
+            x: vp.x,
+            y: vp.y,
+            w: vp.w,
+            h: vp.h,
+          },
+        },
+      };
+    }),
 
   mergeInto: (targetKey, draggedTabId) =>
     set((s) => {

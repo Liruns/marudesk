@@ -205,3 +205,42 @@ test('canvas: dragging a card onto another merges them into a tab group, then po
     await app.close();
   }
 });
+
+test('canvas: a card can be locked (no move/resize) and maximized', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const card = page.locator('[data-canvas-card]').first();
+    const before = await card.boundingBox();
+    const header = page.locator('[data-card-header]').first();
+    const hb = await header.boundingBox();
+    if (!before || !hb) throw new Error('missing boxes');
+    const hx = hb.x + hb.width * 0.3;
+    const hy = hb.y + hb.height / 2;
+
+    // Lock via the header button → resize handle disappears.
+    await page.getByRole('button', { name: 'Lock card' }).first().click();
+    await expect(page.getByRole('separator', { name: 'Resize card' })).toHaveCount(0);
+
+    // Dragging the header must NOT move a locked card.
+    await page.mouse.move(hx, hy);
+    await page.mouse.down();
+    await page.mouse.move(hx + 120, hy + 80, { steps: 6 });
+    await page.mouse.up();
+    const afterLock = await card.boundingBox();
+    if (!afterLock) throw new Error('no box');
+    expect(Math.abs(afterLock.x - before.x)).toBeLessThan(3);
+    expect(Math.abs(afterLock.y - before.y)).toBeLessThan(3);
+
+    // Unlock → resize handle returns.
+    await page.getByRole('button', { name: 'Unlock card' }).first().click();
+    await expect(page.getByRole('separator', { name: 'Resize card' }).first()).toBeVisible();
+
+    // Maximize → the card grows.
+    await page.getByRole('button', { name: 'Maximize card' }).first().click();
+    const max = await card.boundingBox();
+    if (!max) throw new Error('no box');
+    expect(max.width).toBeGreaterThan(before.width);
+  } finally {
+    await app.close();
+  }
+});
