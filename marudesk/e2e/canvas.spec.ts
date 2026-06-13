@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { launchApp } from './helpers/app';
+import { launchApp, makeTempUserDataDir } from './helpers/app';
 
 /**
  * Maru's infinite-canvas surface, integrated into the Shell as the default stage
@@ -289,6 +289,73 @@ test('canvas: named canvases switch independently (a canvas = a saved layout)', 
     await expect(cards).toHaveCount(2);
   } finally {
     await app.close();
+  }
+});
+
+test('canvas: named canvases + panel positions persist across a full restart', async () => {
+  const userDataDir = makeTempUserDataDir();
+  let agentBox: { x: number; y: number } | null = null;
+
+  // Launch 1 — build a two-canvas layout with restart-surviving panels (a
+  // terminal on "Canvas 1", an AI chat on "Backend"). home tabs aren't
+  // persisted by the tab session, so they won't reappear (and shouldn't).
+  {
+    const { app, page } = await launchApp({ userDataDir, surface: 'canvas' });
+    try {
+      const canvas = page.locator('[aria-label="Canvas"]');
+      const cards = page.locator('[data-canvas-card]');
+      const cb = await canvas.boundingBox();
+      if (!cb) throw new Error('no canvas box');
+
+      // Canvas 1: add a terminal via the canvas context menu.
+      await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.82, { button: 'right' });
+      await page.getByRole('menuitem', { name: 'New terminal' }).click();
+      await expect(cards).toHaveCount(2); // home + terminal
+
+      // Create "Backend" and add an AI chat there.
+      const switcher = page.getByRole('button', { name: 'Switch canvas' });
+      await switcher.click();
+      await page.getByRole('menuitem', { name: 'New canvas' }).click();
+      const dialog = page.getByRole('dialog', { name: 'New canvas' });
+      await dialog.getByPlaceholder('Canvas name').fill('Backend');
+      await dialog.getByRole('button', { name: 'Create' }).click();
+      await expect(cards).toHaveCount(0);
+      await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.55, { button: 'right' });
+      await page.getByRole('menuitem', { name: 'New AI chat' }).click();
+      await expect(cards).toHaveCount(1);
+      const box = await cards.first().boundingBox();
+      if (!box) throw new Error('no agent card box');
+      agentBox = { x: box.x, y: box.y };
+      await page.waitForTimeout(400); // let the debounced persist flush
+    } finally {
+      await app.close();
+    }
+  }
+
+  // Launch 2 — same userData. The tabs are restored with fresh ids; the canvas
+  // re-binds each to its saved spot on the right canvas by descriptor.
+  {
+    const { app, page } = await launchApp({ userDataDir, surface: 'canvas' });
+    try {
+      const switcher = page.getByRole('button', { name: 'Switch canvas' });
+      const cards = page.locator('[data-canvas-card]');
+
+      // "Backend" was open at close → it reopens with the AI chat at its spot.
+      await expect(switcher).toContainText('Backend');
+      await expect(cards).toHaveCount(1);
+      const box = await cards.first().boundingBox();
+      if (!box || !agentBox) throw new Error('no restored card box');
+      expect(Math.abs(box.x - agentBox.x)).toBeLessThan(10);
+      expect(Math.abs(box.y - agentBox.y)).toBeLessThan(10);
+
+      // The other canvas restored its terminal (the non-persisted home is gone).
+      await switcher.click();
+      await page.getByRole('menuitem', { name: 'Canvas 1' }).click();
+      await expect(switcher).toContainText('Canvas 1');
+      await expect(cards).toHaveCount(1);
+    } finally {
+      await app.close();
+    }
   }
 });
 

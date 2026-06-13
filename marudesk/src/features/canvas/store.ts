@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { TabKind } from '../../../shared/browser';
+import type { TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -233,45 +233,6 @@ function parsePlacements(raw: unknown): Record<string, CardRect> {
   return out;
 }
 
-function parseEdges(raw: unknown): Edge[] {
-  const out: Edge[] = [];
-  if (Array.isArray(raw)) {
-    for (const val of raw) {
-      if (typeof val !== 'object' || val === null) continue;
-      const e = val as Record<string, unknown>;
-      if (isStr(e.from) && isStr(e.to) && e.from !== e.to) {
-        out.push({
-          id: isStr(e.id) ? e.id : edgeId(e.from, e.to),
-          from: e.from,
-          to: e.to,
-          ...(isEdgeSide(e.fromSide) ? { fromSide: e.fromSide } : {}),
-          ...(isEdgeSide(e.toSide) ? { toSide: e.toSide } : {}),
-        });
-      }
-    }
-  }
-  return out;
-}
-
-function parseGroups(raw: unknown): CardGroup[] {
-  const out: CardGroup[] = [];
-  if (Array.isArray(raw)) {
-    for (const val of raw) {
-      if (typeof val !== 'object' || val === null) continue;
-      const g = val as Record<string, unknown>;
-      const tabIds = Array.isArray(g.tabIds) ? g.tabIds.filter(isStr) : [];
-      if (isStr(g.id) && tabIds.length >= 2 && isStr(g.activeId)) {
-        out.push({
-          id: g.id,
-          tabIds,
-          activeId: tabIds.includes(g.activeId) ? g.activeId : tabIds[0],
-        });
-      }
-    }
-  }
-  return out;
-}
-
 function parseViewport(raw: unknown): Viewport {
   if (typeof raw === 'object' && raw !== null) {
     const v = raw as Record<string, unknown>;
@@ -282,81 +243,360 @@ function parseViewport(raw: unknown): Viewport {
   return { panX: 0, panY: 0, scale: 1 };
 }
 
-function parseCanvasDoc(raw: unknown): CanvasDoc | null {
+/* ── Panel descriptors (durable identity across restarts) ───────────────────
+ * Tab ids are random UUIDs minted fresh on every launch (electron/browser/
+ * tabs.ts), so geometry keyed by tab id is lost on a full restart. We persist
+ * each panel by its CONTENT instead — kind + url / file / profile — the shape
+ * the main tab-session restores from (electron/browser/tab-session.ts), then
+ * re-bind saved geometry to the restored tabs by matching descriptors in order
+ * (see {@link reconcileWorkspace}). */
+
+export type PanelDescriptor =
+  | { kind: 'web'; url?: string }
+  | { kind: 'editor'; filePath?: string }
+  | { kind: 'terminal'; terminalProfile?: 'agent-cli' }
+  | { kind: 'agent' }
+  | { kind: 'home' }
+  | { kind: 'settings' }
+  | { kind: 'plugin'; pluginId?: string; entry?: string };
+
+function descriptorOf(tab: TabState): PanelDescriptor {
+  switch (tab.kind) {
+    case 'web':
+      return tab.url ? { kind: 'web', url: tab.url } : { kind: 'web' };
+    case 'editor':
+      return tab.filePath ? { kind: 'editor', filePath: tab.filePath } : { kind: 'editor' };
+    case 'terminal':
+      return tab.terminalProfile
+        ? { kind: 'terminal', terminalProfile: tab.terminalProfile }
+        : { kind: 'terminal' };
+    case 'plugin':
+      return tab.pluginPanel
+        ? { kind: 'plugin', pluginId: tab.pluginPanel.id, entry: tab.pluginPanel.entry }
+        : { kind: 'plugin' };
+    default:
+      return { kind: tab.kind };
+  }
+}
+
+/** Stable grouping key — identical-content panels share one (matched in order). */
+function descriptorKey(d: PanelDescriptor): string {
+  switch (d.kind) {
+    case 'web':
+      return `web|${d.url ?? ''}`;
+    case 'editor':
+      return `editor|${d.filePath ?? ''}`;
+    case 'terminal':
+      return `terminal|${d.terminalProfile ?? ''}`;
+    case 'plugin':
+      return `plugin|${d.pluginId ?? ''}|${d.entry ?? ''}`;
+    default:
+      return d.kind;
+  }
+}
+
+function parseDescriptor(raw: unknown): PanelDescriptor | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  switch (r.kind) {
+    case 'web':
+      return { kind: 'web', ...(isStr(r.url) ? { url: r.url } : {}) };
+    case 'editor':
+      return { kind: 'editor', ...(isStr(r.filePath) ? { filePath: r.filePath } : {}) };
+    case 'terminal':
+      return { kind: 'terminal', ...(r.terminalProfile === 'agent-cli' ? { terminalProfile: 'agent-cli' as const } : {}) };
+    case 'plugin':
+      return {
+        kind: 'plugin',
+        ...(isStr(r.pluginId) ? { pluginId: r.pluginId } : {}),
+        ...(isStr(r.entry) ? { entry: r.entry } : {}),
+      };
+    case 'agent':
+    case 'home':
+    case 'settings':
+      return { kind: r.kind };
+    default:
+      return null;
+  }
+}
+
+/* ── Saved-layout snapshot (the persisted, restart-durable form of a canvas) ──
+ * A node is a placed card (members.length === 1) or a tab group (>1). Edges
+ * reference (nodeIndex, memberIndex) endpoints, resolved back to live tab ids on
+ * load. This decouples persistence from the session's tab ids entirely. */
+
+type NodeSnapshot = { rect: CardRect; members: PanelDescriptor[]; active: number };
+type EdgeSnapshot = {
+  from: [number, number];
+  to: [number, number];
+  fromSide?: EdgeSide;
+  toSide?: EdgeSide;
+};
+type CanvasSnapshot = {
+  id: string;
+  name: string;
+  createdAt: number;
+  viewport: Viewport;
+  edgeStyle: EdgeStyle;
+  nodes: NodeSnapshot[];
+  edges: EdgeSnapshot[];
+};
+type WorkspaceSnapshot = { activeId: string; canvases: CanvasSnapshot[] };
+
+/** Serialize a live (tab-id-keyed) canvas to its durable, descriptor-keyed form. */
+function serializeCanvas(doc: CanvasDoc, tabsById: Map<string, TabState>): CanvasSnapshot {
+  const nodes: NodeSnapshot[] = [];
+  const ref = new Map<string, [number, number]>(); // tabId → [nodeIdx, memberIdx]
+  // Order by z so a restore re-applies a stable stacking.
+  for (const [key, rect] of Object.entries(doc.placements).sort((a, b) => a[1].z - b[1].z)) {
+    const grp = doc.groups.find((g) => g.id === key);
+    if (grp) {
+      const present = grp.tabIds.filter((id) => tabsById.has(id));
+      if (present.length === 0) continue;
+      const ni = nodes.length;
+      present.forEach((id, mi) => ref.set(id, [ni, mi]));
+      nodes.push({
+        rect,
+        members: present.map((id) => descriptorOf(tabsById.get(id)!)),
+        active: Math.max(0, present.indexOf(grp.activeId)),
+      });
+    } else {
+      const tab = tabsById.get(key);
+      if (!tab) continue;
+      ref.set(key, [nodes.length, 0]);
+      nodes.push({ rect, members: [descriptorOf(tab)], active: 0 });
+    }
+  }
+  const edges: EdgeSnapshot[] = [];
+  for (const e of doc.edges) {
+    const from = ref.get(e.from);
+    const to = ref.get(e.to);
+    if (from && to) {
+      edges.push({
+        from,
+        to,
+        ...(e.fromSide ? { fromSide: e.fromSide } : {}),
+        ...(e.toSide ? { toSide: e.toSide } : {}),
+      });
+    }
+  }
+  return {
+    id: doc.id,
+    name: doc.name,
+    createdAt: doc.createdAt,
+    viewport: doc.viewport,
+    edgeStyle: doc.edgeStyle,
+    nodes,
+    edges,
+  };
+}
+
+function parseNode(raw: unknown): NodeSnapshot | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const rect = parseRect(r.rect);
+  if (!rect) return null;
+  const members = Array.isArray(r.members)
+    ? r.members.map(parseDescriptor).filter((d): d is PanelDescriptor => !!d)
+    : [];
+  if (members.length === 0) return null;
+  const active = isNum(r.active) && r.active >= 0 && r.active < members.length ? r.active : 0;
+  return { rect, members, active };
+}
+
+function parseIndexPair(raw: unknown, nodeCount: number): [number, number] | null {
+  if (!Array.isArray(raw) || raw.length !== 2) return null;
+  const [a, b] = raw as unknown[];
+  if (!isNum(a) || !isNum(b) || a < 0 || a >= nodeCount || b < 0) return null;
+  return [a, b];
+}
+
+function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
   if (!isStr(r.id)) return null;
-  const placements = parsePlacements(r.placements);
-  const zs = Object.values(placements).map((p) => p.z);
+  const nodes = Array.isArray(r.nodes)
+    ? r.nodes.map(parseNode).filter((n): n is NodeSnapshot => !!n)
+    : [];
+  const edges: EdgeSnapshot[] = [];
+  if (Array.isArray(r.edges)) {
+    for (const val of r.edges) {
+      if (typeof val !== 'object' || val === null) continue;
+      const e = val as Record<string, unknown>;
+      const from = parseIndexPair(e.from, nodes.length);
+      const to = parseIndexPair(e.to, nodes.length);
+      if (from && to) {
+        edges.push({
+          from,
+          to,
+          ...(isEdgeSide(e.fromSide) ? { fromSide: e.fromSide } : {}),
+          ...(isEdgeSide(e.toSide) ? { toSide: e.toSide } : {}),
+        });
+      }
+    }
+  }
   return {
     id: r.id,
     name: isStr(r.name) ? r.name : 'Canvas',
     createdAt: isNum(r.createdAt) ? r.createdAt : Date.now(),
-    placements,
-    edges: parseEdges(r.edges),
-    edgeStyle: isEdgeStyle(r.edgeStyle) ? r.edgeStyle : 'curve',
-    groups: parseGroups(r.groups),
     viewport: parseViewport(r.viewport),
-    topZ: isNum(r.topZ) ? r.topZ : zs.length ? Math.max(1, ...zs) : 1,
+    edgeStyle: isEdgeStyle(r.edgeStyle) ? r.edgeStyle : 'curve',
+    nodes,
+    edges,
   };
 }
 
-function parseBucket(raw: unknown): WorkspaceCanvases | null {
+function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
-  const canvases: Record<string, CanvasDoc> = {};
-  if (typeof r.canvases === 'object' && r.canvases !== null) {
-    for (const val of Object.values(r.canvases as Record<string, unknown>)) {
-      const doc = parseCanvasDoc(val);
-      if (doc) canvases[doc.id] = doc;
-    }
-  }
-  const ids = Object.keys(canvases);
-  if (ids.length === 0) return null;
-  const order = (Array.isArray(r.order) ? r.order.filter(isStr) : []).filter((id) => canvases[id]);
-  for (const id of ids) if (!order.includes(id)) order.push(id);
-  const activeId = isStr(r.activeId) && canvases[r.activeId] ? r.activeId : order[0];
-  return { order, activeId, canvases };
+  const canvases = Array.isArray(r.canvases)
+    ? r.canvases.map(parseCanvasSnapshot).filter((c): c is CanvasSnapshot => !!c)
+    : [];
+  if (canvases.length === 0) return null;
+  const activeId = isStr(r.activeId) && canvases.some((c) => c.id === r.activeId) ? r.activeId : canvases[0].id;
+  return { activeId, canvases };
+}
+
+/** A metadata-only doc (name/view, no placements) — filled by reconciliation. */
+function metadataDoc(snap: CanvasSnapshot): CanvasDoc {
+  return {
+    id: snap.id,
+    name: snap.name,
+    createdAt: snap.createdAt,
+    placements: {},
+    edges: [],
+    edgeStyle: snap.edgeStyle,
+    groups: [],
+    viewport: snap.viewport,
+    topZ: 1,
+  };
 }
 
 /**
- * Read the saved per-workspace canvases (v2). On a first run after the v1 single
- * canvas, its placements are surfaced as a read-only `legacy` pool keyed by tab
- * id, so each tab keeps its saved position on whichever workspace's canvas it
- * opens on (v1 placements were global — mixed across workspaces). v1 edges /
- * groups are not migrated (a one-time loss; they re-form, and v2 persists them).
+ * Bind a workspace's saved canvas snapshots to its restored tabs: match each
+ * node's member descriptors to live tabs (greedily, in order — duplicates pair
+ * deterministically), then rebuild placements / groups / edges keyed by the new
+ * tab ids. Returns the populated docs (keyed by canvas id) + which tabs were
+ * claimed. Unmatched tabs are left for `syncPlacements` to place on the open
+ * canvas; unmatched nodes are dropped (their tab no longer exists).
+ */
+function reconcileWorkspace(snaps: readonly CanvasSnapshot[], tabs: readonly TabState[]): {
+  canvases: Record<string, CanvasDoc>;
+  claimed: Set<string>;
+} {
+  const queues = new Map<string, string[]>();
+  for (const t of tabs) {
+    const k = descriptorKey(descriptorOf(t));
+    const q = queues.get(k);
+    if (q) q.push(t.id);
+    else queues.set(k, [t.id]);
+  }
+  const claimed = new Set<string>();
+  const take = (d: PanelDescriptor): string | null => {
+    const q = queues.get(descriptorKey(d));
+    while (q && q.length) {
+      const id = q.shift();
+      if (id && !claimed.has(id)) {
+        claimed.add(id);
+        return id;
+      }
+    }
+    return null;
+  };
+  const canvases: Record<string, CanvasDoc> = {};
+  for (const snap of snaps) {
+    const placements: Record<string, CardRect> = {};
+    const groups: CardGroup[] = [];
+    const nodeTabIds: (string | null)[][] = [];
+    let z = 0;
+    for (const node of snap.nodes) {
+      const ids = node.members.map(take);
+      nodeTabIds.push(ids);
+      const present = ids.filter((id): id is string => !!id);
+      if (present.length === 0) continue;
+      if (present.length >= 2 && node.members.length >= 2) {
+        const gid = newGroupId();
+        const active = ids[node.active];
+        groups.push({ id: gid, tabIds: present, activeId: active && present.includes(active) ? active : present[0] });
+        placements[gid] = { ...node.rect, z: ++z };
+      } else {
+        // A single card, or a group degraded to its one restored survivor.
+        placements[present[0]] = { ...node.rect, z: ++z };
+      }
+    }
+    const edges: Edge[] = [];
+    for (const e of snap.edges) {
+      const from = nodeTabIds[e.from[0]]?.[e.from[1]] ?? null;
+      const to = nodeTabIds[e.to[0]]?.[e.to[1]] ?? null;
+      if (from && to && from !== to) {
+        edges.push({
+          id: edgeId(from, to),
+          from,
+          to,
+          ...(e.fromSide ? { fromSide: e.fromSide } : {}),
+          ...(e.toSide ? { toSide: e.toSide } : {}),
+        });
+      }
+    }
+    canvases[snap.id] = {
+      id: snap.id,
+      name: snap.name,
+      createdAt: snap.createdAt,
+      placements,
+      edges,
+      edgeStyle: snap.edgeStyle,
+      groups,
+      viewport: snap.viewport,
+      topZ: z || 1,
+    };
+  }
+  return { canvases, claimed };
+}
+
+/**
+ * Read the saved per-workspace canvases (v2 — descriptor snapshots). Builds
+ * metadata-only buckets (so the switcher works immediately) and returns the raw
+ * `pending` snapshots, reconciled against the restored tabs on first sight of
+ * each workspace. On a first run after the v1 single canvas, its placements are
+ * surfaced as a read-only `legacy` pool keyed by tab id (valid only within the
+ * same session, where tab ids are stable) so positions carry over on the upgrade
+ * reload; v1 edges/groups are not migrated (they re-form, then v2 persists them).
  */
 function loadPersisted(): {
   byWorkspace: Record<string, WorkspaceCanvases>;
+  pending: Record<string, CanvasSnapshot[]>;
   legacy: Record<string, CardRect> | null;
 } {
   try {
-    if (typeof localStorage === 'undefined') return { byWorkspace: {}, legacy: null };
+    if (typeof localStorage === 'undefined') return { byWorkspace: {}, pending: {}, legacy: null };
     const rawV2 = localStorage.getItem(PERSIST_KEY);
     if (rawV2) {
       const data: unknown = JSON.parse(rawV2);
       const byWorkspace: Record<string, WorkspaceCanvases> = {};
-      if (typeof data === 'object' && data !== null) {
-        const rec = (data as Record<string, unknown>).byWorkspace;
-        if (typeof rec === 'object' && rec !== null) {
-          for (const [ws, val] of Object.entries(rec as Record<string, unknown>)) {
-            const bucket = parseBucket(val);
-            if (bucket) byWorkspace[ws] = bucket;
-          }
+      const pending: Record<string, CanvasSnapshot[]> = {};
+      const rec = typeof data === 'object' && data !== null ? (data as Record<string, unknown>).byWorkspace : null;
+      if (typeof rec === 'object' && rec !== null) {
+        for (const [ws, val] of Object.entries(rec as Record<string, unknown>)) {
+          const wsSnap = parseWorkspaceSnapshot(val);
+          if (!wsSnap) continue;
+          const canvases: Record<string, CanvasDoc> = {};
+          for (const c of wsSnap.canvases) canvases[c.id] = metadataDoc(c);
+          byWorkspace[ws] = { order: wsSnap.canvases.map((c) => c.id), activeId: wsSnap.activeId, canvases };
+          pending[ws] = wsSnap.canvases;
         }
       }
-      return { byWorkspace, legacy: null };
+      return { byWorkspace, pending, legacy: null };
     }
     const rawV1 = localStorage.getItem(LEGACY_KEY);
     if (rawV1) {
       const data: unknown = JSON.parse(rawV1);
       if (typeof data === 'object' && data !== null) {
-        return { byWorkspace: {}, legacy: parsePlacements((data as Record<string, unknown>).placements) };
+        return { byWorkspace: {}, pending: {}, legacy: parsePlacements((data as Record<string, unknown>).placements) };
       }
     }
-    return { byWorkspace: {}, legacy: null };
+    return { byWorkspace: {}, pending: {}, legacy: null };
   } catch {
-    return { byWorkspace: {}, legacy: null };
+    return { byWorkspace: {}, pending: {}, legacy: null };
   }
 }
 
@@ -461,6 +701,13 @@ const initial = loadPersisted();
 // One-time v1→v2 migration: a read-only by-tab-id pool of saved positions that
 // `syncPlacements` consults so each tab keeps its v1 spot on its own canvas.
 const legacyPlacements: Record<string, CardRect> | null = initial.legacy;
+// Per-workspace saved snapshots awaiting reconciliation against restored tabs
+// (consumed on first sight of each workspace's tabs). Entries are deleted once
+// reconciled; until then the persist step writes them back verbatim so an
+// unopened workspace's saved layout is never overwritten with its empty
+// metadata doc.
+const pendingSnapshots: Record<string, CanvasSnapshot[]> = initial.pending;
+const reconciledWorkspaces = new Set<string>();
 
 /** Pull the open canvas's working-copy fields into a {@link CanvasDoc}. */
 function activeDoc(s: CanvasState): CanvasDoc {
@@ -540,6 +787,33 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
   syncPlacements: (tabIds) => {
     const ids = new Set(tabIds);
+
+    // 0) One-time restore: bind the open workspace's saved snapshots to its
+    //    restored tabs by descriptor (tab ids don't survive a restart). Runs the
+    //    first time this workspace's tabs are present; the matched geometry then
+    //    flows through the normal prune/add below.
+    {
+      const s = get();
+      const snaps = pendingSnapshots[s.wsKey];
+      if (snaps && !reconciledWorkspaces.has(s.wsKey)) {
+        const wsTabs = useTabsStore.getState().tabs.filter((t) => wsKeyOf(t.workspaceId) === s.wsKey);
+        if (wsTabs.length > 0) {
+          reconciledWorkspaces.add(s.wsKey);
+          delete pendingSnapshots[s.wsKey];
+          const bucket = s.byWorkspace[s.wsKey];
+          if (bucket) {
+            const { canvases } = reconcileWorkspace(snaps, wsTabs);
+            const merged = { ...bucket.canvases, ...canvases };
+            const openDoc = merged[bucket.activeId] ?? merged[bucket.order[0]];
+            set({
+              byWorkspace: { ...s.byWorkspace, [s.wsKey]: { ...bucket, canvases: merged } },
+              ...(openDoc ? workingCopy(openDoc) : {}),
+            });
+          }
+        }
+      }
+    }
+
     const state = get();
     const { placements, edges, groups: prevGroups } = state;
     const tabsNow = useTabsStore.getState().tabs;
@@ -1098,11 +1372,12 @@ useTabsStore.subscribe((state) => {
 });
 
 /**
- * Persist the per-workspace canvases so arrangements survive reloads (and, for
- * tabs the session restores with the same id, restarts). Microtask-debounced so
- * a drag (many `set`s) writes once. Placements/edges are keyed by tab id; on
- * restart, tabs the session doesn't restore are pruned by `syncPlacements`, so a
- * stale entry never breaks the canvas.
+ * Persist the per-workspace canvases as descriptor snapshots so arrangements
+ * survive a full restart (tab ids are minted fresh each launch — see
+ * {@link descriptorOf}). Microtask-debounced so a drag (many `set`s) writes once.
+ * A workspace whose snapshots haven't been reconciled yet (never opened this
+ * session) is written back verbatim, so its saved layout is never clobbered by
+ * its empty metadata doc.
  */
 let saveQueued = false;
 useCanvasStore.subscribe(() => {
@@ -1112,7 +1387,22 @@ useCanvasStore.subscribe(() => {
     saveQueued = false;
     try {
       const byWorkspace = snapshotByWorkspace(useCanvasStore.getState());
-      localStorage.setItem(PERSIST_KEY, JSON.stringify({ byWorkspace }));
+      const tabsById = new Map(useTabsStore.getState().tabs.map((t) => [t.id, t]));
+      const out: Record<string, WorkspaceSnapshot> = {};
+      for (const [ws, bucket] of Object.entries(byWorkspace)) {
+        const pending = pendingSnapshots[ws];
+        out[ws] =
+          pending && !reconciledWorkspaces.has(ws)
+            ? { activeId: bucket.activeId, canvases: pending }
+            : {
+                activeId: bucket.activeId,
+                canvases: bucket.order
+                  .map((id) => bucket.canvases[id])
+                  .filter((d): d is CanvasDoc => !!d)
+                  .map((d) => serializeCanvas(d, tabsById)),
+              };
+      }
+      localStorage.setItem(PERSIST_KEY, JSON.stringify({ byWorkspace: out }));
     } catch {
       // Ignore quota / serialization failures — persistence is best-effort.
     }
