@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { ExternalLink, Globe, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { tabKinds } from '../tabs/registry';
@@ -48,6 +54,7 @@ export function CanvasCard({
   onStartConnect?: (clientX: number, clientY: number) => void;
 }) {
   const isWeb = tab.kind === 'web';
+  const rootRef = useRef<HTMLDivElement>(null);
   const [addr, setAddr] = useState(tab.url);
   const addrFocused = useRef(false);
   useEffect(() => {
@@ -62,6 +69,7 @@ export function CanvasCard({
     if (e.button !== 0) return;
     e.stopPropagation();
     onFocus();
+    rootRef.current?.focus(); // so arrow-nudge / Delete work after a click
     e.currentTarget.setPointerCapture(e.pointerId);
     dragState.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origX: rect.x, origY: rect.y };
   };
@@ -93,19 +101,48 @@ export function CanvasCard({
     if (resizeState.current?.pointerId === e.pointerId) resizeState.current = null;
   };
 
+  // Keyboard, only when the card FRAME itself is focused (not a child surface):
+  // arrows nudge (Shift = 1px), Delete/Backspace closes. Focus reaches the frame
+  // by Tab or by clicking the header (which calls .focus() below).
+  const onRootKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    const step = e.shiftKey ? 1 : 8;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      onMove(rect.x - step, rect.y);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      onMove(rect.x + step, rect.y);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      onMove(rect.x, rect.y - step);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      onMove(rect.x, rect.y + step);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      onClose();
+    }
+  };
+
   // Frame controls fade in on hover; stay visible while the card is focused.
   const reveal = focused ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
 
   return (
     <div
+      ref={rootRef}
       data-canvas-card
       data-tab-id={tab.id}
+      role="group"
+      aria-label={`${title} card`}
+      tabIndex={0}
       className={cn(
         'group @container absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
         focused ? 'ring-1 ring-accent/60 shadow-lifted' : 'shadow-card hover:shadow-lifted',
       )}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: rect.z }}
       onPointerDown={onFocus}
+      onKeyDown={onRootKeyDown}
     >
       <div
         data-card-header

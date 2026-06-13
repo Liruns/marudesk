@@ -101,6 +101,33 @@ test('canvas: right-click opens context menus (canvas + card)', async () => {
   }
 });
 
+test('canvas: a focused card moves with arrow keys and closes with Delete', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    await page.getByRole('button', { name: 'New card' }).click();
+    const cards = page.locator('[data-canvas-card]');
+    await expect(cards).toHaveCount(2);
+    const card = cards.first();
+    const before = await card.boundingBox();
+    if (!before) throw new Error('no card box');
+
+    await card.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowDown');
+    const after = await card.boundingBox();
+    if (!after) throw new Error('no card box');
+    expect(after.x).toBeGreaterThan(before.x);
+    expect(after.y).toBeGreaterThan(before.y);
+
+    const closeCount = await page.getByRole('button', { name: 'Close card' }).count();
+    await card.focus();
+    await page.keyboard.press('Delete');
+    await expect(page.getByRole('button', { name: 'Close card' })).toHaveCount(closeCount - 1);
+  } finally {
+    await app.close();
+  }
+});
+
 test('canvas: a card shrunk to ~minimum stays clamped and keeps its chrome', async () => {
   const { app, page } = await launchApp({ surface: 'canvas' });
   try {

@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
+import { ChevronDown, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import type { TabKind } from '../../../shared/browser';
@@ -43,6 +43,7 @@ export function CanvasStage() {
   const viewport = useCanvasStore((s) => s.viewport);
   const focusedTabId = useCanvasStore((s) => s.focusedTabId);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
+  const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
 
   // Scope cards to the active workspace so multiple workspaces don't pile onto
   // one canvas; fall back to all tabs when no workspace is active. Placements are
@@ -53,6 +54,7 @@ export function CanvasStage() {
   // Only draw edges whose both endpoints are visible on this canvas.
   const visibleIds = new Set(visibleTabs.map((t) => t.id));
   const visibleEdges = edges.filter((e) => visibleIds.has(e.from) && visibleIds.has(e.to));
+  const activeWsName = workspaces.find((w) => w.id === activeWorkspaceId)?.name;
 
   // Live connection-drag preview (canvas coords of the loose end), or null.
   const [connect, setConnect] = useState<ConnectPreview | null>(null);
@@ -61,6 +63,8 @@ export function CanvasStage() {
   const [minimapOpen, setMinimapOpen] = useState(true);
   // Right-click context menu (canvas / card / edge), or null.
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
+  // Workspace-switcher dropdown anchor (canvas mode has no workspace rail).
+  const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -206,6 +210,42 @@ export function CanvasStage() {
     store.setFocused(tabId);
     store.bringToFront(tabId);
     void activateTab(tabId);
+  };
+
+  // Snap a moving card's edges (left/right/center + adjacency) to nearby cards
+  // within a small threshold — Figma-style alignment; free placement elsewhere.
+  const snapMove = (tabId: string, x: number, y: number) => {
+    const pl = useCanvasStore.getState().placements;
+    const cur = pl[tabId];
+    if (!cur) {
+      return;
+    }
+    const { w, h } = cur;
+    const SNAP = 6;
+    let sx = x;
+    let sy = y;
+    let dx = SNAP;
+    let dy = SNAP;
+    for (const t of visibleTabs) {
+      if (t.id === tabId) continue;
+      const r = pl[t.id];
+      if (!r) continue;
+      for (const cx of [r.x, r.x + r.w - w, r.x + (r.w - w) / 2, r.x + r.w, r.x - w]) {
+        const d = Math.abs(x - cx);
+        if (d < dx) {
+          dx = d;
+          sx = cx;
+        }
+      }
+      for (const cy of [r.y, r.y + r.h - h, r.y + (r.h - h) / 2, r.y + r.h, r.y - h]) {
+        const d = Math.abs(y - cy);
+        if (d < dy) {
+          dy = d;
+          sy = cy;
+        }
+      }
+    }
+    useCanvasStore.getState().setPos(tabId, sx, sy);
   };
 
   // Use the tracked container `size` (not the ref) so these stay callable from
@@ -436,7 +476,7 @@ export function CanvasStage() {
               focused={focusedTabId === tab.id}
               onFocus={() => focusCard(tab.id)}
               onClose={() => void useTabsStore.getState().closeTab(tab.id)}
-              onMove={(x, y) => useCanvasStore.getState().setPos(tab.id, x, y)}
+              onMove={(x, y) => snapMove(tab.id, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(tab.id, w, h)}
               registerWebEl={
                 tab.kind === 'web' ? (el) => registerWebEl(tab.id, el) : undefined
@@ -476,16 +516,32 @@ export function CanvasStage() {
         />
       ) : null}
 
-      {/* New-card button (top-left). The canvas replaces the tab strip, so this
-          is the discoverable way to add a card; Ctrl+T does the same. */}
-      <button
-        type="button"
-        onClick={() => newCard('home')}
-        className="absolute left-3 top-3 z-50 inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
-      >
-        <Plus size={14} />
-        New card
-      </button>
+      {/* Top-left toolbar: workspace switcher (only with >1 workspace, since the
+          canvas has no workspace rail) + the New-card affordance. */}
+      <div className="absolute left-3 top-3 z-50 flex items-center gap-2">
+        {workspaces.length > 1 ? (
+          <button
+            type="button"
+            title="Switch workspace"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setWsMenu({ x: r.left, y: r.bottom + 4 });
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
+          >
+            <span className="max-w-[10rem] truncate">{activeWsName ?? 'Workspace'}</span>
+            <ChevronDown size={13} />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => newCard('home')}
+          className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
+        >
+          <Plus size={14} />
+          New card
+        </button>
+      </div>
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
@@ -520,6 +576,19 @@ export function CanvasStage() {
 
       {menu ? (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={() => setMenu(null)} />
+      ) : null}
+
+      {wsMenu ? (
+        <ContextMenu
+          x={wsMenu.x}
+          y={wsMenu.y}
+          onClose={() => setWsMenu(null)}
+          items={workspaces.map((w) => ({
+            label: w.name || 'Untitled',
+            disabled: w.id === activeWorkspaceId,
+            onSelect: () => void useWorkspaceDeckStore.getState().setActiveWorkspace(w.id),
+          }))}
+        />
       ) : null}
     </div>
   );
