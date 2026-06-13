@@ -7,12 +7,13 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
+import { Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { CanvasCard } from './CanvasCard';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
+import { CanvasMinimap } from './CanvasMinimap';
 import { useCanvasStore } from './store';
 
 /**
@@ -47,6 +48,9 @@ export function CanvasStage() {
 
   // Live connection-drag preview (canvas coords of the loose end), or null.
   const [connect, setConnect] = useState<ConnectPreview | null>(null);
+  // Container size (px) for the minimap's viewport overlay, and minimap toggle.
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [minimapOpen, setMinimapOpen] = useState(true);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -110,12 +114,18 @@ export function CanvasStage() {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => measureWeb());
+    const update = () => {
+      measureWeb();
+      const r = el.getBoundingClientRect();
+      setSize({ w: r.width, h: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
     ro.observe(el);
-    window.addEventListener('resize', measureWeb);
+    window.addEventListener('resize', update);
     return () => {
       ro.disconnect();
-      window.removeEventListener('resize', measureWeb);
+      window.removeEventListener('resize', update);
     };
   }, [measureWeb]);
 
@@ -229,12 +239,28 @@ export function CanvasStage() {
     [toCanvas],
   );
 
-  // Delete the selected connection with the Delete key (not while typing).
+  // Recenter the viewport on a canvas point (minimap click).
+  const centerOn = useCallback((wx: number, wy: number) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const { scale } = useCanvasStore.getState().viewport;
+    useCanvasStore.getState().setPan(r.width / 2 - wx * scale, r.height / 2 - wy * scale);
+  }, []);
+
+  // Canvas keyboard: ⌘/Ctrl+Shift+M toggles the minimap (cate parity); Delete
+  // removes the selected connection (not while typing in a field).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Delete') return;
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const editable =
+        !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        setMinimapOpen((v) => !v);
+        return;
+      }
+      if (e.key !== 'Delete' || editable) return;
       const sel = useCanvasStore.getState().selectedEdgeId;
       if (!sel) return;
       e.preventDefault();
@@ -318,6 +344,17 @@ export function CanvasStage() {
         })}
       </div>
 
+      {/* Minimap (cate parity — ⌘/Ctrl+Shift+M). */}
+      {minimapOpen ? (
+        <CanvasMinimap
+          placements={placements}
+          viewport={viewport}
+          width={size.w}
+          height={size.h}
+          onJump={centerOn}
+        />
+      ) : null}
+
       {/* New-card button (top-left). The canvas replaces the tab strip, so this
           is the discoverable way to add a card; Ctrl+T does the same. */}
       <button
@@ -353,6 +390,12 @@ export function CanvasStage() {
         </CtrlButton>
         <CtrlButton label="Reset view" onClick={() => useCanvasStore.getState().resetView()}>
           <RotateCcw size={15} />
+        </CtrlButton>
+        <CtrlButton
+          label={minimapOpen ? 'Hide minimap' : 'Show minimap'}
+          onClick={() => setMinimapOpen((v) => !v)}
+        >
+          <MapIcon size={15} />
         </CtrlButton>
       </div>
     </div>

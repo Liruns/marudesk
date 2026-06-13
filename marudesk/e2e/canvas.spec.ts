@@ -23,6 +23,9 @@ test('canvas: default surface renders cards and toggles to/from classic', async 
     await page.getByRole('button', { name: 'New card' }).click();
     await expect(cards).toHaveCount(initial + 1);
 
+    // The minimap is shown by default; its control toggles it.
+    await expect(page.getByRole('button', { name: 'Hide minimap' })).toBeVisible();
+
     await page.screenshot({ path: 'test-results/maru-canvas-shell.png' });
 
     // Toggle to the classic shell — the canvas controls vanish and the tab strip

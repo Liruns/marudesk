@@ -119,6 +119,8 @@ type CanvasActions = {
   removeEdge: (id: string) => void;
   selectEdge: (id: string | null) => void;
   panBy: (dx: number, dy: number) => void;
+  /** Set the absolute pan (used by the minimap to recenter). */
+  setPan: (panX: number, panY: number) => void;
   /** Zoom by `factor` keeping the point (cx,cy) — container-relative px — fixed. */
   zoomAt: (factor: number, cx: number, cy: number) => void;
   resetView: () => void;
@@ -232,6 +234,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     set((s) => ({
       viewport: { ...s.viewport, panX: s.viewport.panX + dx, panY: s.viewport.panY + dy },
     })),
+
+  setPan: (panX, panY) => set((s) => ({ viewport: { ...s.viewport, panX, panY } })),
 
   zoomAt: (factor, cx, cy) =>
     set((s) => {
