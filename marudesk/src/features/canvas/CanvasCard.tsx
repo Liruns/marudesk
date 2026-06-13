@@ -9,15 +9,17 @@ import type { TabState } from '../../../shared/browser';
  * One card on the infinite canvas: a draggable / resizable frame whose body is a
  * tab's surface, resolved through the shared `tabKinds` registry (so editor,
  * terminal, agent, home, settings render exactly as they do in a pane). Web cards
- * render an empty measured surface that the main process composites the live
+ * render an empty measured surface the main process composites the live
  * WebContentsView over.
  *
- * Because a native web view composites OVER the React body, the resize handle and
- * the connection port live on the card frame just OUTSIDE the body (the root is
- * not `overflow-hidden`; the body clips itself), so they stay clickable on web
- * cards. Pointer math: the plane is CSS-scaled, so a screen-px delta is divided
- * by `scale` to get the canvas-space delta for move/resize.
+ * Frame controls (connection port + resize handles) sit on the card frame just
+ * OUTSIDE the body — the root is not `overflow-hidden`, the body clips itself —
+ * so they stay clickable on web cards (clear of the native view). They fade in on
+ * hover / focus (Figma-style). Pointer math: the plane is CSS-scaled, so a
+ * screen-px delta is divided by `scale` to get the canvas-space delta.
  */
+type ResizeDir = 'e' | 's' | 'se';
+
 export function CanvasCard({
   tab,
   rect,
@@ -43,12 +45,9 @@ export function CanvasCard({
   registerWebEl?: (el: HTMLDivElement | null) => void;
   onNavigate?: (input: string) => void;
   onOpenDevtools?: () => void;
-  /** Begin dragging a connection from this card (screen coords of the pointer). */
   onStartConnect?: (clientX: number, clientY: number) => void;
 }) {
   const isWeb = tab.kind === 'web';
-  // Web-card address bar: a controlled input seeded from the tab's URL, kept in
-  // sync with navigations (but never while the user is editing it).
   const [addr, setAddr] = useState(tab.url);
   const addrFocused = useRef(false);
   useEffect(() => {
@@ -57,7 +56,7 @@ export function CanvasCard({
   const Icon = tabKinds[tab.kind]?.icon ?? Globe;
   const title = tab.title?.trim() || tab.url || tabKinds[tab.kind]?.title || 'Card';
   const dragState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number } | null>(null);
-  const resizeState = useRef<{ pointerId: number; startX: number; startY: number; origW: number; origH: number } | null>(null);
+  const resizeState = useRef<{ pointerId: number; startX: number; startY: number; origW: number; origH: number; dir: ResizeDir } | null>(null);
 
   const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -75,35 +74,41 @@ export function CanvasCard({
     if (dragState.current?.pointerId === e.pointerId) dragState.current = null;
   };
 
-  const onResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     onFocus();
     e.currentTarget.setPointerCapture(e.pointerId);
-    resizeState.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origW: rect.w, origH: rect.h };
+    const dir = (e.currentTarget.dataset.resizeDir as ResizeDir | undefined) ?? 'se';
+    resizeState.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origW: rect.w, origH: rect.h, dir };
   };
-  const onResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = resizeState.current;
     if (!s || s.pointerId !== e.pointerId) return;
-    onResize(s.origW + (e.clientX - s.startX) / scale, s.origH + (e.clientY - s.startY) / scale);
+    const dw = (e.clientX - s.startX) / scale;
+    const dh = (e.clientY - s.startY) / scale;
+    onResize(s.dir === 's' ? s.origW : s.origW + dw, s.dir === 'e' ? s.origH : s.origH + dh);
   };
-  const onResizePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onResizeEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (resizeState.current?.pointerId === e.pointerId) resizeState.current = null;
   };
+
+  // Frame controls fade in on hover; stay visible while the card is focused.
+  const reveal = focused ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
 
   return (
     <div
       data-canvas-card
       data-tab-id={tab.id}
       className={cn(
-        'absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
-        focused ? 'ring-1 ring-accent/50 shadow-lifted' : 'shadow-card',
+        'group absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
+        focused ? 'ring-1 ring-accent/60 shadow-lifted' : 'shadow-card hover:shadow-lifted',
       )}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: rect.z }}
       onPointerDown={onFocus}
     >
-      {/* Header: drag handle + title/omnibox + actions. */}
       <div
+        data-card-header
         className={cn(
           'flex items-center gap-2 h-9 shrink-0 px-2.5 cursor-grab active:cursor-grabbing select-none',
           'rounded-t-lg border-b border-subtle bg-surface-2',
@@ -113,7 +118,9 @@ export function CanvasCard({
         onPointerUp={onHeaderPointerUp}
         onPointerCancel={onHeaderPointerUp}
       >
-        <Icon size={14} />
+        <span className="shrink-0 text-fg-tertiary">
+          <Icon size={14} />
+        </span>
         {isWeb ? (
           <input
             value={addr}
@@ -174,9 +181,6 @@ export function CanvasCard({
         </button>
       </div>
 
-      {/* Body. Clips itself (the root is not overflow-hidden so the frame
-          controls can sit just outside it). Web cards render an empty measured
-          surface the main process composites the live WebContentsView over. */}
       <div className="relative flex-1 min-h-0 overflow-hidden rounded-b-lg bg-surface-page">
         {isWeb ? (
           <div ref={registerWebEl} className="relative h-full w-full bg-surface-1" aria-label="Web card">
@@ -193,16 +197,17 @@ export function CanvasCard({
         )}
       </div>
 
-      {/* Connection port (right-center, just outside the body). Drag to another
-          card to wire them together. */}
+      {/* Connection port (right-center, just outside the body). */}
       {onStartConnect ? (
         <button
           type="button"
           aria-label="Connect to another card"
           title="Drag to another card to connect"
           className={cn(
-            'absolute top-1/2 -right-2 z-10 h-3.5 w-3.5 -translate-y-1/2 rounded-pill',
+            // Above the resize handles (z-10) so it wins the right-edge overlap.
+            'absolute top-1/2 -right-2 z-20 h-3.5 w-3.5 -translate-y-1/2 rounded-pill transition-opacity duration-fast',
             'border border-accent bg-surface-1 hover:bg-accent cursor-crosshair',
+            reveal,
           )}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
@@ -213,19 +218,44 @@ export function CanvasCard({
         />
       ) : null}
 
-      {/* Resize handle (bottom-right). Sits just outside the body corner so it
-          stays clickable on web cards (clear of the native view); pointer capture
-          keeps the drag alive once it moves over the view. */}
+      {/* Resize handles — width (E), height (S), both (SE). Transparent hit
+          strips on the frame edges (clear of the native web view); the corner
+          shows a grip on hover/focus. */}
+      <div
+        aria-hidden
+        data-resize-dir="e"
+        className="absolute top-9 -right-1 bottom-3 z-10 w-2 cursor-ew-resize"
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+      />
+      <div
+        aria-hidden
+        data-resize-dir="s"
+        className="absolute -bottom-1 left-3 right-3 z-10 h-2 cursor-ns-resize"
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+      />
       <div
         role="separator"
         aria-label="Resize card"
+        data-resize-dir="se"
         className="absolute -bottom-1.5 -right-1.5 z-10 h-5 w-5 cursor-nwse-resize"
-        onPointerDown={onResizePointerDown}
-        onPointerMove={onResizePointerMove}
-        onPointerUp={onResizePointerUp}
-        onPointerCancel={onResizePointerUp}
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
       >
-        <span aria-hidden className="absolute bottom-2 right-2 h-2 w-2 border-b-2 border-r-2 border-strong" />
+        <span
+          aria-hidden
+          className={cn(
+            'absolute bottom-2 right-2 h-2 w-2 border-b-2 border-r-2 border-strong transition-opacity duration-fast',
+            reveal,
+          )}
+        />
       </div>
     </div>
   );

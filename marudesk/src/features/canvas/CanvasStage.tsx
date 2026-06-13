@@ -4,17 +4,25 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import type { TabKind } from '../../../shared/browser';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { CanvasCard } from './CanvasCard';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { useCanvasStore } from './store';
+
+type CanvasMenu =
+  | { x: number; y: number; kind: 'canvas' }
+  | { x: number; y: number; kind: 'card'; tabId: string }
+  | { x: number; y: number; kind: 'edge'; edgeId: string };
 
 /**
  * The infinite-canvas surface (Maru — see docs/maru-identity-and-canvas-design.md).
@@ -51,6 +59,8 @@ export function CanvasStage() {
   // Container size (px) for the minimap's viewport overlay, and minimap toggle.
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [minimapOpen, setMinimapOpen] = useState(true);
+  // Right-click context menu (canvas / card / edge), or null.
+  const [menu, setMenu] = useState<CanvasMenu | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -148,9 +158,14 @@ export function CanvasStage() {
       e.preventDefault();
       const store = useCanvasStore.getState();
       if (e.ctrlKey || e.metaKey) {
+        // Zoom at the cursor (also catches trackpad pinch, which arrives as ctrl+wheel).
         const r = el.getBoundingClientRect();
         store.zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+      } else if (e.shiftKey) {
+        // Shift + wheel = horizontal pan (Figma).
+        store.panBy(-(e.deltaY || e.deltaX), 0);
       } else {
+        // Plain wheel / trackpad = two-axis pan.
         store.panBy(-e.deltaX, -e.deltaY);
       }
     };
@@ -193,17 +208,13 @@ export function CanvasStage() {
     void activateTab(tabId);
   };
 
+  // Use the tracked container `size` (not the ref) so these stay callable from
+  // render-built menu items without reading a ref during render.
   const zoomFromCenter = (factor: number) => {
-    const el = containerRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    useCanvasStore.getState().zoomAt(factor, r.width / 2, r.height / 2);
+    useCanvasStore.getState().zoomAt(factor, size.w / 2, size.h / 2);
   };
   const fit = () => {
-    const el = containerRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    useCanvasStore.getState().fitToContent(r.width, r.height);
+    useCanvasStore.getState().fitToContent(size.w, size.h);
   };
 
   // Screen px → canvas coords (inverse of the plane's translate+scale).
@@ -239,14 +250,105 @@ export function CanvasStage() {
     [toCanvas],
   );
 
-  // Recenter the viewport on a canvas point (minimap click).
-  const centerOn = useCallback((wx: number, wy: number) => {
-    const el = containerRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
+  // Recenter the viewport on a canvas point (minimap click). Uses `size` state
+  // rather than the container ref so it's safe to build from render.
+  const centerOn = (wx: number, wy: number) => {
     const { scale } = useCanvasStore.getState().viewport;
-    useCanvasStore.getState().setPan(r.width / 2 - wx * scale, r.height / 2 - wy * scale);
-  }, []);
+    useCanvasStore.getState().setPan(size.w / 2 - wx * scale, size.h / 2 - wy * scale);
+  };
+
+  const newCard = useCallback(
+    (kind: TabKind = 'home') => {
+      void useTabsStore.getState().newTab(kind, undefined, activeWorkspaceId ?? undefined);
+    },
+    [activeWorkspaceId],
+  );
+
+  // Right-click: a context menu for the edge / card-header / empty canvas under
+  // the cursor. Right-clicking a card BODY is left to the surface (Monaco, xterm,
+  // a web page) so its own menu still works — only the card header opens the card
+  // menu.
+  const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const t = e.target as HTMLElement;
+    const edgeEl = t.closest('[data-edge-id]');
+    if (edgeEl) {
+      e.preventDefault();
+      setMenu({ x: e.clientX, y: e.clientY, kind: 'edge', edgeId: edgeEl.getAttribute('data-edge-id') ?? '' });
+      return;
+    }
+    const headerEl = t.closest('[data-card-header]');
+    if (headerEl) {
+      const id = headerEl.closest('[data-tab-id]')?.getAttribute('data-tab-id');
+      if (id) {
+        e.preventDefault();
+        focusCard(id);
+        setMenu({ x: e.clientX, y: e.clientY, kind: 'card', tabId: id });
+        return;
+      }
+    }
+    // Inside a card body → let the surface's own context menu handle it.
+    if (t.closest('[data-canvas-card]')) return;
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, kind: 'canvas' });
+  };
+
+  // Double-click empty canvas creates a card (Figma-style).
+  const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
+    newCard('home');
+  };
+
+  const menuItems = (m: CanvasMenu): MenuItem[] => {
+    const store = useCanvasStore.getState();
+    if (m.kind === 'edge') {
+      return [{ label: 'Remove connection', danger: true, onSelect: () => store.removeEdge(m.edgeId) }];
+    }
+    if (m.kind === 'card') {
+      const tab = tabs.find((t) => t.id === m.tabId);
+      const items: MenuItem[] = [
+        { label: 'Bring to front', onSelect: () => store.bringToFront(m.tabId) },
+        { label: 'Send to back', onSelect: () => store.sendToBack(m.tabId) },
+      ];
+      if (tab?.kind === 'web') {
+        items.push(
+          { type: 'separator' },
+          {
+            label: 'Reload',
+            onSelect: () =>
+              void (async () => {
+                await useTabsStore.getState().activateTab(m.tabId);
+                await window.marudesk.invoke('browser:reload');
+              })(),
+          },
+          {
+            label: 'Open DevTools',
+            onSelect: () => void window.marudesk.invoke('devtools:popout-open', { tabId: m.tabId }),
+          },
+          {
+            label: 'Copy link',
+            disabled: !tab.url,
+            onSelect: () => void window.marudesk.invoke('clipboard:write-text', tab.url),
+          },
+        );
+      }
+      items.push(
+        { type: 'separator' },
+        { label: 'Close card', danger: true, onSelect: () => void useTabsStore.getState().closeTab(m.tabId) },
+      );
+      return items;
+    }
+    return [
+      { label: 'New browser tab', onSelect: () => newCard('web') },
+      { label: 'New terminal', onSelect: () => newCard('terminal') },
+      { label: 'New editor', onSelect: () => newCard('editor') },
+      { label: 'New AI chat', onSelect: () => newCard('agent') },
+      { type: 'separator' },
+      { label: 'Fit to content', onSelect: () => fit() },
+      { label: 'Reset zoom', onSelect: () => store.resetView() },
+      { type: 'separator' },
+      { label: minimapOpen ? 'Hide minimap' : 'Show minimap', onSelect: () => setMinimapOpen((v) => !v) },
+    ];
+  };
 
   // Canvas keyboard: ⌘/Ctrl+Shift+M toggles the minimap (cate parity); Delete
   // removes the selected connection (not while typing in a field).
@@ -286,6 +388,8 @@ export function CanvasStage() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
       aria-label="Canvas"
     >
       <div
@@ -359,9 +463,7 @@ export function CanvasStage() {
           is the discoverable way to add a card; Ctrl+T does the same. */}
       <button
         type="button"
-        onClick={() =>
-          void useTabsStore.getState().newTab('home', undefined, activeWorkspaceId ?? undefined)
-        }
+        onClick={() => newCard('home')}
         className="absolute left-3 top-3 z-50 inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card hover:text-fg-primary"
       >
         <Plus size={14} />
@@ -398,6 +500,10 @@ export function CanvasStage() {
           <MapIcon size={15} />
         </CtrlButton>
       </div>
+
+      {menu ? (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={() => setMenu(null)} />
+      ) : null}
     </div>
   );
 }

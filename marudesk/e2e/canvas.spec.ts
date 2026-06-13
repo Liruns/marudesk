@@ -73,6 +73,34 @@ test('canvas: cards can be wired together with a connection, then disconnected',
   }
 });
 
+test('canvas: right-click opens context menus (canvas + card)', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const canvas = page.locator('[aria-label="Canvas"]');
+    const cb = await canvas.boundingBox();
+    if (!cb) throw new Error('no canvas box');
+
+    // Right-click empty canvas → the canvas menu.
+    await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.82, { button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Fit to content' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'New terminal' })).toBeVisible();
+    await page.screenshot({ path: 'test-results/maru-canvas-contextmenu.png' });
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menuitem', { name: 'Fit to content' })).toHaveCount(0);
+
+    // Right-click a card header → the card menu.
+    const header = page.locator('[data-card-header]').first();
+    const hb = await header.boundingBox();
+    if (!hb) throw new Error('no header box');
+    await page.mouse.click(hb.x + hb.width * 0.3, hb.y + hb.height / 2, { button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Bring to front' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Close card' })).toBeVisible();
+    await page.keyboard.press('Escape');
+  } finally {
+    await app.close();
+  }
+});
+
 test('canvas: a card can be resized by its corner handle', async () => {
   const { app, page } = await launchApp({ surface: 'canvas' });
   try {

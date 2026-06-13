@@ -113,6 +113,7 @@ type CanvasActions = {
   setPos: (tabId: string, x: number, y: number) => void;
   setSize: (tabId: string, w: number, h: number) => void;
   bringToFront: (tabId: string) => void;
+  sendToBack: (tabId: string) => void;
   setFocused: (tabId: string | null) => void;
   /** Connect two cards (no-op on self / duplicate, either direction). */
   addEdge: (from: string, to: string) => void;
@@ -209,6 +210,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         topZ: z,
         placements: { ...s.placements, [tabId]: { ...cur, z } },
       };
+    }),
+
+  sendToBack: (tabId) =>
+    set((s) => {
+      const cur = s.placements[tabId];
+      if (!cur) return {};
+      const minZ = Math.min(...Object.values(s.placements).map((p) => p.z));
+      return { placements: { ...s.placements, [tabId]: { ...cur, z: minZ - 1 } } };
     }),
 
   setFocused: (tabId) => set({ focusedTabId: tabId }),
