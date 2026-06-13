@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { TabKind } from '../../../shared/browser';
+import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 
 /**
  * Infinite-canvas placement store (Maru identity overhaul — see
@@ -12,6 +14,15 @@ import { useTabsStore } from '../tabs/store';
  * Cards reference a `tabId`; the tab itself still owns kind/title/url/workspaceId
  * in `useTabsStore`, so this store holds only spatial state. Placements and edges
  * for closed tabs are pruned on the tab set.
+ *
+ * **Multiple named canvases (= saved layouts).** A workspace owns an ordered set
+ * of named {@link CanvasDoc}s and one is *open* at a time; switching loads a
+ * different layout. The currently-open canvas's spatial state is hoisted to the
+ * top-level fields below (the live working copy every action mutates and
+ * `CanvasStage` renders); the other canvases (and other workspaces') live in
+ * {@link byWorkspace}, synced from the working copy at well-defined points
+ * (switch / persist / prune). Membership is implicit: a tab belongs to whichever
+ * canvas of its workspace holds its placement; new tabs land on the open canvas.
  */
 
 export type CardRect = {
@@ -69,6 +80,12 @@ function newGroupId(): string {
   return `grp_${groupSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
 }
 
+let canvasSeq = 0;
+function newCanvasId(): string {
+  canvasSeq += 1;
+  return `cv_${canvasSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
+}
+
 /** Generic fallback sizes; per-kind overrides live in CARD_SIZE below. */
 export const CARD_DEFAULT = { w: 560, h: 380 } as const;
 export const CARD_MIN = { w: 240, h: 160 } as const;
@@ -116,117 +133,242 @@ const isEdgeStyle = (v: unknown): v is EdgeStyle => v === 'curve' || v === 'orth
 
 const edgeId = (from: string, to: string) => `${from}~${to}`;
 
-const PERSIST_KEY = 'maru.canvas.v1';
+/** Persist key for the per-workspace multi-canvas state (v2). */
+const PERSIST_KEY = 'maru.canvas.v2';
+/** Legacy single-canvas key (v1); migrated into the default canvas on first load. */
+const LEGACY_KEY = 'maru.canvas.v1';
 
-type Persisted = {
+/**
+ * The workspace bucket key for a (possibly null) active workspace. No active
+ * user workspace ⇒ the System workspace, which is where tabs live then — so this
+ * matches `tab.workspaceId` and keeps placement in step with `CanvasStage`'s
+ * render filter (which shows all tabs when `activeWorkspaceId` is null).
+ */
+const wsKeyOf = (id: WorkspaceId | null | undefined): string => id ?? SYSTEM_WORKSPACE_ID;
+
+/**
+ * A named canvas = a saved layout: the panels placed on it (by tab id), how they
+ * are wired + grouped, and the saved view. The open canvas's fields are hoisted
+ * to the store's top level; the rest live in {@link byWorkspace}.
+ */
+export type CanvasDoc = {
+  id: string;
+  name: string;
+  createdAt: number;
   placements: Record<string, CardRect>;
-  viewport: Viewport;
   edges: Edge[];
   edgeStyle: EdgeStyle;
   groups: CardGroup[];
+  viewport: Viewport;
+  /** Monotonic z allocator so bringToFront always wins (per-canvas). */
   topZ: number;
 };
 
-/** Read the saved canvas layout (placements + viewport + edges). Fails closed to empty. */
-function loadPersisted(): Persisted {
-  const fallback: Persisted = {
+/** A workspace's ordered set of named canvases + which one is open. */
+type WorkspaceCanvases = {
+  /** Canvas ids in display order (switcher order). */
+  order: string[];
+  /** The open canvas id (whose state is the store's top-level working copy). */
+  activeId: string;
+  canvases: Record<string, CanvasDoc>;
+};
+
+function emptyCanvas(name: string): CanvasDoc {
+  return {
+    id: newCanvasId(),
+    name,
+    createdAt: Date.now(),
     placements: {},
-    viewport: { panX: 0, panY: 0, scale: 1 },
     edges: [],
     edgeStyle: 'curve',
     groups: [],
+    viewport: { panX: 0, panY: 0, scale: 1 },
     topZ: 1,
   };
+}
+
+/** A fresh bucket with a single default canvas. */
+function defaultBucket(): WorkspaceCanvases {
+  const doc = emptyCanvas('Canvas 1');
+  return { order: [doc.id], activeId: doc.id, canvases: { [doc.id]: doc } };
+}
+
+/* ── Persistence (de)serialization ──────────────────────────────────────── */
+
+function parseRect(val: unknown): CardRect | null {
+  if (typeof val !== 'object' || val === null) return null;
+  const v = val as Record<string, unknown>;
+  if (!(isNum(v.x) && isNum(v.y) && isNum(v.w) && isNum(v.h))) return null;
+  const pm = v.preMax;
+  const preMax =
+    pm && typeof pm === 'object' && isNum((pm as Record<string, unknown>).x) &&
+    isNum((pm as Record<string, unknown>).y) && isNum((pm as Record<string, unknown>).w) &&
+    isNum((pm as Record<string, unknown>).h)
+      ? {
+          x: (pm as Record<string, number>).x,
+          y: (pm as Record<string, number>).y,
+          w: (pm as Record<string, number>).w,
+          h: (pm as Record<string, number>).h,
+        }
+      : undefined;
+  return {
+    x: v.x,
+    y: v.y,
+    w: v.w,
+    h: v.h,
+    z: isNum(v.z) ? v.z : 1,
+    ...(v.locked === true ? { locked: true } : {}),
+    ...(preMax ? { preMax } : {}),
+  };
+}
+
+function parsePlacements(raw: unknown): Record<string, CardRect> {
+  const out: Record<string, CardRect> = {};
+  if (typeof raw === 'object' && raw !== null) {
+    for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
+      const rect = parseRect(val);
+      if (rect) out[id] = rect;
+    }
+  }
+  return out;
+}
+
+function parseEdges(raw: unknown): Edge[] {
+  const out: Edge[] = [];
+  if (Array.isArray(raw)) {
+    for (const val of raw) {
+      if (typeof val !== 'object' || val === null) continue;
+      const e = val as Record<string, unknown>;
+      if (isStr(e.from) && isStr(e.to) && e.from !== e.to) {
+        out.push({
+          id: isStr(e.id) ? e.id : edgeId(e.from, e.to),
+          from: e.from,
+          to: e.to,
+          ...(isEdgeSide(e.fromSide) ? { fromSide: e.fromSide } : {}),
+          ...(isEdgeSide(e.toSide) ? { toSide: e.toSide } : {}),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+function parseGroups(raw: unknown): CardGroup[] {
+  const out: CardGroup[] = [];
+  if (Array.isArray(raw)) {
+    for (const val of raw) {
+      if (typeof val !== 'object' || val === null) continue;
+      const g = val as Record<string, unknown>;
+      const tabIds = Array.isArray(g.tabIds) ? g.tabIds.filter(isStr) : [];
+      if (isStr(g.id) && tabIds.length >= 2 && isStr(g.activeId)) {
+        out.push({
+          id: g.id,
+          tabIds,
+          activeId: tabIds.includes(g.activeId) ? g.activeId : tabIds[0],
+        });
+      }
+    }
+  }
+  return out;
+}
+
+function parseViewport(raw: unknown): Viewport {
+  if (typeof raw === 'object' && raw !== null) {
+    const v = raw as Record<string, unknown>;
+    if (isNum(v.panX) && isNum(v.panY) && isNum(v.scale)) {
+      return { panX: v.panX, panY: v.panY, scale: clamp(v.scale, SCALE_MIN, SCALE_MAX) };
+    }
+  }
+  return { panX: 0, panY: 0, scale: 1 };
+}
+
+function parseCanvasDoc(raw: unknown): CanvasDoc | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (!isStr(r.id)) return null;
+  const placements = parsePlacements(r.placements);
+  const zs = Object.values(placements).map((p) => p.z);
+  return {
+    id: r.id,
+    name: isStr(r.name) ? r.name : 'Canvas',
+    createdAt: isNum(r.createdAt) ? r.createdAt : Date.now(),
+    placements,
+    edges: parseEdges(r.edges),
+    edgeStyle: isEdgeStyle(r.edgeStyle) ? r.edgeStyle : 'curve',
+    groups: parseGroups(r.groups),
+    viewport: parseViewport(r.viewport),
+    topZ: isNum(r.topZ) ? r.topZ : zs.length ? Math.max(1, ...zs) : 1,
+  };
+}
+
+function parseBucket(raw: unknown): WorkspaceCanvases | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const canvases: Record<string, CanvasDoc> = {};
+  if (typeof r.canvases === 'object' && r.canvases !== null) {
+    for (const val of Object.values(r.canvases as Record<string, unknown>)) {
+      const doc = parseCanvasDoc(val);
+      if (doc) canvases[doc.id] = doc;
+    }
+  }
+  const ids = Object.keys(canvases);
+  if (ids.length === 0) return null;
+  const order = (Array.isArray(r.order) ? r.order.filter(isStr) : []).filter((id) => canvases[id]);
+  for (const id of ids) if (!order.includes(id)) order.push(id);
+  const activeId = isStr(r.activeId) && canvases[r.activeId] ? r.activeId : order[0];
+  return { order, activeId, canvases };
+}
+
+/**
+ * Read the saved per-workspace canvases (v2). On a first run after the v1 single
+ * canvas, its placements are surfaced as a read-only `legacy` pool keyed by tab
+ * id, so each tab keeps its saved position on whichever workspace's canvas it
+ * opens on (v1 placements were global — mixed across workspaces). v1 edges /
+ * groups are not migrated (a one-time loss; they re-form, and v2 persists them).
+ */
+function loadPersisted(): {
+  byWorkspace: Record<string, WorkspaceCanvases>;
+  legacy: Record<string, CardRect> | null;
+} {
   try {
-    if (typeof localStorage === 'undefined') return fallback;
-    const raw = localStorage.getItem(PERSIST_KEY);
-    if (!raw) return fallback;
-    const data: unknown = JSON.parse(raw);
-    if (typeof data !== 'object' || data === null) return fallback;
-    const rec = data as Record<string, unknown>;
-
-    const placements: Record<string, CardRect> = {};
-    if (typeof rec.placements === 'object' && rec.placements !== null) {
-      for (const [id, val] of Object.entries(rec.placements as Record<string, unknown>)) {
-        if (typeof val !== 'object' || val === null) continue;
-        const v = val as Record<string, unknown>;
-        if (isNum(v.x) && isNum(v.y) && isNum(v.w) && isNum(v.h)) {
-          const pm = v.preMax;
-          const preMax =
-            pm && typeof pm === 'object' && isNum((pm as Record<string, unknown>).x) &&
-            isNum((pm as Record<string, unknown>).y) && isNum((pm as Record<string, unknown>).w) &&
-            isNum((pm as Record<string, unknown>).h)
-              ? {
-                  x: (pm as Record<string, number>).x,
-                  y: (pm as Record<string, number>).y,
-                  w: (pm as Record<string, number>).w,
-                  h: (pm as Record<string, number>).h,
-                }
-              : undefined;
-          placements[id] = {
-            x: v.x,
-            y: v.y,
-            w: v.w,
-            h: v.h,
-            z: isNum(v.z) ? v.z : 1,
-            ...(v.locked === true ? { locked: true } : {}),
-            ...(preMax ? { preMax } : {}),
-          };
+    if (typeof localStorage === 'undefined') return { byWorkspace: {}, legacy: null };
+    const rawV2 = localStorage.getItem(PERSIST_KEY);
+    if (rawV2) {
+      const data: unknown = JSON.parse(rawV2);
+      const byWorkspace: Record<string, WorkspaceCanvases> = {};
+      if (typeof data === 'object' && data !== null) {
+        const rec = (data as Record<string, unknown>).byWorkspace;
+        if (typeof rec === 'object' && rec !== null) {
+          for (const [ws, val] of Object.entries(rec as Record<string, unknown>)) {
+            const bucket = parseBucket(val);
+            if (bucket) byWorkspace[ws] = bucket;
+          }
         }
       }
+      return { byWorkspace, legacy: null };
     }
-
-    const edges: Edge[] = [];
-    if (Array.isArray(rec.edges)) {
-      for (const val of rec.edges) {
-        if (typeof val !== 'object' || val === null) continue;
-        const e = val as Record<string, unknown>;
-        if (isStr(e.from) && isStr(e.to) && e.from !== e.to) {
-          edges.push({
-            id: isStr(e.id) ? e.id : edgeId(e.from, e.to),
-            from: e.from,
-            to: e.to,
-            ...(isEdgeSide(e.fromSide) ? { fromSide: e.fromSide } : {}),
-            ...(isEdgeSide(e.toSide) ? { toSide: e.toSide } : {}),
-          });
-        }
+    const rawV1 = localStorage.getItem(LEGACY_KEY);
+    if (rawV1) {
+      const data: unknown = JSON.parse(rawV1);
+      if (typeof data === 'object' && data !== null) {
+        return { byWorkspace: {}, legacy: parsePlacements((data as Record<string, unknown>).placements) };
       }
     }
-
-    const edgeStyle: EdgeStyle = isEdgeStyle(rec.edgeStyle) ? rec.edgeStyle : 'curve';
-
-    const groups: CardGroup[] = [];
-    if (Array.isArray(rec.groups)) {
-      for (const val of rec.groups) {
-        if (typeof val !== 'object' || val === null) continue;
-        const g = val as Record<string, unknown>;
-        const tabIds = Array.isArray(g.tabIds) ? g.tabIds.filter(isStr) : [];
-        if (isStr(g.id) && tabIds.length >= 2 && isStr(g.activeId)) {
-          groups.push({
-            id: g.id,
-            tabIds,
-            activeId: tabIds.includes(g.activeId) ? g.activeId : tabIds[0],
-          });
-        }
-      }
-    }
-
-    let viewport = fallback.viewport;
-    if (typeof rec.viewport === 'object' && rec.viewport !== null) {
-      const v = rec.viewport as Record<string, unknown>;
-      if (isNum(v.panX) && isNum(v.panY) && isNum(v.scale)) {
-        viewport = { panX: v.panX, panY: v.panY, scale: clamp(v.scale, SCALE_MIN, SCALE_MAX) };
-      }
-    }
-
-    const zs = Object.values(placements).map((p) => p.z);
-    return { placements, viewport, edges, edgeStyle, groups, topZ: zs.length ? Math.max(1, ...zs) : 1 };
+    return { byWorkspace: {}, legacy: null };
   } catch {
-    return fallback;
+    return { byWorkspace: {}, legacy: null };
   }
 }
 
 type CanvasState = {
+  /** All workspaces' canvases except the open one's live working copy. */
+  byWorkspace: Record<string, WorkspaceCanvases>;
+  /** Workspace key whose canvas is currently the working copy ({@link wsKeyOf}). */
+  wsKey: string;
+  /** The open canvas id within {@link wsKey}. */
+  activeCanvasId: string;
+
+  /* ── working copy of the open canvas (rendered by CanvasStage) ── */
   /** tabId → rect+z in canvas coordinates. */
   placements: Record<string, CardRect>;
   /** Node connections between cards. */
@@ -236,14 +378,19 @@ type CanvasState = {
   /** Merged card stacks (tab groups). Each owns a placement keyed by its id. */
   groups: CardGroup[];
   viewport: Viewport;
+  /** Monotonic z allocator so bringToFront always wins. */
+  topZ: number;
+
+  /* ── ephemeral (reset on canvas/workspace switch) ── */
   focusedTabId: string | null;
   /** Multi-selected placement keys (Figma marquee / shift-click); in-memory. */
   selection: string[];
   /** The currently-selected edge (for delete), or null. */
   selectedEdgeId: string | null;
-  /** Monotonic z allocator so bringToFront always wins. */
-  topZ: number;
 };
+
+/** A canvas's switcher-facing summary (id + name + open flag). */
+export type CanvasSummary = { id: string; name: string; active: boolean };
 
 type CanvasActions = {
   /** Add placements for new tabs, drop placements + edges for closed ones. */
@@ -289,6 +436,19 @@ type CanvasActions = {
   resetView: () => void;
   /** Fit all cards within a container of the given size (px), with padding. */
   fitToContent: (containerW: number, containerH: number) => void;
+
+  /* ── named-canvas (saved-layout) management ── */
+  /** The open workspace's canvases, in switcher order. */
+  listCanvases: () => CanvasSummary[];
+  /** Open a different canvas in the current workspace (snapshots the open one). */
+  switchCanvas: (id: string) => void;
+  /** Create a fresh empty canvas, open it, and return its id. */
+  newCanvas: (name?: string) => string;
+  /** Rename a canvas (any in the current workspace). */
+  renameCanvas: (id: string, name: string) => void;
+  /** Delete a canvas + close its panels. No-op on the last canvas; opens a
+      sibling when deleting the open one. Returns the member tab ids to close. */
+  deleteCanvas: (id: string) => string[];
 };
 
 function placeAt(index: number): { x: number; y: number } {
@@ -297,25 +457,148 @@ function placeAt(index: number): { x: number; y: number } {
   return { x: PLACE.x0 + col * PLACE.gapX, y: PLACE.y0 + row * PLACE.gapY };
 }
 
-const persisted = loadPersisted();
+const initial = loadPersisted();
+// One-time v1→v2 migration: a read-only by-tab-id pool of saved positions that
+// `syncPlacements` consults so each tab keeps its v1 spot on its own canvas.
+const legacyPlacements: Record<string, CardRect> | null = initial.legacy;
 
-export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => ({
-  placements: persisted.placements,
-  edges: persisted.edges,
-  edgeStyle: persisted.edgeStyle,
-  groups: persisted.groups,
-  viewport: persisted.viewport,
+/** Pull the open canvas's working-copy fields into a {@link CanvasDoc}. */
+function activeDoc(s: CanvasState): CanvasDoc {
+  const bucket = s.byWorkspace[s.wsKey];
+  const base = bucket?.canvases[s.activeCanvasId];
+  return {
+    id: s.activeCanvasId,
+    name: base?.name ?? 'Canvas 1',
+    createdAt: base?.createdAt ?? Date.now(),
+    placements: s.placements,
+    edges: s.edges,
+    edgeStyle: s.edgeStyle,
+    groups: s.groups,
+    viewport: s.viewport,
+    topZ: s.topZ,
+  };
+}
+
+/** byWorkspace with the open canvas's working copy folded back in. */
+function snapshotByWorkspace(s: CanvasState): Record<string, WorkspaceCanvases> {
+  const bucket = s.byWorkspace[s.wsKey];
+  if (!bucket) return s.byWorkspace;
+  const doc = activeDoc(s);
+  return {
+    ...s.byWorkspace,
+    [s.wsKey]: { ...bucket, canvases: { ...bucket.canvases, [doc.id]: doc } },
+  };
+}
+
+/** The top-level working-copy fields drawn from a {@link CanvasDoc}. */
+function workingCopy(doc: CanvasDoc): Pick<
+  CanvasState,
+  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'viewport' | 'topZ'
+> {
+  return {
+    placements: doc.placements,
+    edges: doc.edges,
+    edgeStyle: doc.edgeStyle,
+    groups: doc.groups,
+    viewport: doc.viewport,
+    topZ: doc.topZ,
+  };
+}
+
+/** Fresh ephemeral (selection/focus/edge) state — reset on canvas/workspace switch. */
+const ephemeral = (): Pick<CanvasState, 'focusedTabId' | 'selection' | 'selectedEdgeId'> => ({
   focusedTabId: null,
   selection: [],
   selectedEdgeId: null,
-  topZ: persisted.topZ,
+});
+
+// Resolve the initial open workspace/canvas from whatever the deck store knows
+// at module-eval (usually no active workspace yet → NONE_WS; the deck
+// subscription re-homes onto the real workspace once it loads).
+const initialWsKey = wsKeyOf(useWorkspaceDeckStore.getState().activeWorkspaceId);
+function seedBucket(byWorkspace: Record<string, WorkspaceCanvases>, wsKey: string): {
+  byWorkspace: Record<string, WorkspaceCanvases>;
+  bucket: WorkspaceCanvases;
+} {
+  const existing = byWorkspace[wsKey];
+  if (existing) return { byWorkspace, bucket: existing };
+  const bucket = defaultBucket();
+  return { byWorkspace: { ...byWorkspace, [wsKey]: bucket }, bucket };
+}
+
+const seeded = seedBucket(initial.byWorkspace, initialWsKey);
+const seedActive = seeded.bucket.canvases[seeded.bucket.activeId];
+
+export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => ({
+  byWorkspace: seeded.byWorkspace,
+  wsKey: initialWsKey,
+  activeCanvasId: seeded.bucket.activeId,
+  ...workingCopy(seedActive),
+  focusedTabId: null,
+  selection: [],
+  selectedEdgeId: null,
 
   syncPlacements: (tabIds) => {
     const ids = new Set(tabIds);
-    const { placements, edges, groups: prevGroups } = get();
+    const state = get();
+    const { placements, edges, groups: prevGroups } = state;
+    const tabsNow = useTabsStore.getState().tabs;
+    const kindOf = new Map(tabsNow.map((t) => [t.id, t.kind]));
+    const wsOf = new Map(tabsNow.map((t) => [t.id, wsKeyOf(t.workspaceId)]));
 
-    // 1) Prune groups: drop closed members; a group below 2 members dissolves
-    //    (its surviving member, if any, re-inherits the group's rect as a card).
+    // Prune closed tabs from the OTHER (snapshotted) canvases too, so a tab
+    // closed from the classic shell while its canvas is in the background never
+    // leaves a ghost placement that resurfaces on switch.
+    let bwChanged = false;
+    const byWorkspace: Record<string, WorkspaceCanvases> = {};
+    for (const [ws, bucket] of Object.entries(state.byWorkspace)) {
+      const canvases: Record<string, CanvasDoc> = {};
+      for (const [cid, doc] of Object.entries(bucket.canvases)) {
+        // The open canvas's authoritative copy is the working copy below.
+        if (ws === state.wsKey && cid === state.activeCanvasId) {
+          canvases[cid] = doc;
+          continue;
+        }
+        const liveGroupIds = new Set<string>();
+        const nextGroups: CardGroup[] = [];
+        for (const g of doc.groups) {
+          const members = g.tabIds.filter((t) => ids.has(t));
+          if (members.length >= 2) {
+            nextGroups.push({ ...g, tabIds: members, activeId: members.includes(g.activeId) ? g.activeId : members[0] });
+            liveGroupIds.add(g.id);
+          }
+        }
+        const groupedTabs = new Set(nextGroups.flatMap((g) => g.tabIds));
+        const nextPlacements: Record<string, CardRect> = {};
+        for (const [key, rect] of Object.entries(doc.placements)) {
+          if (liveGroupIds.has(key) || (ids.has(key) && !groupedTabs.has(key))) nextPlacements[key] = rect;
+        }
+        const nextEdges = doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+        const docChanged =
+          Object.keys(nextPlacements).length !== Object.keys(doc.placements).length ||
+          nextEdges.length !== doc.edges.length ||
+          nextGroups.length !== doc.groups.length;
+        canvases[cid] = docChanged
+          ? { ...doc, placements: nextPlacements, edges: nextEdges, groups: nextGroups }
+          : doc;
+        if (docChanged) bwChanged = true;
+      }
+      byWorkspace[ws] = bucket.canvases === canvases ? bucket : { ...bucket, canvases };
+    }
+
+    // Tab ids already placed on a NON-open canvas of the open workspace (so they
+    // aren't re-added to the open canvas).
+    const placedElsewhere = new Set<string>();
+    const openBucket = byWorkspace[state.wsKey];
+    if (openBucket) {
+      for (const [cid, doc] of Object.entries(openBucket.canvases)) {
+        if (cid === state.activeCanvasId) continue;
+        for (const k of Object.keys(doc.placements)) placedElsewhere.add(k);
+      }
+    }
+
+    // 1) Prune groups on the OPEN canvas: drop closed members; a group below 2
+    //    members dissolves (its surviving member re-inherits the rect as a card).
     const groups: CardGroup[] = [];
     const dissolvedSurvivor: { gid: string; tabId: string }[] = [];
     for (const g of prevGroups) {
@@ -347,10 +630,13 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
     let changed = groupsChanged;
     const next: Record<string, CardRect> = {};
-    // Keep placements for live group ids and live ungrouped tabs; drop closed
-    // tabs, now-grouped tabs (the group owns the rect), and dead group ids.
+    // Keep placements for live group ids and live ungrouped tabs of the OPEN
+    // workspace; drop closed tabs, now-grouped tabs, dead group ids, and any
+    // tab that no longer belongs to the open workspace.
     for (const [key, rect] of Object.entries(placements)) {
-      if (liveGroupIds.has(key) || (ids.has(key) && !groupedTabs.has(key))) next[key] = rect;
+      const isGroup = liveGroupIds.has(key);
+      const keepTab = ids.has(key) && !groupedTabs.has(key) && wsOf.get(key) === state.wsKey;
+      if (isGroup || keepTab) next[key] = rect;
       else changed = true;
     }
     // A dissolved group's solo survivor takes over the group's old rect.
@@ -360,22 +646,29 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         changed = true;
       }
     }
-    // Add placements for ungrouped tabs that still lack one, grid-flowed after
-    // the current count so they don't stack; seed at the kind's default size.
-    const kindOf = new Map(useTabsStore.getState().tabs.map((t) => [t.id, t.kind]));
-    let topZ = get().topZ;
+    // Add placements for open-workspace tabs that still lack one (and aren't
+    // placed on a sibling canvas), grid-flowed after the current count so they
+    // don't stack; restore a migrated v1 rect when one matches the tab id.
+    let topZ = state.topZ;
     let placedCount = Object.keys(next).length;
     for (const id of tabIds) {
-      if (next[id] || groupedTabs.has(id)) continue;
-      const { x, y } = placeAt(placedCount);
-      const { w, h } = cardDefaultSize(kindOf.get(id));
-      next[id] = { x, y, w, h, z: ++topZ };
-      placedCount += 1;
+      if (next[id] || groupedTabs.has(id) || placedElsewhere.has(id)) continue;
+      if (wsOf.get(id) !== state.wsKey) continue;
+      const legacyRect = legacyPlacements?.[id];
+      if (legacyRect) {
+        next[id] = legacyRect;
+      } else {
+        const { x, y } = placeAt(placedCount);
+        const { w, h } = cardDefaultSize(kindOf.get(id));
+        next[id] = { x, y, w, h, z: ++topZ };
+        placedCount += 1;
+      }
       changed = true;
     }
     // Drop edges whose endpoints have closed (edges reference tab ids).
     const liveEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
     const edgesChanged = liveEdges.length !== edges.length;
+
     if (changed) {
       // Rebalance z to a compact 1..N range (by current stacking order) so
       // repeated bring-to-front / send-to-back never grows the z spread (or the
@@ -389,9 +682,13 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         groups,
         topZ: ordered.length || 1,
         ...(edgesChanged ? { edges: liveEdges } : {}),
+        ...(bwChanged ? { byWorkspace } : {}),
       });
-    } else if (edgesChanged) {
-      set({ edges: liveEdges });
+    } else if (edgesChanged || bwChanged) {
+      set({
+        ...(edgesChanged ? { edges: liveEdges } : {}),
+        ...(bwChanged ? { byWorkspace } : {}),
+      });
     }
   },
 
@@ -656,7 +953,137 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     const panY = (containerH - (maxY - minY) * scale) / 2 - minY * scale;
     set({ viewport: { panX, panY, scale } });
   },
+
+  listCanvases: () => {
+    const s = get();
+    const bucket = s.byWorkspace[s.wsKey];
+    if (!bucket) return [];
+    return bucket.order
+      .map((id) => bucket.canvases[id])
+      .filter((d): d is CanvasDoc => !!d)
+      .map((d) => ({ id: d.id, name: d.name, active: d.id === s.activeCanvasId }));
+  },
+
+  switchCanvas: (id) =>
+    set((s) => {
+      if (id === s.activeCanvasId) return {};
+      const byWorkspace = snapshotByWorkspace(s);
+      const bucket = byWorkspace[s.wsKey];
+      const doc = bucket?.canvases[id];
+      if (!bucket || !doc) return {};
+      return {
+        byWorkspace: { ...byWorkspace, [s.wsKey]: { ...bucket, activeId: id } },
+        activeCanvasId: id,
+        ...workingCopy(doc),
+        ...ephemeral(),
+      };
+    }),
+
+  newCanvas: (name) => {
+    const id = newCanvasId();
+    set((s) => {
+      const byWorkspace = snapshotByWorkspace(s);
+      const bucket = byWorkspace[s.wsKey] ?? defaultBucket();
+      const n = name?.trim() || `Canvas ${bucket.order.length + 1}`;
+      const doc: CanvasDoc = { ...emptyCanvas(n), id };
+      return {
+        byWorkspace: {
+          ...byWorkspace,
+          [s.wsKey]: {
+            order: [...bucket.order, id],
+            activeId: id,
+            canvases: { ...bucket.canvases, [id]: doc },
+          },
+        },
+        activeCanvasId: id,
+        ...workingCopy(doc),
+        ...ephemeral(),
+      };
+    });
+    return id;
+  },
+
+  renameCanvas: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    set((s) => {
+      const byWorkspace = snapshotByWorkspace(s);
+      const bucket = byWorkspace[s.wsKey];
+      const doc = bucket?.canvases[id];
+      if (!bucket || !doc) return {};
+      return {
+        byWorkspace: {
+          ...byWorkspace,
+          [s.wsKey]: { ...bucket, canvases: { ...bucket.canvases, [id]: { ...doc, name: trimmed } } },
+        },
+      };
+    });
+  },
+
+  deleteCanvas: (id) => {
+    const s = get();
+    const bucket = s.byWorkspace[s.wsKey];
+    if (!bucket || bucket.order.length <= 1 || !bucket.canvases[id]) return [];
+    // The panels to close = members of the deleted canvas (its placed tab ids,
+    // expanding any groups). Read from the live working copy when it's the open
+    // canvas, else from the snapshot.
+    const doc = id === s.activeCanvasId ? activeDoc(s) : bucket.canvases[id];
+    const memberTabIds = new Set<string>();
+    for (const key of Object.keys(doc.placements)) {
+      const grp = doc.groups.find((g) => g.id === key);
+      if (grp) for (const t of grp.tabIds) memberTabIds.add(t);
+      else memberTabIds.add(key);
+    }
+    set((cur) => {
+      const byWorkspace = snapshotByWorkspace(cur);
+      const b = byWorkspace[cur.wsKey];
+      if (!b) return {};
+      const order = b.order.filter((c) => c !== id);
+      const canvases = { ...b.canvases };
+      delete canvases[id];
+      const nextActive = id === cur.activeCanvasId ? order[0] : cur.activeCanvasId;
+      const activeDocNext = canvases[nextActive];
+      const base: Partial<CanvasState> = {
+        byWorkspace: { ...byWorkspace, [cur.wsKey]: { ...b, order, activeId: nextActive, canvases } },
+        activeCanvasId: nextActive,
+      };
+      // Opening a sibling? Load its working copy + reset ephemeral.
+      if (id === cur.activeCanvasId && activeDocNext) {
+        return { ...base, ...workingCopy(activeDocNext), ...ephemeral() };
+      }
+      return base;
+    });
+    return [...memberTabIds];
+  },
 }));
+
+/**
+ * Re-home the working copy when the active workspace changes: snapshot the open
+ * canvas, seed/open the new workspace's active canvas, reset ephemeral selection.
+ * Gate on the id so unrelated deck writes (pane focus, layout) don't churn.
+ */
+let lastWsId: WorkspaceId | null | undefined = useWorkspaceDeckStore.getState().activeWorkspaceId;
+useWorkspaceDeckStore.subscribe((state) => {
+  const id = state.activeWorkspaceId;
+  if (id === lastWsId) return;
+  lastWsId = id;
+  const nextKey = wsKeyOf(id);
+  useCanvasStore.setState((s) => {
+    if (nextKey === s.wsKey) return {};
+    const snapped = snapshotByWorkspace(s);
+    const { byWorkspace, bucket } = seedBucket(snapped, nextKey);
+    const doc = bucket.canvases[bucket.activeId];
+    return {
+      byWorkspace,
+      wsKey: nextKey,
+      activeCanvasId: bucket.activeId,
+      ...workingCopy(doc),
+      ...ephemeral(),
+    };
+  });
+  // Reconcile the freshly-opened canvas with the current tab set.
+  useCanvasStore.getState().syncPlacements(useTabsStore.getState().tabs.map((t) => t.id));
+});
 
 /**
  * Prune placements + edges when tabs close, mirroring the grid store's orphan
@@ -671,11 +1098,11 @@ useTabsStore.subscribe((state) => {
 });
 
 /**
- * Persist the canvas layout (placements + viewport + edges) so an arrangement
- * survives reloads and app restarts. Microtask-debounced so a drag (many `set`s)
- * writes once. Placements/edges are keyed by tab id; on restart, tabs the session
- * doesn't restore are pruned by `syncPlacements`, so a stale entry never breaks
- * the canvas.
+ * Persist the per-workspace canvases so arrangements survive reloads (and, for
+ * tabs the session restores with the same id, restarts). Microtask-debounced so
+ * a drag (many `set`s) writes once. Placements/edges are keyed by tab id; on
+ * restart, tabs the session doesn't restore are pruned by `syncPlacements`, so a
+ * stale entry never breaks the canvas.
  */
 let saveQueued = false;
 useCanvasStore.subscribe(() => {
@@ -684,11 +1111,8 @@ useCanvasStore.subscribe(() => {
   queueMicrotask(() => {
     saveQueued = false;
     try {
-      const { placements, viewport, edges, edgeStyle, groups } = useCanvasStore.getState();
-      localStorage.setItem(
-        PERSIST_KEY,
-        JSON.stringify({ placements, viewport, edges, edgeStyle, groups }),
-      );
+      const byWorkspace = snapshotByWorkspace(useCanvasStore.getState());
+      localStorage.setItem(PERSIST_KEY, JSON.stringify({ byWorkspace }));
     } catch {
       // Ignore quota / serialization failures — persistence is best-effort.
     }
