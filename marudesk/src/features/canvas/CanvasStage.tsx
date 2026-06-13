@@ -11,6 +11,7 @@ import {
 import {
   Check,
   ChevronDown,
+  CopyPlus,
   Globe,
   Layers,
   ListTree,
@@ -44,6 +45,33 @@ type CanvasMenu =
   | { x: number; y: number; kind: 'canvas' }
   | { x: number; y: number; kind: 'card'; tabId: string }
   | { x: number; y: number; kind: 'edge'; edgeId: string };
+
+/**
+ * Recreate a tab's content as a fresh `browser:tabs-new` payload (for Duplicate
+ * canvas) — mirrors the canvas store's `descriptorOf`, but produces the spec the
+ * tab factory consumes. A duplicated devtools card keeps inspecting the original
+ * web tab (still open).
+ */
+function tabToNewTabPayload(
+  tab: TabState,
+  workspaceId: string | undefined,
+): Parameters<typeof window.marudesk.invoke<'browser:tabs-new'>>[1] {
+  const ws = workspaceId ? { workspaceId } : {};
+  switch (tab.kind) {
+    case 'web':
+      return { kind: 'web', ...(tab.url ? { url: tab.url } : {}), ...ws };
+    case 'editor':
+      return { kind: 'editor', ...(tab.filePath ? { path: tab.filePath } : {}), ...ws };
+    case 'terminal':
+      return { kind: 'terminal', ...(tab.terminalProfile ? { terminalProfile: tab.terminalProfile } : {}), ...ws };
+    case 'plugin':
+      return { kind: 'plugin', ...(tab.pluginPanel ? { pluginPanel: tab.pluginPanel } : {}), ...ws };
+    case 'devtools':
+      return { kind: 'devtools', ...(tab.devtoolsTargetTabId ? { devtoolsTargetTabId: tab.devtoolsTargetTabId } : {}), ...ws };
+    default:
+      return { kind: tab.kind, ...ws };
+  }
+}
 
 /**
  * The infinite-canvas surface (Maru — see docs/maru-identity-and-canvas-design.md).
@@ -637,6 +665,47 @@ export function CanvasStage() {
     [activeWorkspaceId],
   );
 
+  // "Save current as a new canvas": open a new canvas and recreate the open
+  // canvas's panels as fresh tabs at the same coordinates (+ its edges). Grouped
+  // cards are flattened to a small cascade. The originals stay on their canvas.
+  const duplicateCanvas = (sourceName: string) => {
+    void (async () => {
+      const cs = useCanvasStore.getState();
+      const placements = { ...cs.placements };
+      const groups = cs.groups.map((g) => ({ ...g }));
+      const edges = cs.edges.map((e) => ({ ...e }));
+      const tabsById = new Map(useTabsStore.getState().tabs.map((t) => [t.id, t] as const));
+      const ws = activeWorkspaceId ?? undefined;
+
+      // Flatten placements into (oldTabId → target rect) entries.
+      const entries: { oldId: string; rect: CardRect }[] = [];
+      for (const [key, rect] of Object.entries(placements)) {
+        const grp = groups.find((g) => g.id === key);
+        if (grp) grp.tabIds.forEach((id, i) => entries.push({ oldId: id, rect: { ...rect, x: rect.x + i * 28, y: rect.y + i * 28 } }));
+        else entries.push({ oldId: key, rect });
+      }
+
+      useCanvasStore.getState().newCanvas(`${sourceName} copy`);
+
+      const idMap = new Map<string, string>();
+      for (const { oldId, rect } of entries) {
+        const tab = tabsById.get(oldId);
+        if (!tab) continue;
+        const newId = await window.marudesk.invoke('browser:tabs-new', tabToNewTabPayload(tab, ws));
+        if (typeof newId !== 'string') continue;
+        idMap.set(oldId, newId);
+        const store = useCanvasStore.getState();
+        store.setPos(newId, rect.x, rect.y);
+        store.setSize(newId, rect.w, rect.h);
+      }
+      for (const e of edges) {
+        const from = idMap.get(e.from);
+        const to = idMap.get(e.to);
+        if (from && to) useCanvasStore.getState().addEdge(from, to, e.fromSide, e.toSide);
+      }
+    })();
+  };
+
   // Delete a canvas and close the panels that lived on it: a canvas owns its
   // panels, so orphaned tabs would otherwise be re-adopted by the open canvas.
   const deleteCanvas = (id: string) => {
@@ -660,6 +729,11 @@ export function CanvasStage() {
         label: 'Rename canvas',
         icon: <Pencil size={14} />,
         onSelect: () => setNameDialog({ mode: 'rename', id: activeCanvasId, initial: activeCanvasName }),
+      },
+      {
+        label: 'Duplicate canvas',
+        icon: <CopyPlus size={14} />,
+        onSelect: () => duplicateCanvas(activeCanvasName),
       },
       {
         label: 'Delete canvas',

@@ -387,6 +387,31 @@ test('canvas: AI task graph — generate, render Task nodes, run to done', async
   }
 });
 
+test('canvas: duplicate canvas copies the arrangement into a new named canvas', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const cards = page.locator('[data-canvas-card]');
+    await page.getByRole('button', { name: 'New card' }).click();
+    await expect(cards).toHaveCount(2); // Canvas 1: two cards
+
+    const switcher = page.getByRole('button', { name: 'Switch canvas' });
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Duplicate canvas' }).click();
+
+    // The copy opens with the same number of cards (fresh copies).
+    await expect(switcher).toContainText('Canvas 1 copy');
+    await expect(cards).toHaveCount(2);
+
+    // The original is intact and distinct.
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Canvas 1', exact: true }).click();
+    await expect(switcher).toContainText('Canvas 1');
+    await expect(cards).toHaveCount(2);
+  } finally {
+    await app.close();
+  }
+});
+
 test('canvas: a web card opens DevTools as a card (not a separate window)', async () => {
   const { app, page } = await launchApp({ surface: 'canvas' });
   try {
