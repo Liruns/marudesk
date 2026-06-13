@@ -141,7 +141,10 @@ export function CanvasStage() {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('[data-canvas-card]')) return; // card handles its own
+    // Only the empty canvas initiates a pan — never a card or an on-canvas
+    // control (New card, zoom). Capturing the pointer here would otherwise
+    // swallow their clicks.
+    if ((e.target as HTMLElement).closest('[data-canvas-card], button')) return;
     useCanvasStore.getState().setFocused(null);
     e.currentTarget.setPointerCapture(e.pointerId);
     panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
@@ -246,6 +249,19 @@ export function CanvasStage() {
           );
         })}
       </div>
+
+      {/* New-card button (top-left). The canvas replaces the tab strip, so this
+          is the discoverable way to add a card; Ctrl+T does the same. */}
+      <button
+        type="button"
+        onClick={() =>
+          void useTabsStore.getState().newTab('home', undefined, activeWorkspaceId ?? undefined)
+        }
+        className="absolute left-3 top-3 z-50 inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card hover:text-fg-primary"
+      >
+        <Plus size={14} />
+        New card
+      </button>
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">

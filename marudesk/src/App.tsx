@@ -3,7 +3,6 @@ import { Shell } from './views/Shell';
 import { ComponentGallery } from './views/ComponentGallery';
 import { PatchComposer } from './features/patch/PatchComposer';
 import { DevtoolsWindow } from './features/devtools/DevtoolsWindow';
-import { CanvasShell } from './features/canvas/CanvasShell';
 import { useSettingsStore } from './features/settings/store';
 
 function readRoute() {
@@ -24,9 +23,6 @@ function App() {
     void useSettingsStore.getState().init();
   }, []);
 
-  if (route === '/canvas') {
-    return <CanvasShell />;
-  }
   if (route === '/dev/components') {
     return <ComponentGallery />;
   }

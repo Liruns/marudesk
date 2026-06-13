@@ -32,6 +32,12 @@ export async function launchApp(opts?: {
   userDataDir?: string;
   /** Keep the first-run home guide open (for tests that exercise the guide). */
   keepHomeGuide?: boolean;
+  /**
+   * Which stage surface to start on. Maru defaults to the infinite **canvas**,
+   * but most specs drive the classic tab strip / split grid, so tests default to
+   * `'classic'`. The canvas spec opts into `'canvas'`.
+   */
+  surface?: 'classic' | 'canvas';
 }): Promise<LaunchedApp> {
   const userDataDir = opts?.userDataDir ?? makeTempUserDataDir();
   const app = await electron.launch({
@@ -51,6 +57,13 @@ export async function launchApp(opts?: {
   // The splash window (electron/splash.ts) opens first, so firstWindow() can be
   // the splash — wait for the real renderer (index.html) instead.
   const page = await mainWindow(app);
+  await page.waitForLoadState('domcontentloaded');
+  // Seed the persisted surface mode and reload so the Shell renders it. Maru
+  // ships canvas-first, but the classic-shell specs assume the tab strip / grid
+  // on launch, so tests default to 'classic' unless they opt into the canvas.
+  const surface = opts?.surface ?? 'classic';
+  await page.evaluate((mode) => localStorage.setItem('maru.surface', mode), surface);
+  await page.reload();
   await page.waitForLoadState('domcontentloaded');
   // A fresh userData dir is always "first run", so the home guide auto-opens.
   // It occludes the launcher cards and one card mentions "Settings" (which
