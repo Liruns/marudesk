@@ -101,7 +101,7 @@ export function CanvasCard({
       data-canvas-card
       data-tab-id={tab.id}
       className={cn(
-        'group absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
+        'group @container absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
         focused ? 'ring-1 ring-accent/60 shadow-lifted' : 'shadow-card hover:shadow-lifted',
       )}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: rect.z }}
@@ -110,7 +110,8 @@ export function CanvasCard({
       <div
         data-card-header
         className={cn(
-          'flex items-center gap-2 h-9 shrink-0 px-2.5 cursor-grab active:cursor-grabbing select-none',
+          'flex items-center h-9 shrink-0 cursor-grab active:cursor-grabbing select-none',
+          'gap-1 px-1.5 @[20rem]:gap-2 @[20rem]:px-2.5',
           'rounded-t-lg border-b border-subtle bg-surface-2',
         )}
         onPointerDown={onHeaderPointerDown}
@@ -157,7 +158,7 @@ export function CanvasCard({
             type="button"
             aria-label="Open DevTools"
             title="Open DevTools"
-            className="grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+            className="hidden @[20rem]:grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
@@ -181,7 +182,7 @@ export function CanvasCard({
         </button>
       </div>
 
-      <div className="relative flex-1 min-h-0 overflow-hidden rounded-b-lg bg-surface-page">
+      <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden rounded-b-lg bg-surface-page">
         {isWeb ? (
           <div ref={registerWebEl} className="relative h-full w-full bg-surface-1" aria-label="Web card">
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">

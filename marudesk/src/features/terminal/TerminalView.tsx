@@ -187,14 +187,14 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
     : [];
 
   return (
-    <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-surface-page">
+    <div className="@container flex-1 min-h-0 min-w-0 flex flex-col bg-surface-page">
       {info ? (
         <header className="h-6 shrink-0 flex items-center gap-2 px-3 border-b border-subtle bg-surface-2 text-caption text-fg-tertiary select-none">
           <SquareTerminal size={12} className="shrink-0" aria-hidden />
-          <span className="text-fg-secondary" title={t('terminal.header.shell')}>
+          <span className="hidden @[20rem]:inline text-fg-secondary" title={t('terminal.header.shell')}>
             {basename(info.shell)}
           </span>
-          <span className="text-fg-tertiary/60" aria-hidden>
+          <span className="hidden @[20rem]:inline text-fg-tertiary/60" aria-hidden>
             ·
           </span>
           <Folder size={12} className="shrink-0" aria-hidden />
@@ -315,7 +315,7 @@ function TerminalErrorsPanel({
   };
 
   return (
-    <div className="absolute right-3 top-2 z-10 flex w-96 max-w-[calc(100%-1.5rem)] flex-col rounded-md border border-default bg-surface-2 shadow-xl">
+    <div className="absolute right-3 top-2 z-10 flex w-full max-w-[calc(100%-1rem)] @[20rem]:w-96 flex-col rounded-md border border-default bg-surface-2 shadow-xl">
       <div className="flex h-7 shrink-0 items-center gap-2 border-b border-subtle px-2 text-caption text-fg-tertiary">
         <AlertCircle size={12} className="shrink-0 text-error" aria-hidden />
         <span className="text-fg-secondary">{t('terminal.errors.title')}</span>
@@ -437,7 +437,7 @@ function TerminalSearchBar({
         }}
         placeholder={labels.placeholder}
         spellCheck={false}
-        className="w-40 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary outline-none"
+        className="w-24 @[20rem]:w-40 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary outline-none"
       />
       <span className="shrink-0 min-w-[3rem] px-1 text-right text-caption tabular-nums text-fg-tertiary">
         {query

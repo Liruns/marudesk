@@ -71,7 +71,7 @@ export function HomeAddressSearch({ onOpen }: HomeAddressSearchProps) {
   return (
     <form
       onSubmit={onSubmit}
-      className="relative w-full max-w-xl animate-fade-rise [animation-delay:60ms]"
+      className="relative w-full max-w-full @lg:max-w-xl animate-fade-rise [animation-delay:60ms]"
       role="search"
     >
       <div

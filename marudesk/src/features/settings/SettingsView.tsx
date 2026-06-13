@@ -38,8 +38,8 @@ export function SettingsView() {
   if (!active) return null;
 
   return (
-    <div className="flex-1 min-h-0 flex bg-surface-page">
-      <aside className="chrome-rail w-52 shrink-0 flex flex-col border-r">
+    <div className="flex-1 min-h-0 flex bg-surface-page @container flex-col @[20rem]:flex-row">
+      <aside className="chrome-rail w-full max-h-[38vh] @[20rem]:w-52 @[20rem]:max-h-none shrink-0 flex flex-col border-b @[20rem]:border-b-0 @[20rem]:border-r">
         <header className="chrome-header h-11 shrink-0 flex items-center px-4">
           <h1 className="text-body font-medium text-fg-primary">{t('settings.title')}</h1>
         </header>
@@ -79,7 +79,7 @@ export function SettingsView() {
       </aside>
 
       <div className="flex-1 min-w-0 overflow-y-auto bg-vignette">
-        <div className="max-w-3xl px-8 py-7 flex flex-col gap-5">
+        <div className="max-w-3xl px-3 py-4 @[20rem]:px-8 @[20rem]:py-7 flex flex-col gap-5">
           {searching ? (
             <>
               <header className="flex flex-col gap-1">

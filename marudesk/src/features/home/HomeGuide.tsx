@@ -29,7 +29,7 @@ export function HomeGuide({
   return (
     <section
       aria-label={t('home.guide.title')}
-      className="w-full max-w-2xl rounded-lg border border-subtle bg-surface-2 p-5 animate-fade-rise"
+      className="@container w-full max-w-2xl rounded-lg border border-subtle bg-surface-2 p-5 animate-fade-rise"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-0.5">
@@ -47,7 +47,7 @@ export function HomeGuide({
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <div className="mt-4 grid grid-cols-1 @md:grid-cols-2 gap-2.5">
         {scenarios.map((s) => (
           <button
             key={s.key}

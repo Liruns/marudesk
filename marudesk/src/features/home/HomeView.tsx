@@ -50,7 +50,7 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
   ];
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
+    <div className="@container flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
       <div className="min-h-full flex flex-col items-center justify-start px-8 py-12 gap-7">
         <div className="flex flex-col items-center gap-3 animate-fade-rise">
           <div className="relative">
@@ -79,7 +79,7 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
           // compact launcher grid while it's open to avoid duplicate cards.
           <HomeGuide scenarios={scenarios} onDismiss={dismissGuide} />
         ) : (
-          <div className="w-full max-w-2xl grid grid-cols-1 xl:grid-cols-2 gap-2.5 animate-fade-rise [animation-delay:120ms]">
+          <div className="w-full max-w-2xl grid grid-cols-1 @lg:grid-cols-2 gap-2.5 animate-fade-rise [animation-delay:120ms]">
             <HomeLauncherCard
               label={t('home.launcher.agent.label')}
               hint={t('home.launcher.agent.hint')}
