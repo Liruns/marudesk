@@ -1134,6 +1134,8 @@ export const EN_MESSAGES = {
   'settings.plugins.toggle.disable': 'Disable',
   'settings.plugins.toggle.enable': 'Enable',
   'settings.providers.apiKey': 'API key',
+  'settings.providers.builtinTitle': 'Built-in providers',
+  'settings.providers.keyHintMismatch': 'Expected to start with “{prefix}”',
   'settings.providers.badge.connected': 'connected',
   'settings.providers.badge.experimental': 'experimental',
   'settings.providers.badge.keySet': 'key set',

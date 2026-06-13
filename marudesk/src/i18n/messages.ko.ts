@@ -1129,6 +1129,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.plugins.toggle.disable': '비활성화',
   'settings.plugins.toggle.enable': '활성화',
   'settings.providers.apiKey': 'API 키',
+  'settings.providers.builtinTitle': '기본 제공 공급자',
+  'settings.providers.keyHintMismatch': '“{prefix}”(으)로 시작해야 합니다',
   'settings.providers.badge.connected': '연결됨',
   'settings.providers.badge.experimental': '실험적',
   'settings.providers.badge.keySet': '키 설정됨',
