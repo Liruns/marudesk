@@ -65,6 +65,7 @@ import { registerWindowControlHandlers } from './window-controls';
 import { loadWindowState, trackWindowState } from './window-state';
 import { closeSplash, showSplash } from './splash';
 import { registerUiLayoutHandlers } from './ui-layout';
+import { registerWorkOsHandlers } from './agent/decompose';
 import { openExternalUrl } from './safe-open';
 import {
   registerServerHandlers,
@@ -487,6 +488,7 @@ void app.whenReady().then(() => {
   registerPluginHandlers();
   registerWindowControlHandlers(getMainWindow);
   registerUiLayoutHandlers();
+  registerWorkOsHandlers();
   // Profile switching is applied live (no app restart) — see applyProfileSwitch.
   registerProfileHandlers({ applyProfileSwitch });
   registerRelayHandlers();

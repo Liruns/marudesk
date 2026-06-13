@@ -289,6 +289,30 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
   const graph = useWorkGraphStore((s) => s.graph);
   const running = useWorkGraphStore((s) => s.running);
   const [goal, setGoal] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Try the AI decomposer; fall back to a deterministic offline sample so the
+  // loop always works without a configured provider (and explain why).
+  const generate = async () => {
+    if (busy) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await window.marudesk.invoke('workos:decompose', goal);
+      if (res.ok) {
+        useWorkGraphStore.getState().setGraph(res.graph);
+      } else {
+        useWorkGraphStore.getState().setGraph(sampleGraph(goal));
+        setNotice(`Offline sample — ${res.reason}`);
+      }
+    } catch {
+      useWorkGraphStore.getState().setGraph(sampleGraph(goal));
+      setNotice('Offline sample — AI was unavailable.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const summary = graph
     ? `${graph.tasks.length} tasks · ${graph.tasks.filter((t) => t.status === 'done').length} done`
@@ -313,18 +337,20 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
           onChange={(e) => setGoal(e.currentTarget.value)}
           placeholder="Describe a goal…"
           onKeyDown={(e) => {
-            if (e.key === 'Enter') useWorkGraphStore.getState().setGraph(sampleGraph(goal));
+            if (e.key === 'Enter') void generate();
           }}
           className="h-8 min-w-0 flex-1 rounded-md bg-surface-2 border border-subtle px-2 text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent"
         />
         <button
           type="button"
-          onClick={() => useWorkGraphStore.getState().setGraph(sampleGraph(goal))}
-          className="h-8 shrink-0 rounded-md bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover"
+          disabled={busy}
+          onClick={() => void generate()}
+          className="h-8 shrink-0 rounded-md bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
         >
-          Generate
+          {busy ? 'Generating…' : 'Generate'}
         </button>
       </div>
+      {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
       <div className="mt-2 flex items-center gap-1.5">
         <button
           type="button"
