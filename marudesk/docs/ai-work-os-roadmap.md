@@ -30,6 +30,23 @@
 아니라 **작업 흐름 지도(Task 그래프)** 가 되고, 도구(브라우저·에디터·터미널)는 노드 안이
 아니라 **형제 도크/드로어**에서 열린다.
 
+> **구현 상태 (Phase 1, 2026-06).** 사용자 결정에 따라 로드맵의 *별도 서피스 + ToolDock 분리*
+> 대신 **기존 캔버스 확장**으로 얇은 슬라이스를 구현했다(생성→렌더→편집→실행→통과/실패):
+> - ✅ `shared/work-os.ts` — Task/Edge(방향·타입)/Resource/Criterion/WorkGraph + 타입가드 + **순수
+>   스케줄러**(readyTasks·topologicalOrder·parallelLayers·hasCycle) + `parseWorkGraph`(방어 검증).
+>   14개 유닛테스트.
+> - ✅ 캔버스 위 **Task 노드**(`src/features/work-graph/`): `useWorkGraphStore`(Task.id 키, `maru.
+>   workgraph.v1` 별도 persist — `maru.canvas.*` 불변), 드래그/상태순환/depends_on 연결(사이클 거부)/
+>   삭제, 방향성 엣지, status·acceptance 통과/실패(토큰 색만). e2e: `canvas.spec.ts`.
+> - ✅ **AI 분해기** `electron/agent/decompose.ts`(generateText + `parseWorkGraph` 게이트, IPC
+>   `workos:decompose`, provider 미연결/오류 시 결정적 오프라인 샘플로 폴백). 라이브 AI는
+>   provider/key 필요(CI 미검증) — 오프라인 폴백 경로만 e2e로 검증.
+> - ✅ **실행(시뮬레이션)** — `runSimulate`가 스케줄러를 walk하며 ready 셋(병렬) → done을 의존성
+>   순서로 진행해 순서/병렬성을 가시화.
+> - ⏳ **남음:** 실제 노드별 에이전트 실행(`run-task.ts` — read-only는 `runChildAgent`, write는
+>   headless 실행자; outputs/evidence/status 기록). provider/key 필요 + 무거운 루프 배선이라 다음
+>   슬라이스. 그리고 §5의 "그 다음"(선택적 재실행·per-criterion 검증·멀티에이전트 스케줄러).
+
 ### 긴장(TENSION)을 이름 붙인다
 
 > **오늘의 Maru 캔버스는 각 카드를 "도구 표면"으로 만든다. 비전은 정확히 그것을 반(反)패턴으로
