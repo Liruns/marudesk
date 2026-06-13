@@ -129,7 +129,9 @@ export interface IpcMap {
   'browser:navigate': { args: [url: string]; result: void };
   'browser:set-bounds': { args: [bounds: Rect]; result: void };
   'browser:set-pane-bounds': {
-    args: [payload: { panes: { tabId: string; rect: Rect }[] }];
+    // `scale` (optional) is the canvas zoom; web views render their page at it so
+    // content scales with the canvas. Omitted by the classic split grid.
+    args: [payload: { panes: { tabId: string; rect: Rect }[]; scale?: number }];
     result: void;
   };
   'browser:clear-pane-bounds': { args: []; result: void };

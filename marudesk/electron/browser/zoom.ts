@@ -1,4 +1,4 @@
-import { getActive, type TabRecord } from './state';
+import { getActive, getPaneBounds, getPaneScale, type TabRecord } from './state';
 
 /**
  * Per-tab page zoom (Ctrl +/-/0). The chosen factor is stored on the tab record
@@ -54,6 +54,13 @@ export function zoomActive(direction: 'in' | 'out' | 'reset'): number {
 /** Re-apply a tab's stored zoom (called after navigation resets it). */
 export function reapplyZoom(rec: TabRecord): void {
   if (!rec.view) return;
+  // On the canvas, a card's view renders at the canvas zoom; keep it after a
+  // navigation resets Chromium's zoom, rather than the tab's own page zoom.
+  const paneScale = getPaneScale();
+  if (paneScale != null && getPaneBounds()?.has(rec.id)) {
+    rec.view.webContents.setZoomFactor(paneScale);
+    return;
+  }
   const factor = rec.zoomFactor ?? 1;
   if (factor !== 1) rec.view.webContents.setZoomFactor(factor);
 }

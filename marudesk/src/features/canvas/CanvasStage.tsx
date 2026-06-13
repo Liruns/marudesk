@@ -107,10 +107,12 @@ export function CanvasStage() {
           },
         });
       }
-      const key = JSON.stringify(panes);
-      if (key === lastSentRef.current) return; // nothing moved → skip the IPC
+      // Send the canvas zoom so main scales each web view's page to match.
+      const scale = useCanvasStore.getState().viewport.scale;
+      const key = JSON.stringify({ panes, scale });
+      if (key === lastSentRef.current) return; // nothing changed → skip the IPC
       lastSentRef.current = key;
-      void window.marudesk.invoke('browser:set-pane-bounds', { panes });
+      void window.marudesk.invoke('browser:set-pane-bounds', { panes, scale });
     });
   }, []);
 

@@ -2,9 +2,11 @@ import {
   getActive,
   getLastBounds,
   getPaneBounds,
+  getPaneScale,
   getTab,
   setLastBounds,
   setPaneBounds,
+  setPaneScale,
   tabValues,
   type Bounds,
   type TabRecord,
@@ -43,6 +45,9 @@ export function applyWebLayout(): void {
  * in grid mode — see the renderer's grid guard — so nothing to place here.)
  */
 export function applyPaneBounds(bounds: Map<string, Bounds>): void {
+  // The canvas drives a zoom factor so a card's live page scales with the canvas;
+  // the classic split grid leaves it null and never touches per-tab user zoom.
+  const scale = getPaneScale();
   for (const rec of tabValues()) {
     if (!rec.view) continue;
     // A crashed view stays hidden (its pane goes blank) so it never renders a
@@ -60,6 +65,7 @@ export function applyPaneBounds(bounds: Map<string, Bounds>): void {
         width: Math.max(0, Math.round(r.width)),
         height: Math.max(0, Math.round(r.height)),
       });
+      if (scale != null) rec.view.webContents.setZoomFactor(scale);
     } else {
       hideTab(rec);
     }
@@ -143,19 +149,30 @@ export function setBrowserBounds(bounds: Bounds): void {
  */
 export function setBrowserPaneBounds(
   panes: { tabId: string; rect: Bounds }[],
+  scale?: number,
 ): void {
   const next = new Map<string, Bounds>();
   for (const p of panes) next.set(p.tabId, p.rect);
   setPaneBounds(next);
+  // `scale` (canvas zoom) is set only by the canvas; the classic grid omits it,
+  // leaving per-tab user zoom untouched.
+  setPaneScale(scale ?? null);
   applyPaneBounds(next);
 }
 
 /** Leave grid mode and restore the single active-tab view. */
 export function clearBrowserPaneBounds(): void {
   if (!getPaneBounds()) return;
+  // If the canvas had imposed a zoom factor, undo it so classic surfaces show
+  // each tab's own page zoom again.
+  const hadScale = getPaneScale() != null;
   setPaneBounds(null);
+  setPaneScale(null);
   // Hide every web view first so nothing is left stranded.
-  for (const rec of tabValues()) hideTab(rec);
+  for (const rec of tabValues()) {
+    if (hadScale && rec.view) rec.view.webContents.setZoomFactor(rec.zoomFactor ?? 1);
+    hideTab(rec);
+  }
   // Reveal the active tab's web view. MUST go through showTab (not
   // applyBoundsToActive): we just hid every view above, and applyBoundsToActive
   // only repositions — it never calls setVisible(true). Skipping showTab here
