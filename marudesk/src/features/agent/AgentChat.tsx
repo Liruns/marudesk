@@ -220,7 +220,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         <div
           className={cn(
             'flex flex-col gap-5',
-            full ? 'mx-auto w-full max-w-3xl px-5 py-6' : 'px-3 py-4',
+            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-6' : 'px-3 py-4',
             empty && 'min-h-full justify-center',
           )}
           style={chatZoom !== 100 ? { zoom: chatZoom / 100 } : undefined}
@@ -337,14 +337,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         <div
           className={cn(
             'flex flex-col gap-2',
-            full ? 'mx-auto w-full max-w-3xl px-5 py-3' : 'px-3 py-2',
+            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-3' : 'px-3 py-2',
           )}
         >
           {/* Status row: left = pill + usage; right = toggle cluster. Wraps the
               toggle pill to its own line on a narrow drawer instead of overflowing. */}
           <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
             {/* Left: status + usage */}
-            <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
               <StatusPill status={chat.status} elapsed={elapsed} />
               <UsageMeter />
             </div>

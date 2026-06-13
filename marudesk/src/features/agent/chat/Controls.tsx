@@ -182,7 +182,7 @@ export function ComposerModelButton() {
         aria-haspopup="dialog"
         aria-expanded={open}
         title={label}
-        className="group flex h-7 min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md px-1.5 text-fg-secondary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+        className="group flex h-7 min-w-0 max-w-[8rem] @[20rem]:max-w-[13rem] items-center gap-1.5 rounded-md px-1.5 text-fg-secondary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
       >
         <ProviderGlyph
           provider={provider}
@@ -305,7 +305,7 @@ export function EmptyState({
 
       <div className="flex flex-col items-center gap-1.5">
         <p className="text-body-sm font-medium text-fg-primary tracking-tight">{t('agent.chat.empty.title')}</p>
-        <p className="text-caption text-fg-tertiary max-w-[264px] leading-relaxed">
+        <p className="text-caption text-fg-tertiary max-w-[90%] @[20rem]:max-w-[264px] leading-relaxed">
           {hasWorkspace
             ? t('agent.chat.empty.workspace')
             : t('agent.chat.empty.noWorkspace')}
@@ -313,7 +313,7 @@ export function EmptyState({
       </div>
 
       {hasWorkspace ? (
-        <div className="flex w-full max-w-[288px] flex-col items-stretch gap-1.5">
+        <div className="flex w-full max-w-[90%] @[20rem]:max-w-[288px] flex-col items-stretch gap-1.5">
           {SUGGESTION_KEYS.map((key) => {
             const suggestion = t(key);
             return (

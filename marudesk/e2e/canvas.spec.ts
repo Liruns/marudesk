@@ -101,6 +101,30 @@ test('canvas: right-click opens context menus (canvas + card)', async () => {
   }
 });
 
+test('canvas: a card shrunk to ~minimum stays clamped and keeps its chrome', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const card = page.locator('[data-canvas-card]').first();
+    const handle = page.getByRole('separator', { name: 'Resize card' }).first();
+    const hb = await handle.boundingBox();
+    if (!hb) throw new Error('no resize handle');
+    // Drag the corner well past the minimum to exercise the small-card layout.
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(hb.x - 320, hb.y - 180, { steps: 12 });
+    await page.mouse.up();
+
+    await page.screenshot({ path: 'test-results/maru-canvas-smallcard.png' });
+
+    const cb = await card.boundingBox();
+    if (!cb) throw new Error('no card box');
+    expect(cb.width).toBeLessThan(360); // clamped to CARD_MIN, not collapsed to 0
+    await expect(page.getByRole('button', { name: 'Close card' }).first()).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
 test('canvas: a card can be resized by its corner handle', async () => {
   const { app, page } = await launchApp({ surface: 'canvas' });
   try {
