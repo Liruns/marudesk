@@ -8,13 +8,27 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { ChevronDown, Globe, ListTree, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Globe,
+  Layers,
+  ListTree,
+  Map as MapIcon,
+  Maximize2,
+  Minus,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import type { TabKind, TabState } from '../../../shared/browser';
 import { useTabsStore } from '../tabs/store';
 import { tabKinds } from '../tabs/registry';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { NameDialog } from '../workspaces/NameDialog';
 import { CanvasCard, type CardGroupProps } from './CanvasCard';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
@@ -51,6 +65,15 @@ export function CanvasStage() {
   const focusedTabId = useCanvasStore((s) => s.focusedTabId);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
   const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
+  // The open workspace's canvases (a canvas = a named saved layout). The bucket
+  // only changes on a canvas op (switch/new/rename/delete), not on every
+  // drag/pan, so this selector is cheap.
+  const canvasBucket = useCanvasStore((s) => s.byWorkspace[s.wsKey]);
+  const activeCanvasId = useCanvasStore((s) => s.activeCanvasId);
+  const canvasList = canvasBucket
+    ? canvasBucket.order.map((id) => canvasBucket.canvases[id]).filter((d): d is NonNullable<typeof d> => !!d)
+    : [];
+  const activeCanvasName = canvasBucket?.canvases[activeCanvasId]?.name ?? 'Canvas';
 
   // Scope cards to the active workspace so multiple workspaces don't pile onto
   // one canvas; fall back to all tabs when no workspace is active. Placements are
@@ -82,6 +105,11 @@ export function CanvasStage() {
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
   // Workspace-switcher dropdown anchor (canvas mode has no workspace rail).
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
+  // Canvas-switcher dropdown anchor + the name dialog (new / rename a canvas).
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(null);
+  const [nameDialog, setNameDialog] = useState<
+    { mode: 'new' } | { mode: 'rename'; id: string; initial: string } | null
+  >(null);
   // Marquee (drag-box) selection rect in canvas coords while dragging, or null.
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   // True while Space is held → empty-canvas left-drag pans instead of marqueeing.
@@ -574,6 +602,41 @@ export function CanvasStage() {
     [activeWorkspaceId],
   );
 
+  // Delete a canvas and close the panels that lived on it: a canvas owns its
+  // panels, so orphaned tabs would otherwise be re-adopted by the open canvas.
+  const deleteCanvas = (id: string) => {
+    const closeIds = useCanvasStore.getState().deleteCanvas(id);
+    const tabsStore = useTabsStore.getState();
+    for (const tid of closeIds) void tabsStore.closeTab(tid);
+  };
+
+  // The canvas switcher menu: switch between this workspace's named canvases
+  // (= saved layouts) and manage them.
+  const canvasMenuItems = (): MenuItem[] => {
+    const items: MenuItem[] = canvasList.map((c) => ({
+      label: c.name,
+      icon: c.id === activeCanvasId ? <Check size={14} /> : undefined,
+      onSelect: () => useCanvasStore.getState().switchCanvas(c.id),
+    }));
+    items.push(
+      { type: 'separator' },
+      { label: 'New canvas', icon: <Plus size={14} />, onSelect: () => setNameDialog({ mode: 'new' }) },
+      {
+        label: 'Rename canvas',
+        icon: <Pencil size={14} />,
+        onSelect: () => setNameDialog({ mode: 'rename', id: activeCanvasId, initial: activeCanvasName }),
+      },
+      {
+        label: 'Delete canvas',
+        icon: <Trash2 size={14} />,
+        danger: true,
+        disabled: canvasList.length <= 1,
+        onSelect: () => deleteCanvas(activeCanvasId),
+      },
+    );
+    return items;
+  };
+
   // Right-click: a context menu for the edge / card-header / empty canvas under
   // the cursor. Right-clicking a card BODY is left to the surface (Monaco, xterm,
   // a web page) so its own menu still works — only the card header opens the card
@@ -766,7 +829,11 @@ export function CanvasStage() {
     <div
       ref={containerRef}
       className={cn(
-        'relative h-full w-full overflow-hidden bg-surface-page',
+        // `overflow-clip` (not `hidden`): the canvas pans via transform and must
+        // never be a native scroll container — overflowing cards otherwise make
+        // it programmatically scrollable, and a focus-driven scroll-to-0 fires a
+        // spurious `scroll` event that dismisses on-canvas menus/popovers.
+        'relative h-full w-full overflow-clip bg-surface-page',
         panning ? 'cursor-grabbing' : spacePan ? 'cursor-grab' : 'cursor-default',
       )}
       style={{
@@ -951,6 +1018,21 @@ export function CanvasStage() {
             <ChevronDown size={13} />
           </button>
         ) : null}
+        {/* Canvas switcher — each canvas is a named saved layout. */}
+        <button
+          type="button"
+          title="Switch canvas / saved layout"
+          aria-label="Switch canvas"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setCanvasMenu({ x: r.left, y: r.bottom + 4 });
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
+        >
+          <Layers size={13} />
+          <span className="max-w-[10rem] truncate">{activeCanvasName}</span>
+          <ChevronDown size={13} />
+        </button>
         <button
           type="button"
           onClick={() => newCard('home')}
@@ -1012,6 +1094,30 @@ export function CanvasStage() {
             disabled: w.id === activeWorkspaceId,
             onSelect: () => void useWorkspaceDeckStore.getState().setActiveWorkspace(w.id),
           }))}
+        />
+      ) : null}
+
+      {canvasMenu ? (
+        <ContextMenu
+          x={canvasMenu.x}
+          y={canvasMenu.y}
+          onClose={() => setCanvasMenu(null)}
+          items={canvasMenuItems()}
+        />
+      ) : null}
+
+      {nameDialog ? (
+        <NameDialog
+          title={nameDialog.mode === 'new' ? 'New canvas' : 'Rename canvas'}
+          confirmLabel={nameDialog.mode === 'new' ? 'Create' : 'Rename'}
+          placeholder="Canvas name"
+          initialValue={nameDialog.mode === 'rename' ? nameDialog.initial : ''}
+          allowEmpty={nameDialog.mode === 'new'}
+          onSubmit={(value) => {
+            if (nameDialog.mode === 'new') useCanvasStore.getState().newCanvas(value);
+            else useCanvasStore.getState().renameCanvas(nameDialog.id, value);
+          }}
+          onClose={() => setNameDialog(null)}
         />
       ) : null}
     </div>

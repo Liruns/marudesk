@@ -245,6 +245,53 @@ test('canvas: a card can be locked (no move/resize) and maximized', async () => 
   }
 });
 
+test('canvas: named canvases switch independently (a canvas = a saved layout)', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const cards = page.locator('[data-canvas-card]');
+    // Start on the default "Canvas 1" with the home card; add a second card.
+    await expect(cards).toHaveCount(1);
+    await page.getByRole('button', { name: 'New card' }).click();
+    await expect(cards).toHaveCount(2);
+
+    // The switcher chip reflects the open canvas.
+    const switcher = page.getByRole('button', { name: 'Switch canvas' });
+    await expect(switcher).toContainText('Canvas 1');
+
+    // Create a second, named canvas — it opens empty (panels are per-canvas).
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'New canvas' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New canvas' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByPlaceholder('Canvas name').fill('Backend');
+    await dialog.getByRole('button', { name: 'Create' }).click();
+    await expect(switcher).toContainText('Backend');
+    await expect(cards).toHaveCount(0);
+
+    // A card created here belongs to "Backend" only.
+    await page.getByRole('button', { name: 'New card' }).click();
+    await expect(cards).toHaveCount(1);
+
+    // Switch back to "Canvas 1" → its two cards return; Backend's card is gone.
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Canvas 1' }).click();
+    await expect(switcher).toContainText('Canvas 1');
+    await expect(cards).toHaveCount(2);
+
+    // Delete "Backend" (from its own view) — the last canvas can't be deleted,
+    // so first switch to it, then delete, landing back on Canvas 1.
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Backend' }).click();
+    await expect(cards).toHaveCount(1);
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Delete canvas' }).click();
+    await expect(switcher).toContainText('Canvas 1');
+    await expect(cards).toHaveCount(2);
+  } finally {
+    await app.close();
+  }
+});
+
 test('canvas: marquee selects multiple cards and they move together', async () => {
   const { app, page } = await launchApp({ surface: 'canvas' });
   try {
