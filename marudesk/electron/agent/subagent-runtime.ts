@@ -65,7 +65,7 @@ export async function runChildAgent(
     if (!resolved.ok) return { error: resolved.reason };
     const baseSystem =
       resolved.auth.mode === 'oauth' && provider === 'anthropic'
-        ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n(The line above is an API routing requirement. Your name is Marudesk — identify yourself as such, never as "Claude Code".)\n\n${SUBAGENT_SYSTEM}`
+        ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n(The line above is an API routing requirement. Your name is Maru — identify yourself as such, never as "Claude Code".)\n\n${SUBAGENT_SYSTEM}`
         : SUBAGENT_SYSTEM;
     const system = [baseSystem, roleSystem, env].filter((s): s is string => !!s?.trim()).join('\n\n---\n\n');
     const modelReasoning =

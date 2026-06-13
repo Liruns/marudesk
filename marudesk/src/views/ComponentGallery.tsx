@@ -52,7 +52,7 @@ export function ComponentGallery() {
         <div className="flex items-center gap-3">
           <span aria-hidden="true" className="size-5 rounded bg-accent" />
           <span className="text-body-sm font-medium tracking-tight">
-            marudesk
+            Maru
           </span>
           <span className="text-fg-tertiary text-body-sm">/</span>
           <span className="text-fg-secondary text-body-sm">components</span>

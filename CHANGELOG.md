@@ -2,7 +2,25 @@
 
 ## Unreleased
 
-### Remote / Mobile
+### Identity & Shell
+- Rebranded the product display name from **MaruDesk** to **Maru** across the
+  home hero/tagline, window/splash titles, packaging metadata, and the docs.
+  The `marudesk` codename, app id (`com.marudesk.app`), repo, relay service
+  name, and the `marudesk` PATH command are unchanged.
+- New **infinite-canvas** surface: the browser, editor, terminal, and AI agent
+  become freeform, pannable/zoomable cards instead of a tab strip + split grid.
+  Available behind the `#/canvas` route with feature and web cards, layout
+  persistence, and pan/zoom/drag/resize; promoting it to the default surface is
+  still pending.
+
+### Mobile (removed)
+- The Capacitor mobile thin client has been **removed from the active
+  workspace** and archived on the `archive/mobile` branch (tag
+  `archive/mobile-v0.8.0`). The relay and the desktop remote bridge stay; they
+  are independent of the mobile package. The mobile-only items below remain for
+  historical reference and ship only on the archived branch.
+
+### Remote / Mobile (archived)
 - Manual pairing entry actually works: the desktop pairing card now has a
   "Copy pairing code" button that copies the full pairing payload (the short
   on-screen code alone could never pair), and the phone explains the fix when

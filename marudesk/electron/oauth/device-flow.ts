@@ -228,7 +228,7 @@ export async function pollForToken(
       });
 
       json = (await resp.json()) as TokenResponseRaw;
-    } catch (err) {
+    } catch {
       // Network errors during polling are retried (the user might have flaky
       // connectivity while they open a browser tab). AbortErrors propagate.
       if (signal?.aborted) throw signal.reason as Error;

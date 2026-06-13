@@ -1,4 +1,4 @@
-import { Code2, FolderOpen, Globe, Smartphone, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
+import { Code2, FolderOpen, Globe, MonitorSmartphone, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
 import { useState } from 'react';
 import type { TabKind } from '../../../shared/browser';
 import logoUrl from '../../assets/logo-mark.png';
@@ -46,7 +46,7 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
     { key: 'workspace', icon: <FolderOpen size={18} />, label: 'home.guide.card.workspace.label', desc: 'home.guide.card.workspace.desc', onOpen: () => void createWorkspace('', []) },
     { key: 'terminal', icon: <SquareTerminal size={18} />, label: 'home.guide.card.terminal.label', desc: 'home.guide.card.terminal.desc', onOpen: () => open('terminal') },
     { key: 'edit', icon: <Code2 size={18} />, label: 'home.guide.card.edit.label', desc: 'home.guide.card.edit.desc', onOpen: () => open('editor') },
-    { key: 'remote', icon: <Smartphone size={18} />, label: 'home.guide.card.remote.label', desc: 'home.guide.card.remote.desc', onOpen: () => open('settings') },
+    { key: 'remote', icon: <MonitorSmartphone size={18} />, label: 'home.guide.card.remote.label', desc: 'home.guide.card.remote.desc', onOpen: () => open('settings') },
   ];
 
   return (

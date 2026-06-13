@@ -42,12 +42,12 @@ function trayIcon(): Electron.NativeImage {
 export function ensureTray(host: TrayHost): void {
   if (tray) return;
   tray = new Tray(trayIcon());
-  tray.setToolTip('marudesk');
+  tray.setToolTip('Maru');
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Open marudesk', click: () => host.showMainWindow() },
+      { label: 'Open Maru', click: () => host.showMainWindow() },
       { type: 'separator' },
-      { label: 'Quit marudesk', click: () => host.quit() },
+      { label: 'Quit Maru', click: () => host.quit() },
     ]),
   );
   // Single left-click restores the window (Windows convention; macOS opens the

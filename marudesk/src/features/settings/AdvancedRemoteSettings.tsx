@@ -92,6 +92,7 @@ function AutoTunnelField() {
       <Segmented
         value={enabled ? 'on' : 'off'}
         options={onOffOptions}
+        ariaLabel={t('settings.remote.advanced.tunnel.label')}
         onChange={(value) => void update({ server: { tunnelEnabled: value === 'on' } })}
       />
     </Field>
@@ -133,6 +134,7 @@ function UnattendedToggle() {
           <Segmented
             value={skip ? 'on' : 'off'}
             options={onOffOptions}
+            ariaLabel={t('settings.remote.unattended.label')}
             onChange={(value) =>
               void update({ server: { skipApprovals: value === 'on' } })
             }

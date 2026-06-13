@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Globe, X } from 'lucide-react';
+import { ExternalLink, Globe, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { tabKinds } from '../tabs/registry';
 import type { CardRect } from './store';
@@ -26,6 +26,7 @@ export function CanvasCard({
   onResize,
   registerWebEl,
   onNavigate,
+  onOpenDevtools,
 }: {
   tab: TabState;
   rect: CardRect;
@@ -43,6 +44,8 @@ export function CanvasCard({
   registerWebEl?: (el: HTMLDivElement | null) => void;
   /** For web cards: navigate this card's tab to a URL / search term. */
   onNavigate?: (input: string) => void;
+  /** For web cards: pop out the runtime-aware DevTools for this card's tab. */
+  onOpenDevtools?: () => void;
 }) {
   const isWeb = tab.kind === 'web';
   // Web-card address bar: a controlled input seeded from the tab's URL, kept in
@@ -167,6 +170,21 @@ export function CanvasCard({
         ) : (
           <span className="flex-1 min-w-0 truncate text-caption text-fg-secondary">{title}</span>
         )}
+        {isWeb && onOpenDevtools ? (
+          <button
+            type="button"
+            aria-label="Open DevTools"
+            title="Open DevTools"
+            className="grid place-items-center h-6 w-6 rounded hover:bg-surface-3 text-fg-tertiary hover:text-fg-primary"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDevtools();
+            }}
+          >
+            <ExternalLink size={13} />
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label="Close card"

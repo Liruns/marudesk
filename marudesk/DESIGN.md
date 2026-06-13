@@ -6,12 +6,12 @@ homepage: ""
 primary_color: "#5E6AD2"
 omd: "0.1"
 ds:
-  name: marudesk Design System
+  name: Maru Design System
   type: brand
-  description: Dark-first design system for a browser-native AI IDE. Linear primary, Raycast/Warp secondary, with Cursor AI Timeline 4-color accent.
+  description: Dark-first design system for Maru, an infinite-canvas runtime-aware AI IDE. Linear primary, Raycast/Warp secondary, with Cursor AI Timeline 4-color accent.
 ---
 
-# marudesk Design System
+# Maru Design System
 
 > Single source of truth: `src/styles/tokens.css`. **Never hard-code colors, radii, or fonts in components.** Reference CSS variables or Tailwind aliases that map to them.
 

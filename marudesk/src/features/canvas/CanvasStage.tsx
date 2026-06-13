@@ -10,6 +10,7 @@ import {
 import { Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useTabsStore } from '../tabs/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { CanvasCard } from './CanvasCard';
 import { useCanvasStore } from './store';
 
@@ -18,10 +19,10 @@ import { useCanvasStore } from './store';
  * A pannable / zoomable plane that hosts every open tab as a freeform card. Pan by
  * dragging empty space or scrolling; zoom with ⌘/Ctrl + wheel or the controls.
  *
- * Phase 2A renders feature cards via the shared `tabKinds` registry and shows a
- * placeholder for web cards, hiding the native WebContentsViews while mounted.
- * Phase 2B will composite live web views onto the canvas via the pane-bounds
- * pipeline (`browserPaneBounds` → electron/browser/layout.ts).
+ * Feature cards render via the shared `tabKinds` registry; web cards report their
+ * (post-transform) screen rect through the same `set-pane-bounds` pipeline the
+ * split grid uses (electron/browser/layout.ts), so the live WebContentsView tracks
+ * the card. Repositioning is coalesced to one IPC per animation frame.
  */
 export function CanvasStage() {
   const tabs = useTabsStore((s) => s.tabs);
@@ -29,6 +30,14 @@ export function CanvasStage() {
   const placements = useCanvasStore((s) => s.placements);
   const viewport = useCanvasStore((s) => s.viewport);
   const focusedTabId = useCanvasStore((s) => s.focusedTabId);
+  const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
+
+  // Scope cards to the active workspace so multiple workspaces don't pile onto
+  // one canvas; fall back to all tabs when no workspace is active. Placements are
+  // keyed by (unique) tab id, so the shared store needs no per-workspace split.
+  const visibleTabs = activeWorkspaceId
+    ? tabs.filter((t) => t.workspaceId === activeWorkspaceId)
+    : tabs;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -36,6 +45,11 @@ export function CanvasStage() {
   // Live element refs for web cards, keyed by tab id, so we can measure their
   // screen rects and position the matching native WebContentsViews.
   const webEls = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Coalesce web-view repositioning to one IPC per animation frame and skip it
+  // when nothing moved — pan/zoom otherwise fires set-pane-bounds on every
+  // pointer event (100+/sec).
+  const rafRef = useRef<number | null>(null);
+  const lastSentRef = useRef<string>('');
 
   const tabIdsKey = tabs.map((t) => t.id).join('\n');
 
@@ -50,12 +64,27 @@ export function CanvasStage() {
   // show the React surfaces through. `getBoundingClientRect()` is post-transform,
   // so the reported rect already reflects pan + zoom.
   const measureWeb = useCallback(() => {
-    const panes: { tabId: string; rect: { x: number; y: number; width: number; height: number } }[] = [];
-    for (const [tabId, el] of webEls.current) {
-      const r = el.getBoundingClientRect();
-      panes.push({ tabId, rect: { x: r.left, y: r.top, width: r.width, height: r.height } });
-    }
-    void window.marudesk.invoke('browser:set-pane-bounds', { panes });
+    if (rafRef.current !== null) return; // already scheduled this frame
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const panes: { tabId: string; rect: { x: number; y: number; width: number; height: number } }[] = [];
+      for (const [tabId, el] of webEls.current) {
+        const r = el.getBoundingClientRect();
+        panes.push({
+          tabId,
+          rect: {
+            x: Math.round(r.left),
+            y: Math.round(r.top),
+            width: Math.round(r.width),
+            height: Math.round(r.height),
+          },
+        });
+      }
+      const key = JSON.stringify(panes);
+      if (key === lastSentRef.current) return; // nothing moved → skip the IPC
+      lastSentRef.current = key;
+      void window.marudesk.invoke('browser:set-pane-bounds', { panes });
+    });
   }, []);
 
   // Keep placements in step with the open tabs (initial mount + later changes).
@@ -82,9 +111,10 @@ export function CanvasStage() {
   }, [measureWeb]);
 
   // Leave grid mode on unmount so the classic shell's single active web view is
-  // restored when switching back from the canvas.
+  // restored when switching back from the canvas (and cancel any pending frame).
   useEffect(() => {
     return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       void window.marudesk.invoke('browser:clear-pane-bounds');
     };
   }, []);
@@ -177,7 +207,7 @@ export function CanvasStage() {
           transform: `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`,
         }}
       >
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const rect = placements[tab.id];
           if (!rect) return null;
           return (
@@ -205,6 +235,11 @@ export function CanvasStage() {
                         await window.marudesk.invoke('browser:navigate', input);
                       })();
                     }
+                  : undefined
+              }
+              onOpenDevtools={
+                tab.kind === 'web'
+                  ? () => void window.marudesk.invoke('devtools:popout-open', { tabId: tab.id })
                   : undefined
               }
             />

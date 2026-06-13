@@ -20,12 +20,14 @@ test('remote: toggling the local server reveals/hides the Wi-Fi warning + device
     // Off by default → no pairing UI.
     await expect(page.getByRole('button', { name: 'Pair a device' })).toHaveCount(0);
 
-    // Turn phone access on (the first On/Off segmented on this panel).
-    await page.getByRole('radio', { name: 'On' }).first().click();
+    // Turn remote access on (scope to its named radiogroup so the assertion is
+    // robust to other On/Off toggles — e.g. Auto tunnel — on this panel).
+    const remoteAccess = page.getByRole('radiogroup', { name: 'Remote device access' });
+    await remoteAccess.getByRole('radio', { name: 'On' }).click();
 
-    // The QR-pairing flow is the hero: the "Pair your phone" card + button show
+    // The QR-pairing flow is the hero: the "Pair a device" card + button show
     // immediately (no port/URL clutter to wade through first).
-    await expect(page.getByRole('heading', { name: 'Pair your phone' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Pair a device' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Pair a device' })).toBeVisible();
 
     // Port / network addresses / unattended now live behind an Advanced disclosure
@@ -39,13 +41,16 @@ test('remote: toggling the local server reveals/hides the Wi-Fi warning + device
     ).toBeVisible();
     await expect(page.getByText('Skip approvals (unattended)')).toBeVisible();
 
-    // Turning unattended on shows its security warning. Order of On/Off radios with
-    // Advanced open: 1) phone access, 2) skip-approvals, 3) cloud relay.
-    await page.getByRole('radio', { name: 'On' }).nth(1).click();
+    // Turning unattended on shows its security warning. Target the named
+    // radiogroup directly rather than a positional index.
+    await page
+      .getByRole('radiogroup', { name: 'Skip approvals (unattended)' })
+      .getByRole('radio', { name: 'On' })
+      .click();
     await expect(page.getByText(/Unattended is on/i)).toBeVisible();
 
-    // Turning phone access back off hides the warning + pairing UI again.
-    await page.getByRole('radio', { name: 'Off' }).first().click();
+    // Turning remote access back off hides the warning + pairing UI again.
+    await remoteAccess.getByRole('radio', { name: 'Off' }).click();
     await expect(page.getByRole('button', { name: 'Pair a device' })).toHaveCount(0);
     await expect(page.getByText(/Unattended is on/i)).toHaveCount(0);
   } finally {

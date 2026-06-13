@@ -91,13 +91,16 @@ mounting the canvas with only feature cards is safe today.
   navigates the card's tab. *Deferred:* per-view zoom-factor = canvas scale (page
   content is 1:1 now, cropped when zoomed out) and web-card corner-resize. NB: the
   native view isn't in the page DOM, so this needs manual visual verification.
-- **Phase 2C — Promote canvas to default + rebrand. 🟡 rebrand done; default
-  pending.** Done: **Maru** across the home hero/tagline, welcome/guide, window +
-  splash titles, `build.productName`, package description, and the root README.
-  *Pending:* making the canvas the DEFAULT surface — flipping the default route
-  breaks the ~20 classic-shell e2e specs, so it needs a deliberate migration, and
-  ideally full Shell integration (keeping the explorer/git/search rails + status
-  bar around the canvas rather than the stripped `CanvasShell`).
+- **Phase 2C — Promote canvas to default + rebrand. 🟡 rebrand in progress;
+  default pending.** Done so far: **Maru** across the home hero/tagline,
+  welcome/guide, window + splash titles, `build.productName`, package
+  description, and the docs (root README, support/contributing, this design
+  note). *In progress:* sweeping the remaining display-name "MaruDesk" strings
+  out of the renderer and menus. *Pending:* making the canvas the DEFAULT surface
+  — flipping the default route breaks the ~20 classic-shell e2e specs, so it
+  needs a deliberate migration, and ideally full Shell integration (keeping the
+  explorer/git/search rails + status bar around the canvas rather than the
+  stripped `CanvasShell`).
 - **Phase 2D — Spatial polish. 🟡 persistence done.** Canvas layout (placements +
   viewport) persists to `localStorage` (`maru.canvas.v1`). *Remaining:* zoom-to-fit
   (Fit button exists), minimap, card grouping/alignment, keyboard navigation,

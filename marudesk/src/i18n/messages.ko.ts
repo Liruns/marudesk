@@ -705,7 +705,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.appearance.chatZoom.label': 'AI 채팅 배율',
   'settings.appearance.accent.hint':
     '활성 상태, 버튼, 링크, 포커스 링의 색을 바꿉니다.',
-  'settings.appearance.language.hint': 'marudesk 인터페이스의 표시 언어.',
+  'settings.appearance.language.hint': 'Maru 인터페이스의 표시 언어.',
   'settings.categoriesLabel': '설정 카테고리',
   'settings.font.custom': '사용자 지정...',
   'settings.font.notDetectedAfter':
@@ -779,7 +779,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '제공자 API 키와 사용자 지정 OpenAI 호환 엔드포인트. 모델은 채팅에서 선택하세요.',
   'settings.category.providers.label': 'AI 제공자',
   'settings.category.remote.blurb':
-    '향후 companion 앱이 AI 채팅을 제어할 수 있게 하는 로컬 서버.',
+    '네트워크의 다른 기기가 AI 채팅을 조작할 수 있게 하는 로컬 브리지.',
   'settings.category.remote.label': '원격 접속',
   'settings.category.terminal.blurb': '통합 터미널 글꼴과 셸.',
   'settings.category.terminal.label': '터미널',
@@ -800,7 +800,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.usage.title': '제공자 사용량',
   'settings.usage.used': '사용됨',
   'settings.window.closeBehavior.hint':
-    '완전 종료는 앱을 끝냅니다. 트레이로 유지는 창만 숨기고 marudesk를 백그라운드에서 계속 실행하며, 트레이 아이콘으로 다시 열거나 완전히 종료할 수 있습니다.',
+    '완전 종료는 앱을 끝냅니다. 트레이로 유지는 창만 숨기고 Maru를 백그라운드에서 계속 실행하며, 트레이 아이콘으로 다시 열거나 완전히 종료할 수 있습니다.',
   'settings.window.closeBehavior.label': '닫기 버튼 동작',
   'settings.window.closeBehavior.quit': '완전 종료',
   'settings.window.closeBehavior.tray': '트레이로 유지',
@@ -975,7 +975,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.remote.advanced.port.label': '포트',
   'settings.remote.advanced.port.name': '서버 포트',
   'settings.remote.advanced.publicUrl.hint':
-    '선택 사항: 이 PC 앞에 직접 띄운 터널·리버스 프록시 주소(cloudflared, ngrok, Caddy)입니다. 페어링 QR에 포함되어 휴대폰이 어느 네트워크에서든 이 PC에 연결됩니다. 클라우드 릴레이도, 휴대폰에 설치할 것도 없습니다.',
+    '선택 사항: 이 PC 앞에 직접 띄운 터널·리버스 프록시 주소(cloudflared, ngrok, Caddy)입니다. 페어링 QR에 포함되어 다른 기기가 어느 네트워크에서든 이 PC에 연결됩니다. 클라우드 릴레이도, 다른 기기에 설치할 것도 없습니다.',
   'settings.remote.advanced.publicUrl.label': '공개 URL',
   'settings.remote.advanced.tunnel.hint':
     '서버가 켜져 있는 동안 cloudflared 퀵 터널을 자동으로 실행하고 그 공개 URL을 페어링 QR에 넣습니다. cloudflared는 처음 켤 때 자동으로 내려받아 검증·설치합니다. URL이 시작할 때마다 바뀌므로 장기 페어링에는 위의 고정 공개 URL이 더 적합합니다.',
@@ -985,28 +985,28 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.remote.advanced.toggle':
     '고급 - 포트, 네트워크 주소, 무인 모드',
   'settings.remote.cloud.description':
-    'marudesk 릴레이에 로그인하면 같은 계정의 휴대폰이 어디서든 이 PC의 AI 채팅을 조작할 수 있습니다. 양쪽 모두 클라우드로 연결하므로 포트 포워딩이 필요 없습니다. 릴레이는 계정 메시지만 중계하며 코드, 자격 증명, 에이전트는 이 PC에 남습니다.',
+    'marudesk 릴레이에 로그인하면 같은 계정의 다른 기기가 어디서든 이 PC의 AI 채팅을 조작할 수 있습니다. 양쪽 모두 클라우드로 연결하므로 포트 포워딩이 필요 없습니다. 릴레이는 계정 메시지만 중계하며 코드, 자격 증명, 에이전트는 이 PC에 남습니다.',
   'settings.remote.cloud.title': '클라우드 릴레이',
   'settings.remote.phoneAccess.hint':
-    '이 PC에서 작은 서버를 실행해 marudesk 휴대폰 앱이 Wi-Fi/LAN 또는 Tailscale로 페어링하고 AI 채팅을 조작할 수 있게 합니다. QR만 스캔하면 되며 주소를 입력할 필요가 없습니다. 기본값은 꺼짐입니다.',
-  'settings.remote.phoneAccess.label': '휴대폰 접속',
+    '이 PC에서 작은 서버를 실행해 페어링한 휴대폰이 Wi-Fi/LAN 또는 Tailscale로 연결해 AI 채팅을 조작할 수 있게 합니다. QR만 스캔하면 되며 주소를 입력할 필요가 없습니다. 기본값은 꺼짐입니다.',
+  'settings.remote.phoneAccess.label': '원격 기기 접속',
   'settings.remote.pairing.approve': '승인',
   'settings.remote.pairing.approveAfter': ' 페어링?',
   'settings.remote.pairing.approveBefore': '',
   'settings.remote.pairing.close': '닫기',
   'settings.remote.pairing.copy': '페어링 코드 복사',
   'settings.remote.pairing.copyHint':
-    '스캔이 어려우면 페어링 코드를 복사해 휴대폰에 붙여넣으세요',
+    '스캔이 어려우면 페어링 코드를 복사해 다른 기기에 붙여넣으세요',
   'settings.remote.pairing.daysAgo': '일 전',
   'settings.remote.pairing.description':
-    '아래 버튼을 누르고 marudesk 앱에서 QR을 스캔한 뒤 여기에서 승인하세요. 페어링은 암호화 키를 교환하므로 일반 Wi-Fi에서도 트래픽이 종단 간 암호화됩니다.',
+    '아래 버튼을 누르고 페어링할 기기에서 QR을 스캔한 뒤 여기에서 승인하세요. 페어링은 암호화 키를 교환하므로 일반 Wi-Fi에서도 트래픽이 종단 간 암호화됩니다.',
   'settings.remote.pairing.expired':
     '코드가 만료되었습니다. 닫은 뒤 "기기 페어링"을 다시 누르세요.',
   'settings.remote.pairing.expiresAfter': '초 후 만료',
   'settings.remote.pairing.expiresBefore': '',
   'settings.remote.pairing.fingerprint': '지문',
   'settings.remote.pairing.fingerprintHint':
-    ' - 휴대폰에 표시된 값과 일치할 때만 승인하세요.',
+    ' - 페어링할 기기에 표시된 값과 일치할 때만 승인하세요.',
   'settings.remote.pairing.hoursAgo': '시간 전',
   'settings.remote.pairing.justNow': '방금',
   'settings.remote.pairing.lastSeen': '마지막 접속',
@@ -1020,8 +1020,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.remote.pairing.revokeConfirmAfter':
     ' 기기를 해제할까요? 다시 페어링하기 전까지 접근할 수 없습니다.',
   'settings.remote.pairing.revokeConfirmBefore': '',
-  'settings.remote.pairing.scan': '휴대폰에서 스캔',
-  'settings.remote.pairing.title': '휴대폰 페어링',
+  'settings.remote.pairing.scan': '다른 기기에서 스캔',
+  'settings.remote.pairing.title': '기기 페어링',
   'settings.remote.reach.copyBefore': '복사 ',
   'settings.remote.reach.none':
     '아직 Wi-Fi/LAN 또는 Tailscale 주소를 찾지 못했습니다. 네트워크에 연결하거나 Tailscale을 시작한 뒤 설정을 다시 여세요.',
@@ -1055,7 +1055,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     'marudesk 릴레이의 기본 URL입니다(http 또는 https).',
   'settings.remote.relay.url.label': '릴레이 URL',
   'settings.remote.unattended.hint':
-    '페어링된 휴대폰이 이 PC를 손대지 않고 조작하게 합니다. 새 기기 페어링을 자동 승인하고 코드 실행, 쿠키, 저장소, 터미널 같은 민감한 도구도 묻지 않고 실행합니다. 기본값은 꺼짐입니다.',
+    '페어링된 기기가 이 PC를 손대지 않고 조작하게 합니다. 새 기기 페어링을 자동 승인하고 코드 실행, 쿠키, 저장소, 터미널 같은 민감한 도구도 묻지 않고 실행합니다. 기본값은 꺼짐입니다.',
   'settings.remote.unattended.label': '승인 건너뛰기 (무인)',
   'settings.remote.unattended.warningAfter':
     ' 에이전트 모드는 그래도 수정과 코드 실행을 차단합니다.',
@@ -1074,9 +1074,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.mcp.presets.label': '서버 추가',
   'settings.mcp.presets.added': '이미 추가됨',
   'settings.mcp.embedded.restart':
-    'Chrome DevTools가 marudesk 내장 브라우저 탭을 제어하도록 설정되었습니다. 적용하려면 marudesk를 재시작하세요 — 그 전까지는 내장 브라우저에 연결할 수 없습니다.',
+    'Chrome DevTools가 Maru 내장 브라우저 탭을 제어하도록 설정되었습니다. 적용하려면 Maru를 재시작하세요 — 그 전까지는 내장 브라우저에 연결할 수 없습니다.',
   'settings.mcp.embedded.active':
-    'Chrome DevTools가 marudesk 내장 브라우저 탭을 제어합니다 (CDP로 연결 — 별도 Chrome 창 없음).',
+    'Chrome DevTools가 Maru 내장 브라우저 탭을 제어합니다 (CDP로 연결 — 별도 Chrome 창 없음).',
   'settings.mcp.status.connecting': '연결 중',
   'settings.mcp.status.reconnecting': '재연결 중',
   'settings.mcp.status.disabled': '비활성화됨',
@@ -1197,37 +1197,37 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.providers.testing': '테스트 중...',
   'settings.remoteGuide.qr.after': '를 사용하세요.',
   'settings.remoteGuide.qr.before':
-    '이 QR은 보안 페어링 토큰이며 웹 링크가 아닙니다. 휴대폰 기본 카메라로 스캔하면 텍스트만 보입니다 - ',
-  'settings.remoteGuide.qr.scanner': 'marudesk 앱의 스캐너',
+    '이 QR은 보안 페어링 토큰이며 웹 링크가 아닙니다. 일반 카메라 앱으로 스캔하면 텍스트만 보입니다 - ',
+  'settings.remoteGuide.qr.scanner': '다른 기기의 페어링 스캐너',
   'settings.remoteGuide.requirements':
     '요구사항: 두 기기가 같은 Wi-Fi / LAN에 있거나 둘 다 Tailscale을 실행 중이어야 합니다.',
   'settings.remoteGuide.security.identity':
     '키를 가지고 있다는 것이 신원 증명입니다 - 훔칠 비밀번호는 없습니다. 이 PC에서 지문을 확인하고 승인하는 단계가 첫 핸드셰이크 중간에 사칭 기기가 끼어드는 것을 막습니다.',
   'settings.remoteGuide.security.revoke':
-    '아래 목록에서 페어링된 휴대폰을 언제든 해제할 수 있으며, 해제 즉시 다시 페어링하기 전까지 접근할 수 없습니다.',
+    '아래 목록에서 페어링된 기기를 언제든 해제할 수 있으며, 해제 즉시 다시 페어링하기 전까지 접근할 수 없습니다.',
   'settings.remoteGuide.security.title': '보안이 작동하는 방식',
   'settings.remoteGuide.security.transport':
     '페어링은 X25519 키 교환을 실행한 뒤 모든 메시지를 AES-GCM으로 암호화합니다. 공유 키는 두 기기에만 있으므로 열린 Wi-Fi에서도 링크가 종단 간 암호화되고, 네트워크의 다른 사람은 내용을 읽을 수 없습니다.',
   'settings.remoteGuide.step1.after': ' ',
-  'settings.remoteGuide.step1.before': '휴대폰에 marudesk 앱을 설치한 뒤 여세요. ',
-  'settings.remoteGuide.step1.devBuild': '(지금은 개발 빌드입니다).',
-  'settings.remoteGuide.step1.link': '받는 곳',
-  'settings.remoteGuide.step1.title': '휴대폰에 marudesk companion 앱 설치',
+  'settings.remoteGuide.step1.before': '같은 네트워크의 다른 기기에서 이 브리지의 페어링 화면을 여세요. ',
+  'settings.remoteGuide.step1.devBuild': '',
+  'settings.remoteGuide.step1.link': '',
+  'settings.remoteGuide.step1.title': '다른 기기에서 원격 브리지 열기',
   'settings.remoteGuide.step2.body':
-    '스캐너가 열리고 이 PC에 표시할 이름을 입력하라고 요청합니다.',
-  'settings.remoteGuide.step2.title': '앱에서 “PC와 페어링” 누르기',
+    '페어링 스캐너를 열고 이 PC에 표시할 이름을 입력하세요.',
+  'settings.remoteGuide.step2.title': '다른 기기에서 “PC와 페어링” 누르기',
   'settings.remoteGuide.step3.body':
-    '앱의 스캐너로 이 화면의 QR을 비추세요. 카메라를 쓸 수 없다면 아래에 표시된 코드를 직접 입력하세요.',
+    '다른 기기의 페어링 스캐너로 이 화면의 QR을 비추세요. 카메라를 쓸 수 없다면 아래에 표시된 코드를 직접 입력하세요.',
   'settings.remoteGuide.step3.title': '위 QR을 스캔하거나 8자리 코드 입력',
   'settings.remoteGuide.step4.body':
-    '휴대폰 이름과 짧은 지문이 포함된 요청이 여기에 나타납니다. 휴대폰과 일치할 때만 승인하세요.',
+    '기기 이름과 짧은 지문이 포함된 요청이 여기에 나타납니다. 페어링할 기기와 일치할 때만 승인하세요.',
   'settings.remoteGuide.step4.title': '이 PC로 돌아와 승인 누르기',
   'settings.remoteGuide.step5.body':
     '링크가 종단 간 암호화되므로 열린 Wi-Fi에서도 비공개로 유지됩니다.',
-  'settings.remoteGuide.step5.title': '완료 - 이제 휴대폰으로 AI 채팅을 조작할 수 있습니다',
+  'settings.remoteGuide.step5.title': '완료 - 이제 페어링한 기기로 AI 채팅을 조작할 수 있습니다',
   'settings.remoteGuide.subtitle':
-    '기기마다 한 번만 페어링하면 됩니다. 이후에는 휴대폰이 자동으로 다시 연결됩니다.',
-  'settings.remoteGuide.title': '휴대폰 연결 방법',
+    '기기마다 한 번만 페어링하면 됩니다. 이후에는 자동으로 다시 연결됩니다.',
+  'settings.remoteGuide.title': '원격 기기 연결 방법',
   'settings.search.aria': '설정 검색',
   'settings.search.placeholder': '설정 검색',
   'settings.search.resultsTitle': '검색 결과',
@@ -1268,8 +1268,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'home.guide.card.browse.label': '웹 탐색',
   'home.guide.card.edit.desc': '워크스페이스의 파일을 열어 내장 코드 편집기에서 수정하세요.',
   'home.guide.card.edit.label': '코드 편집',
-  'home.guide.card.remote.desc': '설정 → 원격에서 폰을 페어링해 이 PC를 원격으로 조작하세요.',
-  'home.guide.card.remote.label': '폰에서 제어',
+  'home.guide.card.remote.desc': '설정 → 원격에서 네트워크의 다른 기기를 페어링해 이 PC를 원격으로 조작하세요.',
+  'home.guide.card.remote.label': '다른 기기에서 제어',
   'home.guide.card.terminal.desc': '통합 터미널 탭에서 셸 명령을 실행하세요.',
   'home.guide.card.terminal.label': '터미널 실행',
   'home.guide.card.workspace.desc': '프로젝트 폴더를 열면 파일 도구, 검색, 편집기를 사용할 수 있어요.',

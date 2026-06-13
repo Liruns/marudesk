@@ -10,21 +10,14 @@ import {
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 
-/**
- * Where to point users to get the phone companion app. There is no public App
- * Store / Play Store build yet, so point at the mobile package README instead
- * of a fake marketplace download.
- */
-const MOBILE_APP_URL = 'https://github.com/Liruns/marudesk/blob/master/mobile/README.md';
-
 type Step = { title: string; body: ReactNode };
 
 /**
- * Friendly onboarding for phone pairing, shown in Settings → Remote regardless
- * of whether the server is on (so people can read the flow before flipping the
- * toggle). The QR itself only renders elsewhere while pairing is active; this
- * just explains what to do with it — and crucially that the QR is a pairing
- * token, not a web link a normal camera can open.
+ * Friendly onboarding for the desktop/LAN remote bridge, shown in Settings →
+ * Remote regardless of whether the server is on (so people can read the flow
+ * before flipping the toggle). Another Maru desktop on the same account/network
+ * connects to this host; the QR shown elsewhere while pairing is active carries
+ * a pairing token, not a web link a normal camera can open.
  */
 export function RemoteGuide() {
   const { t } = useI18n();
@@ -34,14 +27,9 @@ export function RemoteGuide() {
       body: (
         <>
           {t('settings.remoteGuide.step1.before')}
-          <a
-            href={MOBILE_APP_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="text-accent underline-offset-2 hover:underline"
-          >
+          <span className="text-fg-primary">
             {t('settings.remoteGuide.step1.link')}
-          </a>
+          </span>
           {t('settings.remoteGuide.step1.after')}
           <span className="text-fg-tertiary">
             {t('settings.remoteGuide.step1.devBuild')}

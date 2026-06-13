@@ -33,8 +33,8 @@ function page(title: string, body: string): string {
   </style></head><body><div class="card"><h1>${title}</h1><p>${body}</p></div></body></html>`;
 }
 
-const OK_PAGE = page('marudesk — signed in', 'You can close this tab and return to marudesk.');
-const ERR_PAGE = page('marudesk — sign-in failed', 'Something went wrong. Return to marudesk and try again.');
+const OK_PAGE = page('Maru — signed in', 'You can close this tab and return to Maru.');
+const ERR_PAGE = page('Maru — sign-in failed', 'Something went wrong. Return to Maru and try again.');
 
 /** Start the server, trying `ports` in order, then an ephemeral port if allowed. */
 export async function startLoopbackServer(opts: {
