@@ -18,6 +18,11 @@ import { OLLAMA_BASE } from '../providers/ollama';
 import { ANTHROPIC_OAUTH_HEADERS, OPENAI_CODEX_BASE_URL, codexHeaders } from '../oauth/config';
 import { chatgptAccountId } from '../oauth/jwt';
 import { codeAssistFetch } from '../oauth/google-code-assist';
+import {
+  getGitLabDuoDirectAccess,
+  GITLAB_DUO_ANTHROPIC_PROXY,
+  GITLAB_DUO_OPENAI_PROXY,
+} from '../auth/gitlab-duo';
 import type { ToolSchema } from './tools';
 
 /**
@@ -81,9 +86,9 @@ const OPENAI_COMPAT_PROVIDERS: Partial<
   deepseek: { baseURL: 'https://api.deepseek.com/v1' },
   together: { baseURL: 'https://api.together.xyz/v1' },
   fireworks: { baseURL: 'https://api.fireworks.ai/inference/v1' },
-  // GitLab Duo proxies to underlying providers via its cloud endpoints.
-  // PAT auth is passed as Bearer key.
-  'gitlab-duo': { baseURL: 'https://cloud.gitlab.com/ai/v1' },
+  // NB: gitlab-duo is NOT a plain compat endpoint — it needs a PAT→direct-access
+  // token exchange and routes Claude vs GPT models to different proxy dialects,
+  // so it gets its own case in buildModel below.
 };
 
 /**
@@ -299,6 +304,40 @@ export function buildModel(
         baseURL: bedrockBase,
         apiKey: 'bedrock-sigv4',
         fetch: bedrockFetch,
+      })(modelId);
+    }
+    case 'gitlab-duo': {
+      // GitLab Duo: a PAT (api scope) is exchanged for a short-lived direct-access
+      // token, which (plus GitLab's returned headers) authenticates the AI gateway
+      // proxy. Claude models go to the anthropic-dialect proxy, everything else to
+      // the openai-dialect proxy — see electron/auth/gitlab-duo.ts. The async fetch
+      // wrapper performs (and caches) the exchange and injects the credentials, so
+      // the apiKey passed to the SDK is a placeholder it never sends.
+      if (auth.mode !== 'api-key' || !apiKey) {
+        throw new Error('gitlab-duo requires a GitLab access token (PAT with api scope)');
+      }
+      const pat = apiKey;
+      const isClaude = /^claude/i.test(modelId);
+      const gitlabFetch: typeof globalThis.fetch = async (input, init) => {
+        const access = await getGitLabDuoDirectAccess(pat);
+        const headers = new Headers(init?.headers);
+        for (const [k, v] of Object.entries(access.headers)) headers.set(k, v);
+        headers.delete('x-api-key');
+        headers.set('authorization', `Bearer ${access.token}`);
+        return globalThis.fetch(input, { ...init, headers });
+      };
+      if (isClaude) {
+        return createAnthropic({
+          baseURL: GITLAB_DUO_ANTHROPIC_PROXY,
+          authToken: 'gitlab-duo',
+          fetch: gitlabFetch,
+        })(modelId);
+      }
+      return createOpenAICompatible({
+        name: 'gitlab-duo',
+        baseURL: GITLAB_DUO_OPENAI_PROXY,
+        apiKey: 'gitlab-duo',
+        fetch: gitlabFetch,
       })(modelId);
     }
     case 'azure-openai': {

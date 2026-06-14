@@ -295,16 +295,28 @@ export const useProvidersStore = create<ProvidersState & ProvidersActions>((set,
     set((s) => ({
       testByProvider: { ...s.testByProvider, [provider]: { status: 'testing', message: null } },
     }));
+    // Refresh the live model list for the picker as a side effect — best-effort,
+    // NOT the pass/fail signal (a provider can list models yet reject a chat, or
+    // have no /models endpoint at all). Don't let a listing hiccup fail the test.
     try {
       const defs = await window.marudesk.invoke('providers:list-models', provider);
+      set((s) => ({ models: mergeProviderModels(s.models, provider, toEntries(provider, defs)) }));
+    } catch {
+      /* listing is best-effort; the real completion below is the verdict */
+    }
+    // The verdict: a minimal live completion with the model the user actually has
+    // selected for this provider (else the catalog default). This is the same
+    // honest check the OAuth "Test connection" uses — it talks to the model, so a
+    // bad key, wrong/retired model id, or unreachable endpoint surfaces here with
+    // an actionable error instead of a false "Connected" from a /models probe.
+    try {
+      const { selectedProvider, selectedModel } = get();
+      const model = selectedProvider === provider ? selectedModel : undefined;
+      const res = await window.marudesk.invoke('providers:test-connection', provider, model);
       set((s) => ({
-        models: mergeProviderModels(s.models, provider, toEntries(provider, defs)),
         testByProvider: {
           ...s.testByProvider,
-          [provider]: {
-            status: 'ok',
-            message: `Connected — ${defs.length} model${defs.length === 1 ? '' : 's'} available.`,
-          },
+          [provider]: { status: res.ok ? 'ok' : 'error', message: res.message },
         },
       }));
     } catch (err) {
