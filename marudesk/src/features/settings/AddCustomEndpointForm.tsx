@@ -1,4 +1,9 @@
 import { useState } from 'react';
+import { ExternalLink } from 'lucide-react';
+import {
+  CUSTOM_ENDPOINT_PRESETS,
+  type CustomEndpointPreset,
+} from '../../../shared/custom-provider-presets';
 import { Button } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
@@ -16,6 +21,16 @@ export function AddCustomEndpointForm({
   const [baseUrl, setBaseUrl] = useState('');
   const [modelsText, setModelsText] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [keyUrl, setKeyUrl] = useState<string | undefined>(undefined);
+
+  // Prefill from a curated preset (base URL + seed models); the user still
+  // supplies the key (and any model id for keyless local runtimes).
+  const applyPreset = (preset: CustomEndpointPreset) => {
+    setLabel(preset.label);
+    setBaseUrl(preset.baseUrl);
+    setModelsText(preset.models.join(', '));
+    setKeyUrl(preset.apiKeyUrl);
+  };
 
   const modelIds = modelsText
     .split(/[\n,]+/)
@@ -37,6 +52,7 @@ export function AddCustomEndpointForm({
       setBaseUrl('');
       setModelsText('');
       setApiKey('');
+      setKeyUrl(undefined);
       onDone();
     }
   };
@@ -46,6 +62,24 @@ export function AddCustomEndpointForm({
 
   return (
     <div className="rounded-lg border border-subtle bg-surface-1 px-3 py-3 flex flex-col gap-2.5">
+      <div className="flex flex-col gap-1">
+        <span className="text-caption text-fg-tertiary">
+          {t('settings.providers.custom.presetsLabel')}
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {CUSTOM_ENDPOINT_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              data-preset={preset.id}
+              onClick={() => applyPreset(preset)}
+              className="rounded-md border border-default bg-surface-page px-2 py-1 text-caption text-fg-secondary hover:text-fg-primary hover:border-accent transition-colors duration-fast"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <label className="flex flex-col gap-1">
         <span className="text-caption text-fg-tertiary">
           {t('settings.providers.custom.name')}
@@ -97,6 +131,16 @@ export function AddCustomEndpointForm({
           autoComplete="off"
           className={cn(field, 'h-9 font-mono')}
         />
+        {keyUrl ? (
+          <a
+            href={keyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-caption text-accent hover:underline inline-flex items-center gap-1 self-start"
+          >
+            {t('settings.providers.getApiKey')} <ExternalLink size={11} className="shrink-0" />
+          </a>
+        ) : null}
       </label>
       <div className="flex items-center gap-2 pt-0.5">
         <Button

@@ -19,6 +19,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'claude-sonnet-4-6',
     apiKeyPlaceholder: 'sk-ant-...',
     apiKeyHint: 'console.anthropic.com → API Keys',
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
   },
   {
     id: 'openai',
@@ -35,6 +36,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'gpt-5',
     apiKeyPlaceholder: 'sk-...',
     apiKeyHint: 'platform.openai.com → API keys',
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
   },
   {
     id: 'google',
@@ -47,6 +49,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'gemini-2.5-pro',
     apiKeyPlaceholder: 'AIza...',
     apiKeyHint: 'aistudio.google.com → Get API key',
+    apiKeyUrl: 'https://aistudio.google.com/apikey',
   },
   {
     id: 'xai',
@@ -66,6 +69,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'grok-4.3',
     apiKeyPlaceholder: 'xai-...',
     apiKeyHint: 'console.x.ai → API Keys, or "Connect with Grok" to use your account',
+    apiKeyUrl: 'https://console.x.ai',
   },
   {
     id: 'openai-codex',
@@ -136,6 +140,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'glm-4.6',
     apiKeyPlaceholder: '••••••••',
     apiKeyHint: 'z.ai → API keys (ZHIPU_API_KEY)',
+    apiKeyUrl: 'https://z.ai/manage-apikey/apikey-list',
   },
   {
     id: 'opencode',
@@ -151,6 +156,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'gpt-5.5',
     apiKeyPlaceholder: '••••••••',
     apiKeyHint: 'opencode.ai/zen → API keys (OPENCODE_API_KEY)',
+    apiKeyUrl: 'https://opencode.ai/zen',
   },
   {
     id: 'openrouter',
@@ -167,6 +173,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'anthropic/claude-sonnet-4.6',
     apiKeyPlaceholder: 'sk-or-...',
     apiKeyHint: 'openrouter.ai → Keys (OPENROUTER_API_KEY)',
+    apiKeyUrl: 'https://openrouter.ai/keys',
   },
   {
     id: 'groq',
@@ -180,6 +187,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'llama-3.3-70b-versatile',
     apiKeyPlaceholder: 'gsk_...',
     apiKeyHint: 'console.groq.com → API Keys (GROQ_API_KEY)',
+    apiKeyUrl: 'https://console.groq.com/keys',
   },
   {
     id: 'cerebras',
@@ -192,6 +200,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'llama-3.3-70b',
     apiKeyPlaceholder: 'csk-...',
     apiKeyHint: 'cloud.cerebras.ai → API Keys (CEREBRAS_API_KEY)',
+    apiKeyUrl: 'https://cloud.cerebras.ai',
   },
   {
     id: 'mistral',
@@ -205,6 +214,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'mistral-large-latest',
     apiKeyPlaceholder: '••••••••',
     apiKeyHint: 'console.mistral.ai → API Keys (MISTRAL_API_KEY)',
+    apiKeyUrl: 'https://console.mistral.ai/api-keys',
   },
   {
     id: 'deepseek',
@@ -217,6 +227,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'deepseek-chat',
     apiKeyPlaceholder: 'sk-...',
     apiKeyHint: 'platform.deepseek.com → API keys (DEEPSEEK_API_KEY)',
+    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
   },
   {
     id: 'together',
@@ -233,6 +244,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
     apiKeyPlaceholder: '••••••••',
     apiKeyHint: 'api.together.ai → API Keys (TOGETHER_API_KEY)',
+    apiKeyUrl: 'https://api.together.ai/settings/api-keys',
   },
   {
     id: 'fireworks',
@@ -249,6 +261,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
     apiKeyPlaceholder: 'fw_...',
     apiKeyHint: 'fireworks.ai → API Keys (FIREWORKS_API_KEY)',
+    apiKeyUrl: 'https://fireworks.ai/account/api-keys',
   },
   {
     id: 'github-copilot',
@@ -302,6 +315,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModelId: 'claude-sonnet-4-6',
     apiKeyPlaceholder: 'glpat-...',
     apiKeyHint: 'GitLab personal access token with api scope. gitlab.com → Settings → Access Tokens.',
+    apiKeyUrl: 'https://gitlab.com/-/user_settings/personal_access_tokens',
   },
   {
     id: 'azure-openai',

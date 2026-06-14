@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { getProvider, type BuiltinProviderId } from '../../../shared/providers';
 import { Button } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
@@ -44,9 +44,20 @@ export function ProviderKeyEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <span className="text-caption text-fg-tertiary">
-        {provider.apiKeyHint}
-      </span>
+      {provider.apiKeyUrl ? (
+        <a
+          href={provider.apiKeyUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-caption text-accent hover:underline inline-flex items-center gap-1 self-start"
+        >
+          {provider.apiKeyHint} <ExternalLink size={11} className="shrink-0" />
+        </a>
+      ) : (
+        <span className="text-caption text-fg-tertiary">
+          {provider.apiKeyHint}
+        </span>
+      )}
 
       <label className="flex flex-col gap-1.5">
         <span className="text-caption uppercase tracking-wider text-fg-tertiary">
