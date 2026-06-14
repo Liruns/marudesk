@@ -86,6 +86,10 @@ const OPENAI_COMPAT_PROVIDERS: Partial<
   deepseek: { baseURL: 'https://api.deepseek.com/v1' },
   together: { baseURL: 'https://api.together.xyz/v1' },
   fireworks: { baseURL: 'https://api.fireworks.ai/inference/v1' },
+  moonshot: { baseURL: 'https://api.moonshot.ai/v1' },
+  nvidia: { baseURL: 'https://integrate.api.nvidia.com/v1' },
+  venice: { baseURL: 'https://api.venice.ai/api/v1' },
+  huggingface: { baseURL: 'https://router.huggingface.co/v1' },
   // NB: gitlab-duo is NOT a plain compat endpoint — it needs a PAT→direct-access
   // token exchange and routes Claude vs GPT models to different proxy dialects,
   // so it gets its own case in buildModel below.

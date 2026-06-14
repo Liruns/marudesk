@@ -63,6 +63,22 @@ export const DRIVERS: Record<ProviderId, ProviderDriver> = {
     name: 'Fireworks AI',
     modelsUrl: 'https://api.fireworks.ai/inference/v1/models',
   }),
+  moonshot: openAiCompatibleDriver({
+    name: 'Moonshot',
+    modelsUrl: 'https://api.moonshot.ai/v1/models',
+  }),
+  nvidia: openAiCompatibleDriver({
+    name: 'NVIDIA NIM',
+    modelsUrl: 'https://integrate.api.nvidia.com/v1/models',
+  }),
+  venice: openAiCompatibleDriver({
+    name: 'Venice',
+    modelsUrl: 'https://api.venice.ai/api/v1/models',
+  }),
+  huggingface: openAiCompatibleDriver({
+    name: 'Hugging Face',
+    modelsUrl: 'https://router.huggingface.co/v1/models',
+  }),
   'github-copilot': oauthOnlyDriver,
   'google-vertex': oauthOnlyDriver,
   'amazon-bedrock': oauthOnlyDriver,

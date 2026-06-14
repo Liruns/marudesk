@@ -30,6 +30,12 @@ export type BuiltinProviderId =
   | 'deepseek'
   | 'together'
   | 'fireworks'
+  // More OpenAI-compatible API-key vendors absorbed from the reference catalog
+  // (Yeachan-Heo/gajae-code · packages/ai). Same Bearer-key + /models path.
+  | 'moonshot'
+  | 'nvidia'
+  | 'venice'
+  | 'huggingface'
   // Enterprise / subscription providers — each has a bespoke auth mechanism
   // (device flow, ADC, SigV4, direct access token) distinct from the standard
   // PKCE OAuth or Bearer-key paths above.

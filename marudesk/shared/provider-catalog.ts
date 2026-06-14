@@ -264,6 +264,66 @@ export const PROVIDERS: ProviderDef[] = [
     apiKeyUrl: 'https://fireworks.ai/account/api-keys',
   },
   {
+    id: 'moonshot',
+    label: 'Moonshot (Kimi)',
+    // Moonshot's OpenAI-compatible API at api.moonshot.ai/v1 (Bearer key). The
+    // Kimi K2 family is tool-capable; the live /models fetch refreshes this seed.
+    models: [
+      { id: 'kimi-k2.5', label: 'Kimi K2.5' },
+      { id: 'kimi-k2-turbo-preview', label: 'Kimi K2 Turbo' },
+    ],
+    defaultModelId: 'kimi-k2.5',
+    apiKeyPlaceholder: 'sk-...',
+    apiKeyHint: 'platform.moonshot.ai → API keys (MOONSHOT_API_KEY)',
+    apiKeyUrl: 'https://platform.moonshot.ai/console/api-keys',
+  },
+  {
+    id: 'nvidia',
+    label: 'NVIDIA NIM',
+    // NVIDIA's hosted inference (NIM), OpenAI-compatible at
+    // integrate.api.nvidia.com/v1. Model ids are `vendor/model`; the catalog is
+    // large, so the live /models fetch (once a key is set) is the real list.
+    models: [
+      { id: 'meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct' },
+      { id: 'deepseek-ai/deepseek-v3.1', label: 'DeepSeek V3.1' },
+      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
+    ],
+    defaultModelId: 'meta/llama-3.3-70b-instruct',
+    apiKeyPlaceholder: 'nvapi-...',
+    apiKeyHint: 'build.nvidia.com → API keys (NVIDIA_API_KEY)',
+    apiKeyUrl: 'https://build.nvidia.com',
+  },
+  {
+    id: 'venice',
+    label: 'Venice',
+    // Venice's privacy-focused OpenAI-compatible API at api.venice.ai/api/v1.
+    // The live /models fetch refreshes this seed once a key is set.
+    models: [
+      { id: 'deepseek-v3.2', label: 'DeepSeek V3.2' },
+      { id: 'hermes-3-llama-3.1-405b', label: 'Hermes 3 Llama 3.1 405B' },
+    ],
+    defaultModelId: 'deepseek-v3.2',
+    apiKeyPlaceholder: '••••••••',
+    apiKeyHint: 'venice.ai → Settings → API (VENICE_API_KEY)',
+    apiKeyUrl: 'https://venice.ai/settings/api',
+  },
+  {
+    id: 'huggingface',
+    label: 'Hugging Face',
+    // Hugging Face's Inference Router, OpenAI-compatible at
+    // router.huggingface.co/v1. Model ids are `vendor/model`; the live /models
+    // fetch refreshes this seed once a token is set.
+    models: [
+      { id: 'deepseek-ai/DeepSeek-V3.1', label: 'DeepSeek V3.1' },
+      { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Llama 3.3 70B Turbo' },
+      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
+    ],
+    defaultModelId: 'deepseek-ai/DeepSeek-V3.1',
+    apiKeyPlaceholder: 'hf_...',
+    apiKeyHint: 'huggingface.co → Settings → Access Tokens (HF_TOKEN)',
+    apiKeyUrl: 'https://huggingface.co/settings/tokens',
+  },
+  {
     id: 'github-copilot',
     label: 'GitHub Copilot',
     oauth: true,
@@ -406,6 +466,25 @@ export const MODELS: ModelEntry[] = [
   { key: 'fireworks:accounts/fireworks/models/deepseek-v3', id: 'accounts/fireworks/models/deepseek-v3', label: 'DeepSeek V3', provider: 'fireworks', contextWindow: 131_072, tools: true },
   { key: 'fireworks:accounts/fireworks/models/qwen2p5-coder-32b-instruct', id: 'accounts/fireworks/models/qwen2p5-coder-32b-instruct', label: 'Qwen2.5 Coder 32B', provider: 'fireworks', contextWindow: 32_768, tools: true },
   { key: 'fireworks:accounts/fireworks/models/kimi-k2-instruct', id: 'accounts/fireworks/models/kimi-k2-instruct', label: 'Kimi K2 Instruct', provider: 'fireworks', contextWindow: 131_072, tools: true },
+
+  // Moonshot (Kimi) — api.moonshot.ai/v1.
+  { key: 'moonshot:kimi-k2.5', id: 'kimi-k2.5', label: 'Kimi K2.5', provider: 'moonshot', contextWindow: 256_000, tools: true },
+  { key: 'moonshot:kimi-k2-turbo-preview', id: 'kimi-k2-turbo-preview', label: 'Kimi K2 Turbo', provider: 'moonshot', contextWindow: 256_000, tools: true },
+
+  // NVIDIA NIM — integrate.api.nvidia.com/v1 (vendor/model ids).
+  { key: 'nvidia:meta/llama-3.3-70b-instruct', id: 'meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct', provider: 'nvidia', contextWindow: 131_072, tools: true },
+  { key: 'nvidia:deepseek-ai/deepseek-v3.1', id: 'deepseek-ai/deepseek-v3.1', label: 'DeepSeek V3.1', provider: 'nvidia', contextWindow: 163_840, tools: true, reasoning: true },
+  { key: 'nvidia:openai/gpt-oss-120b', id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B', provider: 'nvidia', contextWindow: 131_072, tools: true, reasoning: true },
+
+  // Venice — api.venice.ai/api/v1.
+  { key: 'venice:deepseek-v3.2', id: 'deepseek-v3.2', label: 'DeepSeek V3.2', provider: 'venice', contextWindow: 163_840, tools: true, reasoning: true },
+  { key: 'venice:hermes-3-llama-3.1-405b', id: 'hermes-3-llama-3.1-405b', label: 'Hermes 3 Llama 3.1 405B', provider: 'venice', contextWindow: 131_072, tools: true },
+
+  // Hugging Face Inference Router — router.huggingface.co/v1 (vendor/model ids).
+  { key: 'huggingface:deepseek-ai/DeepSeek-V3.1', id: 'deepseek-ai/DeepSeek-V3.1', label: 'DeepSeek V3.1', provider: 'huggingface', contextWindow: 163_840, tools: true, reasoning: true },
+  { key: 'huggingface:meta-llama/Llama-3.3-70B-Instruct-Turbo', id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Llama 3.3 70B Turbo', provider: 'huggingface', contextWindow: 131_072, tools: true },
+  { key: 'huggingface:openai/gpt-oss-120b', id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B', provider: 'huggingface', contextWindow: 131_072, tools: true, reasoning: true },
+
   // GitHub Copilot (device-flow OAuth, subscription-routed to multiple backends).
   { key: 'github-copilot:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'github-copilot', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
   { key: 'github-copilot:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'github-copilot', contextWindow: 400_000, tools: true, vision: true, reasoning: true },

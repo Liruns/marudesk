@@ -223,3 +223,18 @@ OAuth 변경 없음.
 - 검증: `tsc -b` 클린 · eslint 클린 · `npm run build` 클린 · unit
   `shared/custom-provider-presets.test.ts` 7/7(URL 정합성·키 URL 페어링·built-in 비중복) ·
   e2e `provider-ux.spec.ts` 2/2(딥링크 href/target, preset 프리필) + provider/custom/settings 회귀 그린.
+
+## 11. 신규 built-in provider 추가 — 구현됨 (2026-06-14)
+
+참고 레포 `models.json`에서 검증한 base URL/모델 id로, OpenAI-호환 벤더 4종을 **first-class
+built-in provider**로 승격했다(기존 `openrouter/groq/...`와 동일한 Bearer-키 + `/models` 경로):
+
+- **Moonshot (Kimi)** `https://api.moonshot.ai/v1` · **NVIDIA NIM**
+  `https://integrate.api.nvidia.com/v1` · **Venice** `https://api.venice.ai/api/v1` ·
+  **Hugging Face** `https://router.huggingface.co/v1`.
+- 추가 지점: `BuiltinProviderId` union + `provider-catalog.ts`(`ProviderDef` + seed `ModelEntry`,
+  `apiKeyUrl` 포함) + `DRIVERS`(openAiCompatibleDriver) + `OPENAI_COMPAT_PROVIDERS`(base URL).
+  글리프는 generic 모노그램 폴백. 승격된 4종은 custom-endpoint preset에서 제거(중복 방지)했고,
+  600+ 모델 집계 게이트웨이 **NanoGPT**는 built-in 대신 preset로 남겼다.
+- 검증: `tsc -b`·eslint·build 클린 · unit 335/335 · e2e `provider-catalog.spec.ts`(신규 4종 포함)
+  + `provider-ux.spec.ts` 그린 · harness 29/30(relay-bridge 기존 무관).

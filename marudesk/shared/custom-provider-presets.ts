@@ -36,33 +36,16 @@ export const CUSTOM_ENDPOINT_PRESETS: readonly CustomEndpointPreset[] = [
   { id: 'litellm', label: 'LiteLLM', baseUrl: 'http://localhost:4000/v1', models: [], local: true },
 
   // Cloud OpenAI-compatible gateways not covered by a built-in provider.
+  // (Moonshot / Hugging Face / NVIDIA / Venice graduated to first-class built-in
+  // providers — see provider-catalog.ts — so they're no longer listed here.)
   {
-    id: 'moonshot',
-    label: 'Moonshot (Kimi)',
-    baseUrl: 'https://api.moonshot.ai/v1',
-    models: ['kimi-k2.5'],
-    apiKeyUrl: 'https://platform.moonshot.ai/console/api-keys',
-  },
-  {
-    id: 'huggingface',
-    label: 'Hugging Face',
-    baseUrl: 'https://router.huggingface.co/v1',
-    models: ['deepseek-ai/DeepSeek-V3.1'],
-    apiKeyUrl: 'https://huggingface.co/settings/tokens',
-  },
-  {
-    id: 'nvidia',
-    label: 'NVIDIA NIM',
-    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    // A 600+ model aggregator; too large/fluid for a built-in seed, so it lives
+    // here as a quick custom endpoint (the live /models fetch fills the picker).
+    id: 'nanogpt',
+    label: 'NanoGPT',
+    baseUrl: 'https://nano-gpt.com/api/v1',
     models: [],
-    apiKeyUrl: 'https://build.nvidia.com',
-  },
-  {
-    id: 'venice',
-    label: 'Venice',
-    baseUrl: 'https://api.venice.ai/api/v1',
-    models: [],
-    apiKeyUrl: 'https://venice.ai/settings/api',
+    apiKeyUrl: 'https://nano-gpt.com/api',
   },
   {
     // marudesk's built-in `zai` targets the standard paas/v4 endpoint; a GLM

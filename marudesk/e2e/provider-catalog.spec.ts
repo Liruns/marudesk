@@ -10,7 +10,18 @@ import { launchApp } from './helpers/app';
  * fires once a key is stored).
  */
 
-const ABSORBED = ['openrouter', 'groq', 'cerebras', 'mistral', 'deepseek'] as const;
+const ABSORBED = [
+  'openrouter',
+  'groq',
+  'cerebras',
+  'mistral',
+  'deepseek',
+  // OpenAI-compatible vendors promoted to built-ins from the reference catalog.
+  'moonshot',
+  'nvidia',
+  'venice',
+  'huggingface',
+] as const;
 
 test('providers: absorbed API-key providers are present and start unconfigured', async () => {
   const { app, page } = await launchApp();

@@ -38,17 +38,17 @@ test('providers UI: a custom-endpoint preset prefills the form', async () => {
     await page.getByRole('button', { name: 'Add endpoint' }).click();
 
     // A cloud preset prefills the base URL and surfaces its key-issuance link.
-    await page.locator('[data-preset="moonshot"]').click();
-    await expect(page.getByLabel('Base URL')).toHaveValue('https://api.moonshot.ai/v1');
+    await page.locator('[data-preset="glm-coding-plan"]').click();
+    await expect(page.getByLabel('Base URL')).toHaveValue('https://api.z.ai/api/coding/paas/v4');
     await expect(
-      page.locator('a[href="https://platform.moonshot.ai/console/api-keys"]'),
+      page.locator('a[href="https://z.ai/manage-apikey/apikey-list"]'),
     ).toBeVisible();
 
     // A local preset is keyless and points at loopback (no key link).
     await page.locator('[data-preset="lmstudio"]').click();
     await expect(page.getByLabel('Base URL')).toHaveValue('http://localhost:1234/v1');
     await expect(
-      page.locator('a[href="https://platform.moonshot.ai/console/api-keys"]'),
+      page.locator('a[href="https://z.ai/manage-apikey/apikey-list"]'),
     ).toHaveCount(0);
   } finally {
     await app.close();
