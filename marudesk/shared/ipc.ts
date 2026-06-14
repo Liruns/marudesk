@@ -154,6 +154,10 @@ export interface EventPayloadMap {
     | { type: 'close' }
     | { type: 'pane-cycle'; dir: 1 | -1 }
     | { type: 'pane-maximize' };
+  // Canvas mode: a Ctrl/Cmd+wheel over a web card's native WebContentsView, which
+  // composites above the React surface and would otherwise eat the wheel. Main
+  // forwards it so the canvas zooms (centered on that card) instead of the page.
+  'canvas:wheel': { tabId: string; deltaY: number };
 }
 
 export type EventChannel = keyof EventPayloadMap;
@@ -194,6 +198,7 @@ export const EVENT_CHANNELS = [
   'terminal:error-count',
   'app:ui-zoom',
   'app:tab-shortcut',
+  'canvas:wheel',
 ] as const satisfies readonly EventChannel[];
 
 /* ── Compile-time coverage guards (no runtime cost) ─────────────────────── */

@@ -11,6 +11,7 @@ export const CHANNELS = {
     'browser:clear-pane-bounds',
     'browser:set-inspect-mode',
     'browser:set-visible',
+    'browser:set-occluder',
     'browser:go-back',
     'browser:go-forward',
     'browser:reload',

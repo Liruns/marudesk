@@ -1,5 +1,4 @@
 import type { WorkspaceFileRef } from '../../../shared/workspace';
-import { useTabsStore } from '../tabs/store';
 
 /**
  * Dragging a file from the explorer onto the canvas (or a grid pane) opens it as
@@ -40,8 +39,9 @@ export function parseFileDrag(data: string): FileDragPayload | null {
 /**
  * Open a dragged file as a NEW editor tab and resolve its tab id. Goes through
  * `browser:tabs-new` directly (not the renderer dedupe in editor/store.openFile)
- * so a drop always materializes a card the caller can position. The new tab
- * becomes the active tab, so we read it back as the id.
+ * so a drop always materializes a card the caller can position. Returns the id
+ * main minted for the tab — NOT `activeTabId` read back, which is still stale
+ * until the coalesced `browser:tabs-state` push lands a tick later.
  */
 export async function openFileDragAsTab(payload: FileDragPayload): Promise<string | null> {
   const arg =
@@ -49,9 +49,9 @@ export async function openFileDragAsTab(payload: FileDragPayload): Promise<strin
       ? { kind: 'editor' as const, file: payload.file, workspaceId: payload.file.workspaceId }
       : { kind: 'editor' as const, path: payload.path };
   try {
-    await window.marudesk.invoke('browser:tabs-new', arg);
+    const id = await window.marudesk.invoke('browser:tabs-new', arg);
+    return typeof id === 'string' ? id : null;
   } catch {
     return null;
   }
-  return useTabsStore.getState().activeTabId;
 }

@@ -214,6 +214,20 @@ export function setPaneScale(scale: number | null): void {
   paneScale = scale;
 }
 
+// A screen-px rect a renderer overlay (e.g. an on-canvas context menu) occupies.
+// Web views intersecting it are hidden by the layout engine so the overlay — which
+// the native views composite ABOVE — isn't rendered behind a page. Precise, unlike
+// a blanket hide-all: only the actually-covered cards blink out. null = no overlay.
+let occluderRect: Bounds | null = null;
+
+export function getOccluderRect(): Bounds | null {
+  return occluderRect;
+}
+
+export function setOccluderRect(rect: Bounds | null): void {
+  occluderRect = rect;
+}
+
 /* ── untitled editor sequence ───────────────────────────────────────────── */
 
 export function nextUntitledSeq(): number {

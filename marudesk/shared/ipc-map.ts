@@ -138,6 +138,10 @@ export interface IpcMap {
   'browser:clear-pane-bounds': { args: []; result: void };
   'browser:set-inspect-mode': { args: [on: boolean]; result: void };
   'browser:set-visible': { args: [visible: boolean]; result: void };
+  // A screen-px rect a renderer overlay (on-canvas context menu) covers; web views
+  // intersecting it hide so the overlay isn't drawn behind a page. null clears it.
+  // Precise — only the actually-covered cards blink, not every web card.
+  'browser:set-occluder': { args: [rect: Rect | null]; result: void };
   'browser:go-back': { args: []; result: boolean };
   'browser:go-forward': { args: []; result: boolean };
   // `ignoreCache` = a hard reload (Ctrl+Shift+R); omitted/false = a normal one.

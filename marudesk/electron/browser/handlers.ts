@@ -14,9 +14,11 @@ import {
   getErrors,
   getTab,
   pushState,
+  setOccluderRect,
   snapshot,
 } from './state';
 import {
+  applyWebLayout,
   clearBrowserPaneBounds,
   setBrowserBounds,
   setBrowserPaneBounds,
@@ -126,6 +128,21 @@ export function registerBrowserHandlers(deps: {
 
   defineHandler('browser:set-visible', ([visible]) => {
     setBrowserVisible(bool(visible, 'visible'));
+  });
+
+  defineHandler('browser:set-occluder', ([rect]) => {
+    if (rect == null) {
+      setOccluderRect(null);
+    } else {
+      const r = obj(rect, 'rect');
+      setOccluderRect({
+        x: num(r.x, 'rect.x'),
+        y: num(r.y, 'rect.y'),
+        width: num(r.width, 'rect.width'),
+        height: num(r.height, 'rect.height'),
+      });
+    }
+    applyWebLayout();
   });
 
   defineHandler('browser:go-back', () => {
@@ -467,6 +484,20 @@ export function registerBrowserHandlers(deps: {
     const rec = findTabByWebContentsId(event.sender.id);
     if (!rec) return;
     deps.getMainWindow()?.webContents.send('browser:capture', payload);
+  });
+
+  // A Ctrl/Cmd+wheel a canvas web card's preload captured (it alone sees the wheel
+  // delta over the native view) → forward to the host renderer so the CANVAS zooms
+  // centered on that card. The preload only sends this while the canvas owns the
+  // view, so it never fires for the classic shell.
+  ipcMain.on('canvas:web-wheel', (event, payload: unknown) => {
+    const rec = findTabByWebContentsId(event.sender.id);
+    if (!rec) return;
+    const deltaY = (payload as { deltaY?: unknown })?.deltaY;
+    deps.getMainWindow()?.webContents.send('canvas:wheel', {
+      tabId: rec.id,
+      deltaY: typeof deltaY === 'number' ? deltaY : 0,
+    });
   });
 
   ipcMain.on('inspect:exit', async (event) => {
