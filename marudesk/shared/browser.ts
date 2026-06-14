@@ -46,7 +46,7 @@ export type NavState = {
  * (`isTabKind`) / title table (`FEATURE_TITLES`) all derive from this single
  * list and can't drift: add a kind here and it widens everywhere at once.
  */
-export const FEATURE_KINDS = ['home', 'terminal', 'editor', 'settings', 'agent', 'plugin'] as const;
+export const FEATURE_KINDS = ['home', 'terminal', 'editor', 'settings', 'agent', 'plugin', 'devtools'] as const;
 
 /** A non-web tab kind (one of {@link FEATURE_KINDS}). */
 export type FeatureKind = (typeof FEATURE_KINDS)[number];
@@ -87,6 +87,13 @@ export type TabState = NavState & {
    * surface (chat CLI v2, docs/chat-cli-tui-design.md §6).
    */
   terminalProfile?: 'agent-cli';
+  /**
+   * For `devtools` tabs: the web tab this DevTools surface inspects. Carried
+   * main→renderer like `filePath`, so a DevTools card/tab re-binds to its target
+   * after a snapshot. The shared CDP relay is single-session, so one DevTools
+   * surface is live at a time.
+   */
+  devtoolsTargetTabId?: string;
   /**
    * Pinned tabs render favicon-only (no title, no close) and are kept at the
    * front of the strip — main enforces the pinned-first ordering, so the

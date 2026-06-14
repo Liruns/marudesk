@@ -127,6 +127,26 @@ mounting the canvas with only feature cards is safe today.
   a card's edges to nearby cards within 6px), and an **in-canvas workspace
   switcher**. *Remaining:* card multi-select / grouping, keyboard selection of
   edges, and alignment guide lines.
+- **Phase 2E — Multiple named canvases (= saved layouts). ✅ done.** A workspace
+  owns an ordered set of named canvases and one is *open* at a time; in the
+  **unified model** a canvas IS its saved layout, so switching loads a different
+  one (no separate "apply a template"). The open canvas's spatial state is the
+  store's hoisted working copy; the rest live in `byWorkspace`, synced at
+  switch/persist/prune points. A **canvas switcher** in the toolbar
+  (create/switch/rename/delete) sits beside the workspace switcher; new tabs land
+  on the open canvas; deleting a canvas closes its panels (orphans would
+  otherwise be re-adopted). Membership is implicit — a tab belongs to whichever
+  canvas of its workspace holds its placement — so `CanvasStage`'s existing
+  "render only placed tabs" rule gives per-canvas filtering + web-view hiding for
+  free. **Restart-durable persistence:** because tab ids are random UUIDs minted
+  fresh each launch (`electron/browser/tabs.ts`), canvases persist as **descriptor
+  snapshots** (panels by kind + url/file/profile, groups as multi-member nodes,
+  edges as `(node,member)` index refs) under `maru.canvas.v2`; on launch they
+  reconcile to the tabs the main session restores by matching descriptors in
+  order. Migrates `maru.canvas.v1` positions via a one-time by-tab-id pool.
+  e2e: `e2e/canvas.spec.ts` (switch/delete + full-restart persistence).
+  **Duplicate canvas** ("save the current arrangement as a new canvas") recreates
+  the open canvas's panels as fresh tabs at the same coords + edges.
 
 ## 5. Open questions / deferred
 

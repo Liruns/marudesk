@@ -1134,6 +1134,8 @@ export const EN_MESSAGES = {
   'settings.plugins.toggle.disable': 'Disable',
   'settings.plugins.toggle.enable': 'Enable',
   'settings.providers.apiKey': 'API key',
+  'settings.providers.builtinTitle': 'Built-in providers',
+  'settings.providers.keyHintMismatch': 'Expected to start with “{prefix}”',
   'settings.providers.badge.connected': 'connected',
   'settings.providers.badge.experimental': 'experimental',
   'settings.providers.badge.keySet': 'key set',
@@ -1163,11 +1165,13 @@ export const EN_MESSAGES = {
   'settings.providers.custom.name': 'Name',
   'settings.providers.custom.optionalPlaceholder':
     'sk-... (leave blank if none)',
+  'settings.providers.custom.presetsLabel': 'Quick setup',
   'settings.providers.custom.removeEndpoint': 'Remove endpoint',
   'settings.providers.custom.replacePlaceholder': '******** (replace)',
   'settings.providers.custom.title': 'Custom endpoints',
   'settings.providers.description':
     "Keys are stored encrypted via the OS keychain (safeStorage) - never written to disk in plaintext. Choose which model to use from the chat's model selector.",
+  'settings.providers.getApiKey': 'Get a key',
   'settings.providers.hideKey': 'Hide key',
   'settings.providers.oauth.agentUsesAfter':
     ' account for this provider (preferred over an API key).',
@@ -1494,6 +1498,7 @@ export const EN_MESSAGES = {
   'tabs.kind.editor': 'Editor',
   'tabs.kind.home': 'New Tab',
   'tabs.kind.plugin': 'Plugin',
+  'tabs.kind.devtools': 'DevTools',
   'tabs.kind.settings': 'Settings',
   'tabs.kind.terminal': 'Terminal',
   'tabs.kind.web': 'New tab',

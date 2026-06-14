@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { getProvider, type BuiltinProviderId } from '../../../shared/providers';
 import { Button } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
@@ -27,6 +27,16 @@ export function ProviderKeyEditor({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [reveal, setReveal] = useState(false);
 
+  // Inline format check: the static, non-"…" lead of the placeholder is a strong
+  // prefix signal (e.g. "sk-ant-"). Warn only when it's distinctive enough to
+  // avoid false positives on generic placeholders.
+  const expectedPrefix = provider.apiKeyPlaceholder.split('...')[0]?.trim() ?? '';
+  const prefixMismatch =
+    expectedPrefix.length >= 4 &&
+    /[-_]/.test(expectedPrefix) &&
+    keyInput.trim().length > 0 &&
+    !keyInput.trim().startsWith(expectedPrefix);
+
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
@@ -34,9 +44,20 @@ export function ProviderKeyEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <span className="text-caption text-fg-tertiary">
-        {provider.apiKeyHint}
-      </span>
+      {provider.apiKeyUrl ? (
+        <a
+          href={provider.apiKeyUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-caption text-accent hover:underline inline-flex items-center gap-1 self-start"
+        >
+          {provider.apiKeyHint} <ExternalLink size={11} className="shrink-0" />
+        </a>
+      ) : (
+        <span className="text-caption text-fg-tertiary">
+          {provider.apiKeyHint}
+        </span>
+      )}
 
       <label className="flex flex-col gap-1.5">
         <span className="text-caption uppercase tracking-wider text-fg-tertiary">
@@ -68,11 +89,16 @@ export function ProviderKeyEditor({
                 ? t('settings.providers.hideKey')
                 : t('settings.providers.revealKey')
             }
-            className="absolute inset-y-0 right-0 w-9 flex items-center justify-center text-fg-tertiary hover:text-fg-primary transition-colors duration-fast"
+            className="absolute inset-y-0 right-0 w-9 flex items-center justify-center text-fg-secondary hover:text-fg-primary transition-colors duration-fast"
           >
-            {reveal ? <EyeOff size={14} /> : <Eye size={14} />}
+            {reveal ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
         </div>
+        {prefixMismatch ? (
+          <span className="text-caption text-warning">
+            {t('settings.providers.keyHintMismatch').replace('{prefix}', expectedPrefix)}
+          </span>
+        ) : null}
       </label>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -111,10 +137,10 @@ export function ProviderKeyEditor({
       {test && test.status !== 'idle' && test.status !== 'testing' ? (
         <div
           className={cn(
-            'flex items-start gap-2 rounded-md px-3 py-2 text-body-sm break-words',
+            'flex items-start gap-2 rounded-md border px-3 py-2 text-body-sm break-words',
             test.status === 'ok'
-              ? 'bg-success-subtle/40 text-fg-secondary'
-              : 'bg-error-subtle/40 text-fg-secondary',
+              ? 'border-success/30 bg-success-subtle text-fg-primary'
+              : 'border-error/30 bg-error-subtle text-fg-primary',
           )}
         >
           {test.status === 'ok' ? (
@@ -127,7 +153,7 @@ export function ProviderKeyEditor({
       ) : null}
 
       {error ? (
-        <div className="text-body-sm text-fg-secondary bg-error-subtle/40 rounded-md px-3 py-2 break-words">
+        <div className="text-body-sm text-fg-primary border border-error/30 bg-error-subtle rounded-md px-3 py-2 break-words">
           {error}
         </div>
       ) : null}

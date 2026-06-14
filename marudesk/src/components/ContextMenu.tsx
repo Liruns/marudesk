@@ -51,7 +51,9 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     const first = ref.current?.querySelector<HTMLButtonElement>(
       'button[data-mi]:not([disabled])',
     );
-    first?.focus();
+    // Focus without scrolling: a scroll-into-view here would trip the
+    // close-on-scroll guard below (the menu would dismiss itself on open).
+    first?.focus({ preventScroll: true });
   }, []);
 
   // A WebContentsView composites ABOVE the React DOM, so a menu that overlaps

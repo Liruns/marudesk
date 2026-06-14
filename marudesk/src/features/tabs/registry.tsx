@@ -1,7 +1,8 @@
 import { type ComponentType, type ReactNode } from 'react';
-import { Blocks, Code2, Globe, House, Sparkles, SlidersHorizontal, SquareTerminal } from 'lucide-react';
+import { Blocks, Bug, Code2, Globe, House, Sparkles, SlidersHorizontal, SquareTerminal } from 'lucide-react';
 import { AgentTab } from '../agent/AgentTab';
 import { BrowserCanvas } from '../browser/BrowserCanvas';
+import { DevtoolsTab } from '../devtools/DevtoolsTab';
 import { EditorView } from '../editor/EditorView';
 import { HomeView } from '../home/HomeView';
 import { PluginPanel } from '../plugins/PluginPanel';
@@ -58,5 +59,12 @@ export const tabKinds: Record<TabKind, TabKindDef> = {
     title: 'Plugin',
     icon: Blocks,
     render: (tabId) => <PluginPanel tabId={tabId} />,
+  },
+  devtools: {
+    title: 'DevTools',
+    icon: Bug,
+    render: (_tabId, tab) => (
+      <DevtoolsTab targetTabId={tab?.kind === 'devtools' ? tab.devtoolsTargetTabId : undefined} />
+    ),
   },
 };

@@ -8,17 +8,35 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { ChevronDown, Globe, ListTree, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  CopyPlus,
+  Globe,
+  Layers,
+  ListTree,
+  Map as MapIcon,
+  Maximize2,
+  Minus,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+  Workflow,
+} from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import type { TabKind, TabState } from '../../../shared/browser';
 import { useTabsStore } from '../tabs/store';
 import { tabKinds } from '../tabs/registry';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { NameDialog } from '../workspaces/NameDialog';
 import { CanvasCard, type CardGroupProps } from './CanvasCard';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
+import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
+import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
 import { placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
@@ -27,6 +45,33 @@ type CanvasMenu =
   | { x: number; y: number; kind: 'canvas' }
   | { x: number; y: number; kind: 'card'; tabId: string }
   | { x: number; y: number; kind: 'edge'; edgeId: string };
+
+/**
+ * Recreate a tab's content as a fresh `browser:tabs-new` payload (for Duplicate
+ * canvas) — mirrors the canvas store's `descriptorOf`, but produces the spec the
+ * tab factory consumes. A duplicated devtools card keeps inspecting the original
+ * web tab (still open).
+ */
+function tabToNewTabPayload(
+  tab: TabState,
+  workspaceId: string | undefined,
+): Parameters<typeof window.marudesk.invoke<'browser:tabs-new'>>[1] {
+  const ws = workspaceId ? { workspaceId } : {};
+  switch (tab.kind) {
+    case 'web':
+      return { kind: 'web', ...(tab.url ? { url: tab.url } : {}), ...ws };
+    case 'editor':
+      return { kind: 'editor', ...(tab.filePath ? { path: tab.filePath } : {}), ...ws };
+    case 'terminal':
+      return { kind: 'terminal', ...(tab.terminalProfile ? { terminalProfile: tab.terminalProfile } : {}), ...ws };
+    case 'plugin':
+      return { kind: 'plugin', ...(tab.pluginPanel ? { pluginPanel: tab.pluginPanel } : {}), ...ws };
+    case 'devtools':
+      return { kind: 'devtools', ...(tab.devtoolsTargetTabId ? { devtoolsTargetTabId: tab.devtoolsTargetTabId } : {}), ...ws };
+    default:
+      return { kind: tab.kind, ...ws };
+  }
+}
 
 /**
  * The infinite-canvas surface (Maru — see docs/maru-identity-and-canvas-design.md).
@@ -51,6 +96,15 @@ export function CanvasStage() {
   const focusedTabId = useCanvasStore((s) => s.focusedTabId);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
   const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
+  // The open workspace's canvases (a canvas = a named saved layout). The bucket
+  // only changes on a canvas op (switch/new/rename/delete), not on every
+  // drag/pan, so this selector is cheap.
+  const canvasBucket = useCanvasStore((s) => s.byWorkspace[s.wsKey]);
+  const activeCanvasId = useCanvasStore((s) => s.activeCanvasId);
+  const canvasList = canvasBucket
+    ? canvasBucket.order.map((id) => canvasBucket.canvases[id]).filter((d): d is NonNullable<typeof d> => !!d)
+    : [];
+  const activeCanvasName = canvasBucket?.canvases[activeCanvasId]?.name ?? 'Canvas';
 
   // Scope cards to the active workspace so multiple workspaces don't pile onto
   // one canvas; fall back to all tabs when no workspace is active. Placements are
@@ -76,12 +130,19 @@ export function CanvasStage() {
   const [minimapOpen, setMinimapOpen] = useState(true);
   // The AI process-flow overlay (the focused chat's plan as a node graph).
   const [planFlowOpen, setPlanFlowOpen] = useState(true);
+  // The AI Work-OS task-graph controls panel (Task nodes draw on the canvas).
+  const [tasksOpen, setTasksOpen] = useState(false);
   // Placement key of the card highlighted as a merge drop-target mid-drag, or null.
   const [mergeTarget, setMergeTarget] = useState<string | null>(null);
   // Right-click context menu (canvas / card / edge), or null.
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
   // Workspace-switcher dropdown anchor (canvas mode has no workspace rail).
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
+  // Canvas-switcher dropdown anchor + the name dialog (new / rename a canvas).
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(null);
+  const [nameDialog, setNameDialog] = useState<
+    { mode: 'new' } | { mode: 'rename'; id: string; initial: string } | null
+  >(null);
   // Marquee (drag-box) selection rect in canvas coords while dragging, or null.
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   // True while Space is held → empty-canvas left-drag pans instead of marqueeing.
@@ -236,6 +297,7 @@ export function CanvasStage() {
     store.setFocused(null);
     store.selectEdge(null);
     store.clearSelection();
+    useWorkGraphStore.getState().selectTask(null);
     e.currentTarget.setPointerCapture(e.pointerId);
     const pt = toCanvas(e.clientX, e.clientY);
     marqueeRef.current = { pointerId: e.pointerId, ox: pt.x, oy: pt.y };
@@ -574,6 +636,116 @@ export function CanvasStage() {
     [activeWorkspaceId],
   );
 
+  // Open DevTools for a web card as a canvas card (the 'devtools' tab kind),
+  // not the pop-out window — focus an existing one bound to this web tab, else
+  // create one. The new card is placed by syncPlacements; we focus + raise it.
+  const openDevtoolsFor = useCallback(
+    (webTabId: string) => {
+      void (async () => {
+        const tabsStore = useTabsStore.getState();
+        const existing = tabsStore.tabs.find(
+          (t) => t.kind === 'devtools' && t.devtoolsTargetTabId === webTabId,
+        );
+        if (existing) {
+          await tabsStore.activateTab(existing.id);
+        } else {
+          await window.marudesk.invoke('browser:tabs-new', {
+            kind: 'devtools',
+            devtoolsTargetTabId: webTabId,
+            ...(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {}),
+          });
+        }
+        const id = useTabsStore.getState().activeTabId;
+        if (!id) return;
+        const store = useCanvasStore.getState();
+        store.setFocused(id);
+        store.bringToFront(id);
+      })();
+    },
+    [activeWorkspaceId],
+  );
+
+  // "Save current as a new canvas": open a new canvas and recreate the open
+  // canvas's panels as fresh tabs at the same coordinates (+ its edges). Grouped
+  // cards are flattened to a small cascade. The originals stay on their canvas.
+  const duplicateCanvas = (sourceName: string) => {
+    void (async () => {
+      const cs = useCanvasStore.getState();
+      const placements = { ...cs.placements };
+      const groups = cs.groups.map((g) => ({ ...g }));
+      const edges = cs.edges.map((e) => ({ ...e }));
+      const tabsById = new Map(useTabsStore.getState().tabs.map((t) => [t.id, t] as const));
+      const ws = activeWorkspaceId ?? undefined;
+
+      // Flatten placements into (oldTabId → target rect) entries.
+      const entries: { oldId: string; rect: CardRect }[] = [];
+      for (const [key, rect] of Object.entries(placements)) {
+        const grp = groups.find((g) => g.id === key);
+        if (grp) grp.tabIds.forEach((id, i) => entries.push({ oldId: id, rect: { ...rect, x: rect.x + i * 28, y: rect.y + i * 28 } }));
+        else entries.push({ oldId: key, rect });
+      }
+
+      useCanvasStore.getState().newCanvas(`${sourceName} copy`);
+
+      const idMap = new Map<string, string>();
+      for (const { oldId, rect } of entries) {
+        const tab = tabsById.get(oldId);
+        if (!tab) continue;
+        const newId = await window.marudesk.invoke('browser:tabs-new', tabToNewTabPayload(tab, ws));
+        if (typeof newId !== 'string') continue;
+        idMap.set(oldId, newId);
+        const store = useCanvasStore.getState();
+        store.setPos(newId, rect.x, rect.y);
+        store.setSize(newId, rect.w, rect.h);
+      }
+      for (const e of edges) {
+        const from = idMap.get(e.from);
+        const to = idMap.get(e.to);
+        if (from && to) useCanvasStore.getState().addEdge(from, to, e.fromSide, e.toSide);
+      }
+    })();
+  };
+
+  // Delete a canvas and close the panels that lived on it: a canvas owns its
+  // panels, so orphaned tabs would otherwise be re-adopted by the open canvas.
+  const deleteCanvas = (id: string) => {
+    const closeIds = useCanvasStore.getState().deleteCanvas(id);
+    const tabsStore = useTabsStore.getState();
+    for (const tid of closeIds) void tabsStore.closeTab(tid);
+  };
+
+  // The canvas switcher menu: switch between this workspace's named canvases
+  // (= saved layouts) and manage them.
+  const canvasMenuItems = (): MenuItem[] => {
+    const items: MenuItem[] = canvasList.map((c) => ({
+      label: c.name,
+      icon: c.id === activeCanvasId ? <Check size={14} /> : undefined,
+      onSelect: () => useCanvasStore.getState().switchCanvas(c.id),
+    }));
+    items.push(
+      { type: 'separator' },
+      { label: 'New canvas', icon: <Plus size={14} />, onSelect: () => setNameDialog({ mode: 'new' }) },
+      {
+        label: 'Rename canvas',
+        icon: <Pencil size={14} />,
+        onSelect: () => setNameDialog({ mode: 'rename', id: activeCanvasId, initial: activeCanvasName }),
+      },
+      {
+        label: 'Duplicate canvas',
+        icon: <CopyPlus size={14} />,
+        onSelect: () => duplicateCanvas(activeCanvasName),
+      },
+      {
+        label: 'Delete canvas',
+        icon: <Trash2 size={14} />,
+        danger: true,
+        disabled: canvasList.length <= 1,
+        onSelect: () => deleteCanvas(activeCanvasId),
+      },
+    );
+    return items;
+  };
+
   // Right-click: a context menu for the edge / card-header / empty canvas under
   // the cursor. Right-clicking a card BODY is left to the surface (Monaco, xterm,
   // a web page) so its own menu still works — only the card header opens the card
@@ -651,7 +823,7 @@ export function CanvasStage() {
           },
           {
             label: 'Open DevTools',
-            onSelect: () => void window.marudesk.invoke('devtools:popout-open', { tabId: m.tabId }),
+            onSelect: () => openDevtoolsFor(m.tabId),
           },
           {
             label: 'Copy link',
@@ -766,7 +938,11 @@ export function CanvasStage() {
     <div
       ref={containerRef}
       className={cn(
-        'relative h-full w-full overflow-hidden bg-surface-page',
+        // `overflow-clip` (not `hidden`): the canvas pans via transform and must
+        // never be a native scroll container — overflowing cards otherwise make
+        // it programmatically scrollable, and a focus-driven scroll-to-0 fires a
+        // spurious `scroll` event that dismisses on-canvas menus/popovers.
+        'relative h-full w-full overflow-clip bg-surface-page',
         panning ? 'cursor-grabbing' : spacePan ? 'cursor-grab' : 'cursor-default',
       )}
       style={{
@@ -865,11 +1041,7 @@ export function CanvasStage() {
                     }
                   : undefined
               }
-              onOpenDevtools={
-                isWeb
-                  ? () => void window.marudesk.invoke('devtools:popout-open', { tabId: tab.id })
-                  : undefined
-              }
+              onOpenDevtools={isWeb ? () => openDevtoolsFor(tab.id) : undefined}
               onStartConnect={(side, cx, cy) => startConnect(tab.id, side, cx, cy)}
             />
           );
@@ -903,6 +1075,10 @@ export function CanvasStage() {
             </button>
           );
         })()}
+
+        {/* AI Work-OS Task nodes (drawn on the canvas plane; positions keyed by
+            Task.id, independent of tabs). Returns null with no graph. */}
+        <WorkGraphNodes toCanvas={toCanvas} scale={viewport.scale} />
 
         {/* Marquee (drag-box) selection rectangle, in canvas coords. */}
         {marquee ? (
@@ -951,6 +1127,21 @@ export function CanvasStage() {
             <ChevronDown size={13} />
           </button>
         ) : null}
+        {/* Canvas switcher — each canvas is a named saved layout. */}
+        <button
+          type="button"
+          title="Switch canvas / saved layout"
+          aria-label="Switch canvas"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setCanvasMenu({ x: r.left, y: r.bottom + 4 });
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
+        >
+          <Layers size={13} />
+          <span className="max-w-[10rem] truncate">{activeCanvasName}</span>
+          <ChevronDown size={13} />
+        </button>
         <button
           type="button"
           onClick={() => newCard('home')}
@@ -959,7 +1150,22 @@ export function CanvasStage() {
           <Plus size={14} />
           New card
         </button>
+        <button
+          type="button"
+          title="AI Task graph"
+          aria-label="Toggle task graph"
+          onClick={() => setTasksOpen((v) => !v)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption shadow-card transition-colors duration-fast active:translate-y-px',
+            tasksOpen ? 'text-accent' : 'text-fg-secondary hover:text-fg-primary',
+          )}
+        >
+          <Workflow size={14} />
+          Tasks
+        </button>
       </div>
+
+      {tasksOpen ? <WorkGraphPanel onClose={() => setTasksOpen(false)} /> : null}
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
@@ -1012,6 +1218,30 @@ export function CanvasStage() {
             disabled: w.id === activeWorkspaceId,
             onSelect: () => void useWorkspaceDeckStore.getState().setActiveWorkspace(w.id),
           }))}
+        />
+      ) : null}
+
+      {canvasMenu ? (
+        <ContextMenu
+          x={canvasMenu.x}
+          y={canvasMenu.y}
+          onClose={() => setCanvasMenu(null)}
+          items={canvasMenuItems()}
+        />
+      ) : null}
+
+      {nameDialog ? (
+        <NameDialog
+          title={nameDialog.mode === 'new' ? 'New canvas' : 'Rename canvas'}
+          confirmLabel={nameDialog.mode === 'new' ? 'Create' : 'Rename'}
+          placeholder="Canvas name"
+          initialValue={nameDialog.mode === 'rename' ? nameDialog.initial : ''}
+          allowEmpty={nameDialog.mode === 'new'}
+          onSubmit={(value) => {
+            if (nameDialog.mode === 'new') useCanvasStore.getState().newCanvas(value);
+            else useCanvasStore.getState().renameCanvas(nameDialog.id, value);
+          }}
+          onClose={() => setNameDialog(null)}
         />
       ) : null}
     </div>

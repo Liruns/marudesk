@@ -75,6 +75,14 @@ export type ProviderDef = {
   apiKeyPlaceholder: string;
   apiKeyHint: string;
   /**
+   * Console/dashboard URL where a user issues an API key for this provider.
+   * When set, settings renders the key hint as a clickable "Get a key" link
+   * (opened externally via the window-open handler → safe-open). OAuth-only,
+   * keyless (Ollama), and ambient-credential providers (Vertex ADC / Bedrock /
+   * Azure endpoint) omit it and fall back to the plain text hint.
+   */
+  apiKeyUrl?: string;
+  /**
    * A local/keyless provider (Ollama): needs no API key, so it is always treated
    * as "ready" (secrets.listProviders reports hasKey, and the agent path skips
    * the key requirement). The model list is still fetched live (no key).

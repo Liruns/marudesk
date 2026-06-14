@@ -336,13 +336,14 @@ export function registerBrowserHandlers(deps: {
   });
 
   defineHandler('browser:tabs-new', ([payload]) => {
-    const { kind, url, workspaceId, editorFile, pluginPanel, terminalProfile } =
+    const { kind, url, workspaceId, editorFile, pluginPanel, terminalProfile, devtoolsTargetTabId } =
       parseTabSpec(payload);
     const rec = createAndActivateTab(kind, url, {
       workspaceId,
       editorFile,
       pluginPanel,
       terminalProfile,
+      devtoolsTargetTabId,
     });
     return rec.id;
   });

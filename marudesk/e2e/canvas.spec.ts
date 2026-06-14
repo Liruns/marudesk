@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { launchApp } from './helpers/app';
+import { launchApp, makeTempUserDataDir } from './helpers/app';
 
 /**
  * Maru's infinite-canvas surface, integrated into the Shell as the default stage
@@ -240,6 +240,199 @@ test('canvas: a card can be locked (no move/resize) and maximized', async () => 
     const max = await card.boundingBox();
     if (!max) throw new Error('no box');
     expect(max.width).toBeGreaterThan(before.width);
+  } finally {
+    await app.close();
+  }
+});
+
+test('canvas: named canvases switch independently (a canvas = a saved layout)', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const cards = page.locator('[data-canvas-card]');
+    // Start on the default "Canvas 1" with the home card; add a second card.
+    await expect(cards).toHaveCount(1);
+    await page.getByRole('button', { name: 'New card' }).click();
+    await expect(cards).toHaveCount(2);
+
+    // The switcher chip reflects the open canvas.
+    const switcher = page.getByRole('button', { name: 'Switch canvas' });
+    await expect(switcher).toContainText('Canvas 1');
+
+    // Create a second, named canvas — it opens empty (panels are per-canvas).
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'New canvas' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New canvas' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByPlaceholder('Canvas name').fill('Backend');
+    await dialog.getByRole('button', { name: 'Create' }).click();
+    await expect(switcher).toContainText('Backend');
+    await expect(cards).toHaveCount(0);
+
+    // A card created here belongs to "Backend" only.
+    await page.getByRole('button', { name: 'New card' }).click();
+    await expect(cards).toHaveCount(1);
+
+    // Switch back to "Canvas 1" → its two cards return; Backend's card is gone.
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Canvas 1' }).click();
+    await expect(switcher).toContainText('Canvas 1');
+    await expect(cards).toHaveCount(2);
+
+    // Delete "Backend" (from its own view) — the last canvas can't be deleted,
+    // so first switch to it, then delete, landing back on Canvas 1.
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Backend' }).click();
+    await expect(cards).toHaveCount(1);
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Delete canvas' }).click();
+    await expect(switcher).toContainText('Canvas 1');
+    await expect(cards).toHaveCount(2);
+  } finally {
+    await app.close();
+  }
+});
+
+test('canvas: named canvases + panel positions persist across a full restart', async () => {
+  const userDataDir = makeTempUserDataDir();
+  let agentBox: { x: number; y: number } | null = null;
+
+  // Launch 1 — build a two-canvas layout with restart-surviving panels (a
+  // terminal on "Canvas 1", an AI chat on "Backend"). home tabs aren't
+  // persisted by the tab session, so they won't reappear (and shouldn't).
+  {
+    const { app, page } = await launchApp({ userDataDir, surface: 'canvas' });
+    try {
+      const canvas = page.locator('[aria-label="Canvas"]');
+      const cards = page.locator('[data-canvas-card]');
+      const cb = await canvas.boundingBox();
+      if (!cb) throw new Error('no canvas box');
+
+      // Canvas 1: add a terminal via the canvas context menu.
+      await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.82, { button: 'right' });
+      await page.getByRole('menuitem', { name: 'New terminal' }).click();
+      await expect(cards).toHaveCount(2); // home + terminal
+
+      // Create "Backend" and add an AI chat there.
+      const switcher = page.getByRole('button', { name: 'Switch canvas' });
+      await switcher.click();
+      await page.getByRole('menuitem', { name: 'New canvas' }).click();
+      const dialog = page.getByRole('dialog', { name: 'New canvas' });
+      await dialog.getByPlaceholder('Canvas name').fill('Backend');
+      await dialog.getByRole('button', { name: 'Create' }).click();
+      await expect(cards).toHaveCount(0);
+      await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.55, { button: 'right' });
+      await page.getByRole('menuitem', { name: 'New AI chat' }).click();
+      await expect(cards).toHaveCount(1);
+      const box = await cards.first().boundingBox();
+      if (!box) throw new Error('no agent card box');
+      agentBox = { x: box.x, y: box.y };
+      await page.waitForTimeout(400); // let the debounced persist flush
+    } finally {
+      await app.close();
+    }
+  }
+
+  // Launch 2 — same userData. The tabs are restored with fresh ids; the canvas
+  // re-binds each to its saved spot on the right canvas by descriptor.
+  {
+    const { app, page } = await launchApp({ userDataDir, surface: 'canvas' });
+    try {
+      const switcher = page.getByRole('button', { name: 'Switch canvas' });
+      const cards = page.locator('[data-canvas-card]');
+
+      // "Backend" was open at close → it reopens with the AI chat at its spot.
+      await expect(switcher).toContainText('Backend');
+      await expect(cards).toHaveCount(1);
+      const box = await cards.first().boundingBox();
+      if (!box || !agentBox) throw new Error('no restored card box');
+      expect(Math.abs(box.x - agentBox.x)).toBeLessThan(10);
+      expect(Math.abs(box.y - agentBox.y)).toBeLessThan(10);
+
+      // The other canvas restored its terminal (the non-persisted home is gone).
+      await switcher.click();
+      await page.getByRole('menuitem', { name: 'Canvas 1' }).click();
+      await expect(switcher).toContainText('Canvas 1');
+      await expect(cards).toHaveCount(1);
+    } finally {
+      await app.close();
+    }
+  }
+});
+
+test('canvas: AI task graph — generate, render Task nodes, run to done', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    // Open the Work-OS panel and generate a graph from a goal (offline sample
+    // when no provider is configured — deterministic 4-task DAG).
+    await page.getByRole('button', { name: 'Toggle task graph' }).click();
+    const goal = page.getByPlaceholder('Describe a goal…');
+    await goal.fill('Build the orders feature');
+    await page.getByRole('button', { name: 'Generate', exact: true }).click();
+
+    // Task nodes render on the canvas (not tab cards).
+    const nodes = page.locator('[data-task-node]');
+    await expect(nodes).toHaveCount(4);
+    await expect(page.getByText(/4 tasks/)).toBeVisible();
+    await page.screenshot({ path: 'test-results/maru-task-graph.png' });
+
+    // Run drives the dependency-ordered scheduler to completion (all done/green).
+    await page.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(page.getByText(/4 done/)).toBeVisible({ timeout: 10_000 });
+
+    // Reset re-arms the graph (nothing done).
+    await page.getByRole('button', { name: 'Reset', exact: true }).click();
+    await expect(page.getByText(/0 done/)).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test('canvas: duplicate canvas copies the arrangement into a new named canvas', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const cards = page.locator('[data-canvas-card]');
+    await page.getByRole('button', { name: 'New card' }).click();
+    await expect(cards).toHaveCount(2); // Canvas 1: two cards
+
+    const switcher = page.getByRole('button', { name: 'Switch canvas' });
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Duplicate canvas' }).click();
+
+    // The copy opens with the same number of cards (fresh copies).
+    await expect(switcher).toContainText('Canvas 1 copy');
+    await expect(cards).toHaveCount(2);
+
+    // The original is intact and distinct.
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Canvas 1', exact: true }).click();
+    await expect(switcher).toContainText('Canvas 1');
+    await expect(cards).toHaveCount(2);
+  } finally {
+    await app.close();
+  }
+});
+
+test('canvas: a web card opens DevTools as a card (not a separate window)', async () => {
+  const { app, page } = await launchApp({ surface: 'canvas' });
+  try {
+    const canvas = page.locator('[aria-label="Canvas"]');
+    const cards = page.locator('[data-canvas-card]');
+    const cb = await canvas.boundingBox();
+    if (!cb) throw new Error('no canvas box');
+
+    // A web card (its native view isn't visible in e2e, but the card frame is).
+    await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.82, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'New browser tab' }).click();
+    await expect(cards).toHaveCount(2);
+
+    // Right-click the web card's header → Open DevTools → a DevTools card appears
+    // (the 'devtools' tab kind), rather than the pop-out window.
+    const header = page.locator('[data-card-header]').last();
+    const hb = await header.boundingBox();
+    if (!hb) throw new Error('no header box');
+    await page.mouse.click(hb.x + hb.width * 0.3, hb.y + hb.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Open DevTools' }).click();
+    await expect(cards).toHaveCount(3);
   } finally {
     await app.close();
   }

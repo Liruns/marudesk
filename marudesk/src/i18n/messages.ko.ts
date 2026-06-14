@@ -1129,6 +1129,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.plugins.toggle.disable': '비활성화',
   'settings.plugins.toggle.enable': '활성화',
   'settings.providers.apiKey': 'API 키',
+  'settings.providers.builtinTitle': '기본 제공 공급자',
+  'settings.providers.keyHintMismatch': '“{prefix}”(으)로 시작해야 합니다',
   'settings.providers.badge.connected': '연결됨',
   'settings.providers.badge.experimental': '실험적',
   'settings.providers.badge.keySet': '키 설정됨',
@@ -1158,11 +1160,13 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.providers.custom.name': '이름',
   'settings.providers.custom.optionalPlaceholder':
     'sk-... (없으면 비워두세요)',
+  'settings.providers.custom.presetsLabel': '빠른 설정',
   'settings.providers.custom.removeEndpoint': '엔드포인트 제거',
   'settings.providers.custom.replacePlaceholder': '******** (교체)',
   'settings.providers.custom.title': '사용자 지정 엔드포인트',
   'settings.providers.description':
     '키는 OS 키체인(safeStorage)에 암호화되어 저장됩니다. 평문으로 디스크에 쓰이지 않습니다. 모델은 채팅의 모델 선택기에서 고르세요.',
+  'settings.providers.getApiKey': '키 발급받기',
   'settings.providers.hideKey': '키 숨기기',
   'settings.providers.oauth.agentUsesAfter':
     ' 계정을 이 제공자에 사용합니다(API 키보다 우선).',
@@ -1469,6 +1473,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'tabs.kind.editor': '편집기',
   'tabs.kind.home': '새 탭',
   'tabs.kind.plugin': '플러그인',
+  'tabs.kind.devtools': '개발자 도구',
   'tabs.kind.settings': '설정',
   'tabs.kind.terminal': '터미널',
   'tabs.kind.web': '새 탭',

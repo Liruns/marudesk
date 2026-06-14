@@ -21,7 +21,9 @@ export function Badge({ variant = 'neutral', children, className }: BadgeProps) 
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-pill px-2 py-0.5 text-caption font-medium tabular-nums',
+        // shrink-0 + nowrap: a status pill must never wrap or get squeezed in a
+        // tight flex row (e.g. the provider card header).
+        'inline-flex shrink-0 items-center whitespace-nowrap rounded-pill px-2 py-0.5 text-caption font-medium tabular-nums',
         VARIANT_CLASSES[variant],
         className,
       )}

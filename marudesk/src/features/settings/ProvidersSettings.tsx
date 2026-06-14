@@ -23,6 +23,10 @@ export function ProvidersSettings() {
         {t('settings.providers.description')}
       </p>
 
+      <span className="text-caption uppercase tracking-wider text-fg-tertiary">
+        {t('settings.providers.builtinTitle')}
+      </span>
+
       <div className="flex flex-col gap-2">
         {PROVIDERS.map((provider) => {
           const providerStatus = status.find((s) => s.id === provider.id);

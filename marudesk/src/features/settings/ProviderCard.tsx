@@ -41,7 +41,7 @@ export function ProviderCard({
   expanded,
   onSelect,
 }: ProviderCardProps) {
-  const { t } = useI18n();
+  const { t, formatProviderModelCount } = useI18n();
   const provider = getProvider(providerId);
   const isAdcProvider = ADC_PROVIDERS.has(providerId);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -62,13 +62,19 @@ export function ProviderCard({
           )}
         />
         <ProviderGlyph provider={provider.id} label={provider.label} size={20} />
-        <span className="text-body-sm text-fg-primary">{provider.label}</span>
+        <span className="min-w-0 flex-1 truncate text-body-sm text-fg-primary">{provider.label}</span>
         {provider.experimental ? (
           <Badge variant="warning">
             {t('settings.providers.badge.experimental')}
           </Badge>
         ) : null}
-        <span className="flex-1" />
+        {provider.models.length > 0 ? (
+          // Decorative — kept out of the button's accessible name (which status
+          // selectors key on, e.g. "Anthropic · no key").
+          <span aria-hidden className="shrink-0 tabular-nums text-caption text-fg-tertiary">
+            {formatProviderModelCount(provider.models.length)}
+          </span>
+        ) : null}
         {oauthConnected ? (
           <Badge variant="accent">
             {provider.oauthOnly

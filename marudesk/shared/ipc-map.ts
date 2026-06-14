@@ -46,6 +46,7 @@ import type {
 import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
 import type { Spec, SpecInput } from './specs';
+import type { WorkGraph } from './work-os';
 import type { LaneDevState, LaneDevStartResult } from './lanes';
 import type { LaneGithubStatusResult } from './lane-github';
 import type {
@@ -195,6 +196,8 @@ export interface IpcMap {
         pluginPanel?: { id: string; entry: string };
         /** For a `terminal` tab: the PTY command profile (chat CLI v2 §6.1). */
         terminalProfile?: 'agent-cli';
+        /** For a `devtools` tab: the web tab id this DevTools surface inspects. */
+        devtoolsTargetTabId?: string;
       },
     ];
     result: string;
@@ -573,6 +576,8 @@ export interface IpcMap {
   // spec lifecycle (§3.10 — per-workspace spec docs + task lists)
   'specs:list': { args: []; result: Spec[] };
   'specs:save': { args: [input: SpecInput]; result: Spec };
+  /** AI Work OS: decompose a goal into a Task graph (null when no provider/error). */
+  'workos:decompose': { args: [goal: string]; result: { ok: true; graph: WorkGraph } | { ok: false; reason: string } };
   'specs:delete': { args: [payload: { id: string }]; result: boolean };
 
   // per-lane dev server (§3.8 Mission Control)

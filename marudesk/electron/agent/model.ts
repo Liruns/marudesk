@@ -18,6 +18,11 @@ import { OLLAMA_BASE } from '../providers/ollama';
 import { ANTHROPIC_OAUTH_HEADERS, OPENAI_CODEX_BASE_URL, codexHeaders } from '../oauth/config';
 import { chatgptAccountId } from '../oauth/jwt';
 import { codeAssistFetch } from '../oauth/google-code-assist';
+import {
+  getGitLabDuoDirectAccess,
+  GITLAB_DUO_ANTHROPIC_PROXY,
+  GITLAB_DUO_OPENAI_PROXY,
+} from '../auth/gitlab-duo';
 import type { ToolSchema } from './tools';
 
 /**
@@ -81,9 +86,9 @@ const OPENAI_COMPAT_PROVIDERS: Partial<
   deepseek: { baseURL: 'https://api.deepseek.com/v1' },
   together: { baseURL: 'https://api.together.xyz/v1' },
   fireworks: { baseURL: 'https://api.fireworks.ai/inference/v1' },
-  // GitLab Duo proxies to underlying providers via its cloud endpoints.
-  // PAT auth is passed as Bearer key.
-  'gitlab-duo': { baseURL: 'https://cloud.gitlab.com/ai/v1' },
+  // NB: gitlab-duo is NOT a plain compat endpoint — it needs a PAT→direct-access
+  // token exchange and routes Claude vs GPT models to different proxy dialects,
+  // so it gets its own case in buildModel below.
 };
 
 /**
@@ -165,6 +170,21 @@ export function isFailoverError(err: unknown): boolean {
 }
 
 /**
+ * A fetch that forces `headers` onto the request AFTER the SDK builds it. The AI
+ * SDK overrides `user-agent` set via provider config with its own (`ai/x …`), but
+ * the subscription backends reject that: the Codex backend 403s behind Cloudflare
+ * without `codex_cli_rs`, and Anthropic OAuth 4xxs without `claude-cli`. Setting
+ * them here guarantees delivery (the SDK-set Authorization is left intact).
+ */
+function fetchWithForcedHeaders(forced: Record<string, string>): typeof globalThis.fetch {
+  return (input, init) => {
+    const headers = new Headers(init?.headers);
+    for (const [k, v] of Object.entries(forced)) headers.set(k, v);
+    return globalThis.fetch(input, { ...init, headers });
+  };
+}
+
+/**
  * Build an AI SDK model instance for the resolved provider/model/key. Custom
  * OpenAI-compatible endpoints (OpenRouter / LM Studio / vLLM …) arrive as a
  * `custom:<id>` provider and reuse the same `createOpenAICompatible` path with a
@@ -196,10 +216,13 @@ export function buildModel(
       if (auth.mode === 'oauth') {
         // Subscription login: Bearer auth (the SDK's `authToken` sends
         // `Authorization: Bearer` and omits `x-api-key`) + the Claude-Code beta
-        // headers. The required system-prompt prefix is added in loop.ts.
+        // headers. The required system-prompt prefix is added in loop.ts. The
+        // headers are also forced via fetch because the SDK clobbers `user-agent`
+        // and Anthropic's OAuth endpoint 4xxs without `claude-cli`.
         return createAnthropic({
           authToken: auth.accessToken,
           headers: ANTHROPIC_OAUTH_HEADERS,
+          fetch: fetchWithForcedHeaders(ANTHROPIC_OAUTH_HEADERS),
         })(modelId);
       }
       return createAnthropic({ apiKey })(modelId);
@@ -212,10 +235,14 @@ export function buildModel(
       // The access token is the Bearer; account id + originator headers mirror the
       // codex CLI. store:false + omitting max_output_tokens are set in loop.ts.
       if (auth.mode !== 'oauth') throw new Error('openai-codex requires an OAuth connection');
+      const codexHdrs = codexHeaders(chatgptAccountId(auth.accessToken));
       return createOpenAI({
         baseURL: OPENAI_CODEX_BASE_URL,
         apiKey: auth.accessToken,
-        headers: codexHeaders(chatgptAccountId(auth.accessToken)),
+        headers: codexHdrs,
+        // Force the headers: the SDK overrides `user-agent`, but the codex backend
+        // 403s behind Cloudflare without `codex_cli_rs`.
+        fetch: fetchWithForcedHeaders(codexHdrs),
       }).responses(modelId);
     }
     case 'google-caa': {
@@ -236,20 +263,41 @@ export function buildModel(
       return createXai({ baseURL: XAI_BASE_URL, apiKey: token || undefined }).responses(modelId);
     }
     case 'github-copilot': {
-      // GitHub Copilot: the device-flow access token is exchanged for a
-      // short-lived Copilot token via the integrations API, then used against
-      // the OpenAI-compatible completions endpoint. For now, pass the OAuth
-      // token directly — the Copilot proxy handles the exchange server-side.
+      // GitHub Copilot subscription. The device-flow OAuth token is used directly
+      // (no JWT exchange — ref: Yeachan-Heo/gajae-code · utils/oauth/github-copilot),
+      // but Copilot is DIALECT-ROUTED by model and requires editor-identifying
+      // headers (incl. a User-Agent — Copilot rejects unknown clients). Per the
+      // reference catalog: Claude models speak anthropic-messages, the gpt-5 /
+      // o-series speak the Responses API, and everything else (gpt-4.x, gemini,
+      // grok-code) speaks chat completions. Routing the default claude-* model
+      // through chat completions — as before — is why Copilot failed to connect.
       if (auth.mode !== 'oauth') throw new Error('github-copilot requires an OAuth connection');
+      const COPILOT_BASE = 'https://api.githubcopilot.com';
+      const token = auth.accessToken;
+      // Copilot rejects unrecognized clients, and the SDK clobbers `user-agent` set
+      // via config — so force the editor headers after the SDK builds the request.
+      // `X-Initiator: agent` marks the agent loop's multi-step turns so they don't
+      // bill as premium user interactions.
+      const copilotFetch = fetchWithForcedHeaders({
+        'User-Agent': 'GitHubCopilotChat/0.26.7',
+        'Editor-Version': 'marudesk/1.0',
+        'Editor-Plugin-Version': 'marudesk/1.0',
+        'Copilot-Integration-Id': 'vscode-chat',
+        'Openai-Intent': 'conversation-edits',
+        'X-Initiator': 'agent',
+      });
+      if (/^claude/i.test(modelId)) {
+        // Anthropic passthrough at /v1/messages (SDK appends /messages to baseURL).
+        return createAnthropic({ baseURL: `${COPILOT_BASE}/v1`, authToken: token, fetch: copilotFetch })(modelId);
+      }
+      if (/^(gpt-5|o[0-9])/i.test(modelId)) {
+        return createOpenAI({ baseURL: COPILOT_BASE, apiKey: token, fetch: copilotFetch }).responses(modelId);
+      }
       return createOpenAICompatible({
         name: 'github-copilot',
-        baseURL: 'https://api.githubcopilot.com',
-        apiKey: auth.accessToken,
-        headers: {
-          'Copilot-Integration-Id': 'vscode-chat',
-          'Editor-Version': 'marudesk/1.0',
-          'Openai-Intent': 'conversation-panel',
-        },
+        baseURL: COPILOT_BASE,
+        apiKey: token,
+        fetch: copilotFetch,
       })(modelId);
     }
     case 'google-vertex': {
@@ -299,6 +347,40 @@ export function buildModel(
         baseURL: bedrockBase,
         apiKey: 'bedrock-sigv4',
         fetch: bedrockFetch,
+      })(modelId);
+    }
+    case 'gitlab-duo': {
+      // GitLab Duo: a PAT (api scope) is exchanged for a short-lived direct-access
+      // token, which (plus GitLab's returned headers) authenticates the AI gateway
+      // proxy. Claude models go to the anthropic-dialect proxy, everything else to
+      // the openai-dialect proxy — see electron/auth/gitlab-duo.ts. The async fetch
+      // wrapper performs (and caches) the exchange and injects the credentials, so
+      // the apiKey passed to the SDK is a placeholder it never sends.
+      if (auth.mode !== 'api-key' || !apiKey) {
+        throw new Error('gitlab-duo requires a GitLab access token (PAT with api scope)');
+      }
+      const pat = apiKey;
+      const isClaude = /^claude/i.test(modelId);
+      const gitlabFetch: typeof globalThis.fetch = async (input, init) => {
+        const access = await getGitLabDuoDirectAccess(pat);
+        const headers = new Headers(init?.headers);
+        for (const [k, v] of Object.entries(access.headers)) headers.set(k, v);
+        headers.delete('x-api-key');
+        headers.set('authorization', `Bearer ${access.token}`);
+        return globalThis.fetch(input, { ...init, headers });
+      };
+      if (isClaude) {
+        return createAnthropic({
+          baseURL: GITLAB_DUO_ANTHROPIC_PROXY,
+          authToken: 'gitlab-duo',
+          fetch: gitlabFetch,
+        })(modelId);
+      }
+      return createOpenAICompatible({
+        name: 'gitlab-duo',
+        baseURL: GITLAB_DUO_OPENAI_PROXY,
+        apiKey: 'gitlab-duo',
+        fetch: gitlabFetch,
       })(modelId);
     }
     case 'azure-openai': {

@@ -132,7 +132,9 @@ test('localizes the settings shell after switching to Korean', async () => {
     await expect(
       page.getByText('테마, 인터페이스 확대/축소, UI 글꼴.'),
     ).toBeVisible();
-    await expect(page.getByText('테마', { exact: true })).toBeVisible();
+    // "테마" appears as the nav chip, the section heading, and a row label —
+    // scope to the first so this asserts presence without a strict-mode clash.
+    await expect(page.getByText('테마', { exact: true }).first()).toBeVisible();
     await page.getByPlaceholder('설정 검색').fill('저장');
     await expect(page.getByRole('button', { name: '데이터 및 저장소' })).toBeVisible();
     await page.getByPlaceholder('설정 검색').fill('없는검색어');
@@ -167,8 +169,10 @@ test('localizes settings MCP and remote guide panels after switching to Korean',
     await page.getByRole('button', { name: '원격 접속' }).click();
 
     // Then: the pairing guide copy uses Korean.
-    await expect(page.getByRole('heading', { name: '휴대폰 연결 방법' })).toBeVisible();
-    await expect(page.getByText('marudesk 앱의 스캐너')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '원격 기기 연결 방법' })).toBeVisible();
+    await expect(
+      page.getByText('다른 기기의 페어링 스캐너', { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByText('보안이 작동하는 방식', { exact: true }),
     ).toBeVisible();
@@ -287,7 +291,7 @@ test('localizes data and remote settings after switching to Korean', async () =>
 
     // Then: phone access and cloud relay settings use Korean.
     await expect(page.getByRole('heading', { name: '원격 접속' })).toBeVisible();
-    await expect(page.getByText('휴대폰 접속', { exact: true })).toBeVisible();
+    await expect(page.getByText('원격 기기 접속', { exact: true })).toBeVisible();
     await expect(page.getByRole('radio', { name: '끔' }).first()).toBeVisible();
     await expect(page.getByText('클라우드 릴레이', { exact: true })).toBeVisible();
     await expect(page.getByText('클라우드 릴레이 활성화', { exact: true })).toBeVisible();
@@ -299,12 +303,13 @@ test('localizes data and remote settings after switching to Korean', async () =>
 
     // When: the user enables phone access.
     await page
-      .getByRole('radiogroup', { name: '휴대폰 접속' })
+      .getByRole('radiogroup', { name: '원격 기기 접속' })
       .getByRole('radio', { name: '켬' })
       .click();
 
-    // Then: the direct pairing UI is localized too.
-    await expect(page.getByText('휴대폰 페어링', { exact: true })).toBeVisible();
+    // Then: the direct pairing UI is localized too. The pairing heading and the
+    // pair-device button share "기기 페어링", so assert each by its role.
+    await expect(page.getByRole('heading', { name: '기기 페어링' })).toBeVisible();
     await expect(page.getByRole('button', { name: '기기 페어링' })).toBeVisible();
     await expect(
       page.getByText('고급 - 포트, 네트워크 주소, 무인 모드'),

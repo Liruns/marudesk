@@ -2,6 +2,7 @@ import { type ComponentType, type DragEvent as ReactDragEvent, type FormEvent, t
 import {
   ArrowLeft,
   ArrowRight,
+  Bug,
   Code2,
   Blocks,
   Globe,
@@ -44,6 +45,7 @@ const KIND_ICON: Record<TabKind, ComponentType<{ size?: number }>> = {
   settings: SlidersHorizontal,
   agent: Sparkles,
   plugin: Blocks,
+  devtools: Bug,
 };
 
 export function PaneHeader({

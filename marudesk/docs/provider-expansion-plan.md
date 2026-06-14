@@ -203,3 +203,23 @@ OAuth 변경 없음.
 - **단명 Copilot JWT**(~30분): 긴 에이전트 턴 중 만료 가능 → 턴 시작뿐 아니라 **호출 직전 유효성** 확인.
 - **실계정 미검증**: 모든 신규 provider는 부모 §10.4와 동일하게 **실 구독 dogfood 전까지 experimental**
   표기.
+
+## 10. Provider UX 개선 — 구현됨 (2026-06-14)
+
+참고 레포 [Yeachan-Heo/gajae-code](https://github.com/Yeachan-Heo/gajae-code)
+(`packages/ai` 카탈로그 · `packages/coding-agent` provider-onboarding preset)의 **실동작 데이터**를
+근거로, 키 없이도 검증 가능한 두 가지 UX 개선을 머지했다.
+
+- **"키 발급받기" 딥링크**: `ProviderDef.apiKeyUrl`(provider-catalog.ts)을 추가하고,
+  설정 키 에디터(`ProviderKeyEditor.tsx`)가 힌트를 콘솔 URL로 가는 클릭 링크로 렌더한다.
+  외부 링크는 기존 OAuth 흐름과 동일하게 메인 윈도우의 window-open 핸들러(`safe-open`)로 열린다.
+  표준 API-키 provider 14종에 콘솔 URL을 채웠고, OAuth-only/keyless/ambient(ADC·Bedrock·Azure)는
+  생략 → 텍스트 힌트로 폴백.
+- **커스텀 엔드포인트 빠른 설정 preset**: `shared/custom-provider-presets.ts`에
+  OpenAI-호환 엔드포인트 9종(로컬 런타임 LM Studio/Ollama/vLLM/LiteLLM + 클라우드
+  Moonshot/Hugging Face/NVIDIA NIM/Venice/GLM Coding Plan)을 큐레이션. base URL은 참고 레포
+  `models.json`에서 확인한 실값. `AddCustomEndpointForm`에서 칩 클릭 시 name/base URL/seed
+  models를 프리필하고 클라우드 preset은 키 발급 링크를 노출한다. built-in과 중복되지 않는 항목만 수록.
+- 검증: `tsc -b` 클린 · eslint 클린 · `npm run build` 클린 · unit
+  `shared/custom-provider-presets.test.ts` 7/7(URL 정합성·키 URL 페어링·built-in 비중복) ·
+  e2e `provider-ux.spec.ts` 2/2(딥링크 href/target, preset 프리필) + provider/custom/settings 회귀 그린.

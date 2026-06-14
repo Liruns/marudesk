@@ -45,6 +45,8 @@ export type TabRecord = {
   // For a 'terminal' tab: the PTY command profile (chat CLI v2 §6.1). The
   // renderer names it; electron/terminal.ts decides what it spawns.
   terminalProfile?: 'agent-cli';
+  // For a 'devtools' tab: the web tab id this DevTools surface inspects.
+  devtoolsTargetTabId?: string;
   // Custom CDP DevTools (electron/browser/cdp.ts): whether our debugger is
   // attached to this web tab, plus a sync guard against a re-entrant attach
   // race (two near-simultaneous cdp-send calls both seeing !isAttached). The
@@ -85,6 +87,7 @@ const FEATURE_TITLES: Record<Exclude<TabKind, 'web'>, string> = {
   settings: 'Settings',
   agent: 'AI Chat',
   plugin: 'Plugin',
+  devtools: 'DevTools',
 };
 
 // Renderer input is never trusted: validate the kind before acting on it.
@@ -96,7 +99,8 @@ export function isTabKind(value: unknown): value is TabKind {
     value === 'editor' ||
     value === 'settings' ||
     value === 'agent' ||
-    value === 'plugin'
+    value === 'plugin' ||
+    value === 'devtools'
   );
 }
 
@@ -456,6 +460,17 @@ function tabStateFor(rec: TabRecord): TabState {
       ...ZERO_NAV,
       title: 'AI Chat (CLI)',
       terminalProfile: rec.terminalProfile,
+    };
+  }
+  if (rec.kind === 'devtools') {
+    return {
+      id: rec.id,
+      kind: 'devtools',
+      workspaceId: rec.workspaceId ?? SYSTEM_WORKSPACE_ID,
+      pinned,
+      ...ZERO_NAV,
+      title: FEATURE_TITLES.devtools,
+      devtoolsTargetTabId: rec.devtoolsTargetTabId,
     };
   }
   return {
