@@ -9,7 +9,7 @@ import {
 import { ExternalLink, Globe, Lock, LockOpen, Maximize2, Minimize2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { tabKinds } from '../tabs/registry';
-import { cardMinSize, EDGE_SIDES, type CardRect, type EdgeSide } from './store';
+import { cardMinSize, EDGE_SIDES, useCanvasStore, type CardRect, type EdgeSide } from './store';
 import type { TabState } from '../../../shared/browser';
 
 /** A member of a merged card (tab group), for the in-header tab strip. */
@@ -120,10 +120,13 @@ export function CanvasCard({
 }) {
   const isWeb = tab.kind === 'web';
   const rootRef = useRef<HTMLDivElement>(null);
-  const [addr, setAddr] = useState(tab.url);
+  // Default to '' (not tab.url, which is undefined for a blank web card) so the
+  // address <input> is always controlled — a undefined→string switch otherwise
+  // trips React's controlled/uncontrolled warning.
+  const [addr, setAddr] = useState(tab.url ?? '');
   const addrFocused = useRef(false);
   useEffect(() => {
-    if (!addrFocused.current) setAddr(tab.url);
+    if (!addrFocused.current) setAddr(tab.url ?? '');
   }, [tab.url]);
   const Icon = tabKinds[tab.kind]?.icon ?? Globe;
   const title = tab.title?.trim() || tab.url || tabKinds[tab.kind]?.title || 'Card';
@@ -231,6 +234,9 @@ export function CanvasCard({
       move(rect.x, rect.y + step);
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
+      // If an edge is selected, let the canvas-level handler remove the EDGE —
+      // one Delete must do one thing, not also close this focused card.
+      if (useCanvasStore.getState().selectedEdgeId) return;
       onClose();
     }
   };
@@ -466,6 +472,7 @@ function GroupTabStrip({ group }: { group: CardGroupProps }) {
           <div
             key={m.id}
             role="tab"
+            data-member-tab-id={m.id}
             aria-selected={active}
             title={m.title}
             className={cn(

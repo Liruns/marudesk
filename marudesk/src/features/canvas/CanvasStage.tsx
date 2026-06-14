@@ -38,7 +38,7 @@ import { CanvasPlanFlow } from './CanvasPlanFlow';
 import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
 import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
-import { placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
+import { cardDefaultSize, placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
 type CanvasMenu =
@@ -71,6 +71,52 @@ function tabToNewTabPayload(
     default:
       return { kind: tab.kind, ...ws };
   }
+}
+
+/**
+ * Run `cb` once a tab has a canvas placement (its card has materialized).
+ * Tabs created via `browser:tabs-new` only enter the store on the next-tick
+ * `browser:tabs-state` push, so focus/raise has to wait for the card to exist.
+ * Fires immediately if it's already placed; gives up after `timeoutMs` so a tab
+ * that never lands (creation failed) can't leak the subscription.
+ */
+function whenPlaced(tabId: string, cb: () => void, timeoutMs = 4000): void {
+  if (useCanvasStore.getState().placements[tabId]) {
+    cb();
+    return;
+  }
+  let done = false;
+  const finish = (run: boolean) => {
+    if (done) return;
+    done = true;
+    unsub();
+    clearTimeout(timer);
+    if (run) cb();
+  };
+  const unsub = useCanvasStore.subscribe((s) => {
+    if (s.placements[tabId]) finish(true);
+  });
+  const timer = setTimeout(() => finish(false), timeoutMs);
+}
+
+/** Resolve once every id has a placement (or `timeoutMs` elapses — best effort). */
+function waitForPlacements(ids: readonly string[], timeoutMs = 5000): Promise<void> {
+  const have = () => ids.every((id) => !!useCanvasStore.getState().placements[id]);
+  if (ids.length === 0 || have()) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      unsub();
+      clearTimeout(timer);
+      resolve();
+    };
+    const unsub = useCanvasStore.subscribe(() => {
+      if (have()) finish();
+    });
+    const timer = setTimeout(finish, timeoutMs);
+  });
 }
 
 /**
@@ -279,6 +325,28 @@ export function CanvasStage() {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  // Ctrl/Cmd+wheel over a web card is eaten by its native view, so main forwards
+  // it here (see electron/browser/tabs.ts). Zoom the canvas centered on that
+  // card, mirroring the container wheel handler's zoom factor.
+  useEffect(() => {
+    return window.marudesk.on('canvas:wheel', ({ tabId, deltaY }) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const cr = container.getBoundingClientRect();
+      let cx = cr.width / 2;
+      let cy = cr.height / 2;
+      const el = webEls.current.get(tabId);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          cx = r.left + r.width / 2 - cr.left;
+          cy = r.top + r.height / 2 - cr.top;
+        }
+      }
+      useCanvasStore.getState().zoomAt(Math.exp(-deltaY * 0.0015), cx, cy);
+    });
+  }, []);
+
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     // Never start on a card or an on-canvas control — capturing here would
     // swallow their clicks.
@@ -339,7 +407,10 @@ export function CanvasStage() {
       const maxX = Math.max(m.ox, pt.x);
       const maxY = Math.max(m.oy, pt.y);
       setMarquee(null);
-      if (maxX - minX < 4 && maxY - minY < 4) return; // a click, not a drag
+      // Threshold in SCREEN px (÷ scale) so the click/drag dead-zone feels the
+      // same at every zoom, matching the card header's 3px dead-zone.
+      const thresh = 4 / useCanvasStore.getState().viewport.scale;
+      if (maxX - minX < thresh && maxY - minY < thresh) return; // a click, not a drag
       const store = useCanvasStore.getState();
       const grouped = new Set(groups.flatMap((g) => g.tabIds));
       const sel: string[] = [];
@@ -380,15 +451,21 @@ export function CanvasStage() {
     // the previous workspace's cards).
     const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
     const tabsNow = useTabsStore.getState().tabs;
-    const vis = aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow;
+    const visIds = new Set(
+      (aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow).map((t) => t.id),
+    );
+    const grouped = new Set(store.groups.flatMap((g) => g.tabIds));
     let sx = x;
     let sy = y;
     let dx = SNAP;
     let dy = SNAP;
-    for (const t of vis) {
-      if (t.id === tabId) continue;
-      const r = pl[t.id];
-      if (!r) continue;
+    // Snap against every rendered card — ungrouped tabs AND merged group cards
+    // (keyed by group id), so a card can align to a group, not just plain cards.
+    for (const [k, r] of Object.entries(pl)) {
+      if (k === tabId) continue;
+      const grp = store.groups.find((g) => g.id === k);
+      const rendered = grp ? grp.tabIds.some((id) => visIds.has(id)) : visIds.has(k) && !grouped.has(k);
+      if (!rendered) continue;
       for (const cx of [r.x, r.x + r.w - w, r.x + (r.w - w) / 2, r.x + r.w, r.x - w]) {
         const d = Math.abs(x - cx);
         if (d < dx) {
@@ -426,6 +503,25 @@ export function CanvasStage() {
       }
     } else {
       snapMove(key, x, y);
+    }
+  };
+
+  // Keyboard arrow nudge (free, no snap): when the card is part of a multi-
+  // selection, move the WHOLE selection by the same delta; otherwise just it.
+  const handleNudge = (key: string, x: number, y: number) => {
+    const store = useCanvasStore.getState();
+    const sel = store.selection;
+    if (sel.length > 1 && sel.includes(key)) {
+      const cur = store.placements[key];
+      if (!cur) return;
+      const base: Record<string, { x: number; y: number }> = {};
+      for (const k of sel) {
+        const r = store.placements[k];
+        if (r) base[k] = { x: r.x, y: r.y };
+      }
+      store.moveSelectionBy(sel, base, x - cur.x, y - cur.y);
+    } else {
+      store.setPos(key, x, y);
     }
   };
 
@@ -615,25 +711,74 @@ export function CanvasStage() {
     useCanvasStore.getState().setPan(size.w / 2 - wx * scale, size.h / 2 - wy * scale);
   };
 
+  // A spot for a NEW card with no explicit drop point (the toolbar button): the
+  // first free grid cell inside the visible viewport, so it always lands on-screen
+  // (not at the off-screen canvas origin when panned away) AND doesn't stack on an
+  // existing card. Pending spawns are counted too, so rapid clicks don't collide.
+  const placeInView = useCallback(
+    (kind: TabKind): { x: number; y: number; w: number; h: number } => {
+      const cs = useCanvasStore.getState();
+      const { panX, panY, scale } = cs.viewport;
+      const { w, h } = cardDefaultSize(kind);
+      const inset = 36 / scale;
+      const vx = -panX / scale + inset;
+      const vy = -panY / scale + inset;
+      // Live container size from the ref, so this stays correct without a `size` dep.
+      const rect = containerRef.current?.getBoundingClientRect();
+      const viewW = (rect?.width ?? 1200) / scale;
+      const viewH = (rect?.height ?? 800) / scale;
+      const occupied = [
+        ...Object.values(cs.placements),
+        ...Object.values(cs.pendingPlacements),
+      ];
+      const free = (x: number, y: number) =>
+        !occupied.some((r) => x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y);
+      // Fine-step raster scan for the first fully-on-screen spot that overlaps no
+      // existing card — a coarse card-width grid missed every gap when a wide card
+      // sat in the way, then cascaded into an overlap.
+      const step = 48;
+      const maxX = vx + Math.max(0, viewW - w);
+      const maxY = vy + Math.max(0, viewH - h);
+      for (let y = vy; y <= maxY + 0.5; y += step) {
+        for (let x = vx; x <= maxX + 0.5; x += step) {
+          if (free(x, y)) return { x: Math.round(x), y: Math.round(y), w, h };
+        }
+      }
+      // Nothing fits on-screen without overlap → top-left of the view (still
+      // visible; some overlap is unavoidable when the viewport is packed).
+      return { x: Math.round(vx), y: Math.round(vy), w, h };
+    },
+    [],
+  );
+
   const newCard = useCallback(
     (kind: TabKind = 'home', at?: { x: number; y: number }) => {
       void (async () => {
-        await useTabsStore.getState().newTab(kind, undefined, activeWorkspaceId ?? undefined);
-        const id = useTabsStore.getState().activeTabId;
+        // Use the id main returns — NOT activeTabId read back, which is stale
+        // until the coalesced tabs-state push lands a tick later (that race
+        // moved the *previous* card to the cursor and grid-placed the new one).
+        const id = await useTabsStore.getState().newTab(kind, undefined, activeWorkspaceId ?? undefined);
         if (!id) return;
         const store = useCanvasStore.getState();
-        const rect = store.placements[id];
-        if (!rect) return;
-        // Place the card centered on the cursor / drop point when given one
-        // (right-click + double-click), instead of the default grid slot.
-        if (at) store.setPos(id, Math.round(at.x - rect.w / 2), Math.round(at.y - rect.h / 2));
+        // Centered on the cursor / drop point when given one (right-click +
+        // double-click); otherwise the first free on-screen grid cell. Either way
+        // the card lands directly (no grid-then-jump) via placeNext.
+        if (at) {
+          const { w, h } = cardDefaultSize(kind);
+          store.placeNext(id, { x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2), w, h });
+        } else {
+          store.placeNext(id, placeInView(kind));
+        }
         // Focus the new card (it became the active tab) so it's the live surface
         // immediately — matters for agent cards, which only run live when focused.
-        store.setFocused(id);
-        store.bringToFront(id);
+        whenPlaced(id, () => {
+          const s = useCanvasStore.getState();
+          s.setFocused(id);
+          s.bringToFront(id);
+        });
       })();
     },
-    [activeWorkspaceId],
+    [activeWorkspaceId, placeInView],
   );
 
   // Open DevTools for a web card as a canvas card (the 'devtools' tab kind),
@@ -646,20 +791,26 @@ export function CanvasStage() {
         const existing = tabsStore.tabs.find(
           (t) => t.kind === 'devtools' && t.devtoolsTargetTabId === webTabId,
         );
+        let id: string | null;
         if (existing) {
           await tabsStore.activateTab(existing.id);
+          id = existing.id;
         } else {
-          await window.marudesk.invoke('browser:tabs-new', {
+          // Use the returned id — activeTabId is stale until the next-tick push.
+          const newId = await window.marudesk.invoke('browser:tabs-new', {
             kind: 'devtools',
             devtoolsTargetTabId: webTabId,
             ...(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {}),
           });
+          id = typeof newId === 'string' ? newId : null;
         }
-        const id = useTabsStore.getState().activeTabId;
         if (!id) return;
-        const store = useCanvasStore.getState();
-        store.setFocused(id);
-        store.bringToFront(id);
+        const tabId = id;
+        whenPlaced(tabId, () => {
+          const store = useCanvasStore.getState();
+          store.setFocused(tabId);
+          store.bringToFront(tabId);
+        });
       })();
     },
     [activeWorkspaceId],
@@ -674,6 +825,9 @@ export function CanvasStage() {
       const placements = { ...cs.placements };
       const groups = cs.groups.map((g) => ({ ...g }));
       const edges = cs.edges.map((e) => ({ ...e }));
+      // A faithful copy keeps the same view + wire style, not just card rects.
+      const sourceViewport = { ...cs.viewport };
+      const sourceEdgeStyle = cs.edgeStyle;
       const tabsById = new Map(useTabsStore.getState().tabs.map((t) => [t.id, t] as const));
       const ws = activeWorkspaceId ?? undefined;
 
@@ -686,18 +840,27 @@ export function CanvasStage() {
       }
 
       useCanvasStore.getState().newCanvas(`${sourceName} copy`);
+      // Open the copy on the same view + edge style as the source so it looks
+      // identical, not reset to the origin at 100%.
+      useCanvasStore.setState({ viewport: sourceViewport, edgeStyle: sourceEdgeStyle });
 
       const idMap = new Map<string, string>();
+      const newIds: string[] = [];
       for (const { oldId, rect } of entries) {
         const tab = tabsById.get(oldId);
         if (!tab) continue;
         const newId = await window.marudesk.invoke('browser:tabs-new', tabToNewTabPayload(tab, ws));
         if (typeof newId !== 'string') continue;
         idMap.set(oldId, newId);
-        const store = useCanvasStore.getState();
-        store.setPos(newId, rect.x, rect.y);
-        store.setSize(newId, rect.w, rect.h);
+        newIds.push(newId);
+        // Spawn each copy at its source rect. setPos/setSize would no-op here —
+        // the new tab isn't in the store yet — so register the rect for the card
+        // to adopt the instant it appears.
+        useCanvasStore.getState().placeNext(newId, { x: rect.x, y: rect.y, w: rect.w, h: rect.h });
       }
+      // Edges reference live placements, so only wire them once every copied card
+      // has landed (addEdge no-ops on a missing endpoint).
+      await waitForPlacements(newIds);
       for (const e of edges) {
         const from = idMap.get(e.from);
         const to = idMap.get(e.to);
@@ -755,12 +918,34 @@ export function CanvasStage() {
     const edgeEl = t.closest('[data-edge-id]');
     if (edgeEl) {
       e.preventDefault();
-      setMenu({ x: e.clientX, y: e.clientY, kind: 'edge', edgeId: edgeEl.getAttribute('data-edge-id') ?? '' });
+      const edgeId = edgeEl.getAttribute('data-edge-id') ?? '';
+      // Select it too, so the wire highlights and the delete control appears —
+      // the menu and the visual selection should agree on the target.
+      useCanvasStore.getState().selectEdge(edgeId);
+      setMenu({ x: e.clientX, y: e.clientY, kind: 'edge', edgeId });
       return;
     }
     const headerEl = t.closest('[data-card-header]');
     if (headerEl) {
-      const id = headerEl.closest('[data-tab-id]')?.getAttribute('data-tab-id');
+      // A right-click on a specific group member chip targets THAT member, not
+      // the active one; otherwise the card's own tab id.
+      const chipId = (t.closest('[data-member-tab-id]') as HTMLElement | null)?.getAttribute(
+        'data-member-tab-id',
+      );
+      const id = chipId ?? headerEl.closest('[data-tab-id]')?.getAttribute('data-tab-id');
+      if (id) {
+        e.preventDefault();
+        focusCard(id, keyOf(id));
+        setMenu({ x: e.clientX, y: e.clientY, kind: 'card', tabId: id });
+        return;
+      }
+    }
+    // Frame chrome (resize handles / connection ports) sits on the card root but
+    // outside the body surface — open the card menu for it rather than letting
+    // the native OS context menu show (no preventDefault otherwise).
+    const cardRoot = t.closest('[data-tab-id]');
+    if (cardRoot && t.closest('[data-resize-dir], [aria-label^="Connect from"]')) {
+      const id = cardRoot.getAttribute('data-tab-id');
       if (id) {
         e.preventDefault();
         focusCard(id, keyOf(id));
@@ -886,7 +1071,7 @@ export function CanvasStage() {
         useCanvasStore.getState().setSelection(renderedKeys());
         return;
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !editable) {
         const cs = useCanvasStore.getState();
         cs.clearSelection();
         cs.setFocused(null);
@@ -910,11 +1095,22 @@ export function CanvasStage() {
         setSpacePan(false);
       }
     };
+    // A keyup can be missed if the window loses focus mid-hold (alt-tab while
+    // Space is down), which would strand the canvas in pan-on-left-drag mode.
+    // Reset the Space-pan latch on blur so the cursor/behavior recover.
+    const onBlur = () => {
+      if (spaceDownRef.current) {
+        spaceDownRef.current = false;
+        setSpacePan(false);
+      }
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
     };
   }, []);
 
@@ -969,13 +1165,16 @@ export function CanvasStage() {
         const pt = toCanvas(e.clientX, e.clientY);
         void (async () => {
           const id = await openFileDragAsTab(payload);
+          if (!id) return;
           const store = useCanvasStore.getState();
-          const rect = id ? store.placements[id] : undefined;
-          if (id && rect) {
-            store.setPos(id, Math.round(pt.x - rect.w / 2), Math.round(pt.y - rect.h / 2));
-            store.setFocused(id);
-            store.bringToFront(id);
-          }
+          // Dropped files open as editor cards — center one on the drop point.
+          const { w, h } = cardDefaultSize('editor');
+          store.placeNext(id, { x: Math.round(pt.x - w / 2), y: Math.round(pt.y - h / 2), w, h });
+          whenPlaced(id, () => {
+            const s = useCanvasStore.getState();
+            s.setFocused(id);
+            s.bringToFront(id);
+          });
         })();
       }}
       aria-label="Canvas"
@@ -1021,12 +1220,22 @@ export function CanvasStage() {
                 containerRef.current?.focus(); // keep keyboard focus on the canvas
               }}
               onMove={(x, y) => handleMove(key, x, y)}
-              onNudge={(x, y) => useCanvasStore.getState().setPos(key, x, y)}
+              onNudge={(x, y) => handleNudge(key, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(key, w, h)}
-              // Merge only by dragging an ungrouped card (its key === tab id);
-              // dragging a group just moves it.
-              onHeaderDragMove={group ? undefined : (cx, cy) => headerDragMove(tab.id, cx, cy)}
-              onHeaderDrop={group ? undefined : (cx, cy) => headerDrop(tab.id, cx, cy)}
+              // Merge only by dragging a single ungrouped card (its key === tab
+              // id). Dragging a group, or a card that's part of a multi-selection,
+              // just moves — otherwise a multi-card drag would silently swallow
+              // one card into an unselected card under the drop point.
+              onHeaderDragMove={
+                group || (selection.length > 1 && selection.includes(key))
+                  ? undefined
+                  : (cx, cy) => headerDragMove(tab.id, cx, cy)
+              }
+              onHeaderDrop={
+                group || (selection.length > 1 && selection.includes(key))
+                  ? undefined
+                  : (cx, cy) => headerDrop(tab.id, cx, cy)
+              }
               registerWebEl={isWeb ? (el) => registerWebEl(tab.id, el) : undefined}
               onNavigate={
                 isWeb

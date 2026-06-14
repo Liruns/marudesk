@@ -12,6 +12,8 @@ import {
   deleteTab,
   getActiveTabId,
   getHost,
+  getPaneBounds,
+  getPaneScale,
   getTab,
   getTabGroup,
   isNetworkCaptureOn,
@@ -268,6 +270,17 @@ export function createTab(
   view.webContents.on('before-input-event', (event, input) =>
     handleTabShortcut(rec, event, input),
   );
+
+  // Canvas Ctrl/Cmd+wheel forwarding is driven by the in-page preload
+  // (electron/inspect-preload.ts → 'canvas:web-wheel'), which alone sees the wheel
+  // delta and can preventDefault the page zoom. Here we just keep the page's zoom
+  // factor pinned to the canvas-driven one as a safety net (a page that somehow
+  // zooms anyway snaps back), no-op off the canvas.
+  view.webContents.on('zoom-changed', () => {
+    if (!getPaneBounds()) return;
+    const scale = getPaneScale();
+    if (scale != null) view.webContents.setZoomFactor(scale);
+  });
 
   // Detach our CDP debugger if the page's render process dies or the contents
   // is destroyed — otherwise the renderer keeps a stale 'attached' session and

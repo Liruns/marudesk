@@ -4,6 +4,7 @@ import type { TabKind } from '../../../shared/browser';
 import logoUrl from '../../assets/logo-mark.png';
 import { useI18n } from '../../i18n/useI18n';
 import { openCliChatTab } from '../agent/store';
+import { useCanvasStore } from '../canvas/store';
 import { useGridStore } from '../tabs/grid';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -29,7 +30,12 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
       return;
     }
     void replaceTab(target, kind, url).then((newId) => {
-      if (newId) useGridStore.getState().remap(target, newId);
+      if (!newId) return;
+      // Keep the converted surface in the same slot in BOTH layouts: the split
+      // grid pane (classic) and the freeform card (canvas). replaceTab mints a
+      // fresh id, so each store has to follow the old → new id.
+      useGridStore.getState().remap(target, newId);
+      useCanvasStore.getState().remapPlacement(target, newId);
     });
   };
 

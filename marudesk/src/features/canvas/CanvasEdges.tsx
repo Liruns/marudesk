@@ -74,9 +74,12 @@ export function CanvasEdges({
         );
       })}
 
-      {preview && placements[preview.from]
+      {preview && placements[keyOf(preview.from)]
         ? (() => {
-            const a = placements[preview.from];
+            // The source may be a merged card — resolve through its group key so
+            // the live preview wire anchors to the group card, not a missing
+            // per-member placement.
+            const a = placements[keyOf(preview.from)];
             const loose = { x: preview.x, y: preview.y };
             const fromSide = preview.fromSide ?? autoSide(a, loose);
             const p1 = anchorOnSide(a, fromSide);

@@ -45,12 +45,20 @@ type TabsState = {
 type TabsActions = {
   setNavState: (state: NavState) => void;
   setTabsState: (snapshot: TabsSnapshot) => void;
+  /**
+   * Open a new tab and resolve with its id (the id minted by main —
+   * `browser:tabs-new` returns it). Callers that need to act on the new tab
+   * (e.g. the canvas positioning a fresh card) MUST use this id rather than
+   * reading `activeTabId` back: the authoritative `browser:tabs-state` push is
+   * coalesced to the next tick, so right after this resolves the store is still
+   * stale. Returns null only if main returned no id.
+   */
   newTab: (
     kind?: TabKind,
     url?: string,
     workspaceId?: WorkspaceId,
     extra?: { terminalProfile?: 'agent-cli' },
-  ) => Promise<void>;
+  ) => Promise<string | null>;
   /** Open a plugin's sandboxed UI panel in a new tab (v2 — §8.5). */
   openPluginPanel: (pluginId: string, entry: string) => Promise<void>;
   /**
@@ -161,7 +169,8 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
       ...(workspaceId === undefined ? {} : { workspaceId }),
       ...(extra?.terminalProfile ? { terminalProfile: extra.terminalProfile } : {}),
     };
-    await window.marudesk.invoke('browser:tabs-new', payload);
+    const id = await window.marudesk.invoke('browser:tabs-new', payload);
+    return typeof id === 'string' ? id : null;
   },
 
   openPluginPanel: async (pluginId, entry) => {

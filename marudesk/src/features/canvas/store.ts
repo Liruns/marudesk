@@ -119,7 +119,11 @@ export function cardDefaultSize(kind: TabKind | undefined): CardSize {
   return (kind && CARD_SIZE[kind]?.def) || CARD_DEFAULT;
 }
 
-export const SCALE_MIN = 0.2;
+// 0.25 is Chromium's minimum web-view zoomFactor; going below it would render a
+// web card's live page at 0.25× inside a smaller (0.2×) frame, so its content
+// overflows the card. Keeping the floor at 0.25 keeps the card transform and the
+// page zoom in lockstep at every reachable zoom.
+export const SCALE_MIN = 0.25;
 export const SCALE_MAX = 2.5;
 
 // Auto-placement: lay fresh cards out in a loose grid in canvas space.
@@ -637,6 +641,15 @@ type CanvasState = {
   selection: string[];
   /** The currently-selected edge (for delete), or null. */
   selectedEdgeId: string | null;
+  /**
+   * Desired spawn rects for tabs that don't have a placement yet, keyed by tab
+   * id. A tab created via IPC (`browser:tabs-new`) only lands in the store on
+   * the next-tick `browser:tabs-state` push, so callers can't `setPos` it
+   * synchronously — they register the target here and {@link syncPlacements}
+   * applies it the moment the card first appears (no grid-then-jump flicker).
+   * Not persisted (purely a hand-off buffer).
+   */
+  pendingPlacements: Record<string, { x: number; y: number; w: number; h: number }>;
 };
 
 /** A canvas's switcher-facing summary (id + name + open flag). */
@@ -645,6 +658,21 @@ export type CanvasSummary = { id: string; name: string; active: boolean };
 type CanvasActions = {
   /** Add placements for new tabs, drop placements + edges for closed ones. */
   syncPlacements: (tabIds: readonly string[]) => void;
+  /**
+   * Place a tab at `rect` when its card materializes. Applies immediately if the
+   * tab is already placed (and unlocked); otherwise stashes the rect in
+   * {@link CanvasState.pendingPlacements} for {@link syncPlacements} to consume.
+   * Lets a freshly-created tab (whose store entry lands a tick later) spawn
+   * exactly where the user asked — at the cursor, or a duplicated layout's slot.
+   */
+  placeNext: (tabId: string, rect: { x: number; y: number; w: number; h: number }) => void;
+  /**
+   * Hand a tab's placement (rect, group slot, edges) to a replacement tab id.
+   * `replaceTab` converts a New-Tab card into another kind with a FRESH id, so
+   * without this the card would lose its spot and the converted surface would
+   * grid-snap elsewhere. Safe no-op when the old id has no canvas placement.
+   */
+  remapPlacement: (oldId: string, newId: string) => void;
   setPos: (tabId: string, x: number, y: number) => void;
   setSize: (tabId: string, w: number, h: number) => void;
   bringToFront: (tabId: string) => void;
@@ -794,6 +822,65 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   focusedTabId: null,
   selection: [],
   selectedEdgeId: null,
+  pendingPlacements: {},
+
+  placeNext: (tabId, rect) =>
+    set((s) => {
+      const cur = s.placements[tabId];
+      // Already on the canvas → just move/size it now (unless locked).
+      if (cur) {
+        if (cur.locked) return {};
+        return {
+          placements: {
+            ...s.placements,
+            [tabId]: { ...cur, x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+          },
+        };
+      }
+      // Not placed yet → remember it for syncPlacements to apply on arrival.
+      return { pendingPlacements: { ...s.pendingPlacements, [tabId]: rect } };
+    }),
+
+  remapPlacement: (oldId, newId) =>
+    set((s) => {
+      if (oldId === newId) return {};
+      const patch: Partial<CanvasState> = {};
+      // Re-point any edges that referenced the old tab id (and rekey their id).
+      if (s.edges.some((e) => e.from === oldId || e.to === oldId)) {
+        patch.edges = s.edges
+          .map((e) => {
+            const from = e.from === oldId ? newId : e.from;
+            const to = e.to === oldId ? newId : e.to;
+            return from === e.from && to === e.to ? e : { ...e, id: edgeId(from, to), from, to };
+          })
+          .filter((e) => e.from !== e.to);
+      }
+      // Grouped: swap the id inside the group; the group keeps its rect/key.
+      const grp = s.groups.find((g) => g.tabIds.includes(oldId));
+      if (grp) {
+        patch.groups = s.groups.map((g) =>
+          g.id === grp.id
+            ? {
+                ...g,
+                tabIds: g.tabIds.map((t) => (t === oldId ? newId : t)),
+                activeId: g.activeId === oldId ? newId : g.activeId,
+              }
+            : g,
+        );
+        return patch;
+      }
+      // Ungrouped: hand the rect to the replacement. The new tab usually isn't in
+      // the store yet (replaceTab minted it a tick ago), so stash it for
+      // syncPlacements; the old placement is pruned when the closed tab syncs.
+      const rect = s.placements[oldId];
+      if (rect) {
+        patch.pendingPlacements = {
+          ...s.pendingPlacements,
+          [newId]: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+        };
+      }
+      return patch;
+    }),
 
   syncPlacements: (tabIds) => {
     const ids = new Set(tabIds);
@@ -932,14 +1019,21 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     }
     // Add placements for open-workspace tabs that still lack one (and aren't
     // placed on a sibling canvas), grid-flowed after the current count so they
-    // don't stack; restore a migrated v1 rect when one matches the tab id.
+    // don't stack; a caller-requested spawn rect (placeNext) wins over the grid,
+    // and a migrated v1 rect is restored when one matches the tab id.
     let topZ = state.topZ;
     let placedCount = Object.keys(next).length;
+    const pending = state.pendingPlacements;
+    const consumedPending: string[] = [];
     for (const id of tabIds) {
       if (next[id] || groupedTabs.has(id) || placedElsewhere.has(id)) continue;
       if (wsOf.get(id) !== state.wsKey) continue;
+      const want = pending[id];
       const legacyRect = legacyPlacements?.[id];
-      if (legacyRect) {
+      if (want) {
+        next[id] = { x: want.x, y: want.y, w: want.w, h: want.h, z: ++topZ };
+        consumedPending.push(id);
+      } else if (legacyRect) {
         next[id] = legacyRect;
       } else {
         const { x, y } = placeAt(placedCount);
@@ -949,9 +1043,19 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       }
       changed = true;
     }
+    const nextPending =
+      consumedPending.length > 0
+        ? Object.fromEntries(Object.entries(pending).filter(([k]) => !consumedPending.includes(k)))
+        : pending;
     // Drop edges whose endpoints have closed (edges reference tab ids).
     const liveEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
     const edgesChanged = liveEdges.length !== edges.length;
+
+    // Prune the multi-selection to keys that still have a placement — a closed or
+    // merged selected card otherwise lingers in `selection`, leaving a surviving
+    // single card stuck in multi-move mode (no snap) on its next drag.
+    const prunedSelection = state.selection.filter((k) => !!next[k]);
+    const selectionChanged = prunedSelection.length !== state.selection.length;
 
     if (changed) {
       // Rebalance z to a compact 1..N range (by current stacking order) so
@@ -967,11 +1071,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         topZ: ordered.length || 1,
         ...(edgesChanged ? { edges: liveEdges } : {}),
         ...(bwChanged ? { byWorkspace } : {}),
+        ...(consumedPending.length ? { pendingPlacements: nextPending } : {}),
+        ...(selectionChanged ? { selection: prunedSelection } : {}),
       });
-    } else if (edgesChanged || bwChanged) {
+    } else if (edgesChanged || bwChanged || selectionChanged) {
       set({
         ...(edgesChanged ? { edges: liveEdges } : {}),
         ...(bwChanged ? { byWorkspace } : {}),
+        ...(selectionChanged ? { selection: prunedSelection } : {}),
       });
     }
   },
@@ -980,25 +1087,26 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     set((s) => {
       const cur = s.placements[tabId];
       if (!cur || cur.locked) return {};
-      return { placements: { ...s.placements, [tabId]: { ...cur, x, y } } };
+      // Moving a maximized card exits the maximized state — otherwise the stale
+      // preMax makes a later "Restore" jump to the old spot.
+      const next = { ...cur, x, y };
+      delete next.preMax;
+      return { placements: { ...s.placements, [tabId]: next } };
     }),
 
   setSize: (tabId, w, h) =>
     set((s) => {
       const cur = s.placements[tabId];
       if (!cur || cur.locked) return {};
-      const kind = useTabsStore.getState().tabs.find((t) => t.id === tabId)?.kind;
+      // A group placement is keyed by the group id, so resolve the per-kind floor
+      // through its active member (else a group clamps to the generic minimum).
+      const grp = s.groups.find((g) => g.id === tabId);
+      const kindTabId = grp ? grp.activeId : tabId;
+      const kind = useTabsStore.getState().tabs.find((t) => t.id === kindTabId)?.kind;
       const min = cardMinSize(kind);
-      return {
-        placements: {
-          ...s.placements,
-          [tabId]: {
-            ...cur,
-            w: Math.max(min.w, w),
-            h: Math.max(min.h, h),
-          },
-        },
-      };
+      const next = { ...cur, w: Math.max(min.w, w), h: Math.max(min.h, h) };
+      delete next.preMax; // manual resize exits the maximized state
+      return { placements: { ...s.placements, [tabId]: next } };
     }),
 
   bringToFront: (tabId) =>
@@ -1046,11 +1154,29 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
   addEdge: (from, to, fromSide, toSide) =>
     set((s) => {
-      if (from === to || !s.placements[from] || !s.placements[to]) return {};
+      if (from === to) return {};
+      // Endpoints are tab ids, but a MERGED card's placement is keyed by its
+      // group id — so validate (and reject a same-card pair) through the
+      // placement key, not the raw tab id, or connections to/from a group card
+      // would silently no-op.
+      const fromKey = placementKey(s.groups, from);
+      const toKey = placementKey(s.groups, to);
+      if (fromKey === toKey || !s.placements[fromKey] || !s.placements[toKey]) return {};
       // Directed: A→B and B→A are distinct edges (n:n). Only dedup the exact
       // ordered pair so a node can fan out to / in from many others.
       const id = edgeId(from, to);
-      if (s.edges.some((e) => e.id === id)) return {};
+      if (s.edges.some((e) => e.id === id)) {
+        // The pair already exists → re-dragging it RE-ANCHORS its faces to the
+        // newly chosen ports (instead of silently doing nothing).
+        return {
+          edges: s.edges.map((e) =>
+            e.id === id
+              ? { ...e, ...(fromSide ? { fromSide } : {}), ...(toSide ? { toSide } : {}) }
+              : e,
+          ),
+          selectedEdgeId: id,
+        };
+      }
       const edge: Edge = {
         id,
         from,
@@ -1134,12 +1260,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             : g,
         );
       } else {
-        // Form a new group from the (ungrouped) target + dragged.
+        // Form a new group from the (ungrouped) target + dragged. Take only the
+        // geometry — a fresh merge must not inherit the target's locked/maximized
+        // state (else the new group is un-draggable or stuck maximized).
         const rect = placements[targetKey];
         if (!rect) return {};
         const id = newGroupId();
         groups = [...groups, { id, tabIds: [targetKey, draggedTabId], activeId: draggedTabId }];
-        placements[id] = { ...rect, z: s.topZ + 1 };
+        placements[id] = { x: rect.x, y: rect.y, w: rect.w, h: rect.h, z: s.topZ + 1 };
         delete placements[targetKey];
       }
       delete placements[draggedTabId];
@@ -1162,10 +1290,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       const remaining = g.tabIds.filter((t) => t !== tabId);
       const placements = { ...s.placements };
       // The popped tab gets its own card, offset from the group so it's visible.
+      // Take only geometry — never inherit the group's locked/maximized flags.
+      const w = groupRect?.w ?? CARD_DEFAULT.w;
+      const h = groupRect?.h ?? CARD_DEFAULT.h;
       placements[tabId] = {
-        ...(groupRect ?? { x: 80, y: 80, w: CARD_DEFAULT.w, h: CARD_DEFAULT.h, z: 1 }),
         x: (groupRect?.x ?? 80) + 40,
         y: (groupRect?.y ?? 80) + 40,
+        w,
+        h,
         z: s.topZ + 1,
       };
       if (remaining.length >= 2) {
@@ -1176,9 +1308,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         );
         return { groups, placements, topZ: s.topZ + 1, focusedTabId: tabId };
       }
-      // Down to one member → dissolve: the survivor inherits the group rect.
+      // Down to one member → dissolve: the survivor inherits the group rect, but
+      // not a stale preMax (it's a plain card now, not a maximized one).
       const survivor = remaining[0];
-      if (survivor && groupRect) placements[survivor] = groupRect;
+      if (survivor && groupRect) {
+        const survivorRect = { ...groupRect };
+        delete survivorRect.preMax;
+        placements[survivor] = survivorRect;
+      }
       delete placements[g.id];
       return {
         groups: s.groups.filter((gr) => gr.id !== g.id),

@@ -56,21 +56,24 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     first?.focus({ preventScroll: true });
   }, []);
 
-  // A WebContentsView composites ABOVE the React DOM, so a menu that overlaps
-  // the browser stage would otherwise render *behind* the page. Hide the
-  // embedded view while the menu is open — but only when the menu could actually
-  // overlap. Menus anchored to the left-side chrome (activity bar, explorer)
-  // stay clear of the stage, so hiding would just cause a jarring flash.
+  // A WebContentsView composites ABOVE the React DOM, so a menu over a web view
+  // would render *behind* the page. Report the exact screen rect the menu covers;
+  // main hides only the web views that actually intersect it — precise, not a
+  // blanket hide-all (which blanked every card on a canvas full of web cards).
+  // offsetWidth/Height (not getBoundingClientRect) ignores the scale-in transform.
   useEffect(() => {
-    const stage = document.querySelector<HTMLElement>('[data-stage-region]');
-    const stageLeft = stage?.getBoundingClientRect().left ?? window.innerWidth * 0.25;
-    const menuRight = x + 240;
-    if (menuRight <= stageLeft) return;
-    void window.marudesk.invoke('browser:set-visible', false);
+    const el = ref.current;
+    if (!el) return;
+    void window.marudesk.invoke('browser:set-occluder', {
+      x: pos.x,
+      y: pos.y,
+      width: el.offsetWidth,
+      height: el.offsetHeight,
+    });
     return () => {
-      void window.marudesk.invoke('browser:set-visible', true);
+      void window.marudesk.invoke('browser:set-occluder', null);
     };
-  }, [x]);
+  }, [pos.x, pos.y]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {

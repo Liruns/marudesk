@@ -1,6 +1,7 @@
 import {
   getActive,
   getLastBounds,
+  getOccluderRect,
   getPaneBounds,
   getPaneScale,
   getTab,
@@ -11,6 +12,27 @@ import {
   type Bounds,
   type TabRecord,
 } from './state';
+
+/** Whether a view at `r` is covered by the active renderer overlay (menu/popover). */
+function occludedBy(r: Bounds): boolean {
+  const o = getOccluderRect();
+  if (!o) return false;
+  return r.x < o.x + o.width && r.x + r.width > o.x && r.y < o.y + o.height && r.y + r.height > o.y;
+}
+
+/**
+ * Tell every web view's preload whether the canvas owns it now, so its in-page
+ * wheel handler knows to hand Ctrl/Cmd+wheel to the canvas (pane mode) or leave
+ * the page's own zoom alone (classic). Broadcast on every pane-bounds change, so
+ * a card added while on the canvas is covered without per-tab bookkeeping.
+ */
+function broadcastPaneMode(on: boolean): void {
+  for (const rec of tabValues()) {
+    if (rec.view && !rec.view.webContents.isDestroyed()) {
+      rec.view.webContents.send('canvas:pane-mode', on);
+    }
+  }
+}
 
 /**
  * Web-view layout engine. Positions the embedded WebContentsViews to track the
@@ -57,7 +79,7 @@ export function applyPaneBounds(bounds: Map<string, Bounds>): void {
       continue;
     }
     const r = bounds.get(rec.id);
-    if (r) {
+    if (r && !occludedBy(r)) {
       rec.view.setVisible(true);
       rec.view.setBounds({
         x: Math.round(r.x),
@@ -67,6 +89,7 @@ export function applyPaneBounds(bounds: Map<string, Bounds>): void {
       });
       if (scale != null) rec.view.webContents.setZoomFactor(scale);
     } else {
+      // No rect, or covered by an open overlay → hide so the overlay shows.
       hideTab(rec);
     }
   }
@@ -86,6 +109,12 @@ export function applyBoundsToActive(): void {
   // web stage (a flex sibling of the React dock) and pushes that rect via
   // browser:set-bounds, so we place the view at exactly the bounds given.
   const b = getLastBounds();
+  // An open overlay (context menu) over the single active view → hide it so the
+  // menu isn't drawn behind the page; the menu's unmount clears the occluder.
+  if (occludedBy(b)) {
+    hideTab(active);
+    return;
+  }
   active.view.setBounds({
     x: Math.round(b.x),
     y: Math.round(b.y),
@@ -158,12 +187,17 @@ export function setBrowserPaneBounds(
   // leaving per-tab user zoom untouched.
   setPaneScale(scale ?? null);
   applyPaneBounds(next);
+  // The canvas drives this path (it sends a scale); the classic split grid leaves
+  // scale null. Only the canvas should claim the wheel, so gate the broadcast on it.
+  broadcastPaneMode(scale != null);
 }
 
 /** Leave grid mode and restore the single active-tab view. */
 export function clearBrowserPaneBounds(): void {
   const prior = getPaneBounds();
   if (!prior) return;
+  // Leaving the canvas → web views own their Ctrl+wheel zoom again.
+  broadcastPaneMode(false);
   // If the canvas had imposed a zoom factor, undo it so classic surfaces show
   // each tab's own page zoom again — only for the views the canvas actually
   // zoomed (those in the prior pane map).
