@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentType,
@@ -84,6 +85,7 @@ export function CanvasCard({
   onFocus,
   onClose,
   onMove,
+  onMoveEnd,
   onNudge,
   onResize,
   registerWebEl,
@@ -114,9 +116,13 @@ export function CanvasCard({
   /** `additive` (shift) toggles this card in the multi-selection. */
   onFocus: (additive?: boolean) => void;
   onClose: () => void;
+  /** Live header-drag position (painted to the DOM directly by the stage). */
   onMove: (x: number, y: number) => void;
+  /** Header drag released — commit the live move to the store. */
+  onMoveEnd?: () => void;
   /** Keyboard move (no snap), so arrow-nudge stays precise. Falls back to onMove. */
   onNudge?: (x: number, y: number) => void;
+  /** Live resize size (painted to the DOM directly); committed on pointer-up. */
   onResize: (w: number, h: number) => void;
   registerWebEl?: (el: HTMLDivElement | null) => void;
   onNavigate?: (input: string) => void;
@@ -154,7 +160,21 @@ export function CanvasCard({
   const Icon = tabKinds[tab.kind]?.icon ?? Globe;
   const title = tab.title?.trim() || tab.url || tabKinds[tab.kind]?.title || 'Card';
   const dragState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
-  const resizeState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number; dir: ResizeDir } | null>(null);
+  // Resize is painted straight to the DOM during the gesture (no per-frame store
+  // write / re-render) and committed once on release — `x/y/w/h` track the live rect.
+  const resizeState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number; dir: ResizeDir; x: number; y: number; w: number; h: number } | null>(null);
+
+  // Re-assert the live resize rect after any incidental re-render mid-gesture so
+  // the card never snaps back to its stale stored rect for a frame.
+  useLayoutEffect(() => {
+    const s = resizeState.current;
+    const el = rootRef.current;
+    if (!s || !el) return;
+    el.style.left = `${s.x}px`;
+    el.style.top = `${s.y}px`;
+    el.style.width = `${s.w}px`;
+    el.style.height = `${s.h}px`;
+  });
 
   const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -175,6 +195,9 @@ export function CanvasCard({
   const onHeaderPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = dragState.current;
     if (s?.pointerId !== e.pointerId) return;
+    // Commit the live (DOM-painted) move to the store first, THEN let a drop
+    // merge — mergeInto removes the standalone placement, so it wins if it fires.
+    onMoveEnd?.();
     if (s.moved) onHeaderDrop?.(e.clientX, e.clientY);
     dragState.current = null;
   };
@@ -194,6 +217,10 @@ export function CanvasCard({
       origW: rect.w,
       origH: rect.h,
       dir,
+      x: rect.x,
+      y: rect.y,
+      w: rect.w,
+      h: rect.h,
     };
   };
   const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -228,12 +255,26 @@ export function CanvasCard({
       if (s.dir.includes('n')) y -= min.h - h;
       h = min.h;
     }
-    onResize(w, h);
-    // Free placement (no snap) for the moved edge during resize.
-    if (x !== s.origX || y !== s.origY) (onNudge ?? onMove)(x, y);
+    // Paint the new rect straight to the DOM; commit to the store on release.
+    s.x = x;
+    s.y = y;
+    s.w = w;
+    s.h = h;
+    const el = rootRef.current;
+    if (el) {
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
+      el.style.width = `${w}px`;
+      el.style.height = `${h}px`;
+    }
   };
   const onResizeEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (resizeState.current?.pointerId === e.pointerId) resizeState.current = null;
+    const s = resizeState.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    resizeState.current = null;
+    onResize(s.w, s.h);
+    // Free placement (no snap) for the moved edge during resize.
+    if (s.x !== s.origX || s.y !== s.origY) (onNudge ?? onMove)(s.x, s.y);
   };
 
   // Keyboard, only when the card FRAME itself is focused (not a child surface):

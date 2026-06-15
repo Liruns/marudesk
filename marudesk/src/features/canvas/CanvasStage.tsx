@@ -572,13 +572,13 @@ export function CanvasStage() {
 
   // Snap a moving card's edges (left/right/center + adjacency) to nearby cards
   // within a small threshold — Figma-style alignment; free placement elsewhere.
-  const snapMove = (tabId: string, x: number, y: number) => {
+  // Snapped position for a single dragged card (aligns to other rendered cards),
+  // computed WITHOUT writing — the live drag paints the result straight to the DOM.
+  const computeSnap = (tabId: string, x: number, y: number): { x: number; y: number } => {
     const store = useCanvasStore.getState();
     const pl = store.placements;
     const cur = pl[tabId];
-    if (!cur) {
-      return;
-    }
+    if (!cur) return { x, y };
     const { w, h } = cur;
     // Constant in screen px (so the feel is the same at any zoom).
     const SNAP = 6 / store.viewport.scale;
@@ -609,30 +609,91 @@ export function CanvasStage() {
         }
       }
     }
-    useCanvasStore.getState().setPos(tabId, sx, sy);
+    return { x: sx, y: sy };
   };
 
-  // Header drag: if the dragged card is part of a multi-selection, move the whole
-  // selection together (per-frame delta, no snap); otherwise snap the single card.
-  const handleMove = (key: string, x: number, y: number) => {
-    const store = useCanvasStore.getState();
-    const sel = store.selection;
-    if (sel.length > 1 && sel.includes(key)) {
-      const pl = store.placements;
-      const cur = pl[key];
-      if (!cur) return;
-      const dx = x - cur.x;
-      const dy = y - cur.y;
-      for (const k of sel) {
-        const r = pl[k];
-        if (!r || r.locked) continue;
-        if (k === key) store.setPos(k, x, y);
-        else store.setPos(k, r.x + dx, r.y + dy);
+  // Card header drag, painted STRAIGHT to the DOM (no store write / re-render until
+  // release) — the perf path mirroring the canvas pan + section fixes. Snap (single)
+  // and group-delta (multi) are unchanged; only WHERE the result lands moves: the
+  // card elements during the drag, the store once on drop.
+  const cardDragRef = useRef<{
+    key: string;
+    multi: boolean;
+    cards: { key: string; el: HTMLElement | null; ox: number; oy: number }[];
+    pos: Record<string, { x: number; y: number }>;
+  } | null>(null);
+
+  const paintCardDrag = () => {
+    const d = cardDragRef.current;
+    if (!d) return;
+    for (const c of d.cards) {
+      const p = d.pos[c.key];
+      if (c.el && p) {
+        c.el.style.left = `${p.x}px`;
+        c.el.style.top = `${p.y}px`;
       }
-    } else {
-      snapMove(key, x, y);
     }
   };
+
+  const handleMove = (key: string, x: number, y: number) => {
+    const store = useCanvasStore.getState();
+    let d = cardDragRef.current;
+    if (!d || d.key !== key) {
+      const sel = store.selection;
+      const multi = sel.length > 1 && sel.includes(key);
+      const keys = multi ? sel : [key];
+      const cards = keys
+        .map((k) => {
+          const r = store.placements[k];
+          if (!r || r.locked) return null;
+          return { key: k, el: document.querySelector<HTMLElement>(`[data-place-key="${k}"]`), ox: r.x, oy: r.y };
+        })
+        .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
+      d = { key, multi, cards, pos: {} };
+      cardDragRef.current = d;
+    }
+    if (d.multi) {
+      const origin = d.cards.find((c) => c.key === key);
+      if (!origin) return;
+      const dx = x - origin.ox;
+      const dy = y - origin.oy;
+      for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
+    } else {
+      d.pos[key] = computeSnap(key, x, y);
+    }
+    paintCardDrag();
+  };
+
+  // Commit the drag to the store in ONE update on release; React then owns the
+  // positions again, matching what we already painted (no snap-back).
+  const commitCardMove = () => {
+    const d = cardDragRef.current;
+    if (!d) return;
+    cardDragRef.current = null;
+    const store = useCanvasStore.getState();
+    const origin = d.cards.find((c) => c.key === d.key);
+    const last = d.pos[d.key];
+    if (!origin || !last) return;
+    if (last.x === origin.ox && last.y === origin.oy) return; // a click that didn't move
+    if (d.multi) {
+      const base = Object.fromEntries(d.cards.map((c) => [c.key, { x: c.ox, y: c.oy }]));
+      store.moveSelectionBy(
+        d.cards.map((c) => c.key),
+        base,
+        last.x - origin.ox,
+        last.y - origin.oy,
+      );
+    } else {
+      store.setPos(d.key, last.x, last.y);
+    }
+  };
+
+  // Re-assert an in-flight card drag after any incidental re-render (e.g. the
+  // merge-highlight setState) so the dragged card never snaps to its stale store
+  // position for a frame. Declared after the helpers so the rule sees the ref.
+  useLayoutEffect(() => {
+    if (cardDragRef.current) paintCardDrag();
+  });
 
   // Keyboard arrow nudge (free, no snap): when the card is part of a multi-
   // selection, move the WHOLE selection by the same delta; otherwise just it.
@@ -1374,6 +1435,7 @@ export function CanvasStage() {
                 containerRef.current?.focus(); // keep keyboard focus on the canvas
               }}
               onMove={(x, y) => handleMove(key, x, y)}
+              onMoveEnd={commitCardMove}
               onNudge={(x, y) => handleNudge(key, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(key, w, h)}
               // Merge only by dragging a single ungrouped card (its key === tab
