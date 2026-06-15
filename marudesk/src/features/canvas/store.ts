@@ -113,6 +113,73 @@ function newSectionId(): string {
 /** Section hues, cycled so consecutive new sections read as distinct. */
 const SECTION_COLORS: readonly TabGroupColor[] = ['violet', 'blue', 'teal', 'green', 'amber', 'rose'];
 
+/**
+ * Grow each section so it always encloses the cards (and nested sections) that
+ * belong to it — a panel dragged or resized toward the edge can no longer poke
+ * outside the frame it lives in, and a parent section keeps wrapping the child
+ * sections inside it. Membership stays spatial (centre-inside the body, the same
+ * rule `sectionMemberKeys` and the drag logic use); reflow runs inner-out
+ * (smallest first) so a parent encloses the already-updated child rects. Grow
+ * ONLY — never shrinks below the section's current size, so a manual resize (or
+ * an intentionally roomy frame) is preserved and a card dragged fully out of the
+ * frame simply stops being a member. Pure: returns a fresh sections array, or
+ * the same reference when nothing grew.
+ */
+function reflowSections(
+  sections: readonly CardSection[],
+  placements: Record<string, CardRect>,
+): readonly CardSection[] {
+  if (sections.length === 0) return sections;
+  const work = new Map(sections.map((s) => [s.id, { ...s }]));
+  const order = [...work.values()].sort((a, b) => a.w * a.h - b.w * b.h);
+  const cardRects = Object.values(placements);
+  let changed = false;
+  for (const sec of order) {
+    const top = sec.y + SECTION_HEADER_H;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let count = 0;
+    const include = (x: number, y: number, w: number, h: number) => {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + w > maxX) maxX = x + w;
+      if (y + h > maxY) maxY = y + h;
+      count += 1;
+    };
+    for (const r of cardRects) {
+      const cx = r.x + r.w / 2;
+      const cy = r.y + r.h / 2;
+      if (cx >= sec.x && cx <= sec.x + sec.w && cy >= top && cy <= sec.y + sec.h) {
+        include(r.x, r.y, r.w, r.h);
+      }
+    }
+    for (const other of work.values()) {
+      if (other.id === sec.id) continue;
+      const ocx = other.x + other.w / 2;
+      const ocy = other.y + other.h / 2;
+      if (ocx >= sec.x && ocx <= sec.x + sec.w && ocy >= sec.y && ocy <= sec.y + sec.h) {
+        include(other.x, other.y, other.w, other.h);
+      }
+    }
+    if (count === 0) continue;
+    const nx = Math.min(sec.x, Math.round(minX - SECTION_PAD));
+    const ny = Math.min(sec.y, Math.round(minY - SECTION_PAD - SECTION_HEADER_H));
+    const right = Math.max(sec.x + sec.w, Math.round(maxX + SECTION_PAD));
+    const bottom = Math.max(sec.y + sec.h, Math.round(maxY + SECTION_PAD));
+    if (nx !== sec.x || ny !== sec.y || right - nx !== sec.w || bottom - ny !== sec.h) {
+      sec.x = nx;
+      sec.y = ny;
+      sec.w = right - nx;
+      sec.h = bottom - ny;
+      changed = true;
+    }
+  }
+  if (!changed) return sections;
+  return sections.map((s) => work.get(s.id) ?? s);
+}
+
 let canvasSeq = 0;
 function newCanvasId(): string {
   canvasSeq += 1;
@@ -1198,7 +1265,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       // preMax makes a later "Restore" jump to the old spot.
       const next = { ...cur, x, y };
       delete next.preMax;
-      return { placements: { ...s.placements, [tabId]: next } };
+      const placements = { ...s.placements, [tabId]: next };
+      const sections = reflowSections(s.sections, placements);
+      return { placements, ...(sections !== s.sections ? { sections } : {}) };
     }),
 
   setSize: (tabId, w, h) =>
@@ -1213,7 +1282,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       const min = cardMinSize(kind);
       const next = { ...cur, w: Math.max(min.w, w), h: Math.max(min.h, h) };
       delete next.preMax; // manual resize exits the maximized state
-      return { placements: { ...s.placements, [tabId]: next } };
+      const placements = { ...s.placements, [tabId]: next };
+      const sections = reflowSections(s.sections, placements);
+      return { placements, ...(sections !== s.sections ? { sections } : {}) };
     }),
 
   bringToFront: (tabId) =>
@@ -1256,7 +1327,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         next[key] = { ...cur, x: b.x + dx, y: b.y + dy };
         changed = true;
       }
-      return changed ? { placements: next } : {};
+      if (!changed) return {};
+      const sections = reflowSections(s.sections, next);
+      return { placements: next, ...(sections !== s.sections ? { sections } : {}) };
     }),
 
   addEdge: (from, to, fromSide, toSide) =>
