@@ -202,10 +202,15 @@ export function hasCycle(graph: WorkGraph): boolean {
 }
 
 /**
- * Topological order of task ids by `depends_on` (Kahn's algorithm), or `null`
- * when a cycle exists. Stable: ties keep the tasks' array order.
+ * Build the `depends_on` adjacency for Kahn's algorithm: each task's indegree and
+ * out-neighbours, skipping non-`depends_on` edges, self-loops, and edges to/from
+ * unknown tasks. Shared by {@link topologicalOrder} and {@link parallelLayers}.
  */
-export function topologicalOrder(graph: WorkGraph): TaskId[] | null {
+function dependsOnAdjacency(graph: WorkGraph): {
+  ids: TaskId[];
+  indegree: Map<TaskId, number>;
+  out: Map<TaskId, TaskId[]>;
+} {
   const ids = graph.tasks.map((t) => t.id);
   const idSet = new Set(ids);
   const indegree = new Map<TaskId, number>(ids.map((id) => [id, 0]));
@@ -216,6 +221,15 @@ export function topologicalOrder(graph: WorkGraph): TaskId[] | null {
     indegree.set(e.to, (indegree.get(e.to) ?? 0) + 1);
     out.get(e.from)?.push(e.to);
   }
+  return { ids, indegree, out };
+}
+
+/**
+ * Topological order of task ids by `depends_on` (Kahn's algorithm), or `null`
+ * when a cycle exists. Stable: ties keep the tasks' array order.
+ */
+export function topologicalOrder(graph: WorkGraph): TaskId[] | null {
+  const { ids, indegree, out } = dependsOnAdjacency(graph);
   const queue = ids.filter((id) => (indegree.get(id) ?? 0) === 0);
   const order: TaskId[] = [];
   while (queue.length) {
@@ -236,16 +250,7 @@ export function topologicalOrder(graph: WorkGraph): TaskId[] | null {
  * cycle. (Independent tasks land in the same layer — the parallel-run grouping.)
  */
 export function parallelLayers(graph: WorkGraph): TaskId[][] | null {
-  const ids = graph.tasks.map((t) => t.id);
-  const idSet = new Set(ids);
-  const indegree = new Map<TaskId, number>(ids.map((id) => [id, 0]));
-  const out = new Map<TaskId, TaskId[]>(ids.map((id) => [id, []]));
-  for (const e of graph.edges) {
-    if (e.type !== 'depends_on') continue;
-    if (!idSet.has(e.from) || !idSet.has(e.to) || e.from === e.to) continue;
-    indegree.set(e.to, (indegree.get(e.to) ?? 0) + 1);
-    out.get(e.from)?.push(e.to);
-  }
+  const { ids, indegree, out } = dependsOnAdjacency(graph);
   const layers: TaskId[][] = [];
   let frontier = ids.filter((id) => (indegree.get(id) ?? 0) === 0);
   let seen = 0;

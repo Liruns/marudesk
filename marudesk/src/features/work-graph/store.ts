@@ -73,6 +73,21 @@ function touch(graph: WorkGraph): WorkGraph {
   return { ...graph, updatedAt: Date.now() };
 }
 
+/** A fresh `work` task with the standard defaults (agent executor, empty I/O). */
+function makeTask(fields: { id?: string; title: string; intent: string; acceptance?: Criterion[] }): Task {
+  return {
+    id: fields.id ?? randomId('task'),
+    title: fields.title,
+    intent: fields.intent,
+    kind: 'work',
+    status: 'planned',
+    executor: { type: 'agent', ref: 'agent' },
+    inputs: [],
+    outputs: [],
+    acceptance: fields.acceptance ?? [],
+  };
+}
+
 type WorkGraphState = {
   graph: WorkGraph | null;
   pos: Record<TaskId, NodePos>;
@@ -126,17 +141,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   addTask: (at) => {
     const id = randomId('task');
     set((s) => {
-      const task: Task = {
-        id,
-        title: 'New task',
-        intent: s.graph?.goal ?? '',
-        kind: 'work',
-        status: 'planned',
-        executor: { type: 'agent', ref: 'agent' },
-        inputs: [],
-        outputs: [],
-        acceptance: [],
-      };
+      const task = makeTask({ id, title: 'New task', intent: s.graph?.goal ?? '' });
       const base: WorkGraph = s.graph ?? {
         id: randomId('wg'),
         goal: '',
@@ -308,17 +313,12 @@ useWorkGraphStore.subscribe(() => {
  */
 export function sampleGraph(goal: string): WorkGraph {
   const g = goal.trim() || 'Ship the feature';
-  const mk = (title: string, intent: string, acceptance: string[]): Task => ({
-    id: randomId('task'),
-    title,
-    intent,
-    kind: 'work',
-    status: 'planned',
-    executor: { type: 'agent', ref: 'agent' },
-    inputs: [],
-    outputs: [],
-    acceptance: acceptance.map((text) => ({ id: randomId('crit'), text, verdict: 'unknown' as const })),
-  });
+  const mk = (title: string, intent: string, acceptance: string[]): Task =>
+    makeTask({
+      title,
+      intent,
+      acceptance: acceptance.map((text) => ({ id: randomId('crit'), text, verdict: 'unknown' as const })),
+    });
   const plan = mk('Plan & scope', `Break down: ${g}`, ['Scope is written down', 'Risks listed']);
   const backend = mk('Implement backend', g, ['Endpoints return 200', 'npm run typecheck passes']);
   const frontend = mk('Implement UI', g, ['Renders without console errors']);

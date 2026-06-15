@@ -9,6 +9,7 @@ import { getMessage } from '../../i18n/messages';
 import { currentLocale } from '../../i18n/locale-storage';
 import { isTextFileBuf } from './buffer';
 import { isDirty, useEditorStore } from './store';
+import { relativeTime } from '../git/statusMeta';
 
 /**
  * Git decorations for the single Monaco editor instance (MonacoView):
@@ -42,25 +43,6 @@ function formatBlame(entry: GitBlameLine): string {
   return summary
     ? `${entry.author}, ${rel} · ${summary}`
     : `${entry.author}, ${rel}`;
-}
-
-const TIME_UNITS: { unit: Intl.RelativeTimeFormatUnit; ms: number }[] = [
-  { unit: 'year', ms: 365 * 24 * 3600_000 },
-  { unit: 'month', ms: 30 * 24 * 3600_000 },
-  { unit: 'week', ms: 7 * 24 * 3600_000 },
-  { unit: 'day', ms: 24 * 3600_000 },
-  { unit: 'hour', ms: 3600_000 },
-  { unit: 'minute', ms: 60_000 },
-];
-
-/** Localized "3 hours ago"-style relative time via Intl (no message keys). */
-function relativeTime(epochMs: number): string {
-  const delta = epochMs - Date.now();
-  const fmt = new Intl.RelativeTimeFormat(currentLocale(), { numeric: 'auto' });
-  for (const { unit, ms } of TIME_UNITS) {
-    if (Math.abs(delta) >= ms) return fmt.format(Math.trunc(delta / ms), unit);
-  }
-  return fmt.format(Math.trunc(delta / 60_000), 'minute');
 }
 
 type BlameCacheEntry = { saved: string; lines: GitBlameLine[] | null };

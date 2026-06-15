@@ -1,5 +1,5 @@
 import type { CardRect, Edge, EdgeSide, EdgeStyle } from './store';
-import { anchorOnSide, autoSide, center, pathFor } from './edgeGeometry';
+import { anchorOnSide, autoSide, edgeEndpoints, pathFor } from './edgeGeometry';
 
 /**
  * SVG overlay that draws the node connections (edges) between cards, plus the
@@ -42,10 +42,7 @@ export function CanvasEdges({
         const a = placements[keyOf(e.from)];
         const b = placements[keyOf(e.to)];
         if (!a || !b) return null;
-        const fromSide = e.fromSide ?? autoSide(a, center(b));
-        const toSide = e.toSide ?? autoSide(b, center(a));
-        const p1 = anchorOnSide(a, fromSide);
-        const p2 = anchorOnSide(b, toSide);
+        const { p1, p2, fromSide, toSide } = edgeEndpoints(a, b, e);
         const d = pathFor(edgeStyle, p1, fromSide, p2, toSide);
         const selected = e.id === selectedEdgeId;
         return (

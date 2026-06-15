@@ -106,12 +106,17 @@ export function pathFor(
   return style === 'orthogonal' ? orthoPath(p1, n1, p2, n2) : curvePath(p1, n1, p2, n2);
 }
 
-/** Resolve an edge's two face anchors in canvas coords (sides auto-derived if
- *  unset). Shared so the stage can place the delete control on the same points. */
-export function edgeEndpoints(a: CardRect, b: CardRect, edge: Edge): { p1: Point; p2: Point } {
+/** Resolve an edge's two face anchors and the sides they sit on, in canvas
+ *  coords (sides auto-derived when unset). Shared by the SVG edge layer and the
+ *  stage's delete-control overlay so both agree on the geometry. */
+export function edgeEndpoints(
+  a: CardRect,
+  b: CardRect,
+  edge: Edge,
+): { p1: Point; p2: Point; fromSide: EdgeSide; toSide: EdgeSide } {
   const fromSide = edge.fromSide ?? autoSide(a, center(b));
   const toSide = edge.toSide ?? autoSide(b, center(a));
-  return { p1: anchorOnSide(a, fromSide), p2: anchorOnSide(b, toSide) };
+  return { p1: anchorOnSide(a, fromSide), p2: anchorOnSide(b, toSide), fromSide, toSide };
 }
 
 /** The face nearest an interior point — pins a dropped edge end to where aimed. */

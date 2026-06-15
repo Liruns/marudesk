@@ -66,7 +66,7 @@ export type Edge = {
 export type CardGroup = { id: string; tabIds: string[]; activeId: string };
 
 /** Resolve the group a tab belongs to, if any. */
-export function groupForTab(groups: readonly CardGroup[], tabId: string): CardGroup | undefined {
+function groupForTab(groups: readonly CardGroup[], tabId: string): CardGroup | undefined {
   return groups.find((g) => g.tabIds.includes(tabId));
 }
 /** The placement key for a tab: its group's id when grouped, else the tab id. */

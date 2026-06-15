@@ -158,6 +158,49 @@ function EmptyNote({ text }: { text: string }) {
   return <p className="px-3 py-4 text-body-sm text-fg-tertiary">{text}</p>;
 }
 
+/**
+ * The shared row shell for a bookmark / history entry: a click-to-open button
+ * (middle-click → new tab) with an icon + title/url, and a hover-revealed action
+ * cluster. Callers supply the icon and the action buttons; everything else (the
+ * open behavior, layout, hover affordance) is identical between the two lists.
+ */
+function LibraryEntryRow({
+  url,
+  title,
+  icon,
+  actions,
+}: {
+  url: string;
+  title: string;
+  icon: React.ReactNode;
+  actions: React.ReactNode;
+}) {
+  return (
+    <div className="group relative" role="listitem">
+      <button
+        type="button"
+        onClick={() => openEntry(url, false)}
+        onAuxClick={(e) => {
+          if (e.button === 1) openEntry(url, true);
+        }}
+        title={url}
+        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors duration-fast"
+      >
+        <span className="shrink-0 size-4 flex items-center justify-center text-fg-tertiary">
+          {icon}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block truncate text-body-sm text-fg-primary">{title || url}</span>
+          <span className="block truncate text-caption text-fg-tertiary">{url}</span>
+        </span>
+      </button>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex group-focus-within:flex items-center gap-0.5 rounded-md bg-surface-2">
+        {actions}
+      </div>
+    </div>
+  );
+}
+
 /* ── bookmarks ────────────────────────────────────────────────────────────── */
 
 function BookmarksSection({ query }: { query: string }) {
@@ -230,50 +273,36 @@ function BookmarkRow({ entry }: { entry: BookmarkEntry }) {
   }
 
   return (
-    <div className="group relative" role="listitem">
-      <button
-        type="button"
-        onClick={() => openEntry(entry.url, false)}
-        onAuxClick={(e) => {
-          if (e.button === 1) openEntry(entry.url, true);
-        }}
-        title={entry.url}
-        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors duration-fast"
-      >
-        <span className="shrink-0 size-4 flex items-center justify-center text-fg-tertiary">
-          {entry.faviconUrl ? (
-            <img src={entry.faviconUrl} alt="" className="size-4 rounded-sm" />
-          ) : (
-            <Globe size={14} />
-          )}
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="block truncate text-body-sm text-fg-primary">
-            {entry.title || entry.url}
-          </span>
-          <span className="block truncate text-caption text-fg-tertiary">
-            {entry.url}
-          </span>
-        </span>
-      </button>
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex group-focus-within:flex items-center gap-0.5 rounded-md bg-surface-2">
-        <RowAction
-          label={t('browser.library.openInNewTab')}
-          onClick={() => openEntry(entry.url, true)}
-        >
-          <ExternalLink size={13} />
-        </RowAction>
-        <RowAction label={t('browser.library.rename')} onClick={() => setEditing(true)}>
-          <Pencil size={13} />
-        </RowAction>
-        <RowAction
-          label={t('browser.library.delete')}
-          onClick={() => void removeBookmark(entry.id)}
-        >
-          <Trash2 size={13} />
-        </RowAction>
-      </div>
-    </div>
+    <LibraryEntryRow
+      url={entry.url}
+      title={entry.title}
+      icon={
+        entry.faviconUrl ? (
+          <img src={entry.faviconUrl} alt="" className="size-4 rounded-sm" />
+        ) : (
+          <Globe size={14} />
+        )
+      }
+      actions={
+        <>
+          <RowAction
+            label={t('browser.library.openInNewTab')}
+            onClick={() => openEntry(entry.url, true)}
+          >
+            <ExternalLink size={13} />
+          </RowAction>
+          <RowAction label={t('browser.library.rename')} onClick={() => setEditing(true)}>
+            <Pencil size={13} />
+          </RowAction>
+          <RowAction
+            label={t('browser.library.delete')}
+            onClick={() => void removeBookmark(entry.id)}
+          >
+            <Trash2 size={13} />
+          </RowAction>
+        </>
+      }
+    />
   );
 }
 
@@ -392,43 +421,27 @@ function HistoryRow({
 }) {
   const { t } = useI18n();
   return (
-    <div className="group relative" role="listitem">
-      <button
-        type="button"
-        onClick={() => openEntry(entry.url, false)}
-        onAuxClick={(e) => {
-          if (e.button === 1) openEntry(entry.url, true);
-        }}
-        title={entry.url}
-        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors duration-fast"
-      >
-        <span className="shrink-0 size-4 flex items-center justify-center text-fg-tertiary">
-          <Globe size={14} />
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="block truncate text-body-sm text-fg-primary">
-            {entry.title || entry.url}
-          </span>
-          <span className="block truncate text-caption text-fg-tertiary">
-            {entry.url}
-          </span>
-        </span>
-      </button>
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex group-focus-within:flex items-center gap-0.5 rounded-md bg-surface-2">
-        <RowAction
-          label={t('browser.library.openInNewTab')}
-          onClick={() => openEntry(entry.url, true)}
-        >
-          <ExternalLink size={13} />
-        </RowAction>
-        <RowAction
-          label={t('browser.library.removeFromHistory')}
-          onClick={() => onDelete(entry.url)}
-        >
-          <Trash2 size={13} />
-        </RowAction>
-      </div>
-    </div>
+    <LibraryEntryRow
+      url={entry.url}
+      title={entry.title}
+      icon={<Globe size={14} />}
+      actions={
+        <>
+          <RowAction
+            label={t('browser.library.openInNewTab')}
+            onClick={() => openEntry(entry.url, true)}
+          >
+            <ExternalLink size={13} />
+          </RowAction>
+          <RowAction
+            label={t('browser.library.removeFromHistory')}
+            onClick={() => onDelete(entry.url)}
+          >
+            <Trash2 size={13} />
+          </RowAction>
+        </>
+      }
+    />
   );
 }
 
