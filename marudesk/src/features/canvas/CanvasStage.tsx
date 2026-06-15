@@ -201,12 +201,20 @@ export function CanvasStage() {
     ? tabs.filter((t) => t.workspaceId === activeWorkspaceId)
     : tabs;
   const visibleIds = new Set(visibleTabs.map((t) => t.id));
-  // Map a tab to its placement key (group id when merged) for edge anchoring.
+  const sectionIds = new Set(sections.map((s) => s.id));
+  // Map a tab to its placement key (group id when merged) for edge anchoring; a
+  // section id is its own key.
   const keyOf = (tabId: string): string => placementKey(groups, tabId);
+  // An edge endpoint is visible if it's a visible tab or a section on this canvas.
+  const nodeVisible = (key: string): boolean => visibleIds.has(key) || sectionIds.has(key);
+  // Edge endpoints resolve their rect from cards (placements) OR sections, so a
+  // card↔section / section↔section wire anchors to the section frame.
+  const nodeRects: Record<string, CardRect> = { ...placements };
+  for (const s of sections) nodeRects[s.id] = { x: s.x, y: s.y, w: s.w, h: s.h, z: 0 };
   // Only draw edges whose both endpoints are visible; skip intra-group edges
   // (both ends resolve to the same card).
   const visibleEdges = edges.filter(
-    (e) => visibleIds.has(e.from) && visibleIds.has(e.to) && keyOf(e.from) !== keyOf(e.to),
+    (e) => nodeVisible(e.from) && nodeVisible(e.to) && keyOf(e.from) !== keyOf(e.to),
   );
   const activeWsName = workspaces.find((w) => w.id === activeWorkspaceId)?.name;
 
@@ -709,12 +717,13 @@ export function CanvasStage() {
     return { x: (clientX - r.left - panX) / scale, y: (clientY - r.top - panY) / scale };
   }, []);
 
-  // Drag a connection from a card's port to another card. Window listeners (the
-  // drag crosses the whole canvas); the drop target is hit-tested by [data-tab-id].
+  // Drag a connection from a card OR section port to another node. Window
+  // listeners (the drag crosses the whole canvas); the drop target is hit-tested
+  // by geometry. `fromNode` is a tab id or a section id.
   const startConnect = useCallback(
-    (fromTabId: string, fromSide: EdgeSide, clientX: number, clientY: number) => {
+    (fromNode: string, fromSide: EdgeSide, clientX: number, clientY: number) => {
       const p = toCanvas(clientX, clientY);
-      setConnect({ from: fromTabId, fromSide, x: p.x, y: p.y });
+      setConnect({ from: fromNode, fromSide, x: p.x, y: p.y });
       const onMove = (ev: PointerEvent) => {
         const q = toCanvas(ev.clientX, ev.clientY);
         setConnect((c) => (c ? { ...c, x: q.x, y: q.y } : c));
@@ -728,10 +737,10 @@ export function CanvasStage() {
         // would return that view and the drop would be lost. Find the topmost
         // visible card/group whose rect contains the drop point.
         const pt = toCanvas(ev.clientX, ev.clientY);
-        const { placements: pl, groups: gs } = useCanvasStore.getState();
-        const fromKey = placementKey(gs, fromTabId);
+        const { placements: pl, groups: gs, sections: secs } = useCanvasStore.getState();
+        const fromKey = placementKey(gs, fromNode);
         const visSet = visibleTabIds();
-        let targetKey: string | null = null;
+        let targetTabId: string | null = null;
         let targetRect: CardRect | null = null;
         let bestZ = -Infinity;
         for (const [key, r] of Object.entries(pl)) {
@@ -741,16 +750,31 @@ export function CanvasStage() {
           if (!visible) continue;
           if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h && r.z > bestZ) {
             bestZ = r.z;
-            targetKey = key;
+            // A group target connects to its active member (edges are tab-keyed).
+            targetTabId = grp ? grp.activeId : key;
             targetRect = r;
           }
         }
-        // Pin the target end to the face nearest the drop point (4-directional);
-        // a group target connects to its active member (edges are tab-keyed).
-        if (targetKey && targetRect) {
-          const grp = gs.find((g) => g.id === targetKey);
-          const targetTabId = grp ? grp.activeId : targetKey;
-          useCanvasStore.getState().addEdge(fromTabId, targetTabId, fromSide, nearestSide(targetRect, pt));
+        // No card under the drop → fall back to a section (drawn behind cards), so
+        // you can wire a section by dropping on its empty area. Prefer the SMALLEST
+        // containing section so a nested inner section wins over its parent.
+        if (!targetTabId) {
+          let bestArea = Infinity;
+          for (const sec of secs) {
+            if (sec.id === fromKey) continue;
+            if (pt.x >= sec.x && pt.x <= sec.x + sec.w && pt.y >= sec.y && pt.y <= sec.y + sec.h) {
+              const area = sec.w * sec.h;
+              if (area < bestArea) {
+                bestArea = area;
+                targetTabId = sec.id;
+                targetRect = { x: sec.x, y: sec.y, w: sec.w, h: sec.h, z: 0 };
+              }
+            }
+          }
+        }
+        // Pin the target end to the face nearest the drop point (4-directional).
+        if (targetTabId && targetRect) {
+          useCanvasStore.getState().addEdge(fromNode, targetTabId, fromSide, nearestSide(targetRect, pt));
         }
       };
       window.addEventListener('pointermove', onMove);
@@ -1310,10 +1334,14 @@ export function CanvasStage() {
         }}
       >
         {/* Section frames, drawn behind everything (zIndex 0). */}
-        <CanvasSections sections={sections} scale={viewport.scale} />
-        {/* Node connections, drawn behind the cards. */}
+        <CanvasSections
+          sections={sections}
+          scale={viewport.scale}
+          onStartConnect={(sectionId, side, cx, cy) => startConnect(sectionId, side, cx, cy)}
+        />
+        {/* Node connections (card↔card, card↔section, section↔section). */}
         <CanvasEdges
-          placements={placements}
+          placements={nodeRects}
           edges={visibleEdges}
           edgeStyle={edgeStyle}
           selectedEdgeId={selectedEdgeId}
@@ -1389,8 +1417,8 @@ export function CanvasStage() {
           if (!selectedEdgeId) return null;
           const sel = visibleEdges.find((e) => e.id === selectedEdgeId);
           if (!sel) return null;
-          const a = placements[keyOf(sel.from)];
-          const b = placements[keyOf(sel.to)];
+          const a = nodeRects[keyOf(sel.from)];
+          const b = nodeRects[keyOf(sel.to)];
           if (!a || !b) return null;
           const { p1, p2 } = edgeEndpoints(a, b, sel);
           return (

@@ -1137,8 +1137,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       consumedPending.length > 0
         ? Object.fromEntries(Object.entries(pending).filter(([k]) => !consumedPending.includes(k)))
         : pending;
-    // Drop edges whose endpoints have closed (edges reference tab ids).
-    const liveEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+    // Drop edges whose endpoints have closed. Endpoints are tab ids OR section
+    // ids (a card↔section / section↔section wire), so keep an edge while either
+    // kind of endpoint is still alive.
+    const sectionIds = new Set(state.sections.map((sec) => sec.id));
+    const nodeAlive = (k: string) => ids.has(k) || sectionIds.has(k);
+    const liveEdges = edges.filter((e) => nodeAlive(e.from) && nodeAlive(e.to));
     const edgesChanged = liveEdges.length !== edges.length;
 
     // Prune the multi-selection to keys that still have a placement — a closed or
@@ -1245,13 +1249,15 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   addEdge: (from, to, fromSide, toSide) =>
     set((s) => {
       if (from === to) return {};
-      // Endpoints are tab ids, but a MERGED card's placement is keyed by its
-      // group id — so validate (and reject a same-card pair) through the
-      // placement key, not the raw tab id, or connections to/from a group card
-      // would silently no-op.
+      // Endpoints are tab ids OR section ids. A MERGED card's placement is keyed
+      // by its group id, so validate (and reject a same-node pair) through the
+      // placement key; a section is its own key. A node exists if it has a
+      // placement or is a live section — so card↔card, card↔section, and
+      // section↔section wires are all valid.
       const fromKey = placementKey(s.groups, from);
       const toKey = placementKey(s.groups, to);
-      if (fromKey === toKey || !s.placements[fromKey] || !s.placements[toKey]) return {};
+      const nodeExists = (key: string) => !!s.placements[key] || s.sections.some((sec) => sec.id === key);
+      if (fromKey === toKey || !nodeExists(fromKey) || !nodeExists(toKey)) return {};
       // Directed: A→B and B→A are distinct edges (n:n). Only dedup the exact
       // ordered pair so a node can fan out to / in from many others.
       const id = edgeId(from, to);
@@ -1454,7 +1460,15 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   setSectionColor: (id, color) =>
     set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, color } : sec)) })),
 
-  removeSection: (id) => set((s) => ({ sections: s.sections.filter((sec) => sec.id !== id) })),
+  removeSection: (id) =>
+    set((s) => ({
+      sections: s.sections.filter((sec) => sec.id !== id),
+      // Drop any wires that were attached to this section.
+      edges: s.edges.filter((e) => e.from !== id && e.to !== id),
+      selectedEdgeId: s.edges.some((e) => (e.from === id || e.to === id) && e.id === s.selectedEdgeId)
+        ? null
+        : s.selectedEdgeId,
+    })),
 
   sectionMemberKeys: (id) => {
     const s = get();

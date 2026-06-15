@@ -2,7 +2,15 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Trash2 } from 'lucide-react';
 import type { TabGroupColor } from '../../../shared/browser';
 import { cn } from '../../lib/cn';
-import { SECTION_HEADER_H, useCanvasStore, type CardSection } from './store';
+import { EDGE_SIDES, SECTION_HEADER_H, useCanvasStore, type CardSection, type EdgeSide } from './store';
+
+/** Where each face's connection port sits, centered just outside the frame. */
+const PORT_POS: Record<EdgeSide, string> = {
+  top: '-top-2 left-1/2 -translate-x-1/2',
+  right: '-right-2 top-1/2 -translate-y-1/2',
+  bottom: '-bottom-2 left-1/2 -translate-x-1/2',
+  left: '-left-2 top-1/2 -translate-y-1/2',
+};
 
 /**
  * Labeled section frames drawn BEHIND the cards on the canvas plane. A section
@@ -25,28 +33,50 @@ const SECTION_CLASSES: Record<TabGroupColor, { frame: string; header: string; te
 
 const SECTION_COLOR_CYCLE: readonly TabGroupColor[] = ['violet', 'blue', 'teal', 'green', 'amber', 'rose'];
 
-export function CanvasSections({ sections, scale }: { sections: readonly CardSection[]; scale: number }) {
+export function CanvasSections({
+  sections,
+  scale,
+  onStartConnect,
+}: {
+  sections: readonly CardSection[];
+  scale: number;
+  /** Begin dragging a connection from a section's port (sectionId, face, screen px). */
+  onStartConnect: (sectionId: string, side: EdgeSide, clientX: number, clientY: number) => void;
+}) {
+  // Paint larger sections first so a NESTED (smaller) section sits visually on
+  // top of its parent and stays interactive.
+  const ordered = [...sections].sort((a, b) => b.w * b.h - a.w * a.h);
   return (
     <>
-      {sections.map((sec) => (
-        <SectionFrame key={sec.id} section={sec} scale={scale} />
+      {ordered.map((sec) => (
+        <SectionFrame key={sec.id} section={sec} scale={scale} onStartConnect={onStartConnect} />
       ))}
     </>
   );
 }
 
-function SectionFrame({ section, scale }: { section: CardSection; scale: number }) {
+function SectionFrame({
+  section,
+  scale,
+  onStartConnect,
+}: {
+  section: CardSection;
+  scale: number;
+  onStartConnect: (sectionId: string, side: EdgeSide, clientX: number, clientY: number) => void;
+}) {
   const cls = SECTION_CLASSES[section.color];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(section.title);
-  // Drag = the section frame + the cards inside it move together; resize = frame only.
+  // Drag = the section frame + the cards inside it + any NESTED sections (and
+  // their cards) move together; resize = frame only.
   const moveRef = useRef<{
     pointerId: number;
     startX: number;
     startY: number;
     origX: number;
     origY: number;
-    members: { key: string; x: number; y: number }[];
+    cards: { key: string; x: number; y: number }[];
+    childSections: { id: string; x: number; y: number }[];
   } | null>(null);
   const resizeRef = useRef<{ pointerId: number; startX: number; startY: number; origW: number; origH: number } | null>(null);
 
@@ -55,11 +85,30 @@ function SectionFrame({ section, scale }: { section: CardSection; scale: number 
     e.stopPropagation();
     const store = useCanvasStore.getState();
     const placements = store.placements;
-    const members = store
+    // Cards whose centre is inside this section move with it.
+    const cards = store
       .sectionMemberKeys(section.id)
       .map((key) => ({ key, x: placements[key].x, y: placements[key].y }));
+    // Nested sections (centre inside this one) move too — their own cards are
+    // already covered above, since they sit inside this section as well.
+    const childSections = store.sections
+      .filter((sec) => {
+        if (sec.id === section.id) return false;
+        const scx = sec.x + sec.w / 2;
+        const scy = sec.y + sec.h / 2;
+        return scx >= section.x && scx <= section.x + section.w && scy >= section.y && scy <= section.y + section.h;
+      })
+      .map((sec) => ({ id: sec.id, x: sec.x, y: sec.y }));
     e.currentTarget.setPointerCapture(e.pointerId);
-    moveRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origX: section.x, origY: section.y, members };
+    moveRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: section.x,
+      origY: section.y,
+      cards,
+      childSections,
+    };
   };
   const onHeaderMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const m = moveRef.current;
@@ -68,7 +117,8 @@ function SectionFrame({ section, scale }: { section: CardSection; scale: number 
     const dy = (e.clientY - m.startY) / scale;
     const store = useCanvasStore.getState();
     store.setSectionPos(section.id, m.origX + dx, m.origY + dy);
-    for (const mem of m.members) store.setPos(mem.key, mem.x + dx, mem.y + dy);
+    for (const c of m.cards) store.setPos(c.key, c.x + dx, c.y + dy);
+    for (const sec of m.childSections) store.setSectionPos(sec.id, sec.x + dx, sec.y + dy);
   };
   const onHeaderUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (moveRef.current?.pointerId === e.pointerId) moveRef.current = null;
@@ -106,9 +156,32 @@ function SectionFrame({ section, scale }: { section: CardSection; scale: number 
   return (
     <div
       data-canvas-section
+      data-section-id={section.id}
       className={cn('group/section absolute rounded-lg border-2 border-dashed', cls.frame)}
       style={{ left: section.x, top: section.y, width: section.w, height: section.h, zIndex: 0 }}
     >
+      {/* Connection ports — drag onto another section/card to wire them. One per
+          face, just outside the frame; fade in on hover. */}
+      {EDGE_SIDES.map((side) => (
+        <button
+          key={side}
+          type="button"
+          aria-label={`Connect from ${side} edge`}
+          title="Drag to another section or card to connect"
+          className={cn(
+            'absolute z-10 h-3.5 w-3.5 rounded-pill border opacity-0 transition-opacity duration-fast',
+            'bg-surface-1 cursor-crosshair group-hover/section:opacity-100',
+            cls.frame,
+            PORT_POS[side],
+          )}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            e.preventDefault();
+            onStartConnect(section.id, side, e.clientX, e.clientY);
+          }}
+        />
+      ))}
       <div
         className={cn(
           'flex h-[30px] items-center gap-1.5 rounded-t-md px-2 cursor-grab active:cursor-grabbing select-none',
