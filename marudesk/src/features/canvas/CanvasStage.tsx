@@ -148,6 +148,46 @@ function renderedPredicate(vis: Set<string>, groups: readonly CardGroup[]): (key
 }
 
 /**
+ * Should the wheel scroll a panel's own content instead of panning the canvas?
+ * Walk up from the wheel target to the canvas container looking for a scrollable
+ * surface inside a card. Editors and terminals scroll via their own machinery
+ * (overflow:hidden + transforms), so trust their root; generic overflow boxes
+ * (lists, chat transcript, settings, devtools) claim the wheel only while they
+ * still have room in that direction, so a fully-scrolled panel chains back to a
+ * canvas pan (FigJam-style scroll chaining).
+ */
+function wheelOverScrollable(
+  target: EventTarget | null,
+  stop: HTMLElement,
+  deltaX: number,
+  deltaY: number,
+): boolean {
+  if (target instanceof HTMLElement && target.closest('.monaco-editor, .xterm')) return true;
+  let node = target instanceof HTMLElement ? target : null;
+  while (node && node !== stop) {
+    const style = getComputedStyle(node);
+    const scrollsY =
+      (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+      node.scrollHeight > node.clientHeight + 1;
+    const scrollsX =
+      (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+      node.scrollWidth > node.clientWidth + 1;
+    if (deltaY !== 0 && scrollsY) {
+      const atTop = node.scrollTop <= 0;
+      const atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+      if (!((deltaY < 0 && atTop) || (deltaY > 0 && atBottom))) return true;
+    }
+    if (deltaX !== 0 && scrollsX) {
+      const atLeft = node.scrollLeft <= 0;
+      const atRight = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
+      if (!((deltaX < 0 && atLeft) || (deltaX > 0 && atRight))) return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+/**
  * Focus + raise a card once it has a placement (its card has materialized) — run
  * after creating/opening a card so the new surface becomes the live one
  * immediately (matters for agent cards, which only run live when focused).
@@ -437,17 +477,24 @@ export function CanvasStage() {
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
         // Zoom at the cursor (also catches trackpad pinch, which arrives as
         // ctrl+wheel). Fold any in-flight wheel pan in first so the zoom anchors
         // off the real (committed) viewport, not a stale store value.
+        e.preventDefault();
         commitLivePan();
         const r = el.getBoundingClientRect();
         useCanvasStore
           .getState()
           .zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
-      } else if (e.shiftKey) {
+        return;
+      }
+      // A scrollable panel under the pointer (editor, terminal, list, chat) owns
+      // the wheel — let it scroll its own content natively rather than panning
+      // the canvas out from under it.
+      if (wheelOverScrollable(e.target, el, e.deltaX, e.deltaY)) return;
+      e.preventDefault();
+      if (e.shiftKey) {
         // Shift + wheel = horizontal pan (Figma).
         livePanBy(-(e.deltaY || e.deltaX), 0);
         scheduleWheelCommit();
