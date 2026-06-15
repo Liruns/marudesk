@@ -233,7 +233,17 @@ export function CanvasStage() {
   const [spacePan, setSpacePan] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  // The CSS-transformed plane (cards live inside it). Panning writes its transform
+  // directly so a drag never re-renders React — the perf fix for "휠 클릭 버벅거림".
+  const planeRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  // Live (uncommitted) pan offset while a pan gesture is in flight, or null when
+  // the store is authoritative. The plane/grid transform is driven straight from
+  // this on each pointer/wheel event, and only committed to the store on gesture
+  // end — so cards/edges aren't re-rendered ~120×/sec mid-pan.
+  const livePanRef = useRef<{ panX: number; panY: number } | null>(null);
+  // Trailing-commit timer for wheel panning (no pointerup to commit on).
+  const wheelCommitRef = useRef<number | null>(null);
   // Marquee anchor (canvas coords) + the multi-selection store keys it began with.
   const marqueeRef = useRef<{ pointerId: number; ox: number; oy: number } | null>(null);
   const spaceDownRef = useRef(false);
@@ -289,6 +299,68 @@ export function CanvasStage() {
     });
   }, []);
 
+  // Write the live pan straight to the DOM (plane transform + grid background) so
+  // a pan gesture moves at the compositor's pace without a React re-render. The
+  // store stays untouched until the gesture commits.
+  const applyLiveTransform = useCallback(() => {
+    const lp = livePanRef.current;
+    if (!lp) return;
+    const scale = useCanvasStore.getState().viewport.scale;
+    if (planeRef.current) {
+      planeRef.current.style.transform = `translate(${lp.panX}px, ${lp.panY}px) scale(${scale})`;
+    }
+    if (containerRef.current) {
+      containerRef.current.style.backgroundPosition = `${lp.panX}px ${lp.panY}px`;
+    }
+  }, []);
+
+  // Accumulate a pan delta onto the live offset (seeding from the store on the
+  // first move of a gesture), repaint the plane directly, and let the native web
+  // views follow (measureWeb is itself rAF-coalesced).
+  const livePanBy = useCallback(
+    (dx: number, dy: number) => {
+      if (!livePanRef.current) {
+        const vp = useCanvasStore.getState().viewport;
+        livePanRef.current = { panX: vp.panX, panY: vp.panY };
+      }
+      livePanRef.current.panX += dx;
+      livePanRef.current.panY += dy;
+      applyLiveTransform();
+      measureWeb();
+    },
+    [applyLiveTransform, measureWeb],
+  );
+
+  // Fold the live pan back into the store (one update → one re-render) and drop
+  // the live offset so React owns the transform again.
+  const commitLivePan = useCallback(() => {
+    if (wheelCommitRef.current !== null) {
+      clearTimeout(wheelCommitRef.current);
+      wheelCommitRef.current = null;
+    }
+    const lp = livePanRef.current;
+    if (!lp) return;
+    livePanRef.current = null;
+    useCanvasStore.getState().setPan(lp.panX, lp.panY);
+  }, []);
+
+  // Wheel panning has no pointerup, so commit on a short trailing idle.
+  const scheduleWheelCommit = useCallback(() => {
+    if (wheelCommitRef.current !== null) clearTimeout(wheelCommitRef.current);
+    wheelCommitRef.current = window.setTimeout(() => {
+      wheelCommitRef.current = null;
+      commitLivePan();
+    }, 140);
+  }, [commitLivePan]);
+
+  // The store is intentionally stale during a pan, so if React happens to
+  // re-render mid-gesture (a tab title update, a card animation, …) it paints the
+  // plane at the committed offset. Re-assert the live transform after every render
+  // (pre-paint) so the pan never snaps back for a frame.
+  useLayoutEffect(() => {
+    if (livePanRef.current) applyLiveTransform();
+  });
+
   // Keep placements in step with the open tabs (initial mount + later changes).
   useEffect(() => {
     useCanvasStore.getState().syncPlacements(tabIdsKey ? tabIdsKey.split('\n') : []);
@@ -334,6 +406,7 @@ export function CanvasStage() {
   useEffect(() => {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (wheelCommitRef.current !== null) clearTimeout(wheelCommitRef.current);
       void window.marudesk.invoke('browser:clear-pane-bounds');
     };
   }, []);
@@ -346,22 +419,28 @@ export function CanvasStage() {
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const store = useCanvasStore.getState();
       if (e.ctrlKey || e.metaKey) {
-        // Zoom at the cursor (also catches trackpad pinch, which arrives as ctrl+wheel).
+        // Zoom at the cursor (also catches trackpad pinch, which arrives as
+        // ctrl+wheel). Fold any in-flight wheel pan in first so the zoom anchors
+        // off the real (committed) viewport, not a stale store value.
+        commitLivePan();
         const r = el.getBoundingClientRect();
-        store.zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+        useCanvasStore
+          .getState()
+          .zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
       } else if (e.shiftKey) {
         // Shift + wheel = horizontal pan (Figma).
-        store.panBy(-(e.deltaY || e.deltaX), 0);
+        livePanBy(-(e.deltaY || e.deltaX), 0);
+        scheduleWheelCommit();
       } else {
         // Plain wheel / trackpad = two-axis pan.
-        store.panBy(-e.deltaX, -e.deltaY);
+        livePanBy(-e.deltaX, -e.deltaY);
+        scheduleWheelCommit();
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [livePanBy, commitLivePan, scheduleWheelCommit]);
 
   // Ctrl/Cmd+wheel over a web card is eaten by its native view, so main forwards
   // it here (see electron/browser/tabs.ts). Zoom the canvas centered on that
@@ -393,6 +472,8 @@ export function CanvasStage() {
     // empty canvas; right opens the context menu.
     const pan = e.button === 1 || (e.button === 0 && spaceDownRef.current);
     if (pan) {
+      // Fold any trailing wheel pan in before a drag starts from a clean offset.
+      commitLivePan();
       e.currentTarget.setPointerCapture(e.pointerId);
       panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
       setPanning(true);
@@ -416,7 +497,8 @@ export function CanvasStage() {
       const dy = e.clientY - p.y;
       p.x = e.clientX;
       p.y = e.clientY;
-      useCanvasStore.getState().panBy(dx, dy);
+      // Direct-to-DOM pan — no store write (and no re-render) until pointerup.
+      livePanBy(dx, dy);
       return;
     }
     const m = marqueeRef.current;
@@ -433,6 +515,8 @@ export function CanvasStage() {
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (panRef.current?.pointerId === e.pointerId) {
       panRef.current = null;
+      // Commit the gesture's accumulated offset to the store in one update.
+      commitLivePan();
       setPanning(false);
       return;
     }
@@ -1181,9 +1265,13 @@ export function CanvasStage() {
       tabIndex={-1}
     >
       <div
+        ref={planeRef}
         className="absolute inset-0 origin-top-left"
         style={{
           transform: `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`,
+          // Promote to its own compositor layer so panning is a GPU transform,
+          // not a paint — the rest of the "버벅거림" fix beyond skipping re-renders.
+          willChange: 'transform',
         }}
       >
         {/* Node connections, drawn behind the cards. */}
