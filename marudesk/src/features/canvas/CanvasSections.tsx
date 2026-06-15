@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { TabGroupColor } from '../../../shared/browser';
 import { cn } from '../../lib/cn';
@@ -67,28 +67,69 @@ function SectionFrame({
   const cls = SECTION_CLASSES[section.color];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(section.title);
-  // Drag = the section frame + the cards inside it + any NESTED sections (and
-  // their cards) move together; resize = frame only.
+  const rootRef = useRef<HTMLDivElement>(null);
+  // A live section drag: the frame + the cards inside it + any NESTED sections
+  // move together. To stay smooth on a busy canvas, the move is painted STRAIGHT
+  // to the DOM (no store write, so nothing re-renders) and committed to the store
+  // once on release. `el` is each member's DOM node, captured at drag start;
+  // `x`/`y` are its origin (for the DOM paint + the final commit).
   const moveRef = useRef<{
     pointerId: number;
     startX: number;
     startY: number;
-    origX: number;
-    origY: number;
-    cards: { key: string; x: number; y: number }[];
-    childSections: { id: string; x: number; y: number }[];
+    dx: number;
+    dy: number;
+    cards: { key: string; el: HTMLElement | null; x: number; y: number }[];
+    childSections: { id: string; el: HTMLElement | null; x: number; y: number }[];
   } | null>(null);
-  const resizeRef = useRef<{ pointerId: number; startX: number; startY: number; origW: number; origH: number } | null>(null);
+  const resizeRef = useRef<{ pointerId: number; startX: number; startY: number; origW: number; origH: number; w: number; h: number } | null>(null);
+
+  // Repaint the section + its members straight to the DOM at the current offset.
+  const paintMove = () => {
+    const m = moveRef.current;
+    if (!m) return;
+    if (rootRef.current) {
+      rootRef.current.style.left = `${section.x + m.dx}px`;
+      rootRef.current.style.top = `${section.y + m.dy}px`;
+    }
+    for (const c of m.cards) {
+      if (!c.el) continue;
+      c.el.style.left = `${c.x + m.dx}px`;
+      c.el.style.top = `${c.y + m.dy}px`;
+    }
+    for (const sec of m.childSections) {
+      if (!sec.el) continue;
+      sec.el.style.left = `${sec.x + m.dx}px`;
+      sec.el.style.top = `${sec.y + m.dy}px`;
+    }
+  };
+
+  // If React re-renders mid-drag (an external store change), it repaints from the
+  // stale store positions; re-assert the live offset/size after every render
+  // (pre-paint) so a section drag/resize never snaps back for a frame. Mirrors the
+  // canvas pan fix.
+  useLayoutEffect(() => {
+    if (moveRef.current) paintMove();
+    const r = resizeRef.current;
+    if (r && rootRef.current) {
+      rootRef.current.style.width = `${r.w}px`;
+      rootRef.current.style.height = `${r.h}px`;
+    }
+  });
 
   const onHeaderDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || editing) return;
     e.stopPropagation();
     const store = useCanvasStore.getState();
     const placements = store.placements;
-    // Cards whose centre is inside this section move with it.
-    const cards = store
-      .sectionMemberKeys(section.id)
-      .map((key) => ({ key, x: placements[key].x, y: placements[key].y }));
+    // Cards whose centre is inside this section move with it; resolve each card's
+    // DOM node by its placement key for the direct paint.
+    const cards = store.sectionMemberKeys(section.id).map((key) => ({
+      key,
+      el: document.querySelector<HTMLElement>(`[data-place-key="${key}"]`),
+      x: placements[key].x,
+      y: placements[key].y,
+    }));
     // Nested sections (centre inside this one) move too — their own cards are
     // already covered above, since they sit inside this section as well.
     const childSections = store.sections
@@ -98,47 +139,58 @@ function SectionFrame({
         const scy = sec.y + sec.h / 2;
         return scx >= section.x && scx <= section.x + section.w && scy >= section.y && scy <= section.y + section.h;
       })
-      .map((sec) => ({ id: sec.id, x: sec.x, y: sec.y }));
+      .map((sec) => ({
+        id: sec.id,
+        el: document.querySelector<HTMLElement>(`[data-section-id="${sec.id}"]`),
+        x: sec.x,
+        y: sec.y,
+      }));
     e.currentTarget.setPointerCapture(e.pointerId);
-    moveRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: section.x,
-      origY: section.y,
-      cards,
-      childSections,
-    };
+    moveRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, cards, childSections };
   };
   const onHeaderMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const m = moveRef.current;
     if (!m || m.pointerId !== e.pointerId) return;
-    const dx = (e.clientX - m.startX) / scale;
-    const dy = (e.clientY - m.startY) / scale;
-    const store = useCanvasStore.getState();
-    store.setSectionPos(section.id, m.origX + dx, m.origY + dy);
-    for (const c of m.cards) store.setPos(c.key, c.x + dx, c.y + dy);
-    for (const sec of m.childSections) store.setSectionPos(sec.id, sec.x + dx, sec.y + dy);
+    m.dx = (e.clientX - m.startX) / scale;
+    m.dy = (e.clientY - m.startY) / scale;
+    paintMove();
   };
   const onHeaderUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (moveRef.current?.pointerId === e.pointerId) moveRef.current = null;
+    const m = moveRef.current;
+    if (!m || m.pointerId !== e.pointerId) return;
+    moveRef.current = null;
+    if (m.dx === 0 && m.dy === 0) return;
+    // Commit the whole group in ONE store update (one re-render); React then owns
+    // the positions again, matching what we already painted (no snap).
+    useCanvasStore.getState().moveSectionGroup(section.id, m.dx, m.dy, {
+      section: { x: section.x, y: section.y },
+      cards: m.cards.map((c) => ({ key: c.key, x: c.x, y: c.y })),
+      childSections: m.childSections.map((c) => ({ id: c.id, x: c.x, y: c.y })),
+    });
   };
 
   const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    resizeRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origW: section.w, origH: section.h };
+    resizeRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origW: section.w, origH: section.h, w: section.w, h: section.h };
   };
   const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const r = resizeRef.current;
     if (!r || r.pointerId !== e.pointerId) return;
-    useCanvasStore
-      .getState()
-      .setSectionSize(section.id, r.origW + (e.clientX - r.startX) / scale, r.origH + (e.clientY - r.startY) / scale);
+    // DOM-direct resize (no per-frame store write); committed on release.
+    r.w = Math.max(120, r.origW + (e.clientX - r.startX) / scale);
+    r.h = Math.max(SECTION_HEADER_H + 60, r.origH + (e.clientY - r.startY) / scale);
+    if (rootRef.current) {
+      rootRef.current.style.width = `${r.w}px`;
+      rootRef.current.style.height = `${r.h}px`;
+    }
   };
   const onResizeUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (resizeRef.current?.pointerId === e.pointerId) resizeRef.current = null;
+    const r = resizeRef.current;
+    if (!r || r.pointerId !== e.pointerId) return;
+    resizeRef.current = null;
+    useCanvasStore.getState().setSectionSize(section.id, r.w, r.h);
   };
 
   const commitRename = () => {
@@ -155,6 +207,7 @@ function SectionFrame({
 
   return (
     <div
+      ref={rootRef}
       data-canvas-section
       data-section-id={section.id}
       className={cn('group/section absolute rounded-lg border-2 border-dashed', cls.frame)}

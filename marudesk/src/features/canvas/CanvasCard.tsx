@@ -76,6 +76,7 @@ const RESIZE_HANDLES: { dir: ResizeDir; cls: string }[] = [
 
 export function CanvasCard({
   tab,
+  placeKey,
   rect,
   scale,
   focused,
@@ -102,6 +103,9 @@ export function CanvasCard({
   onToggleMaximize,
 }: {
   tab: TabState;
+  /** This card's canvas placement key (tab id, or group id when merged) — lets a
+   *  section drag find and move the card's DOM element directly. */
+  placeKey: string;
   rect: CardRect;
   scale: number;
   focused: boolean;
@@ -268,6 +272,7 @@ export function CanvasCard({
       ref={rootRef}
       data-canvas-card
       data-tab-id={tab.id}
+      data-place-key={placeKey}
       role="group"
       aria-label={`${title} card`}
       tabIndex={0}

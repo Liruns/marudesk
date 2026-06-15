@@ -793,6 +793,19 @@ type CanvasActions = {
   removeSection: (id: string) => void;
   /** Card placement keys whose centre falls inside section `id` (spatial members). */
   sectionMemberKeys: (id: string) => string[];
+  /** Commit a section drag: move the section + its member cards + nested sections
+   *  by (dx,dy) from captured origins in ONE update (one re-render). The live drag
+   *  itself is painted straight to the DOM, so this only runs on release. */
+  moveSectionGroup: (
+    sectionId: string,
+    dx: number,
+    dy: number,
+    origin: {
+      section: { x: number; y: number };
+      cards: { key: string; x: number; y: number }[];
+      childSections: { id: string; x: number; y: number }[];
+    },
+  ) => void;
 
   panBy: (dx: number, dy: number) => void;
   /** Set the absolute pan (used by the minimap to recenter). */
@@ -1484,6 +1497,22 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       })
       .map(([k]) => k);
   },
+
+  moveSectionGroup: (sectionId, dx, dy, origin) =>
+    set((s) => {
+      const placements = { ...s.placements };
+      for (const c of origin.cards) {
+        const cur = placements[c.key];
+        if (cur && !cur.locked) placements[c.key] = { ...cur, x: c.x + dx, y: c.y + dy };
+      }
+      const childById = new Map(origin.childSections.map((c) => [c.id, c]));
+      const sections = s.sections.map((sec) => {
+        if (sec.id === sectionId) return { ...sec, x: origin.section.x + dx, y: origin.section.y + dy };
+        const child = childById.get(sec.id);
+        return child ? { ...sec, x: child.x + dx, y: child.y + dy } : sec;
+      });
+      return { placements, sections };
+    }),
 
   panBy: (dx, dy) =>
     set((s) => ({

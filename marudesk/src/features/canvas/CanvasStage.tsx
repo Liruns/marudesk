@@ -1357,6 +1357,7 @@ export function CanvasStage() {
             <CanvasCard
               key={key}
               tab={tab}
+              placeKey={key}
               rect={rect}
               scale={viewport.scale}
               focused={focusedTabId === tab.id}
