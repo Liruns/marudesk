@@ -109,7 +109,17 @@ export async function decomposeGoal(
     });
     const graph = parseWorkGraph(extractJsonObject(res.text));
     if (!graph) return { ok: false, reason: 'The model did not return a valid task graph.' };
-    return { ok: true, graph: { ...graph, goal: trimmed } };
+    // The decomposer is the AI: mark every task AI-authored and frame the whole
+    // plan in one section (labeled with the goal) so it reads as a unit.
+    const section = trimmed.slice(0, 60);
+    return {
+      ok: true,
+      graph: {
+        ...graph,
+        goal: trimmed,
+        tasks: graph.tasks.map((t) => ({ ...t, author: 'agent' as const, group: t.group ?? section })),
+      },
+    };
   } catch (err) {
     return { ok: false, reason: humanizeModelError(err, target.provider, target.model) };
   }

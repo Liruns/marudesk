@@ -169,6 +169,12 @@ export interface EventPayloadMap {
     acceptance?: string[];
     dependsOn?: string[];
     goal?: string;
+    /** Named section to cluster this task with its siblings on the canvas. */
+    group?: string;
+    /** Context / plan this task hands to the tasks that depend on it. */
+    handoff?: string;
+    /** Tools the task expects to use (e.g. "edit_file", "run_tests"). */
+    tools?: string[];
   };
 }
 

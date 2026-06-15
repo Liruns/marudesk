@@ -21,6 +21,12 @@ export type EdgeId = string;
 export type TaskKind = 'work' | 'decision';
 export const TASK_KINDS: readonly TaskKind[] = ['work', 'decision'];
 
+/** Who AUTHORED the task (created the node) — distinct from {@link Executor}, who
+ *  performs it. Lets the canvas tell an AI-drawn task apart from a human-added
+ *  one at a glance. */
+export type Authorship = 'agent' | 'human';
+export const AUTHORS: readonly Authorship[] = ['agent', 'human'];
+
 export type TaskStatus =
   | 'planned'
   | 'running'
@@ -100,10 +106,26 @@ export type Task = {
   intent: string;
   kind: TaskKind;
   status: TaskStatus;
+  /** Who created the node (AI vs human) — see {@link Authorship}. */
+  author: Authorship;
   executor: Executor;
   inputs: Ref[];
   outputs: Resource[];
   acceptance: Criterion[];
+  /**
+   * Optional named cluster this task belongs to. Tasks sharing a `group` are
+   * framed together in a labeled section on the canvas — the AI uses it to wrap
+   * the steps of one plan into one region so the flow reads as a unit.
+   */
+  group?: string;
+  /**
+   * The context / plan this task hands to its dependents — a short note the next
+   * task should carry forward (the `data`-edge handoff, surfaced as plain text so
+   * it is visible and editable before any execution engine consumes it).
+   */
+  handoff?: string;
+  /** Tools this task expects to use (e.g. "edit_file", "run_tests", a subagent). */
+  tools?: string[];
   evidence?: TaskEvidence;
 };
 
@@ -129,6 +151,9 @@ export type WorkGraph = {
 
 export function isTaskKind(v: unknown): v is TaskKind {
   return typeof v === 'string' && (TASK_KINDS as readonly string[]).includes(v);
+}
+export function isAuthor(v: unknown): v is Authorship {
+  return typeof v === 'string' && (AUTHORS as readonly string[]).includes(v);
 }
 export function isTaskStatus(v: unknown): v is TaskStatus {
   return typeof v === 'string' && (TASK_STATUSES as readonly string[]).includes(v);
@@ -328,12 +353,18 @@ function parseCriterion(raw: unknown): Criterion | null {
 function parseTask(raw: unknown): Task | null {
   const r = rec(raw);
   if (!r || !isStr(r.id) || !isStr(r.title)) return null;
+  const tools = Array.isArray(r.tools)
+    ? r.tools.map((v) => (isStr(v) ? v.trim() : '')).filter(Boolean)
+    : [];
   return {
     id: r.id,
     title: r.title,
     intent: isStr(r.intent) ? r.intent : '',
     kind: isTaskKind(r.kind) ? r.kind : 'work',
     status: isTaskStatus(r.status) ? r.status : 'planned',
+    // Default to human authorship when a persisted / hand-written task omits it,
+    // so an unknown task is never mislabeled as AI-made.
+    author: isAuthor(r.author) ? r.author : 'human',
     executor: parseExecutor(r.executor),
     inputs: Array.isArray(r.inputs) ? r.inputs.map(parseRef).filter((x): x is Ref => !!x) : [],
     outputs: Array.isArray(r.outputs)
@@ -342,6 +373,9 @@ function parseTask(raw: unknown): Task | null {
     acceptance: Array.isArray(r.acceptance)
       ? r.acceptance.map(parseCriterion).filter((x): x is Criterion => !!x)
       : [],
+    ...(isStr(r.group) && r.group.trim() ? { group: r.group.trim() } : {}),
+    ...(isStr(r.handoff) && r.handoff.trim() ? { handoff: r.handoff.trim() } : {}),
+    ...(tools.length > 0 ? { tools } : {}),
   };
 }
 

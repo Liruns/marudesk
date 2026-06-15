@@ -23,6 +23,7 @@ function task(id: string, status: TaskStatus = 'planned', extra: Partial<Task> =
     intent: '',
     kind: 'work',
     status,
+    author: 'agent',
     executor: { type: 'agent', ref: 'agent' },
     inputs: [],
     outputs: [],
@@ -173,5 +174,17 @@ describe('parseWorkGraph', () => {
     expect(wg!.tasks[0].status).toBe('planned');
     expect(wg!.tasks[0].kind).toBe('work');
     expect(wg!.tasks[0].acceptance[0]).toMatchObject({ text: 'typecheck passes', verdict: 'pass' });
+  });
+
+  it('parses author / group / handoff / tools and defaults author to human', () => {
+    const wg = parseWorkGraph({
+      tasks: [
+        { id: 'a', title: 'A', author: 'agent', group: 'Backend', handoff: 'token schema', tools: ['edit_file', '', 7] },
+        { id: 'b', title: 'B' }, // author omitted → human
+      ],
+    });
+    expect(wg!.tasks[0]).toMatchObject({ author: 'agent', group: 'Backend', handoff: 'token schema', tools: ['edit_file'] });
+    expect(wg!.tasks[1].author).toBe('human');
+    expect(wg!.tasks[1].group).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Play, Plus, Square, Trash2, X } from 'lucide-react';
+import { ArrowRight, Check, Play, Plus, Square, Trash2, User, Wand2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import {
   type Task,
@@ -10,6 +10,10 @@ import { sampleGraph, useWorkGraphStore } from './store';
 
 export const NODE_W = 208;
 export const NODE_H = 118;
+
+/** Section-frame padding around the tasks of one group (canvas px). */
+const GROUP_PAD = 24;
+const GROUP_HEADER = 20;
 
 /** Shared styling for the WorkGraphPanel tool buttons (Run / Task / Reset). */
 const TOOL_BTN =
@@ -79,6 +83,7 @@ export function WorkGraphNodes({ toCanvas, scale }: Props) {
 
   return (
     <>
+      <GroupFrames graph={graph} pos={pos} />
       <WorkGraphEdges graph={graph} pos={pos} connect={connect} />
       {graph.tasks.map((task) => {
         const p = pos[task.id];
@@ -93,6 +98,58 @@ export function WorkGraphNodes({ toCanvas, scale }: Props) {
             selected={selectedTaskId === task.id}
             onStartConnect={(cx, cy) => startConnect(task.id, cx, cy)}
           />
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Labeled section frames behind the task nodes — one per distinct `task.group`,
+ * auto-fit to the bounding box of its members. The AI clusters the steps of a
+ * plan under a shared group so the whole flow reads as one framed unit on the
+ * canvas. Non-interactive (pointer-events-none) so node drags pass through.
+ */
+function GroupFrames({
+  graph,
+  pos,
+}: {
+  graph: WorkGraph;
+  pos: Record<string, { x: number; y: number }>;
+}) {
+  const groups = new Map<string, { x: number; y: number; w: number; h: number }[]>();
+  for (const task of graph.tasks) {
+    if (!task.group) continue;
+    const p = pos[task.id];
+    if (!p) continue;
+    const rects = groups.get(task.group) ?? [];
+    rects.push({ x: p.x, y: p.y, w: NODE_W, h: NODE_H });
+    groups.set(task.group, rects);
+  }
+  if (groups.size === 0) return null;
+  return (
+    <>
+      {[...groups.entries()].map(([label, rects]) => {
+        const minX = Math.min(...rects.map((r) => r.x));
+        const minY = Math.min(...rects.map((r) => r.y));
+        const maxX = Math.max(...rects.map((r) => r.x + r.w));
+        const maxY = Math.max(...rects.map((r) => r.y + r.h));
+        return (
+          <div
+            key={label}
+            className="pointer-events-none absolute rounded-xl border border-dashed border-accent/40 bg-accent/5"
+            style={{
+              left: minX - GROUP_PAD,
+              top: minY - GROUP_PAD - GROUP_HEADER,
+              width: maxX - minX + GROUP_PAD * 2,
+              height: maxY - minY + GROUP_PAD * 2 + GROUP_HEADER,
+            }}
+          >
+            <span className="m-1 inline-flex max-w-[92%] items-center gap-1 truncate rounded bg-accent-subtle px-1.5 py-0.5 text-[10px] font-medium leading-none text-accent">
+              <Wand2 size={10} aria-hidden />
+              {label}
+            </span>
+          </div>
         );
       })}
     </>
@@ -209,8 +266,22 @@ function TaskNodeCard({
         onPointerCancel={onHeaderUp}
         className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 cursor-grab active:cursor-grabbing"
       >
-        <span className={cn('rounded-pill px-1.5 py-0.5 text-[10px] font-medium leading-none', style.chip)}>
+        <span className={cn('inline-flex items-center gap-1 rounded-pill px-1.5 py-0.5 text-[10px] font-medium leading-none', style.chip)}>
+          {task.status === 'running' ? (
+            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden />
+          ) : null}
           {style.label}
+        </span>
+        {/* Authorship — AI-drawn vs human-added, at a glance. */}
+        <span
+          className={cn(
+            'inline-flex items-center gap-0.5 rounded-pill px-1.5 py-0.5 text-[10px] font-medium leading-none',
+            task.author === 'agent' ? 'bg-accent-subtle text-accent' : 'bg-surface-3 text-fg-tertiary',
+          )}
+          title={task.author === 'agent' ? 'Created by AI' : 'Created by you'}
+        >
+          {task.author === 'agent' ? <Wand2 size={9} aria-hidden /> : <User size={9} aria-hidden />}
+          {task.author === 'agent' ? 'AI' : 'You'}
         </span>
         {task.kind === 'decision' ? (
           <span className="rounded-pill bg-surface-3 px-1.5 py-0.5 text-[10px] text-fg-tertiary leading-none">Decision</span>
@@ -257,6 +328,26 @@ function TaskNodeCard({
             </span>
           ) : null}
         </div>
+        {/* Tools this step expects to use. */}
+        {task.tools && task.tools.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {task.tools.map((tool) => (
+              <span
+                key={tool}
+                className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] leading-none text-fg-tertiary"
+              >
+                {tool}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {/* Context handed to the downstream tasks. */}
+        {task.handoff ? (
+          <p className="mt-1.5 flex items-start gap-1 text-caption text-fg-tertiary">
+            <ArrowRight size={11} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+            <span className="line-clamp-2">{task.handoff}</span>
+          </p>
+        ) : null}
       </div>
 
       {/* Output port (drag to another node to add a depends_on edge) */}

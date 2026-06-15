@@ -5,6 +5,7 @@ import {
   parallelLayers,
   parseWorkGraph,
   readyTasks,
+  type Authorship,
   type Criterion,
   type Edge,
   type Task,
@@ -148,17 +149,30 @@ function touch(graph: WorkGraph): WorkGraph {
 }
 
 /** A fresh `work` task with the standard defaults (agent executor, empty I/O). */
-function makeTask(fields: { id?: string; title: string; intent: string; acceptance?: Criterion[] }): Task {
+function makeTask(fields: {
+  id?: string;
+  title: string;
+  intent: string;
+  author: Authorship;
+  acceptance?: Criterion[];
+  group?: string;
+  handoff?: string;
+  tools?: string[];
+}): Task {
   return {
     id: fields.id ?? randomId('task'),
     title: fields.title,
     intent: fields.intent,
     kind: 'work',
     status: 'planned',
+    author: fields.author,
     executor: { type: 'agent', ref: 'agent' },
     inputs: [],
     outputs: [],
     acceptance: fields.acceptance ?? [],
+    ...(fields.group ? { group: fields.group } : {}),
+    ...(fields.handoff ? { handoff: fields.handoff } : {}),
+    ...(fields.tools && fields.tools.length > 0 ? { tools: fields.tools } : {}),
   };
 }
 
@@ -188,8 +202,17 @@ type WorkGraphActions = {
     acceptance?: string[];
     dependsOn?: readonly string[];
     goal?: string;
+    /** Named section to cluster this task with its siblings. */
+    group?: string;
+    /** Context / plan this task hands to its dependents. */
+    handoff?: string;
+    /** Tools the task expects to use. */
+    tools?: readonly string[];
   }) => TaskId;
-  updateTask: (id: TaskId, patch: Partial<Pick<Task, 'title' | 'intent' | 'status' | 'kind'>>) => void;
+  updateTask: (
+    id: TaskId,
+    patch: Partial<Pick<Task, 'title' | 'intent' | 'status' | 'kind' | 'group' | 'handoff'>>,
+  ) => void;
   deleteTask: (id: TaskId) => void;
   setPos: (id: TaskId, x: number, y: number) => void;
   selectTask: (id: TaskId | null) => void;
@@ -229,7 +252,8 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   addTask: (at) => {
     const id = randomId('task');
     set((s) => {
-      const task = makeTask({ id, title: 'New task', intent: s.graph?.goal ?? '' });
+      // Human-added from the canvas controls → authored 'human'.
+      const task = makeTask({ id, title: 'New task', intent: s.graph?.goal ?? '', author: 'human' });
       const base: WorkGraph = s.graph ?? {
         id: randomId('wg'),
         goal: '',
@@ -263,14 +287,19 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         updatedAt: Date.now(),
       };
       const goal = base.goal || spec.goal?.trim() || '';
+      const tools = (spec.tools ?? []).map((v) => v.trim()).filter(Boolean);
       const task = makeTask({
         id,
         title: spec.title.trim() || 'New task',
         intent: spec.intent?.trim() || goal,
+        author: 'agent',
         acceptance: (spec.acceptance ?? [])
           .map((text) => text.trim())
           .filter(Boolean)
           .map((text) => ({ id: randomId('crit'), text, verdict: 'unknown' as const })),
+        ...(spec.group?.trim() ? { group: spec.group.trim() } : {}),
+        ...(spec.handoff?.trim() ? { handoff: spec.handoff.trim() } : {}),
+        ...(tools.length > 0 ? { tools } : {}),
       });
 
       // Wire depends_on edges for parents that already exist (skip self / cycles).
@@ -453,6 +482,8 @@ export function sampleGraph(goal: string): WorkGraph {
     makeTask({
       title,
       intent,
+      author: 'agent',
+      group: g,
       acceptance: acceptance.map((text) => ({ id: randomId('crit'), text, verdict: 'unknown' as const })),
     });
   const plan = mk('Plan & scope', `Break down: ${g}`, ['Scope is written down', 'Risks listed']);

@@ -38,19 +38,27 @@ async function createTaskTool(input: Record<string, unknown>): Promise<ToolResul
   // Accept either depends_on (model-facing snake_case) or dependsOn (lenient).
   const dependsOn = stringList(input.depends_on ?? input.dependsOn, 24);
   const goal = typeof input.goal === 'string' ? input.goal.trim().slice(0, 2000) : undefined;
+  // Section to cluster related tasks (accept `section` or `group`), the context
+  // handed to dependents (`handoff` or `produces`), and the tools it will use.
+  const groupRaw = input.section ?? input.group;
+  const group = typeof groupRaw === 'string' ? groupRaw.trim().slice(0, 80) || undefined : undefined;
+  const handoffRaw = input.handoff ?? input.produces;
+  const handoff = typeof handoffRaw === 'string' ? handoffRaw.trim().slice(0, 2000) || undefined : undefined;
+  const tools = stringList(input.tools, 12);
 
   const id = randomId('task');
   const host = getHost();
   if (!host || host.isDestroyed()) {
     return { summary: 'create_task failed', text: 'The app window is unavailable to draw the task.', isError: true };
   }
-  host.webContents.send('workos:create-task', { id, title, intent, acceptance, dependsOn, goal });
+  host.webContents.send('workos:create-task', { id, title, intent, acceptance, dependsOn, goal, group, handoff, tools });
 
   const dep = dependsOn?.length ? ` It depends on ${dependsOn.join(', ')}.` : '';
+  const sec = group ? ` In section "${group}".` : '';
   return {
     summary: `task: ${title}`,
     text:
-      `Added the task "${title}" (id ${id}) to the canvas task graph.${dep} ` +
+      `Added the task "${title}" (id ${id}) to the canvas task graph.${dep}${sec} ` +
       `Reference this id as a later task's depends_on to draw the dependency flow.`,
   };
 }
@@ -58,7 +66,7 @@ async function createTaskTool(input: Record<string, unknown>): Promise<ToolResul
 export const CREATE_TASK_TOOL: McpTool = {
   name: 'create_task',
   description:
-    "Draw a task node on the user's canvas to visualize your plan as you work. Call it once per concrete step (decompose a goal into a few tasks), giving a short imperative `title`, an optional `intent` (why it exists), optional `acceptance` checks, and `depends_on` — the ids returned by earlier create_task calls this task must follow. The graph lays out left→right by dependency and is placed in empty space, never over the user's open tabs. This is a planning/visualization aid only; it does not execute anything.",
+    "Draw a task node on the user's canvas to visualize your plan as you work. Call it once per concrete step (decompose a goal into a few tasks), giving a short imperative `title`, an optional `intent` (why it exists), optional `acceptance` checks, and `depends_on` — the ids returned by earlier create_task calls this task must follow. Group the steps of one plan under a shared `section` name so they are framed together as a readable unit. Use `handoff` to note the context/result this task passes to the tasks that depend on it, and `tools` to list the tools it will use. The graph lays out left→right by dependency and is placed in empty space, never over the user's open tabs. This is a planning/visualization aid only; it does not execute anything.",
   inputSchema: {
     type: 'object',
     properties: {
@@ -75,6 +83,13 @@ export const CREATE_TASK_TOOL: McpTool = {
         description: 'Ids of tasks (from earlier create_task calls) that must complete first.',
       },
       goal: strProp('Optional overall goal — seeds the graph the first time you create a task.'),
+      section: strProp('Optional section name to cluster related tasks together in one framed region.'),
+      handoff: strProp('Optional context / plan this task passes to the tasks that depend on it.'),
+      tools: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional tools this task expects to use (e.g. "edit_file", "run_tests", a subagent name).',
+      },
     },
     required: ['title'],
     additionalProperties: false,
