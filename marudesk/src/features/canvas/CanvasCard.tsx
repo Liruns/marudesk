@@ -5,8 +5,20 @@ import {
   type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react';
-import { ExternalLink, Globe, Lock, LockOpen, Maximize2, Minimize2, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  ExternalLink,
+  Globe,
+  Lock,
+  LockOpen,
+  Maximize2,
+  Minimize2,
+  RotateCw,
+  X,
+} from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { tabKinds } from '../tabs/registry';
 import { cardMinSize, EDGE_SIDES, useCanvasStore, type CardRect, type EdgeSide } from './store';
@@ -75,6 +87,9 @@ export function CanvasCard({
   onResize,
   registerWebEl,
   onNavigate,
+  onGoBack,
+  onGoForward,
+  onReload,
   onOpenDevtools,
   onStartConnect,
   group,
@@ -101,6 +116,10 @@ export function CanvasCard({
   onResize: (w: number, h: number) => void;
   registerWebEl?: (el: HTMLDivElement | null) => void;
   onNavigate?: (input: string) => void;
+  /** Web-card browser controls (back / forward / reload this card's own view). */
+  onGoBack?: () => void;
+  onGoForward?: () => void;
+  onReload?: () => void;
   onOpenDevtools?: () => void;
   onStartConnect?: (side: EdgeSide, clientX: number, clientY: number) => void;
   /** When set, the header is a tab strip of merged cards (this is a group). */
@@ -282,9 +301,26 @@ export function CanvasCard({
           <GroupTabStrip group={group} />
         ) : (
           <>
-            <span className="shrink-0 text-fg-tertiary">
-              <Icon size={14} />
-            </span>
+            {isWeb && (onGoBack || onGoForward || onReload) ? (
+              // Real browser chrome on the card: back / forward / reload drive THIS
+              // card's own view. Shown from @[16rem] so a tiny card keeps just the
+              // address bar. Each stops propagation so it doesn't start a header drag.
+              <div className="hidden @[16rem]:flex shrink-0 items-center gap-0.5">
+                <CardNavButton label="Back" onClick={onGoBack}>
+                  <ArrowLeft size={13} />
+                </CardNavButton>
+                <CardNavButton label="Forward" onClick={onGoForward}>
+                  <ArrowRight size={13} />
+                </CardNavButton>
+                <CardNavButton label="Reload" onClick={onReload}>
+                  <RotateCw size={12} />
+                </CardNavButton>
+              </div>
+            ) : (
+              <span className="shrink-0 text-fg-tertiary">
+                <Icon size={14} />
+              </span>
+            )}
             {isWeb ? (
               <input
                 value={addr}
@@ -457,6 +493,35 @@ export function CanvasCard({
         </div>
       ))}
     </div>
+  );
+}
+
+/** A compact web-card chrome button (back / forward / reload). Stops pointer
+ *  propagation so a click never starts a header drag; disabled with no handler. */
+function CardNavButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={!onClick}
+      className="grid h-6 w-6 place-items-center rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary disabled:opacity-40 disabled:hover:bg-transparent"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

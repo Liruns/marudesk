@@ -364,6 +364,12 @@ export function CanvasStage() {
   // Keep placements in step with the open tabs (initial mount + later changes).
   useEffect(() => {
     useCanvasStore.getState().syncPlacements(tabIdsKey ? tabIdsKey.split('\n') : []);
+    // Opening a web card runs createAndActivateTab → showTab in main, which drops
+    // the process out of grid mode (single-active path) until the renderer re-asserts
+    // pane bounds. Clear the dedup so the NEXT measure always re-sends, re-entering
+    // grid mode — otherwise an unchanged pane list is skipped and the card's native
+    // view stays at the stale single-view rect, i.e. blank on the canvas.
+    lastSentRef.current = '';
   }, [tabIdsKey]);
 
   // Re-measure web views on any viewport (pan/zoom) or placement (move) change,
@@ -1328,16 +1334,17 @@ export function CanvasStage() {
               onNavigate={
                 isWeb
                   ? (input) => {
-                      // Navigate targets the active tab, so activate this card's
-                      // tab first, then hand the input to the browser (it
-                      // normalizes URL vs. search term in the main process).
-                      void (async () => {
-                        await useTabsStore.getState().activateTab(tab.id);
-                        await window.marudesk.invoke('browser:navigate', input);
-                      })();
+                      // Navigate THIS card's own view in place (by tab id) — never
+                      // touches the active tab or the grid, so the page loads in the
+                      // card instead of leaving it blank. Main normalizes URL vs.
+                      // search term.
+                      void window.marudesk.invoke('browser:navigate-tab', { tabId: tab.id, url: input });
                     }
                   : undefined
               }
+              onGoBack={isWeb ? () => void window.marudesk.invoke('browser:go-back-tab', tab.id) : undefined}
+              onGoForward={isWeb ? () => void window.marudesk.invoke('browser:go-forward-tab', tab.id) : undefined}
+              onReload={isWeb ? () => void window.marudesk.invoke('browser:reload-tab', { tabId: tab.id }) : undefined}
               onOpenDevtools={isWeb ? () => openDevtoolsFor(tab.id) : undefined}
               onStartConnect={(side, cx, cy) => startConnect(tab.id, side, cx, cy)}
             />

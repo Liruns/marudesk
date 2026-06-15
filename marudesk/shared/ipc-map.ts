@@ -128,6 +128,12 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export interface IpcMap {
   // browser
   'browser:navigate': { args: [url: string]; result: void };
+  // Per-tab controls — the canvas drives a specific card's view by id without
+  // changing the active tab or disturbing the multi-card grid layout.
+  'browser:navigate-tab': { args: [payload: { tabId: string; url: string }]; result: void };
+  'browser:go-back-tab': { args: [tabId: string]; result: boolean };
+  'browser:go-forward-tab': { args: [tabId: string]; result: boolean };
+  'browser:reload-tab': { args: [payload: { tabId: string; ignoreCache?: boolean }]; result: boolean };
   'browser:set-bounds': { args: [bounds: Rect]; result: void };
   'browser:set-pane-bounds': {
     // `scale` (optional) is the canvas zoom; web views render their page at it so
