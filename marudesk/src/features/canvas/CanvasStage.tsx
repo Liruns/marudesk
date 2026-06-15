@@ -41,7 +41,7 @@ import { CanvasPlanFlow } from './CanvasPlanFlow';
 import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
 import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
-import { cardDefaultSize, placementKey, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
+import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
 type CanvasMenu =
@@ -250,13 +250,17 @@ export function CanvasStage() {
   // directly so a drag never re-renders React — the perf fix for "휠 클릭 버벅거림".
   const planeRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
-  // Live (uncommitted) pan offset while a pan gesture is in flight, or null when
-  // the store is authoritative. The plane/grid transform is driven straight from
-  // this on each pointer/wheel event, and only committed to the store on gesture
-  // end — so cards/edges aren't re-rendered ~120×/sec mid-pan.
-  const livePanRef = useRef<{ panX: number; panY: number } | null>(null);
+  // Live (uncommitted) viewport while a pan OR zoom gesture is in flight, or null
+  // when the store is authoritative. The plane/grid transform is driven straight
+  // from this on each pointer/wheel/animation frame, and only committed to the
+  // store on gesture end — so cards/edges aren't re-rendered ~120×/sec mid-gesture.
+  // Zoom carries `scale` too (pan leaves it at the committed value).
+  const liveRef = useRef<{ panX: number; panY: number; scale: number } | null>(null);
   // Trailing-commit timer for wheel panning (no pointerup to commit on).
   const wheelCommitRef = useRef<number | null>(null);
+  // Active eased-zoom glide: the target scale + the container-px anchor the cursor
+  // is pinned to, and the rAF handle driving the ease. Null when no zoom is gliding.
+  const zoomRef = useRef<{ target: number; anchorX: number; anchorY: number; raf: number | null } | null>(null);
   // Marquee anchor (canvas coords) + the multi-selection store keys it began with.
   const marqueeRef = useRef<{ pointerId: number; ox: number; oy: number } | null>(null);
   const spaceDownRef = useRef(false);
@@ -303,8 +307,10 @@ export function CanvasStage() {
           },
         });
       }
-      // Send the canvas zoom so main scales each web view's page to match.
-      const scale = useCanvasStore.getState().viewport.scale;
+      // Send the canvas zoom so main scales each web view's page to match. During a
+      // live pan/zoom the store scale is stale, so prefer the in-flight live scale
+      // — otherwise web cards wouldn't track the zoom until the gesture committed.
+      const scale = liveRef.current?.scale ?? useCanvasStore.getState().viewport.scale;
       const key = JSON.stringify({ panes, scale });
       if (key === lastSentRef.current) return; // nothing changed → skip the IPC
       lastSentRef.current = key;
@@ -312,66 +318,136 @@ export function CanvasStage() {
     });
   }, []);
 
-  // Write the live pan straight to the DOM (plane transform + grid background) so
-  // a pan gesture moves at the compositor's pace without a React re-render. The
+  // Seed the live viewport from the store on the first event of a gesture, and
+  // promote the plane to its own compositor layer for the duration so pan/zoom run
+  // as GPU transforms (no paint). `will-change` is dropped again on commit so the
+  // plane re-rasterizes at rest — that's what keeps card text crisp when idle.
+  const seedLive = useCallback(() => {
+    if (!liveRef.current) {
+      const vp = useCanvasStore.getState().viewport;
+      liveRef.current = { panX: vp.panX, panY: vp.panY, scale: vp.scale };
+    }
+    if (planeRef.current) planeRef.current.style.willChange = 'transform';
+    return liveRef.current;
+  }, []);
+
+  // Write the live viewport straight to the DOM (plane transform + grid background)
+  // so a pan/zoom moves at the compositor's pace without a React re-render. The
   // store stays untouched until the gesture commits.
   const applyLiveTransform = useCallback(() => {
-    const lp = livePanRef.current;
-    if (!lp) return;
-    const scale = useCanvasStore.getState().viewport.scale;
+    const lv = liveRef.current;
+    if (!lv) return;
     if (planeRef.current) {
-      planeRef.current.style.transform = `translate(${lp.panX}px, ${lp.panY}px) scale(${scale})`;
+      planeRef.current.style.transform = `translate(${lv.panX}px, ${lv.panY}px) scale(${lv.scale})`;
     }
     if (containerRef.current) {
-      containerRef.current.style.backgroundPosition = `${lp.panX}px ${lp.panY}px`;
+      containerRef.current.style.backgroundPosition = `${lv.panX}px ${lv.panY}px`;
+      containerRef.current.style.backgroundSize = `${24 * lv.scale}px ${24 * lv.scale}px`;
     }
   }, []);
 
-  // Accumulate a pan delta onto the live offset (seeding from the store on the
-  // first move of a gesture), repaint the plane directly, and let the native web
-  // views follow (measureWeb is itself rAF-coalesced).
+  // Accumulate a pan delta onto the live viewport (seeding on the first move),
+  // repaint the plane directly, and let the native web views follow (measureWeb is
+  // itself rAF-coalesced). A pan cancels any in-flight zoom glide so the two don't
+  // fight over the same live viewport.
   const livePanBy = useCallback(
     (dx: number, dy: number) => {
-      if (!livePanRef.current) {
-        const vp = useCanvasStore.getState().viewport;
-        livePanRef.current = { panX: vp.panX, panY: vp.panY };
-      }
-      livePanRef.current.panX += dx;
-      livePanRef.current.panY += dy;
+      if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+      zoomRef.current = null;
+      const lv = seedLive();
+      lv.panX += dx;
+      lv.panY += dy;
       applyLiveTransform();
       measureWeb();
     },
-    [applyLiveTransform, measureWeb],
+    [seedLive, applyLiveTransform, measureWeb],
   );
 
-  // Fold the live pan back into the store (one update → one re-render) and drop
-  // the live offset so React owns the transform again.
-  const commitLivePan = useCallback(() => {
+  // Fold the live viewport back into the store (one update → one re-render), drop
+  // the live offset so React owns the transform again, end any zoom glide, and let
+  // the plane re-rasterize at rest (will-change off → crisp text).
+  const commitLive = useCallback(() => {
+    if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+    zoomRef.current = null;
     if (wheelCommitRef.current !== null) {
       clearTimeout(wheelCommitRef.current);
       wheelCommitRef.current = null;
     }
-    const lp = livePanRef.current;
-    if (!lp) return;
-    livePanRef.current = null;
-    useCanvasStore.getState().setPan(lp.panX, lp.panY);
+    if (planeRef.current) planeRef.current.style.willChange = '';
+    const lv = liveRef.current;
+    if (!lv) return;
+    liveRef.current = null;
+    useCanvasStore.getState().setViewport(lv.panX, lv.panY, lv.scale);
   }, []);
+
+  // Eased zoom: each wheel notch (or zoom button) nudges a target scale; a rAF loop
+  // glides the live scale toward it, anchored at the cursor, painting straight to
+  // the DOM. So a zoom never re-renders the card tree mid-gesture (the jank that
+  // made wheel-zoom feel choppy) and discrete notches read as one smooth shrink/
+  // grow. The glide commits to the store once it settles.
+  const smoothZoomBy = useCallback(
+    (factor: number, cx: number, cy: number) => {
+      // One ease frame: glide the live scale a fraction toward the target, anchored
+      // at the cursor, paint straight to the DOM, then re-arm or commit on settle.
+      const step = () => {
+        const cur = liveRef.current;
+        const z = zoomRef.current;
+        if (!cur || !z) return;
+        // Canvas-space point under the anchor BEFORE the scale step — keep it fixed
+        // so the cursor stays pinned to the same content as the scale eases.
+        const px = (z.anchorX - cur.panX) / cur.scale;
+        const py = (z.anchorY - cur.panY) / cur.scale;
+        const done = Math.abs(z.target - cur.scale) < 0.0015;
+        cur.scale = done ? z.target : cur.scale + (z.target - cur.scale) * 0.25;
+        cur.panX = z.anchorX - px * cur.scale;
+        cur.panY = z.anchorY - py * cur.scale;
+        applyLiveTransform();
+        measureWeb();
+        if (done) {
+          zoomRef.current = null;
+          commitLive();
+        } else {
+          z.raf = requestAnimationFrame(step);
+        }
+      };
+      const lv = seedLive();
+      const base = zoomRef.current?.target ?? lv.scale;
+      const target = Math.min(SCALE_MAX, Math.max(SCALE_MIN, base * factor));
+      // The glide is the sole committer for a zoom, so cancel any trailing wheel-pan
+      // commit that might otherwise fire mid-glide and finalize early.
+      if (wheelCommitRef.current !== null) {
+        clearTimeout(wheelCommitRef.current);
+        wheelCommitRef.current = null;
+      }
+      if (zoomRef.current) {
+        // A glide is already running — just retarget it (and re-anchor to the new
+        // cursor); the live rAF chain picks up the new target/anchor next frame.
+        zoomRef.current.target = target;
+        zoomRef.current.anchorX = cx;
+        zoomRef.current.anchorY = cy;
+        if (zoomRef.current.raf === null) zoomRef.current.raf = requestAnimationFrame(step);
+        return;
+      }
+      zoomRef.current = { target, anchorX: cx, anchorY: cy, raf: requestAnimationFrame(step) };
+    },
+    [seedLive, applyLiveTransform, measureWeb, commitLive],
+  );
 
   // Wheel panning has no pointerup, so commit on a short trailing idle.
   const scheduleWheelCommit = useCallback(() => {
     if (wheelCommitRef.current !== null) clearTimeout(wheelCommitRef.current);
     wheelCommitRef.current = window.setTimeout(() => {
       wheelCommitRef.current = null;
-      commitLivePan();
+      commitLive();
     }, 140);
-  }, [commitLivePan]);
+  }, [commitLive]);
 
   // The store is intentionally stale during a pan, so if React happens to
   // re-render mid-gesture (a tab title update, a card animation, …) it paints the
   // plane at the committed offset. Re-assert the live transform after every render
   // (pre-paint) so the pan never snaps back for a frame.
   useLayoutEffect(() => {
-    if (livePanRef.current) applyLiveTransform();
+    if (liveRef.current) applyLiveTransform();
   });
 
   // Keep placements in step with the open tabs (initial mount + later changes).
@@ -425,6 +501,7 @@ export function CanvasStage() {
   useEffect(() => {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
       if (wheelCommitRef.current !== null) clearTimeout(wheelCommitRef.current);
       void window.marudesk.invoke('browser:clear-pane-bounds');
     };
@@ -440,13 +517,10 @@ export function CanvasStage() {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
         // Zoom at the cursor (also catches trackpad pinch, which arrives as
-        // ctrl+wheel). Fold any in-flight wheel pan in first so the zoom anchors
-        // off the real (committed) viewport, not a stale store value.
-        commitLivePan();
+        // ctrl+wheel). Eased + painted straight to the DOM, so consecutive notches
+        // glide into one smooth zoom instead of re-rendering the card tree per tick.
         const r = el.getBoundingClientRect();
-        useCanvasStore
-          .getState()
-          .zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+        smoothZoomBy(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
       } else if (e.shiftKey) {
         // Shift + wheel = horizontal pan (Figma).
         livePanBy(-(e.deltaY || e.deltaX), 0);
@@ -459,7 +533,7 @@ export function CanvasStage() {
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [livePanBy, commitLivePan, scheduleWheelCommit]);
+  }, [livePanBy, smoothZoomBy, scheduleWheelCommit]);
 
   // Ctrl/Cmd+wheel over a web card is eaten by its native view, so main forwards
   // it here (see electron/browser/tabs.ts). Zoom the canvas centered on that
@@ -479,9 +553,9 @@ export function CanvasStage() {
           cy = r.top + r.height / 2 - cr.top;
         }
       }
-      useCanvasStore.getState().zoomAt(Math.exp(-deltaY * 0.0015), cx, cy);
+      smoothZoomBy(Math.exp(-deltaY * 0.0015), cx, cy);
     });
-  }, []);
+  }, [smoothZoomBy]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     // Never start on a card or an on-canvas control — capturing here would
@@ -491,8 +565,8 @@ export function CanvasStage() {
     // empty canvas; right opens the context menu.
     const pan = e.button === 1 || (e.button === 0 && spaceDownRef.current);
     if (pan) {
-      // Fold any trailing wheel pan in before a drag starts from a clean offset.
-      commitLivePan();
+      // Fold any trailing wheel pan / zoom glide in before a drag starts clean.
+      commitLive();
       e.currentTarget.setPointerCapture(e.pointerId);
       panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
       setPanning(true);
@@ -535,7 +609,7 @@ export function CanvasStage() {
     if (panRef.current?.pointerId === e.pointerId) {
       panRef.current = null;
       // Commit the gesture's accumulated offset to the store in one update.
-      commitLivePan();
+      commitLive();
       setPanning(false);
       return;
     }
@@ -752,7 +826,11 @@ export function CanvasStage() {
 
   // Use the tracked container `size` (not the ref) so these stay callable from
   // render-built menu items without reading a ref during render.
+  // The +/- buttons step zoom synchronously (one click = one discrete step, so
+  // no need to ease), settling any in-flight wheel gesture first so the step lands
+  // on the real committed viewport.
   const zoomFromCenter = (factor: number) => {
+    commitLive();
     useCanvasStore.getState().zoomAt(factor, size.w / 2, size.h / 2);
   };
   const fit = () => {
@@ -771,12 +849,15 @@ export function CanvasStage() {
     };
   };
 
-  // Screen px → canvas coords (inverse of the plane's translate+scale).
+  // Screen px → canvas coords (inverse of the plane's translate+scale). During a
+  // live pan/zoom the plane is painted from `liveRef`, so map against that (else
+  // the committed store value) — keeps a cursor placement landing under the cursor
+  // even mid-gesture, when the store viewport is intentionally stale.
   const toCanvas = useCallback((clientX: number, clientY: number) => {
     const el = containerRef.current;
     if (!el) return { x: 0, y: 0 };
     const r = el.getBoundingClientRect();
-    const { panX, panY, scale } = useCanvasStore.getState().viewport;
+    const { panX, panY, scale } = liveRef.current ?? useCanvasStore.getState().viewport;
     return { x: (clientX - r.left - panX) / scale, y: (clientY - r.top - panY) / scale };
   }, []);
 
@@ -911,7 +992,10 @@ export function CanvasStage() {
   const placeInView = useCallback(
     (kind: TabKind): { x: number; y: number; w: number; h: number } => {
       const cs = useCanvasStore.getState();
-      const { panX, panY, scale } = cs.viewport;
+      // Prefer the in-flight live viewport (a pan/zoom may not have committed yet)
+      // so a card created right after a wheel pan still lands in the visible area,
+      // not at the stale (pre-pan) viewport the store still holds.
+      const { panX, panY, scale } = liveRef.current ?? cs.viewport;
       const { w, h } = cardDefaultSize(kind);
       const inset = 36 / scale;
       const vx = -panX / scale + inset;
@@ -1391,9 +1475,10 @@ export function CanvasStage() {
         className="absolute inset-0 origin-top-left"
         style={{
           transform: `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`,
-          // Promote to its own compositor layer so panning is a GPU transform,
-          // not a paint — the rest of the "버벅거림" fix beyond skipping re-renders.
-          willChange: 'transform',
+          // `will-change: transform` is toggled imperatively for the duration of a
+          // pan/zoom gesture (seedLive → commitLive) so the plane is a GPU layer
+          // while moving, then re-rasterizes at rest — keeping card text crisp when
+          // idle instead of permanently scaling a frozen bitmap.
         }}
       >
         {/* Section frames, drawn behind everything (zIndex 0). */}
