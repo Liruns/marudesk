@@ -5,19 +5,18 @@ import { handleRequest, type RouterDeps } from './router';
 
 /**
  * The loopback companion listener (chat CLI v2 — docs/chat-cli-tui-design.md §3):
- * the always-on, 127.0.0.1-ONLY twin of the remote bridge server, serving the
- * SAME pure router so a local terminal client (cli/) can drive the agent loop.
+ * an always-on, 127.0.0.1-ONLY http server serving the pure router (router.ts) so
+ * a local terminal client (cli/) can drive the agent loop.
  *
- * It differs from electron/server/index.ts deliberately:
- *  - binds loopback on an EPHEMERAL port — unreachable off-machine by construction;
- *  - no devices/pair deps — there is no E2E path, `/pair` 404s;
+ * Loopback-only by construction:
+ *  - binds loopback on an EPHEMERAL port — unreachable off-machine;
+ *  - `/pair` 404s — there is no pairing or off-machine transport;
  *  - no L-1 approval guard — the bearer token only ever leaves main via the
  *    0600 handshake file below, so presenting it proves "same user, same
- *    machine": that IS the desktop user, who may approve gated tools. (The
- *    guard exists for REMOTE peers and stays on the remote server.)
+ *    machine": that IS the desktop user, who may approve gated tools.
  *
  * This module is Electron-free (paths/deps injected) so the companion harness
- * can exercise the full lifecycle headlessly, like router.ts/pair-harness.
+ * can exercise the full lifecycle headlessly, like the router harness.
  */
 
 export type CompanionOptions = {

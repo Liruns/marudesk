@@ -789,9 +789,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.category.providers.blurb':
     '제공자 API 키와 사용자 지정 OpenAI 호환 엔드포인트. 모델은 채팅에서 선택하세요.',
   'settings.category.providers.label': 'AI 제공자',
-  'settings.category.remote.blurb':
-    '네트워크의 다른 기기가 AI 채팅을 조작할 수 있게 하는 로컬 브리지.',
-  'settings.category.remote.label': '원격 접속',
   'settings.category.terminal.blurb': '통합 터미널 글꼴과 셸.',
   'settings.category.terminal.label': '터미널',
   'settings.category.usage.blurb': '설정된 제공자의 API 사용량과 할당량을 모니터링합니다.',
@@ -981,98 +978,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.memory.title': '에이전트 메모리',
   'settings.option.off': '끔',
   'settings.option.on': '켬',
-  'settings.remote.advanced.port.hint':
-    '서버가 수신 대기할 TCP 포트입니다(모든 인터페이스).',
-  'settings.remote.advanced.port.label': '포트',
-  'settings.remote.advanced.port.name': '서버 포트',
-  'settings.remote.advanced.publicUrl.hint':
-    '선택 사항: 이 PC 앞에 직접 띄운 터널·리버스 프록시 주소(cloudflared, ngrok, Caddy)입니다. 페어링 QR에 포함되어 다른 기기가 어느 네트워크에서든 이 PC에 연결됩니다. 클라우드 릴레이도, 다른 기기에 설치할 것도 없습니다.',
-  'settings.remote.advanced.publicUrl.label': '공개 URL',
-  'settings.remote.advanced.tunnel.hint':
-    '서버가 켜져 있는 동안 cloudflared 퀵 터널을 자동으로 실행하고 그 공개 URL을 페어링 QR에 넣습니다. cloudflared는 처음 켤 때 자동으로 내려받아 검증·설치합니다. URL이 시작할 때마다 바뀌므로 장기 페어링에는 위의 고정 공개 URL이 더 적합합니다.',
-  'settings.remote.advanced.tunnel.label': '자동 터널',
-  'settings.remote.advanced.tunnel.installing': 'cloudflared 내려받는 중(검증 포함, 최초 1회)…',
-  'settings.remote.advanced.tunnel.starting': '터널 시작 중…',
-  'settings.remote.advanced.toggle':
-    '고급 - 포트, 네트워크 주소, 무인 모드',
-  'settings.remote.cloud.description':
-    'marudesk 릴레이에 로그인하면 같은 계정의 다른 기기가 어디서든 이 PC의 AI 채팅을 조작할 수 있습니다. 양쪽 모두 클라우드로 연결하므로 포트 포워딩이 필요 없습니다. 릴레이는 계정 메시지만 중계하며 코드, 자격 증명, 에이전트는 이 PC에 남습니다.',
-  'settings.remote.cloud.title': '클라우드 릴레이',
-  'settings.remote.phoneAccess.hint':
-    '이 PC에서 작은 서버를 실행해 페어링한 휴대폰이 Wi-Fi/LAN 또는 Tailscale로 연결해 AI 채팅을 조작할 수 있게 합니다. QR만 스캔하면 되며 주소를 입력할 필요가 없습니다. 기본값은 꺼짐입니다.',
-  'settings.remote.phoneAccess.label': '원격 기기 접속',
-  'settings.remote.pairing.approve': '승인',
-  'settings.remote.pairing.approveAfter': ' 페어링?',
-  'settings.remote.pairing.approveBefore': '',
-  'settings.remote.pairing.close': '닫기',
-  'settings.remote.pairing.copy': '페어링 코드 복사',
-  'settings.remote.pairing.copyHint':
-    '스캔이 어려우면 페어링 코드를 복사해 다른 기기에 붙여넣으세요',
-  'settings.remote.pairing.daysAgo': '일 전',
-  'settings.remote.pairing.description':
-    '아래 버튼을 누르고 페어링할 기기에서 QR을 스캔한 뒤 여기에서 승인하세요. 페어링은 암호화 키를 교환하므로 일반 Wi-Fi에서도 트래픽이 종단 간 암호화됩니다.',
-  'settings.remote.pairing.expired':
-    '코드가 만료되었습니다. 닫은 뒤 "기기 페어링"을 다시 누르세요.',
-  'settings.remote.pairing.expiresAfter': '초 후 만료',
-  'settings.remote.pairing.expiresBefore': '',
-  'settings.remote.pairing.fingerprint': '지문',
-  'settings.remote.pairing.fingerprintHint':
-    ' - 페어링할 기기에 표시된 값과 일치할 때만 승인하세요.',
-  'settings.remote.pairing.hoursAgo': '시간 전',
-  'settings.remote.pairing.justNow': '방금',
-  'settings.remote.pairing.lastSeen': '마지막 접속',
-  'settings.remote.pairing.minutesAgo': '분 전',
-  'settings.remote.pairing.notConnected': '아직 연결되지 않음',
-  'settings.remote.pairing.pairDevice': '기기 페어링',
-  'settings.remote.pairing.qrAlt': '페어링 QR 코드',
-  'settings.remote.pairing.refreshDevices': '기기 목록 새로고침',
-  'settings.remote.pairing.reject': '거절',
-  'settings.remote.pairing.revoke': '해제',
-  'settings.remote.pairing.revokeConfirmAfter':
-    ' 기기를 해제할까요? 다시 페어링하기 전까지 접근할 수 없습니다.',
-  'settings.remote.pairing.revokeConfirmBefore': '',
-  'settings.remote.pairing.scan': '다른 기기에서 스캔',
-  'settings.remote.pairing.title': '기기 페어링',
-  'settings.remote.reach.copyBefore': '복사 ',
-  'settings.remote.reach.none':
-    '아직 Wi-Fi/LAN 또는 Tailscale 주소를 찾지 못했습니다. 네트워크에 연결하거나 Tailscale을 시작한 뒤 설정을 다시 여세요.',
-  'settings.remote.reach.starting':
-    '서버를 시작하는 중입니다. 연결 가능한 주소가 여기에 표시됩니다.',
-  'settings.remote.reach.title': '접속 주소',
-  'settings.remote.reach.warningAfter':
-    '을 권장합니다. 이 터널은 암호화됩니다. 종단 간 암호화와 기기 페어링이 다음 단계로 추가됩니다.',
-  'settings.remote.reach.warningBefore':
-    '켜져 있는 동안 네트워크의 모든 기기가 브리지에 접근할 수 있고 아직 트래픽이 암호화되지 않습니다. 신뢰하는 네트워크에서만 켜세요(공용 또는 카페 Wi-Fi는 피하세요). 다른 네트워크에서 접속하려면 ',
-  'settings.remote.relay.account.connected':
-    '이 계정의 호스트로 릴레이에 연결되었습니다.',
-  'settings.remote.relay.account.connecting':
-    '로그인했습니다. 릴레이에 연결하는 중입니다...',
-  'settings.remote.relay.account.label': '클라우드 계정',
-  'settings.remote.relay.account.loggedIn':
-    '로그인했습니다. 호스트로 연결하려면 "클라우드 릴레이 활성화"를 켜세요.',
-  'settings.remote.relay.email': '이메일',
-  'settings.remote.relay.enable.hint':
-    '켜져 있고 로그인되어 있으면 이 PC가 호스트로 릴레이에 계속 연결됩니다. 기본값은 꺼짐입니다.',
-  'settings.remote.relay.enable.label': '클라우드 릴레이 활성화',
-  'settings.remote.relay.login': '로그인',
-  'settings.remote.relay.logout': '로그아웃',
-  'settings.remote.relay.google': 'Google로 계속하기',
-  'settings.remote.relay.googleHint':
-    '브라우저에서 로그인을 마치면 Google 계정이 이 프로필에 연결됩니다.',
-  'settings.remote.relay.googleWaiting': '브라우저 로그인을 기다리는 중\u2026',
-  'settings.remote.relay.password': '비밀번호',
-  'settings.remote.relay.signup': '가입',
-  'settings.remote.relay.url.hint':
-    'marudesk 릴레이의 기본 URL입니다(http 또는 https).',
-  'settings.remote.relay.url.label': '릴레이 URL',
-  'settings.remote.unattended.hint':
-    '페어링된 기기가 이 PC를 손대지 않고 조작하게 합니다. 새 기기 페어링을 자동 승인하고 코드 실행, 쿠키, 저장소, 터미널 같은 민감한 도구도 묻지 않고 실행합니다. 기본값은 꺼짐입니다.',
-  'settings.remote.unattended.label': '승인 건너뛰기 (무인)',
-  'settings.remote.unattended.warningAfter':
-    ' 에이전트 모드는 그래도 수정과 코드 실행을 차단합니다.',
-  'settings.remote.unattended.warningBefore':
-    '무인 모드가 켜져 있습니다. QR을 스캔한 모든 기기가 자동으로 페어링되고 에이전트가 이 PC에서 코드와 기타 민감한 도구를 묻지 않고 실행합니다. 완전히 신뢰하는 기기와 네트워크에서만 사용하세요. ',
-  'settings.remote.unattended.warningReadOnly': '읽기 전용',
   'settings.mcp.description':
     '외부 MCP 서버를 연결해 AI 채팅이 도구를 사용할 수 있게 합니다. command/mcpServers 같은 로컬 프로세스나 url 같은 호스팅 HTTP 서버를 사용할 수 있습니다. 외부 도구는 기본적으로 에이전트 승인 흐름을 따르며, 신뢰한 서버와 자동 승인 도구는 호출마다 묻지 않고 실행될 수 있고 항상 확인으로 지정한 도구는 먼저 확인합니다. 설정 파일에서 서버를 추가하거나 수정한 뒤 새로고침하세요.',
   'settings.mcp.empty': '설정된 MCP 서버가 없습니다. 설정 파일을 열어 추가하세요.',
@@ -1210,39 +1115,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.providers.setupGuide.step': '단계',
   'settings.providers.testConnection': '연결 테스트',
   'settings.providers.testing': '테스트 중...',
-  'settings.remoteGuide.qr.after': '를 사용하세요.',
-  'settings.remoteGuide.qr.before':
-    '이 QR은 보안 페어링 토큰이며 웹 링크가 아닙니다. 일반 카메라 앱으로 스캔하면 텍스트만 보입니다 - ',
-  'settings.remoteGuide.qr.scanner': '다른 기기의 페어링 스캐너',
-  'settings.remoteGuide.requirements':
-    '요구사항: 두 기기가 같은 Wi-Fi / LAN에 있거나 둘 다 Tailscale을 실행 중이어야 합니다.',
-  'settings.remoteGuide.security.identity':
-    '키를 가지고 있다는 것이 신원 증명입니다 - 훔칠 비밀번호는 없습니다. 이 PC에서 지문을 확인하고 승인하는 단계가 첫 핸드셰이크 중간에 사칭 기기가 끼어드는 것을 막습니다.',
-  'settings.remoteGuide.security.revoke':
-    '아래 목록에서 페어링된 기기를 언제든 해제할 수 있으며, 해제 즉시 다시 페어링하기 전까지 접근할 수 없습니다.',
-  'settings.remoteGuide.security.title': '보안이 작동하는 방식',
-  'settings.remoteGuide.security.transport':
-    '페어링은 X25519 키 교환을 실행한 뒤 모든 메시지를 AES-GCM으로 암호화합니다. 공유 키는 두 기기에만 있으므로 열린 Wi-Fi에서도 링크가 종단 간 암호화되고, 네트워크의 다른 사람은 내용을 읽을 수 없습니다.',
-  'settings.remoteGuide.step1.after': ' ',
-  'settings.remoteGuide.step1.before': '같은 네트워크의 다른 기기에서 이 브리지의 페어링 화면을 여세요. ',
-  'settings.remoteGuide.step1.devBuild': '',
-  'settings.remoteGuide.step1.link': '',
-  'settings.remoteGuide.step1.title': '다른 기기에서 원격 브리지 열기',
-  'settings.remoteGuide.step2.body':
-    '페어링 스캐너를 열고 이 PC에 표시할 이름을 입력하세요.',
-  'settings.remoteGuide.step2.title': '다른 기기에서 “PC와 페어링” 누르기',
-  'settings.remoteGuide.step3.body':
-    '다른 기기의 페어링 스캐너로 이 화면의 QR을 비추세요. 카메라를 쓸 수 없다면 아래에 표시된 코드를 직접 입력하세요.',
-  'settings.remoteGuide.step3.title': '위 QR을 스캔하거나 8자리 코드 입력',
-  'settings.remoteGuide.step4.body':
-    '기기 이름과 짧은 지문이 포함된 요청이 여기에 나타납니다. 페어링할 기기와 일치할 때만 승인하세요.',
-  'settings.remoteGuide.step4.title': '이 PC로 돌아와 승인 누르기',
-  'settings.remoteGuide.step5.body':
-    '링크가 종단 간 암호화되므로 열린 Wi-Fi에서도 비공개로 유지됩니다.',
-  'settings.remoteGuide.step5.title': '완료 - 이제 페어링한 기기로 AI 채팅을 조작할 수 있습니다',
-  'settings.remoteGuide.subtitle':
-    '기기마다 한 번만 페어링하면 됩니다. 이후에는 자동으로 다시 연결됩니다.',
-  'settings.remoteGuide.title': '원격 기기 연결 방법',
   'settings.search.aria': '설정 검색',
   'settings.search.placeholder': '설정 검색',
   'settings.search.resultsTitle': '검색 결과',
@@ -1283,8 +1155,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'home.guide.card.browse.label': '웹 탐색',
   'home.guide.card.edit.desc': '워크스페이스의 파일을 열어 내장 코드 편집기에서 수정하세요.',
   'home.guide.card.edit.label': '코드 편집',
-  'home.guide.card.remote.desc': '설정 → 원격에서 네트워크의 다른 기기를 페어링해 이 PC를 원격으로 조작하세요.',
-  'home.guide.card.remote.label': '다른 기기에서 제어',
   'home.guide.card.terminal.desc': '통합 터미널 탭에서 셸 명령을 실행하세요.',
   'home.guide.card.terminal.label': '터미널 실행',
   'home.guide.card.workspace.desc': '프로젝트 폴더를 열면 파일 도구, 검색, 편집기를 사용할 수 있어요.',

@@ -294,12 +294,11 @@ test('canvas: named canvases switch independently (a canvas = a saved layout)', 
 
 test('canvas: named canvases + panel positions persist across a full restart', async () => {
   const userDataDir = makeTempUserDataDir();
-  let agentBox: { x: number; y: number } | null = null;
 
   // Launch 1 — build a two-canvas layout with restart-surviving panels (a
   // terminal on "Canvas 1", an AI chat on "Backend"). home tabs aren't
   // persisted by the tab session, so they won't reappear (and shouldn't).
-  {
+  const agentBox = await (async () => {
     const { app, page } = await launchApp({ userDataDir, surface: 'canvas' });
     try {
       const canvas = page.locator('[aria-label="Canvas"]');
@@ -325,12 +324,12 @@ test('canvas: named canvases + panel positions persist across a full restart', a
       await expect(cards).toHaveCount(1);
       const box = await cards.first().boundingBox();
       if (!box) throw new Error('no agent card box');
-      agentBox = { x: box.x, y: box.y };
       await page.waitForTimeout(400); // let the debounced persist flush
+      return { x: box.x, y: box.y };
     } finally {
       await app.close();
     }
-  }
+  })();
 
   // Launch 2 — same userData. The tabs are restored with fresh ids; the canvas
   // re-binds each to its saved spot on the right canvas by descriptor.
@@ -344,7 +343,7 @@ test('canvas: named canvases + panel positions persist across a full restart', a
       await expect(switcher).toContainText('Backend');
       await expect(cards).toHaveCount(1);
       const box = await cards.first().boundingBox();
-      if (!box || !agentBox) throw new Error('no restored card box');
+      if (!box) throw new Error('no restored card box');
       expect(Math.abs(box.x - agentBox.x)).toBeLessThan(10);
       expect(Math.abs(box.y - agentBox.y)).toBeLessThan(10);
 

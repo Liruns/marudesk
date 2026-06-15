@@ -178,6 +178,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     pickSlash,
     syncCaret,
     setDraftAndTrackSlash,
+    onCompositionStart,
+    onCompositionEnd,
     handleSend,
     handlePickSuggestion,
     handlePaste,
@@ -400,8 +402,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
               <textarea
                 ref={textareaRef}
-                value={draft}
+                // Uncontrolled (defaultValue, synced via a layout effect in
+                // useComposer) so React's controlled-value writeback can't wipe a
+                // half-composed IME syllable on a stray re-render — see the
+                // composition handlers + sync effect there.
+                defaultValue={draft}
                 onChange={(e) => setDraftAndTrackSlash(e.target.value, e.target.selectionStart ?? undefined)}
+                onCompositionStart={onCompositionStart}
+                onCompositionEnd={onCompositionEnd}
                 onKeyDown={onKeyDown}
                 onKeyUp={syncCaret}
                 onClick={syncCaret}

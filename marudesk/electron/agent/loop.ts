@@ -1096,9 +1096,9 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       reasoningEffort,
       modelReasoning,
       fallbacks: agentSettings.fallback.enabled ? agentSettings.fallback.order : [],
-      // Unattended only when the bridge is actually exposed AND skip is opted in;
-      // turning the server off restores normal approval prompts automatically.
-      unattended: settings.server.enabled && settings.server.skipApprovals,
+      // Phone-remote unattended mode was removed with the relay/bridge; the agent
+      // always honors the configured approval mode now.
+      unattended: false,
     }).catch((err) => {
       // A user Stop surfaces here as an abort, not a real failure — label it
       // ('Stopped') rather than showing an error banner.

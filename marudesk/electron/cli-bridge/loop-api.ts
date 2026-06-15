@@ -15,21 +15,22 @@ import type { AgentApi } from './dispatch';
 import { projectRemoteState } from './remote-state';
 
 /**
- * The agent loop's public surface as ONE injectable object, shared by every
- * bridge transport (the remote server, the loopback companion, the relay
- * client) so they can't drift on which loop functions back which verbs.
+ * The agent loop's public surface as ONE injectable object (the `AgentApi`
+ * seam): the CLI bridge's REST/SSE router calls these verbs, and tests inject a
+ * mock in their place, so neither can drift on which loop functions back which
+ * verbs.
  *
- * `snapshot`/`reset` take the bridge's optional workspace scope: a thin client
- * that selected a PC workspace acts on that workspace's ACTIVE thread (the same
- * container the desktop UI drives), so phone and desktop literally share one
+ * `snapshot`/`reset` take an optional workspace scope: a CLI client that
+ * selected a PC workspace acts on that workspace's ACTIVE thread (the same
+ * container the desktop UI drives), so the terminal and desktop share one
  * conversation. Omitted ⇒ the global thread, the pre-workspace behavior.
  *
  * `snapshot` is remote-projected (remote-state.ts): the heavy per-edit
- * before/after content becomes the bounded `editDiffs` view every bridge
- * transport publishes — the same projection the SSE/relay push paths apply.
+ * before/after content becomes the bounded `editDiffs` view the router
+ * publishes — the same projection the SSE push path applies.
  *
  * `revertEdit` routes by edit id across the scope's threads (the loop's own
- * staleness guard protects the disk); the phone's Revert button rides this.
+ * staleness guard protects the disk); the CLI's Revert action rides this.
  */
 export const LOOP_AGENT_API: AgentApi = {
   startTurn,

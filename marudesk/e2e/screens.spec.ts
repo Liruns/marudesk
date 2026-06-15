@@ -9,7 +9,7 @@ import { launchApp, type LaunchedApp } from './helpers/app';
 /**
  * Not a real test — a screenshot harness. Launches the built app and captures
  * each surface the UX pass touches (provider picker, Settings → AI Providers,
- * Settings → Remote, the activity bar / home shell) so we can eyeball the
+ * the activity bar / home shell) so we can eyeball the
  * before/after. Renderer-only: the embedded WebContentsView isn't in this page's
  * DOM, but every surface here is React chrome, which is exactly what we're judging.
  *
@@ -153,19 +153,6 @@ test('capture UX surfaces', async () => {
       console.log(`[screens] providers nav skip: ${(err as Error).message}`);
     }
     await shot(page, '04-settings-providers');
-
-    // 4. Settings → Remote access (port/URL exposure).
-    try {
-      await page.getByRole('button', { name: 'Remote access' }).click({ timeout: 3000 });
-      await page.waitForTimeout(400);
-      await shot(page, '05-settings-remote-off');
-      // Turn the server on to reveal port + URL + pairing surface.
-      await page.getByRole('radio', { name: 'On' }).first().click({ timeout: 3000 });
-      await page.waitForTimeout(900);
-      await shot(page, '06-settings-remote-on');
-    } catch (err) {
-      console.log(`[screens] remote skip: ${(err as Error).message}`);
-    }
 
     // 5. Appearance (interface zoom control, fonts).
     try {

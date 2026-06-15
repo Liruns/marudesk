@@ -1,11 +1,11 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
- * The bridge server's bearer secret (docs/remote-mobile-bridge-design §M4).
- * Generated on first need as 32 cryptographically-random bytes (base64url) and
- * persisted via electron/secrets.ts (safeStorage-encrypted). Every endpoint
- * requires `Authorization: Bearer <token>`; the token is never logged nor sent to
- * the renderer (M4 doesn't surface it in the UI — pairing/display is M5).
+ * The CLI bridge's bearer secret. Generated on first need as 32
+ * cryptographically-random bytes (base64url) and persisted via electron/secrets.ts
+ * (safeStorage-encrypted). Every endpoint requires `Authorization: Bearer <token>`;
+ * the token is never logged nor sent to the renderer — it reaches a local terminal
+ * client only via the companion's 0600 handshake file.
  *
  * The secrets module (which pulls in `electron`) is imported lazily inside
  * {@link getServerToken} so this module's static graph stays Electron-free — the

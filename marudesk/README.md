@@ -15,10 +15,11 @@ from source files alone.
 - Design system rules in `DESIGN.md`
 
 The desktop app is the only package that owns local workspace access, browser
-runtime capture, model/provider configuration, and patch application. Any remote
-client (over the relay or the desktop bridge) treats the PC host as the owner of
-that state. The former Capacitor mobile client is archived on the
-`archive/mobile` branch and removed from the active workspace.
+runtime capture, model/provider configuration, and patch application. A local
+terminal client reaches the same agent loop over the loopback CLI bridge and
+treats the PC host as the owner of that state. The former Capacitor mobile
+client is archived on the `archive/mobile` branch and removed from the active
+workspace.
 
 ## Stack
 
@@ -78,9 +79,9 @@ A model is picked interactively on first run (`/model` later) and remembered;
 `--provider/--model` set it explicitly. The companion drops a same-user
 `cli-bridge.json` handshake under userData while the app runs; `--url` /
 `--token` (or `MARUDESK_BRIDGE_URL` / `MARUDESK_BRIDGE_TOKEN`) target another
-bridge instead. Over the loopback companion the CLI is a full chat surface —
-gated-tool approvals included (same-user trust); over the remote bridge server
-those stay pinned to the desktop (the L-1 guard).
+bridge instead. Over the loopback companion the CLI is a full chat surface,
+gated-tool approvals included — the loopback origin plus the bearer token is the
+trust boundary (same-user trust).
 
 In the app itself the CLI is an always-available sibling of the chat panel:
 the Home view's **AI Chat (CLI)** launcher opens an "AI Chat (CLI)" terminal
@@ -127,10 +128,8 @@ Individual harnesses:
 
 ```bash
 npm run harness:server
+npm run harness:cli
 npm run harness:bookmarks
-npm run harness:e2e
-npm run harness:pair
-npm run harness:relay-bridge
 npm run harness:mcp
 npm run harness:plugins
 npm run harness:plugin-lifecycle
@@ -211,8 +210,6 @@ Follow `DESIGN.md` and `src/styles/tokens.css`.
 - Keep copy precise and calm; no emojis or celebratory status text.
 
 ## Related packages
-
-- `../relay`: auth and same-account host/client WebSocket relay.
 
 The `../mobile` Capacitor thin client is archived (`archive/mobile` branch, tag
 `archive/mobile-v0.8.0`) and is no longer part of the active workspace.

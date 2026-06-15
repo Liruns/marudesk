@@ -2,8 +2,8 @@
  * Generic unknown→typed coercion primitives for validating persisted/over-the-
  * wire data (settings, etc.). Each takes a fallback used when the input is the
  * wrong shape, so a malformed or foreign-version blob degrades to sane defaults
- * instead of throwing. Domain-specific coercers (shells, relay URLs, model
- * chains) live with their schema; these are the reusable building blocks.
+ * instead of throwing. Domain-specific coercers (shells, model chains) live with
+ * their schema; these are the reusable building blocks.
  */
 
 /** Treat `value` as a plain object, or `{}` when it isn't one. */

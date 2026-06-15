@@ -321,16 +321,17 @@ export function resetThreadsForProfileSwitch(): void {
 
 /* ── event fan-out (renderer push + in-process subscribers) ─────────────── */
 
-// In-process subscribers to the authoritative state stream. The headless server
-// (electron/server) subscribes here to relay `agent:event` over SSE — the loop's
-// functions are called directly (no IPC), so this is the renderer-side push's
-// peer for any non-renderer head. Kept module-level so it survives across turns.
+// In-process subscribers to the authoritative state stream. The CLI bridge
+// companion (electron/cli-bridge) subscribes here to push `agent:event` over SSE
+// — the loop's functions are called directly (no IPC), so this is the
+// renderer-side push's peer for any non-renderer head. Kept module-level so it
+// survives across turns.
 const subscribers = new Set<(state: AgentChatState) => void>();
 
 /**
  * Subscribe to the authoritative {@link AgentChatState} stream — every state the
  * renderer would receive on `agent:event` is also delivered here. Used by the
- * in-process bridge server (docs/remote-mobile-bridge-design §M4). Returns an
+ * in-process CLI bridge companion (electron/cli-bridge). Returns an
  * unsubscribe fn. Callbacks are isolated so one bad subscriber can't break the
  * others or the renderer push.
  */

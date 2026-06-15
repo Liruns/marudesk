@@ -5,18 +5,9 @@
  * keeps the original userData (no migration); others live under profiles/<id>.
  */
 
-/** The cloud identity linked to a profile (set by the relay Google sign-in). */
-export type ProfileLinkedAccount = {
-  readonly provider: 'google';
-  readonly email: string;
-  readonly displayName?: string;
-};
-
 export type ProfileMeta = {
   readonly id: string;
   readonly name: string;
-  /** Present when the profile is linked to a cloud account; cleared on logout. */
-  readonly account?: ProfileLinkedAccount;
 };
 
 export type ProfilesState = {
@@ -34,20 +25,6 @@ export function defaultProfilesState(): ProfilesState {
   };
 }
 
-/** Parse a stored linked account; anything malformed degrades to "not linked". */
-function sanitizeLinkedAccount(value: unknown): ProfileLinkedAccount | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const a = value as Record<string, unknown>;
-  if (a.provider !== 'google' || typeof a.email !== 'string' || a.email.length === 0) {
-    return undefined;
-  }
-  return {
-    provider: 'google',
-    email: a.email,
-    ...(typeof a.displayName === 'string' && a.displayName ? { displayName: a.displayName } : {}),
-  };
-}
-
 /** Coerce arbitrary JSON into a valid ProfilesState: dedupe, guarantee a default
  *  profile, and reset a dangling active id. */
 export function sanitizeProfiles(parsed: unknown): ProfilesState {
@@ -62,8 +39,7 @@ export function sanitizeProfiles(parsed: unknown): ProfilesState {
       if (typeof r.id !== 'string' || typeof r.name !== 'string') continue;
       if (seen.has(r.id)) continue;
       seen.add(r.id);
-      const account = sanitizeLinkedAccount(r.account);
-      profiles.push({ id: r.id, name: r.name, ...(account ? { account } : {}) });
+      profiles.push({ id: r.id, name: r.name });
     }
   }
   if (!profiles.some((p) => p.id === DEFAULT_PROFILE_ID)) {

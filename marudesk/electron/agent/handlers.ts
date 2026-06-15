@@ -93,7 +93,7 @@ function parseContextSync(payload: unknown): ContextSyncPayload {
  * IPC surface for the agentic AI Chat. Like every other domain it validates the
  * untrusted renderer payload before touching the loop; the loop itself owns all
  * state and streams it back on the `agent:event` snapshot. The payload parsers
- * live in ./parse so the headless bridge server (electron/server) reuses the
+ * live in ./parse so the CLI bridge router (electron/cli-bridge) reuses the
  * exact same validation for its REST commands.
  */
 
@@ -107,10 +107,8 @@ export function registerAgentHandlers(): void {
     return respond(turnId, callId, answers);
   });
 
-  // The desktop UI's approve path: it calls the loop DIRECTLY (never the bridge
+  // The desktop UI's approve path calls the loop DIRECTLY (never the CLI bridge
   // dispatcher), so a gated approval made here at the desktop is always honored.
-  // Remote (bridge) self-approval of gated tools is what L-1 refuses, and that is
-  // enforced in electron/server/dispatch.ts — keep this path off the dispatcher.
   defineHandler('agent:approve-tool', ([payload]) => {
     const { turnId, callId, approved, always } = parseApprove(payload);
     return approveTool(turnId, callId, approved, always);
@@ -143,7 +141,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Steerable plan (v6 §U5): the user toggles a step's status or removes it.
-  // Shares parseEditPlanStep with the bridge path so IPC + relay validate alike.
+  // Shares parseEditPlanStep with the CLI bridge path so IPC + bridge validate alike.
   defineHandler('agent:edit-plan-step', ([payload]) => {
     const { id, ...op } = parseEditPlanStep(payload);
     return editPlanStep(id, op);

@@ -13,7 +13,6 @@ that Codex-style agents use.
    sync.
 3. Respect package ownership:
    - `marudesk/` owns the Electron desktop app and runtime-aware agent surface.
-   - `relay/` owns auth and same-account host/client brokering.
    - `mobile/` is archived (removed from the active tree; preserved on the
      `archive/mobile` branch). Do not recreate it here.
 4. Do not revert user edits or unrelated worktree changes.

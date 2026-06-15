@@ -7,11 +7,10 @@ import { getSettingsSync } from '../settings';
 import type { McpTool, ToolContext, ToolResult } from './tools';
 
 /**
- * PC remote-control tools (docs/remote-mobile-bridge-design §5) — the agent's
- * reach OUTSIDE the workspace sandbox onto the computer itself: open a file or
- * folder in its default app, open a URL in the system browser, reveal a path in
- * the OS file manager. This is what lets "control my PC from the phone" work —
- * the phone drives the same agent loop, which calls these.
+ * PC control tools — the agent's reach OUTSIDE the workspace sandbox onto the
+ * computer itself: open a file or folder in its default app, open a URL in the
+ * system browser, reveal a path in the OS file manager. Any agent surface (the
+ * desktop chat or a local terminal client) drives the same loop, which calls these.
  *
  * Two gates stack: (1) the Settings "PC control" permission (default OFF) — every
  * tool refuses until the user turns it on; (2) `gated` + `write` flags so each

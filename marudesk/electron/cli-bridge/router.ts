@@ -8,43 +8,22 @@ import {
   type BridgeModelsResult,
   type BridgeSessionDetail,
   type BridgeWorkspacesResult,
-  type RelayCommandName,
+  type AgentCommandName,
   type RemoteEvent,
 } from '../../shared/remote';
-import {
-  open,
-  reqAad,
-  resAad,
-  seal,
-  SSE_AAD,
-  type Envelope,
-  type SessionKey,
-} from '../../shared/e2e';
-import { dispatchAgentCommand, type AgentApi, type ApprovalGuard } from './dispatch';
-import type { DeviceResolver } from './devices';
-import type { PairOutcome } from './pairing';
+import { dispatchAgentCommand, type AgentApi } from './dispatch';
 import { verifyToken } from './token';
 
 /**
- * The pure, dependency-injected request handler for the bridge server
- * (docs/remote-mobile-bridge-design §M4, T2 secure pairing in
- * docs/t2-secure-pairing-design.md). Everything it touches arrives via
- * {@link RouterDeps} — the agent loop's functions, the bearer token, the event
- * subscribe fn, and (for T2) the device-key resolver + `/pair` handler — so it is
- * unit-testable headlessly with mocked deps, no Electron (see harness.ts /
- * pair-harness.ts).
+ * The pure, dependency-injected request handler for the loopback CLI bridge
+ * (docs/chat-cli-tui-design.md §4). Everything it touches arrives via
+ * {@link RouterDeps} — the agent loop's functions, the bearer token, and the event
+ * subscribe fn — so it is unit-testable headlessly with mocked deps, no Electron
+ * (see harness.ts).
  *
- * Two authenticated paths reach the same agent routes:
- *  - BEARER (loopback companion / tests): `Authorization: Bearer <token>`, bodies
- *    and responses in cleartext JSON.
- *  - E2E (paired phone over LAN/Tailscale): an `X-Marudesk-Device: <id>` header
- *    selects the device's session key; request bodies + responses + SSE frames are
- *    AES-GCM envelopes. Possession of the key IS the authentication — a body that
- *    won't open is a 401. AAD binds each envelope to its method/path/direction.
- *
- * `/pair` is the ONLY anonymous route (it's gated by the one-time code + a
- * key-possession proof inside {@link RouterDeps.pair}); every other route requires
- * one of the two auth paths, checked before any work.
+ * Every route is gated by the bearer token (`Authorization: Bearer <token>`);
+ * request bodies and responses are cleartext JSON. The companion binds to
+ * 127.0.0.1 only, so the loopback origin plus the token is the trust boundary.
  */
 
 export type RouterDeps = {
@@ -63,17 +42,6 @@ export type RouterDeps = {
    * rejected (e.g. a harness that only mocks the global stream).
    */
   subscribeWorkspace?(workspaceId: string, cb: (state: AgentChatState) => void): () => void;
-  /** T2 E2E: resolve a paired device's key + note activity. Omit ⇒ the E2E path is off. */
-  devices?: DeviceResolver;
-  /** T2 E2E: handle `POST /pair`. Omit ⇒ `/pair` returns 404 (pairing disabled). */
-  pair?: (body: unknown) => Promise<PairOutcome>;
-  /**
-   * T2 L-1: refuse a remote self-approval of a gated tool while the server is
-   * exposed, keeping gated approvals pinned to the desktop UI
-   * (docs/t2-secure-pairing-design.md §8). Omit ⇒ no restriction (e.g. the
-   * loopback-only dev/test harness).
-   */
-  approvalGuard?: ApprovalGuard;
   /**
    * Read-mostly catalog routes for thin clients (chat CLI v2 —
    * docs/chat-cli-tui-design.md §4): `GET /agent/models`, `GET /agent/sessions`,
@@ -118,34 +86,16 @@ export type RouterExtras = {
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;
 
-/**
- * CORS for the mobile client: a Capacitor WebView (origin capacitor://localhost or
- * http://localhost) fetching the PC over the LAN is cross-origin, so without these
- * the browser blocks the response. `*` is safe here — every route is still gated by
- * the bearer token or a valid E2E envelope (no cookies/ambient credentials), so a
- * permissive origin grants no access on its own. (A Host-header allowlist for
- * DNS-rebinding — design §10.1 L-2 — remains a separate follow-up.)
- */
-const CORS_HEADERS = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'authorization, content-type, x-marudesk-device',
-  'access-control-max-age': '600',
-} as const;
-
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     ...JSON_HEADERS,
-    ...CORS_HEADERS,
     'content-length': Buffer.byteLength(payload),
   });
   res.end(payload);
 }
 
 function sendError(res: ServerResponse, status: number, message: string): void {
-  // Error bodies are ALWAYS cleartext (never sealed) so a client can read them
-  // whether or not it holds a key; only 200 bodies are encrypted on the E2E path.
   sendJson(res, status, { error: message });
 }
 
@@ -207,15 +157,15 @@ function readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<unknow
   });
 }
 
-/* ── per-request codec: cleartext (bearer) vs AES-GCM envelopes (E2E) ───────── */
+/* ── response codec ─────────────────────────────────────────────────────────── */
 
 /**
  * Translates request bodies, response results, and SSE frames between the wire and
- * the loop. The bearer path is the identity codec; the E2E path seals/opens with
- * the device's session key, binding every message to its endpoint via AAD.
+ * the loop. Only the cleartext identity codec remains (bearer/loopback carries
+ * plain JSON); kept as a small seam so the route handlers stay codec-neutral.
  */
 type Codec = {
-  /** Decode a parsed POST body into the command args. Throws ⇒ the caller 401s. */
+  /** Decode a parsed POST body into the command args. */
   decodeBody(raw: unknown, method: string, path: string): Promise<unknown>;
   /** Encode a successful result into the response body. */
   encodeResult(result: unknown, path: string): Promise<unknown>;
@@ -228,14 +178,6 @@ const PLAIN_CODEC: Codec = {
   encodeResult: (result) => Promise.resolve(result),
   sse: (event) => Promise.resolve(`data: ${JSON.stringify(event)}\n\n`),
 };
-
-function e2eCodec(key: SessionKey): Codec {
-  return {
-    decodeBody: (raw, method, path) => open(key, raw as Envelope, reqAad(method, path)),
-    encodeResult: (result, path) => seal(key, result, resAad(path)),
-    sse: async (event) => `data: ${JSON.stringify(await seal(key, event, SSE_AAD))}\n\n`,
-  };
-}
 
 async function sendResult(
   res: ServerResponse,
@@ -281,7 +223,6 @@ function handleSse(
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
     'x-accel-buffering': 'no',
-    ...CORS_HEADERS,
   });
 
   let tail: Promise<void> = Promise.resolve();
@@ -321,7 +262,7 @@ function handleSse(
   res.on('close', cleanup);
 }
 
-const REST_COMMANDS: Record<string, RelayCommandName> = {
+const REST_COMMANDS: Record<string, AgentCommandName> = {
   '/agent/send': 'send',
   '/agent/abort': 'abort',
   '/agent/respond': 'respond',
@@ -344,9 +285,9 @@ function workspaceParamOf(url: URL): string | undefined {
 }
 
 /**
- * The shared agent route table, reached by both auth paths with the matching
- * {@link Codec}. GET health/snapshot/events + POST command verbs (dispatched
- * through the SAME validator the relay uses, so REST and relay can't drift).
+ * The shared agent route table. GET health/snapshot/events + POST command verbs,
+ * each dispatched through the SAME shared validator ({@link dispatchAgentCommand})
+ * so the REST surface and the loop semantics can't drift.
  */
 async function handleAgentRoutes(
   req: IncomingMessage,
@@ -450,10 +391,9 @@ async function handleAgentRoutes(
     try {
       args = await codec.decodeBody(raw, method, pathname);
     } catch {
-      // E2E only: a body that won't open isn't authentic for this device → 401.
       return sendError(res, 401, 'unauthorized');
     }
-    const outcome = await dispatchAgentCommand(deps.agent, cmd, args, deps.approvalGuard);
+    const outcome = await dispatchAgentCommand(deps.agent, cmd, args);
     if (!outcome.ok) return sendError(res, 400, outcome.error);
     return sendResult(res, codec, pathname, outcome.result);
   }
@@ -462,9 +402,8 @@ async function handleAgentRoutes(
 }
 
 /**
- * Route + handle one request. Resolves once the response has been written. `/pair`
- * is the only anonymous route; everything else requires the E2E device key or the
- * bearer token, authenticated before any work.
+ * Route + handle one request. Resolves once the response has been written. Every
+ * route requires the bearer token, authenticated before any work.
  */
 export async function handleRequest(
   req: IncomingMessage,
@@ -478,40 +417,7 @@ export async function handleRequest(
     sendError(res, 400, 'bad request');
     return;
   }
-  const pathname = url.pathname;
   const method = req.method ?? 'GET';
-
-  // ── CORS preflight (the mobile WebView sends OPTIONS before a cross-origin
-  //    POST with the X-Marudesk-Device / content-type headers) ─────────────────
-  if (method === 'OPTIONS') {
-    res.writeHead(204, CORS_HEADERS);
-    res.end();
-    return;
-  }
-
-  // ── pairing (anonymous; gated by the one-time code + key-possession proof) ──
-  if (pathname === '/pair') {
-    if (method !== 'POST') return sendError(res, 405, 'method not allowed');
-    if (!deps.pair) return sendError(res, 404, 'not found');
-    let body: unknown;
-    try {
-      body = await readJsonBody(req, res);
-    } catch {
-      return;
-    }
-    const outcome = await deps.pair(body);
-    sendJson(res, outcome.status, outcome.body);
-    return;
-  }
-
-  // ── E2E device path: authenticated by possession of the session key ─────────
-  const deviceHeader = req.headers['x-marudesk-device'];
-  if (typeof deviceHeader === 'string' && deps.devices) {
-    const key = await deps.devices.getKey(deviceHeader);
-    if (!key) return sendError(res, 401, 'unauthorized');
-    deps.devices.touch(deviceHeader);
-    return handleAgentRoutes(req, res, deps, url, method, e2eCodec(key));
-  }
 
   // ── bearer path (loopback companion / tests) ────────────────────────────────
   const presented = bearerFrom(req);

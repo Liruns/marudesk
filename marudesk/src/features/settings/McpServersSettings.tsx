@@ -16,8 +16,8 @@ import { MCP_PRESETS } from '../../../shared/mcp-presets';
 import { McpServerCard, type McpServerEditablePatch } from './McpServerCard';
 
 /**
- * Settings → MCP Servers (docs/remote-mobile-bridge-design §M3, docs/context-mcp-design
- * §8). Lists the user-configured external MCP servers — local (stdio) or remote
+ * Settings → MCP Servers (docs/context-mcp-design §8). Lists the user-configured
+ * external MCP servers — local (stdio) or remote
  * (HTTP/SSE) — with their transport, connection status, exposed tools, and trust
  * state, plus an enable/disable toggle and a Reload action. Adding/editing a server
  * is done by hand-editing the JSON config (Claude-Desktop style) — the "Open config

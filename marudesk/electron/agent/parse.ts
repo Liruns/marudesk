@@ -16,7 +16,7 @@ const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto'
 /** The valid reasoning efforts (mirror {@link ReasoningEffort}). */
 const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 
-/** Upper bounds on attached images (untrusted: also arrives over the relay). */
+/** Upper bounds on attached images (untrusted: also arrives over the CLI bridge). */
 const MAX_IMAGES = 8;
 /** ~14M base64 chars ≈ 10 MB decoded — a generous ceiling for a screenshot. */
 const MAX_IMAGE_DATA_CHARS = 14_000_000;
@@ -44,10 +44,10 @@ function parseImages(value: unknown): AgentImageInput[] | undefined {
 
 /**
  * Untrusted-payload parsers for the agent loop's public API, shared by BOTH the
- * `agent:*` IPC handlers (electron/agent/handlers.ts) and the headless bridge
- * server (electron/server) so the two entry points validate identically — the
- * server's request bodies are just as untrusted as a renderer's IPC payload, and
- * divergent validation is how a relay quietly drifts from the surface it relays.
+ * `agent:*` IPC handlers (electron/agent/handlers.ts) and the CLI bridge router
+ * (electron/cli-bridge) so the two entry points validate identically — the
+ * bridge's request bodies are just as untrusted as a renderer's IPC payload, and
+ * divergent validation is how a bridge quietly drifts from the surface it serves.
  *
  * These are deliberately the same shallow shape checks the rest of the IPC layer
  * uses (electron/ipc/validate.ts); the loop owns all deeper invariants.
@@ -174,9 +174,9 @@ export function parseWorkspaceScope(payload: unknown): { workspaceId?: string } 
 }
 
 /**
- * `POST /agent/revert-edit` / relay `revert-edit` body (mobile patch review) →
- * the applied-edit id to revert plus the thin client's optional workspace scope
- * (same shallow check the `agent:revert-edit` IPC handler does on `editId`).
+ * `POST /agent/revert-edit` body → the applied-edit id to revert plus the CLI
+ * client's optional workspace scope (same shallow check the `agent:revert-edit`
+ * IPC handler does on `editId`).
  */
 export function parseRevertEdit(payload: unknown): { editId: string; workspaceId?: string } {
   const o = obj(payload);

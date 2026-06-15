@@ -25,7 +25,6 @@ export type SettingsCategory =
   | 'mcp'
   | 'plugins'
   | 'automations'
-  | 'remote'
   | 'data'
   | 'usage'
   | 'about';
@@ -107,7 +106,6 @@ function mergePatch(base: AppSettings, patch: SettingsPatch): AppSettings {
     lanes: { ...base.lanes, ...(patch.lanes ?? {}) },
     agent: { ...base.agent, ...(patch.agent ?? {}) },
     pcControl: { ...base.pcControl, ...(patch.pcControl ?? {}) },
-    server: { ...base.server, ...(patch.server ?? {}) },
     storage: { ...base.storage, ...(patch.storage ?? {}) },
   };
 }
