@@ -158,6 +158,18 @@ export interface EventPayloadMap {
   // composites above the React surface and would otherwise eat the wheel. Main
   // forwards it so the canvas zooms (centered on that card) instead of the page.
   'canvas:wheel': { tabId: string; deltaY: number };
+  // The agent's `create_task` MCP tool asks the renderer to materialize a Work-OS
+  // task node on the canvas. Main generates the id (so the agent can reference it
+  // in a later task's `dependsOn`) and the renderer places it in free space next
+  // to the dependency it flows from, never over an existing tab card.
+  'workos:create-task': {
+    id: string;
+    title: string;
+    intent?: string;
+    acceptance?: string[];
+    dependsOn?: string[];
+    goal?: string;
+  };
 }
 
 export type EventChannel = keyof EventPayloadMap;
@@ -199,6 +211,7 @@ export const EVENT_CHANNELS = [
   'app:ui-zoom',
   'app:tab-shortcut',
   'canvas:wheel',
+  'workos:create-task',
 ] as const satisfies readonly EventChannel[];
 
 /* ── Compile-time coverage guards (no runtime cost) ─────────────────────── */

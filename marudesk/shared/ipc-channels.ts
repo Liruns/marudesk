@@ -6,6 +6,10 @@
 export const CHANNELS = {
   browser: [
     'browser:navigate',
+    'browser:navigate-tab',
+    'browser:go-back-tab',
+    'browser:go-forward-tab',
+    'browser:reload-tab',
     'browser:set-bounds',
     'browser:set-pane-bounds',
     'browser:clear-pane-bounds',

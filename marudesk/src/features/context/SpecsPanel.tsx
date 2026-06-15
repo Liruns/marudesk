@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronRight, Plus, SendHorizontal, Square, Trash2,
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
-import { focusOrOpenAgentTab, useAgentStore } from '../agent/store';
+import { focusOrOpenAgentTab } from '../agent/store';
 import { SPEC_STATUSES, type Spec, type SpecStatus, type SpecTask } from '../../../shared/specs';
 
 /**
@@ -30,7 +30,6 @@ function nextStatus(s: SpecStatus): SpecStatus {
 
 export function SpecsPanel() {
   const { t } = useI18n();
-  const submitPrompt = useAgentStore((s) => s.submitPrompt);
   const [specs, setSpecs] = useState<Spec[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [newTask, setNewTask] = useState('');
@@ -72,7 +71,7 @@ export function SpecsPanel() {
   };
 
   const sendToAgent = async (spec: Spec): Promise<void> => {
-    await focusOrOpenAgentTab();
+    const store = (await focusOrOpenAgentTab()).getState();
     const open = spec.tasks.filter((t2) => !t2.done).map((t2) => `- [ ] ${t2.text}`).join('\n');
     const prompt = [
       `${t('specs.agentPreamble')}: ${spec.title}`,
@@ -81,7 +80,7 @@ export function SpecsPanel() {
     ]
       .filter(Boolean)
       .join('\n\n');
-    const res = await submitPrompt(prompt);
+    const res = await store.submitPrompt(prompt);
     if (!res.ok && res.reason && res.reason !== 'busy') {
       toast({ title: t('specs.sendFailed'), description: res.reason, variant: 'error' });
     }

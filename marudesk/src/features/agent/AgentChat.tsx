@@ -27,7 +27,6 @@ import {
   UsageMeter,
 } from './chat/Controls';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
-import { ThreadBar } from './ThreadBar';
 import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
@@ -218,8 +217,6 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         }
       }}
     >
-      {full ? <ThreadBar /> : null}
-
       <div className="relative flex-1 min-h-0 flex">
        {/* min-w-0: this column flexes beside the Mission Control aside — without
            it a wide code block / table in the transcript would set the row's

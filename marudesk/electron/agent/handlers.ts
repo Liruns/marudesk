@@ -7,7 +7,7 @@ import { cancelBackgroundTask } from './background';
 import { editPlanStep } from './plan';
 import { parseAbort, parseApprove, parseEditPlanStep, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
-import { containerForWorkspace } from './loop-state.ts';
+import { containerForThread, containerForWorkspace } from './loop-state.ts';
 import { builtinToolInfo } from './tools/registry';
 import {
   abortTurn,
@@ -44,6 +44,18 @@ function workspaceIdOf(payload: unknown): WorkspaceId | undefined {
 
 function uiWorkspaceFilterOf(payload: unknown): WorkspaceId | null {
   return workspaceIdOf(payload) ?? null;
+}
+
+/**
+ * The conversation a per-tab/per-card AI Chat addresses. When the renderer pins
+ * a `threadId` (every full-surface AI Chat tab now owns its own thread, so chats
+ * stay isolated across tabs), route to that thread's container; otherwise fall
+ * back to the workspace's active-thread container (the drawer / "Fix this").
+ */
+function containerOf(payload: unknown) {
+  const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const threadId = typeof p.threadId === 'string' ? p.threadId : undefined;
+  return (threadId ? containerForThread(threadId) : null) ?? containerForWorkspace(workspaceIdOf(payload));
 }
 
 /** Defensively coerce the renderer's context mirror into the cached shape. */
@@ -143,12 +155,12 @@ export function registerAgentHandlers(): void {
     return snapshot(workspaceIdOf(payload), threadId);
   });
 
-  defineHandler('agent:reset', ([payload]) => reset(containerForWorkspace(workspaceIdOf(payload))));
+  defineHandler('agent:reset', ([payload]) => reset(containerOf(payload)));
 
   defineHandler('agent:compact', ([payload]) => {
     const data = obj(payload ?? {});
     const focus = typeof data.focus === 'string' ? data.focus : undefined;
-    return compactConversation(focus, containerForWorkspace(workspaceIdOf(payload)));
+    return compactConversation(focus, containerOf(payload));
   });
 
   // Session history (v3 §5-C): list past conversations, resume one as the active
