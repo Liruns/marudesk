@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  formatCanvasGroupSectionForLocale,
   formatCaptureCountForLocale,
   formatFileCountForLocale,
   formatMcpToolCountForLocale,
@@ -58,6 +59,8 @@ export function I18nProvider({ children }: { readonly children: ReactNode }) {
       setLocale,
       t: (key) => MESSAGES[locale][key],
       formatFileCount: (input) => formatFileCountForLocale(locale, input),
+      formatCanvasGroupSection: (count) =>
+        formatCanvasGroupSectionForLocale(locale, count),
       formatCaptureCount: (count) =>
         formatCaptureCountForLocale(locale, count),
       formatMcpToolCount: (count) =>
