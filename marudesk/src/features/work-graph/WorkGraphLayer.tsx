@@ -11,6 +11,10 @@ import { sampleGraph, useWorkGraphStore } from './store';
 export const NODE_W = 208;
 export const NODE_H = 118;
 
+/** Shared styling for the WorkGraphPanel tool buttons (Run / Task / Reset). */
+const TOOL_BTN =
+  'inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50';
+
 /** Token-only status styling (success/warning/error/accent — tailwind.config.ts). */
 const STATUS_STYLE: Record<TaskStatus, { ring: string; chip: string; label: string }> = {
   planned: { ring: 'border-subtle', chip: 'bg-surface-3 text-fg-tertiary', label: 'Planned' },
@@ -356,7 +360,7 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
           type="button"
           disabled={!graph}
           onClick={() => (running ? useWorkGraphStore.setState({ running: false }) : void useWorkGraphStore.getState().runSimulate())}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
+          className={TOOL_BTN}
         >
           {running ? <Square size={12} /> : <Play size={12} />}
           {running ? 'Stop' : 'Run'}
@@ -365,7 +369,7 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
           type="button"
           disabled={running}
           onClick={() => useWorkGraphStore.getState().addTask()}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
+          className={TOOL_BTN}
         >
           <Plus size={12} />
           Task
@@ -374,7 +378,7 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
           type="button"
           disabled={!graph || running}
           onClick={() => useWorkGraphStore.getState().resetRun()}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
+          className={TOOL_BTN}
         >
           <Check size={12} />
           Reset
