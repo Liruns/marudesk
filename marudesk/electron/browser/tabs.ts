@@ -48,6 +48,7 @@ import { reapplyZoom } from './zoom';
 import { handleTabShortcut } from './tab-shortcuts';
 import { groupContiguousOrder, pinnedFirst } from './tab-order.ts';
 import { buildWebTabUserAgent } from './user-agent.ts';
+import { withChromeBrand } from './client-hints.ts';
 export { reorderTabs, setTabPinned } from './tab-order.ts';
 import { registerDownloadHandler } from './downloads';
 import { recordTitle, recordVisit } from '../history';
@@ -647,6 +648,24 @@ export function mountBrowserView(win: BrowserWindow): void {
   inspectSession.setUserAgent(
     buildWebTabUserAgent(inspectSession.getUserAgent(), app.getName()),
   );
+  // The UA *string* is only half the disguise: Electron's UA Client Hints brand
+  // list still reads as Chromium-only (no "Google Chrome" entry), which is the
+  // exact fingerprint embedded-webview sign-in gates fall back to — Google's
+  // "this browser or app may not be secure" block keys on it even after the UA
+  // string is clean. Mirror the strip at the header layer: add a truthful
+  // "Google Chrome" brand to the Sec-CH-UA headers on every web-tab request. See
+  // ./client-hints. Re-registering on a profile switch replaces the prior
+  // listener (one per session), so this stays in lockstep with setUserAgent.
+  inspectSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    const requestHeaders = details.requestHeaders;
+    for (const name of Object.keys(requestHeaders)) {
+      const lower = name.toLowerCase();
+      if (lower === 'sec-ch-ua' || lower === 'sec-ch-ua-full-version-list') {
+        requestHeaders[name] = withChromeBrand(requestHeaders[name]);
+      }
+    }
+    callback({ requestHeaders });
+  });
   // Track downloads originating from the web tabs (this partition), auto-saving
   // them to the Downloads folder and feeding the renderer's download shelf.
   registerDownloadHandler(inspectSession);

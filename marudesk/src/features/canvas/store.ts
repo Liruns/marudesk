@@ -810,6 +810,10 @@ type CanvasActions = {
   panBy: (dx: number, dy: number) => void;
   /** Set the absolute pan (used by the minimap to recenter). */
   setPan: (panX: number, panY: number) => void;
+  /** Commit a full viewport (pan + zoom) in one write — used when a live pan/zoom
+      gesture settles, so the gesture re-renders the card tree once, not per frame.
+      Scale is clamped to the reachable range. */
+  setViewport: (panX: number, panY: number, scale: number) => void;
   /** Zoom by `factor` keeping the point (cx,cy) — container-relative px — fixed. */
   zoomAt: (factor: number, cx: number, cy: number) => void;
   resetView: () => void;
@@ -1520,6 +1524,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     })),
 
   setPan: (panX, panY) => set((s) => ({ viewport: { ...s.viewport, panX, panY } })),
+
+  setViewport: (panX, panY, scale) =>
+    set({ viewport: { panX, panY, scale: clamp(scale, SCALE_MIN, SCALE_MAX) } }),
 
   zoomAt: (factor, cx, cy) =>
     set((s) => {
