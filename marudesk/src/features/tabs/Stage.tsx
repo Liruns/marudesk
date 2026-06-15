@@ -4,6 +4,7 @@ import { useGridStore, groupForTab } from './grid';
 import { GridStage } from './GridStage';
 import { EmptyStage } from './EmptyStage';
 import { SeedDropOverlay } from './SeedDropOverlay';
+import { useCanvasOwnedTabIds } from '../canvas/store';
 import type { WorkspaceId } from '../../../shared/workspace';
 
 /**
@@ -25,9 +26,12 @@ export function Stage({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const activeTabIdsByWorkspace = useTabsStore((s) => s.activeTabIdsByWorkspace);
   const groups = useGridStore((s) => s.groups);
   const draggingTabId = useGridStore((s) => s.draggingTabId);
-  const scopedTabs = workspaceId
-    ? tabs.filter((tab) => tab.workspaceId === workspaceId)
-    : tabs;
+  // Tabs that live on the infinite canvas are owned by that surface; the classic
+  // stage hides them so the two surfaces keep separate tab sets.
+  const canvasOwned = useCanvasOwnedTabIds();
+  const scopedTabs = (workspaceId ? tabs.filter((tab) => tab.workspaceId === workspaceId) : tabs).filter(
+    (tab) => !canvasOwned.has(tab.id),
+  );
   const preferredActiveTabId = workspaceId
     ? (activeTabIdsByWorkspace[workspaceId] ?? activeTabId)
     : activeTabId;

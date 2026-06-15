@@ -19,6 +19,7 @@ import { TabGroupMenu, type TabGroupMenuItem } from './TabGroupMenu';
 import { TabStripMenu } from './TabStripMenu';
 import { buildTabMenuItems, type TabStripMenuLabels } from './tabMenuItems';
 import { useTabsStore } from './store';
+import { useCanvasOwnedTabIds } from '../canvas/store';
 
 type MenuState = { readonly tabId: string; readonly x: number; readonly y: number };
 type ChipMenuState = {
@@ -30,9 +31,12 @@ type ChipMenuState = {
 export function TabStrip({ workspaceId }: { workspaceId?: WorkspaceId } = {}) {
   const { t } = useI18n();
   const tabs = useTabsStore((s) => s.tabs);
-  const scopedTabs = workspaceId
-    ? tabs.filter((tab) => tab.workspaceId === workspaceId)
-    : tabs;
+  // Cards living on the infinite canvas are owned by that surface — keep their
+  // chips out of the classic strip so the two surfaces stay separate.
+  const canvasOwned = useCanvasOwnedTabIds();
+  const scopedTabs = (workspaceId ? tabs.filter((tab) => tab.workspaceId === workspaceId) : tabs).filter(
+    (tab) => !canvasOwned.has(tab.id),
+  );
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const activeTabIdsByWorkspace = useTabsStore((s) => s.activeTabIdsByWorkspace);
   const activateTab = useTabsStore((s) => s.activateTab);

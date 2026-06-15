@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { TabGroupColor, TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { useSurfaceStore } from './surface';
 
 /**
  * Infinite-canvas placement store (Maru identity overhaul — see
@@ -1055,6 +1057,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   syncPlacements: (tabIds) => {
     const ids = new Set(tabIds);
 
+    // Whether THIS call performed the one-time restore-reconcile below. On that
+    // pass, a restored tab without a saved canvas descriptor must NOT be pulled
+    // onto the canvas — it belongs to whichever surface it was on before the
+    // restart (the classic shell, unless it had canvas geometry). Only later,
+    // genuinely new tabs created while the canvas is the active surface auto-land
+    // as cards. This is what keeps the canvas and classic tab sets separate.
+    let justReconciled = false;
+
     // 0) One-time restore: bind the open workspace's saved snapshots to its
     //    restored tabs by descriptor (tab ids don't survive a restart). Runs the
     //    first time this workspace's tabs are present; the matched geometry then
@@ -1066,6 +1076,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         const wsTabs = useTabsStore.getState().tabs.filter((t) => wsKeyOf(t.workspaceId) === s.wsKey);
         if (wsTabs.length > 0) {
           reconciledWorkspaces.add(s.wsKey);
+          justReconciled = true;
           delete pendingSnapshots[s.wsKey];
           const bucket = s.byWorkspace[s.wsKey];
           if (bucket) {
@@ -1191,6 +1202,13 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     // placed on a sibling canvas), grid-flowed after the current count so they
     // don't stack; a caller-requested spawn rect (placeNext) wins over the grid,
     // and a migrated v1 rect is restored when one matches the tab id.
+    //
+    // A tab only auto-lands as a card when the canvas is the *active* surface and
+    // this isn't the restore pass — otherwise it stays off the canvas (a classic
+    // tab, or a restored tab without canvas geometry), keeping the two tab sets
+    // separate. An explicit spawn (`placeNext` → pending) or a saved descriptor /
+    // legacy rect always places, since those are deliberate canvas intents.
+    const autoPlaceNew = !justReconciled && useSurfaceStore.getState().mode === 'canvas';
     let topZ = state.topZ;
     let placedCount = Object.keys(next).length;
     const pending = state.pendingPlacements;
@@ -1205,11 +1223,13 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         consumedPending.push(id);
       } else if (legacyRect) {
         next[id] = legacyRect;
-      } else {
+      } else if (autoPlaceNew) {
         const { x, y } = placeAt(placedCount);
         const { w, h } = cardDefaultSize(kindOf.get(id));
         next[id] = { x, y, w, h, z: ++topZ };
         placedCount += 1;
+      } else {
+        continue;
       }
       changed = true;
     }
@@ -1788,6 +1808,47 @@ useTabsStore.subscribe((state) => {
  * session) is written back verbatim, so its saved layout is never clobbered by
  * its empty metadata doc.
  */
+/** Add every tab id placed on a canvas doc to `out` — its ungrouped placements
+ *  plus the members of each group (placement keys that name a group are skipped
+ *  in favour of the group's member tab ids). */
+function collectDocTabIds(
+  placements: Record<string, CardRect>,
+  groups: readonly CardGroup[],
+  out: Set<string>,
+): void {
+  const groupIds = new Set(groups.map((g) => g.id));
+  for (const key of Object.keys(placements)) if (!groupIds.has(key)) out.add(key);
+  for (const g of groups) for (const id of g.tabIds) out.add(id);
+}
+
+/**
+ * The set of tab ids that live on a canvas — placed on the open canvas or any
+ * saved canvas of any workspace. The classic surface filters these OUT so a card
+ * created on the infinite canvas is never also shown as a classic tab (and a
+ * classic tab never shows up as a card): the two surfaces keep independent tab
+ * sets. Subscribes to the slices that change ownership so a classic view stays
+ * in step when a tab is sent to / from the canvas.
+ */
+export function useCanvasOwnedTabIds(): Set<string> {
+  const placements = useCanvasStore((s) => s.placements);
+  const groups = useCanvasStore((s) => s.groups);
+  const byWorkspace = useCanvasStore((s) => s.byWorkspace);
+  const wsKey = useCanvasStore((s) => s.wsKey);
+  const activeCanvasId = useCanvasStore((s) => s.activeCanvasId);
+  return useMemo(() => {
+    const out = new Set<string>();
+    // The open canvas's authoritative working copy lives at the top level.
+    collectDocTabIds(placements, groups, out);
+    for (const [ws, bucket] of Object.entries(byWorkspace)) {
+      for (const [cid, doc] of Object.entries(bucket.canvases)) {
+        if (ws === wsKey && cid === activeCanvasId) continue; // covered above
+        collectDocTabIds(doc.placements, doc.groups, out);
+      }
+    }
+    return out;
+  }, [placements, groups, byWorkspace, wsKey, activeCanvasId]);
+}
+
 let saveQueued = false;
 useCanvasStore.subscribe(() => {
   if (typeof localStorage === 'undefined' || saveQueued) return;

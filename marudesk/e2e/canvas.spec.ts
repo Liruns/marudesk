@@ -28,15 +28,23 @@ test('canvas: default surface renders cards and toggles to/from classic', async 
 
     await page.screenshot({ path: 'test-results/maru-canvas-shell.png' });
 
-    // Toggle to the classic shell — the canvas controls vanish and the tab strip
-    // returns (WorkspaceStage owns the strip).
+    // Toggle to the classic shell — the canvas controls vanish and the classic
+    // tab strip returns (WorkspaceStage owns the strip). The surfaces keep
+    // SEPARATE tab sets, so the cards made on the canvas are not mirrored as
+    // classic tabs — the strip starts empty here.
     await page.getByRole('button', { name: 'Switch to classic view' }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toHaveCount(0);
+    await expect(page.getByRole('tab')).toHaveCount(0);
+
+    // Open a tab on the classic surface — it belongs to classic only.
+    await page.getByRole('button', { name: 'New tab' }).click();
     await expect(page.getByRole('tab').first()).toBeVisible();
 
-    // Toggle back to the canvas.
+    // Toggle back to the canvas — its controls return and the classic tab is NOT
+    // mirrored as a card (count unchanged), proving the two surfaces are separate.
     await page.getByRole('button', { name: 'Switch to canvas' }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toBeVisible();
+    await expect(cards).toHaveCount(initial + 1);
   } finally {
     await app.close();
   }
