@@ -4,6 +4,7 @@ import { parseWorkGraph, type WorkGraph } from '../../shared/work-os';
 import { buildModel, humanizeModelError } from './model';
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
+import { runTask } from './run-task';
 
 /**
  * Goal → Task-graph generator (docs/ai-work-os-roadmap.md §6, the "Phase 1
@@ -49,7 +50,7 @@ Rules:
 - All acceptance verdicts start as "unknown".`;
 
 /** Extract the first balanced JSON object from a model reply (tolerates fences/prose). */
-function extractJsonObject(text: string): unknown {
+export function extractJsonObject(text: string): unknown {
   const start = text.indexOf('{');
   if (start === -1) return null;
   let depth = 0;
@@ -127,4 +128,5 @@ export async function decomposeGoal(
 
 export function registerWorkOsHandlers(): void {
   defineHandler('workos:decompose', async ([goal]) => decomposeGoal(typeof goal === 'string' ? goal : ''));
+  defineHandler('workos:run-task', async ([input]) => runTask(input));
 }

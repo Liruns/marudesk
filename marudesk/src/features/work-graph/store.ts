@@ -8,9 +8,12 @@ import {
   type Authorship,
   type Criterion,
   type Edge,
+  type RunTaskInput,
+  type RunTaskResult,
   type Task,
   type TaskId,
   type TaskStatus,
+  type TaskVerdict,
   type WorkGraph,
 } from '../../../shared/work-os';
 import { useCanvasStore } from '../canvas/store';
@@ -23,11 +26,12 @@ import { useCanvasStore } from '../canvas/store';
  * position keyed by `Task.id` (NOT a tab id), persisted under its own key so the
  * canvas-of-cards layout (`maru.canvas.*`) is never touched.
  *
- * Execution: a single graph for the slice. `runSimulate` walks the pure
- * scheduler (shared/work-os.ts) — running ready tasks, then their dependents in
- * layers — to make dependency order + parallelism visible without a provider;
- * real agent execution (electron/agent/run-task.ts, key-gated) drives the same
- * status transitions.
+ * Execution: `runGraph` walks the pure scheduler (shared/work-os.ts) — running
+ * each ready task with the AI (electron/agent/run-task.ts) in dependency order,
+ * parallel within a layer — threading each task's upstream `handoff` into its
+ * prompt and applying the result/handoff/verdicts, pausing at human gates and
+ * falling back to an offline pass when no provider is connected. `runSimulate`
+ * keeps the same walk without a provider for the deterministic demo/e2e.
  */
 
 export type NodePos = { x: number; y: number };
@@ -180,8 +184,10 @@ type WorkGraphState = {
   graph: WorkGraph | null;
   pos: Record<TaskId, NodePos>;
   selectedTaskId: TaskId | null;
-  /** A simulate run is in flight (drives the Run button + disables edits). */
+  /** A run is in flight (drives the Run/Stop button + disables structural edits). */
   running: boolean;
+  /** A short note about the last/current run (e.g. an offline fallback or error). */
+  runNote: string | null;
 };
 
 type WorkGraphActions = {
@@ -226,6 +232,15 @@ type WorkGraphActions = {
   resetRun: () => void;
   /** Dependency-ordered simulated run (no provider needed); resolves when done. */
   runSimulate: () => Promise<void>;
+  /**
+   * Provider-backed run: walks the scheduler and runs each ready task with the AI
+   * (in dependency order, parallel within a layer), threading each task's upstream
+   * `handoff` into its prompt and applying the result/handoff/verdicts. Pauses at a
+   * human gate (decision / human executor → `needs_review`). Falls back to a
+   * deterministic offline pass when no provider is connected. Stop = set `running`
+   * false; mid-run task edits are honored on the next pass.
+   */
+  runGraph: () => Promise<void>;
 };
 
 const persisted = loadPersisted();
@@ -237,6 +252,59 @@ function setStatus(graph: WorkGraph, id: TaskId, status: TaskStatus): WorkGraph 
   });
 }
 
+/**
+ * The context a task carries from the tasks pointing at it (depends_on AND data
+ * edges) — each upstream's `handoff`, else its run result, else its intent. This
+ * is the "pass context to the next task" thread the executor injects into the
+ * prompt.
+ */
+export function upstreamContextOf(graph: WorkGraph, taskId: TaskId): string {
+  const byId = new Map(graph.tasks.map((t) => [t.id, t]));
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const e of graph.edges) {
+    if (e.to !== taskId || seen.has(e.from)) continue;
+    seen.add(e.from);
+    const up = byId.get(e.from);
+    if (!up) continue;
+    const ctx = up.handoff?.trim() || up.evidence?.result.trim() || up.intent?.trim() || '';
+    lines.push(`- ${up.title}: ${ctx || '(completed)'}`);
+  }
+  return lines.join('\n');
+}
+
+/** Apply a task's run outcome: status, the context it hands downstream, its
+ *  result evidence, and acceptance verdicts (by criterion order). */
+export function setTaskOutcome(
+  graph: WorkGraph,
+  id: TaskId,
+  outcome: { status: TaskStatus; result?: string; handoff?: string; verdicts?: readonly TaskVerdict[] },
+): WorkGraph {
+  return touch({
+    ...graph,
+    tasks: graph.tasks.map((t) => {
+      if (t.id !== id) return t;
+      const acceptance =
+        outcome.verdicts && outcome.verdicts.length > 0
+          ? t.acceptance.map((c, i) =>
+              outcome.verdicts && i < outcome.verdicts.length
+                ? { ...c, verdict: outcome.verdicts[i], checkedAt: Date.now() }
+                : c,
+            )
+          : t.acceptance;
+      return {
+        ...t,
+        status: outcome.status,
+        ...(outcome.handoff ? { handoff: outcome.handoff } : {}),
+        ...(outcome.result !== undefined
+          ? { evidence: { trajectory: t.evidence?.trajectory ?? [], result: outcome.result } }
+          : {}),
+        acceptance,
+      };
+    }),
+  });
+}
+
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set, get) => ({
@@ -244,10 +312,11 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   pos: persisted.pos,
   selectedTaskId: null,
   running: false,
+  runNote: null,
 
-  setGraph: (graph) => set({ graph: touch(graph), pos: autoLayout(graph), selectedTaskId: null, running: false }),
+  setGraph: (graph) => set({ graph: touch(graph), pos: autoLayout(graph), selectedTaskId: null, running: false, runNote: null }),
 
-  clearGraph: () => set({ graph: null, pos: {}, selectedTaskId: null, running: false }),
+  clearGraph: () => set({ graph: null, pos: {}, selectedTaskId: null, running: false, runNote: null }),
 
   addTask: (at) => {
     const id = randomId('task');
@@ -406,6 +475,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       if (!s.graph) return {};
       return {
         running: false,
+        runNote: null,
         graph: touch({
           ...s.graph,
           tasks: s.graph.tasks.map((t) => ({
@@ -449,6 +519,90 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         return { graph: g };
       });
       await delay(120);
+    }
+    set({ running: false });
+  },
+
+  runGraph: async () => {
+    if (get().running || !get().graph) return;
+    get().resetRun();
+    set({ running: true, runNote: null });
+    // Once we learn no provider is connected, finish the rest offline rather than
+    // strand the run (and stop hitting the model per task).
+    let aiOff = false;
+
+    const execOne = async (taskId: TaskId): Promise<void> => {
+      if (!get().running) return;
+      const graph = get().graph;
+      const task = graph?.tasks.find((t) => t.id === taskId);
+      if (!graph || !task) return;
+      const passAll = task.acceptance.map(() => 'pass' as const);
+
+      // A decision / human-executor task is a manual gate: pause for review rather
+      // than auto-run it. Its dependents stay blocked until the human resolves it.
+      if (task.kind === 'decision' || task.executor.type === 'human') {
+        set((s) => (s.graph ? { graph: setTaskOutcome(s.graph, taskId, { status: 'needs_review' }) } : {}));
+        set({ runNote: `Paused for your review: “${task.title}”.` });
+        return;
+      }
+
+      if (aiOff) {
+        set((s) =>
+          s.graph
+            ? { graph: setTaskOutcome(s.graph, taskId, { status: 'done', result: 'Completed offline (no AI provider).', verdicts: passAll }) }
+            : {},
+        );
+        return;
+      }
+
+      const input: RunTaskInput = {
+        title: task.title,
+        intent: task.intent,
+        goal: graph.goal,
+        acceptance: task.acceptance.map((c) => c.text),
+        context: upstreamContextOf(graph, taskId),
+      };
+      let res: RunTaskResult;
+      try {
+        res = await window.marudesk.invoke('workos:run-task', input);
+      } catch {
+        res = { ok: false, kind: 'error', reason: 'The AI run failed to start.' };
+      }
+      if (!get().running) return;
+
+      if (!res.ok) {
+        if (res.kind === 'no-provider') {
+          aiOff = true;
+          set({ runNote: `Running offline — ${res.reason}` });
+          set((s) =>
+            s.graph
+              ? { graph: setTaskOutcome(s.graph, taskId, { status: 'done', result: 'Completed offline (no AI provider).', verdicts: passAll }) }
+              : {},
+          );
+          return;
+        }
+        set((s) => (s.graph ? { graph: setTaskOutcome(s.graph, taskId, { status: 'failed', result: res.reason }) } : {}));
+        set({ runNote: res.reason });
+        return;
+      }
+      set((s) =>
+        s.graph
+          ? { graph: setTaskOutcome(s.graph, taskId, { status: 'done', result: res.result, handoff: res.handoff, verdicts: res.verdicts }) }
+          : {},
+      );
+    };
+
+    let guard = 0;
+    while (get().running && guard < 1000) {
+      guard += 1;
+      const graph = get().graph;
+      if (!graph) break;
+      const ready = readyTasks(graph);
+      if (ready.length === 0) break;
+      // Mark the whole ready layer running (parallelism), then run it concurrently.
+      set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) } : {}));
+      await Promise.all(ready.map((t) => execOne(t.id)));
+      await delay(80);
     }
     set({ running: false });
   },

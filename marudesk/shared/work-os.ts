@@ -147,6 +147,28 @@ export type WorkGraph = {
   updatedAt: number;
 };
 
+/* ── execution (the real, provider-backed run) ──────────────────────────────
+ * One task is handed to the model with its goal, acceptance, and the context
+ * handed down from upstream tasks; the model reports what it did + the context
+ * to pass on. The renderer's runGraph orchestrates the dependency-ordered /
+ * parallel schedule on top of these single-task calls. */
+
+export type RunTaskInput = {
+  title: string;
+  intent: string;
+  goal: string;
+  /** Acceptance criteria texts, in order (verdicts come back in the same order). */
+  acceptance: string[];
+  /** Concatenated handoff / result context from this task's upstream tasks. */
+  context: string;
+};
+
+export type TaskVerdict = 'pass' | 'fail' | 'unknown';
+
+export type RunTaskResult =
+  | { ok: true; result: string; handoff?: string; verdicts?: TaskVerdict[] }
+  | { ok: false; reason: string; kind: 'no-provider' | 'error' };
+
 /* ── type guards (specs.ts / providers.ts convention) ──────────────────────── */
 
 export function isTaskKind(v: unknown): v is TaskKind {

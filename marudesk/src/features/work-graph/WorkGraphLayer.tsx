@@ -383,6 +383,7 @@ function nextStatus(s: TaskStatus): TaskStatus {
 export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
   const graph = useWorkGraphStore((s) => s.graph);
   const running = useWorkGraphStore((s) => s.running);
+  const runNote = useWorkGraphStore((s) => s.runNote);
   const [goal, setGoal] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -450,7 +451,8 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           disabled={!graph}
-          onClick={() => (running ? useWorkGraphStore.setState({ running: false }) : void useWorkGraphStore.getState().runSimulate())}
+          title={running ? 'Stop the run' : 'Run the plan with AI (offline pass if no provider)'}
+          onClick={() => (running ? useWorkGraphStore.setState({ running: false }) : void useWorkGraphStore.getState().runGraph())}
           className={TOOL_BTN}
         >
           {running ? <Square size={12} /> : <Play size={12} />}
@@ -484,6 +486,7 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <p className="mt-1.5 text-caption text-fg-tertiary">{summary}</p>
+      {runNote ? <p className="mt-1 text-caption text-warning">{runNote}</p> : null}
     </div>
   );
 }
