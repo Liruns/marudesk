@@ -38,7 +38,7 @@ import { CanvasPlanFlow } from './CanvasPlanFlow';
 import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
 import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
-import { cardDefaultSize, placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
+import { cardDefaultSize, placementKey, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
 type CanvasMenu =
@@ -116,6 +116,44 @@ function waitForPlacements(ids: readonly string[], timeoutMs = 5000): Promise<vo
       if (have()) finish();
     });
     const timer = setTimeout(finish, timeoutMs);
+  });
+}
+
+/**
+ * The id set of tabs visible on the canvas right now — the active workspace's
+ * tabs, or all tabs when none is active — read fresh from the stores so a mid-
+ * interaction workspace switch is reflected immediately.
+ */
+function visibleTabIds(): Set<string> {
+  const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
+  const tabs = useTabsStore.getState().tabs;
+  return new Set((aws ? tabs.filter((t) => t.workspaceId === aws) : tabs).map((t) => t.id));
+}
+
+/**
+ * A predicate over placement keys: is this card/group currently rendered? A group
+ * renders if any member is visible; an ungrouped tab if it's visible and not
+ * absorbed into a group. The caller supplies `vis` so a drag-time caller can pass
+ * the render-time set while a fresh caller passes a live {@link visibleTabIds}.
+ */
+function renderedPredicate(vis: Set<string>, groups: readonly CardGroup[]): (key: string) => boolean {
+  const grouped = new Set(groups.flatMap((g) => g.tabIds));
+  return (key) => {
+    const grp = groups.find((g) => g.id === key);
+    return grp ? grp.tabIds.some((id) => vis.has(id)) : vis.has(key) && !grouped.has(key);
+  };
+}
+
+/**
+ * Focus + raise a card once it has a placement (its card has materialized) — run
+ * after creating/opening a card so the new surface becomes the live one
+ * immediately (matters for agent cards, which only run live when focused).
+ */
+function raiseWhenPlaced(tabId: string): void {
+  whenPlaced(tabId, () => {
+    const s = useCanvasStore.getState();
+    s.setFocused(tabId);
+    s.bringToFront(tabId);
   });
 }
 
@@ -412,14 +450,10 @@ export function CanvasStage() {
       const thresh = 4 / useCanvasStore.getState().viewport.scale;
       if (maxX - minX < thresh && maxY - minY < thresh) return; // a click, not a drag
       const store = useCanvasStore.getState();
-      const grouped = new Set(groups.flatMap((g) => g.tabIds));
+      const isRendered = renderedPredicate(visibleIds, groups);
       const sel: string[] = [];
       for (const [key, r] of Object.entries(store.placements)) {
-        const grp = groups.find((g) => g.id === key);
-        const rendered = grp
-          ? grp.tabIds.some((id) => visibleIds.has(id))
-          : visibleIds.has(key) && !grouped.has(key);
-        if (!rendered) continue;
+        if (!isRendered(key)) continue;
         if (r.x < maxX && r.x + r.w > minX && r.y < maxY && r.y + r.h > minY) sel.push(key);
       }
       store.setSelection(sel);
@@ -449,12 +483,7 @@ export function CanvasStage() {
     const SNAP = 6 / store.viewport.scale;
     // Read the visible set fresh (a mid-drag workspace switch shouldn't snap to
     // the previous workspace's cards).
-    const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
-    const tabsNow = useTabsStore.getState().tabs;
-    const visIds = new Set(
-      (aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow).map((t) => t.id),
-    );
-    const grouped = new Set(store.groups.flatMap((g) => g.tabIds));
+    const isRendered = renderedPredicate(visibleTabIds(), store.groups);
     let sx = x;
     let sy = y;
     let dx = SNAP;
@@ -463,9 +492,7 @@ export function CanvasStage() {
     // (keyed by group id), so a card can align to a group, not just plain cards.
     for (const [k, r] of Object.entries(pl)) {
       if (k === tabId) continue;
-      const grp = store.groups.find((g) => g.id === k);
-      const rendered = grp ? grp.tabIds.some((id) => visIds.has(id)) : visIds.has(k) && !grouped.has(k);
-      if (!rendered) continue;
+      if (!isRendered(k)) continue;
       for (const cx of [r.x, r.x + r.w - w, r.x + (r.w - w) / 2, r.x + r.w, r.x - w]) {
         const d = Math.abs(x - cx);
         if (d < dx) {
@@ -542,17 +569,8 @@ export function CanvasStage() {
   // visible groups) — read fresh so it's safe from a []-dep keyboard handler.
   const renderedKeys = (): string[] => {
     const cs = useCanvasStore.getState();
-    const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
-    const tabsNow = useTabsStore.getState().tabs;
-    const vis = new Set((aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow).map((t) => t.id));
-    const grouped = new Set(cs.groups.flatMap((g) => g.tabIds));
-    const keys: string[] = [];
-    for (const key of Object.keys(cs.placements)) {
-      const grp = cs.groups.find((g) => g.id === key);
-      const rendered = grp ? grp.tabIds.some((id) => vis.has(id)) : vis.has(key) && !grouped.has(key);
-      if (rendered) keys.push(key);
-    }
-    return keys;
+    const isRendered = renderedPredicate(visibleTabIds(), cs.groups);
+    return Object.keys(cs.placements).filter(isRendered);
   };
 
   // Close every selected card (a group key closes all its member tabs).
@@ -619,12 +637,7 @@ export function CanvasStage() {
         const pt = toCanvas(ev.clientX, ev.clientY);
         const { placements: pl, groups: gs } = useCanvasStore.getState();
         const fromKey = placementKey(gs, fromTabId);
-        const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
-        const visSet = new Set(
-          (aws ? useTabsStore.getState().tabs.filter((t) => t.workspaceId === aws) : useTabsStore.getState().tabs).map(
-            (t) => t.id,
-          ),
-        );
+        const visSet = visibleTabIds();
         let targetKey: string | null = null;
         let targetRect: CardRect | null = null;
         let bestZ = -Infinity;
@@ -769,13 +782,8 @@ export function CanvasStage() {
         } else {
           store.placeNext(id, placeInView(kind));
         }
-        // Focus the new card (it became the active tab) so it's the live surface
-        // immediately — matters for agent cards, which only run live when focused.
-        whenPlaced(id, () => {
-          const s = useCanvasStore.getState();
-          s.setFocused(id);
-          s.bringToFront(id);
-        });
+        // Focus the new card so it's the live surface immediately.
+        raiseWhenPlaced(id);
       })();
     },
     [activeWorkspaceId, placeInView],
@@ -806,11 +814,7 @@ export function CanvasStage() {
         }
         if (!id) return;
         const tabId = id;
-        whenPlaced(tabId, () => {
-          const store = useCanvasStore.getState();
-          store.setFocused(tabId);
-          store.bringToFront(tabId);
-        });
+        raiseWhenPlaced(tabId);
       })();
     },
     [activeWorkspaceId],
@@ -1170,11 +1174,7 @@ export function CanvasStage() {
           // Dropped files open as editor cards — center one on the drop point.
           const { w, h } = cardDefaultSize('editor');
           store.placeNext(id, { x: Math.round(pt.x - w / 2), y: Math.round(pt.y - h / 2), w, h });
-          whenPlaced(id, () => {
-            const s = useCanvasStore.getState();
-            s.setFocused(id);
-            s.bringToFront(id);
-          });
+          raiseWhenPlaced(id);
         })();
       }}
       aria-label="Canvas"
