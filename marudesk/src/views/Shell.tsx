@@ -7,6 +7,7 @@ import { useGridStore } from '../features/tabs/grid';
 import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
 import { CanvasStage } from '../features/canvas/CanvasStage';
 import { useSurfaceStore } from '../features/canvas/surface';
+import { useWorkGraphStore } from '../features/work-graph/store';
 import { useWebPageStore } from '../features/browser/store';
 import { useBookmarksStore } from '../features/browser/bookmarks';
 import { useTabEvents } from '../features/tabs/useTabEvents';
@@ -355,6 +356,15 @@ export function Shell() {
     const off2 = window.marudesk.on('agent:workspace-event', (e) => handle(e.state.status));
     return () => { off1(); off2(); };
   }, [drawerOpen, t]);
+
+  // The agent's `create_task` MCP tool: draw the task node it asked for on the
+  // canvas Work-OS graph (placed in free space). Mounted at the Shell so tasks
+  // land whether the user is on the canvas or the classic surface.
+  useEffect(() => {
+    return window.marudesk.on('workos:create-task', (spec) => {
+      useWorkGraphStore.getState().addTaskFromAgent(spec);
+    });
+  }, []);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-surface-page text-fg-primary overflow-hidden">
