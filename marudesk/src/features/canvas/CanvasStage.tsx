@@ -13,6 +13,7 @@ import {
   ChevronDown,
   CopyPlus,
   Globe,
+  Group,
   Layers,
   ListTree,
   Map as MapIcon,
@@ -32,6 +33,7 @@ import { tabKinds } from '../tabs/registry';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { NameDialog } from '../workspaces/NameDialog';
 import { CanvasCard, type CardGroupProps } from './CanvasCard';
+import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
@@ -174,6 +176,7 @@ export function CanvasStage() {
   const edges = useCanvasStore((s) => s.edges);
   const edgeStyle = useCanvasStore((s) => s.edgeStyle);
   const groups = useCanvasStore((s) => s.groups);
+  const sections = useCanvasStore((s) => s.sections);
   const selection = useCanvasStore((s) => s.selection);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -473,7 +476,7 @@ export function CanvasStage() {
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     // Never start on a card or an on-canvas control — capturing here would
     // swallow their clicks.
-    if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
+    if ((e.target as HTMLElement).closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
     // Pan with the middle button or Space+left (Figma); plain left marquee-selects
     // empty canvas; right opens the context menu.
     const pan = e.button === 1 || (e.button === 0 && spaceDownRef.current);
@@ -919,6 +922,9 @@ export function CanvasStage() {
       const placements = { ...cs.placements };
       const groups = cs.groups.map((g) => ({ ...g }));
       const edges = cs.edges.map((e) => ({ ...e }));
+      // Sections are tab-independent geometry, so a faithful duplicate just copies
+      // them verbatim (ids stay unique within the new canvas's own list).
+      const sections = cs.sections.map((sec) => ({ ...sec }));
       // A faithful copy keeps the same view + wire style, not just card rects.
       const sourceViewport = { ...cs.viewport };
       const sourceEdgeStyle = cs.edgeStyle;
@@ -934,9 +940,9 @@ export function CanvasStage() {
       }
 
       useCanvasStore.getState().newCanvas(`${sourceName} copy`);
-      // Open the copy on the same view + edge style as the source so it looks
-      // identical, not reset to the origin at 100%.
-      useCanvasStore.setState({ viewport: sourceViewport, edgeStyle: sourceEdgeStyle });
+      // Open the copy on the same view + edge style + sections as the source so it
+      // looks identical, not reset to the origin at 100%.
+      useCanvasStore.setState({ viewport: sourceViewport, edgeStyle: sourceEdgeStyle, sections });
 
       const idMap = new Map<string, string>();
       const newIds: string[] = [];
@@ -1055,7 +1061,7 @@ export function CanvasStage() {
 
   // Double-click empty canvas creates a card (Figma-style).
   const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
+    if ((e.target as HTMLElement).closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
     newCard('home', toCanvas(e.clientX, e.clientY));
   };
 
@@ -1086,6 +1092,16 @@ export function CanvasStage() {
         },
         { label: rect?.locked ? 'Unlock' : 'Lock', onSelect: () => store.toggleLock(placeKey) },
       ];
+      // Frame this card (or the whole multi-selection it's part of) in a section.
+      const secKeys = selection.includes(placeKey) && selection.length > 1 ? selection : [placeKey];
+      items.push({
+        label: secKeys.length > 1 ? `Group ${secKeys.length} cards into section` : 'Group into section',
+        icon: <Group size={14} />,
+        onSelect: () => {
+          store.addSection(secKeys);
+          store.clearSelection();
+        },
+      });
       if (inGroup) {
         items.push({ label: 'Pop out tab', onSelect: () => store.popOutTab(m.tabId) });
       }
@@ -1118,6 +1134,19 @@ export function CanvasStage() {
       return items;
     }
     return [
+      ...(selection.length > 0
+        ? [
+            {
+              label: `Group ${selection.length} card${selection.length > 1 ? 's' : ''} into section`,
+              icon: <Group size={14} />,
+              onSelect: () => {
+                store.addSection(selection);
+                store.clearSelection();
+              },
+            },
+            { type: 'separator' as const },
+          ]
+        : []),
       { label: 'New browser tab', onSelect: () => newCard('web', toCanvas(m.x, m.y)) },
       { label: 'New terminal', onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
       { label: 'New editor', onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
@@ -1280,6 +1309,8 @@ export function CanvasStage() {
           willChange: 'transform',
         }}
       >
+        {/* Section frames, drawn behind everything (zIndex 0). */}
+        <CanvasSections sections={sections} scale={viewport.scale} />
         {/* Node connections, drawn behind the cards. */}
         <CanvasEdges
           placements={placements}

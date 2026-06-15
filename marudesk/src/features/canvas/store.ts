@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { TabKind, TabState } from '../../../shared/browser';
+import type { TabGroupColor, TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -65,6 +65,30 @@ export type Edge = {
  */
 export type CardGroup = { id: string; tabIds: string[]; activeId: string };
 
+/**
+ * A labeled rectangular region on the canvas that visually groups the cards
+ * inside it into a named section (FigJam-style frame). Unlike {@link CardGroup}
+ * (which merges cards into one frame), a section is pure GEOMETRY in canvas
+ * space — membership is spatial (any card whose centre falls inside), so it
+ * persists trivially with no tab-id references and never entangles the merge /
+ * placement-key machinery. Drawn behind the cards; dragging it carries the cards
+ * within along for the ride.
+ */
+export type CardSection = {
+  id: string;
+  title: string;
+  color: TabGroupColor;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/** Pad a section frame this far beyond the bounding box of its seed cards. */
+export const SECTION_PAD = 28;
+/** Height of the section's title/header band (canvas px). */
+export const SECTION_HEADER_H = 30;
+
 /** Resolve the group a tab belongs to, if any. */
 function groupForTab(groups: readonly CardGroup[], tabId: string): CardGroup | undefined {
   return groups.find((g) => g.tabIds.includes(tabId));
@@ -79,6 +103,15 @@ function newGroupId(): string {
   groupSeq += 1;
   return `grp_${groupSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
 }
+
+let sectionSeq = 0;
+function newSectionId(): string {
+  sectionSeq += 1;
+  return `sec_${sectionSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
+}
+
+/** Section hues, cycled so consecutive new sections read as distinct. */
+const SECTION_COLORS: readonly TabGroupColor[] = ['violet', 'blue', 'teal', 'green', 'amber', 'rose'];
 
 let canvasSeq = 0;
 function newCanvasId(): string {
@@ -164,6 +197,8 @@ export type CanvasDoc = {
   edges: Edge[];
   edgeStyle: EdgeStyle;
   groups: CardGroup[];
+  /** Labeled section frames grouping the cards inside them (FigJam-style). */
+  sections: CardSection[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins (per-canvas). */
   topZ: number;
@@ -187,6 +222,7 @@ function emptyCanvas(name: string): CanvasDoc {
     edges: [],
     edgeStyle: 'curve',
     groups: [],
+    sections: [],
     viewport: { panX: 0, panY: 0, scale: 1 },
     topZ: 1,
   };
@@ -354,6 +390,9 @@ type CanvasSnapshot = {
   edgeStyle: EdgeStyle;
   nodes: NodeSnapshot[];
   edges: EdgeSnapshot[];
+  // Sections are pure canvas-space geometry (no tab-id refs), so they serialize
+  // verbatim and survive a restart directly — unlike nodes/edges.
+  sections: CardSection[];
 };
 type WorkspaceSnapshot = { activeId: string; canvases: CanvasSnapshot[] };
 
@@ -402,6 +441,7 @@ function serializeCanvas(doc: CanvasDoc, tabsById: Map<string, TabState>): Canva
     edgeStyle: doc.edgeStyle,
     nodes,
     edges,
+    sections: doc.sections,
   };
 }
 
@@ -423,6 +463,29 @@ function parseIndexPair(raw: unknown, nodeCount: number): [number, number] | nul
   const [a, b] = raw as unknown[];
   if (!isNum(a) || !isNum(b) || a < 0 || a >= nodeCount || b < 0) return null;
   return [a, b];
+}
+
+const isSectionColor = (v: unknown): v is TabGroupColor =>
+  typeof v === 'string' && (SECTION_COLORS as readonly string[]).includes(v);
+
+function parseSections(raw: unknown): CardSection[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CardSection[] = [];
+  for (const val of raw) {
+    if (typeof val !== 'object' || val === null) continue;
+    const s = val as Record<string, unknown>;
+    if (!(isStr(s.id) && isNum(s.x) && isNum(s.y) && isNum(s.w) && isNum(s.h))) continue;
+    out.push({
+      id: s.id,
+      title: isStr(s.title) ? s.title : 'Section',
+      color: isSectionColor(s.color) ? s.color : 'violet',
+      x: s.x,
+      y: s.y,
+      w: Math.max(80, s.w),
+      h: Math.max(60, s.h),
+    });
+  }
+  return out;
 }
 
 function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
@@ -457,6 +520,7 @@ function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
     edgeStyle: isEdgeStyle(r.edgeStyle) ? r.edgeStyle : 'curve',
     nodes,
     edges,
+    sections: parseSections(r.sections),
   };
 }
 
@@ -481,6 +545,9 @@ function metadataDoc(snap: CanvasSnapshot): CanvasDoc {
     edges: [],
     edgeStyle: snap.edgeStyle,
     groups: [],
+    // Sections are tab-independent geometry, so they're valid pre-reconcile —
+    // carry them straight onto the metadata doc so a section shows immediately.
+    sections: snap.sections ?? [],
     viewport: snap.viewport,
     topZ: 1,
   };
@@ -560,6 +627,7 @@ function reconcileWorkspace(snaps: readonly CanvasSnapshot[], tabs: readonly Tab
       edges,
       edgeStyle: snap.edgeStyle,
       groups,
+      sections: snap.sections ?? [],
       viewport: snap.viewport,
       topZ: z || 1,
     };
@@ -631,6 +699,8 @@ type CanvasState = {
   edgeStyle: EdgeStyle;
   /** Merged card stacks (tab groups). Each owns a placement keyed by its id. */
   groups: CardGroup[];
+  /** Labeled section frames grouping the cards inside them (FigJam-style). */
+  sections: CardSection[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins. */
   topZ: number;
@@ -706,6 +776,24 @@ type CanvasActions = {
   setGroupActive: (groupId: string, tabId: string) => void;
   /** Split a tab back out of its group into its own card beside the group. */
   popOutTab: (tabId: string) => void;
+
+  /* ── sections (labeled card-grouping frames) ── */
+  /** Frame the given card keys (default: the current selection) in a new section,
+   *  sized to their bounding box + padding. Returns the new id (or null if empty). */
+  addSection: (keys?: readonly string[], title?: string) => string | null;
+  /** Move a section's frame to an absolute canvas position. */
+  setSectionPos: (id: string, x: number, y: number) => void;
+  /** Resize a section's frame (clamped to a sane minimum). */
+  setSectionSize: (id: string, w: number, h: number) => void;
+  /** Rename a section. */
+  renameSection: (id: string, title: string) => void;
+  /** Recolor a section to a specific hue. */
+  setSectionColor: (id: string, color: TabGroupColor) => void;
+  /** Remove a section frame (its cards are untouched). */
+  removeSection: (id: string) => void;
+  /** Card placement keys whose centre falls inside section `id` (spatial members). */
+  sectionMemberKeys: (id: string) => string[];
+
   panBy: (dx: number, dy: number) => void;
   /** Set the absolute pan (used by the minimap to recenter). */
   setPan: (panX: number, panY: number) => void;
@@ -759,6 +847,7 @@ function activeDoc(s: CanvasState): CanvasDoc {
     edges: s.edges,
     edgeStyle: s.edgeStyle,
     groups: s.groups,
+    sections: s.sections,
     viewport: s.viewport,
     topZ: s.topZ,
   };
@@ -778,13 +867,14 @@ function snapshotByWorkspace(s: CanvasState): Record<string, WorkspaceCanvases> 
 /** The top-level working-copy fields drawn from a {@link CanvasDoc}. */
 function workingCopy(doc: CanvasDoc): Pick<
   CanvasState,
-  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'viewport' | 'topZ'
+  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'viewport' | 'topZ'
 > {
   return {
     placements: doc.placements,
     edges: doc.edges,
     edgeStyle: doc.edgeStyle,
     groups: doc.groups,
+    sections: doc.sections,
     viewport: doc.viewport,
     topZ: doc.topZ,
   };
@@ -1324,6 +1414,62 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         focusedTabId: tabId,
       };
     }),
+
+  addSection: (keys, title) => {
+    const s = get();
+    const memberKeys = (keys ?? s.selection).filter((k) => !!s.placements[k]);
+    if (memberKeys.length === 0) return null;
+    const rects = memberKeys.map((k) => s.placements[k]);
+    const minX = Math.min(...rects.map((r) => r.x));
+    const minY = Math.min(...rects.map((r) => r.y));
+    const maxX = Math.max(...rects.map((r) => r.x + r.w));
+    const maxY = Math.max(...rects.map((r) => r.y + r.h));
+    const id = newSectionId();
+    const section: CardSection = {
+      id,
+      title: title?.trim() || `Section ${s.sections.length + 1}`,
+      color: SECTION_COLORS[s.sections.length % SECTION_COLORS.length],
+      x: minX - SECTION_PAD,
+      y: minY - SECTION_PAD - SECTION_HEADER_H,
+      w: maxX - minX + SECTION_PAD * 2,
+      h: maxY - minY + SECTION_PAD * 2 + SECTION_HEADER_H,
+    };
+    set((st) => ({ sections: [...st.sections, section] }));
+    return id;
+  },
+
+  setSectionPos: (id, x, y) =>
+    set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, x, y } : sec)) })),
+
+  setSectionSize: (id, w, h) =>
+    set((s) => ({
+      sections: s.sections.map((sec) =>
+        sec.id === id ? { ...sec, w: Math.max(120, w), h: Math.max(SECTION_HEADER_H + 60, h) } : sec,
+      ),
+    })),
+
+  renameSection: (id, title) =>
+    set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, title } : sec)) })),
+
+  setSectionColor: (id, color) =>
+    set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, color } : sec)) })),
+
+  removeSection: (id) => set((s) => ({ sections: s.sections.filter((sec) => sec.id !== id) })),
+
+  sectionMemberKeys: (id) => {
+    const s = get();
+    const sec = s.sections.find((x) => x.id === id);
+    if (!sec) return [];
+    // The body region (below the header band) — a card belongs if its centre is in it.
+    const top = sec.y + SECTION_HEADER_H;
+    return Object.entries(s.placements)
+      .filter(([, r]) => {
+        const cx = r.x + r.w / 2;
+        const cy = r.y + r.h / 2;
+        return cx >= sec.x && cx <= sec.x + sec.w && cy >= top && cy <= sec.y + sec.h;
+      })
+      .map(([k]) => k);
+  },
 
   panBy: (dx, dy) =>
     set((s) => ({
