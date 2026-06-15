@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import {
   EVENT_CHANNELS,
   INVOKE_CHANNELS,
@@ -33,5 +33,16 @@ contextBridge.exposeInMainWorld('marudesk', {
     return () => {
       ipcRenderer.removeListener(channel, listener);
     };
+  },
+  // Resolve the absolute path of a file dropped from the OS onto the window.
+  // Electron 32+ removed the non-standard `File.path`; `webUtils.getPathForFile`
+  // is the supported replacement and must run here in the preload. Returns '' for
+  // anything that isn't a real on-disk file (e.g. a synthetic File).
+  getPathForFile(file: File): string {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
   },
 });

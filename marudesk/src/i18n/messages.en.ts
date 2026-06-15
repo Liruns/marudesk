@@ -1574,6 +1574,7 @@ export const EN_MESSAGES = {
   'grid.resizeHint': 'Drag to resize · double-click to even out',
   // Canvas — the infinite-canvas surface (cards, sections, connections).
   'canvas.label': 'Canvas',
+  'canvas.drop.preview': 'Drop to add',
   'canvas.minimap': 'Canvas minimap',
   'canvas.connect.top': 'Connect from top edge',
   'canvas.connect.right': 'Connect from right edge',

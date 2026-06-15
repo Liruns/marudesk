@@ -1568,6 +1568,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'grid.resizeHint': '드래그하여 크기 조절 · 더블 클릭으로 균등 분배',
   // Canvas — the infinite-canvas surface (cards, sections, connections).
   'canvas.label': '캔버스',
+  'canvas.drop.preview': '여기에 추가',
   'canvas.minimap': '캔버스 미니맵',
   'canvas.connect.top': '위쪽 가장자리에서 연결',
   'canvas.connect.right': '오른쪽 가장자리에서 연결',

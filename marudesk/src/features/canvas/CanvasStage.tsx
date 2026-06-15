@@ -12,6 +12,7 @@ import {
   Check,
   ChevronDown,
   CopyPlus,
+  FileText,
   Globe,
   Group,
   Layers,
@@ -148,6 +149,44 @@ function renderedPredicate(vis: Set<string>, groups: readonly CardGroup[]): (key
 }
 
 /**
+ * How many files a drag carries. A native OS drop exposes its file items (kind
+ * 'file') during dragover even though their data is only readable on drop; our
+ * own explorer drag carries a single serialized file ref under {@link
+ * FILE_DND_MIME}. Returns 0 when the drag isn't a file drag at all.
+ */
+function dragFileCount(dt: DataTransfer): number {
+  if (dt.types.includes(FILE_DND_MIME)) return 1;
+  if (!dt.types.includes('Files')) return 0;
+  let n = 0;
+  for (const item of dt.items) if (item.kind === 'file') n += 1;
+  return n || 1;
+}
+
+/**
+ * Cascade `count` card rects out from a drop point (canvas coords), each `size`,
+ * staggered so a multi-file drop fans out into a readable stack instead of
+ * landing exactly on top of itself. The first card is centered on the point.
+ */
+function fileDropRects(
+  cx: number,
+  cy: number,
+  count: number,
+  size: { w: number; h: number },
+): { x: number; y: number; w: number; h: number }[] {
+  const step = 32;
+  const rects: { x: number; y: number; w: number; h: number }[] = [];
+  for (let i = 0; i < count; i += 1) {
+    rects.push({
+      x: Math.round(cx - size.w / 2 + i * step),
+      y: Math.round(cy - size.h / 2 + i * step),
+      w: size.w,
+      h: size.h,
+    });
+  }
+  return rects;
+}
+
+/**
  * Should the wheel scroll a panel's own content instead of panning the canvas?
  * Walk up from the wheel target to the canvas container looking for a scrollable
  * surface inside a card. Editors and terminals scroll via their own machinery
@@ -262,6 +301,11 @@ export function CanvasStage() {
 
   // Live connection-drag preview (canvas coords of the loose end), or null.
   const [connect, setConnect] = useState<ConnectPreview | null>(null);
+  // Ghost rects (canvas coords) showing where dragged-in files will land as
+  // cards — set while files hover the canvas, cleared on drop / leave.
+  const [dropPreview, setDropPreview] = useState<
+    { x: number; y: number; w: number; h: number }[] | null
+  >(null);
   // Container size (px) for the minimap's viewport overlay, and minimap toggle.
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [minimapOpen, setMinimapOpen] = useState(true);
@@ -1410,24 +1454,57 @@ export function CanvasStage() {
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
       onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes(FILE_DND_MIME)) return;
+        const count = dragFileCount(e.dataTransfer);
+        if (count === 0) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
+        // Preview where (and at what size) the cards will land, tracking the
+        // cursor so the drop is predictable before release.
+        const pt = toCanvas(e.clientX, e.clientY);
+        setDropPreview(fileDropRects(pt.x, pt.y, count, cardDefaultSize('editor')));
+      }}
+      onDragLeave={(e) => {
+        // dragleave also fires when crossing into a child — only clear when the
+        // pointer truly leaves the canvas surface.
+        const next = e.relatedTarget;
+        if (next instanceof Node && e.currentTarget.contains(next)) return;
+        setDropPreview(null);
       }}
       onDrop={(e) => {
-        if (!e.dataTransfer.types.includes(FILE_DND_MIME)) return;
+        if (dragFileCount(e.dataTransfer) === 0) return;
         e.preventDefault();
-        const payload = parseFileDrag(e.dataTransfer.getData(FILE_DND_MIME));
-        if (!payload) return;
+        setDropPreview(null);
         const pt = toCanvas(e.clientX, e.clientY);
+        const size = cardDefaultSize('editor');
+        // Our own explorer drag: a single serialized file ref.
+        if (e.dataTransfer.types.includes(FILE_DND_MIME)) {
+          const payload = parseFileDrag(e.dataTransfer.getData(FILE_DND_MIME));
+          if (!payload) return;
+          const [rect] = fileDropRects(pt.x, pt.y, 1, size);
+          void (async () => {
+            const id = await openFileDragAsTab(payload);
+            if (!id) return;
+            useCanvasStore.getState().placeNext(id, rect);
+            raiseWhenPlaced(id);
+          })();
+          return;
+        }
+        // Native OS file drop (one or many files, any extension): open each as an
+        // editor card, fanned out from the cursor. Resolve every path up front
+        // (synchronously, before any await) since the File list is neutered once
+        // the drop event returns.
+        const paths = Array.from(e.dataTransfer.files)
+          .map((file) => window.marudesk.getPathForFile(file))
+          .filter((p): p is string => !!p);
+        if (paths.length === 0) return;
+        const rects = fileDropRects(pt.x, pt.y, paths.length, size);
         void (async () => {
-          const id = await openFileDragAsTab(payload);
-          if (!id) return;
-          const store = useCanvasStore.getState();
-          // Dropped files open as editor cards — center one on the drop point.
-          const { w, h } = cardDefaultSize('editor');
-          store.placeNext(id, { x: Math.round(pt.x - w / 2), y: Math.round(pt.y - h / 2), w, h });
-          raiseWhenPlaced(id);
+          for (let i = 0; i < paths.length; i += 1) {
+            const id = await openFileDragAsTab({ path: paths[i] });
+            if (!id) continue;
+            useCanvasStore.getState().placeNext(id, rects[i]);
+            raiseWhenPlaced(id);
+          }
         })();
       }}
       aria-label={t('canvas.label')}
@@ -1449,6 +1526,19 @@ export function CanvasStage() {
           scale={viewport.scale}
           onStartConnect={(sectionId, side, cx, cy) => startConnect(sectionId, side, cx, cy)}
         />
+        {/* Ghost preview of where dragged-in files will land (above cards). */}
+        {dropPreview?.map((r, i) => (
+          <div
+            key={i}
+            className="pointer-events-none absolute rounded-lg border-2 border-dashed border-accent/70 bg-accent/10"
+            style={{ left: r.x, top: r.y, width: r.w, height: r.h, zIndex: 90000 }}
+          >
+            <span className="m-1.5 inline-flex items-center gap-1 rounded bg-accent/15 px-1.5 py-0.5 text-caption text-accent">
+              <FileText size={12} aria-hidden />
+              {t('canvas.drop.preview')}
+            </span>
+          </div>
+        ))}
         {/* Node connections (card↔card, card↔section, section↔section). */}
         <CanvasEdges
           placements={nodeRects}
