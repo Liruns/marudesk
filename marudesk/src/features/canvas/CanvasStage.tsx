@@ -26,6 +26,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import type { TabKind, TabState } from '../../../shared/browser';
 import { useTabsStore } from '../tabs/store';
@@ -170,6 +171,7 @@ function raiseWhenPlaced(tabId: string): void {
  * the card. Repositioning is coalesced to one IPC per animation frame.
  */
 export function CanvasStage() {
+  const { t, formatCanvasGroupSection } = useI18n();
   const tabs = useTabsStore((s) => s.tabs);
   const activateTab = useTabsStore((s) => s.activateTab);
   const placements = useCanvasStore((s) => s.placements);
@@ -191,7 +193,7 @@ export function CanvasStage() {
   const canvasList = canvasBucket
     ? canvasBucket.order.map((id) => canvasBucket.canvases[id]).filter((d): d is NonNullable<typeof d> => !!d)
     : [];
-  const activeCanvasName = canvasBucket?.canvases[activeCanvasId]?.name ?? 'Canvas';
+  const activeCanvasName = canvasBucket?.canvases[activeCanvasId]?.name ?? t('canvas.toolbar.canvasFallback');
 
   // Scope cards to the active workspace so multiple workspaces don't pile onto
   // one canvas; fall back to all tabs when no workspace is active. Placements are
@@ -877,12 +879,12 @@ export function CanvasStage() {
     const g = groups.find((gr) => gr.id === groupId);
     if (!g) return undefined;
     const members = g.tabIds
-      .map((id) => tabs.find((t) => t.id === id))
-      .filter((t): t is TabState => !!t)
-      .map((t) => ({
-        id: t.id,
-        title: t.title?.trim() || tabKinds[t.kind]?.title || 'Tab',
-        icon: tabKinds[t.kind]?.icon ?? Globe,
+      .map((id) => tabs.find((tb) => tb.id === id))
+      .filter((tb): tb is TabState => !!tb)
+      .map((tb) => ({
+        id: tb.id,
+        title: tb.title?.trim() || tabKinds[tb.kind]?.title || t('canvas.tabFallback'),
+        icon: tabKinds[tb.kind]?.icon ?? Globe,
       }));
     return {
       members,
@@ -1072,19 +1074,19 @@ export function CanvasStage() {
     }));
     items.push(
       { type: 'separator' },
-      { label: 'New canvas', icon: <Plus size={14} />, onSelect: () => setNameDialog({ mode: 'new' }) },
+      { label: t('canvas.dialog.newCanvas'), icon: <Plus size={14} />, onSelect: () => setNameDialog({ mode: 'new' }) },
       {
-        label: 'Rename canvas',
+        label: t('canvas.dialog.renameCanvas'),
         icon: <Pencil size={14} />,
         onSelect: () => setNameDialog({ mode: 'rename', id: activeCanvasId, initial: activeCanvasName }),
       },
       {
-        label: 'Duplicate canvas',
+        label: t('canvas.dialog.duplicateCanvas'),
         icon: <CopyPlus size={14} />,
         onSelect: () => duplicateCanvas(activeCanvasName),
       },
       {
-        label: 'Delete canvas',
+        label: t('canvas.dialog.deleteCanvas'),
         icon: <Trash2 size={14} />,
         danger: true,
         disabled: canvasList.length <= 1,
@@ -1155,11 +1157,11 @@ export function CanvasStage() {
     if (m.kind === 'edge') {
       return [
         {
-          label: edgeStyle === 'curve' ? 'Square connections' : 'Curved connections',
+          label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
           onSelect: () => store.toggleEdgeStyle(),
         },
         { type: 'separator' },
-        { label: 'Remove connection', danger: true, onSelect: () => store.removeEdge(m.edgeId) },
+        { label: t('canvas.edge.remove'), danger: true, onSelect: () => store.removeEdge(m.edgeId) },
       ];
     }
     if (m.kind === 'card') {
@@ -1169,18 +1171,18 @@ export function CanvasStage() {
       const inGroup = placeKey !== m.tabId;
       const rect = placements[placeKey];
       const items: MenuItem[] = [
-        { label: 'Bring to front', onSelect: () => store.bringToFront(placeKey) },
-        { label: 'Send to back', onSelect: () => store.sendToBack(placeKey) },
+        { label: t('canvas.menu.bringFront'), onSelect: () => store.bringToFront(placeKey) },
+        { label: t('canvas.menu.sendBack'), onSelect: () => store.sendToBack(placeKey) },
         {
-          label: rect?.preMax ? 'Restore size' : 'Maximize',
+          label: rect?.preMax ? t('canvas.menu.restoreSize') : t('canvas.card.maximize'),
           onSelect: () => store.toggleMaximize(placeKey, maximizeRect()),
         },
-        { label: rect?.locked ? 'Unlock' : 'Lock', onSelect: () => store.toggleLock(placeKey) },
+        { label: rect?.locked ? t('canvas.card.unlock') : t('canvas.card.lock'), onSelect: () => store.toggleLock(placeKey) },
       ];
       // Frame this card (or the whole multi-selection it's part of) in a section.
       const secKeys = selection.includes(placeKey) && selection.length > 1 ? selection : [placeKey];
       items.push({
-        label: secKeys.length > 1 ? `Group ${secKeys.length} cards into section` : 'Group into section',
+        label: formatCanvasGroupSection(secKeys.length),
         icon: <Group size={14} />,
         onSelect: () => {
           store.addSection(secKeys);
@@ -1188,13 +1190,13 @@ export function CanvasStage() {
         },
       });
       if (inGroup) {
-        items.push({ label: 'Pop out tab', onSelect: () => store.popOutTab(m.tabId) });
+        items.push({ label: t('canvas.menu.popOut'), onSelect: () => store.popOutTab(m.tabId) });
       }
       if (tab?.kind === 'web') {
         items.push(
           { type: 'separator' },
           {
-            label: 'Reload',
+            label: t('canvas.card.reload'),
             onSelect: () =>
               void (async () => {
                 await useTabsStore.getState().activateTab(m.tabId);
@@ -1202,11 +1204,11 @@ export function CanvasStage() {
               })(),
           },
           {
-            label: 'Open DevTools',
+            label: t('canvas.card.devtools'),
             onSelect: () => openDevtoolsFor(m.tabId),
           },
           {
-            label: 'Copy link',
+            label: t('canvas.menu.copyLink'),
             disabled: !tab.url,
             onSelect: () => void window.marudesk.invoke('clipboard:write-text', tab.url),
           },
@@ -1214,7 +1216,7 @@ export function CanvasStage() {
       }
       items.push(
         { type: 'separator' },
-        { label: 'Close card', danger: true, onSelect: () => void useTabsStore.getState().closeTab(m.tabId) },
+        { label: t('canvas.card.close'), danger: true, onSelect: () => void useTabsStore.getState().closeTab(m.tabId) },
       );
       return items;
     }
@@ -1222,7 +1224,7 @@ export function CanvasStage() {
       ...(selection.length > 0
         ? [
             {
-              label: `Group ${selection.length} card${selection.length > 1 ? 's' : ''} into section`,
+              label: formatCanvasGroupSection(selection.length),
               icon: <Group size={14} />,
               onSelect: () => {
                 store.addSection(selection);
@@ -1232,20 +1234,20 @@ export function CanvasStage() {
             { type: 'separator' as const },
           ]
         : []),
-      { label: 'New browser tab', onSelect: () => newCard('web', toCanvas(m.x, m.y)) },
-      { label: 'New terminal', onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
-      { label: 'New editor', onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
-      { label: 'New AI chat', onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newBrowserTab'), onSelect: () => newCard('web', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newTerminal'), onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newEditor'), onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newAiChat'), onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
       { type: 'separator' },
-      { label: 'Fit to content', onSelect: () => fit() },
-      { label: 'Reset zoom', onSelect: () => store.resetView() },
+      { label: t('canvas.control.fit'), onSelect: () => fit() },
+      { label: t('canvas.menu.resetZoom'), onSelect: () => store.resetView() },
       { type: 'separator' },
       {
-        label: edgeStyle === 'curve' ? 'Square connections' : 'Curved connections',
+        label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
         onSelect: () => store.toggleEdgeStyle(),
       },
-      { label: minimapOpen ? 'Hide minimap' : 'Show minimap', onSelect: () => setMinimapOpen((v) => !v) },
-      { label: planFlowOpen ? 'Hide process' : 'Show process', onSelect: () => setPlanFlowOpen((v) => !v) },
+      { label: minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow'), onSelect: () => setMinimapOpen((v) => !v) },
+      { label: planFlowOpen ? t('agent.flow.hide') : t('agent.flow.show'), onSelect: () => setPlanFlowOpen((v) => !v) },
     ];
   };
 
@@ -1381,7 +1383,7 @@ export function CanvasStage() {
           raiseWhenPlaced(id);
         })();
       }}
-      aria-label="Canvas"
+      aria-label={t('canvas.label')}
       tabIndex={-1}
     >
       <div
@@ -1487,8 +1489,8 @@ export function CanvasStage() {
           return (
             <button
               type="button"
-              aria-label="Remove connection"
-              title="Remove connection"
+              aria-label={t('canvas.edge.remove')}
+              title={t('canvas.edge.remove')}
               style={{ left: (p1.x + p2.x) / 2 - 11, top: (p1.y + p2.y) / 2 - 11, zIndex: 100000 }}
               className="absolute grid h-[22px] w-[22px] place-items-center rounded-pill border border-default bg-surface-2 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
               onPointerDown={(ev) => ev.stopPropagation()}
@@ -1542,22 +1544,22 @@ export function CanvasStage() {
         {workspaces.length > 1 ? (
           <button
             type="button"
-            title="Switch workspace"
+            title={t('canvas.toolbar.switchWorkspace')}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               setWsMenu({ x: r.left, y: r.bottom + 4 });
             }}
             className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
           >
-            <span className="max-w-[10rem] truncate">{activeWsName ?? 'Workspace'}</span>
+            <span className="max-w-[10rem] truncate">{activeWsName ?? t('canvas.toolbar.workspaceFallback')}</span>
             <ChevronDown size={13} />
           </button>
         ) : null}
         {/* Canvas switcher — each canvas is a named saved layout. */}
         <button
           type="button"
-          title="Switch canvas / saved layout"
-          aria-label="Switch canvas"
+          title={t('canvas.toolbar.switchCanvasTitle')}
+          aria-label={t('canvas.toolbar.switchCanvas')}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setCanvasMenu({ x: r.left, y: r.bottom + 4 });
@@ -1570,16 +1572,17 @@ export function CanvasStage() {
         </button>
         <button
           type="button"
+          title={t('canvas.toolbar.newCard')}
           onClick={() => newCard('home')}
           className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
         >
           <Plus size={14} />
-          New card
+          {t('canvas.toolbar.newCard')}
         </button>
         <button
           type="button"
-          title="AI Task graph"
-          aria-label="Toggle task graph"
+          title={t('canvas.toolbar.tasksTitle')}
+          aria-label={t('canvas.toolbar.tasksToggle')}
           onClick={() => setTasksOpen((v) => !v)}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption shadow-card transition-colors duration-fast active:translate-y-px',
@@ -1587,7 +1590,7 @@ export function CanvasStage() {
           )}
         >
           <Workflow size={14} />
-          Tasks
+          {t('canvas.toolbar.tasks')}
         </button>
       </div>
 
@@ -1595,35 +1598,35 @@ export function CanvasStage() {
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
-        <CtrlButton label="Zoom out" onClick={() => zoomFromCenter(1 / 1.2)}>
+        <CtrlButton label={t('canvas.control.zoomOut')} onClick={() => zoomFromCenter(1 / 1.2)}>
           <Minus size={15} />
         </CtrlButton>
         <button
           type="button"
           className="min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary"
           onClick={() => useCanvasStore.getState().resetView()}
-          title="Reset zoom to 100%"
+          title={t('canvas.control.resetZoom')}
         >
           {Math.round(viewport.scale * 100)}%
         </button>
-        <CtrlButton label="Zoom in" onClick={() => zoomFromCenter(1.2)}>
+        <CtrlButton label={t('canvas.control.zoomIn')} onClick={() => zoomFromCenter(1.2)}>
           <Plus size={15} />
         </CtrlButton>
         <div className="mx-0.5 h-5 w-px bg-subtle" />
-        <CtrlButton label="Fit to content" onClick={fit}>
+        <CtrlButton label={t('canvas.control.fit')} onClick={fit}>
           <Maximize2 size={15} />
         </CtrlButton>
-        <CtrlButton label="Reset view" onClick={() => useCanvasStore.getState().resetView()}>
+        <CtrlButton label={t('canvas.control.resetView')} onClick={() => useCanvasStore.getState().resetView()}>
           <RotateCcw size={15} />
         </CtrlButton>
         <CtrlButton
-          label={minimapOpen ? 'Hide minimap' : 'Show minimap'}
+          label={minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow')}
           onClick={() => setMinimapOpen((v) => !v)}
         >
           <MapIcon size={15} />
         </CtrlButton>
         <CtrlButton
-          label={planFlowOpen ? 'Hide process' : 'Show process'}
+          label={planFlowOpen ? t('agent.flow.hide') : t('agent.flow.show')}
           onClick={() => setPlanFlowOpen((v) => !v)}
         >
           <ListTree size={15} />
@@ -1640,7 +1643,7 @@ export function CanvasStage() {
           y={wsMenu.y}
           onClose={() => setWsMenu(null)}
           items={workspaces.map((w) => ({
-            label: w.name || 'Untitled',
+            label: w.name || t('canvas.menu.untitledWorkspace'),
             disabled: w.id === activeWorkspaceId,
             onSelect: () => void useWorkspaceDeckStore.getState().setActiveWorkspace(w.id),
           }))}
@@ -1658,9 +1661,9 @@ export function CanvasStage() {
 
       {nameDialog ? (
         <NameDialog
-          title={nameDialog.mode === 'new' ? 'New canvas' : 'Rename canvas'}
-          confirmLabel={nameDialog.mode === 'new' ? 'Create' : 'Rename'}
-          placeholder="Canvas name"
+          title={nameDialog.mode === 'new' ? t('canvas.dialog.newCanvas') : t('canvas.dialog.renameCanvas')}
+          confirmLabel={nameDialog.mode === 'new' ? t('canvas.dialog.create') : t('canvas.dialog.rename')}
+          placeholder={t('canvas.dialog.canvasNamePlaceholder')}
           initialValue={nameDialog.mode === 'rename' ? nameDialog.initial : ''}
           allowEmpty={nameDialog.mode === 'new'}
           onSubmit={(value) => {

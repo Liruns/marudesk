@@ -21,9 +21,20 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { tabKinds } from '../tabs/registry';
 import { cardMinSize, EDGE_SIDES, useCanvasStore, type CardRect, type EdgeSide } from './store';
 import type { TabState } from '../../../shared/browser';
+
+/** Per-face connection-port accessible name (the side is meaningful for both a11y
+ *  and the e2e port selectors). */
+const CONNECT_LABEL: Record<EdgeSide, TranslationKey> = {
+  top: 'canvas.connect.top',
+  right: 'canvas.connect.right',
+  bottom: 'canvas.connect.bottom',
+  left: 'canvas.connect.left',
+};
 
 /** A member of a merged card (tab group), for the in-header tab strip. */
 export type CardGroupMember = { id: string; title: string; icon: ComponentType<{ size?: number }> };
@@ -147,6 +158,7 @@ export function CanvasCard({
   onToggleLock?: () => void;
   onToggleMaximize?: () => void;
 }) {
+  const { t } = useI18n();
   const isWeb = tab.kind === 'web';
   const rootRef = useRef<HTMLDivElement>(null);
   // Default to '' (not tab.url, which is undefined for a blank web card) so the
@@ -158,7 +170,7 @@ export function CanvasCard({
     if (!addrFocused.current) setAddr(tab.url ?? '');
   }, [tab.url]);
   const Icon = tabKinds[tab.kind]?.icon ?? Globe;
-  const title = tab.title?.trim() || tab.url || tabKinds[tab.kind]?.title || 'Card';
+  const title = tab.title?.trim() || tab.url || tabKinds[tab.kind]?.title || t('canvas.card.fallbackTitle');
   const dragState = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   // Resize is painted straight to the DOM during the gesture (no per-frame store
   // write / re-render) and committed once on release — `x/y/w/h` track the live rect.
@@ -315,7 +327,7 @@ export function CanvasCard({
       data-tab-id={tab.id}
       data-place-key={placeKey}
       role="group"
-      aria-label={`${title} card`}
+      aria-label={`${title} ${t('canvas.card.suffix')}`}
       tabIndex={0}
       className={cn(
         'group @container absolute flex flex-col rounded-lg chrome-panel transition-shadow duration-fast',
@@ -352,13 +364,13 @@ export function CanvasCard({
               // card's own view. Shown from @[16rem] so a tiny card keeps just the
               // address bar. Each stops propagation so it doesn't start a header drag.
               <div className="hidden @[16rem]:flex shrink-0 items-center gap-0.5">
-                <CardNavButton label="Back" onClick={onGoBack}>
+                <CardNavButton label={t('canvas.card.back')} onClick={onGoBack}>
                   <ArrowLeft size={13} />
                 </CardNavButton>
-                <CardNavButton label="Forward" onClick={onGoForward}>
+                <CardNavButton label={t('canvas.card.forward')} onClick={onGoForward}>
                   <ArrowRight size={13} />
                 </CardNavButton>
-                <CardNavButton label="Reload" onClick={onReload}>
+                <CardNavButton label={t('canvas.card.reload')} onClick={onReload}>
                   <RotateCw size={12} />
                 </CardNavButton>
               </div>
@@ -371,8 +383,8 @@ export function CanvasCard({
               <input
                 value={addr}
                 spellCheck={false}
-                placeholder="Search or enter address"
-                aria-label="Address"
+                placeholder={t('canvas.card.addressPlaceholder')}
+                aria-label={t('canvas.card.address')}
                 className={cn(
                   'flex-1 min-w-0 bg-transparent text-caption text-fg-secondary',
                   'placeholder:text-fg-tertiary focus:outline-none',
@@ -403,8 +415,8 @@ export function CanvasCard({
         {isWeb && onOpenDevtools ? (
           <button
             type="button"
-            aria-label="Open DevTools"
-            title="Open DevTools"
+            aria-label={t('canvas.card.devtools')}
+            title={t('canvas.card.devtools')}
             className="hidden @[20rem]:grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -418,8 +430,8 @@ export function CanvasCard({
         {onToggleMaximize ? (
           <button
             type="button"
-            aria-label={maximized ? 'Restore card' : 'Maximize card'}
-            title={maximized ? 'Restore' : 'Maximize'}
+            aria-label={maximized ? t('canvas.card.restoreAria') : t('canvas.card.maximizeAria')}
+            title={maximized ? t('canvas.card.restore') : t('canvas.card.maximize')}
             className="hidden @[18rem]:grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -433,8 +445,8 @@ export function CanvasCard({
         {onToggleLock ? (
           <button
             type="button"
-            aria-label={locked ? 'Unlock card' : 'Lock card'}
-            title={locked ? 'Unlock' : 'Lock (prevent move/resize)'}
+            aria-label={locked ? t('canvas.card.unlockAria') : t('canvas.card.lockAria')}
+            title={locked ? t('canvas.card.unlock') : t('canvas.card.lock')}
             className={cn(
               'grid place-items-center h-6 w-6 rounded transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary',
               locked ? 'text-accent' : 'text-fg-tertiary',
@@ -450,7 +462,7 @@ export function CanvasCard({
         ) : null}
         <button
           type="button"
-          aria-label="Close card"
+          aria-label={t('canvas.card.close')}
           className="grid place-items-center h-6 w-6 rounded text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -468,7 +480,7 @@ export function CanvasCard({
           0 height and renders blank. */}
       <div className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden rounded-b-lg bg-surface-page">
         {isWeb ? (
-          <div ref={registerWebEl} className="relative h-full w-full bg-surface-1" aria-label="Web card">
+          <div ref={registerWebEl} className="relative h-full w-full bg-surface-1" aria-label={t('canvas.card.web')}>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
               <Globe size={22} className="text-fg-tertiary" aria-hidden />
               <p className="max-w-full truncate text-body text-fg-secondary">{title}</p>
@@ -491,8 +503,8 @@ export function CanvasCard({
             <button
               key={side}
               type="button"
-              aria-label={`Connect from ${side} edge`}
-              title="Drag to another card to connect"
+              aria-label={t(CONNECT_LABEL[side])}
+              title={t('canvas.card.connect')}
               className={cn(
                 'absolute z-20 h-3.5 w-3.5 rounded-pill transition-opacity duration-fast',
                 'border border-accent bg-surface-1 hover:bg-accent cursor-crosshair',
@@ -518,7 +530,7 @@ export function CanvasCard({
         <div
           key={dir}
           {...(dir === 'se'
-            ? { role: 'separator' as const, 'aria-label': 'Resize card' }
+            ? { role: 'separator' as const, 'aria-label': t('canvas.card.resize') }
             : { 'aria-hidden': true })}
           data-resize-dir={dir}
           className={cn('absolute z-10', cls)}
@@ -574,6 +586,7 @@ function CardNavButton({
 /** The merged-card header: a horizontal strip of member tabs. Click to switch,
  *  × to close a member; the chips stop propagation so they don't start a drag. */
 function GroupTabStrip({ group }: { group: CardGroupProps }) {
+  const { t } = useI18n();
   return (
     <div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto scrollbar-none">
       {group.members.map((m) => {
@@ -602,7 +615,7 @@ function GroupTabStrip({ group }: { group: CardGroupProps }) {
             <span className="truncate">{m.title}</span>
             <button
               type="button"
-              aria-label={`Close ${m.title}`}
+              aria-label={t('canvas.card.closeMember')}
               className="grid size-4 shrink-0 place-items-center rounded opacity-0 transition-opacity duration-fast hover:bg-surface-1 hover:text-fg-primary group-hover/chip:opacity-100"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {

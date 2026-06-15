@@ -1,4 +1,5 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useI18n } from '../../i18n/useI18n';
 import type { CardRect, Viewport } from './store';
 
 /**
@@ -28,6 +29,7 @@ export function CanvasMinimap({
   height: number;
   onJump: (worldX: number, worldY: number) => void;
 }) {
+  const { t } = useI18n();
   // While dragging we FREEZE the fit (captured at press) and the svg's screen
   // rect, then map the cursor to a world point with that frozen transform. The
   // fit normally folds in the viewport rect, so panning would otherwise shift the
@@ -90,7 +92,7 @@ export function CanvasMinimap({
   return (
     <div
       className="absolute bottom-4 left-3 z-40 rounded-lg chrome-panel p-1 shadow-card"
-      aria-label="Canvas minimap"
+      aria-label={t('canvas.minimap')}
       // Don't let a minimap press bubble to the canvas (which would start a pan
       // and clear focus/selection); the svg's own pointer handlers drive it.
       onPointerDown={(e) => e.stopPropagation()}

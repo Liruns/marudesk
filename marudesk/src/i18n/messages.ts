@@ -21,6 +21,7 @@ export type SearchSummaryInput = {
 };
 type LocaleFormatters = {
   readonly fileCount: (input: FileCountInput) => string;
+  readonly canvasGroupSection: (count: number) => string;
   readonly captureCount: (count: number) => string;
   readonly mcpToolCount: (count: number) => string;
   readonly providerModelCount: (count: number) => string;
@@ -44,6 +45,8 @@ export function getMessage(locale: Locale, key: TranslationKey): string {
 const FORMATTERS: Readonly<Record<Locale, LocaleFormatters>> = {
   en: {
     fileCount: ({ count, truncated }) => `${count}${truncated ? '+' : ''} files`,
+    canvasGroupSection: (count) =>
+      count > 1 ? `Group ${count} cards into section` : 'Group into section',
     captureCount: (count) => `${count} capture${count === 1 ? '' : 's'}`,
     mcpToolCount: (count) => `${count} tool${count === 1 ? '' : 's'}`,
     providerModelCount: (count) => `${count} model${count === 1 ? '' : 's'}`,
@@ -57,6 +60,8 @@ const FORMATTERS: Readonly<Record<Locale, LocaleFormatters>> = {
   },
   ko: {
     fileCount: ({ count, truncated }) => `${count}${truncated ? '+' : ''}개 파일`,
+    canvasGroupSection: (count) =>
+      count > 1 ? `카드 ${count}개를 섹션으로 묶기` : '섹션으로 묶기',
     captureCount: (count) => `${count}개 캡처`,
     mcpToolCount: (count) => `도구 ${count}개`,
     providerModelCount: (count) => `모델 ${count}개`,
@@ -85,6 +90,7 @@ function makeLocaleFormatter<K extends keyof LocaleFormatters>(
 }
 
 export const formatFileCountForLocale = makeLocaleFormatter('fileCount');
+export const formatCanvasGroupSectionForLocale = makeLocaleFormatter('canvasGroupSection');
 export const formatCaptureCountForLocale = makeLocaleFormatter('captureCount');
 export const formatMcpToolCountForLocale = makeLocaleFormatter('mcpToolCount');
 export const formatProviderModelCountForLocale = makeLocaleFormatter('providerModelCount');

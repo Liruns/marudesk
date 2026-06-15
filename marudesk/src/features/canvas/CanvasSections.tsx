@@ -2,7 +2,17 @@ import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEve
 import { Trash2 } from 'lucide-react';
 import type { TabGroupColor } from '../../../shared/browser';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { EDGE_SIDES, SECTION_HEADER_H, useCanvasStore, type CardSection, type EdgeSide } from './store';
+
+/** Per-face connection-port accessible name (the side is meaningful for a11y). */
+const CONNECT_LABEL: Record<EdgeSide, TranslationKey> = {
+  top: 'canvas.connect.top',
+  right: 'canvas.connect.right',
+  bottom: 'canvas.connect.bottom',
+  left: 'canvas.connect.left',
+};
 
 /** Where each face's connection port sits, centered just outside the frame. */
 const PORT_POS: Record<EdgeSide, string> = {
@@ -64,6 +74,7 @@ function SectionFrame({
   scale: number;
   onStartConnect: (sectionId: string, side: EdgeSide, clientX: number, clientY: number) => void;
 }) {
+  const { t } = useI18n();
   const cls = SECTION_CLASSES[section.color];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(section.title);
@@ -219,8 +230,8 @@ function SectionFrame({
         <button
           key={side}
           type="button"
-          aria-label={`Connect from ${side} edge`}
-          title="Drag to another section or card to connect"
+          aria-label={t(CONNECT_LABEL[side])}
+          title={t('canvas.section.connect')}
           className={cn(
             'absolute z-10 h-3.5 w-3.5 rounded-pill border opacity-0 transition-opacity duration-fast',
             'bg-surface-1 cursor-crosshair group-hover/section:opacity-100',
@@ -237,7 +248,7 @@ function SectionFrame({
       ))}
       <div
         className={cn(
-          'flex h-[30px] items-center gap-1.5 rounded-t-md px-2 cursor-grab active:cursor-grabbing select-none',
+          'flex items-center gap-1.5 rounded-t-md px-2 cursor-grab active:cursor-grabbing select-none',
           cls.header,
         )}
         style={{ height: SECTION_HEADER_H }}
@@ -253,8 +264,8 @@ function SectionFrame({
       >
         <button
           type="button"
-          aria-label="Change section color"
-          title="Change color"
+          aria-label={t('canvas.section.changeColorAria')}
+          title={t('canvas.section.changeColor')}
           className={cn('size-2.5 shrink-0 rounded-full', cls.dot)}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -266,7 +277,7 @@ function SectionFrame({
           <input
             autoFocus
             value={draft}
-            aria-label="Section title"
+            aria-label={t('canvas.section.title')}
             className={cn('min-w-0 flex-1 bg-transparent text-caption font-medium focus:outline-none', cls.text)}
             onChange={(e) => setDraft(e.target.value)}
             onPointerDown={(e) => e.stopPropagation()}
@@ -284,8 +295,8 @@ function SectionFrame({
         )}
         <button
           type="button"
-          aria-label="Delete section"
-          title="Delete section (keeps the cards)"
+          aria-label={t('canvas.section.delete')}
+          title={t('canvas.section.deleteHint')}
           className={cn(
             'grid size-5 shrink-0 place-items-center rounded opacity-0 transition-opacity duration-fast',
             'hover:bg-surface-1/60 group-hover/section:opacity-100',
@@ -304,7 +315,7 @@ function SectionFrame({
       {/* Resize grip (SE) — reframes the section without moving cards. */}
       <div
         role="separator"
-        aria-label="Resize section"
+        aria-label={t('canvas.section.resize')}
         className="absolute -bottom-1 -right-1 size-4 cursor-nwse-resize opacity-0 group-hover/section:opacity-100"
         onPointerDown={onResizeDown}
         onPointerMove={onResizeMove}
