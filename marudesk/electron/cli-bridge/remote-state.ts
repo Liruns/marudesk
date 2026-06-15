@@ -8,23 +8,23 @@ import {
 import { buildUnifiedDiff, clipDiffText } from '../../shared/edit-diff';
 
 /**
- * The ONE projection every bridge transport applies to a snapshot before it
- * leaves the PC (the M4 REST/SSE router, the loopback companion, and the cloud
- * relay host all publish through this — see loop-api.ts + each transport's
- * `subscribe` wiring). It follows the loop's existing emit-boundary pattern
- * (approvalMode/reasoningEffort are stamped the same way in loop-state.ts):
- * derive what thin clients need, never mutate the authoritative state.
+ * The ONE projection the CLI bridge applies to a snapshot before it leaves the
+ * PC: the loopback companion's REST/SSE router publishes through this (see
+ * loop-api.ts + the router's `subscribe` wiring). It follows the loop's existing
+ * emit-boundary pattern (approvalMode/reasoningEffort are stamped the same way
+ * in loop-state.ts): derive what a thin terminal client needs, never mutate the
+ * authoritative state.
  *
- * What it does (docs/remote-mobile-bridge-design — phone patch review):
+ * What it does:
  *  - stamps `editDiffs`: per applied/kept/reverted edit, a BOUNDED unified diff
- *    (clipped at {@link REMOTE_EDIT_DIFF_MAX_CHARS}) + the ids/status a phone
- *    needs to render a review card and act (`revert-edit`);
+ *    (clipped at {@link REMOTE_EDIT_DIFF_MAX_CHARS}) + the ids/status a client
+ *    needs to render a review row and act (`revert-edit`);
  *  - empties the heavy `edits` array (full before/after file contents) so one
- *    big file edit can't balloon every SSE/relay frame — no remote client reads
- *    it (the desktop renderer rides IPC, not this projection).
+ *    big file edit can't balloon every SSE frame — no bridge client reads it
+ *    (the desktop renderer rides IPC, not this projection).
  *
  * Both changes are wire-backward-compatible: `editDiffs` is optional (older
- * phones ignore it) and `edits` keeps its shape (just empty).
+ * clients ignore it) and `edits` keeps its shape (just empty).
  */
 
 /**

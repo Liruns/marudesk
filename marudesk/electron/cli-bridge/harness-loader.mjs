@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
- * A tiny ESM resolve hook for the headless server harness only. The repo's source
+ * A tiny ESM resolve hook for the CLI bridge harness only. The repo's source
  * uses extensionless relative imports (TS `bundler` resolution); Node's
  * `--experimental-strip-types` runner requires explicit extensions. Rather than
  * pollute production files with `.ts` extensions, this hook appends `.ts` (or
@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * so it needs no type-stripping itself.
  *
  * Registered as a module-customization hook (see package.json `harness:server`):
- *   node --experimental-strip-types --import ./electron/server/harness-register.mjs electron/server/harness.ts
+ *   node --experimental-strip-types --import ./electron/cli-bridge/harness-register.mjs electron/cli-bridge/harness.ts
  */
 export async function resolve(specifier, context, nextResolve) {
   try {

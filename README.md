@@ -99,29 +99,19 @@ A built-in, in-process MCP server exposes tabs, the active page, terminals, edit
 ### Plugins
 Extend the agent with your own JavaScript. A plugin is a folder with a `manifest.json` and an `index.js` exporting `activate(ctx)`; it can contribute **agent tools** and **slash commands**. Plugins run in an **isolated worker** (Electron `utilityProcess` with the Node Permission Model + a module sandbox), never in the main process, and reach the filesystem/network only through a **capability-gated bridge** the user approves per plugin (`fs:read`, `fs:write`, `net`). Contributed tools flow through the same approval / read-only mediation as the built-in ones, and a plugin's file writes show up in the chat diff/revert history. Manage them in **Settings → Plugins**; see [`marudesk/docs/plugin-runtime-design.md`](marudesk/docs/plugin-runtime-design.md). Plugin folders are scanned from `<userData>/plugins/` (user) and `<workspace>/.marudesk/plugins/` (project); a runnable example lives in [`marudesk/examples/plugins/hello-world`](marudesk/examples/plugins/hello-world).
 
-### Remote bridge
-
-> **Mobile client archived.** The Capacitor phone app has been removed from the
-> active workspace and preserved on the `archive/mobile` branch (tag
-> `archive/mobile-v0.8.0`). The relay and the desktop remote bridge described
-> below stay — they are independent of the mobile package and could later drive a
-> web/canvas remote client.
-
-The desktop host exposes a remote bridge with QR-code pairing, application-level end-to-end encryption (X25519 + AES-GCM), direct LAN / Tailscale transport, and an optional cloud relay for access from anywhere. Direct mode works **fully self-hosted across networks**: the pairing payload carries every reachable address (a stable Public URL, the managed auto-tunnel, Tailscale, then LAN) and a client fails over between them automatically. Flip Settings → Remote → Advanced → **Auto tunnel** and the PC installs cloudflared on demand (pinned release, SHA-256-verified), spawns a quick tunnel, and publishes its URL by itself — no marudesk cloud, nothing extra to install on the host. The host always owns the model, tools, and workspace; any remote client is thin by design.
-
 ## Repository layout
 
-Maru is a three-package workspace.
+Maru lives in a single active package, `marudesk/`; a former Capacitor mobile
+client is archived.
 
 | Path | Role |
 |---|---|
 | `marudesk/` | Electron desktop app — browser stage, DevTools, agent loop, editor/terminal, workspace integration, packaging. Owns the model/tool/workspace loop. |
 | `mobile/` _(archived)_ | Capacitor thin client — removed from the active workspace; preserved on the `archive/mobile` branch and `archive/mobile-v0.8.0` tag. |
-| `relay/` | Node/TypeScript relay and auth service — brokers same-account host/client WebSocket traffic for the cloud-relay path. |
 
 Inside `marudesk/`:
 
-- `electron/` — main process: `browser/*` (tabs, navigation, downloads, CDP runtime capture), `agent/*` (session loop, tools, MCP, context sources, provider auth), plus settings, secrets, and the remote server.
+- `electron/` — main process: `browser/*` (tabs, navigation, downloads, CDP runtime capture), `agent/*` (session loop, tools, MCP, context sources, provider auth), plus settings, secrets, and the loopback CLI bridge (`cli-bridge/`).
 - `src/` — React renderer, organized into feature slices (`features/browser`, `devtools`, `editor`, `agent`, `settings`, `terminal`, and others).
 - `shared/` — transport-safe typed contracts used across main, renderer, and tests.
 - `e2e/` — Playwright end-to-end tests. `docs/` — design and architecture notes. `DESIGN.md` — design-system rules.
@@ -143,12 +133,6 @@ Prerequisites: Node.js 20 or newer and npm. There is no root package; install pe
 cd marudesk
 npm install
 npm run dev        # starts the Vite renderer + Electron shell
-```
-
-Optional companion package:
-
-```bash
-cd relay  && npm install && npm start      # cloud relay (defaults to port 8788)
 ```
 
 ### Configure a provider
@@ -209,13 +193,11 @@ npm run lint
 npm run e2e              # Playwright end-to-end suite
 ```
 
-Targeted main-process and server harnesses:
+Targeted main-process harnesses:
 
 ```bash
-npm run harness:server        # remote server (loopback)
-npm run harness:e2e           # server end-to-end
-npm run harness:pair          # secure device pairing
-npm run harness:relay-bridge  # cloud relay bridge
+npm run harness:server        # CLI bridge router (loopback)
+npm run harness:cli           # CLI bridge client loop
 npm run harness:mcp           # MCP tools
 npm run harness:plugins       # isolated plugin runtime (worker sandbox + tool RPC)
 npm run harness:plugin-lifecycle  # plugin install / enable / remove lifecycle
@@ -238,7 +220,6 @@ Maru is a personal, in-development project used as a daily driver and portfolio 
 - `marudesk/README.md` — desktop package details
 - `marudesk/DESIGN.md` — design system
 - `marudesk/docs/` — product roadmap and architecture / design notes
-- `relay/README.md` — companion package
 
 ## License
 

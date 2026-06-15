@@ -7,7 +7,7 @@ import { spawn as ptySpawn } from 'node-pty';
 import { chromium } from '@playwright/test';
 import type { AgentChatState, AgentSendResult } from '../shared/agent.ts';
 import { emptyAgentChatState } from '../shared/agent.ts';
-import { handleRequest, type RouterDeps } from '../electron/server/router.ts';
+import { handleRequest, type RouterDeps } from '../electron/cli-bridge/router.ts';
 
 /**
  * Not a test — a screenshot harness for the chat CLI's TUI. Boots the pure
@@ -16,7 +16,7 @@ import { handleRequest, type RouterDeps } from '../electron/server/router.ts';
  * approval panel), and renders the captured ANSI byte stream through xterm.js
  * (the same emulator as the app's terminal tab, same theme) into PNGs.
  *
- * Run: node --experimental-strip-types --import ./electron/server/harness-register.mjs scripts/cli-shots.ts
+ * Run: node --experimental-strip-types --import ./electron/cli-bridge/harness-register.mjs scripts/cli-shots.ts
  * Output: marudesk/.screens/cli/*.png
  */
 
@@ -189,7 +189,7 @@ async function capture(): Promise<{ name: string; bytes: Buffer }[]> {
     [
       '--experimental-strip-types',
       '--import',
-      pathToFileURL(path.join(PKG_ROOT, 'electron/server/harness-register.mjs')).href,
+      pathToFileURL(path.join(PKG_ROOT, 'electron/cli-bridge/harness-register.mjs')).href,
       path.join(PKG_ROOT, 'cli/main.ts'),
       '--url', url,
       '--token', TOKEN,

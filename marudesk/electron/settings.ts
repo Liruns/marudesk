@@ -164,7 +164,6 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
       | 'lanes'
       | 'agent'
       | 'pcControl'
-      | 'server'
       | 'storage',
   ) => {
     const incoming = p[key];
@@ -182,7 +181,6 @@ function mergeDeep(base: AppSettings, partial: unknown): unknown {
     lanes: section('lanes'),
     agent: section('agent'),
     pcControl: section('pcControl'),
-    server: section('server'),
     storage: section('storage'),
   };
 }

@@ -22,8 +22,6 @@ import { listChildToolDefs } from './subagent.ts';
 import { registerMcpServer, unregisterMcpServer } from './mcp.ts';
 import type { ToolContext } from './tools/types.ts';
 import type { SubagentRunRequest } from './subagent-types.ts';
-import { emptyAgentChatState } from '../../shared/agent';
-import { dispatchAgentCommand, type AgentApi } from '../server/dispatch.ts';
 
 let passed = 0;
 
@@ -165,55 +163,6 @@ refreshOrchestrationProjection();
 check('workspace approvalQueue is scoped to the owning workspace', alphaContainer.state.approvalQueue.every((item) => item.threadId === alphaThread));
 check('workspace orchestration tree hides sibling workspace threads', !alphaContainer.state.orchestration.some((node) => node.id === `thread:${betaThread}`));
 check('global orchestration tree hides workspace threads', !S.state.orchestration.some((node) => node.id === `thread:${alphaThread}` || node.id === `thread:${betaThread}`));
-
-let remoteApproved = false;
-let remoteApprovalCalls = 0;
-const remoteState = emptyAgentChatState();
-remoteState.approvalQueue = [
-  {
-    turnId: 'turn-remote',
-    callId: 'call-remote',
-    name: 'eval_js',
-    detail: 'document.body.innerText',
-    threadId: 'side',
-    threadTitle: 'Side lane',
-    activeThread: false,
-    source: 'thread',
-  },
-];
-const remoteApi = {
-  startTurn: async () => ({ ok: true, turnId: 'turn-remote' }),
-  abortTurn: () => false,
-  respond: () => false,
-  approveTool: (_turnId, _callId, approved) => {
-    remoteApprovalCalls += 1;
-    remoteApproved = approved;
-    return true;
-  },
-  snapshot: () => remoteState,
-  reset: () => false,
-  editPlanStep: () => false,
-  setApprovalMode: () => false,
-  setReasoningEffort: () => false,
-} satisfies AgentApi;
-const remoteGuard = {
-  serverExposed: () => true,
-  isGated: (name: string) => name === 'eval_js',
-};
-const remoteApprove = await dispatchAgentCommand(
-  remoteApi,
-  'approve',
-  { turnId: 'turn-remote', callId: 'call-remote', approved: true },
-  remoteGuard,
-);
-check('remote approve of a queued non-active gated tool is rejected', remoteApprove.ok === false && remoteApprovalCalls === 0);
-const remoteDeny = await dispatchAgentCommand(
-  remoteApi,
-  'approve',
-  { turnId: 'turn-remote', callId: 'call-remote', approved: false },
-  remoteGuard,
-);
-check('remote deny of a queued non-active gated tool still reaches the loop', remoteDeny.ok === true && remoteApprovalCalls === 1 && remoteApproved === false);
 
 await flushEvents();
 let closeEvents = 0;

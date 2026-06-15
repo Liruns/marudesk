@@ -9,7 +9,7 @@ import { Section } from './SettingsControls';
  * pins its key fingerprint; a later mismatch REJECTS the connection (MITM
  * defense). This list is the escape hatch for the legitimate case — a host that
  * was reinstalled: remove its pin here, and the next connect re-pins the new
- * key. Lives in Settings → Remote alongside the other remote-access surfaces.
+ * key. Lives in Settings → Application alongside the other workspace surfaces.
  */
 export function SshHostKeysSettings() {
   const { t } = useI18n();

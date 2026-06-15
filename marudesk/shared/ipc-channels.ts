@@ -254,7 +254,7 @@ export const CHANNELS = {
   // explorer tree state) to the built-in context MCP — see context-mcp-design §3.
   context: ['context:sync'],
   // External (stdio) MCP connectors — Settings → MCP Servers lists/reloads/toggles
-  // user-configured servers (docs/remote-mobile-bridge-design §M3).
+  // user-configured servers (docs/context-mcp-design §8).
   mcp: [
     'mcp:list-servers',
     'mcp:reload',
@@ -291,23 +291,6 @@ export const CHANNELS = {
     'profiles:rename',
     'profiles:delete',
     'profiles:switch',
-  ],
-  // Cloud relay (Bridge Model B §B2): log the PC's cloud account in/out and read
-  // the sanitized status (logged-in account + connected-as-host). Tokens never
-  // cross IPC — only `{account|null, connected}` does. Auto-connect is driven by
-  // settings.server.cloudEnabled + login state in electron/server/relay.ts.
-  relay: ['relay:login', 'relay:login-google', 'relay:logout', 'relay:status'],
-  // LAN/Tailscale bridge status + device pairing (T2 — docs/remote-mobile-bridge-design
-  // §3, docs/t2-secure-pairing-design.md). The Settings → Remote panel reads the
-  // running flag + reachable URLs, starts a pairing (QR), approves/rejects an
-  // incoming pairing, and lists/revokes paired devices. Never the token or any key.
-  server: [
-    'server:status',
-    'server:pairing-start',
-    'server:pairing-approve',
-    'server:pairing-reject',
-    'server:list-devices',
-    'server:revoke-device',
   ],
   terminal: [
     'terminal:create',

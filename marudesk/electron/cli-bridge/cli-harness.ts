@@ -531,8 +531,8 @@ async function main(): Promise<void> {
     );
     const health = await fetchJson(companion.url, '/health');
     check('companion: serves the shared router', health.status === 200);
-    // NO approval guard here: a gated-tool approve goes through (the desktop-
-    // trust property that makes the CLI a full chat surface)…
+    // NO approval guard on the loopback companion: a gated-tool approve goes
+    // through — the desktop-trust property that makes the CLI a full chat surface.
     const approve = await fetchJson(companion.url, '/agent/approve', {
       method: 'POST',
       body: JSON.stringify({ turnId: 'turn-cli', callId: 'call-gated', approved: true }),
@@ -541,25 +541,6 @@ async function main(): Promise<void> {
       'companion: gated approve is allowed (no L-1 guard)',
       approve.status === 200 && (approve.body as { ok: boolean }).ok === true,
     );
-    // …while the SAME approve against a guarded router (the remote server's
-    // shape) is still refused — L-1 unchanged where it matters.
-    const guarded = mockDeps({
-      approvalGuard: { serverExposed: () => true, isGated: (name) => name === 'eval_js' },
-    });
-    const guardedServer = http.createServer((req, res) => {
-      void handleRequest(req, res, guarded.deps);
-    });
-    await new Promise<void>((resolve) => guardedServer.listen(0, '127.0.0.1', resolve));
-    const guardedPort = (guardedServer.address() as AddressInfo).port;
-    const refused = await fetchJson(`http://127.0.0.1:${guardedPort}`, '/agent/approve', {
-      method: 'POST',
-      body: JSON.stringify({ turnId: 'turn-cli', callId: 'call-gated', approved: true }),
-    });
-    check(
-      'guarded router: the same gated approve is refused (L-1 intact)',
-      refused.status === 400 && /desktop/i.test((refused.body as { error: string }).error),
-    );
-    guardedServer.close();
 
     await companion.close();
     check('companion: close removes the handshake file', !existsSync(handshake));

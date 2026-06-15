@@ -15,12 +15,12 @@ import { projectRemoteState } from './remote-state.ts';
 import { handleRequest, type RouterDeps } from './router.ts';
 
 /**
- * Headless harness for the bridge server's request router (docs/remote-mobile-bridge-design
- * §M4). Mirrors the repo's other headless checks (run with
- * `node --experimental-strip-types`, see package.json `harness:server`): it wires
- * the PURE router (electron/server/router.ts) to a real loopback http.Server with
- * MOCKED deps — stubbed agent fns, a fixed token, and a fake subscribe — so the
- * whole HTTP path (auth guard, JSON body, SSE) is exercised without Electron.
+ * Headless harness for the CLI bridge's request router. Mirrors the repo's other
+ * headless checks (run with `node --experimental-strip-types`, see package.json
+ * `harness:server`): it wires the PURE router (electron/cli-bridge/router.ts) to a
+ * real loopback http.Server with MOCKED deps — stubbed agent fns, a fixed token,
+ * and a fake subscribe — so the whole HTTP path (auth guard, JSON body, SSE) is
+ * exercised without Electron.
  *
  * Asserts: (a) 401 without/with a wrong token; (b) 200 + correct JSON on
  * /agent/snapshot with the token; (c) /agent/send routes the parsed body into the

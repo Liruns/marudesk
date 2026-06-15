@@ -16,10 +16,9 @@ import type {
 
 /**
  * Typed REST + SSE client over the bridge's bearer path (chat CLI v2 —
- * docs/chat-cli-tui-design.md §5). Talks to either listener — the always-on
- * loopback companion (electron/server/companion-core.ts) or the remote bridge
- * server — through the same routes (electron/server/router.ts). Zero deps;
- * Node 20+ global fetch.
+ * docs/chat-cli-tui-design.md §5). Talks to the loopback companion
+ * (electron/cli-bridge/companion-core.ts) over its routes
+ * (electron/cli-bridge/router.ts). Zero deps; Node 20+ global fetch.
  */
 
 export type Connection = { url: string; token: string };

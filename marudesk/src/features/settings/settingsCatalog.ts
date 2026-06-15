@@ -111,6 +111,11 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     keywords:
       'devtools dock right bottom chrome inspector console network 검사기 도킹 콘솔 개발자도구',
   },
+  {
+    categoryId: 'application',
+    labelKey: 'settings.sshHostKeys.title',
+    keywords: 'ssh host key fingerprint pinned tofu known hosts 호스트 키 지문 고정',
+  },
 
   // AI Providers
   {
@@ -172,28 +177,6 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     categoryId: 'mcp',
     labelKey: 'settings.category.mcp.label',
     keywords: 'mcp server stdio http remote url tools context 서버 도구 컨텍스트',
-  },
-
-  // Remote access
-  {
-    categoryId: 'remote',
-    labelKey: 'settings.remote.phoneAccess.label',
-    keywords: 'remote phone pair qr lan wifi tailscale 원격 휴대폰 페어링',
-  },
-  {
-    categoryId: 'remote',
-    labelKey: 'settings.remote.relay.enable.label',
-    keywords: 'cloud relay account host login 클라우드 릴레이 계정',
-  },
-  {
-    categoryId: 'remote',
-    labelKey: 'settings.sshHostKeys.title',
-    keywords: 'ssh host key fingerprint pinned tofu known hosts 호스트 키 지문 고정',
-  },
-  {
-    categoryId: 'remote',
-    labelKey: 'settings.remote.unattended.label',
-    keywords: 'unattended skip approvals hands free 무인 승인 생략',
   },
 
   // Data & Storage

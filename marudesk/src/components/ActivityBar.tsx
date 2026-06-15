@@ -8,7 +8,6 @@ import {
   MessageSquareText,
   Palette,
   Plug,
-  Radio,
   Search,
   Settings as SettingsIcon,
   SlidersHorizontal,
@@ -167,11 +166,6 @@ export function ActivityBar({
               label: t('settings.category.mcp.label'),
               icon: <Plug size={15} />,
               onSelect: () => void openSettingsTab('mcp'),
-            },
-            {
-              label: t('settings.category.remote.label'),
-              icon: <Radio size={15} />,
-              onSelect: () => void openSettingsTab('remote'),
             },
           ]}
         />

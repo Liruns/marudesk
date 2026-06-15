@@ -37,8 +37,8 @@ import {
 export { toToolResult } from './mcp-content';
 
 /**
- * External MCP connector manager (docs/remote-mobile-bridge-design §M3, extended in
- * docs/context-mcp-design §8). Connects user-configured servers over **stdio** (a
+ * External MCP connector manager (docs/context-mcp-design §8). Connects
+ * user-configured servers over **stdio** (a
  * spawned local process) or **remote HTTP** (Streamable HTTP, with a legacy SSE
  * fallback) and surfaces their tools to the agent loop.
  *

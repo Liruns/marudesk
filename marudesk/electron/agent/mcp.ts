@@ -25,7 +25,7 @@ import { AGENT_LIST_TOOLS } from './agents-store';
  * approval / read-only / ask_user mediation in loop.ts is preserved (the AI SDK's
  * own MCP client would auto-execute and bypass all of that — hence in-process).
  *
- * External (stdio) MCP servers (docs/remote-mobile-bridge-design §M3) implement
+ * External (stdio) MCP servers (docs/context-mcp-design §8) implement
  * the same {@link McpServer} shape and register dynamically via
  * {@link registerMcpServer}; their tools are namespaced `<id>__<tool>` and each
  * `exec` calls the official MCP `client.callTool` itself — so the loop mediates an
