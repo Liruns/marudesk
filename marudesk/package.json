@@ -1,7 +1,7 @@
 {
   "name": "marudesk",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Maru — an infinite canvas where AI sees your running app.",
   "author": "Liruns",
   "homepage": "https://github.com/Liruns/marudesk",
