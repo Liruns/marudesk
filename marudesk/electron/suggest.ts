@@ -2,7 +2,7 @@ import { defineHandler } from './ipc/define-handler';
 import { str } from './ipc/validate';
 import { allHistoryEntries } from './history';
 import { listBookmarks } from './browser/bookmarks';
-import { resolveAddressBarInput, searchBaseFor } from './browser/url';
+import { addressNavTarget, searchBaseFor } from './browser/url';
 import { getSettingsSync } from './settings';
 import { buildSuggestions } from '../shared/suggest';
 
@@ -22,12 +22,8 @@ export function registerSuggestHandlers(): void {
       listBookmarks(),
     ]);
     const searchBase = searchBaseFor(getSettingsSync().browser.searchEngine);
-    // A real destination (not a search) → offer a leading "Go to <host>" row.
-    const resolved = resolveAddressBarInput(query, searchBase);
-    const navUrl =
-      resolved && resolved !== 'about:blank' && !resolved.startsWith(searchBase)
-        ? resolved
-        : undefined;
+    // A real destination (or a dotted PSL host) → lead with a "Go to <host>" row.
+    const navUrl = addressNavTarget(query, searchBase) ?? undefined;
     return buildSuggestions({ query, history, bookmarks, searchBase, navUrl });
   });
 }

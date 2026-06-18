@@ -145,3 +145,31 @@ export function resolveAddressBarInput(
 function searchUrl(query: string, base: string): string {
   return base + encodeURIComponent(query);
 }
+
+/**
+ * The direct-navigation target to surface as a "Go to <host>" address-bar
+ * suggestion, or null when the input is only a web search. Returns the resolved
+ * URL when the input loads (host / IP / localhost / PSL domain), AND — matching
+ * pane's omnibox (reference/pane suggestions.js `actions`) — `https://<host>`
+ * for a dotted, whitespace-free, PSL-valid token that DEFAULTED to search (e.g.
+ * a denylisted package name like `socket.io`), so the user can still navigate it
+ * in one click even though Enter would search. Pure, so it's unit-testable.
+ */
+export function addressNavTarget(
+  rawInput: string,
+  searchBase: string = SEARCH_BASES.google,
+): string | null {
+  const resolved = resolveAddressBarInput(rawInput, searchBase);
+  if (resolved && resolved !== 'about:blank' && !resolved.startsWith(searchBase)) {
+    return resolved; // the input loads a real destination
+  }
+  // Searched — but a dotted, PSL-valid host (denylist case) can still be a Go-to.
+  const input = rawInput.trim();
+  if (!/\s/.test(input) && input.includes('.')) {
+    const probe = 'https://' + input;
+    if (canParseUrl(probe) && isRegistrableHost(new URL(probe).hostname)) {
+      return probe;
+    }
+  }
+  return null;
+}

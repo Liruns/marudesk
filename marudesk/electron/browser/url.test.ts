@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAddressBarInput } from './url';
+import { addressNavTarget, resolveAddressBarInput } from './url';
 
 /**
  * The omnibox parsing contract, ported from the `pane` browser
@@ -80,5 +80,28 @@ describe('resolveAddressBarInput', () => {
     expect(resolveAddressBarInput('how to center a div', ddg)).toBe(
       ddg + encodeURIComponent('how to center a div'),
     );
+  });
+});
+
+describe('addressNavTarget', () => {
+  it('returns the resolved URL for real destinations', () => {
+    expect(addressNavTarget('github.com')).toBe('https://github.com');
+    expect(addressNavTarget('localhost:3000')).toBe('http://localhost:3000');
+    expect(addressNavTarget('https://example.com/x')).toBe('https://example.com/x');
+  });
+
+  it('offers a Go-to for a dotted real-TLD host that defaulted to search (denylist)', () => {
+    // socket.io resolves to a SEARCH (denylisted), but .io is a real TLD so it's
+    // still one-click navigable.
+    expect(addressNavTarget('socket.io')).toBe('https://socket.io');
+  });
+
+  it('is null for prose, single labels, fake/file-ish, and non-TLD hosts', () => {
+    expect(addressNavTarget('how to center a div')).toBeNull();
+    expect(addressNavTarget('jira')).toBeNull();
+    expect(addressNavTarget('file.txt')).toBeNull();
+    expect(addressNavTarget('1.5')).toBeNull();
+    expect(addressNavTarget('next.js')).toBeNull(); // .js is not an ICANN TLD
+    expect(addressNavTarget('')).toBeNull();
   });
 });
