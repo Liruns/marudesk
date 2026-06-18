@@ -38,11 +38,9 @@ function load(): SurfaceMode {
 type SurfaceState = {
   mode: SurfaceMode;
   setMode: (mode: SurfaceMode) => void;
-  /** Back-compat flip between canvas and classic (workgraph is picked explicitly). */
-  toggle: () => void;
 };
 
-export const useSurfaceStore = create<SurfaceState>((set, get) => ({
+export const useSurfaceStore = create<SurfaceState>((set) => ({
   mode: load(),
   setMode: (mode) => {
     try {
@@ -52,5 +50,4 @@ export const useSurfaceStore = create<SurfaceState>((set, get) => ({
     }
     set({ mode });
   },
-  toggle: () => get().setMode(get().mode === 'canvas' ? 'classic' : 'canvas'),
 }));

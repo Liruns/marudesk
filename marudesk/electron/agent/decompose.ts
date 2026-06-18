@@ -5,6 +5,7 @@ import { buildModel, humanizeModelError } from './model';
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
 import { runTask, implementTask } from './run-task';
+import { scrubText } from '../../shared/scrub';
 
 /**
  * Goal → Task-graph generator (docs/ai-work-os-roadmap.md §6, the "Phase 1
@@ -56,10 +57,12 @@ Rules:
  * hanging the Generate button forever.
  */
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
-  ]);
+  p.catch(() => undefined); // the race loser must not surface as an unhandledRejection
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 const RESOLVE_TIMEOUT_MS = 4_000;
@@ -70,6 +73,9 @@ const RESOLVE_TIMEOUT_MS = 4_000;
  * legitimately slow model still completes.
  */
 const MODEL_TIMEOUT_MS = 30_000;
+
+/** Upper bound on the goal text forwarded to the model — keeps the prompt bounded. */
+const MAX_GOAL_CHARS = 8_000;
 
 /** Extract the first balanced JSON object from a model reply (tolerates fences/prose). */
 function extractJsonObject(text: string): unknown {
@@ -107,6 +113,9 @@ export async function decomposeGoal(
 ): Promise<{ ok: true; graph: WorkGraph } | { ok: false; reason: string }> {
   const trimmed = goal.trim();
   if (!trimmed) return { ok: false, reason: 'Enter a goal first.' };
+  if (trimmed.length > MAX_GOAL_CHARS) {
+    return { ok: false, reason: 'Goal is too long — shorten it.' };
+  }
 
   let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
   try {
@@ -147,7 +156,7 @@ export async function decomposeGoal(
     if (!graph) return { ok: false, reason: 'The model did not return a valid task graph.' };
     return { ok: true, graph: { ...graph, goal: trimmed } };
   } catch (err) {
-    return { ok: false, reason: humanizeModelError(err, target.provider, target.model) };
+    return { ok: false, reason: scrubText(humanizeModelError(err, target.provider, target.model)) };
   }
 }
 

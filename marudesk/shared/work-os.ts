@@ -45,6 +45,12 @@ export const RESOURCE_KINDS: readonly ResourceKind[] = ['code', 'doc', 'url', 't
 export type EdgeType = 'depends_on' | 'data';
 export const EDGE_TYPES: readonly EdgeType[] = ['depends_on', 'data'];
 
+/** The canonical edge id for a (from, to, type) triple — one source of truth so
+ * producers (connect, sampleGraph) and the parser fallback never drift. */
+export function edgeId(from: TaskId, to: TaskId, type: EdgeType = 'depends_on'): EdgeId {
+  return `${from}~${to}~${type}`;
+}
+
 export type Resource = {
   id: ResourceId;
   kind: ResourceKind;
@@ -226,6 +232,9 @@ export function readyTasks(graph: WorkGraph): Task[] {
   const byId = new Map(graph.tasks.map((t) => [t.id, t]));
   return graph.tasks.filter((t) => {
     if (t.status !== 'planned') return false;
+    // A `decision` node or a `human` executor is a manual gate — the scheduler
+    // never auto-runs it (the user advances it by hand). Only agent work tasks run.
+    if (t.kind === 'decision' || t.executor.type !== 'agent') return false;
     return dependenciesOf(graph, t.id).every((dep) => {
       const up = byId.get(dep);
       return !up || up.status === 'done';
@@ -234,16 +243,27 @@ export function readyTasks(graph: WorkGraph): Task[] {
 }
 
 /**
- * Tasks blocked by a failed (or still-unfinished) upstream — surfaced so the UI
- * can mark them `blocked` rather than leaving them silently `planned`.
+ * Tasks transitively blocked by a `failed` upstream — surfaced so the UI marks
+ * them `blocked` rather than leaving them silently `planned`. Propagates in
+ * topological order so a task downstream of an already-blocked (not just
+ * directly-failed) task is also blocked; falls back to array order on a cycle.
  */
 export function blockedTaskIds(graph: WorkGraph): Set<TaskId> {
   const byId = new Map(graph.tasks.map((t) => [t.id, t]));
   const blocked = new Set<TaskId>();
-  for (const t of graph.tasks) {
-    if (isTerminalStatus(t.status)) continue;
-    const deps = dependenciesOf(graph, t.id);
-    if (deps.some((d) => byId.get(d)?.status === 'failed')) blocked.add(t.id);
+  const order = topologicalOrder(graph) ?? graph.tasks.map((t) => t.id);
+  for (const id of order) {
+    const t = byId.get(id);
+    if (!t || isTerminalStatus(t.status)) continue;
+    const deps = dependenciesOf(graph, id);
+    if (
+      deps.some((d) => {
+        const up = byId.get(d);
+        return up?.status === 'failed' || up?.status === 'blocked' || blocked.has(d);
+      })
+    ) {
+      blocked.add(id);
+    }
   }
   return blocked;
 }
@@ -318,7 +338,7 @@ export function parallelLayers(graph: WorkGraph): TaskId[][] | null {
 }
 
 /* ── defensive parsing (AI output / IPC / persistence) ──────────────────────
- * The decomposer's `generateObject` output is `unknown` until validated; mirror
+ * The decomposer's `generateText` output is `unknown` (raw JSON) until validated; mirror
  * the repo's hand-rolled guards (canvas/store.ts isNum/isStr) so a malformed
  * graph fails closed to null rather than corrupting state. */
 
@@ -397,7 +417,7 @@ function parseEdge(raw: unknown, taskIds: Set<TaskId>): Edge | null {
   if (!r || !isStr(r.from) || !isStr(r.to) || r.from === r.to) return null;
   if (!taskIds.has(r.from) || !taskIds.has(r.to)) return null;
   const type: EdgeType = isEdgeType(r.type) ? r.type : 'depends_on';
-  return { id: isStr(r.id) ? r.id : `${r.from}~${r.to}~${type}`, from: r.from, to: r.to, type };
+  return { id: isStr(r.id) ? r.id : edgeId(r.from, r.to, type), from: r.from, to: r.to, type };
 }
 
 /**

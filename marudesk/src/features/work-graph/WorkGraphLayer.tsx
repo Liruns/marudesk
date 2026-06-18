@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Check, Play, Plus, Square, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import {
@@ -6,6 +6,7 @@ import {
   type TaskStatus,
   type WorkGraph,
 } from '../../../shared/work-os';
+import { toast } from '../../lib/toast';
 import { sampleGraph, useWorkGraphStore } from './store';
 
 export const NODE_W = 208;
@@ -60,7 +61,13 @@ export function WorkGraphNodes({ toCanvas, scale }: Props) {
         for (const [id, np] of Object.entries(positions)) {
           if (id === fromId) continue;
           if (pt.x >= np.x && pt.x <= np.x + NODE_W && pt.y >= np.y && pt.y <= np.y + NODE_H) {
-            useWorkGraphStore.getState().connect(fromId, id);
+            const r = useWorkGraphStore.getState().connect(fromId, id);
+            if (!r.ok) {
+              toast({
+                title: r.reason === 'cycle' ? 'Would create a cycle' : r.reason === 'duplicate' ? 'Already connected' : 'Cannot connect a task to itself',
+                variant: 'warning',
+              });
+            }
             break;
           }
         }
@@ -87,7 +94,8 @@ export function WorkGraphNodes({ toCanvas, scale }: Props) {
             y={p.y}
             scale={scale}
             selected={selectedTaskId === task.id}
-            onStartConnect={(cx, cy) => startConnect(task.id, cx, cy)}
+            taskId={task.id}
+            onStartConnect={startConnect}
           />
         );
       })}
@@ -145,12 +153,13 @@ function WorkGraphEdges({
   );
 }
 
-function TaskNodeCard({
+const TaskNodeCard = memo(function TaskNodeCard({
   task,
   x,
   y,
   scale,
   selected,
+  taskId,
   onStartConnect,
 }: {
   task: Task;
@@ -158,7 +167,8 @@ function TaskNodeCard({
   y: number;
   scale: number;
   selected: boolean;
-  onStartConnect: (clientX: number, clientY: number) => void;
+  taskId: string;
+  onStartConnect: (fromId: string, clientX: number, clientY: number) => void;
 }) {
   const dragRef = useRef<{ pointerId: number; sx: number; sy: number; ox: number; oy: number } | null>(null);
   const style = STATUS_STYLE[task.status];
@@ -185,15 +195,44 @@ function TaskNodeCard({
   return (
     <div
       data-task-node={task.id}
+      tabIndex={0}
+      role="group"
+      aria-label={`${style.label} task: ${task.title}`}
       className={cn(
-        'absolute rounded-lg border bg-surface-1 bg-surface-gradient shadow-card select-none',
+        'absolute rounded-lg border bg-surface-1 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         style.ring,
         selected ? 'ring-2 ring-accent' : '',
       )}
       style={{ left: x, top: y, width: NODE_W, minHeight: NODE_H }}
+      onFocus={() => useWorkGraphStore.getState().selectTask(task.id)}
       onPointerDown={(e) => {
         e.stopPropagation();
         useWorkGraphStore.getState().selectTask(task.id);
+      }}
+      onKeyDown={(e) => {
+        const STEP = 8;
+        switch (e.key) {
+          case 'ArrowLeft':
+            e.preventDefault();
+            useWorkGraphStore.getState().setPos(task.id, x - STEP, y);
+            break;
+          case 'ArrowRight':
+            e.preventDefault();
+            useWorkGraphStore.getState().setPos(task.id, x + STEP, y);
+            break;
+          case 'ArrowUp':
+            e.preventDefault();
+            useWorkGraphStore.getState().setPos(task.id, x, y - STEP);
+            break;
+          case 'ArrowDown':
+            e.preventDefault();
+            useWorkGraphStore.getState().setPos(task.id, x, y + STEP);
+            break;
+          case 'Delete':
+          case 'Backspace':
+            useWorkGraphStore.getState().deleteTask(task.id);
+            break;
+        }
       }}
     >
       {/* Drag header */}
@@ -263,7 +302,7 @@ function TaskNodeCard({
         onPointerDown={(e) => {
           e.stopPropagation();
           e.preventDefault();
-          onStartConnect(e.clientX, e.clientY);
+          onStartConnect(taskId, e.clientX, e.clientY);
         }}
         className="absolute -bottom-2 left-1/2 -translate-x-1/2 grid h-4 w-4 place-items-center rounded-pill border border-default bg-surface-2 text-fg-tertiary hover:border-accent hover:text-accent"
       >
@@ -271,21 +310,23 @@ function TaskNodeCard({
       </button>
     </div>
   );
-}
+});
 
-/** Human status cycle for manual edits (planned → running → done → failed → planned). */
+/** Human status cycle for manual edits (planned → done → failed → needs_review → planned). */
 function nextStatus(s: TaskStatus): TaskStatus {
-  const cycle: TaskStatus[] = ['planned', 'running', 'done', 'failed', 'needs_review'];
+  /** Excludes 'running' — that status is scheduler-owned; manual cycle is planned → done → failed → needs_review. */
+  const cycle: TaskStatus[] = ['planned', 'done', 'failed', 'needs_review'];
   const i = cycle.indexOf(s);
+  // If current status is scheduler-owned ('running'/'blocked'), indexOf returns -1 → ((-1+1)%4 = 0) → 'planned'.
   return cycle[(i + 1) % cycle.length];
 }
 
 /**
  * Screen-fixed Work-OS controls: a goal input that generates a Task graph, plus
- * Run (dependency-ordered simulate) / Add task / Clear. Rendered as a CanvasStage
- * overlay (not in the transformed plane).
+ * Run (dependency-ordered simulate) / Add task / Clear. Rendered as a WorkGraphStage
+ * overlay (sibling of the transformed node plane).
  */
-export function WorkGraphPanel({ onClose }: { onClose?: () => void }) {
+export function WorkGraphPanel() {
   const graph = useWorkGraphStore((s) => s.graph);
   const running = useWorkGraphStore((s) => s.running);
   const runNote = useWorkGraphStore((s) => s.runNote);
@@ -323,16 +364,6 @@ export function WorkGraphPanel({ onClose }: { onClose?: () => void }) {
     <div className="absolute left-3 top-14 z-50 w-72 rounded-lg chrome-panel p-2.5 shadow-card">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-caption font-medium text-fg-secondary">AI Task graph</span>
-        {onClose ? (
-          <button
-            type="button"
-            aria-label="Hide tasks"
-            onClick={onClose}
-            className="ml-auto grid h-5 w-5 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary"
-          >
-            <X size={13} />
-          </button>
-        ) : null}
       </div>
       <div className="flex gap-1.5">
         <input

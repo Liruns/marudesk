@@ -79,12 +79,18 @@ export function WorkGraphStage() {
     const pad = 80;
     const w = maxX - minX || 1;
     const h = maxY - minY || 1;
-    const scale = clamp(Math.min((r.width - pad * 2) / w, (r.height - pad * 2) / h), SCALE_MIN, SCALE_MAX);
+    const scale = clamp(Math.min(1, Math.min((r.width - pad * 2) / w, (r.height - pad * 2) / h)), SCALE_MIN, SCALE_MAX);
     setVp({
       panX: (r.width - w * scale) / 2 - minX * scale,
       panY: (r.height - h * scale) / 2 - minY * scale,
       scale,
     });
+  }, []);
+
+  // Stop any in-flight run when this stage unmounts (Shell conditionally renders
+  // WorkGraphStage, so the module-level store would keep mutating otherwise).
+  useEffect(() => () => {
+    if (useWorkGraphStore.getState().running) useWorkGraphStore.getState().stopRun();
   }, []);
 
   // Auto-fit when a fresh graph appears (generate / first paint). Deferred to the

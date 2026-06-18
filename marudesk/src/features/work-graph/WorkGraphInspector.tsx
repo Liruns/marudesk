@@ -3,6 +3,9 @@ import { cn } from '../../lib/cn';
 import { useSurfaceStore } from '../canvas/surface';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import { useWorkGraphStore } from './store';
+import { toast } from '../../lib/toast';
+import { parseUnifiedDiff } from '../git/parseDiff';
+import { DiffBlock } from '../../components/ui';
 
 /**
  * The Work OS supervision panel: the selected Task's intent, acceptance criteria
@@ -44,6 +47,7 @@ function openResource(r: Resource): void {
   // The resource opens on the canvas surface (the Work OS tool dock is a later
   // slice); switch there so the user actually sees it.
   if (opened) useSurfaceStore.getState().setMode('canvas');
+  else toast({ title: 'No opener for this resource type', variant: 'warning' });
 }
 
 export function WorkGraphInspector() {
@@ -56,9 +60,11 @@ export function WorkGraphInspector() {
   const result = task.evidence?.result;
   const patch = task.evidence?.patch;
   const taskId = task.id;
+  // parseUnifiedDiff is bounded (caps at 600 lines); compute inline — no hook needed.
+  const diffLines = patch ? parseUnifiedDiff(patch) : [];
 
   return (
-    <div className="absolute right-3 top-14 bottom-4 z-50 flex w-80 flex-col overflow-hidden rounded-lg chrome-panel p-3 shadow-card">
+    <div className="absolute right-3 top-14 bottom-16 z-50 flex w-80 flex-col overflow-hidden rounded-lg chrome-panel p-3 shadow-card">
       <div className="mb-2 flex items-start gap-2">
         <div className="min-w-0">
           <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
@@ -120,9 +126,7 @@ export function WorkGraphInspector() {
         {patch ? (
           <div>
             <p className="mb-1 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
-            <pre className="max-h-64 overflow-auto whitespace-pre rounded-md bg-surface-2 p-2 text-[11px] leading-snug text-fg-secondary">
-              {patch}
-            </pre>
+            <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-64 overflow-auto" />
             <p className="mt-1 text-caption text-fg-tertiary">
               Produced in a throwaway worktree — your files are unchanged. Review before applying.
             </p>

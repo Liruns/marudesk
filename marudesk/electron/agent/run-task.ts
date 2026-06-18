@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { clipText } from '../../shared/text-clip';
 import { randomId } from '../../shared/id';
+import { resolveWorkspacePath } from '../fs-safe';
 import type { ImplementTaskResult, Resource, RunTaskInput, RunTaskResult } from '../../shared/work-os';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { getCurrentWorkspace } from '../workspace';
@@ -45,19 +47,42 @@ const MAX_RESULT_CHARS = 8_000;
 const MAX_PATCH_CHARS = 20_000;
 const MAX_OUTPUTS = 8;
 const RESOLVE_TIMEOUT_MS = 4_000;
+const RUN_TIMEOUT_MS = 180_000;
 
 /** Bounded wait so provider resolution can't hang a run when nothing is connected. */
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
-  ]);
+  p.catch(() => undefined); // the race loser must not surface as an unhandledRejection
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** A `file://` uri for an absolute path (forward slashes; leading slash on Windows). */
-function fileUri(abs: string): string {
-  const p = abs.replace(/\\/g, '/');
-  return `file://${p.startsWith('/') ? p : `/${p}`}`;
+/**
+ * Resolve the provider/model target + auth both runTask and implementTask need,
+ * with the same bounded waits and "nothing connected" copy. Shared so the two
+ * entry points can't drift.
+ */
+async function resolveTaskTarget(): Promise<
+  | { ok: true; target: Awaited<ReturnType<typeof resolveSubagentTarget>> }
+  | { ok: false; reason: string }
+> {
+  let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
+  try {
+    target = await withTimeout(
+      resolveSubagentTarget({ explicit: { provider: null, model: null }, tierHint: 'smart', agent: null, parent: null }),
+      RESOLVE_TIMEOUT_MS,
+      'provider resolution',
+    );
+  } catch {
+    return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
+  }
+  const auth = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth').catch(
+    () => ({ ok: false as const, reason: 'No AI provider is connected — add one in Settings.' }),
+  );
+  if (!auth.ok) return { ok: false, reason: auth.reason };
+  return { ok: true, target };
 }
 
 /** The first balanced JSON object in a string (tolerates surrounding prose). */
@@ -121,17 +146,23 @@ function resolveOutputs(root: string | null, artifacts: { path: string; label?: 
   const seen = new Set<string>();
   for (const a of artifacts) {
     if (out.length >= MAX_OUTPUTS) break;
-    const abs = path.resolve(root, a.path);
-    const rel = path.relative(root, abs);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) continue; // outside the workspace
+    let abs: string;
+    try {
+      ({ abs } = resolveWorkspacePath(root, a.path));
+    } catch {
+      continue;
+    }
     if (seen.has(abs)) continue;
     try {
-      if (!fs.statSync(abs).isFile()) continue;
+      const lst = fs.lstatSync(abs);
+      if (lst.isSymbolicLink() || !lst.isFile()) continue;
+      const realRel = path.relative(root, fs.realpathSync(abs));
+      if (realRel.startsWith('..') || path.isAbsolute(realRel)) continue;
     } catch {
-      continue; // does not exist
+      continue;
     }
     seen.add(abs);
-    out.push({ id: randomId('res'), kind: 'code', uri: fileUri(abs), label: a.label ?? a.path });
+    out.push({ id: randomId('res'), kind: 'code', uri: pathToFileURL(abs).href, label: a.label ?? a.path });
   }
   return out;
 }
@@ -183,45 +214,35 @@ export async function runTask(raw: unknown): Promise<RunTaskResult> {
     return { ok: false, reason: 'This task has no title or intent to act on.' };
   }
 
-  let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
-  try {
-    target = await withTimeout(
-      resolveSubagentTarget({
-        explicit: { provider: null, model: null },
-        tierHint: 'smart',
-        agent: null,
-        parent: null,
-      }),
-      RESOLVE_TIMEOUT_MS,
-      'provider resolution',
-    );
-  } catch {
-    return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
-  }
+  const resolved = await resolveTaskTarget();
+  if (!resolved.ok) return { ok: false, reason: resolved.reason };
+  const { target } = resolved;
 
-  const auth = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth').catch(
-    () => ({ ok: false as const, reason: 'No AI provider is connected — add one in Settings.' }),
-  );
-  if (!auth.ok) return { ok: false, reason: auth.reason };
-
+  const ac = new AbortController();
   const ctx: ToolContext = {
     ws: getCurrentWorkspace(),
-    signal: new AbortController().signal,
+    signal: ac.signal,
     provider: target.provider,
     model: target.model,
   };
 
-  const out = await runChildAgent(
-    {
-      task: seedPrompt(input),
-      label: input.title.trim() || 'Task',
-      provider: target.provider,
-      model: target.model,
-      maxSteps: MAX_TASK_STEPS,
-      fallbacks: target.fallbacks,
-    },
-    ctx,
-  );
+  const timer = setTimeout(() => ac.abort(), RUN_TIMEOUT_MS);
+  let out: Awaited<ReturnType<typeof runChildAgent>>;
+  try {
+    out = await runChildAgent(
+      {
+        task: seedPrompt(input),
+        label: input.title.trim() || 'Task',
+        provider: target.provider,
+        model: target.model,
+        maxSteps: MAX_TASK_STEPS,
+        fallbacks: target.fallbacks,
+      },
+      ctx,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   const outputs = out.isError ? [] : resolveOutputs(ctx.ws?.root ?? null, extractArtifacts(out.text));
   return {
@@ -266,25 +287,9 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
     return { ok: false, reason: 'Implement needs a local git repository (it edits in an isolated worktree).' };
   }
 
-  let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
-  try {
-    target = await withTimeout(
-      resolveSubagentTarget({
-        explicit: { provider: null, model: null },
-        tierHint: 'smart',
-        agent: null,
-        parent: null,
-      }),
-      RESOLVE_TIMEOUT_MS,
-      'provider resolution',
-    );
-  } catch {
-    return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
-  }
-  const auth = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth').catch(
-    () => ({ ok: false as const, reason: 'No AI provider is connected — add one in Settings.' }),
-  );
-  if (!auth.ok) return { ok: false, reason: auth.reason };
+  const resolved = await resolveTaskTarget();
+  if (!resolved.ok) return { ok: false, reason: resolved.reason };
+  const { target } = resolved;
 
   const branch = agentBranchName();
   // A fresh, unique parent per run so two concurrent implements never collide on
@@ -305,38 +310,50 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
     // Carry the user's never-edit globs so the write agent still can't touch
     // protected/secret files even inside the isolated copy.
     const worktreeWs: WorkspaceSummary = { ...ws, root: worktreePath };
+    const ac = new AbortController();
     const ctx: ToolContext = {
       ws: worktreeWs,
-      signal: new AbortController().signal,
+      signal: ac.signal,
       provider: target.provider,
       model: target.model,
       denyGlobs: getSettingsSync().agent.denyGlobs,
     };
-    const out = await runChildAgent(
-      {
-        task: implementPrompt(input),
-        label: input.title.trim() || 'Task',
-        provider: target.provider,
-        model: target.model,
-        maxSteps: MAX_IMPLEMENT_STEPS,
-        fallbacks: target.fallbacks,
-      },
-      ctx,
-      undefined,
-      undefined,
-      undefined,
-      { write: true },
-    );
+    const timer = setTimeout(() => ac.abort(), RUN_TIMEOUT_MS);
+    let out: Awaited<ReturnType<typeof runChildAgent>>;
+    try {
+      out = await runChildAgent(
+        {
+          task: implementPrompt(input),
+          label: input.title.trim() || 'Task',
+          provider: target.provider,
+          model: target.model,
+          maxSteps: MAX_IMPLEMENT_STEPS,
+          fallbacks: target.fallbacks,
+        },
+        ctx,
+        undefined,
+        undefined,
+        undefined,
+        { write: true },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
 
     let patch = '';
     let changedFiles: string[] = [];
     try {
       await runGit(worktreePath, ['add', '-A']);
-      const diff = await runGit(worktreePath, ['diff', '--cached']);
-      patch = diff.stdout;
       changedFiles = (await worktreeChanges(worktreePath)).files;
     } catch {
-      // No diff capture (e.g. nothing changed) — leave patch empty.
+      // staging/status failed — leave changedFiles empty
+    }
+    if (changedFiles.length > 0) {
+      try {
+        patch = (await runGit(worktreePath, ['diff', '--cached'])).stdout;
+      } catch {
+        patch = '(diff unavailable — the change set was too large to capture)';
+      }
     }
 
     return {
@@ -348,6 +365,9 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
     };
   } finally {
     // Always discard — the live workspace stays untouched whatever happened.
-    await discardWorktree(ws.root, worktreePath, branch).catch(() => undefined);
+    await discardWorktree(ws.root, worktreePath, branch).catch((err) =>
+      console.warn('[workos] worktree discard failed; temp tree may leak at', worktreePath, (err as Error).message),
+    );
+    await fs.promises.rm(path.dirname(worktreePath), { recursive: true, force: true }).catch(() => undefined);
   }
 }

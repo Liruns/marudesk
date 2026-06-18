@@ -84,9 +84,18 @@ describe('scheduler', () => {
     expect(readyTasks(g)).toEqual([]);
   });
 
-  it('blockedTaskIds: a failed upstream blocks downstream', () => {
+  it('blockedTaskIds: a failed upstream blocks downstream transitively', () => {
     const g = graph([task('a', 'failed'), task('b'), task('c')], [['a', 'b'], ['b', 'c']]);
-    expect([...blockedTaskIds(g)].sort()).toEqual(['b']);
+    // b is blocked by failed `a`; c is blocked by the now-blocked `b` (transitive).
+    expect([...blockedTaskIds(g)].sort()).toEqual(['b', 'c']);
+  });
+
+  it('readyTasks: never auto-runs a decision node or a human executor (manual gate)', () => {
+    const g = graph(
+      [task('decide', 'planned', { kind: 'decision' }), task('manual', 'planned', { executor: { type: 'human' } }), task('work')],
+      [],
+    );
+    expect(readyTasks(g).map((t) => t.id)).toEqual(['work']);
   });
 
   it('topologicalOrder respects depends_on', () => {

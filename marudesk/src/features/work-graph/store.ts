@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { randomId } from '../../../shared/id';
 import {
   blockedTaskIds,
+  edgeId,
   hasCycle,
   parallelLayers,
   parseWorkGraph,
@@ -34,6 +35,9 @@ import {
 
 export type NodePos = { x: number; y: number };
 
+/** Outcome of a connect() attempt, so the UI can explain a rejection. */
+export type ConnectResult = { ok: true } | { ok: false; reason: 'self' | 'duplicate' | 'cycle' };
+
 const PERSIST_KEY = 'maru.workgraph.v1';
 const LAYOUT = { x0: 120, y0: 120, gapX: 320, gapY: 200 } as const;
 
@@ -49,10 +53,14 @@ function loadPersisted(): Persisted {
     const rec = data as Record<string, unknown>;
     const graph = parseWorkGraph(rec.graph);
     const pos: Record<TaskId, NodePos> = {};
+    // Only keep positions for tasks the parser actually kept — parseWorkGraph can
+    // drop malformed/duplicate tasks, and an orphan pos entry would bloat storage
+    // and skew Fit / connect hit-tests toward phantom ids.
+    const live = new Set(graph?.tasks.map((t) => t.id));
     if (graph && typeof rec.pos === 'object' && rec.pos !== null) {
       for (const [id, v] of Object.entries(rec.pos as Record<string, unknown>)) {
         const p = v as Record<string, unknown>;
-        if (typeof p?.x === 'number' && typeof p?.y === 'number') pos[id] = { x: p.x, y: p.y };
+        if (live.has(id) && typeof p?.x === 'number' && typeof p?.y === 'number') pos[id] = { x: p.x, y: p.y };
       }
     }
     return { graph, pos };
@@ -102,8 +110,8 @@ type WorkGraphActions = {
   deleteTask: (id: TaskId) => void;
   setPos: (id: TaskId, x: number, y: number) => void;
   selectTask: (id: TaskId | null) => void;
-  /** Add a `depends_on` edge (no-op on self / duplicate / would-be cycle). */
-  connect: (from: TaskId, to: TaskId) => void;
+  /** Add a `depends_on` edge; returns why it was rejected (self / duplicate / cycle). */
+  connect: (from: TaskId, to: TaskId) => ConnectResult;
   removeEdge: (edgeId: string) => void;
   /** Add an acceptance criterion to a task. */
   addCriterion: (id: TaskId, text: string) => void;
@@ -161,10 +169,23 @@ function setOutputs(graph: WorkGraph, id: TaskId, outputs: Resource[]): WorkGrap
   });
 }
 
-/** Mark every task with a FAILED upstream as `blocked` (else it sits planned forever). */
+/** Mark every task transitively blocked by a failed/blocked upstream as `blocked`. */
 function markBlocked(graph: WorkGraph): WorkGraph {
   let g = graph;
   for (const id of blockedTaskIds(g)) g = setStatus(g, id, 'blocked');
+  return g;
+}
+
+/** Note stamped on a dry-run-advanced task so the UI never reads it as verified. */
+const DRY_RUN_NOTE = 'Dry run — no provider connected; status only, not verified.';
+
+/** Advance a ready set as a DRY run: status done + an explicit "not verified" note. */
+function markDry(graph: WorkGraph, tasks: readonly Task[]): WorkGraph {
+  let g = graph;
+  for (const t of tasks) {
+    g = setStatus(g, t.id, 'done');
+    g = setEvidence(g, t.id, DRY_RUN_NOTE);
+  }
   return g;
 }
 
@@ -196,9 +217,25 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   runToken: 0,
   runNote: null,
 
-  setGraph: (graph) => set({ graph: touch(graph), pos: autoLayout(graph), selectedTaskId: null, running: false, runNote: null }),
+  setGraph: (graph) =>
+    set((s) => ({
+      graph: touch(graph),
+      pos: autoLayout(graph),
+      selectedTaskId: null,
+      running: false,
+      runToken: s.runToken + 1, // invalidate any in-flight run/implement
+      runNote: null,
+    })),
 
-  clearGraph: () => set({ graph: null, pos: {}, selectedTaskId: null, running: false, runNote: null }),
+  clearGraph: () =>
+    set((s) => ({
+      graph: null,
+      pos: {},
+      selectedTaskId: null,
+      running: false,
+      runToken: s.runToken + 1,
+      runNote: null,
+    })),
 
   addTask: (at) => {
     const id = randomId('task');
@@ -261,17 +298,18 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
   selectTask: (id) => set({ selectedTaskId: id }),
 
-  connect: (from, to) =>
-    set((s) => {
-      if (!s.graph || from === to) return {};
-      const id = `${from}~${to}~depends_on`;
-      if (s.graph.edges.some((e) => e.id === id)) return {};
-      const edge: Edge = { id, from, to, type: 'depends_on' };
-      const next = { ...s.graph, edges: [...s.graph.edges, edge] };
-      // Reject an edge that would introduce a dependency cycle.
-      if (hasCycle(next)) return {};
-      return { graph: touch(next) };
-    }),
+  connect: (from, to) => {
+    if (from === to) return { ok: false, reason: 'self' };
+    const s = get();
+    if (!s.graph) return { ok: false, reason: 'duplicate' }; // no graph — nothing to connect (unreachable from UI)
+    const id = edgeId(from, to);
+    if (s.graph.edges.some((e) => e.id === id)) return { ok: false, reason: 'duplicate' };
+    const edge: Edge = { id, from, to, type: 'depends_on' };
+    const next = { ...s.graph, edges: [...s.graph.edges, edge] };
+    if (hasCycle(next)) return { ok: false, reason: 'cycle' };
+    set({ graph: touch(next) });
+    return { ok: true };
+  },
 
   removeEdge: (edgeId) =>
     set((s) => (s.graph ? { graph: touch({ ...s.graph, edges: s.graph.edges.filter((e) => e.id !== edgeId) }) } : {})),
@@ -316,11 +354,16 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         runNote: null,
         graph: touch({
           ...s.graph,
-          tasks: s.graph.tasks.map((t) => ({
-            ...t,
-            status: 'planned',
-            acceptance: t.acceptance.map((c) => ({ ...c, verdict: 'unknown' as const })),
-          })),
+          tasks: s.graph.tasks.map((t): Task => {
+            const next: Task = {
+              ...t,
+              status: 'planned',
+              outputs: [],
+              acceptance: t.acceptance.map((c) => ({ ...c, verdict: 'unknown' as const })),
+            };
+            delete next.evidence; // re-arm: drop the prior run's result/diff
+            return next;
+          }),
         }),
       };
     }),
@@ -334,6 +377,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     // run bumps the token, and we bail after the next await instead of clobbering.
     const owns = () => get().running && get().runToken === token;
     let live = true;
+    let ranLive = false; // true once any task has actually run on a provider
     let guard = 0;
     try {
       while (owns() && guard < 1000) {
@@ -350,25 +394,43 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
           const outcomes = await Promise.all(
             ready.map(async (t) => ({
               t,
-              res: await window.marudesk.invoke('workos:run-task', {
-                taskId: t.id,
-                title: t.title,
-                intent: t.intent,
-                goal,
-                acceptance: t.acceptance.map((c) => c.text),
-              }),
+              // Fail-closed: a rejected invoke (child threw) becomes an ok:false
+              // result, not an unhandled rejection that strands the layer.
+              res: await window.marudesk
+                .invoke('workos:run-task', {
+                  taskId: t.id,
+                  title: t.title,
+                  intent: t.intent,
+                  goal,
+                  acceptance: t.acceptance.map((c) => c.text),
+                })
+                .catch(() => ({ ok: false as const, reason: 'The task agent could not be reached.' })),
             })),
           );
           if (!owns()) break;
-          // No provider for the entire ready set → switch to a dry run from here.
           if (outcomes.every((o) => !o.res.ok)) {
-            live = false;
-            const first = outcomes[0]?.res;
-            set({ runNote: first && !first.ok ? first.reason : 'No provider — showing a dry run (status only).' });
-            set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'done'), s.graph) } : {}));
-            await delay(220);
-            continue;
+            if (!ranLive) {
+              // Nothing has run live yet → a legitimate offline PREVIEW: advance
+              // status as a clearly-labelled dry run for the rest of the graph.
+              live = false;
+              const first = outcomes[0]?.res;
+              set({ runNote: first && !first.ok ? first.reason : 'No provider — showing a dry run (status only).' });
+              set((s) => (s.graph ? { graph: markDry(s.graph, ready) } : {}));
+              await delay(220);
+              continue;
+            }
+            // We already ran tasks for real and the provider then dropped — do NOT
+            // fake success for the rest. Mark them blocked and stop honestly.
+            set({ runNote: 'Provider became unavailable — remaining tasks were not run.' });
+            set((s) => {
+              if (!s.graph) return {};
+              let g = s.graph;
+              for (const t of ready) g = setStatus(g, t.id, 'blocked');
+              return { graph: markBlocked(g) };
+            });
+            break;
           }
+          if (outcomes.some((o) => o.res.ok)) ranLive = true;
           set((s) => {
             if (!s.graph) return {};
             let g = s.graph;
@@ -378,7 +440,10 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
                 g = setEvidence(g, t.id, res.result);
                 g = setOutputs(g, t.id, res.outputs);
               } else {
-                g = setStatus(g, t.id, 'failed');
+                // Not attempted (no provider / timeout for THIS task) — `blocked`,
+                // not a real `failed`: non-terminal, recoverable, and it won't
+                // cascade-fail dependents the way a genuine failure does.
+                g = setStatus(g, t.id, 'blocked');
                 g = setEvidence(g, t.id, res.reason);
               }
             }
@@ -388,12 +453,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         } else {
           await delay(220);
           if (!owns()) break;
-          set((s) => {
-            if (!s.graph) return {};
-            let g = s.graph;
-            for (const t of ready) g = setStatus(g, t.id, 'done');
-            return { graph: g };
-          });
+          set((s) => (s.graph ? { graph: markDry(s.graph, ready) } : {}));
         }
       }
     } finally {
@@ -505,7 +565,7 @@ export function sampleGraph(goal: string): WorkGraph {
   const frontend = mk('Implement UI', g, ['Renders without console errors']);
   const test = mk('Test & verify', `Verify: ${g}`, ['All tests pass', 'No regressions']);
   const tasks = [plan, backend, frontend, test];
-  const dep = (from: Task, to: Task): Edge => ({ id: `${from.id}~${to.id}~depends_on`, from: from.id, to: to.id, type: 'depends_on' });
+  const dep = (from: Task, to: Task): Edge => ({ id: edgeId(from.id, to.id), from: from.id, to: to.id, type: 'depends_on' });
   return {
     id: randomId('wg'),
     goal: g,
