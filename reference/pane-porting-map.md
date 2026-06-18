@@ -85,13 +85,12 @@ refuses non-`http(s)` schemes) and `marudesk/electron/browser/tabs.ts`.
 | Session restore | FULL | FULL, two-tier (`electron/browser/tab-session.ts`, `pinned-session.ts`) | MARUDESK AHEAD |
 | Frameless window + native controls | FULL | FULL (`electron/main.ts`, `src/views/Shell.tsx`) | PARITY |
 
-**Status:** the §C browser-feature gaps are now closed. The smart address-bar
-URL parser (PSL via `tldts`), the omnibox **"Go to <host>"** suggestion, and the
-context-menu **spellcheck** section are all ported; everything else was already
-parity or marudesk-ahead. The only remaining pane-isms are deliberate non-ports:
-the monospace address-bar font (conflicts with marudesk's Inter-everywhere
-DESIGN.md) and opening menu links in a background tab (marudesk activates them —
-a UX preference left as-is).
+**Status:** §C is fully ported. The smart address-bar URL parser (PSL via
+`tldts`), the omnibox **"Go to <host>"** suggestion, the context-menu
+**spellcheck** section, **background-tab** "Open Link/Image in New Tab" (focus
+stays on the current page), and **monospace URLs** (address bar + suggestions,
+scoped to `[data-palette='pane']` so marudesk's Inter default holds elsewhere)
+are all in. Everything else was already parity or marudesk-ahead.
 
 ---
 
