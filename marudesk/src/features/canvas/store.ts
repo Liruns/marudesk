@@ -3,7 +3,7 @@ import type { TabGroupColor, TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
-import { easeInOutCubic, fitPose, lerpViewport } from './camera-math';
+import { easeInOutCubic, fitPose, lerpViewport, packGrid } from './camera-math';
 
 /**
  * Infinite-canvas placement store (Maru identity overhaul — see
@@ -173,6 +173,32 @@ function cancelCameraTween(): void {
     cancelAnimationFrame(cameraTweenRaf);
   }
   cameraTweenRaf = null;
+}
+
+// In-flight auto-arrange tween (arrangeCards), independent of the camera tween.
+let arrangeTweenRaf: number | null = null;
+function cancelArrangeTween(): void {
+  if (arrangeTweenRaf != null && typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(arrangeTweenRaf);
+  }
+  arrangeTweenRaf = null;
+}
+
+/** True when the OS asks for reduced motion (animations should snap, not glide). */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
+function canAnimate(): boolean {
+  return (
+    !prefersReducedMotion() &&
+    typeof requestAnimationFrame !== 'undefined' &&
+    typeof performance !== 'undefined'
+  );
 }
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
@@ -836,6 +862,9 @@ type CanvasActions = {
       prefers-reduced-motion); any user pan/zoom interrupts it. Ported easing —
       reference/pane-porting-map.md §D. */
   animateTo: (target: Viewport) => void;
+  /** Tidy all unlocked cards into an aligned grid, animated into place (ported
+      packGrid + easing — reference/pane-porting-map.md §D). */
+  arrangeCards: () => void;
 
   /* ── named-canvas (saved-layout) management ── */
   /** The open workspace's canvases, in switcher order. */
@@ -1211,7 +1240,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     }
   },
 
-  setPos: (tabId, x, y) =>
+  setPos: (tabId, x, y) => {
+    cancelArrangeTween(); // a manual move interrupts an in-flight tidy
     set((s) => {
       const cur = s.placements[tabId];
       if (!cur || cur.locked) return {};
@@ -1220,7 +1250,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       const next = { ...cur, x, y };
       delete next.preMax;
       return { placements: { ...s.placements, [tabId]: next } };
-    }),
+    });
+  },
 
   setSize: (tabId, w, h) =>
     set((s) => {
@@ -1266,7 +1297,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         : [...s.selection, key],
     })),
   clearSelection: () => set((s) => (s.selection.length ? { selection: [] } : {})),
-  moveSelectionBy: (keys, base, dx, dy) =>
+  moveSelectionBy: (keys, base, dx, dy) => {
+    cancelArrangeTween(); // a manual move interrupts an in-flight tidy
     set((s) => {
       const next = { ...s.placements };
       let changed = false;
@@ -1278,7 +1310,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         changed = true;
       }
       return changed ? { placements: next } : {};
-    }),
+    });
+  },
 
   addEdge: (from, to, fromSide, toSide) =>
     set((s) => {
@@ -1590,14 +1623,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     };
     cancelCameraTween();
     const from = get().viewport;
-    const reduceMotion =
-      typeof window !== 'undefined' &&
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (
-      reduceMotion ||
-      typeof requestAnimationFrame === 'undefined' ||
-      typeof performance === 'undefined' ||
+      !canAnimate() ||
       (from.panX === to.panX && from.panY === to.panY && from.scale === to.scale)
     ) {
       set({ viewport: to });
@@ -1616,6 +1643,53 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       cameraTweenRaf = requestAnimationFrame(tick);
     };
     cameraTweenRaf = requestAnimationFrame(tick);
+  },
+
+  arrangeCards: () => {
+    cancelArrangeTween();
+    const s = get();
+    const keys = Object.keys(s.placements).filter((k) => !s.placements[k].locked);
+    if (keys.length < 2) return;
+    // Stable reading order (top→bottom, then left→right) so the tidy is
+    // predictable and cards mostly keep their relative arrangement.
+    keys.sort((a, b) => s.placements[a].y - s.placements[b].y || s.placements[a].x - s.placements[b].x);
+    const minX = Math.min(...keys.map((k) => s.placements[k].x));
+    const minY = Math.min(...keys.map((k) => s.placements[k].y));
+    const targets = packGrid(
+      keys.map((k) => ({ key: k, w: s.placements[k].w, h: s.placements[k].h })),
+      { gap: 32, originX: minX, originY: minY },
+    );
+    const from: Record<string, { x: number; y: number }> = {};
+    for (const k of keys) from[k] = { x: s.placements[k].x, y: s.placements[k].y };
+    const apply = (k01: number) =>
+      set((st) => {
+        const next = { ...st.placements };
+        for (const key of keys) {
+          const cur = next[key];
+          const f = from[key];
+          const t = targets[key];
+          if (!cur || !f || !t) continue;
+          next[key] = { ...cur, x: f.x + (t.x - f.x) * k01, y: f.y + (t.y - f.y) * k01 };
+        }
+        return { placements: next };
+      });
+    if (!canAnimate()) {
+      apply(1);
+      return;
+    }
+    const start = performance.now();
+    const DURATION = 380;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      if (t >= 1) {
+        apply(1);
+        arrangeTweenRaf = null;
+        return;
+      }
+      apply(easeInOutCubic(t));
+      arrangeTweenRaf = requestAnimationFrame(tick);
+    };
+    arrangeTweenRaf = requestAnimationFrame(tick);
   },
 
   listCanvases: () => {

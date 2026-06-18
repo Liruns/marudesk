@@ -4,8 +4,10 @@ import {
   easeOutBack,
   fitPose,
   lerpViewport,
+  packGrid,
   slotRect,
   type Rect,
+  type SizedCard,
 } from './camera-math';
 
 const near = (a: number, b: number, eps = 1e-9) =>
@@ -101,5 +103,43 @@ describe('slotRect', () => {
         expect(overlaps(rects[i], rects[j])).toBe(false);
       }
     }
+  });
+});
+
+describe('packGrid', () => {
+  it('returns nothing for no cards', () => {
+    expect(packGrid([])).toEqual({});
+  });
+
+  it('aligns mixed-size cards into a non-overlapping grid', () => {
+    const cards: SizedCard[] = [
+      { key: 'a', w: 200, h: 100 },
+      { key: 'b', w: 300, h: 120 },
+      { key: 'c', w: 150, h: 200 },
+      { key: 'd', w: 220, h: 90 },
+    ];
+    const pos = packGrid(cards, { gap: 20, columns: 2, originX: 0, originY: 0 });
+    // 2 columns → col widths [max(a,c)=200, max(b,d)=300]; row heights [max(a,b)=120, max(c,d)=200].
+    expect(pos.a).toEqual({ x: 0, y: 0 });
+    expect(pos.b).toEqual({ x: 220, y: 0 }); // 200 + gap 20
+    expect(pos.c).toEqual({ x: 0, y: 140 }); // 120 + gap 20
+    expect(pos.d).toEqual({ x: 220, y: 140 });
+
+    // No two card rects overlap.
+    const rects = cards.map((c) => ({ ...pos[c.key], w: c.w, h: c.h }));
+    const overlaps = (
+      a: { x: number; y: number; w: number; h: number },
+      b: { x: number; y: number; w: number; h: number },
+    ) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        expect(overlaps(rects[i], rects[j])).toBe(false);
+      }
+    }
+  });
+
+  it('honors the origin offset', () => {
+    const pos = packGrid([{ key: 'a', w: 100, h: 100 }], { originX: 50, originY: 70 });
+    expect(pos.a).toEqual({ x: 50, y: 70 });
   });
 });

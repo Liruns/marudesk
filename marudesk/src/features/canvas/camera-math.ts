@@ -110,3 +110,54 @@ export function slotRect(index: number, opts: SlotOptions = {}): Rect {
   const row = Math.floor(index / columns);
   return { x: col * (width + gap), y: row * (height + gap), w: width, h: height };
 }
+
+export type SizedCard = { readonly key: string; readonly w: number; readonly h: number };
+export type PackOptions = {
+  gap?: number;
+  /** Fixed column count; defaults to a near-square ceil(sqrt(n)). */
+  columns?: number;
+  originX?: number;
+  originY?: number;
+};
+
+/**
+ * Tidy variable-size cards into an aligned grid — column widths and row heights
+ * are sized to their contents, so cells never overlap (and thus no two cards
+ * overlap). Cards keep their given order; each lands at its cell's top-left.
+ * Returns the new top-left per card key. Generalizes pane's uniform `slotRect`
+ * to marudesk's mixed-size cards (the "auto-arrange" command).
+ */
+export function packGrid(
+  cards: readonly SizedCard[],
+  opts: PackOptions = {},
+): Record<string, { x: number; y: number }> {
+  const out: Record<string, { x: number; y: number }> = {};
+  if (cards.length === 0) return out;
+  const gap = opts.gap ?? 32;
+  const originX = opts.originX ?? 0;
+  const originY = opts.originY ?? 0;
+  const columns = Math.max(1, opts.columns ?? Math.ceil(Math.sqrt(cards.length)));
+  const rows = Math.ceil(cards.length / columns);
+  const colW = new Array<number>(columns).fill(0);
+  const rowH = new Array<number>(rows).fill(0);
+  cards.forEach((c, i) => {
+    colW[i % columns] = Math.max(colW[i % columns], c.w);
+    rowH[Math.floor(i / columns)] = Math.max(rowH[Math.floor(i / columns)], c.h);
+  });
+  const colX: number[] = [];
+  let x = originX;
+  for (let c = 0; c < columns; c++) {
+    colX[c] = x;
+    x += colW[c] + gap;
+  }
+  const rowY: number[] = [];
+  let y = originY;
+  for (let r = 0; r < rows; r++) {
+    rowY[r] = y;
+    y += rowH[r] + gap;
+  }
+  cards.forEach((c, i) => {
+    out[c.key] = { x: colX[i % columns], y: rowY[Math.floor(i / columns)] };
+  });
+  return out;
+}

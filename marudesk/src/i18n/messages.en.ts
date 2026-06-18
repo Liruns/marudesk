@@ -1493,6 +1493,8 @@ export const EN_MESSAGES = {
   'canvas.control.resetZoom': 'Reset zoom to 100%',
   'canvas.control.fit': 'Fit to content',
   'canvas.control.resetView': 'Reset view',
+  'canvas.control.arrange': 'Tidy layout',
+  'canvas.menu.arrange': 'Tidy layout',
   'canvas.minimapShow': 'Show minimap',
   'canvas.minimapHide': 'Hide minimap',
   'canvas.edge.remove': 'Remove connection',

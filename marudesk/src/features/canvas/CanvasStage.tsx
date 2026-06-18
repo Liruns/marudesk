@@ -15,6 +15,7 @@ import {
   Globe,
   Group,
   Layers,
+  LayoutGrid,
   ListTree,
   Map as MapIcon,
   Maximize2,
@@ -1355,6 +1356,7 @@ export function CanvasStage() {
       { type: 'separator' },
       { label: t('canvas.control.fit'), onSelect: () => fit() },
       { label: t('canvas.menu.resetZoom'), onSelect: () => animateReset() },
+      { label: t('canvas.menu.arrange'), onSelect: () => store.arrangeCards() },
       { type: 'separator' },
       {
         label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
@@ -1780,6 +1782,12 @@ export function CanvasStage() {
         </CtrlButton>
         <CtrlButton label={t('canvas.control.resetView')} onClick={animateReset}>
           <RotateCcw size={15} />
+        </CtrlButton>
+        <CtrlButton
+          label={t('canvas.control.arrange')}
+          onClick={() => useCanvasStore.getState().arrangeCards()}
+        >
+          <LayoutGrid size={15} />
         </CtrlButton>
         <CtrlButton
           label={minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow')}

@@ -1488,6 +1488,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'canvas.control.resetZoom': '확대/축소 100%로 초기화',
   'canvas.control.fit': '내용에 맞추기',
   'canvas.control.resetView': '보기 초기화',
+  'canvas.control.arrange': '정렬하기',
+  'canvas.menu.arrange': '정렬하기',
   'canvas.minimapShow': '미니맵 표시',
   'canvas.minimapHide': '미니맵 숨기기',
   'canvas.edge.remove': '연결 제거',
