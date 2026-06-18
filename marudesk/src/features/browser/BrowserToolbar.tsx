@@ -25,6 +25,7 @@ import { BrowserHistoryMenu, BrowserMenu } from './BrowserMenu';
 import { findBookmark, useBookmarksStore } from './bookmarks';
 import { useBrowserStrings } from './browserStrings';
 import type { NavState } from '../../../shared/browser';
+import { displayUrl } from '../../../shared/internal-pages';
 
 type Props = {
   readonly pendingUrl: string;
@@ -116,7 +117,7 @@ export function BrowserToolbar({
           )}
         >
           <SchemeIndicator
-            url={nav.url || currentUrl}
+            url={displayUrl(nav.url) || currentUrl}
             isSecure={nav.isSecure}
             secureTitle={formatSchemeTitle(true)}
             insecureTitle={formatSchemeTitle(false)}
