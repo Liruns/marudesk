@@ -38,6 +38,7 @@ import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
+import { fitPose } from './camera-math';
 import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
 import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
@@ -990,6 +991,19 @@ export function CanvasStage() {
     useCanvasStore.getState().setPan(size.w / 2 - wx * scale, size.h / 2 - wy * scale);
   };
 
+  // Frame a single card: glide the camera so the card fills the viewport (the
+  // "focus a pane" camera command — pane CANVAS.md §6, reuses the ported
+  // fitPose + animateTo tween). Uses `size` state (like centerOn) so it's safe
+  // to build from render (the card menu is rendered).
+  const frameCard = (placeKey: string) => {
+    const st = useCanvasStore.getState();
+    const r = st.placements[placeKey];
+    if (!r) return;
+    st.animateTo(
+      fitPose([r], { width: size.w, height: size.h }, { padding: 80, titleH: 28 }),
+    );
+  };
+
   // A spot for a NEW card with no explicit drop point (the toolbar button): the
   // first free grid cell inside the visible viewport, so it always lands on-screen
   // (not at the off-screen canvas origin when panned away) AND doesn't stack on an
@@ -1237,7 +1251,17 @@ export function CanvasStage() {
 
   // Double-click empty canvas creates a card (Figma-style).
   const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
+    const target = e.target as HTMLElement;
+    // Double-click a card's title bar → frame it (zoom the camera to the card).
+    const header = target.closest('[data-card-header]');
+    if (header) {
+      const id = header.closest('[data-tab-id]')?.getAttribute('data-tab-id');
+      if (id) {
+        frameCard(keyOf(id));
+        return;
+      }
+    }
+    if (target.closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
     newCard('home', toCanvas(e.clientX, e.clientY));
   };
 
@@ -1260,6 +1284,7 @@ export function CanvasStage() {
       const inGroup = placeKey !== m.tabId;
       const rect = placements[placeKey];
       const items: MenuItem[] = [
+        { label: t('canvas.menu.zoomToCard'), onSelect: () => frameCard(placeKey) },
         { label: t('canvas.menu.bringFront'), onSelect: () => store.bringToFront(placeKey) },
         { label: t('canvas.menu.sendBack'), onSelect: () => store.sendToBack(placeKey) },
         {
@@ -1386,6 +1411,45 @@ export function CanvasStage() {
           e.preventDefault();
           closeSelection();
         }
+        return;
+      }
+      // Camera commands (ported from pane's canvas keymap — CANVAS.md §6):
+      // +/- zoom about center, 0 reset, F fit-all, arrows pan. Plain keys only,
+      // so they never collide with page zoom (Ctrl±) or select-all (Ctrl/⌘+A).
+      if (!editable && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const st = useCanvasStore.getState();
+        const cr = containerRef.current?.getBoundingClientRect();
+        if (e.key === '+' || e.key === '=') {
+          if (cr) {
+            e.preventDefault();
+            st.zoomAt(1.2, cr.width / 2, cr.height / 2);
+          }
+          return;
+        }
+        if (e.key === '-' || e.key === '_') {
+          if (cr) {
+            e.preventDefault();
+            st.zoomAt(1 / 1.2, cr.width / 2, cr.height / 2);
+          }
+          return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          st.animateTo({ panX: 0, panY: 0, scale: 1 });
+          return;
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          if (cr) {
+            e.preventDefault();
+            st.animateTo(st.getFitPose(cr.width, cr.height));
+          }
+          return;
+        }
+        const PAN = e.shiftKey ? 240 : 80;
+        if (e.key === 'ArrowRight') { e.preventDefault(); st.panBy(-PAN, 0); return; }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); st.panBy(PAN, 0); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); st.panBy(0, -PAN); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); st.panBy(0, PAN); return; }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -1475,6 +1539,14 @@ export function CanvasStage() {
       aria-label={t('canvas.label')}
       tabIndex={-1}
     >
+      {cardItems.length === 0 && sections.length === 0 ? (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="select-none text-center">
+            <div className="text-body-sm text-fg-tertiary">{t('canvas.empty.title')}</div>
+            <div className="mt-1 text-caption text-fg-tertiary/70">{t('canvas.empty.hint')}</div>
+          </div>
+        </div>
+      ) : null}
       <div
         ref={planeRef}
         className="absolute inset-0 origin-top-left"

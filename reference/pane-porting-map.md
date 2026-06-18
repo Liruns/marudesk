@@ -133,8 +133,11 @@ All four are now implemented in `marudesk/` (strict TS + tests, no raw-JS copy):
    (`electron/browser/internal-pages.ts` + `internal-page-render.ts`,
    `shared/internal-pages.ts`); `maru://newtab` replaces `about:blank`, and a
    real main-frame `did-fail-load` shows `maru://error` (Retry / Search).
-4. ✅ **Canvas math → eased camera glide** (§D) — pane's easing + `fitPose` +
-   `slotRect` ported to `src/features/canvas/camera-math.ts` (+ test); the
-   canvas Fit / Reset controls now glide via a reduced-motion-aware `animateTo`
-   tween. `easeOutBack` + `slotRect` are ported and ready for fling /
-   auto-arrange. Mining `CANVAS.md` for further interaction ideas remains open.
+4. ✅ **Canvas math → eased camera glide + mined gestures** (§D) — pane's easing
+   + `fitPose` + `slotRect` ported to `src/features/canvas/camera-math.ts`
+   (+ test); the canvas Fit / Reset controls glide via a reduced-motion-aware
+   `animateTo` tween. Further mined from `CANVAS.md` §6: **keyboard camera keymap**
+   (`+`/`-`/`0`/`F`/arrows), **focus-a-card** tween (double-click a card header
+   or "Zoom to card" in its menu → frame it), and a quiet **empty-canvas hint**.
+   `easeOutBack` + `slotRect` remain ported and ready for fling / auto-arrange;
+   pan momentum-inertia and the pane-fling spring are still open.

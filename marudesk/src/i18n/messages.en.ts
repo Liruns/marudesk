@@ -1443,6 +1443,8 @@ export const EN_MESSAGES = {
   'grid.resizeHint': 'Drag to resize · double-click to even out',
   // Canvas — the infinite-canvas surface (cards, sections, connections).
   'canvas.label': 'Canvas',
+  'canvas.empty.title': 'Empty canvas',
+  'canvas.empty.hint': 'Double-click to add a card · drag to pan · ⌘/Ctrl-scroll to zoom',
   'canvas.minimap': 'Canvas minimap',
   'canvas.connect.top': 'Connect from top edge',
   'canvas.connect.right': 'Connect from right edge',
@@ -1496,6 +1498,7 @@ export const EN_MESSAGES = {
   'canvas.edge.remove': 'Remove connection',
   'canvas.edge.square': 'Square connections',
   'canvas.edge.curved': 'Curved connections',
+  'canvas.menu.zoomToCard': 'Zoom to card',
   'canvas.menu.bringFront': 'Bring to front',
   'canvas.menu.sendBack': 'Send to back',
   'canvas.menu.restoreSize': 'Restore size',
