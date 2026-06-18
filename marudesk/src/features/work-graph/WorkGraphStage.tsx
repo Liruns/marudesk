@@ -129,6 +129,7 @@ export function WorkGraphStage() {
     useWorkGraphStore.getState().selectTask(null);
     e.currentTarget.setPointerCapture(e.pointerId);
     panRef.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, px: vp.panX, py: vp.panY };
+    if (ref.current) ref.current.dataset.panning = '';
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const p = panRef.current;
@@ -136,7 +137,10 @@ export function WorkGraphStage() {
     setVp((v) => ({ ...v, panX: p.px + (e.clientX - p.sx), panY: p.py + (e.clientY - p.sy) }));
   };
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (panRef.current?.id === e.pointerId) panRef.current = null;
+    if (panRef.current?.id === e.pointerId) {
+      panRef.current = null;
+      if (ref.current) delete ref.current.dataset.panning;
+    }
   };
 
   return (
@@ -145,7 +149,7 @@ export function WorkGraphStage() {
       data-stage="workgraph"
       aria-label="Work OS task graph"
       tabIndex={-1}
-      className="relative h-full w-full flex-1 overflow-clip bg-surface-page"
+      className="relative h-full w-full flex-1 overflow-clip bg-surface-page cursor-grab data-[panning]:cursor-grabbing"
       style={{
         backgroundImage: 'radial-gradient(var(--border-subtle) 1px, transparent 1.6px)',
         backgroundSize: `${24 * vp.scale}px ${24 * vp.scale}px`,
@@ -172,9 +176,9 @@ export function WorkGraphStage() {
       {/* Empty state — points at the panel to generate a first graph. */}
       {!graph ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <div className="flex max-w-sm flex-col items-center gap-2 text-center">
-            <Workflow size={28} className="text-fg-tertiary" />
-            <p className="text-body-sm font-medium text-fg-secondary">AI Work OS</p>
+          <div className="flex max-w-xs flex-col items-center gap-3 text-center animate-fade-rise">
+            <Workflow size={24} className="text-fg-tertiary" />
+            <p className="text-body font-medium text-fg-secondary">No task graph yet.</p>
             <p className="text-caption text-fg-tertiary">
               Describe a goal in the panel to decompose it into a Task graph — each node runs an
               agent and reports pass/fail against its acceptance criteria.
@@ -186,25 +190,25 @@ export function WorkGraphStage() {
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
         <CtrlButton label="Zoom out" onClick={() => zoomFromCenter(1 / 1.2)}>
-          <Minus size={15} />
+          <Minus size={14} />
         </CtrlButton>
         <button
           type="button"
-          className="min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary"
+          className="min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary transition-transform duration-fast active:scale-[0.99]"
           onClick={() => setVp((v) => ({ ...v, scale: 1 }))}
           title="Reset zoom to 100%"
         >
           {Math.round(vp.scale * 100)}%
         </button>
         <CtrlButton label="Zoom in" onClick={() => zoomFromCenter(1.2)}>
-          <Plus size={15} />
+          <Plus size={14} />
         </CtrlButton>
         <div className="mx-0.5 h-5 w-px bg-subtle" />
         <CtrlButton label="Fit to content" onClick={fit}>
-          <Maximize2 size={15} />
+          <Maximize2 size={14} />
         </CtrlButton>
         <CtrlButton label="Reset view" onClick={() => setVp({ panX: 0, panY: 0, scale: 1 })}>
-          <RotateCcw size={15} />
+          <RotateCcw size={14} />
         </CtrlButton>
       </div>
     </div>
@@ -226,7 +230,7 @@ function CtrlButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="grid h-7 w-7 place-items-center rounded text-fg-secondary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary active:translate-y-px"
+      className="grid h-7 w-7 place-items-center rounded text-fg-secondary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
     >
       {children}
     </button>

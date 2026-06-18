@@ -5,7 +5,7 @@ import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import { useWorkGraphStore } from './store';
 import { toast } from '../../lib/toast';
 import { parseUnifiedDiff } from '../git/parseDiff';
-import { DiffBlock } from '../../components/ui';
+import { DiffBlock, Spinner, Badge } from '../../components/ui';
 
 /**
  * The Work OS supervision panel: the selected Task's intent, acceptance criteria
@@ -18,6 +18,24 @@ const VERDICT_DOT: Record<Criterion['verdict'], string> = {
   unknown: 'bg-fg-tertiary',
   pass: 'bg-success',
   fail: 'bg-error',
+};
+
+const STATUS_BADGE: Record<Task['status'], 'neutral' | 'accent' | 'success' | 'warning' | 'error'> = {
+  planned: 'neutral',
+  running: 'accent',
+  done: 'success',
+  blocked: 'warning',
+  needs_review: 'warning',
+  failed: 'error',
+};
+
+const STATUS_LABEL: Record<Task['status'], string> = {
+  planned: 'Planned',
+  running: 'Running',
+  done: 'Done',
+  blocked: 'Blocked',
+  needs_review: 'Review',
+  failed: 'Failed',
 };
 
 /** Open a Resource as a real tool surface (canvas card), keyed by its uri scheme. */
@@ -64,21 +82,20 @@ export function WorkGraphInspector() {
   const diffLines = patch ? parseUnifiedDiff(patch) : [];
 
   return (
-    <div className="absolute right-3 top-14 bottom-16 z-50 flex w-80 flex-col overflow-hidden rounded-lg chrome-panel p-3 shadow-card">
+    <div className="absolute right-4 top-14 bottom-16 z-50 flex w-80 flex-col overflow-hidden rounded-lg chrome-panel p-3 shadow-card motion-safe:animate-scale-in">
       <div className="mb-2 flex items-start gap-2">
         <div className="min-w-0">
           <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
-          <p className="text-caption text-fg-tertiary">
-            {task.status}
-            {task.executor.type === 'agent' ? ` · @${task.executor.ref}` : ' · human'}
-            {task.kind === 'decision' ? ' · decision' : ''}
-          </p>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <Badge variant={STATUS_BADGE[task.status]}>{STATUS_LABEL[task.status]}</Badge>
+            <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : 'human'}{task.kind === 'decision' ? ' · decision' : ''}</p>
+          </div>
         </div>
         <button
           type="button"
           aria-label="Close inspector"
           onClick={() => useWorkGraphStore.getState().selectTask(null)}
-          className="ml-auto grid h-5 w-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary"
+          className="ml-auto grid h-5 w-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <X size={13} />
         </button>
@@ -89,9 +106,9 @@ export function WorkGraphInspector() {
         disabled={running}
         onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
         title="Run a write-capable agent in a throwaway git worktree and capture the diff — your files are never touched"
-        className="mb-2 inline-flex items-center gap-1.5 self-start rounded-md bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+        className="mb-2 inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
       >
-        <Hammer size={12} />
+        {running ? <Spinner size={13} label="Implementing" /> : <Hammer size={12} />}
         Implement (isolated)
       </button>
 
@@ -100,7 +117,7 @@ export function WorkGraphInspector() {
 
         {task.acceptance.length > 0 ? (
           <div>
-            <p className="mb-1 text-caption font-medium text-fg-secondary">Acceptance</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">Acceptance</p>
             <ul className="space-y-1">
               {task.acceptance.map((c) => (
                 <li key={c.id} className="flex items-start gap-1.5 text-caption text-fg-tertiary">
@@ -113,9 +130,9 @@ export function WorkGraphInspector() {
         ) : null}
 
         <div>
-          <p className="mb-1 text-caption font-medium text-fg-secondary">Result</p>
+          <p className="mb-2 text-caption font-medium text-fg-secondary">Result</p>
           {result ? (
-            <pre className="whitespace-pre-wrap break-words rounded-md bg-surface-2 p-2 text-caption text-fg-secondary">
+            <pre className="whitespace-pre-wrap break-words rounded bg-surface-3 shadow-inset-soft p-2 font-mono text-caption text-fg-secondary">
               {result}
             </pre>
           ) : (
@@ -125,7 +142,7 @@ export function WorkGraphInspector() {
 
         {patch ? (
           <div>
-            <p className="mb-1 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
             <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-64 overflow-auto" />
             <p className="mt-1 text-caption text-fg-tertiary">
               Produced in a throwaway worktree — your files are unchanged. Review before applying.
@@ -135,7 +152,7 @@ export function WorkGraphInspector() {
 
         {task.outputs.length > 0 ? (
           <div>
-            <p className="mb-1 text-caption font-medium text-fg-secondary">Resources</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">Resources</p>
             <div className="flex flex-wrap gap-1.5">
               {task.outputs.map((r) => (
                 <button
@@ -143,7 +160,7 @@ export function WorkGraphInspector() {
                   type="button"
                   onClick={() => openResource(r)}
                   title={r.uri}
-                  className="inline-flex items-center gap-1 rounded-pill bg-surface-2 px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent"
+                  className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
                 >
                   <ExternalLink size={11} />
                   <span className="max-w-[10rem] truncate">{r.label ?? r.uri}</span>

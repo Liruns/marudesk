@@ -148,16 +148,19 @@ export function ActivityBar({
             {
               label: 'Work OS',
               icon: <Workflow size={15} />,
+              checked: surfaceMode === 'workgraph',
               onSelect: () => useSurfaceStore.getState().setMode('workgraph'),
             },
             {
               label: 'Canvas',
               icon: <Frame size={15} />,
+              checked: surfaceMode === 'canvas',
               onSelect: () => useSurfaceStore.getState().setMode('canvas'),
             },
             {
               label: 'Classic',
               icon: <LayoutGrid size={15} />,
+              checked: surfaceMode === 'classic',
               onSelect: () => useSurfaceStore.getState().setMode('classic'),
             },
           ]}
@@ -248,9 +251,9 @@ function ActivityButton({
       aria-pressed={active}
       title={label}
       className={cn(
-        'chrome-icon-button relative size-9 shrink-0',
+        'chrome-icon-button relative size-9 shrink-0 transition-colors duration-fast',
         active
-          ? 'text-accent bg-accent-subtle/50 shadow-highlight hover:bg-accent-subtle/60 hover:text-accent'
+          ? 'text-accent bg-accent-subtle shadow-highlight hover:bg-accent-subtle hover:text-accent'
           : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/70',
         disabled ? 'opacity-40 cursor-not-allowed' : '',
       )}
@@ -265,12 +268,12 @@ function ActivityButton({
       {attention ? (
         <span
           aria-hidden
-          className="absolute -top-0.5 -right-0.5 size-2.5 rounded-pill bg-warning ring-2 ring-surface-1 animate-pulse"
+          className="absolute -top-0.5 -right-0.5 size-2.5 rounded-pill bg-warning ring-2 ring-surface-1 motion-safe:animate-fade-rise"
         />
       ) : typeof badge === 'number' && badge > 0 ? (
         <span
           aria-hidden
-          className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-pill bg-accent text-[10px] font-medium text-white flex items-center justify-center tabular-nums"
+          className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-pill bg-accent text-caption font-medium text-white flex items-center justify-center tabular-nums"
         >
           {badge > 99 ? '99+' : badge}
         </span>

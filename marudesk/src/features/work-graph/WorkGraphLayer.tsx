@@ -1,5 +1,6 @@
 import { memo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Play, Plus, Square, Trash2, X } from 'lucide-react';
+import { Check, Play, Plus, Trash2, X } from 'lucide-react';
+import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import {
   type Task,
@@ -125,27 +126,31 @@ function WorkGraphEdges({
   return (
     <svg
       aria-hidden
-      className="pointer-events-none absolute left-0 top-0 overflow-visible"
+      className="pointer-events-none absolute left-0 top-0 overflow-visible motion-safe:animate-fade-rise"
       style={{ width: 1, height: 1 }}
     >
       <defs>
-        <marker id="wg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <marker id="wg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)" />
         </marker>
       </defs>
-      {lines.map(({ e, a, b }) => (
-        <line
-          key={e.id}
-          x1={a.x}
-          y1={a.y}
-          x2={b.x}
-          y2={b.y}
-          stroke="var(--accent)"
-          strokeWidth={1.5}
-          markerEnd="url(#wg-arrow)"
-          opacity={0.65}
-        />
-      ))}
+      {lines.map(({ e, a, b }) => {
+        const sx = a.x;
+        const sy = a.y + NODE_H / 2;
+        const tx = b.x;
+        const ty = b.y - NODE_H / 2;
+        return (
+          <path
+            key={e.id}
+            d={`M ${sx},${sy} C ${sx},${sy + 60} ${tx},${ty - 60} ${tx},${ty}`}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={1.5}
+            markerEnd="url(#wg-arrow)"
+            opacity={0.65}
+          />
+        );
+      })}
       {live && connect ? (
         <line x1={live.x} y1={live.y} x2={connect.x} y2={connect.y} stroke="var(--accent)" strokeWidth={1.5} strokeDasharray="4 4" />
       ) : null}
@@ -199,9 +204,9 @@ const TaskNodeCard = memo(function TaskNodeCard({
       role="group"
       aria-label={`${style.label} task: ${task.title}`}
       className={cn(
-        'absolute rounded-lg border bg-surface-1 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'absolute rounded-lg border bg-surface-1 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors transition-transform duration-fast active:scale-[0.99]',
         style.ring,
-        selected ? 'ring-2 ring-accent' : '',
+        selected ? 'border-accent shadow-[0_0_0_1px_var(--accent)]' : 'hover:border-default',
       )}
       style={{ left: x, top: y, width: NODE_W, minHeight: NODE_H }}
       onFocus={() => useWorkGraphStore.getState().selectTask(task.id)}
@@ -244,11 +249,11 @@ const TaskNodeCard = memo(function TaskNodeCard({
         onPointerCancel={onHeaderUp}
         className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 cursor-grab active:cursor-grabbing"
       >
-        <span className={cn('rounded-pill px-1.5 py-0.5 text-[10px] font-medium leading-none', style.chip)}>
-          {style.label}
+        <span className={cn('rounded-pill px-1.5 py-0.5 text-caption font-medium leading-none', style.chip, task.status === 'running' && 'inline-flex items-center gap-0.5')}>
+          {task.status === 'running' && <Spinner size={10} label="Task running" className="-ml-0.5" />}{style.label}
         </span>
         {task.kind === 'decision' ? (
-          <span className="rounded-pill bg-surface-3 px-1.5 py-0.5 text-[10px] text-fg-tertiary leading-none">Decision</span>
+          <span className="rounded-pill bg-surface-3 px-1.5 py-0.5 text-caption font-medium text-fg-tertiary leading-none">Decision</span>
         ) : null}
         <span className="ml-auto" />
         {selected ? (
@@ -258,7 +263,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
             title="Delete task"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => useWorkGraphStore.getState().deleteTask(task.id)}
-            className="grid h-5 w-5 place-items-center rounded text-fg-tertiary hover:bg-error-subtle hover:text-error"
+            className="grid h-5 w-5 place-items-center rounded text-fg-tertiary hover:bg-error-subtle hover:text-error focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
           >
             <X size={12} />
           </button>
@@ -272,7 +277,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
           title="Cycle status"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => useWorkGraphStore.getState().updateTask(task.id, { status: nextStatus(task.status) })}
-          className="block w-full text-left text-body-sm font-medium text-fg-primary truncate hover:text-accent"
+          className="block w-full text-left text-body-sm font-medium text-fg-primary truncate rounded hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
         >
           {task.title}
         </button>
@@ -284,11 +289,11 @@ const TaskNodeCard = memo(function TaskNodeCard({
           {task.acceptance.length > 0 ? (
             <span
               className={cn(
-                'ml-auto tabular-nums',
+                'ml-auto inline-flex items-center gap-0.5 tabular-nums',
                 failed > 0 ? 'text-error' : passed === task.acceptance.length ? 'text-success' : 'text-fg-tertiary',
               )}
             >
-              {passed}/{task.acceptance.length} ✓
+              {passed}/{task.acceptance.length}<Check size={10} className="shrink-0" />
             </span>
           ) : null}
         </div>
@@ -304,9 +309,9 @@ const TaskNodeCard = memo(function TaskNodeCard({
           e.preventDefault();
           onStartConnect(taskId, e.clientX, e.clientY);
         }}
-        className="absolute -bottom-2 left-1/2 -translate-x-1/2 grid h-4 w-4 place-items-center rounded-pill border border-default bg-surface-2 text-fg-tertiary hover:border-accent hover:text-accent"
+        className="absolute -bottom-2 left-1/2 -translate-x-1/2 grid h-4 w-4 place-items-center rounded-pill border border-default bg-surface-2 text-fg-tertiary hover:border-accent hover:text-accent group cursor-grab active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
       >
-        <span className="block h-1.5 w-1.5 rounded-pill bg-current" />
+        <span className="block h-1.5 w-1.5 rounded-pill bg-current transition-transform duration-fast group-hover:scale-125" />
       </button>
     </div>
   );
@@ -361,7 +366,7 @@ export function WorkGraphPanel() {
     : 'No graph yet';
 
   return (
-    <div className="absolute left-3 top-14 z-50 w-72 rounded-lg chrome-panel p-2.5 shadow-card">
+    <div className="absolute left-3 top-14 z-50 w-72 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-caption font-medium text-fg-secondary">AI Task graph</span>
       </div>
@@ -373,15 +378,15 @@ export function WorkGraphPanel() {
           onKeyDown={(e) => {
             if (e.key === 'Enter') void generate();
           }}
-          className="h-8 min-w-0 flex-1 rounded-md bg-surface-2 border border-subtle px-2 text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent"
+          className="h-8 min-w-0 flex-1 rounded bg-surface-2 border border-subtle px-2 text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent focus:shadow-focus-accent transition-shadow duration-fast"
         />
         <button
           type="button"
           disabled={busy}
           onClick={() => void generate()}
-          className="h-8 shrink-0 rounded-md bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 h-8 shrink-0 rounded bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
         >
-          {busy ? 'Generating…' : 'Generate'}
+          {busy && <Spinner size={14} label="Generating" />}Generate
         </button>
       </div>
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
@@ -395,16 +400,16 @@ export function WorkGraphPanel() {
               : 'Run — executes each ready task as an agent (falls back to a dry run if no provider is connected)'
           }
           onClick={() => (running ? useWorkGraphStore.getState().stopRun() : void useWorkGraphStore.getState().run())}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
+          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
-          {running ? <Square size={12} /> : <Play size={12} />}
+          {running ? <Spinner size={12} label="Run in progress" /> : <Play size={12} />}
           {running ? 'Stop' : 'Run'}
         </button>
         <button
           type="button"
           disabled={running}
           onClick={() => useWorkGraphStore.getState().addTask()}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
+          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Plus size={12} />
           Task
@@ -413,7 +418,7 @@ export function WorkGraphPanel() {
           type="button"
           disabled={!graph || running}
           onClick={() => useWorkGraphStore.getState().resetRun()}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
+          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Check size={12} />
           Reset
@@ -422,13 +427,13 @@ export function WorkGraphPanel() {
           type="button"
           disabled={!graph || running}
           onClick={() => useWorkGraphStore.getState().clearGraph()}
-          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-caption text-fg-tertiary hover:bg-error-subtle hover:text-error disabled:opacity-50"
+          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-caption text-fg-tertiary hover:bg-error-subtle hover:text-error disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Trash2 size={12} />
         </button>
       </div>
-      <p className="mt-1.5 text-caption text-fg-tertiary">{summary}</p>
-      {runNote ? <p className="mt-1 text-caption text-warning">{runNote}</p> : null}
+      <p className="mt-1.5 text-caption text-fg-tertiary tabular-nums">{summary}</p>
+      {runNote ? <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">{runNote}</p> : null}
     </div>
   );
 }

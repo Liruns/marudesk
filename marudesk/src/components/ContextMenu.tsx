@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Check } from 'lucide-react';
 import { cn } from '../lib/cn';
 
 export type MenuItem =
@@ -19,6 +20,7 @@ export type MenuItem =
       danger?: boolean;
       icon?: ReactNode;
       shortcut?: string;
+      checked?: boolean;
     };
 
 type Props = {
@@ -168,6 +170,13 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
                 <span className="ml-4 text-caption text-fg-tertiary/70 tabular-nums shrink-0">
                   {item.shortcut}
                 </span>
+              ) : null}
+              {item.checked !== undefined ? (
+                item.checked ? (
+                  <Check size={12} className="shrink-0 text-accent" aria-hidden />
+                ) : (
+                  <span className="size-3 shrink-0" aria-hidden />
+                )
               ) : null}
             </button>
           ),
