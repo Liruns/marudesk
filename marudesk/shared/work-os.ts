@@ -91,6 +91,12 @@ export type TaskEvidence = {
   trajectory: TrajectoryStep[];
   /** Human-readable result summary. */
   result: string;
+  /**
+   * A unified diff the task's agent produced in an ISOLATED git worktree (never
+   * applied to the live workspace) — surfaced for the user to review before
+   * applying. Present only after an "implement" run.
+   */
+  patch?: string;
 };
 
 export type Task = {
@@ -150,6 +156,24 @@ export type RunTaskResult =
       result: string;
       /** Real workspace files the agent identified as relevant (validated to exist). */
       outputs: Resource[];
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Result of an "implement" run — the task's agent edits files in an ISOLATED git
+ * worktree, the diff is captured, and the worktree is discarded (the live
+ * workspace is never touched). The `patch` is surfaced for the user to review and
+ * apply deliberately.
+ */
+export type ImplementTaskResult =
+  | {
+      ok: true;
+      status: Extract<TaskStatus, 'done' | 'failed'>;
+      result: string;
+      /** Unified diff produced in the worktree (empty string if the agent made no edits). */
+      patch: string;
+      /** Paths the agent changed in the worktree. */
+      changedFiles: string[];
     }
   | { ok: false; reason: string };
 

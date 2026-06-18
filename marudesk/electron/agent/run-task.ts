@@ -1,9 +1,19 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { clipText } from '../../shared/text-clip';
 import { randomId } from '../../shared/id';
-import type { Resource, RunTaskInput, RunTaskResult } from '../../shared/work-os';
+import type { ImplementTaskResult, Resource, RunTaskInput, RunTaskResult } from '../../shared/work-os';
+import type { WorkspaceSummary } from '../../shared/workspace';
 import { getCurrentWorkspace } from '../workspace';
+import { runGit } from '../git';
+import {
+  agentBranchName,
+  createWorktree,
+  discardWorktree,
+  isGitRepo,
+  worktreeChanges,
+} from '../git-worktree';
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
 import { runChildAgent } from './subagent-runtime';
@@ -29,7 +39,9 @@ import type { ToolContext } from './tools/types';
  */
 
 const MAX_TASK_STEPS = 10;
+const MAX_IMPLEMENT_STEPS = 14;
 const MAX_RESULT_CHARS = 8_000;
+const MAX_PATCH_CHARS = 20_000;
 const MAX_OUTPUTS = 8;
 
 /** A `file://` uri for an absolute path (forward slashes; leading slash on Windows). */
@@ -202,4 +214,110 @@ export async function runTask(raw: unknown): Promise<RunTaskResult> {
     result: clipText(stripJsonFences(out.text) || out.text, MAX_RESULT_CHARS),
     outputs,
   };
+}
+
+function implementPrompt(input: RunTaskInput): string {
+  const goal = input.goal.trim() ? `\n\nOverall goal: ${input.goal.trim()}` : '';
+  const criteria =
+    input.acceptance.length > 0
+      ? `\n\nAcceptance criteria — satisfy each:\n${input.acceptance.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
+      : '';
+  return `You are implementing ONE task in a larger plan. You are working in an ISOLATED git worktree (a throwaway copy of the repo) — make the real edits this task needs with edit_file / multi_edit. Nothing you change touches the user's live files: the diff is captured for the user to review and apply deliberately. Read a file before you edit it; keep the change minimal and focused on THIS task only. When done, briefly summarize what you changed and why.
+
+Task: ${input.title.trim() || '(untitled)'}
+Intent: ${input.intent.trim() || '(none given)'}${goal}${criteria}`;
+}
+
+/**
+ * Run ONE task WRITE-capable in an isolated git worktree, capture the diff, then
+ * discard the worktree (docs/ai-work-os-roadmap.md §5 — write-back, isolated). The
+ * live workspace is never modified: edits land in a throwaway `marudesk/agent/*`
+ * worktree, the unified diff is returned for the user to review, and the worktree
+ * + branch are dropped. Reuses {@link runChildAgent} with file-write tools enabled
+ * (still no `run_command`/`eval_js`) so an unattended run can't run shell commands
+ * even inside the worktree.
+ */
+export async function implementTask(raw: unknown): Promise<ImplementTaskResult> {
+  const input = parseInput(raw);
+  if (!input) return { ok: false, reason: 'Invalid task payload.' };
+  if (!input.title.trim() && !input.intent.trim()) {
+    return { ok: false, reason: 'This task has no title or intent to act on.' };
+  }
+
+  const ws = getCurrentWorkspace();
+  if (!ws) return { ok: false, reason: 'Open a workspace folder first.' };
+  if (!(await isGitRepo(ws.root))) {
+    return { ok: false, reason: 'Implement needs a local git repository (it edits in an isolated worktree).' };
+  }
+
+  let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
+  try {
+    target = await resolveSubagentTarget({
+      explicit: { provider: null, model: null },
+      tierHint: 'smart',
+      agent: null,
+      parent: null,
+    });
+  } catch {
+    return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
+  }
+  const auth = await resolveProviderAuth(target.provider);
+  if (!auth.ok) return { ok: false, reason: auth.reason };
+
+  const branch = agentBranchName();
+  const worktreePath = path.join(os.tmpdir(), 'marudesk-workos', randomId('wt'));
+  try {
+    await createWorktree(ws.root, worktreePath, branch);
+  } catch (err) {
+    return { ok: false, reason: `Could not create an isolated worktree: ${(err as Error).message}` };
+  }
+
+  try {
+    // The child writes against the WORKTREE root (edit_file/multi_edit resolve
+    // paths off ctx.ws.root), so every edit is contained there, not in the repo.
+    const worktreeWs: WorkspaceSummary = { ...ws, root: worktreePath };
+    const ctx: ToolContext = {
+      ws: worktreeWs,
+      signal: new AbortController().signal,
+      provider: target.provider,
+      model: target.model,
+    };
+    const out = await runChildAgent(
+      {
+        task: implementPrompt(input),
+        label: input.title.trim() || 'Task',
+        provider: target.provider,
+        model: target.model,
+        maxSteps: MAX_IMPLEMENT_STEPS,
+        fallbacks: target.fallbacks,
+      },
+      ctx,
+      undefined,
+      undefined,
+      undefined,
+      { write: true },
+    );
+
+    let patch = '';
+    let changedFiles: string[] = [];
+    try {
+      await runGit(worktreePath, ['add', '-A']);
+      const diff = await runGit(worktreePath, ['diff', '--cached']);
+      patch = diff.stdout;
+      changedFiles = (await worktreeChanges(worktreePath)).files;
+    } catch {
+      // No diff capture (e.g. nothing changed) — leave patch empty.
+    }
+
+    return {
+      ok: true,
+      status: out.isError ? 'failed' : 'done',
+      result: clipText(out.text, MAX_RESULT_CHARS),
+      patch: clipText(patch, MAX_PATCH_CHARS),
+      changedFiles,
+    };
+  } finally {
+    // Always discard — the live workspace stays untouched whatever happened.
+    await discardWorktree(ws.root, worktreePath, branch).catch(() => undefined);
+  }
 }

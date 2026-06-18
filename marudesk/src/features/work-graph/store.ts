@@ -112,6 +112,12 @@ type WorkGraphActions = {
    * Resolves when the walk completes (or `running` is flipped off to stop).
    */
   run: () => Promise<void>;
+  /**
+   * Implement ONE task write-capably in an isolated git worktree (`workos:implement-task`)
+   * and store the captured diff as `Task.evidence.patch` for review. The live
+   * workspace is never modified. No-op while a run is in flight.
+   */
+  implementTask: (id: TaskId) => Promise<void>;
 };
 
 const persisted = loadPersisted();
@@ -123,12 +129,17 @@ function setStatus(graph: WorkGraph, id: TaskId, status: TaskStatus): WorkGraph 
   });
 }
 
-/** Attach (or update) a task's evidence result, preserving any trajectory. */
-function setEvidence(graph: WorkGraph, id: TaskId, result: string): WorkGraph {
+/** Attach (or update) a task's evidence result (+ optional diff), keeping any trajectory. */
+function setEvidence(graph: WorkGraph, id: TaskId, result: string, patch?: string): WorkGraph {
   return touch({
     ...graph,
     tasks: graph.tasks.map((t) =>
-      t.id === id ? { ...t, evidence: { trajectory: t.evidence?.trajectory ?? [], result } } : t,
+      t.id === id
+        ? {
+            ...t,
+            evidence: { trajectory: t.evidence?.trajectory ?? [], result, ...(patch ? { patch } : {}) },
+          }
+        : t,
     ),
   });
 }
@@ -349,6 +360,46 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       }
     }
     set({ running: false });
+  },
+
+  implementTask: async (id) => {
+    const s0 = get();
+    if (s0.running || !s0.graph) return;
+    const task = s0.graph.tasks.find((t) => t.id === id);
+    if (!task) return;
+    const goal = s0.graph.goal;
+    set((s) => ({ running: true, runNote: null, graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph }));
+    try {
+      const res = await window.marudesk.invoke('workos:implement-task', {
+        taskId: task.id,
+        title: task.title,
+        intent: task.intent,
+        goal,
+        acceptance: task.acceptance.map((c) => c.text),
+      });
+      set((s) => {
+        if (!s.graph) return { running: false };
+        if (res.ok) {
+          let g = setStatus(s.graph, id, res.status);
+          g = setEvidence(g, id, res.result, res.patch);
+          return {
+            graph: g,
+            running: false,
+            runNote: res.changedFiles.length
+              ? `${res.changedFiles.length} file(s) changed in an isolated worktree — review the diff before applying.`
+              : 'No changes were produced.',
+          };
+        }
+        // A precondition (no provider / not a git repo) — restore the task to planned.
+        return { graph: setStatus(s.graph, id, 'planned'), running: false, runNote: res.reason };
+      });
+    } catch {
+      set((s) => ({
+        graph: s.graph ? setStatus(s.graph, id, 'planned') : s.graph,
+        running: false,
+        runNote: 'Implement failed.',
+      }));
+    }
   },
 }));
 

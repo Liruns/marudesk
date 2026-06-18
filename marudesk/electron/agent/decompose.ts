@@ -4,7 +4,7 @@ import { parseWorkGraph, type WorkGraph } from '../../shared/work-os';
 import { buildModel, humanizeModelError } from './model';
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
-import { runTask } from './run-task';
+import { runTask, implementTask } from './run-task';
 
 /**
  * Goal → Task-graph generator (docs/ai-work-os-roadmap.md §6, the "Phase 1
@@ -119,4 +119,5 @@ export async function decomposeGoal(
 export function registerWorkOsHandlers(): void {
   defineHandler('workos:decompose', async ([goal]) => decomposeGoal(typeof goal === 'string' ? goal : ''));
   defineHandler('workos:run-task', async ([input]) => runTask(input));
+  defineHandler('workos:implement-task', async ([input]) => implementTask(input));
 }

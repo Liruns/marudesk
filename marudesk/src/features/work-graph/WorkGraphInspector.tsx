@@ -1,4 +1,4 @@
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink, Hammer, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useSurfaceStore } from '../canvas/surface';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
@@ -42,10 +42,13 @@ function openResource(r: Resource): void {
 export function WorkGraphInspector() {
   const graph = useWorkGraphStore((s) => s.graph);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
+  const running = useWorkGraphStore((s) => s.running);
   const task: Task | undefined = graph?.tasks.find((t) => t.id === selectedTaskId);
   if (!task) return null;
 
   const result = task.evidence?.result;
+  const patch = task.evidence?.patch;
+  const taskId = task.id;
 
   return (
     <div className="absolute right-3 top-14 bottom-4 z-50 flex w-80 flex-col overflow-hidden rounded-lg chrome-panel p-3 shadow-card">
@@ -67,6 +70,17 @@ export function WorkGraphInspector() {
           <X size={13} />
         </button>
       </div>
+
+      <button
+        type="button"
+        disabled={running}
+        onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
+        title="Run a write-capable agent in a throwaway git worktree and capture the diff — your files are never touched"
+        className="mb-2 inline-flex items-center gap-1.5 self-start rounded-md bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+      >
+        <Hammer size={12} />
+        Implement (isolated)
+      </button>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null}
@@ -95,6 +109,18 @@ export function WorkGraphInspector() {
             <p className="text-caption text-fg-tertiary">Not run yet.</p>
           )}
         </div>
+
+        {patch ? (
+          <div>
+            <p className="mb-1 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
+            <pre className="max-h-64 overflow-auto whitespace-pre rounded-md bg-surface-2 p-2 text-[11px] leading-snug text-fg-secondary">
+              {patch}
+            </pre>
+            <p className="mt-1 text-caption text-fg-tertiary">
+              Produced in a throwaway worktree — your files are unchanged. Review before applying.
+            </p>
+          </div>
+        ) : null}
 
         {task.outputs.length > 0 ? (
           <div>
