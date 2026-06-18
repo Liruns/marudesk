@@ -8,17 +8,22 @@ import { openExternalUrl } from '../safe-open';
  * lifecycle — ./tabs wires its own `createAndActivateTab` in when it builds the
  * menu, avoiding a context-menu ↔ tabs import cycle.
  */
-type OpenWebTab = (url: string) => void;
+type OpenWebTab = (url: string, opts?: { background?: boolean }) => void;
 
 /**
  * Open a URL from a context-menu action the same way the window-open handler
  * does: http(s) opens in a new tab, anything else (mailto:, tel:, custom
  * schemes) is handed to the OS. Keeps menu navigation from funneling odd
- * schemes through the address-bar search heuristic.
+ * schemes through the address-bar search heuristic. `background` keeps focus on
+ * the current page (Chrome's "Open link in new tab" convention).
  */
-function openUrlInTabOrExternal(url: string, openWebTab: OpenWebTab): void {
+function openUrlInTabOrExternal(
+  url: string,
+  openWebTab: OpenWebTab,
+  background = false,
+): void {
   if (/^https?:\/\//i.test(url)) {
-    openWebTab(url);
+    openWebTab(url, { background });
   } else {
     // mailto:/tel: → OS; file:/custom schemes are refused by openExternalUrl.
     void openExternalUrl(url);
@@ -47,7 +52,8 @@ export function buildWebContextMenu(
     items.push(
       {
         label: 'Open Link in New Tab',
-        click: () => openUrlInTabOrExternal(linkURL, openWebTab),
+        // Background tab — you keep reading the current page (Chrome convention).
+        click: () => openUrlInTabOrExternal(linkURL, openWebTab, true),
       },
       { label: 'Copy Link Address', click: () => clipboard.writeText(linkURL) },
       sep,
@@ -66,7 +72,7 @@ export function buildWebContextMenu(
     if (/^https?:\/\//i.test(srcURL)) {
       items.push({
         label: 'Open Image in New Tab',
-        click: () => openWebTab(srcURL),
+        click: () => openWebTab(srcURL, { background: true }),
       });
     }
     items.push(

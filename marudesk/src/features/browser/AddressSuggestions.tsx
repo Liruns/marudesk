@@ -55,7 +55,7 @@ export function AddressSuggestionsPanel({
           ) : s.kind === 'go' ? (
             <span className="min-w-0 flex-1 truncate text-body-sm text-fg-secondary">
               {t('browser.suggest.goTo')}
-              <span className="text-fg-primary">{stripUrlPrefix(s.url)}</span>
+              <span className="address-url text-fg-primary">{stripUrlPrefix(s.url)}</span>
             </span>
           ) : (
             <>
@@ -69,7 +69,7 @@ export function AddressSuggestionsPanel({
               <HighlightedText
                 text={stripUrlPrefix(s.url)}
                 query={query}
-                className="min-w-0 flex-1 truncate text-caption text-fg-tertiary"
+                className="address-url min-w-0 flex-1 truncate text-caption text-fg-tertiary"
               />
             </>
           )}

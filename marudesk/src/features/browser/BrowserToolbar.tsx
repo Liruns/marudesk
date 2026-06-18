@@ -137,7 +137,7 @@ export function BrowserToolbar({
             onBlur={onAddressBlur}
             onFocus={(e) => e.currentTarget.select()}
             className={cn(
-              'flex-1 min-w-0 bg-transparent text-body-sm text-fg-primary',
+              'address-url flex-1 min-w-0 bg-transparent text-body-sm text-fg-primary',
               'placeholder:text-fg-tertiary focus:outline-none',
             )}
             aria-label={t('browser.address.aria')}

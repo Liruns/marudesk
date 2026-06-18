@@ -279,8 +279,17 @@ export function createTab(
   view.webContents.on('context-menu', (_event, params) => {
     const h = getHost();
     if (!h || h.isDestroyed()) return;
-    const menu = buildWebContextMenu(rec, params, (url) => {
-      createAndActivateTab('web', url);
+    const menu = buildWebContextMenu(rec, params, (url, opts) => {
+      // Background open (Open Link/Image in New Tab): create + place via the
+      // normal activate path, then restore focus to the page you were reading.
+      // Both activations commit in one frame, so the new view never flashes.
+      if (opts?.background) {
+        const prev = getActiveTabId();
+        createAndActivateTab('web', url);
+        if (prev) activateTab(prev);
+      } else {
+        createAndActivateTab('web', url);
+      }
     });
     if (menu.items.length > 0) menu.popup({ window: h });
   });
