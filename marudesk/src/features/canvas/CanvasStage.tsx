@@ -833,9 +833,14 @@ export function CanvasStage() {
     commitLive();
     useCanvasStore.getState().zoomAt(factor, size.w / 2, size.h / 2);
   };
+  // Fit / reset glide the camera with an eased tween (ported pane easing —
+  // reference/pane-porting-map.md §D) instead of snapping to the new pose.
   const fit = () => {
-    useCanvasStore.getState().fitToContent(size.w, size.h);
+    const st = useCanvasStore.getState();
+    st.animateTo(st.getFitPose(size.w, size.h));
   };
+  const animateReset = () =>
+    useCanvasStore.getState().animateTo({ panX: 0, panY: 0, scale: 1 });
   // The current visible viewport as a canvas-space rect (for maximize), inset a
   // little so a maximized card doesn't butt against the very edges.
   const maximizeRect = () => {
@@ -1324,7 +1329,7 @@ export function CanvasStage() {
       { label: t('canvas.menu.newAiChat'), onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
       { type: 'separator' },
       { label: t('canvas.control.fit'), onSelect: () => fit() },
-      { label: t('canvas.menu.resetZoom'), onSelect: () => store.resetView() },
+      { label: t('canvas.menu.resetZoom'), onSelect: () => animateReset() },
       { type: 'separator' },
       {
         label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
@@ -1689,7 +1694,7 @@ export function CanvasStage() {
         <button
           type="button"
           className="min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary"
-          onClick={() => useCanvasStore.getState().resetView()}
+          onClick={animateReset}
           title={t('canvas.control.resetZoom')}
         >
           {Math.round(viewport.scale * 100)}%
@@ -1701,7 +1706,7 @@ export function CanvasStage() {
         <CtrlButton label={t('canvas.control.fit')} onClick={fit}>
           <Maximize2 size={15} />
         </CtrlButton>
-        <CtrlButton label={t('canvas.control.resetView')} onClick={() => useCanvasStore.getState().resetView()}>
+        <CtrlButton label={t('canvas.control.resetView')} onClick={animateReset}>
           <RotateCcw size={15} />
         </CtrlButton>
         <CtrlButton
