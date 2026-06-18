@@ -28,14 +28,16 @@ test('canvas: default surface renders cards and toggles to/from classic', async 
 
     await page.screenshot({ path: 'test-results/maru-canvas-shell.png' });
 
-    // Toggle to the classic shell — the canvas controls vanish and the tab strip
-    // returns (WorkspaceStage owns the strip).
-    await page.getByRole('button', { name: 'Switch to classic view' }).click();
+    // Switch to the classic shell via the surface switcher — the canvas controls
+    // vanish and the tab strip returns (WorkspaceStage owns the strip).
+    await page.getByRole('button', { name: 'Switch surface' }).click();
+    await page.getByRole('menuitem', { name: 'Classic', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toHaveCount(0);
     await expect(page.getByRole('tab').first()).toBeVisible();
 
-    // Toggle back to the canvas.
-    await page.getByRole('button', { name: 'Switch to canvas' }).click();
+    // Switch back to the canvas.
+    await page.getByRole('button', { name: 'Switch surface' }).click();
+    await page.getByRole('menuitem', { name: 'Canvas', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toBeVisible();
   } finally {
     await app.close();
@@ -294,6 +296,9 @@ test('canvas: named canvases switch independently (a canvas = a saved layout)', 
 
 test('canvas: named canvases + panel positions persist across a full restart', async () => {
   const userDataDir = makeTempUserDataDir();
+  // The null is read by the cross-launch guard below if launch 1 throws before
+  // assigning the box, so the initializer is not dead.
+  // eslint-disable-next-line no-useless-assignment
   let agentBox: { x: number; y: number } | null = null;
 
   // Launch 1 — build a two-canvas layout with restart-surviving panels (a
@@ -359,17 +364,17 @@ test('canvas: named canvases + panel positions persist across a full restart', a
   }
 });
 
-test('canvas: AI task graph — generate, render Task nodes, run to done', async () => {
-  const { app, page } = await launchApp({ surface: 'canvas' });
+test('workgraph: AI task graph — generate, render Task nodes, run to done', async () => {
+  const { app, page } = await launchApp({ surface: 'workgraph' });
   try {
-    // Open the Work-OS panel and generate a graph from a goal (offline sample
-    // when no provider is configured — deterministic 4-task DAG).
-    await page.getByRole('button', { name: 'Toggle task graph' }).click();
+    // The Work OS surface shows its goal panel directly (no toggle): generate a
+    // graph from a goal (offline sample when no provider is configured —
+    // deterministic 4-task DAG).
     const goal = page.getByPlaceholder('Describe a goal…');
     await goal.fill('Build the orders feature');
     await page.getByRole('button', { name: 'Generate', exact: true }).click();
 
-    // Task nodes render on the canvas (not tab cards).
+    // Task nodes render on the Work OS plane (not as tab cards).
     const nodes = page.locator('[data-task-node]');
     await expect(nodes).toHaveCount(4);
     await expect(page.getByText(/4 tasks/)).toBeVisible();

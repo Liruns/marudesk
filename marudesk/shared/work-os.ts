@@ -125,6 +125,34 @@ export type WorkGraph = {
   updatedAt: number;
 };
 
+/**
+ * Input to run ONE task as a real agent (electron/agent/run-task.ts, behind the
+ * `workos:run-task` IPC). The acceptance texts are passed so the executing agent
+ * knows what it is being judged against; verdicts themselves stay system-filled.
+ */
+export type RunTaskInput = {
+  taskId: TaskId;
+  title: string;
+  intent: string;
+  goal: string;
+  acceptance: string[];
+};
+
+/**
+ * Result of a real per-task agent run. `ok:false` means the run could not be
+ * attempted (e.g. no provider connected) — the caller may fall back to a dry run;
+ * `ok:true` always reflects a real attempt, with `status` 'done' or 'failed'.
+ */
+export type RunTaskResult =
+  | {
+      ok: true;
+      status: Extract<TaskStatus, 'done' | 'failed'>;
+      result: string;
+      /** Real workspace files the agent identified as relevant (validated to exist). */
+      outputs: Resource[];
+    }
+  | { ok: false; reason: string };
+
 /* ── type guards (specs.ts / providers.ts convention) ──────────────────────── */
 
 export function isTaskKind(v: unknown): v is TaskKind {

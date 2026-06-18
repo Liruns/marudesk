@@ -285,9 +285,10 @@ function nextStatus(s: TaskStatus): TaskStatus {
  * Run (dependency-ordered simulate) / Add task / Clear. Rendered as a CanvasStage
  * overlay (not in the transformed plane).
  */
-export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
+export function WorkGraphPanel({ onClose }: { onClose?: () => void }) {
   const graph = useWorkGraphStore((s) => s.graph);
   const running = useWorkGraphStore((s) => s.running);
+  const runNote = useWorkGraphStore((s) => s.runNote);
   const [goal, setGoal] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -322,14 +323,16 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
     <div className="absolute left-3 top-14 z-50 w-72 rounded-lg chrome-panel p-2.5 shadow-card">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-caption font-medium text-fg-secondary">AI Task graph</span>
-        <button
-          type="button"
-          aria-label="Hide tasks"
-          onClick={onClose}
-          className="ml-auto grid h-5 w-5 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary"
-        >
-          <X size={13} />
-        </button>
+        {onClose ? (
+          <button
+            type="button"
+            aria-label="Hide tasks"
+            onClick={onClose}
+            className="ml-auto grid h-5 w-5 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary"
+          >
+            <X size={13} />
+          </button>
+        ) : null}
       </div>
       <div className="flex gap-1.5">
         <input
@@ -355,7 +358,12 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           disabled={!graph}
-          onClick={() => (running ? useWorkGraphStore.setState({ running: false }) : void useWorkGraphStore.getState().runSimulate())}
+          title={
+            running
+              ? 'Stop the run'
+              : 'Run — executes each ready task as an agent (falls back to a dry run if no provider is connected)'
+          }
+          onClick={() => (running ? useWorkGraphStore.setState({ running: false }) : void useWorkGraphStore.getState().run())}
           className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
         >
           {running ? <Square size={12} /> : <Play size={12} />}
@@ -389,6 +397,7 @@ export function WorkGraphPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <p className="mt-1.5 text-caption text-fg-tertiary">{summary}</p>
+      {runNote ? <p className="mt-1 text-caption text-warning">{runNote}</p> : null}
     </div>
   );
 }

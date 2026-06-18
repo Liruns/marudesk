@@ -5,6 +5,7 @@ import {
   Frame,
   GitBranch,
   KeyRound,
+  LayoutGrid,
   MessageSquareText,
   Palette,
   Plug,
@@ -12,6 +13,7 @@ import {
   Search,
   Settings as SettingsIcon,
   SlidersHorizontal,
+  Workflow,
 } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { useWebPageStore } from '../features/browser/store';
@@ -65,8 +67,18 @@ export function ActivityBar({
   const agentWaiting = useAgentStore((s) => s.chat.status === 'waiting_for_user');
   const surfaceMode = useSurfaceStore((s) => s.mode);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [surfaceMenu, setSurfaceMenu] = useState<{ x: number; y: number } | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const { t } = useI18n();
+
+  const surfaceIcon =
+    surfaceMode === 'workgraph' ? (
+      <Workflow size={18} />
+    ) : surfaceMode === 'classic' ? (
+      <LayoutGrid size={18} />
+    ) : (
+      <Frame size={18} />
+    );
 
   return (
     <nav
@@ -118,12 +130,39 @@ export function ActivityBar({
       </ActivityButton>
       <span className="flex-1" aria-hidden />
       <ActivityButton
-        label={surfaceMode === 'canvas' ? 'Switch to classic view' : 'Switch to canvas'}
-        active={surfaceMode === 'canvas'}
-        onClick={() => useSurfaceStore.getState().toggle()}
+        label="Switch surface"
+        active={!!surfaceMenu}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setSurfaceMenu({ x: r.right + 6, y: r.top });
+        }}
       >
-        <Frame size={18} />
+        {surfaceIcon}
       </ActivityButton>
+      {surfaceMenu ? (
+        <ContextMenu
+          x={surfaceMenu.x}
+          y={surfaceMenu.y}
+          onClose={() => setSurfaceMenu(null)}
+          items={[
+            {
+              label: 'Work OS',
+              icon: <Workflow size={15} />,
+              onSelect: () => useSurfaceStore.getState().setMode('workgraph'),
+            },
+            {
+              label: 'Canvas',
+              icon: <Frame size={15} />,
+              onSelect: () => useSurfaceStore.getState().setMode('canvas'),
+            },
+            {
+              label: 'Classic',
+              icon: <LayoutGrid size={15} />,
+              onSelect: () => useSurfaceStore.getState().setMode('classic'),
+            },
+          ]}
+        />
+      ) : null}
       <ActivityButton
         label={t('activity.settings')}
         active={!!menu}

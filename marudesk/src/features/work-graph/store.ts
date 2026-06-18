@@ -7,6 +7,7 @@ import {
   readyTasks,
   type Criterion,
   type Edge,
+  type Resource,
   type Task,
   type TaskId,
   type TaskStatus,
@@ -21,11 +22,13 @@ import {
  * position keyed by `Task.id` (NOT a tab id), persisted under its own key so the
  * canvas-of-cards layout (`maru.canvas.*`) is never touched.
  *
- * Execution: a single graph for the slice. `runSimulate` walks the pure
- * scheduler (shared/work-os.ts) — running ready tasks, then their dependents in
- * layers — to make dependency order + parallelism visible without a provider;
- * real agent execution (electron/agent/run-task.ts, key-gated) drives the same
- * status transitions.
+ * Execution: a single graph for the slice. `run` walks the pure scheduler
+ * (shared/work-os.ts) in dependency/parallel order and executes each ready task
+ * as a REAL agent via the `workos:run-task` IPC (electron/agent/run-task.ts),
+ * storing the agent's report as `Task.evidence`. With no provider connected it
+ * falls back to a **dry run** (advances STATUS only) so the loop is always
+ * demoable. Acceptance verdicts stay 'unknown' until system-verified — never
+ * faked from the agent's own claim (docs/ai-work-os-roadmap.md §4).
  */
 
 export type NodePos = { x: number; y: number };
@@ -77,8 +80,10 @@ type WorkGraphState = {
   graph: WorkGraph | null;
   pos: Record<TaskId, NodePos>;
   selectedTaskId: TaskId | null;
-  /** A simulate run is in flight (drives the Run button + disables edits). */
+  /** A run is in flight (drives the Run button + disables edits). */
   running: boolean;
+  /** A short notice from the last run (e.g. the dry-run fallback reason), or null. */
+  runNote: string | null;
 };
 
 type WorkGraphActions = {
@@ -96,10 +101,17 @@ type WorkGraphActions = {
   /** Add an acceptance criterion to a task. */
   addCriterion: (id: TaskId, text: string) => void;
   setCriterionVerdict: (id: TaskId, criterionId: string, verdict: Criterion['verdict']) => void;
-  /** Reset every task to `planned` (and clear verdicts) — re-arm a run. */
+  /** Reset every task to `planned` (and clear verdicts/evidence) — re-arm a run. */
   resetRun: () => void;
-  /** Dependency-ordered simulated run (no provider needed); resolves when done. */
-  runSimulate: () => Promise<void>;
+  /**
+   * Run the graph: walks the scheduler in dependency/parallel order and executes
+   * each ready task as a REAL agent (`workos:run-task`), storing its report as
+   * `Task.evidence` and its outcome as status. Falls back to a dry run (status
+   * only, no provider needed) when no AI provider is connected — so the loop is
+   * always demoable. Acceptance verdicts stay 'unknown' until system-verified.
+   * Resolves when the walk completes (or `running` is flipped off to stop).
+   */
+  run: () => Promise<void>;
 };
 
 const persisted = loadPersisted();
@@ -111,6 +123,24 @@ function setStatus(graph: WorkGraph, id: TaskId, status: TaskStatus): WorkGraph 
   });
 }
 
+/** Attach (or update) a task's evidence result, preserving any trajectory. */
+function setEvidence(graph: WorkGraph, id: TaskId, result: string): WorkGraph {
+  return touch({
+    ...graph,
+    tasks: graph.tasks.map((t) =>
+      t.id === id ? { ...t, evidence: { trajectory: t.evidence?.trajectory ?? [], result } } : t,
+    ),
+  });
+}
+
+/** Replace a task's output resources (the real files its agent run identified). */
+function setOutputs(graph: WorkGraph, id: TaskId, outputs: Resource[]): WorkGraph {
+  return touch({
+    ...graph,
+    tasks: graph.tasks.map((t) => (t.id === id ? { ...t, outputs } : t)),
+  });
+}
+
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set, get) => ({
@@ -118,10 +148,11 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   pos: persisted.pos,
   selectedTaskId: null,
   running: false,
+  runNote: null,
 
-  setGraph: (graph) => set({ graph: touch(graph), pos: autoLayout(graph), selectedTaskId: null, running: false }),
+  setGraph: (graph) => set({ graph: touch(graph), pos: autoLayout(graph), selectedTaskId: null, running: false, runNote: null }),
 
-  clearGraph: () => set({ graph: null, pos: {}, selectedTaskId: null, running: false }),
+  clearGraph: () => set({ graph: null, pos: {}, selectedTaskId: null, running: false, runNote: null }),
 
   addTask: (at) => {
     const id = randomId('task');
@@ -236,6 +267,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       if (!s.graph) return {};
       return {
         running: false,
+        runNote: null,
         graph: touch({
           ...s.graph,
           tasks: s.graph.tasks.map((t) => ({
@@ -247,12 +279,15 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       };
     }),
 
-  runSimulate: async () => {
+  run: async () => {
     if (get().running || !get().graph) return;
     get().resetRun();
-    set({ running: true });
-    // Drive the pure scheduler: each pass runs every currently-ready task (the
-    // parallel set), marks them done, and repeats until nothing is ready.
+    set({ running: true, runNote: null });
+    // Drive the pure scheduler one ready-set (parallel layer) at a time. Each
+    // ready task runs as a REAL agent via `workos:run-task`; if no provider is
+    // connected we fall back to a dry run (status only) for the rest so the loop
+    // is always demoable and e2e-testable offline.
+    let live = true;
     let guard = 0;
     while (get().running && guard < 1000) {
       guard += 1;
@@ -260,25 +295,58 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       if (!graph) break;
       const ready = readyTasks(graph);
       if (ready.length === 0) break;
-      // Start the whole ready set (parallelism), then complete it.
+      const goal = graph.goal;
+      // Mark the whole ready set running (visualizes the parallel layer).
       set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) } : {}));
-      await delay(260);
-      if (!get().running) break;
-      set((s) => {
-        if (!s.graph) return {};
-        let g = s.graph;
-        for (const t of ready) {
-          g = setStatus(g, t.id, 'done');
-          g = {
-            ...g,
-            tasks: g.tasks.map((x) =>
-              x.id === t.id ? { ...x, acceptance: x.acceptance.map((c) => ({ ...c, verdict: 'pass' as const, checkedAt: Date.now() })) } : x,
-            ),
-          };
+
+      if (live) {
+        const outcomes = await Promise.all(
+          ready.map(async (t) => ({
+            t,
+            res: await window.marudesk.invoke('workos:run-task', {
+              taskId: t.id,
+              title: t.title,
+              intent: t.intent,
+              goal,
+              acceptance: t.acceptance.map((c) => c.text),
+            }),
+          })),
+        );
+        if (!get().running) break;
+        // No provider for the entire ready set → switch to a dry run from here.
+        if (outcomes.every((o) => !o.res.ok)) {
+          live = false;
+          const first = outcomes[0]?.res;
+          set({ runNote: first && !first.ok ? first.reason : 'No provider — showing a dry run (status only).' });
+          set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'done'), s.graph) } : {}));
+          await delay(220);
+          continue;
         }
-        return { graph: g };
-      });
-      await delay(120);
+        set((s) => {
+          if (!s.graph) return {};
+          let g = s.graph;
+          for (const { t, res } of outcomes) {
+            if (res.ok) {
+              g = setStatus(g, t.id, res.status);
+              g = setEvidence(g, t.id, res.result);
+              g = setOutputs(g, t.id, res.outputs);
+            } else {
+              g = setStatus(g, t.id, 'failed');
+              g = setEvidence(g, t.id, res.reason);
+            }
+          }
+          return { graph: g };
+        });
+      } else {
+        await delay(220);
+        if (!get().running) break;
+        set((s) => {
+          if (!s.graph) return {};
+          let g = s.graph;
+          for (const t of ready) g = setStatus(g, t.id, 'done');
+          return { graph: g };
+        });
+      }
     }
     set({ running: false });
   },

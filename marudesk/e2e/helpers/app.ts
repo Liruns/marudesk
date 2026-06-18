@@ -35,9 +35,10 @@ export async function launchApp(opts?: {
   /**
    * Which stage surface to start on. Maru defaults to the infinite **canvas**,
    * but most specs drive the classic tab strip / split grid, so tests default to
-   * `'classic'`. The canvas spec opts into `'canvas'`.
+   * `'classic'`. The canvas spec opts into `'canvas'`; the Work OS spec into
+   * `'workgraph'`.
    */
-  surface?: 'classic' | 'canvas';
+  surface?: 'classic' | 'canvas' | 'workgraph';
 }): Promise<LaunchedApp> {
   const userDataDir = opts?.userDataDir ?? makeTempUserDataDir();
   const app = await electron.launch({

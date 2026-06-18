@@ -22,7 +22,6 @@ import {
   Plus,
   RotateCcw,
   Trash2,
-  Workflow,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
@@ -35,8 +34,6 @@ import { CanvasCard, type CardGroupProps } from './CanvasCard';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
-import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
-import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
 import { cardDefaultSize, placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
@@ -176,8 +173,6 @@ export function CanvasStage() {
   const [minimapOpen, setMinimapOpen] = useState(true);
   // The AI process-flow overlay (the focused chat's plan as a node graph).
   const [planFlowOpen, setPlanFlowOpen] = useState(true);
-  // The AI Work-OS task-graph controls panel (Task nodes draw on the canvas).
-  const [tasksOpen, setTasksOpen] = useState(false);
   // Placement key of the card highlighted as a merge drop-target mid-drag, or null.
   const [mergeTarget, setMergeTarget] = useState<string | null>(null);
   // Right-click context menu (canvas / card / edge), or null.
@@ -365,7 +360,6 @@ export function CanvasStage() {
     store.setFocused(null);
     store.selectEdge(null);
     store.clearSelection();
-    useWorkGraphStore.getState().selectTask(null);
     e.currentTarget.setPointerCapture(e.pointerId);
     const pt = toCanvas(e.clientX, e.clientY);
     marqueeRef.current = { pointerId: e.pointerId, ox: pt.x, oy: pt.y };
@@ -1285,10 +1279,6 @@ export function CanvasStage() {
           );
         })()}
 
-        {/* AI Work-OS Task nodes (drawn on the canvas plane; positions keyed by
-            Task.id, independent of tabs). Returns null with no graph. */}
-        <WorkGraphNodes toCanvas={toCanvas} scale={viewport.scale} />
-
         {/* Marquee (drag-box) selection rectangle, in canvas coords. */}
         {marquee ? (
           <div
@@ -1359,22 +1349,7 @@ export function CanvasStage() {
           <Plus size={14} />
           New card
         </button>
-        <button
-          type="button"
-          title="AI Task graph"
-          aria-label="Toggle task graph"
-          onClick={() => setTasksOpen((v) => !v)}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption shadow-card transition-colors duration-fast active:translate-y-px',
-            tasksOpen ? 'text-accent' : 'text-fg-secondary hover:text-fg-primary',
-          )}
-        >
-          <Workflow size={14} />
-          Tasks
-        </button>
       </div>
-
-      {tasksOpen ? <WorkGraphPanel onClose={() => setTasksOpen(false)} /> : null}
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
