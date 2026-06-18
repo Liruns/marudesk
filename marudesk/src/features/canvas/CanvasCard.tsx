@@ -127,10 +127,11 @@ export function CanvasCard({
   /** `additive` (shift) toggles this card in the multi-selection. */
   onFocus: (additive?: boolean) => void;
   onClose: () => void;
-  /** Live header-drag position (painted to the DOM directly by the stage). */
-  onMove: (x: number, y: number) => void;
-  /** Header drag released — commit the live move to the store. */
-  onMoveEnd?: () => void;
+  /** Live header-drag position (painted to the DOM directly by the stage). `t` is
+   *  the pointer event's timestamp, used by the stage for release-fling velocity. */
+  onMove: (x: number, y: number, t?: number) => void;
+  /** Header drag released — commit the live move (`t` = pointerup timestamp). */
+  onMoveEnd?: (t?: number) => void;
   /** Keyboard move (no snap), so arrow-nudge stays precise. Falls back to onMove. */
   onNudge?: (x: number, y: number) => void;
   /** Live resize size (painted to the DOM directly); committed on pointer-up. */
@@ -201,7 +202,11 @@ export function CanvasCard({
     const s = dragState.current;
     if (!s || s.pointerId !== e.pointerId) return;
     if (Math.abs(e.clientX - s.startX) > 3 || Math.abs(e.clientY - s.startY) > 3) s.moved = true;
-    onMove(s.origX + (e.clientX - s.startX) / scale, s.origY + (e.clientY - s.startY) / scale);
+    onMove(
+      s.origX + (e.clientX - s.startX) / scale,
+      s.origY + (e.clientY - s.startY) / scale,
+      e.timeStamp,
+    );
     if (s.moved) onHeaderDragMove?.(e.clientX, e.clientY);
   };
   const onHeaderPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -209,7 +214,7 @@ export function CanvasCard({
     if (s?.pointerId !== e.pointerId) return;
     // Commit the live (DOM-painted) move to the store first, THEN let a drop
     // merge — mergeInto removes the standalone placement, so it wins if it fires.
-    onMoveEnd?.();
+    onMoveEnd?.(e.timeStamp);
     if (s.moved) onHeaderDrop?.(e.clientX, e.clientY);
     dragState.current = null;
   };

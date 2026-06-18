@@ -39,7 +39,7 @@ import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
-import { fitPose } from './camera-math';
+import { easeOutBack, fitPose } from './camera-math';
 import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
 import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
@@ -772,6 +772,10 @@ export function CanvasStage() {
     cards: { key: string; el: HTMLElement | null; ox: number; oy: number }[];
     pos: Record<string, { x: number; y: number }>;
   } | null>(null);
+  // Smoothed drag velocity (canvas px/ms) for the card fling, and the settle rAF.
+  const cardVelRef = useRef<{ x: number; y: number; t: number; vx: number; vy: number } | null>(null);
+  const cardFlingRaf = useRef<number | null>(null);
+  type CardDrag = NonNullable<typeof cardDragRef.current>;
 
   const paintCardDrag = () => {
     const d = cardDragRef.current;
@@ -785,44 +789,11 @@ export function CanvasStage() {
     }
   };
 
-  const handleMove = (key: string, x: number, y: number) => {
-    const store = useCanvasStore.getState();
-    let d = cardDragRef.current;
-    if (!d || d.key !== key) {
-      // Starting a card drag ends any canvas fling and freezes the viewport, so
-      // the drag maps the pointer against a stable camera.
-      commitLive();
-      const sel = store.selection;
-      const multi = sel.length > 1 && sel.includes(key);
-      const keys = multi ? sel : [key];
-      const cards = keys
-        .map((k) => {
-          const r = store.placements[k];
-          if (!r || r.locked) return null;
-          return { key: k, el: document.querySelector<HTMLElement>(`[data-place-key="${k}"]`), ox: r.x, oy: r.y };
-        })
-        .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
-      d = { key, multi, cards, pos: {} };
-      cardDragRef.current = d;
-    }
-    if (d.multi) {
-      const origin = d.cards.find((c) => c.key === key);
-      if (!origin) return;
-      const dx = x - origin.ox;
-      const dy = y - origin.oy;
-      for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
-    } else {
-      d.pos[key] = computeSnap(key, x, y);
-    }
-    paintCardDrag();
-  };
-
-  // Commit the drag to the store in ONE update on release; React then owns the
-  // positions again, matching what we already painted (no snap-back).
-  const commitCardMove = () => {
-    const d = cardDragRef.current;
-    if (!d) return;
+  // Write the dragged set's final positions to the store in ONE update; React
+  // then owns the positions again, matching what we painted (no snap-back).
+  const flushCardDrag = (d: CardDrag) => {
     cardDragRef.current = null;
+    cardVelRef.current = null;
     const store = useCanvasStore.getState();
     const origin = d.cards.find((c) => c.key === d.key);
     const last = d.pos[d.key];
@@ -841,12 +812,131 @@ export function CanvasStage() {
     }
   };
 
+  // Card fling: a fast release throws the card(s) a little further and settles
+  // with an easeOutBack overshoot (pane DESIGN §15 gesture spring), painted
+  // straight to the DOM, then flushed to the store. The whole set shares one
+  // throw delta; commitCardMove gates on speed + reduced-motion.
+  const startCardFling = (d: CardDrag, vx: number, vy: number) => {
+    const THROW = 120; // ms of velocity projected into a throw distance
+    const CAP = 600; // canvas px — don't hurl a card off into space
+    const tdx = Math.max(-CAP, Math.min(CAP, vx * THROW));
+    const tdy = Math.max(-CAP, Math.min(CAP, vy * THROW));
+    const startPos: Record<string, { x: number; y: number }> = {};
+    const targetPos: Record<string, { x: number; y: number }> = {};
+    for (const c of d.cards) {
+      const s = d.pos[c.key] ?? { x: c.ox, y: c.oy };
+      startPos[c.key] = { x: s.x, y: s.y };
+      targetPos[c.key] = { x: s.x + tdx, y: s.y + tdy };
+    }
+    const DURATION = 460;
+    let startTime = -1;
+    const step = (now: number) => {
+      if (startTime < 0) startTime = now;
+      const t = Math.min(1, (now - startTime) / DURATION);
+      const k = easeOutBack(t);
+      for (const c of d.cards) {
+        const s = startPos[c.key];
+        const tg = targetPos[c.key];
+        d.pos[c.key] = { x: s.x + (tg.x - s.x) * k, y: s.y + (tg.y - s.y) * k };
+      }
+      paintCardDrag();
+      if (t < 1) {
+        cardFlingRaf.current = requestAnimationFrame(step);
+        return;
+      }
+      for (const c of d.cards) d.pos[c.key] = targetPos[c.key];
+      paintCardDrag();
+      cardFlingRaf.current = null;
+      flushCardDrag(d);
+    };
+    cardFlingRaf.current = requestAnimationFrame(step);
+  };
+
+  const handleMove = (key: string, x: number, y: number, t?: number) => {
+    // A new drag interrupts a settling fling — bank its progress first so the
+    // fresh drag starts from where the card actually is.
+    if (cardFlingRaf.current != null) {
+      cancelAnimationFrame(cardFlingRaf.current);
+      cardFlingRaf.current = null;
+      if (cardDragRef.current) flushCardDrag(cardDragRef.current);
+    }
+    const store = useCanvasStore.getState();
+    let d = cardDragRef.current;
+    if (!d || d.key !== key) {
+      // Starting a card drag ends any canvas fling and freezes the viewport, so
+      // the drag maps the pointer against a stable camera.
+      commitLive();
+      const sel = store.selection;
+      const multi = sel.length > 1 && sel.includes(key);
+      const keys = multi ? sel : [key];
+      const cards = keys
+        .map((k) => {
+          const r = store.placements[k];
+          if (!r || r.locked) return null;
+          return { key: k, el: document.querySelector<HTMLElement>(`[data-place-key="${k}"]`), ox: r.x, oy: r.y };
+        })
+        .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
+      d = { key, multi, cards, pos: {} };
+      cardDragRef.current = d;
+      cardVelRef.current = t != null ? { x, y, t, vx: 0, vy: 0 } : null;
+    } else if (t != null) {
+      const cv = cardVelRef.current;
+      if (cv) {
+        const dt = Math.max(1, t - cv.t);
+        cv.vx = cv.vx * 0.6 + ((x - cv.x) / dt) * 0.4;
+        cv.vy = cv.vy * 0.6 + ((y - cv.y) / dt) * 0.4;
+        cv.x = x;
+        cv.y = y;
+        cv.t = t;
+      } else {
+        cardVelRef.current = { x, y, t, vx: 0, vy: 0 };
+      }
+    }
+    if (d.multi) {
+      const origin = d.cards.find((c) => c.key === key);
+      if (!origin) return;
+      const dx = x - origin.ox;
+      const dy = y - origin.oy;
+      for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
+    } else {
+      d.pos[key] = computeSnap(key, x, y);
+    }
+    paintCardDrag();
+  };
+
+  // Release: a fast flick flings the card(s) with an overshoot settle, otherwise
+  // commit immediately. `t` is the pointerup timestamp (for a freshness check).
+  const commitCardMove = (t?: number) => {
+    const d = cardDragRef.current;
+    if (!d) return;
+    const origin = d.cards.find((c) => c.key === d.key);
+    const last = d.pos[d.key];
+    const cv = cardVelRef.current;
+    const moved = !!origin && !!last && (last.x !== origin.ox || last.y !== origin.oy);
+    const fresh = !!cv && t != null && t - cv.t <= 80;
+    const speed = cv ? Math.hypot(cv.vx, cv.vy) : 0;
+    if (moved && fresh && cv && speed > 0.4 && !prefersReducedMotion()) {
+      startCardFling(d, cv.vx, cv.vy);
+      return; // the fling flushes to the store when it settles
+    }
+    flushCardDrag(d);
+  };
+
   // Re-assert an in-flight card drag after any incidental re-render (e.g. the
   // merge-highlight setState) so the dragged card never snaps to its stale store
   // position for a frame. Declared after the helpers so the rule sees the ref.
   useLayoutEffect(() => {
     if (cardDragRef.current) paintCardDrag();
   });
+
+  // Cancel a settling card fling if the canvas unmounts mid-throw. Declared after
+  // the helpers that modify the ref (react-hooks/immutability ordering).
+  useEffect(
+    () => () => {
+      if (cardFlingRaf.current != null) cancelAnimationFrame(cardFlingRaf.current);
+    },
+    [],
+  );
 
   // Keyboard arrow nudge (free, no snap): when the card is part of a multi-
   // selection, move the WHOLE selection by the same delta; otherwise just it.
@@ -1679,7 +1769,7 @@ export function CanvasStage() {
                 void useTabsStore.getState().closeTab(tab.id);
                 containerRef.current?.focus(); // keep keyboard focus on the canvas
               }}
-              onMove={(x, y) => handleMove(key, x, y)}
+              onMove={(x, y, t) => handleMove(key, x, y, t)}
               onMoveEnd={commitCardMove}
               onNudge={(x, y) => handleNudge(key, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(key, w, h)}
