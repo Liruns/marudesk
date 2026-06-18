@@ -30,13 +30,13 @@ test('canvas: default surface renders cards and toggles to/from classic', async 
 
     // Switch to the classic shell via the surface switcher — the canvas controls
     // vanish and the tab strip returns (WorkspaceStage owns the strip).
-    await page.getByRole('button', { name: 'Switch surface' }).click();
+    await page.getByRole('button', { name: /Surface:/ }).click();
     await page.getByRole('menuitem', { name: 'Classic', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toHaveCount(0);
     await expect(page.getByRole('tab').first()).toBeVisible();
 
     // Switch back to the canvas.
-    await page.getByRole('button', { name: 'Switch surface' }).click();
+    await page.getByRole('button', { name: /Surface:/ }).click();
     await page.getByRole('menuitem', { name: 'Canvas', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toBeVisible();
   } finally {
@@ -405,7 +405,7 @@ test('workgraph: renders the Task graph on its own surface + opens the inspector
 
     // Selecting a node opens the supervision inspector (intent, acceptance, Implement).
     await nodes.first().click();
-    await expect(page.getByRole('button', { name: 'Implement (isolated)' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Implement', exact: true })).toBeVisible();
     await expect(page.getByText('Acceptance')).toBeVisible();
   } finally {
     await app.close();

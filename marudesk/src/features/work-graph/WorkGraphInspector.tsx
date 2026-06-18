@@ -105,14 +105,17 @@ export function WorkGraphInspector() {
         type="button"
         disabled={running}
         onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
-        title="Run a write-capable agent in a throwaway git worktree and capture the diff — your files are never touched"
+        title="Run this task in an isolated worktree. Changes are captured as a diff — your workspace files are not modified."
         className="mb-2 inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
       >
         {running ? <Spinner size={13} label="Implementing" /> : <Hammer size={12} />}
-        Implement (isolated)
+        Implement
       </button>
+      {task.status === 'planned' && !result ? (
+        <p className="mt-0.5 text-caption text-fg-tertiary">Isolated from your workspace. Review diff before applying.</p>
+      ) : null}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
         {task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null}
 
         {task.acceptance.length > 0 ? (
@@ -121,7 +124,7 @@ export function WorkGraphInspector() {
             <ul className="space-y-1">
               {task.acceptance.map((c) => (
                 <li key={c.id} className="flex items-start gap-1.5 text-caption text-fg-tertiary">
-                  <span className={cn('mt-1 h-2 w-2 shrink-0 rounded-pill', VERDICT_DOT[c.verdict])} aria-hidden />
+                  <span className={cn('pt-[3px] h-2 w-2 shrink-0 rounded-pill', VERDICT_DOT[c.verdict])} aria-hidden />
                   <span>{c.text}</span>
                 </li>
               ))}
@@ -129,21 +132,26 @@ export function WorkGraphInspector() {
           </div>
         ) : null}
 
-        <div>
-          <p className="mb-2 text-caption font-medium text-fg-secondary">Result</p>
-          {result ? (
-            <pre className="whitespace-pre-wrap break-words rounded bg-surface-3 shadow-inset-soft p-2 font-mono text-caption text-fg-secondary">
-              {result}
-            </pre>
-          ) : (
-            <p className="text-caption text-fg-tertiary">Not run yet.</p>
-          )}
-        </div>
+        {(result || running) ? (
+          <div>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">Result</p>
+            {result ? (
+              <pre className="whitespace-pre-wrap break-words rounded bg-surface-3 shadow-inset-soft p-2 font-mono text-caption text-fg-secondary">
+                {result}
+              </pre>
+            ) : (
+              <div className="flex items-center gap-1.5 text-caption text-fg-tertiary">
+                <Spinner size={12} label="Running" />
+                Running…
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {patch ? (
           <div>
             <p className="mb-2 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
-            <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-64 overflow-auto" />
+            <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-[min(256px,40vh)] overflow-auto" />
             <p className="mt-1 text-caption text-fg-tertiary">
               Produced in a throwaway worktree — your files are unchanged. Review before applying.
             </p>

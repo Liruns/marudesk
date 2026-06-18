@@ -1,5 +1,5 @@
-import { memo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Play, Plus, Trash2, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { Check, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import {
@@ -15,7 +15,7 @@ export const NODE_H = 118;
 
 /** Token-only status styling (success/warning/error/accent — tailwind.config.ts). */
 const STATUS_STYLE: Record<TaskStatus, { ring: string; chip: string; label: string }> = {
-  planned: { ring: 'border-subtle', chip: 'bg-surface-3 text-fg-tertiary', label: 'Planned' },
+  planned: { ring: 'border-default', chip: 'bg-surface-3 text-fg-tertiary', label: 'Planned' },
   running: { ring: 'border-accent', chip: 'bg-accent-subtle text-accent', label: 'Running' },
   blocked: { ring: 'border-warning', chip: 'bg-warning-subtle text-warning', label: 'Blocked' },
   done: { ring: 'border-success', chip: 'bg-success-subtle text-success', label: 'Done' },
@@ -39,6 +39,7 @@ type Props = {
  */
 export function WorkGraphNodes({ toCanvas, scale }: Props) {
   const graph = useWorkGraphStore((s) => s.graph);
+  const graphId = useWorkGraphStore((s) => s.graph?.id);
   const pos = useWorkGraphStore((s) => s.pos);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   // Live connection drag (from a node's output port), in canvas coords, or null.
@@ -84,12 +85,12 @@ export function WorkGraphNodes({ toCanvas, scale }: Props) {
   return (
     <>
       <WorkGraphEdges graph={graph} pos={pos} connect={connect} />
-      {graph.tasks.map((task) => {
+      {graph.tasks.map((task, index) => {
         const p = pos[task.id];
         if (!p) return null;
         return (
           <TaskNodeCard
-            key={task.id}
+            key={`${graphId}-${task.id}`}
             task={task}
             x={p.x}
             y={p.y}
@@ -97,6 +98,7 @@ export function WorkGraphNodes({ toCanvas, scale }: Props) {
             selected={selectedTaskId === task.id}
             taskId={task.id}
             onStartConnect={startConnect}
+            entranceDelayMs={Math.min(index, 6) * 40}
           />
         );
       })}
@@ -130,8 +132,8 @@ function WorkGraphEdges({
       style={{ width: 1, height: 1 }}
     >
       <defs>
-        <marker id="wg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)" />
+        <marker id="wg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)" fillOpacity={0.65} />
         </marker>
       </defs>
       {lines.map(({ e, a, b }) => {
@@ -139,10 +141,11 @@ function WorkGraphEdges({
         const sy = a.y + NODE_H / 2;
         const tx = b.x;
         const ty = b.y - NODE_H / 2;
+        const ctrlOffset = Math.max(48, Math.abs(ty - sy) * 0.45);
         return (
           <path
             key={e.id}
-            d={`M ${sx},${sy} C ${sx},${sy + 60} ${tx},${ty - 60} ${tx},${ty}`}
+            d={`M ${sx},${sy} C ${sx},${sy + ctrlOffset} ${tx},${ty - ctrlOffset} ${tx},${ty}`}
             fill="none"
             stroke="var(--accent)"
             strokeWidth={1.5}
@@ -166,6 +169,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
   selected,
   taskId,
   onStartConnect,
+  entranceDelayMs,
 }: {
   task: Task;
   x: number;
@@ -174,6 +178,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
   selected: boolean;
   taskId: string;
   onStartConnect: (fromId: string, clientX: number, clientY: number) => void;
+  entranceDelayMs: number;
 }) {
   const dragRef = useRef<{ pointerId: number; sx: number; sy: number; ox: number; oy: number } | null>(null);
   const style = STATUS_STYLE[task.status];
@@ -204,11 +209,13 @@ const TaskNodeCard = memo(function TaskNodeCard({
       role="group"
       aria-label={`${style.label} task: ${task.title}`}
       className={cn(
-        'absolute rounded-lg border bg-surface-1 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors transition-transform duration-fast active:scale-[0.99]',
+        'absolute rounded-lg border bg-surface-2 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:outline-none motion-safe:animate-fade-rise transition-colors transition-transform duration-fast active:scale-[0.99]',
         style.ring,
-        selected ? 'border-accent shadow-[0_0_0_1px_var(--accent)]' : 'hover:border-default',
+        selected
+          ? 'border-accent shadow-[0_0_0_2px_var(--accent-subtle)]'
+          : 'hover:border-default focus-visible:shadow-[0_0_0_2px_var(--surface-page),0_0_0_4px_var(--accent)]',
       )}
-      style={{ left: x, top: y, width: NODE_W, minHeight: NODE_H }}
+      style={{ left: x, top: y, width: NODE_W, minHeight: NODE_H, animationDelay: `${entranceDelayMs}ms` }}
       onFocus={() => useWorkGraphStore.getState().selectTask(task.id)}
       onPointerDown={(e) => {
         e.stopPropagation();
@@ -249,7 +256,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
         onPointerCancel={onHeaderUp}
         className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 cursor-grab active:cursor-grabbing"
       >
-        <span className={cn('rounded-pill px-1.5 py-0.5 text-caption font-medium leading-none', style.chip, task.status === 'running' && 'inline-flex items-center gap-0.5')}>
+        <span className={cn('rounded-pill px-1.5 py-0.5 text-caption font-medium leading-none transition-colors duration-standard', style.chip, task.status === 'running' && 'inline-flex items-center gap-0.5')}>
           {task.status === 'running' && <Spinner size={10} label="Task running" className="-ml-0.5" />}{style.label}
         </span>
         {task.kind === 'decision' ? (
@@ -274,14 +281,14 @@ const TaskNodeCard = memo(function TaskNodeCard({
       <div className="px-2.5 pb-2.5">
         <button
           type="button"
-          title="Cycle status"
+          title="Click to cycle status: Planned to Done to Failed to Review."
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => useWorkGraphStore.getState().updateTask(task.id, { status: nextStatus(task.status) })}
-          className="block w-full text-left text-body-sm font-medium text-fg-primary truncate rounded hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+          className="block w-full text-left text-body-sm font-medium text-fg-primary truncate rounded px-2 py-1 hover:bg-surface-3 hover:underline decoration-fg-tertiary decoration-dashed underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
         >
           {task.title}
         </button>
-        {task.intent ? <p className="mt-0.5 line-clamp-2 text-caption text-fg-tertiary">{task.intent}</p> : null}
+        {task.intent ? <p className="mt-1.5 line-clamp-2 text-caption text-fg-tertiary">{task.intent}</p> : null}
         <div className="mt-1.5 flex items-center gap-2 text-caption text-fg-tertiary">
           <span className="truncate">
             {task.executor.type === 'agent' ? `@${task.executor.ref}` : 'human'}
@@ -302,7 +309,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
       {/* Output port (drag to another node to add a depends_on edge) */}
       <button
         type="button"
-        aria-label="Connect dependency"
+        aria-label="Drag to connect a downstream task"
         title="Drag to a downstream task"
         onPointerDown={(e) => {
           e.stopPropagation();
@@ -311,7 +318,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
         }}
         className="absolute -bottom-2 left-1/2 -translate-x-1/2 grid h-4 w-4 place-items-center rounded-pill border border-default bg-surface-2 text-fg-tertiary hover:border-accent hover:text-accent group cursor-grab active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
       >
-        <span className="block h-1.5 w-1.5 rounded-pill bg-current transition-transform duration-fast group-hover:scale-125" />
+        <span className="block h-2 w-2 rounded-pill bg-current transition-transform duration-fast group-hover:scale-125" />
       </button>
     </div>
   );
@@ -338,6 +345,20 @@ export function WorkGraphPanel() {
   const [goal, setGoal] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Focus the goal field once on mount when the surface opens empty (read the
+    // store directly so the one-shot effect needs no `graph` dependency).
+    if (!useWorkGraphStore.getState().graph) inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!confirmClear) return;
+    const id = setTimeout(() => setConfirmClear(false), 3000);
+    return () => clearTimeout(id);
+  }, [confirmClear]);
 
   // Try the AI decomposer; fall back to a deterministic offline sample so the
   // loop always works without a configured provider (and explain why).
@@ -368,21 +389,24 @@ export function WorkGraphPanel() {
   return (
     <div className="absolute left-3 top-14 z-50 w-72 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in">
       <div className="mb-2 flex items-center gap-2">
-        <span className="text-caption font-medium text-fg-secondary">AI Task graph</span>
+        <span className="text-caption font-medium text-fg-secondary">Goal</span>
       </div>
       <div className="flex gap-1.5">
         <input
+          ref={inputRef}
           value={goal}
           onChange={(e) => setGoal(e.currentTarget.value)}
           placeholder="Describe a goal…"
+          aria-label="Goal"
+          title="Describe a goal and press Enter to generate"
           onKeyDown={(e) => {
-            if (e.key === 'Enter') void generate();
+            if (e.key === 'Enter' && goal.trim().length > 0) void generate();
           }}
           className="h-8 min-w-0 flex-1 rounded bg-surface-2 border border-subtle px-2 text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent focus:shadow-focus-accent transition-shadow duration-fast"
         />
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || goal.trim().length === 0}
           onClick={() => void generate()}
           className="inline-flex items-center gap-1.5 h-8 shrink-0 rounded bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
         >
@@ -400,7 +424,11 @@ export function WorkGraphPanel() {
               : 'Run — executes each ready task as an agent (falls back to a dry run if no provider is connected)'
           }
           onClick={() => (running ? useWorkGraphStore.getState().stopRun() : void useWorkGraphStore.getState().run())}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className={
+            running
+              ? 'inline-flex h-7 items-center gap-1 rounded bg-surface-2 border border-default px-2.5 text-caption text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
+              : 'inline-flex h-7 items-center gap-1 rounded bg-accent px-2.5 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
+          }
         >
           {running ? <Spinner size={12} label="Run in progress" /> : <Play size={12} />}
           {running ? 'Stop' : 'Run'}
@@ -418,22 +446,38 @@ export function WorkGraphPanel() {
           type="button"
           disabled={!graph || running}
           onClick={() => useWorkGraphStore.getState().resetRun()}
+          title="Reset all task statuses to planned"
           className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
-          <Check size={12} />
+          <RotateCcw size={12} />
           Reset
         </button>
         <button
           type="button"
+          aria-label="Clear graph"
+          title="Clear graph"
           disabled={!graph || running}
-          onClick={() => useWorkGraphStore.getState().clearGraph()}
+          onClick={() => {
+            if (confirmClear) {
+              useWorkGraphStore.getState().clearGraph();
+              setConfirmClear(false);
+            } else {
+              setConfirmClear(true);
+            }
+          }}
           className="ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-caption text-fg-tertiary hover:bg-error-subtle hover:text-error disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Trash2 size={12} />
         </button>
       </div>
       <p className="mt-1.5 text-caption text-fg-tertiary tabular-nums">{summary}</p>
-      {runNote ? <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">{runNote}</p> : null}
+      {confirmClear ? (
+        <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">
+          Graph will be deleted. Click again to confirm.
+        </p>
+      ) : runNote ? (
+        <p key={runNote} className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning motion-safe:animate-fade-rise">{runNote}</p>
+      ) : null}
     </div>
   );
 }

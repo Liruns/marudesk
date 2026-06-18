@@ -130,7 +130,7 @@ export function ActivityBar({
       </ActivityButton>
       <span className="flex-1" aria-hidden />
       <ActivityButton
-        label="Switch surface"
+        label={`Surface: ${surfaceMode === 'workgraph' ? 'Work OS' : surfaceMode === 'canvas' ? 'Canvas' : 'Classic'} — click to switch`}
         active={!!surfaceMenu}
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();

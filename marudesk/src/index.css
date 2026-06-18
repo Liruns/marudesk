@@ -184,6 +184,118 @@ svg.lucide {
   stroke-width: 1.5;
 }
 
+/* ─── ZoomSlider ──────────────────────────────────────────────────────────────
+   Token-only styled <input type="range"> for the viewport control pill.
+   The filled track is a linear-gradient on the input's background, driven by
+   the CSS custom property --zoom-fill set inline by the React component, so no
+   second DOM element or pseudo-element hack is needed. The thumb is a 10px
+   circle: border-default hairline, shadow-card lift, hover/active scale.
+   Tokens: --surface-3, --accent, --border-default, --text-primary,
+           --motion-fast, --easing. No literal hex anywhere. */
+.zoom-slider {
+  /* Reset browser chrome completely. */
+  -webkit-appearance: none;
+  appearance: none;
+  width: 80px;
+  height: 2px;
+  cursor: pointer;
+  border-radius: var(--radius-pill);
+  /* Filled track: accent from 0 → --zoom-fill, surface-3 from there → 100%. */
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--zoom-fill, 50%),
+    var(--surface-3) var(--zoom-fill, 50%),
+    var(--surface-3) 100%
+  );
+  outline: none;
+  /* Vertical centering within the 28px tall control pill. */
+  align-self: center;
+  /* Smooth fill transition matches hover speed. */
+  transition: background var(--motion-fast) var(--easing);
+}
+
+/* Firefox track — same gradient, no separate styles needed for the thumb. */
+.zoom-slider::-moz-range-track {
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--zoom-fill, 50%),
+    var(--surface-3) var(--zoom-fill, 50%),
+    var(--surface-3) 100%
+  );
+}
+
+/* WebKit thumb — the draggable circle. */
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--elevate-card);
+  cursor: grab;
+  transition:
+    transform var(--motion-fast) var(--easing),
+    box-shadow var(--motion-fast) var(--easing);
+}
+
+.zoom-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.zoom-slider:active::-webkit-slider-thumb,
+.zoom-slider::-webkit-slider-thumb:active {
+  transform: scale(0.92);
+  cursor: grabbing;
+}
+
+/* Firefox thumb. */
+.zoom-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--elevate-card);
+  cursor: grab;
+  transition:
+    transform var(--motion-fast) var(--easing),
+    box-shadow var(--motion-fast) var(--easing);
+}
+
+.zoom-slider::-moz-range-thumb:hover {
+  transform: scale(1.2);
+}
+
+.zoom-slider:active::-moz-range-thumb {
+  transform: scale(0.92);
+  cursor: grabbing;
+}
+
+/* Focus ring — 2px accent, offset from the thumb, token-only. */
+.zoom-slider:focus-visible {
+  outline: none;
+  /* Range inputs can't take border-radius on the outline; use a box-shadow that
+     wraps the whole 80×14px hit area so keyboard users see a clear ring. */
+  box-shadow: 0 0 0 2px var(--surface-page), 0 0 0 4px var(--accent);
+  border-radius: var(--radius-pill);
+}
+
+/* Reduced motion: collapse thumb transition to instant. */
+@media (prefers-reduced-motion: reduce) {
+  .zoom-slider::-webkit-slider-thumb {
+    transition: none !important;
+  }
+  .zoom-slider::-moz-range-thumb {
+    transition: none !important;
+  }
+}
+
 /* Respect reduced-motion: collapse animations/transitions to near-instant. */
 @media (prefers-reduced-motion: reduce) {
   *,

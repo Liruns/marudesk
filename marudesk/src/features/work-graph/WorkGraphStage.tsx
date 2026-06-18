@@ -10,6 +10,8 @@ import { Maximize2, Minus, Plus, RotateCcw, Workflow } from 'lucide-react';
 import { WorkGraphNodes, WorkGraphPanel, NODE_H, NODE_W } from './WorkGraphLayer';
 import { WorkGraphInspector } from './WorkGraphInspector';
 import { useWorkGraphStore } from './store';
+import { ZoomSlider } from '../../components/ui';
+import { cn } from '../../lib/cn';
 
 /**
  * The **AI Work OS** stage (docs/ai-work-os-roadmap.md §3): a goal decomposed
@@ -32,7 +34,17 @@ type Viewport = { panX: number; panY: number; scale: number };
 export function WorkGraphStage() {
   const ref = useRef<HTMLDivElement | null>(null);
   const [vp, setVp] = useState<Viewport>({ panX: 0, panY: 0, scale: 1 });
+  const [animCam, setAnimCam] = useState(false);
   const graph = useWorkGraphStore((s) => s.graph);
+  // The inspector overlay (w-80 at right-4) covers the lower-right — shift the
+  // viewport controls left while a task is selected so they're never hidden.
+  const inspectorOpen = useWorkGraphStore((s) => s.selectedTaskId !== null);
+
+  const setVpAnimated = useCallback((next: Viewport) => {
+    setAnimCam(true);
+    setVp(next);
+    requestAnimationFrame(() => setTimeout(() => setAnimCam(false), 220));
+  }, []);
 
   // Screen px → graph coords (inverse of the plane's translate+scale).
   const toCanvas = useCallback(
@@ -54,13 +66,20 @@ export function WorkGraphStage() {
     });
   }, []);
 
-  const zoomFromCenter = useCallback(
-    (factor: number) => {
-      const r = ref.current?.getBoundingClientRect();
-      zoomAt(factor, (r?.width ?? 0) / 2, (r?.height ?? 0) / 2);
-    },
-    [zoomAt],
-  );
+  const zoomFromCenter = useCallback((factor: number) => {
+    const r = ref.current?.getBoundingClientRect();
+    const cx = (r?.width ?? 0) / 2;
+    const cy = (r?.height ?? 0) / 2;
+    // Functional update reads the latest viewport (no stale closure, no ref-in-render),
+    // with the camera-transition flag for a smooth move.
+    setAnimCam(true);
+    setVp((v) => {
+      const scale = clamp(v.scale * factor, SCALE_MIN, SCALE_MAX);
+      const k = scale / v.scale;
+      return { scale, panX: cx - (cx - v.panX) * k, panY: cy - (cy - v.panY) * k };
+    });
+    requestAnimationFrame(() => setTimeout(() => setAnimCam(false), 220));
+  }, []);
 
   // Fit every node within the viewport, with padding.
   const fit = useCallback(() => {
@@ -68,7 +87,7 @@ export function WorkGraphStage() {
     if (!el) return;
     const positions = Object.values(useWorkGraphStore.getState().pos);
     if (positions.length === 0) {
-      setVp({ panX: 0, panY: 0, scale: 1 });
+      setVpAnimated({ panX: 0, panY: 0, scale: 1 });
       return;
     }
     const minX = Math.min(...positions.map((p) => p.x));
@@ -80,12 +99,12 @@ export function WorkGraphStage() {
     const w = maxX - minX || 1;
     const h = maxY - minY || 1;
     const scale = clamp(Math.min(1, Math.min((r.width - pad * 2) / w, (r.height - pad * 2) / h)), SCALE_MIN, SCALE_MAX);
-    setVp({
+    setVpAnimated({
       panX: (r.width - w * scale) / 2 - minX * scale,
       panY: (r.height - h * scale) / 2 - minY * scale,
       scale,
     });
-  }, []);
+  }, [setVpAnimated]);
 
   // Stop any in-flight run when this stage unmounts (Shell conditionally renders
   // WorkGraphStage, so the module-level store would keep mutating otherwise).
@@ -149,19 +168,20 @@ export function WorkGraphStage() {
       data-stage="workgraph"
       aria-label="Work OS task graph"
       tabIndex={-1}
-      className="relative h-full w-full flex-1 overflow-clip bg-surface-page cursor-grab data-[panning]:cursor-grabbing"
+      className="relative h-full w-full flex-1 min-w-0 overflow-clip bg-surface-page cursor-grab data-[panning]:cursor-grabbing"
       style={{
         backgroundImage: 'radial-gradient(var(--border-subtle) 1px, transparent 1.6px)',
-        backgroundSize: `${24 * vp.scale}px ${24 * vp.scale}px`,
+        backgroundSize: `${clamp(20 * vp.scale, 16, 48)}px ${clamp(20 * vp.scale, 16, 48)}px`,
         backgroundPosition: `${vp.panX}px ${vp.panY}px`,
       }}
+      onKeyDown={(e) => { if (e.key === 'Escape') useWorkGraphStore.getState().selectTask(null); }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
       <div
-        className="absolute inset-0 origin-top-left"
+        className={cn('absolute inset-0 origin-top-left', animCam && 'motion-safe:transition-transform motion-safe:duration-standard')}
         style={{ transform: `translate(${vp.panX}px, ${vp.panY}px) scale(${vp.scale})` }}
       >
         <WorkGraphNodes toCanvas={toCanvas} scale={vp.scale} />
@@ -178,24 +198,48 @@ export function WorkGraphStage() {
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <div className="flex max-w-xs flex-col items-center gap-3 text-center animate-fade-rise">
             <Workflow size={24} className="text-fg-tertiary" />
-            <p className="text-body font-medium text-fg-secondary">No task graph yet.</p>
+            <p className="text-body font-medium text-fg-primary">Describe a goal to generate a task graph.</p>
             <p className="text-caption text-fg-tertiary">
-              Describe a goal in the panel to decompose it into a Task graph — each node runs an
-              agent and reports pass/fail against its acceptance criteria.
+              Each node runs an agent and checks its own acceptance criteria.
             </p>
+            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">Drag the dot at the bottom of a node to link tasks.</p>
           </div>
         </div>
       ) : null}
 
-      {/* Viewport controls (bottom-right). */}
-      <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
+      {/* Viewport controls (bottom-right) — shift clear of the inspector overlay. */}
+      <div
+        className={cn(
+          'absolute bottom-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card transition-[right] duration-standard',
+          inspectorOpen ? 'right-[344px]' : 'right-4',
+        )}
+      >
         <CtrlButton label="Zoom out" onClick={() => zoomFromCenter(1 / 1.2)}>
           <Minus size={14} />
         </CtrlButton>
+        {/* Zoom slider — drags the scale directly; zooms about the viewport center
+            so the graph doesn't jump. The 100%-reset button kept to the right of
+            the slider gives a one-click escape hatch. */}
+        <ZoomSlider
+          value={vp.scale}
+          min={SCALE_MIN}
+          max={SCALE_MAX}
+          step={0.05}
+          onChange={(next) => {
+            const r = ref.current?.getBoundingClientRect();
+            const cx = (r?.width ?? 0) / 2;
+            const cy = (r?.height ?? 0) / 2;
+            setVp((v) => {
+              const k = next / v.scale;
+              return { scale: next, panX: cx - (cx - v.panX) * k, panY: cy - (cy - v.panY) * k };
+            });
+          }}
+          className="mx-1"
+        />
         <button
           type="button"
-          className="min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary transition-transform duration-fast active:scale-[0.99]"
-          onClick={() => setVp((v) => ({ ...v, scale: 1 }))}
+          className="h-7 min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary transition-colors duration-fast active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+          onClick={() => setVpAnimated({ ...vp, scale: 1 })}
           title="Reset zoom to 100%"
         >
           {Math.round(vp.scale * 100)}%
@@ -203,11 +247,11 @@ export function WorkGraphStage() {
         <CtrlButton label="Zoom in" onClick={() => zoomFromCenter(1.2)}>
           <Plus size={14} />
         </CtrlButton>
-        <div className="mx-0.5 h-5 w-px bg-subtle" />
+        <div className="mx-1 w-px self-stretch border-l border-default" />
         <CtrlButton label="Fit to content" onClick={fit}>
           <Maximize2 size={14} />
         </CtrlButton>
-        <CtrlButton label="Reset view" onClick={() => setVp({ panX: 0, panY: 0, scale: 1 })}>
+        <CtrlButton label="Reset view" onClick={() => setVpAnimated({ panX: 0, panY: 0, scale: 1 })}>
           <RotateCcw size={14} />
         </CtrlButton>
       </div>
