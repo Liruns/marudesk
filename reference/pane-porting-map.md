@@ -75,23 +75,23 @@ refuses non-`http(s)` schemes) and `marudesk/electron/browser/tabs.ts`.
 
 | Feature | pane | marudesk | Verdict |
 |---|---|---|---|
-| **Smart address bar** (scheme/`localhost`/IPv4/IPv6/IDN/Windows-path/PSL → load else search) | FULL — `src/renderer/features/url-parser.js`, `lib/host.js`, vendored `lib/vendor/tldts.js` + denylist | simple `http(s)`-prefix check (`marudesk/electron/browser/url.ts`); good suggestion ranking in `marudesk/shared/suggest.ts` | **GAP** — no public-suffix-list / smart parsing |
-| Address suggestions / autocomplete | FULL | FULL (`AddressSuggestions.tsx`, `useAddressSuggestions.ts`) | PARITY |
+| **Smart address bar** (scheme/`localhost`/IPv4/IPv6/IDN/Windows-path/PSL → load else search) | FULL — `src/renderer/features/url-parser.js`, `lib/host.js`, vendored `lib/vendor/tldts.js` + denylist | ✅ PORTED — PSL via `tldts` in `marudesk/electron/browser/url.ts` (+ `url.test.ts`) | DONE |
+| Address suggestions / autocomplete + **"Go to <host>"** action row | FULL — `suggestions.js` `actions()` | ✅ history/bookmark/search + a leading **`go`** row (`shared/suggest.ts` `navUrl`, `addressNavTarget`); dotted real-TLD denylist hosts get a Go-to too | DONE |
 | Tabs: drag-reorder, right-click menu, reopen-closed, `Ctrl+Tab` | FULL | FULL **+ tab groups + sessions** (`src/features/tabs/*`, `electron/browser/tab-*.ts`) | MARUDESK AHEAD (pane: double-click-to-maximize tab is a small extra) |
 | Navigation + loading bar | FULL | FULL (`BrowserToolbar.tsx`, `electron/browser/navigation.ts`) | PARITY |
-| In-page right-click context menu (open-in-bg-tab, copy/save, search selection, spellcheck, Inspect Element) | FULL — `src/main/page-context-menu.js` | FULL — `marudesk/electron/browser/context-menu.ts` | PARITY (compare item coverage) |
+| In-page right-click context menu (open-in-tab, copy/save, search selection, spellcheck, Inspect Element) | FULL — `src/main/page-context-menu.js` | FULL incl. ✅ **spellcheck suggestions + Add to Dictionary** (`marudesk/electron/browser/context-menu.ts`) | PARITY |
 | Find-in-page · per-tab zoom · DevTools docking | FULL | FULL (`BrowserFindBar.tsx`, `electron/browser/zoom.ts`, `src/features/devtools/*`) | PARITY |
 | Downloads (auto-save, progress, reveal) | FULL | FULL (`DownloadShelf.tsx`, `electron/browser/downloads.ts`) | PARITY |
 | Session restore | FULL | FULL, two-tier (`electron/browser/tab-session.ts`, `pinned-session.ts`) | MARUDESK AHEAD |
 | Frameless window + native controls | FULL | FULL (`electron/main.ts`, `src/views/Shell.tsx`) | PARITY |
 
-**Best port:** the **smart address-bar URL parser**. It's the one clear
-functional gap and it's self-contained pure logic with tests already written.
-Re-implement `reference/pane/src/renderer/features/url-parser.js` +
-`lib/host.js` (PSL via `tldts`, plus the package-name denylist like `socket.io`,
-`node.js`) as a typed helper in `marudesk/shared/` and call it from
-`marudesk/electron/browser/url.ts`. Port the cases in
-`reference/pane/test/url-parser.test.mjs` into marudesk's test suite.
+**Status:** the §C browser-feature gaps are now closed. The smart address-bar
+URL parser (PSL via `tldts`), the omnibox **"Go to <host>"** suggestion, and the
+context-menu **spellcheck** section are all ported; everything else was already
+parity or marudesk-ahead. The only remaining pane-isms are deliberate non-ports:
+the monospace address-bar font (conflicts with marudesk's Inter-everywhere
+DESIGN.md) and opening menu links in a background tab (marudesk activates them —
+a UX preference left as-is).
 
 ---
 
