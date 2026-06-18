@@ -49,6 +49,28 @@ Rules:
 - Each task gets 1-3 concrete, checkable acceptance criteria (e.g. "npm run typecheck passes", "endpoint returns 200", "no console errors").
 - All acceptance verdicts start as "unknown".`;
 
+/**
+ * Race a promise against a timeout. Provider resolution / auth can stall when
+ * nothing is connected (network probes with no fast "not configured" answer);
+ * a bounded wait lets the Work OS fall back to its offline sample instead of
+ * hanging the Generate button forever.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
+  ]);
+}
+
+const RESOLVE_TIMEOUT_MS = 4_000;
+/**
+ * Upper bound on the decompose model call. A connected-but-unresponsive provider
+ * (outage, bad gateway) would otherwise freeze the Generate button forever; on
+ * timeout the renderer falls back to its offline sample graph. Generous so a
+ * legitimately slow model still completes.
+ */
+const MODEL_TIMEOUT_MS = 30_000;
+
 /** Extract the first balanced JSON object from a model reply (tolerates fences/prose). */
 function extractJsonObject(text: string): unknown {
   const start = text.indexOf('{');
@@ -88,26 +110,39 @@ export async function decomposeGoal(
 
   let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
   try {
-    target = await resolveSubagentTarget({
-      explicit: { provider: null, model: null },
-      tierHint: 'smart',
-      agent: null,
-      parent: null,
-    });
+    target = await withTimeout(
+      resolveSubagentTarget({
+        explicit: { provider: null, model: null },
+        tierHint: 'smart',
+        agent: null,
+        parent: null,
+      }),
+      RESOLVE_TIMEOUT_MS,
+      'provider resolution',
+    );
   } catch {
     return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
   }
 
-  const resolved = await resolveProviderAuth(target.provider);
+  let resolved: Awaited<ReturnType<typeof resolveProviderAuth>>;
+  try {
+    resolved = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth');
+  } catch {
+    return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
+  }
   if (!resolved.ok) return { ok: false, reason: resolved.reason };
 
   try {
-    const res = await generateText({
-      model: buildModel(target.provider, target.model, resolved.auth, resolved.baseUrl),
-      system: DECOMPOSE_SYSTEM,
-      prompt: `GOAL:\n${trimmed}`,
-      maxOutputTokens: 2048,
-    });
+    const res = await withTimeout(
+      generateText({
+        model: buildModel(target.provider, target.model, resolved.auth, resolved.baseUrl),
+        system: DECOMPOSE_SYSTEM,
+        prompt: `GOAL:\n${trimmed}`,
+        maxOutputTokens: 2048,
+      }),
+      MODEL_TIMEOUT_MS,
+      'decompose',
+    );
     const graph = parseWorkGraph(extractJsonObject(res.text));
     if (!graph) return { ok: false, reason: 'The model did not return a valid task graph.' };
     return { ok: true, graph: { ...graph, goal: trimmed } };

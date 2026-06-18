@@ -43,6 +43,15 @@ const MAX_IMPLEMENT_STEPS = 14;
 const MAX_RESULT_CHARS = 8_000;
 const MAX_PATCH_CHARS = 20_000;
 const MAX_OUTPUTS = 8;
+const RESOLVE_TIMEOUT_MS = 4_000;
+
+/** Bounded wait so provider resolution can't hang a run when nothing is connected. */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
+  ]);
+}
 
 /** A `file://` uri for an absolute path (forward slashes; leading slash on Windows). */
 function fileUri(abs: string): string {
@@ -175,17 +184,23 @@ export async function runTask(raw: unknown): Promise<RunTaskResult> {
 
   let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
   try {
-    target = await resolveSubagentTarget({
-      explicit: { provider: null, model: null },
-      tierHint: 'smart',
-      agent: null,
-      parent: null,
-    });
+    target = await withTimeout(
+      resolveSubagentTarget({
+        explicit: { provider: null, model: null },
+        tierHint: 'smart',
+        agent: null,
+        parent: null,
+      }),
+      RESOLVE_TIMEOUT_MS,
+      'provider resolution',
+    );
   } catch {
     return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
   }
 
-  const auth = await resolveProviderAuth(target.provider);
+  const auth = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth').catch(
+    () => ({ ok: false as const, reason: 'No AI provider is connected — add one in Settings.' }),
+  );
   if (!auth.ok) return { ok: false, reason: auth.reason };
 
   const ctx: ToolContext = {
@@ -252,16 +267,22 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
 
   let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
   try {
-    target = await resolveSubagentTarget({
-      explicit: { provider: null, model: null },
-      tierHint: 'smart',
-      agent: null,
-      parent: null,
-    });
+    target = await withTimeout(
+      resolveSubagentTarget({
+        explicit: { provider: null, model: null },
+        tierHint: 'smart',
+        agent: null,
+        parent: null,
+      }),
+      RESOLVE_TIMEOUT_MS,
+      'provider resolution',
+    );
   } catch {
     return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
   }
-  const auth = await resolveProviderAuth(target.provider);
+  const auth = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth').catch(
+    () => ({ ok: false as const, reason: 'No AI provider is connected — add one in Settings.' }),
+  );
   if (!auth.ok) return { ok: false, reason: auth.reason };
 
   const branch = agentBranchName();
