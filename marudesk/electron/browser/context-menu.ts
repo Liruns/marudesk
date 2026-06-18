@@ -78,6 +78,24 @@ export function buildWebContextMenu(
   }
 
   if (params.isEditable) {
+    // Spellcheck: when Chromium flagged a misspelling, offer its suggestions
+    // (replace in place) then add-to-dictionary, ahead of the edit verbs.
+    if (params.misspelledWord) {
+      for (const suggestion of params.dictionarySuggestions) {
+        items.push({
+          label: suggestion,
+          click: () => wc.replaceMisspelling(suggestion),
+        });
+      }
+      items.push(
+        {
+          label: 'Add to Dictionary',
+          click: () =>
+            wc.session.addWordToSpellCheckerDictionary(params.misspelledWord),
+        },
+        sep,
+      );
+    }
     items.push(
       { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
       { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
