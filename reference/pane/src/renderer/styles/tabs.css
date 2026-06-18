@@ -1,0 +1,87 @@
+/* The tab strip — top row of the chrome. Holds the WCO reservation + drag region. */
+#tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--tabstrip-h);
+  padding: 0 var(--wco-right) 0 8px; /* keep tabs clear of the native window controls */
+  background: var(--toolbar-bg);
+  -webkit-app-region: drag;
+}
+
+#tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto; /* size to the tabs so #newtab sits right after the last tab, not pushed to the far edge */
+  min-width: 0;
+  overflow: hidden;
+  /* the leftover tabstrip space after #newtab stays draggable (it's the #tabstrip drag region) */
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  min-width: 88px;
+  max-width: 200px;
+  padding: 0 6px 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+  cursor: default;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.tab:hover { background: rgba(255, 255, 255, 0.05); }
+.tab.active { background: var(--surface-1); color: var(--fg); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; } /* DESIGN §6 */
+
+/* drag-to-reorder: the dragged tab dims; a 2px accent bar marks the drop slot */
+.tab.dragging { opacity: 0.4; }
+.tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+
+.tab .favicon { flex: none; width: 16px; height: 16px; display: grid; place-items: center; color: var(--fg-faint); }
+.tab .favicon img { width: 16px; height: 16px; }
+.tab .favicon svg { width: 14px; height: 14px; }
+@keyframes tab-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.tab.loading .favicon { animation: tab-pulse 1s ease-in-out infinite; }
+
+.tab .title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab .close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: default;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.tab:hover .close, .tab.active .close { opacity: 1; }
+.tab .close:hover { background: rgba(255, 255, 255, 0.12); color: var(--fg); }
+.tab .close svg { width: 12px; height: 12px; }
+
+#newtab { flex: none; }
+
+/* Vertical-tabs mode: the left rail (a separate WebContentsView) hosts the tab list, so the top
+   strip's tabs + new-tab button hide. The #tabstrip row stays — it still reserves the native
+   window-controls gap and provides the window-drag region (DESIGN §8). */
+body.vertical-tabs #tabs,
+body.vertical-tabs #newtab { display: none; }

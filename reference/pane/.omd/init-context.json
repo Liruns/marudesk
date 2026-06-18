@@ -1,0 +1,20 @@
+{
+  "reference_id": "apple",
+  "description": "브라우저 데스크톱 앱 \"Pane\"의 디자인 시스템 부트스트랩. 약간 애플(Apple) 감성의 다크/미니멀/Arc·Zen 느낌 개발자용 브라우저. 제품 가치 = chrome(HTML/CSS/JS 커스텀 툴바·UI)의 아름다움. 스택: Electron, 프레임리스 창 + 커스텀 툴바 + 네이티브 창버튼, 본문은 단일 WebContentsView. 타겟 OS: Windows 11 (Mica/Acrylic 투명). 향후: 무한 캔버스 위에 여러 브라우저 인스턴스. v0 스코프: 스마트 주소창, 뒤/앞/새로고침, devtools 토글, 움직이는 로딩바.",
+  "mode": "inspired",
+  "delta_set": {
+    "axes": {},
+    "voiceHints": ["terse", "restrained", "precise", "developer-peer", "no exclamations"],
+    "matchedKeywords": ["minimal", "premium", "dark", "elegant"],
+    "warnings": [
+      "surface-mode flipped to dark-default (app chrome): uses Apple's documented dark palette (#000000 / #1d1d1f / #272729 / #2a2a2d) as the default surface instead of the light #f5f5f7 marketing canvas. Apple already defines these dark tokens, so this is a selection, not a fabrication.",
+      "domain adapted: consumer product-marketing page -> developer browser chrome (translucent toolbar, smart address-bar pill, nav buttons, animated loading bar, devtools toggle). Component nouns swapped; Apple's component styling language (pill geometry, frosted nav, single accent, border-as-light, color-contrast elevation) preserved.",
+      "typeface substituted: SF Pro is Apple-proprietary and not licensable off Apple platforms. Pane uses Inter (SF-lineage neogrotesque) with a system fallback, preserving Apple's optical discipline (tight negative tracking, weight restraint). SF Pro kept as stated lineage only.",
+      "accent kept: Apple Blue #0071e3 retained as the sole interactive accent for instant 'Apple feel'; #2997ff (Apple's documented link-on-dark) used for text-level accent on dark surfaces.",
+      "invented tokens (NOT in apple reference) disclosed: canvas #0a0a0b (web-view seam-hider; reference's only true-dark is #000000); danger #ff453a / success #30d158 (Apple iOS system red/green dark — a browser needs error + secure-state signals the marketing reference never had; selected to match Apple's system palette, not invented arbitrarily); toolbar chrome tint rgba(22,22,24,0.55) + opaque fallback #1d1d1f. All flagged in DESIGN.md trailing comment.",
+      "v2 (2026-06-16) corrections after independent design+technical review: translucency fixed to backgroundMaterial:'mica' (CSS backdrop-filter cannot blur desktop/native web view — it is popover-only now); devtools scoped to detached for v0 (docking impossible against custom WebContentsView layout); motion unified to ease-for-chrome (spring reserved for future gestures, v0 has none); WCO width via env(titlebar-area-*) not a 138px literal; setBounds in main-process 'will-resize'; loading bar filters main-frame + aborts on did-fail-load; 14px padding snapped to 12px; BaseWindow + WebContentsView named, deprecated BrowserView disallowed; Inter must be bundled."
+    ]
+  },
+  "requested_components": ["smart-address-bar", "nav-buttons", "reload", "devtools-toggle", "loading-bar", "window-controls", "toolbar"],
+  "bootstrapped_at": "2026-06-16"
+}

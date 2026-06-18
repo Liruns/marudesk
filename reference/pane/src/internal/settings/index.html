@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src pane:; font-src pane:; script-src pane:;" />
+  <title>Settings</title>
+  <link rel="stylesheet" href="pane://assets/internal.css" />
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <div class="head"><h1>Settings</h1></div>
+  <div class="page">
+    <section>
+      <h2>General</h2>
+      <div class="opt">
+        <div class="opt-text">
+          <div class="opt-label">Restore last session</div>
+          <div class="opt-desc">Reopen your tabs and window position when Pane launches.</div>
+        </div>
+        <div id="restore" class="switch" role="switch" tabindex="0" aria-label="Restore last session"></div>
+      </div>
+    </section>
+    <section>
+      <h2>Privacy</h2>
+      <div class="opt">
+        <div class="opt-text">
+          <div class="opt-label">Browsing history</div>
+          <div class="opt-desc">Clear every recorded visit. This can't be undone.</div>
+        </div>
+        <button id="clear">Clear</button>
+      </div>
+    </section>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>

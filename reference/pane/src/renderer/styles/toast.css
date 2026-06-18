@@ -1,0 +1,19 @@
+/* Transient confirmation pill, centered over the toolbar. Quiet, fades (DESIGN §10/§15). */
+#toast {
+  position: fixed;
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  pointer-events: none;
+  padding: 4px 12px;
+  border-radius: 980px;
+  background: var(--surface-1);
+  color: var(--fg);
+  font-size: 12px;
+  letter-spacing: -0.002em;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+#toast.show { opacity: 1; }

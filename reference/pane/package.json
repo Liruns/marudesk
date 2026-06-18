@@ -1,0 +1,23 @@
+{
+  "name": "pane",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A small, beautiful browser developers want to use every day.",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "verify:canvas": "node scripts/canvas-verify.js"
+  },
+  "keywords": [
+    "browser",
+    "electron",
+    "developer-tools"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.4.0",
+    "tldts": "^7.4.3"
+  }
+}

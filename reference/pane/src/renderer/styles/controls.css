@@ -1,0 +1,40 @@
+/* Icon buttons + the loading bar. */
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: default;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.icon-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: var(--fg); }
+.icon-btn:active:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.icon-btn:disabled { color: var(--fg-faint); }
+.icon-btn.active { color: var(--accent-dark); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; } /* DESIGN §6 */
+.icon-btn svg { width: 18px; height: 18px; }
+
+#loadingbar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 0;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: width 0.15s linear, opacity 0.2s ease;
+}
+
+/* DESIGN §8: at narrow widths the right cluster collapses into the overflow (⋮) menu.
+   The DevTools toggle folds away here and re-appears as a menu item (see menu.js), so the
+   address pill keeps a usable width. */
+@media (max-width: 768px) {
+  #devtools { display: none; }
+}

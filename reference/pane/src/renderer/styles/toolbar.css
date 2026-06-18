@@ -1,0 +1,40 @@
+/* The toolbar shell + clusters. */
+#toolbar {
+  position: relative;
+  height: var(--toolbar-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px; /* WCO is reserved on the tab-strip row above, not here */
+  background: var(--toolbar-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); /* faint glass highlight */
+  border-bottom: 1px solid var(--hairline);
+  -webkit-app-region: drag; /* frameless: the bar is the drag handle */
+}
+
+/* DESIGN §14: when the app is not focused the chrome goes inert — a subtle muted shift, not a
+   strong desaturate (real Mica is wallpaper-tinted, so it sinks quietly). Ease, never spring;
+   the global reduced-motion rule in base.css drops the transition. The accent "stays but reads
+   muted" falls out of the saturation drop; semantic lock/danger glyphs keep their own truth. */
+#tabstrip, #toolbar {
+  transition: filter var(--motion-fast) var(--ease-standard);
+}
+html.inactive #tabstrip,
+html.inactive #toolbar {
+  filter: saturate(0.8) brightness(0.92);
+}
+
+.cluster {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.address-wrap {
+  flex: 1;
+  display: flex;
+  justify-content: flex-start; /* DESIGN §4: left-anchored after the nav cluster, fills to the right cap */
+  min-width: 0;
+  /* draggable: empty space around the pill moves the window; the pill itself is no-drag */
+}

@@ -1,0 +1,121 @@
+/* Command palette (Ctrl+K) — a modal over the whole window (DESIGN §11). The chrome view grows to
+   the full window height; this paints the scrim and a centered, floating panel over the page. */
+#cmdk {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 88px 16px 24px;        /* clear the 88px chrome (tabstrip 40 + toolbar 48) so the panel floats over the page */
+  background: rgba(0, 0, 0, 0.32); /* scrim — dims the page without hiding it (Deference) */
+  -webkit-app-region: no-drag;
+}
+#cmdk[hidden] { display: none; } /* beat the id-specificity display:flex above */
+
+.cp-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: 100%;               /* the flex content box already excludes #cmdk's padding */
+  background: var(--surface-1);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06); /* soft shadow + hairline ring */
+  overflow: hidden;
+}
+/* Re-added on every open (open() toggles `.rise` + forces a reflow) so the entrance replays each
+   time — an animation on the base rule would only ever play on the panel's first paint. */
+.cp-panel.rise {
+  animation: cp-rise var(--motion-standard) var(--ease-enter);
+}
+@keyframes cp-rise {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* search row */
+.cp-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 52px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.cp-search-icon { display: inline-flex; flex: none; width: 18px; height: 18px; color: var(--fg-faint); }
+.cp-search-icon svg { width: 100%; height: 100%; }
+#cp-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  letter-spacing: -0.006em;
+}
+#cp-input::placeholder { color: var(--fg-faint); }
+
+/* results */
+.cp-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px;
+}
+.cp-head {
+  padding: 10px 12px 4px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;       /* Inter never positive-tracked (DESIGN §3); 0 for this micro label */
+  color: var(--fg-faint);
+}
+.cp-head:first-child { padding-top: 4px; }
+
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;       /* on the radius scale (md) */
+  cursor: default;
+}
+.cp-row.selected { background: rgba(255, 255, 255, 0.06); } /* one highlight — keyboard == hover */
+
+.cp-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; color: var(--fg-muted); }
+.cp-icon svg { width: 100%; height: 100%; }
+.cp-icon img { width: 16px; height: 16px; border-radius: 4px; object-fit: contain; }
+
+.cp-body { display: flex; flex-direction: column; justify-content: center; gap: 1px; flex: 1 1 auto; min-width: 0; }
+.cp-label {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.004em;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-match { font-weight: 590; } /* matched substring — weight emphasis, not a second color (DESIGN §3) */
+.cp-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-key { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint); }
+.cp-tag { flex: none; font-family: var(--font-ui); font-size: 11px; font-weight: 500; color: var(--accent-dark); } /* "Active" — the one accent */
+.cp-empty { padding: 28px 12px; text-align: center; font-family: var(--font-ui); font-size: 13px; color: var(--fg-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cp-panel.rise { animation: none; }
+}
