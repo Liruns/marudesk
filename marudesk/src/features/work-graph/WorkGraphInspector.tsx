@@ -25,7 +25,14 @@ function openResource(r: Resource): void {
     void window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: uri });
     opened = true;
   } else if (uri.startsWith('file://')) {
-    const path = decodeURI(uri.replace(/^file:\/\/\/?/, '').replace(/#.*$/, ''));
+    const raw = uri.replace(/^file:\/\/\/?/, '').replace(/#.*$/, '');
+    // A malformed percent-escape makes decodeURI throw — fall back to the raw path.
+    let path: string;
+    try {
+      path = decodeURI(raw);
+    } catch {
+      path = raw;
+    }
     if (path) {
       void window.marudesk.invoke('browser:tabs-new', { kind: 'editor', path });
       opened = true;

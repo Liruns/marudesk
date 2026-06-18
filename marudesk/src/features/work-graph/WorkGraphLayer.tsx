@@ -363,7 +363,7 @@ export function WorkGraphPanel({ onClose }: { onClose?: () => void }) {
               ? 'Stop the run'
               : 'Run — executes each ready task as an agent (falls back to a dry run if no provider is connected)'
           }
-          onClick={() => (running ? useWorkGraphStore.setState({ running: false }) : void useWorkGraphStore.getState().run())}
+          onClick={() => (running ? useWorkGraphStore.getState().stopRun() : void useWorkGraphStore.getState().run())}
           className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50"
         >
           {running ? <Square size={12} /> : <Play size={12} />}

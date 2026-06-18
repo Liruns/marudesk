@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { randomId } from '../../../shared/id';
 import {
+  blockedTaskIds,
   hasCycle,
   parallelLayers,
   parseWorkGraph,
@@ -82,6 +83,12 @@ type WorkGraphState = {
   selectedTaskId: TaskId | null;
   /** A run is in flight (drives the Run button + disables edits). */
   running: boolean;
+  /**
+   * Monotonic token for the active run/implement. Bumped by {@link stopRun} and by
+   * each new run so a superseded in-flight turn can detect it lost ownership after
+   * an await and bail without clobbering the newer turn's state.
+   */
+  runToken: number;
   /** A short notice from the last run (e.g. the dry-run fallback reason), or null. */
   runNote: string | null;
 };
@@ -118,6 +125,8 @@ type WorkGraphActions = {
    * workspace is never modified. No-op while a run is in flight.
    */
   implementTask: (id: TaskId) => Promise<void>;
+  /** Stop the active run/implement: invalidate its token + return running tasks to planned. */
+  stopRun: () => void;
 };
 
 const persisted = loadPersisted();
@@ -152,6 +161,31 @@ function setOutputs(graph: WorkGraph, id: TaskId, outputs: Resource[]): WorkGrap
   });
 }
 
+/** Mark every task with a FAILED upstream as `blocked` (else it sits planned forever). */
+function markBlocked(graph: WorkGraph): WorkGraph {
+  let g = graph;
+  for (const id of blockedTaskIds(g)) g = setStatus(g, id, 'blocked');
+  return g;
+}
+
+/**
+ * A copy of the graph with per-task `evidence` dropped. Evidence (the agent's
+ * result text + up-to-20k diff, possibly containing file contents) is run-session
+ * state: `parseWorkGraph` never restores it, so persisting it is pure bloat AND a
+ * needless way for file contents to land in localStorage. Strip it before saving.
+ */
+function withoutEvidence(graph: WorkGraph): WorkGraph {
+  return {
+    ...graph,
+    tasks: graph.tasks.map((t) => {
+      if (!t.evidence) return t;
+      const copy = { ...t };
+      delete copy.evidence;
+      return copy;
+    }),
+  };
+}
+
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set, get) => ({
@@ -159,6 +193,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   pos: persisted.pos,
   selectedTaskId: null,
   running: false,
+  runToken: 0,
   runNote: null,
 
   setGraph: (graph) => set({ graph: touch(graph), pos: autoLayout(graph), selectedTaskId: null, running: false, runNote: null }),
@@ -293,73 +328,78 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   run: async () => {
     if (get().running || !get().graph) return;
     get().resetRun();
-    set({ running: true, runNote: null });
-    // Drive the pure scheduler one ready-set (parallel layer) at a time. Each
-    // ready task runs as a REAL agent via `workos:run-task`; if no provider is
-    // connected we fall back to a dry run (status only) for the rest so the loop
-    // is always demoable and e2e-testable offline.
+    const token = get().runToken + 1;
+    set({ running: true, runToken: token, runNote: null });
+    // This turn owns the run only while its token is current; a stopRun() or a new
+    // run bumps the token, and we bail after the next await instead of clobbering.
+    const owns = () => get().running && get().runToken === token;
     let live = true;
     let guard = 0;
-    while (get().running && guard < 1000) {
-      guard += 1;
-      const graph = get().graph;
-      if (!graph) break;
-      const ready = readyTasks(graph);
-      if (ready.length === 0) break;
-      const goal = graph.goal;
-      // Mark the whole ready set running (visualizes the parallel layer).
-      set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) } : {}));
+    try {
+      while (owns() && guard < 1000) {
+        guard += 1;
+        const graph = get().graph;
+        if (!graph) break;
+        const ready = readyTasks(graph);
+        if (ready.length === 0) break;
+        const goal = graph.goal;
+        // Mark the whole ready set running (visualizes the parallel layer).
+        set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) } : {}));
 
-      if (live) {
-        const outcomes = await Promise.all(
-          ready.map(async (t) => ({
-            t,
-            res: await window.marudesk.invoke('workos:run-task', {
-              taskId: t.id,
-              title: t.title,
-              intent: t.intent,
-              goal,
-              acceptance: t.acceptance.map((c) => c.text),
-            }),
-          })),
-        );
-        if (!get().running) break;
-        // No provider for the entire ready set → switch to a dry run from here.
-        if (outcomes.every((o) => !o.res.ok)) {
-          live = false;
-          const first = outcomes[0]?.res;
-          set({ runNote: first && !first.ok ? first.reason : 'No provider — showing a dry run (status only).' });
-          set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'done'), s.graph) } : {}));
-          await delay(220);
-          continue;
-        }
-        set((s) => {
-          if (!s.graph) return {};
-          let g = s.graph;
-          for (const { t, res } of outcomes) {
-            if (res.ok) {
-              g = setStatus(g, t.id, res.status);
-              g = setEvidence(g, t.id, res.result);
-              g = setOutputs(g, t.id, res.outputs);
-            } else {
-              g = setStatus(g, t.id, 'failed');
-              g = setEvidence(g, t.id, res.reason);
-            }
+        if (live) {
+          const outcomes = await Promise.all(
+            ready.map(async (t) => ({
+              t,
+              res: await window.marudesk.invoke('workos:run-task', {
+                taskId: t.id,
+                title: t.title,
+                intent: t.intent,
+                goal,
+                acceptance: t.acceptance.map((c) => c.text),
+              }),
+            })),
+          );
+          if (!owns()) break;
+          // No provider for the entire ready set → switch to a dry run from here.
+          if (outcomes.every((o) => !o.res.ok)) {
+            live = false;
+            const first = outcomes[0]?.res;
+            set({ runNote: first && !first.ok ? first.reason : 'No provider — showing a dry run (status only).' });
+            set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'done'), s.graph) } : {}));
+            await delay(220);
+            continue;
           }
-          return { graph: g };
-        });
-      } else {
-        await delay(220);
-        if (!get().running) break;
-        set((s) => {
-          if (!s.graph) return {};
-          let g = s.graph;
-          for (const t of ready) g = setStatus(g, t.id, 'done');
-          return { graph: g };
-        });
+          set((s) => {
+            if (!s.graph) return {};
+            let g = s.graph;
+            for (const { t, res } of outcomes) {
+              if (res.ok) {
+                g = setStatus(g, t.id, res.status);
+                g = setEvidence(g, t.id, res.result);
+                g = setOutputs(g, t.id, res.outputs);
+              } else {
+                g = setStatus(g, t.id, 'failed');
+                g = setEvidence(g, t.id, res.reason);
+              }
+            }
+            // A failed task blocks its dependents — mark them so they don't sit planned.
+            return { graph: markBlocked(g) };
+          });
+        } else {
+          await delay(220);
+          if (!owns()) break;
+          set((s) => {
+            if (!s.graph) return {};
+            let g = s.graph;
+            for (const t of ready) g = setStatus(g, t.id, 'done');
+            return { graph: g };
+          });
+        }
       }
+    } finally {
+      // Only the owning turn clears `running` (a newer run/stop owns it otherwise).
+      if (get().runToken === token) set({ running: false });
     }
-    set({ running: false });
   },
 
   implementTask: async (id) => {
@@ -368,7 +408,13 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     const task = s0.graph.tasks.find((t) => t.id === id);
     if (!task) return;
     const goal = s0.graph.goal;
-    set((s) => ({ running: true, runNote: null, graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph }));
+    const token = s0.runToken + 1;
+    set((s) => ({
+      running: true,
+      runToken: token,
+      runNote: null,
+      graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph,
+    }));
     try {
       const res = await window.marudesk.invoke('workos:implement-task', {
         taskId: task.id,
@@ -377,6 +423,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         goal,
         acceptance: task.acceptance.map((c) => c.text),
       });
+      if (get().runToken !== token) return; // stopped / superseded — don't clobber
       set((s) => {
         if (!s.graph) return { running: false };
         if (res.ok) {
@@ -394,6 +441,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         return { graph: setStatus(s.graph, id, 'planned'), running: false, runNote: res.reason };
       });
     } catch {
+      if (get().runToken !== token) return;
       set((s) => ({
         graph: s.graph ? setStatus(s.graph, id, 'planned') : s.graph,
         running: false,
@@ -401,6 +449,18 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       }));
     }
   },
+
+  stopRun: () =>
+    set((s) => {
+      const runToken = s.runToken + 1;
+      if (!s.graph) return { running: false, runToken };
+      // Return any in-flight task to planned so it isn't stranded as `running`.
+      const graph = touch({
+        ...s.graph,
+        tasks: s.graph.tasks.map((t) => (t.status === 'running' ? { ...t, status: 'planned' as const } : t)),
+      });
+      return { running: false, runToken, graph };
+    }),
 }));
 
 /* persist (debounced via microtask) — graph + node positions only. */
@@ -412,7 +472,9 @@ useWorkGraphStore.subscribe(() => {
     saveQueued = false;
     try {
       const { graph, pos } = useWorkGraphStore.getState();
-      localStorage.setItem(PERSIST_KEY, JSON.stringify({ graph, pos }));
+      // Evidence (result text + diff) is run-session only and not restored on load;
+      // strip it so file contents never sit in localStorage (and to avoid bloat).
+      localStorage.setItem(PERSIST_KEY, JSON.stringify({ graph: graph ? withoutEvidence(graph) : null, pos }));
     } catch {
       // best-effort
     }

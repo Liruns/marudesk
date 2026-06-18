@@ -6,6 +6,7 @@ import { randomId } from '../../shared/id';
 import type { ImplementTaskResult, Resource, RunTaskInput, RunTaskResult } from '../../shared/work-os';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { getCurrentWorkspace } from '../workspace';
+import { getSettingsSync } from '../settings';
 import { runGit } from '../git';
 import {
   agentBranchName,
@@ -169,9 +170,9 @@ function seedPrompt(input: RunTaskInput): string {
 Task: ${input.title.trim() || '(untitled)'}
 Intent: ${input.intent.trim() || '(none given)'}${goal}${criteria}
 
-At the very end of your report, on its own line, emit a fenced \`\`\`json block listing the key workspace files this task relates to so the user can open them — only real files you actually inspected, using workspace-relative paths:
+At the very end of your report, on its own line, emit a fenced \`\`\`json block listing the key workspace files this task relates to so the user can open them — only REAL files you actually inspected, as workspace-relative paths. Shape (replace the placeholders with real paths; do not echo them verbatim):
 \`\`\`json
-{"artifacts":[{"path":"src/example.ts","label":"why it matters"}]}
+{"artifacts":[{"path":"<workspace-relative path>","label":"<why it matters>"}]}
 \`\`\``;
 }
 
@@ -286,22 +287,30 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
   if (!auth.ok) return { ok: false, reason: auth.reason };
 
   const branch = agentBranchName();
-  const worktreePath = path.join(os.tmpdir(), 'marudesk-workos', randomId('wt'));
+  // A fresh, unique parent per run so two concurrent implements never collide on
+  // the worktree directory (the branch name is timestamp-based, also unique).
+  const worktreePath = path.join(os.tmpdir(), 'marudesk-workos', `${randomId('wt')}`, 'tree');
   try {
     await createWorktree(ws.root, worktreePath, branch);
   } catch (err) {
+    // `git worktree add` may have partially succeeded before the post-add check
+    // threw — clean up so we never leak a dangling worktree/branch.
+    await discardWorktree(ws.root, worktreePath, branch).catch(() => undefined);
     return { ok: false, reason: `Could not create an isolated worktree: ${(err as Error).message}` };
   }
 
   try {
     // The child writes against the WORKTREE root (edit_file/multi_edit resolve
     // paths off ctx.ws.root), so every edit is contained there, not in the repo.
+    // Carry the user's never-edit globs so the write agent still can't touch
+    // protected/secret files even inside the isolated copy.
     const worktreeWs: WorkspaceSummary = { ...ws, root: worktreePath };
     const ctx: ToolContext = {
       ws: worktreeWs,
       signal: new AbortController().signal,
       provider: target.provider,
       model: target.model,
+      denyGlobs: getSettingsSync().agent.denyGlobs,
     };
     const out = await runChildAgent(
       {
