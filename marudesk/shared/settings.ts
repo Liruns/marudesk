@@ -17,7 +17,7 @@ export type ThemeMode = 'dark' | 'light' | 'system';
  * palette × mode × accent compose freely. 'default' is the base Linear
  * graphite and clears the attribute.
  */
-export const THEME_PALETTES = ['default', 'midnight', 'espresso', 'fjord', 'paper'] as const;
+export const THEME_PALETTES = ['default', 'midnight', 'espresso', 'fjord', 'paper', 'pane'] as const;
 export type ThemePalette = (typeof THEME_PALETTES)[number];
 /**
  * Where the custom browser DevTools opens:

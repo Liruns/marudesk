@@ -16,7 +16,13 @@ try {
   }
   // Keep this allowlist in sync with THEME_PALETTES in shared/settings.ts.
   var p = localStorage.getItem('marudesk.theme.palette');
-  if (p === 'midnight' || p === 'espresso' || p === 'fjord' || p === 'paper') {
+  if (
+    p === 'midnight' ||
+    p === 'espresso' ||
+    p === 'fjord' ||
+    p === 'paper' ||
+    p === 'pane'
+  ) {
     document.documentElement.dataset.palette = p;
   }
 } catch (e) {
