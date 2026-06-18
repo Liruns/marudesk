@@ -1266,6 +1266,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'browser.stage.emptyTitle': '로드된 페이지가 없습니다',
   'browser.stage.kicker': '브라우저 화면',
   'browser.suggest.aria': '주소 추천 목록',
+  'browser.suggest.goTo': '이동: ',
   'browser.suggest.searchAfter': '" 웹 검색',
   'browser.suggest.searchBefore': '"',
   'browser.zoom.resetTitle': '확대/축소를 100%로 재설정',

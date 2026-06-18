@@ -1290,6 +1290,7 @@ export const EN_MESSAGES = {
   'browser.stage.emptyTitle': 'No page loaded',
   'browser.stage.kicker': 'Browser stage',
   'browser.suggest.aria': 'Address suggestions',
+  'browser.suggest.goTo': 'Go to ',
   'browser.suggest.searchAfter': '"',
   'browser.suggest.searchBefore': 'Search the web for "',
   'browser.zoom.resetTitle': 'Reset zoom to 100%',

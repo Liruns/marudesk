@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { History, Search, Star } from 'lucide-react';
+import { ArrowRight, History, Search, Star } from 'lucide-react';
 import { matchRanges, type Suggestion } from '../../../shared/suggest';
 import { stripUrlPrefix } from '../../../shared/history';
 import { cn } from '../../lib/cn';
@@ -52,6 +52,11 @@ export function AddressSuggestionsPanel({
               <span className="text-accent">{s.title}</span>
               {t('browser.suggest.searchAfter')}
             </span>
+          ) : s.kind === 'go' ? (
+            <span className="min-w-0 flex-1 truncate text-body-sm text-fg-secondary">
+              {t('browser.suggest.goTo')}
+              <span className="text-fg-primary">{stripUrlPrefix(s.url)}</span>
+            </span>
           ) : (
             <>
               {s.title ? (
@@ -79,6 +84,7 @@ function SuggestionIcon({ kind }: { readonly kind: Suggestion['kind'] }) {
   if (kind === 'bookmark') {
     return <Star size={14} className={cn(className, 'text-accent')} aria-hidden />;
   }
+  if (kind === 'go') return <ArrowRight size={14} className={className} aria-hidden />;
   if (kind === 'search') return <Search size={14} className={className} aria-hidden />;
   return <History size={14} className={className} aria-hidden />;
 }

@@ -10,10 +10,13 @@ import { frecency, stripUrlPrefix, type HistoryEntry } from './history';
  * Order: matching bookmarks first, then history by frecency (prefix matches
  * before substring matches, mirroring the inline-complete policy in
  * electron/history.ts), then one trailing "search the web" row — except for
- * explicit-URL input, which never gets a search row.
+ * explicit-URL input, which never gets a search row. When the input resolves to
+ * a real destination (`navUrl`, decided by resolveAddressBarInput in main), a
+ * "Go to <host>" row leads — the direct-navigate affordance ported from pane's
+ * omnibox (reference/pane/src/renderer/features/suggestions.js).
  */
 
-export type SuggestionKind = 'history' | 'bookmark' | 'search';
+export type SuggestionKind = 'history' | 'bookmark' | 'search' | 'go';
 
 export type Suggestion = {
   kind: SuggestionKind;
@@ -52,6 +55,11 @@ export function buildSuggestions(opts: {
   bookmarks: readonly BookmarkEntry[];
   /** Query-prefix of the configured search engine (electron/browser/url.ts). */
   searchBase: string;
+  /** The resolved navigation target when the input is a real destination (host /
+   *  IP / localhost / PSL domain), or omitted when it resolves to a search.
+   *  Surfaces a leading "Go to <host>" row. Computed in main via
+   *  resolveAddressBarInput so this ranker stays Electron-free. */
+  navUrl?: string;
   limit?: number;
 }): Suggestion[] {
   const { history, bookmarks, searchBase } = opts;
@@ -98,10 +106,22 @@ export function buildSuggestions(opts: {
     title: e.title,
   }));
 
-  const cap = searchRow ? limit - 1 : limit;
-  const rows = [...bookmarkRows, ...historyRows].slice(0, Math.max(cap, 0));
+  // "Go to <host>": when the input resolves to a real destination, lead with a
+  // direct-navigate row — unless that exact URL is already a bookmark/history
+  // row (those carry a title and navigate there anyway).
+  const known = new Set([...bookmarkRows, ...historyRows].map((s) => s.url));
+  const navRow: Suggestion | null =
+    opts.navUrl && opts.navUrl !== 'about:blank' && !known.has(opts.navUrl)
+      ? { kind: 'go', url: opts.navUrl, title: '' }
+      : null;
+
+  const reserved = (searchRow ? 1 : 0) + (navRow ? 1 : 0);
+  const cap = Math.max(limit - reserved, 0);
+  const rows: Suggestion[] = [];
+  if (navRow) rows.push(navRow);
+  rows.push(...[...bookmarkRows, ...historyRows].slice(0, cap));
   if (searchRow) rows.push(searchRow);
-  return rows;
+  return rows.slice(0, limit);
 }
 
 /** A half-open [start, end) span of `text` that matched a query token. */
