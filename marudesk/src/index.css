@@ -66,6 +66,15 @@
   app-region: no-drag;
 }
 
+/* ─── Pane palette: "mono for truth" ──────────────────────────────────────────
+   The Pane theme (ported from the `pane` browser, DESIGN.md §3) renders the
+   address bar + suggestion URLs in monospace so a URL never lies about its
+   characters (l vs 1, O vs 0). Scoped to the opt-in Pane palette so marudesk's
+   Inter-everywhere default (its own DESIGN.md) is untouched everywhere else. */
+:root[data-palette='pane'] .address-url {
+  font-family: var(--font-mono);
+}
+
 /* ─── Custom scrollbars ───────────────────────────────────────────────────────
    Replaces the heavy native Electron/Chromium scrollbar app-wide. The thumb
    carries a transparent border + padding-box clip so it reads as a slim ~4px

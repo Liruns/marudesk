@@ -1,0 +1,50 @@
+/* The smart address bar — a monospace pill (DESIGN §4). */
+.address-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 1080px; /* DESIGN §4: fill toward the right cluster, capped so it never sprawls on ultra-wide */
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 980px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--hairline-strong);
+  -webkit-app-region: no-drag; /* the pill is interactive; the row around it stays draggable */
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.address-pill:focus-within {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--accent-dark); /* 2px ring, no glow */
+}
+
+.status-glyph {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--fg-faint);
+}
+.status-glyph svg { width: 14px; height: 14px; }
+.status-glyph.secure { color: var(--success); }
+/* http:// is insecure but not an error — a quiet open lock, never red (DESIGN §4/§10). */
+.status-glyph.insecure { color: var(--fg-muted); }
+.status-glyph.error { color: var(--danger); }
+
+#address {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: 0;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  -webkit-app-region: no-drag;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+#address::placeholder { color: var(--fg-faint); }

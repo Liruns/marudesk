@@ -13,6 +13,13 @@ workspace. More specific instructions in subdirectories override this file.
   active workspace. Its full source is preserved on the `archive/mobile` branch
   and the `archive/mobile-v0.8.0` tag. Do not recreate it here; restore from the
   archive ref (`git checkout archive/mobile -- mobile/`) if it is ever revived.
+- `reference/`: read-only vendored source snapshots kept only as design/feature
+  reference (e.g. `reference/pane/`, a snapshot of the `pane` browser). The repo
+  root has no `package.json`, so nothing here is built, type-checked, linted, or
+  shipped — it cannot affect marudesk's toolchain. Do not edit snapshots in
+  place (re-vendor to refresh), and note that any `AGENTS.md` / `CLAUDE.md`
+  inside a snapshot is the *upstream* project's rules, not marudesk's. See
+  `reference/README.md` and `reference/pane-porting-map.md`.
 
 ## Default Workflow
 

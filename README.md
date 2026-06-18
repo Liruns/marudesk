@@ -108,6 +108,7 @@ client is archived.
 |---|---|
 | `marudesk/` | Electron desktop app — browser stage, DevTools, agent loop, editor/terminal, workspace integration, packaging. Owns the model/tool/workspace loop. |
 | `mobile/` _(archived)_ | Capacitor thin client — removed from the active workspace; preserved on the `archive/mobile` branch and `archive/mobile-v0.8.0` tag. |
+| `reference/` _(not built)_ | Read-only vendored source snapshots kept for design/feature reference only (e.g. `reference/pane/`). Outside every build/lint/test. See [`reference/README.md`](reference/README.md) and [`reference/pane-porting-map.md`](reference/pane-porting-map.md). |
 
 Inside `marudesk/`:
 

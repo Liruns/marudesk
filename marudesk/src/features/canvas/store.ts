@@ -3,6 +3,7 @@ import type { TabGroupColor, TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { easeInOutCubic, fitPose, lerpViewport, packGrid } from './camera-math';
 
 /**
  * Infinite-canvas placement store (Maru identity overhaul — see
@@ -163,6 +164,42 @@ export const SCALE_MAX = 2.5;
 const PLACE = { cols: 3, gapX: 600, gapY: 430, x0: 80, y0: 80 } as const;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+// In-flight camera tween (animateTo). Module-scoped: there's one canvas store,
+// and any user pan/zoom or a new tween cancels the previous one.
+let cameraTweenRaf: number | null = null;
+function cancelCameraTween(): void {
+  if (cameraTweenRaf != null && typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(cameraTweenRaf);
+  }
+  cameraTweenRaf = null;
+}
+
+// In-flight auto-arrange tween (arrangeCards), independent of the camera tween.
+let arrangeTweenRaf: number | null = null;
+function cancelArrangeTween(): void {
+  if (arrangeTweenRaf != null && typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(arrangeTweenRaf);
+  }
+  arrangeTweenRaf = null;
+}
+
+/** True when the OS asks for reduced motion (animations should snap, not glide). */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
+function canAnimate(): boolean {
+  return (
+    !prefersReducedMotion() &&
+    typeof requestAnimationFrame !== 'undefined' &&
+    typeof performance !== 'undefined'
+  );
+}
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isEdgeSide = (v: unknown): v is EdgeSide =>
@@ -819,6 +856,15 @@ type CanvasActions = {
   resetView: () => void;
   /** Fit all cards within a container of the given size (px), with padding. */
   fitToContent: (containerW: number, containerH: number) => void;
+  /** The camera pose that fits all cards in a container of the given size (px). */
+  getFitPose: (containerW: number, containerH: number) => Viewport;
+  /** Glide the camera to `target` with an eased tween (instant under
+      prefers-reduced-motion); any user pan/zoom interrupts it. Ported easing —
+      reference/pane-porting-map.md §D. */
+  animateTo: (target: Viewport) => void;
+  /** Tidy all unlocked cards into an aligned grid, animated into place (ported
+      packGrid + easing — reference/pane-porting-map.md §D). */
+  arrangeCards: () => void;
 
   /* ── named-canvas (saved-layout) management ── */
   /** The open workspace's canvases, in switcher order. */
@@ -1194,7 +1240,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     }
   },
 
-  setPos: (tabId, x, y) =>
+  setPos: (tabId, x, y) => {
+    cancelArrangeTween(); // a manual move interrupts an in-flight tidy
     set((s) => {
       const cur = s.placements[tabId];
       if (!cur || cur.locked) return {};
@@ -1203,7 +1250,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       const next = { ...cur, x, y };
       delete next.preMax;
       return { placements: { ...s.placements, [tabId]: next } };
-    }),
+    });
+  },
 
   setSize: (tabId, w, h) =>
     set((s) => {
@@ -1249,7 +1297,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         : [...s.selection, key],
     })),
   clearSelection: () => set((s) => (s.selection.length ? { selection: [] } : {})),
-  moveSelectionBy: (keys, base, dx, dy) =>
+  moveSelectionBy: (keys, base, dx, dy) => {
+    cancelArrangeTween(); // a manual move interrupts an in-flight tidy
     set((s) => {
       const next = { ...s.placements };
       let changed = false;
@@ -1261,7 +1310,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         changed = true;
       }
       return changed ? { placements: next } : {};
-    }),
+    });
+  },
 
   addEdge: (from, to, fromSide, toSide) =>
     set((s) => {
@@ -1518,18 +1568,26 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       return { placements, sections };
     }),
 
-  panBy: (dx, dy) =>
+  panBy: (dx, dy) => {
+    cancelCameraTween();
     set((s) => ({
       viewport: { ...s.viewport, panX: s.viewport.panX + dx, panY: s.viewport.panY + dy },
-    })),
+    }));
+  },
 
-  setPan: (panX, panY) => set((s) => ({ viewport: { ...s.viewport, panX, panY } })),
+  setPan: (panX, panY) => {
+    cancelCameraTween();
+    set((s) => ({ viewport: { ...s.viewport, panX, panY } }));
+  },
 
-  setViewport: (panX, panY, scale) =>
-    set({ viewport: { panX, panY, scale: clamp(scale, SCALE_MIN, SCALE_MAX) } }),
+  setViewport: (panX, panY, scale) => {
+    cancelCameraTween();
+    set({ viewport: { panX, panY, scale: clamp(scale, SCALE_MIN, SCALE_MAX) } });
+  },
 
   zoomAt: (factor, cx, cy) =>
     set((s) => {
+      cancelCameraTween();
       const { panX, panY, scale } = s.viewport;
       const nextScale = clamp(scale * factor, SCALE_MIN, SCALE_MAX);
       if (nextScale === scale) return {};
@@ -1547,28 +1605,91 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
   resetView: () => set({ viewport: { panX: 0, panY: 0, scale: 1 } }),
 
-  fitToContent: (containerW, containerH) => {
-    const rects = Object.values(get().placements);
-    if (rects.length === 0) {
-      set({ viewport: { panX: 0, panY: 0, scale: 1 } });
+  fitToContent: (containerW, containerH) =>
+    set({ viewport: get().getFitPose(containerW, containerH) }),
+
+  getFitPose: (containerW, containerH) =>
+    fitPose(
+      Object.values(get().placements),
+      { width: containerW, height: containerH },
+      { padding: 80, minScale: SCALE_MIN, maxScale: SCALE_MAX },
+    ),
+
+  animateTo: (target) => {
+    const to: Viewport = {
+      panX: target.panX,
+      panY: target.panY,
+      scale: clamp(target.scale, SCALE_MIN, SCALE_MAX),
+    };
+    cancelCameraTween();
+    const from = get().viewport;
+    if (
+      !canAnimate() ||
+      (from.panX === to.panX && from.panY === to.panY && from.scale === to.scale)
+    ) {
+      set({ viewport: to });
       return;
     }
-    const minX = Math.min(...rects.map((r) => r.x));
-    const minY = Math.min(...rects.map((r) => r.y));
-    const maxX = Math.max(...rects.map((r) => r.x + r.w));
-    const maxY = Math.max(...rects.map((r) => r.y + r.h));
-    const pad = 80;
-    const contentW = maxX - minX + pad * 2;
-    const contentH = maxY - minY + pad * 2;
-    const scale = clamp(
-      Math.min(containerW / contentW, containerH / contentH),
-      SCALE_MIN,
-      SCALE_MAX,
+    const start = performance.now();
+    const DURATION = 360; // ms — a calm glide (pane motion-standard)
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      if (t >= 1) {
+        set({ viewport: to });
+        cameraTweenRaf = null;
+        return;
+      }
+      set({ viewport: lerpViewport(from, to, easeInOutCubic(t)) });
+      cameraTweenRaf = requestAnimationFrame(tick);
+    };
+    cameraTweenRaf = requestAnimationFrame(tick);
+  },
+
+  arrangeCards: () => {
+    cancelArrangeTween();
+    const s = get();
+    const keys = Object.keys(s.placements).filter((k) => !s.placements[k].locked);
+    if (keys.length < 2) return;
+    // Stable reading order (top→bottom, then left→right) so the tidy is
+    // predictable and cards mostly keep their relative arrangement.
+    keys.sort((a, b) => s.placements[a].y - s.placements[b].y || s.placements[a].x - s.placements[b].x);
+    const minX = Math.min(...keys.map((k) => s.placements[k].x));
+    const minY = Math.min(...keys.map((k) => s.placements[k].y));
+    const targets = packGrid(
+      keys.map((k) => ({ key: k, w: s.placements[k].w, h: s.placements[k].h })),
+      { gap: 32, originX: minX, originY: minY },
     );
-    // Center the content bounding box in the container.
-    const panX = (containerW - (maxX - minX) * scale) / 2 - minX * scale;
-    const panY = (containerH - (maxY - minY) * scale) / 2 - minY * scale;
-    set({ viewport: { panX, panY, scale } });
+    const from: Record<string, { x: number; y: number }> = {};
+    for (const k of keys) from[k] = { x: s.placements[k].x, y: s.placements[k].y };
+    const apply = (k01: number) =>
+      set((st) => {
+        const next = { ...st.placements };
+        for (const key of keys) {
+          const cur = next[key];
+          const f = from[key];
+          const t = targets[key];
+          if (!cur || !f || !t) continue;
+          next[key] = { ...cur, x: f.x + (t.x - f.x) * k01, y: f.y + (t.y - f.y) * k01 };
+        }
+        return { placements: next };
+      });
+    if (!canAnimate()) {
+      apply(1);
+      return;
+    }
+    const start = performance.now();
+    const DURATION = 380;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      if (t >= 1) {
+        apply(1);
+        arrangeTweenRaf = null;
+        return;
+      }
+      apply(easeInOutCubic(t));
+      arrangeTweenRaf = requestAnimationFrame(tick);
+    };
+    arrangeTweenRaf = requestAnimationFrame(tick);
   },
 
   listCanvases: () => {

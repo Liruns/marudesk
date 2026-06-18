@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn';
 import { editorDocKeyForTab, isDirty, useEditorStore } from '../editor/store';
 import { GROUP_COLOR_CLASSES } from './groupColors';
 import { TabIndicator } from './TabIndicator';
+import { displayUrl } from '../../../shared/internal-pages';
 
 const TAB_DND_MIME = 'application/x-marudesk-tab';
 
@@ -210,7 +211,10 @@ export function TabChip({
   );
 }
 
-function prettyUrl(url: string): string {
+function prettyUrl(rawUrl: string): string {
+  // Internal pages collapse to a clean label: new-tab → '' (the strip shows the
+  // fallback title), error page → the host the user was trying to reach.
+  const url = displayUrl(rawUrl);
   if (!url || url === 'about:blank') return '';
   try {
     const u = new URL(url);

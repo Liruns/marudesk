@@ -49,6 +49,10 @@ import {
 import { initPlugins, shutdownPlugins } from './plugins';
 import { registerPluginHandlers } from './plugins/handlers';
 import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol';
+import {
+  registerInternalPagesProtocol,
+  registerInternalPagesScheme,
+} from './browser/internal-pages';
 import { registerModelsHandlers } from './models';
 import { registerUsageHandlers } from './usage';
 import { getSettings, getSettingsSync, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
@@ -422,6 +426,8 @@ maybeOpenEmbeddedDebugPort();
 // Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
 // sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
 registerPluginScheme();
+// Mark the maru:// internal-page scheme privileged too (new-tab + error pages).
+registerInternalPagesScheme();
 
 void app.whenReady().then(() => {
   // Drop Electron's DEFAULT application menu on Windows/Linux. The window is
@@ -438,6 +444,8 @@ void app.whenReady().then(() => {
   applyHostContentSecurityPolicy();
   // Serve plugin panel files over plugin:// (path-scoped + strict CSP, see protocol.ts).
   registerPluginProtocol();
+  // Serve the maru:// new-tab + error pages (self-contained HTML, strict CSP).
+  registerInternalPagesProtocol();
   // Wire the current-workspace accessor once; defineHandler's requireWorkspace()
   // reads it for every workspace-scoped channel's "no workspace open" guard.
   setWorkspaceProvider(getCurrentWorkspace);

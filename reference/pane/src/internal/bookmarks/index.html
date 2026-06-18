@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src pane:; font-src pane:; script-src pane:;" />
+  <title>Bookmarks</title>
+  <link rel="stylesheet" href="pane://assets/internal.css" />
+  <link rel="stylesheet" href="bookmarks.css" />
+</head>
+<body>
+  <div class="head">
+    <h1>Bookmarks</h1>
+    <input id="search" type="text" placeholder="Search bookmarks" spellcheck="false" autocomplete="off" />
+  </div>
+  <div id="list"></div>
+  <div id="empty" hidden>No bookmarks yet. Press <kbd>Ctrl</kbd>+<kbd>D</kbd> on a page to add one.</div>
+  <script src="pane://assets/internal-icons.js"></script>
+  <script src="bookmarks.js"></script>
+</body>
+</html>

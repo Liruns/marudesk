@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src pane:; script-src pane:; img-src pane: data:;" />
+  <title>Can't load page</title>
+  <style>
+    @font-face {
+      font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
+      src: url('pane://assets/fonts/inter-variable.woff2') format('woff2');
+    }
+    :root {
+      --fg: #f5f5f7; --muted: rgba(245,245,247,0.62); --faint: rgba(245,245,247,0.38);
+      --accent: #0071e3; --hair: rgba(255,255,255,0.16);
+    }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: grid; place-items: center; background: #0a0a0b; color: var(--fg);
+      font-family: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+    .wrap { width: min(520px, 82vw); }
+    h1 { font-size: 20px; font-weight: 590; letter-spacing: -0.012em; margin: 0 0 8px; }
+    p { font-size: 14px; line-height: 1.5; color: var(--muted); margin: 0 0 8px; }
+    .url {
+      font-family: 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+      font-size: 12px; color: var(--faint); word-break: break-all; margin-bottom: 24px;
+    }
+    .actions { display: flex; gap: 8px; }
+    button { font: inherit; font-size: 13px; cursor: default; border: 0; border-radius: 980px; padding: 8px 16px; transition: filter 0.15s ease; }
+    .retry { background: var(--accent); color: #fff; }
+    .search { background: transparent; color: var(--fg); border: 1px solid var(--hair); }
+    /* DESIGN §14: cert "proceed" is deliberately un-styled (not blue) — a quiet, plain link. */
+    .proceed { background: transparent; color: var(--muted); border: 0; border-radius: 0; padding: 8px 8px; text-decoration: underline; }
+    button:hover { filter: brightness(1.08); }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>This page didn't load</h1>
+    <p id="cause"></p>
+    <div class="url" id="url"></div>
+    <div class="actions">
+      <button class="retry" id="retry">Retry</button>
+      <button class="search" id="search">Search instead</button>
+      <button class="proceed" id="proceed" hidden>Proceed anyway</button>
+    </div>
+  </div>
+  <script src="error.js"></script>
+</body>
+</html>

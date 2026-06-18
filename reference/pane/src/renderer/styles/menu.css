@@ -1,0 +1,59 @@
+/* The ⋮ settings menu and the tab right-click menu — chrome overlay popovers. */
+#menu,
+.ctx-menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 230px;
+  background: var(--surface-1);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  padding: 6px;
+  -webkit-app-region: no-drag;
+}
+.ctx-menu { min-width: 200px; }
+
+.m-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 13px;
+  cursor: default;
+}
+.m-row:hover { background: rgba(255, 255, 255, 0.06); }
+.m-row:focus { outline: none; background: rgba(255, 255, 255, 0.06); } /* keyboard highlight (DESIGN §6) */
+.m-row.disabled { color: var(--fg-faint); pointer-events: none; }
+.m-row.disabled .m-key { color: var(--fg-faint); }
+.m-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-key { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint); }
+.m-sep { height: 1px; margin: 4px 8px; background: var(--hairline); }
+/* The current choice in a picker menu (e.g. the devtools dock side) — blue label, the one accent. */
+.m-row.active .m-label { color: var(--accent-dark); }
+
+/* toggle switch */
+.m-switch {
+  flex: none;
+  width: 34px;
+  height: 20px;
+  border-radius: 980px;
+  background: rgba(255, 255, 255, 0.16);
+  position: relative;
+  transition: background 0.15s ease;
+}
+.m-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: left 0.15s ease;
+}
+.m-row.toggle.checked .m-switch { background: var(--accent); }
+.m-row.toggle.checked .m-switch::after { left: 16px; }

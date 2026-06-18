@@ -1,0 +1,9 @@
+/* Bundled Inter (variable, latin) — the SF-lineage UI face (DESIGN §3).
+   Inter is licensed under the SIL Open Font License 1.1 — see assets/fonts/LICENSE-Inter.txt */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/inter-variable.woff2") format("woff2");
+}

@@ -8,7 +8,7 @@ import type { ThemePalette } from '../../../shared/settings';
  * at once — in both light and dark. The preset values live in styles/tokens.css;
  * this store just persists the choice and reflects it onto the document.
  */
-export type AccentName = 'violet' | 'blue' | 'teal' | 'green' | 'amber' | 'rose';
+export type AccentName = 'violet' | 'blue' | 'teal' | 'green' | 'amber' | 'rose' | 'pane';
 
 export const ACCENTS: { name: AccentName; label: string; swatch: string }[] = [
   { name: 'violet', label: 'Violet', swatch: '#5E6AD2' },
@@ -17,6 +17,7 @@ export const ACCENTS: { name: AccentName; label: string; swatch: string }[] = [
   { name: 'green', label: 'Green', swatch: '#46B17F' },
   { name: 'amber', label: 'Amber', swatch: '#E0A03A' },
   { name: 'rose', label: 'Rose', swatch: '#E5618B' },
+  { name: 'pane', label: 'Pane Blue', swatch: '#0071E3' },
 ];
 
 /**
@@ -32,6 +33,7 @@ export const PALETTES: { name: ThemePalette; label: string; page: string; card: 
   { name: 'espresso', label: 'Espresso', page: '#120E0C', card: '#281F1C' },
   { name: 'fjord', label: 'Fjord', page: '#0E1417', card: '#1E2A30' },
   { name: 'paper', label: 'Paper', page: '#FCFBF8', card: '#ECE8DF' },
+  { name: 'pane', label: 'Pane', page: '#0A0A0B', card: '#272729' },
 ];
 
 const STORAGE_KEY = 'marudesk.theme.accent';

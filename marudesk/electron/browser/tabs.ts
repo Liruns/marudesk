@@ -58,6 +58,11 @@ import { getSettingsSync } from '../settings';
 import { getActiveWorkspaceId } from '../workspace';
 import { getActiveProfileId } from '../profile-store';
 import { webTabPartitionForProfile } from '../../shared/profiles';
+import {
+  INTERNAL_NEWTAB_URL,
+  buildInternalErrorUrl,
+  isInternalUrl,
+} from '../../shared/internal-pages';
 
 /**
  * Tab lifecycle: create / activate / close / reorder, plus the mount and dispose
@@ -67,7 +72,9 @@ import { webTabPartitionForProfile } from '../../shared/profiles';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const NEW_TAB_URL = 'about:blank';
+// A URL-less web tab lands on the maru:// start page (pane's new-tab, §B port)
+// instead of a blank document.
+const NEW_TAB_URL = INTERNAL_NEWTAB_URL;
 
 /**
  * The web tabs' session partition, scoped to the ACTIVE profile. Electron caches
@@ -204,8 +211,23 @@ export function createTab(
   // shouldn't disturb the toolbar — only a real main-frame failure updates state.
   view.webContents.on(
     'did-fail-load',
-    (_event, errorCode, _desc, _url, isMainFrame) => {
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame || errorCode === -3) return;
+      // Replace the dead frame with the custom maru://error page (pane §14 error
+      // state). Guard against recursion if an internal page itself fails, and
+      // navigate on the next tick — loadURL inside did-fail-load is unsafe.
+      if (validatedURL && !isInternalUrl(validatedURL)) {
+        const errorUrl = buildInternalErrorUrl({
+          failedUrl: validatedURL,
+          code: errorCode,
+          description: errorDescription,
+        });
+        setImmediate(() => {
+          if (!view.webContents.isDestroyed()) {
+            void view.webContents.loadURL(errorUrl);
+          }
+        });
+      }
       pushState();
     },
   );
@@ -257,8 +279,17 @@ export function createTab(
   view.webContents.on('context-menu', (_event, params) => {
     const h = getHost();
     if (!h || h.isDestroyed()) return;
-    const menu = buildWebContextMenu(rec, params, (url) => {
-      createAndActivateTab('web', url);
+    const menu = buildWebContextMenu(rec, params, (url, opts) => {
+      // Background open (Open Link/Image in New Tab): create + place via the
+      // normal activate path, then restore focus to the page you were reading.
+      // Both activations commit in one frame, so the new view never flashes.
+      if (opts?.background) {
+        const prev = getActiveTabId();
+        createAndActivateTab('web', url);
+        if (prev) activateTab(prev);
+      } else {
+        createAndActivateTab('web', url);
+      }
     });
     if (menu.items.length > 0) menu.popup({ window: h });
   });

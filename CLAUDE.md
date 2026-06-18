@@ -15,6 +15,10 @@ that Codex-style agents use.
    - `marudesk/` owns the Electron desktop app and runtime-aware agent surface.
    - `mobile/` is archived (removed from the active tree; preserved on the
      `archive/mobile` branch). Do not recreate it here.
+   - `reference/` holds read-only vendored snapshots (e.g. `reference/pane/`)
+     for design/feature reference only — not built or shipped, and any nested
+     `AGENTS.md` / `CLAUDE.md` there belongs to the upstream project, not
+     marudesk. See `reference/README.md`.
 4. Do not revert user edits or unrelated worktree changes.
 5. Verify from the package that owns the behavior before claiming completion.
 

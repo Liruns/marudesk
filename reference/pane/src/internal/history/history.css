@@ -1,0 +1,11 @@
+/* History page — visit log grouped by day. Shared shell: pane://assets/internal.css. */
+#clear {
+  flex: none; height: 34px; padding: 0 14px; border: 1px solid var(--hair); border-radius: 8px;
+  background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: default;
+}
+#clear:hover { background: rgba(255,255,255,0.06); color: var(--fg); }
+
+#list { padding: 0 max(24px, 8vw) 40px; }
+.day { margin: 24px 0 4px; font-size: 12px; font-weight: 590; color: var(--faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.row > .time { flex: none; width: 56px; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.row > .title { max-width: 42%; }

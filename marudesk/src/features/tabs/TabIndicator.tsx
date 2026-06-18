@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Globe, Lock } from 'lucide-react';
 import type { TabState } from '../../../shared/browser';
+import { isInternalUrl } from '../../../shared/internal-pages';
 import { tabKinds } from './registry';
 
 export function TabIndicator({ tab }: { readonly tab: TabState }) {
@@ -26,7 +27,7 @@ export function TabIndicator({ tab }: { readonly tab: TabState }) {
     return <FaviconImg key={tab.favicon} src={tab.favicon} />;
   }
 
-  if (!tab.url || tab.url === 'about:blank') {
+  if (!tab.url || tab.url === 'about:blank' || isInternalUrl(tab.url)) {
     return (
       <span className="text-fg-tertiary shrink-0" aria-hidden>
         <Globe size={14} />

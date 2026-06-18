@@ -15,6 +15,7 @@ import {
   Globe,
   Group,
   Layers,
+  LayoutGrid,
   ListTree,
   Map as MapIcon,
   Maximize2,
@@ -38,6 +39,7 @@ import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
+import { easeOutBack, fitPose } from './camera-math';
 import { WorkGraphNodes, WorkGraphPanel } from '../work-graph/WorkGraphLayer';
 import { useWorkGraphStore } from '../work-graph/store';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
@@ -170,6 +172,15 @@ function raiseWhenPlaced(tabId: string): void {
  * split grid uses (electron/browser/layout.ts), so the live WebContentsView tracks
  * the card. Repositioning is coalesced to one IPC per animation frame.
  */
+/** True when the OS asks for reduced motion (gesture inertia should be skipped). */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
 export function CanvasStage() {
   const { t, formatCanvasGroupSection } = useI18n();
   const tabs = useTabsStore((s) => s.tabs);
@@ -250,6 +261,9 @@ export function CanvasStage() {
   // directly so a drag never re-renders React — the perf fix for "휠 클릭 버벅거림".
   const planeRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  // Smoothed pan velocity (screen px/ms) for fling inertia, and the inertia rAF.
+  const panVelRef = useRef<{ vx: number; vy: number; t: number } | null>(null);
+  const inertiaRef = useRef<number | null>(null);
   // Live (uncommitted) viewport while a pan OR zoom gesture is in flight, or null
   // when the store is authoritative. The plane/grid transform is driven straight
   // from this on each pointer/wheel/animation frame, and only committed to the
@@ -367,6 +381,10 @@ export function CanvasStage() {
   // the live offset so React owns the transform again, end any zoom glide, and let
   // the plane re-rasterize at rest (will-change off → crisp text).
   const commitLive = useCallback(() => {
+    if (inertiaRef.current != null) {
+      cancelAnimationFrame(inertiaRef.current);
+      inertiaRef.current = null;
+    }
     if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
     zoomRef.current = null;
     if (wheelCommitRef.current !== null) {
@@ -379,6 +397,35 @@ export function CanvasStage() {
     liveRef.current = null;
     useCanvasStore.getState().setViewport(lv.panX, lv.panY, lv.scale);
   }, []);
+
+  // Fling inertia: after a fast pan release, glide the live viewport with
+  // exponential friction (τ≈220ms) painted straight to the DOM, then commit.
+  // The caller gates on reduced-motion / speed; commitLive (or any new gesture)
+  // cancels the rAF.
+  const startPanInertia = useCallback(
+    (vx0: number, vy0: number) => {
+      seedLive();
+      let vx = vx0;
+      let vy = vy0;
+      let last = performance.now();
+      const step = (now: number) => {
+        const dt = Math.min(48, now - last);
+        last = now;
+        livePanBy(vx * dt, vy * dt);
+        const decay = Math.exp(-dt / 220);
+        vx *= decay;
+        vy *= decay;
+        if (Math.hypot(vx, vy) < 0.02) {
+          inertiaRef.current = null;
+          commitLive();
+          return;
+        }
+        inertiaRef.current = requestAnimationFrame(step);
+      };
+      inertiaRef.current = requestAnimationFrame(step);
+    },
+    [seedLive, livePanBy, commitLive],
+  );
 
   // Eased zoom: each wheel notch (or zoom button) nudges a target scale; a rAF loop
   // glides the live scale toward it, anchored at the cursor, painting straight to
@@ -502,6 +549,7 @@ export function CanvasStage() {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+      if (inertiaRef.current != null) cancelAnimationFrame(inertiaRef.current);
       if (wheelCommitRef.current !== null) clearTimeout(wheelCommitRef.current);
       void window.marudesk.invoke('browser:clear-pane-bounds');
     };
@@ -515,6 +563,12 @@ export function CanvasStage() {
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      // A wheel gesture takes over the live viewport from any fling (keep the
+      // live offset so the wheel continues from where the fling was, no commit).
+      if (inertiaRef.current != null) {
+        cancelAnimationFrame(inertiaRef.current);
+        inertiaRef.current = null;
+      }
       if (e.ctrlKey || e.metaKey) {
         // Zoom at the cursor (also catches trackpad pinch, which arrives as
         // ctrl+wheel). Eased + painted straight to the DOM, so consecutive notches
@@ -558,6 +612,9 @@ export function CanvasStage() {
   }, [smoothZoomBy]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    // Any pointerdown ends an in-flight fling and folds the live offset into the
+    // store, so the interaction starts from a clean, committed viewport.
+    commitLive();
     // Never start on a card or an on-canvas control — capturing here would
     // swallow their clicks.
     if ((e.target as HTMLElement).closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
@@ -565,10 +622,9 @@ export function CanvasStage() {
     // empty canvas; right opens the context menu.
     const pan = e.button === 1 || (e.button === 0 && spaceDownRef.current);
     if (pan) {
-      // Fold any trailing wheel pan / zoom glide in before a drag starts clean.
-      commitLive();
       e.currentTarget.setPointerCapture(e.pointerId);
       panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      panVelRef.current = { vx: 0, vy: 0, t: e.timeStamp };
       setPanning(true);
       return;
     }
@@ -590,6 +646,15 @@ export function CanvasStage() {
       const dy = e.clientY - p.y;
       p.x = e.clientX;
       p.y = e.clientY;
+      // Track a smoothed velocity (px/ms) for the release fling.
+      const now = e.timeStamp;
+      const pv = panVelRef.current;
+      if (pv) {
+        const dt = Math.max(1, now - pv.t);
+        pv.vx = pv.vx * 0.6 + (dx / dt) * 0.4;
+        pv.vy = pv.vy * 0.6 + (dy / dt) * 0.4;
+        pv.t = now;
+      }
       // Direct-to-DOM pan — no store write (and no re-render) until pointerup.
       livePanBy(dx, dy);
       return;
@@ -608,9 +673,18 @@ export function CanvasStage() {
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (panRef.current?.pointerId === e.pointerId) {
       panRef.current = null;
-      // Commit the gesture's accumulated offset to the store in one update.
-      commitLive();
       setPanning(false);
+      // A fast release flings the canvas — glide it out with friction; otherwise
+      // commit the accumulated offset immediately.
+      const pv = panVelRef.current;
+      panVelRef.current = null;
+      const stale = !pv || e.timeStamp - pv.t > 80;
+      const speed = pv ? Math.hypot(pv.vx, pv.vy) : 0;
+      if (pv && !stale && speed > 0.08 && !prefersReducedMotion()) {
+        startPanInertia(pv.vx, pv.vy);
+      } else {
+        commitLive();
+      }
       return;
     }
     const m = marqueeRef.current;
@@ -698,6 +772,10 @@ export function CanvasStage() {
     cards: { key: string; el: HTMLElement | null; ox: number; oy: number }[];
     pos: Record<string, { x: number; y: number }>;
   } | null>(null);
+  // Smoothed drag velocity (canvas px/ms) for the card fling, and the settle rAF.
+  const cardVelRef = useRef<{ x: number; y: number; t: number; vx: number; vy: number } | null>(null);
+  const cardFlingRaf = useRef<number | null>(null);
+  type CardDrag = NonNullable<typeof cardDragRef.current>;
 
   const paintCardDrag = () => {
     const d = cardDragRef.current;
@@ -711,41 +789,11 @@ export function CanvasStage() {
     }
   };
 
-  const handleMove = (key: string, x: number, y: number) => {
-    const store = useCanvasStore.getState();
-    let d = cardDragRef.current;
-    if (!d || d.key !== key) {
-      const sel = store.selection;
-      const multi = sel.length > 1 && sel.includes(key);
-      const keys = multi ? sel : [key];
-      const cards = keys
-        .map((k) => {
-          const r = store.placements[k];
-          if (!r || r.locked) return null;
-          return { key: k, el: document.querySelector<HTMLElement>(`[data-place-key="${k}"]`), ox: r.x, oy: r.y };
-        })
-        .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
-      d = { key, multi, cards, pos: {} };
-      cardDragRef.current = d;
-    }
-    if (d.multi) {
-      const origin = d.cards.find((c) => c.key === key);
-      if (!origin) return;
-      const dx = x - origin.ox;
-      const dy = y - origin.oy;
-      for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
-    } else {
-      d.pos[key] = computeSnap(key, x, y);
-    }
-    paintCardDrag();
-  };
-
-  // Commit the drag to the store in ONE update on release; React then owns the
-  // positions again, matching what we already painted (no snap-back).
-  const commitCardMove = () => {
-    const d = cardDragRef.current;
-    if (!d) return;
+  // Write the dragged set's final positions to the store in ONE update; React
+  // then owns the positions again, matching what we painted (no snap-back).
+  const flushCardDrag = (d: CardDrag) => {
     cardDragRef.current = null;
+    cardVelRef.current = null;
     const store = useCanvasStore.getState();
     const origin = d.cards.find((c) => c.key === d.key);
     const last = d.pos[d.key];
@@ -764,12 +812,131 @@ export function CanvasStage() {
     }
   };
 
+  // Card fling: a fast release throws the card(s) a little further and settles
+  // with an easeOutBack overshoot (pane DESIGN §15 gesture spring), painted
+  // straight to the DOM, then flushed to the store. The whole set shares one
+  // throw delta; commitCardMove gates on speed + reduced-motion.
+  const startCardFling = (d: CardDrag, vx: number, vy: number) => {
+    const THROW = 120; // ms of velocity projected into a throw distance
+    const CAP = 600; // canvas px — don't hurl a card off into space
+    const tdx = Math.max(-CAP, Math.min(CAP, vx * THROW));
+    const tdy = Math.max(-CAP, Math.min(CAP, vy * THROW));
+    const startPos: Record<string, { x: number; y: number }> = {};
+    const targetPos: Record<string, { x: number; y: number }> = {};
+    for (const c of d.cards) {
+      const s = d.pos[c.key] ?? { x: c.ox, y: c.oy };
+      startPos[c.key] = { x: s.x, y: s.y };
+      targetPos[c.key] = { x: s.x + tdx, y: s.y + tdy };
+    }
+    const DURATION = 460;
+    let startTime = -1;
+    const step = (now: number) => {
+      if (startTime < 0) startTime = now;
+      const t = Math.min(1, (now - startTime) / DURATION);
+      const k = easeOutBack(t);
+      for (const c of d.cards) {
+        const s = startPos[c.key];
+        const tg = targetPos[c.key];
+        d.pos[c.key] = { x: s.x + (tg.x - s.x) * k, y: s.y + (tg.y - s.y) * k };
+      }
+      paintCardDrag();
+      if (t < 1) {
+        cardFlingRaf.current = requestAnimationFrame(step);
+        return;
+      }
+      for (const c of d.cards) d.pos[c.key] = targetPos[c.key];
+      paintCardDrag();
+      cardFlingRaf.current = null;
+      flushCardDrag(d);
+    };
+    cardFlingRaf.current = requestAnimationFrame(step);
+  };
+
+  const handleMove = (key: string, x: number, y: number, t?: number) => {
+    // A new drag interrupts a settling fling — bank its progress first so the
+    // fresh drag starts from where the card actually is.
+    if (cardFlingRaf.current != null) {
+      cancelAnimationFrame(cardFlingRaf.current);
+      cardFlingRaf.current = null;
+      if (cardDragRef.current) flushCardDrag(cardDragRef.current);
+    }
+    const store = useCanvasStore.getState();
+    let d = cardDragRef.current;
+    if (!d || d.key !== key) {
+      // Starting a card drag ends any canvas fling and freezes the viewport, so
+      // the drag maps the pointer against a stable camera.
+      commitLive();
+      const sel = store.selection;
+      const multi = sel.length > 1 && sel.includes(key);
+      const keys = multi ? sel : [key];
+      const cards = keys
+        .map((k) => {
+          const r = store.placements[k];
+          if (!r || r.locked) return null;
+          return { key: k, el: document.querySelector<HTMLElement>(`[data-place-key="${k}"]`), ox: r.x, oy: r.y };
+        })
+        .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
+      d = { key, multi, cards, pos: {} };
+      cardDragRef.current = d;
+      cardVelRef.current = t != null ? { x, y, t, vx: 0, vy: 0 } : null;
+    } else if (t != null) {
+      const cv = cardVelRef.current;
+      if (cv) {
+        const dt = Math.max(1, t - cv.t);
+        cv.vx = cv.vx * 0.6 + ((x - cv.x) / dt) * 0.4;
+        cv.vy = cv.vy * 0.6 + ((y - cv.y) / dt) * 0.4;
+        cv.x = x;
+        cv.y = y;
+        cv.t = t;
+      } else {
+        cardVelRef.current = { x, y, t, vx: 0, vy: 0 };
+      }
+    }
+    if (d.multi) {
+      const origin = d.cards.find((c) => c.key === key);
+      if (!origin) return;
+      const dx = x - origin.ox;
+      const dy = y - origin.oy;
+      for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
+    } else {
+      d.pos[key] = computeSnap(key, x, y);
+    }
+    paintCardDrag();
+  };
+
+  // Release: a fast flick flings the card(s) with an overshoot settle, otherwise
+  // commit immediately. `t` is the pointerup timestamp (for a freshness check).
+  const commitCardMove = (t?: number) => {
+    const d = cardDragRef.current;
+    if (!d) return;
+    const origin = d.cards.find((c) => c.key === d.key);
+    const last = d.pos[d.key];
+    const cv = cardVelRef.current;
+    const moved = !!origin && !!last && (last.x !== origin.ox || last.y !== origin.oy);
+    const fresh = !!cv && t != null && t - cv.t <= 80;
+    const speed = cv ? Math.hypot(cv.vx, cv.vy) : 0;
+    if (moved && fresh && cv && speed > 0.4 && !prefersReducedMotion()) {
+      startCardFling(d, cv.vx, cv.vy);
+      return; // the fling flushes to the store when it settles
+    }
+    flushCardDrag(d);
+  };
+
   // Re-assert an in-flight card drag after any incidental re-render (e.g. the
   // merge-highlight setState) so the dragged card never snaps to its stale store
   // position for a frame. Declared after the helpers so the rule sees the ref.
   useLayoutEffect(() => {
     if (cardDragRef.current) paintCardDrag();
   });
+
+  // Cancel a settling card fling if the canvas unmounts mid-throw. Declared after
+  // the helpers that modify the ref (react-hooks/immutability ordering).
+  useEffect(
+    () => () => {
+      if (cardFlingRaf.current != null) cancelAnimationFrame(cardFlingRaf.current);
+    },
+    [],
+  );
 
   // Keyboard arrow nudge (free, no snap): when the card is part of a multi-
   // selection, move the WHOLE selection by the same delta; otherwise just it.
@@ -833,9 +1000,14 @@ export function CanvasStage() {
     commitLive();
     useCanvasStore.getState().zoomAt(factor, size.w / 2, size.h / 2);
   };
+  // Fit / reset glide the camera with an eased tween (ported pane easing —
+  // reference/pane-porting-map.md §D) instead of snapping to the new pose.
   const fit = () => {
-    useCanvasStore.getState().fitToContent(size.w, size.h);
+    const st = useCanvasStore.getState();
+    st.animateTo(st.getFitPose(size.w, size.h));
   };
+  const animateReset = () =>
+    useCanvasStore.getState().animateTo({ panX: 0, panY: 0, scale: 1 });
   // The current visible viewport as a canvas-space rect (for maximize), inset a
   // little so a maximized card doesn't butt against the very edges.
   const maximizeRect = () => {
@@ -983,6 +1155,19 @@ export function CanvasStage() {
   const centerOn = (wx: number, wy: number) => {
     const { scale } = useCanvasStore.getState().viewport;
     useCanvasStore.getState().setPan(size.w / 2 - wx * scale, size.h / 2 - wy * scale);
+  };
+
+  // Frame a single card: glide the camera so the card fills the viewport (the
+  // "focus a pane" camera command — pane CANVAS.md §6, reuses the ported
+  // fitPose + animateTo tween). Uses `size` state (like centerOn) so it's safe
+  // to build from render (the card menu is rendered).
+  const frameCard = (placeKey: string) => {
+    const st = useCanvasStore.getState();
+    const r = st.placements[placeKey];
+    if (!r) return;
+    st.animateTo(
+      fitPose([r], { width: size.w, height: size.h }, { padding: 80, titleH: 28 }),
+    );
   };
 
   // A spot for a NEW card with no explicit drop point (the toolbar button): the
@@ -1185,6 +1370,7 @@ export function CanvasStage() {
   // a web page) so its own menu still works — only the card header opens the card
   // menu.
   const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    commitLive(); // a context-menu open ends any in-flight fling
     const t = e.target as HTMLElement;
     const edgeEl = t.closest('[data-edge-id]');
     if (edgeEl) {
@@ -1232,7 +1418,17 @@ export function CanvasStage() {
 
   // Double-click empty canvas creates a card (Figma-style).
   const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
+    const target = e.target as HTMLElement;
+    // Double-click a card's title bar → frame it (zoom the camera to the card).
+    const header = target.closest('[data-card-header]');
+    if (header) {
+      const id = header.closest('[data-tab-id]')?.getAttribute('data-tab-id');
+      if (id) {
+        frameCard(keyOf(id));
+        return;
+      }
+    }
+    if (target.closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
     newCard('home', toCanvas(e.clientX, e.clientY));
   };
 
@@ -1255,6 +1451,7 @@ export function CanvasStage() {
       const inGroup = placeKey !== m.tabId;
       const rect = placements[placeKey];
       const items: MenuItem[] = [
+        { label: t('canvas.menu.zoomToCard'), onSelect: () => frameCard(placeKey) },
         { label: t('canvas.menu.bringFront'), onSelect: () => store.bringToFront(placeKey) },
         { label: t('canvas.menu.sendBack'), onSelect: () => store.sendToBack(placeKey) },
         {
@@ -1324,7 +1521,8 @@ export function CanvasStage() {
       { label: t('canvas.menu.newAiChat'), onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
       { type: 'separator' },
       { label: t('canvas.control.fit'), onSelect: () => fit() },
-      { label: t('canvas.menu.resetZoom'), onSelect: () => store.resetView() },
+      { label: t('canvas.menu.resetZoom'), onSelect: () => animateReset() },
+      { label: t('canvas.menu.arrange'), onSelect: () => store.arrangeCards() },
       { type: 'separator' },
       {
         label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
@@ -1381,6 +1579,46 @@ export function CanvasStage() {
           e.preventDefault();
           closeSelection();
         }
+        return;
+      }
+      // Camera commands (ported from pane's canvas keymap — CANVAS.md §6):
+      // +/- zoom about center, 0 reset, F fit-all, arrows pan. Plain keys only,
+      // so they never collide with page zoom (Ctrl±) or select-all (Ctrl/⌘+A).
+      if (!editable && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        commitLive(); // fold any in-flight fling before a keyboard camera command
+        const st = useCanvasStore.getState();
+        const cr = containerRef.current?.getBoundingClientRect();
+        if (e.key === '+' || e.key === '=') {
+          if (cr) {
+            e.preventDefault();
+            st.zoomAt(1.2, cr.width / 2, cr.height / 2);
+          }
+          return;
+        }
+        if (e.key === '-' || e.key === '_') {
+          if (cr) {
+            e.preventDefault();
+            st.zoomAt(1 / 1.2, cr.width / 2, cr.height / 2);
+          }
+          return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          st.animateTo({ panX: 0, panY: 0, scale: 1 });
+          return;
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          if (cr) {
+            e.preventDefault();
+            st.animateTo(st.getFitPose(cr.width, cr.height));
+          }
+          return;
+        }
+        const PAN = e.shiftKey ? 240 : 80;
+        if (e.key === 'ArrowRight') { e.preventDefault(); st.panBy(-PAN, 0); return; }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); st.panBy(PAN, 0); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); st.panBy(0, -PAN); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); st.panBy(0, PAN); return; }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -1406,7 +1644,9 @@ export function CanvasStage() {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, []);
+    // commitLive is a stable useCallback; listed so the camera keys always fold
+    // an in-flight fling before acting.
+  }, [commitLive]);
 
   // What to render: each ungrouped visible tab as a card, plus one card per group
   // (showing its active member with a tab strip). Grouped members aren't drawn
@@ -1470,6 +1710,14 @@ export function CanvasStage() {
       aria-label={t('canvas.label')}
       tabIndex={-1}
     >
+      {cardItems.length === 0 && sections.length === 0 ? (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="select-none text-center">
+            <div className="text-body-sm text-fg-tertiary">{t('canvas.empty.title')}</div>
+            <div className="mt-1 text-caption text-fg-tertiary/70">{t('canvas.empty.hint')}</div>
+          </div>
+        </div>
+      ) : null}
       <div
         ref={planeRef}
         className="absolute inset-0 origin-top-left"
@@ -1521,7 +1769,7 @@ export function CanvasStage() {
                 void useTabsStore.getState().closeTab(tab.id);
                 containerRef.current?.focus(); // keep keyboard focus on the canvas
               }}
-              onMove={(x, y) => handleMove(key, x, y)}
+              onMove={(x, y, t) => handleMove(key, x, y, t)}
               onMoveEnd={commitCardMove}
               onNudge={(x, y) => handleNudge(key, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(key, w, h)}
@@ -1689,7 +1937,10 @@ export function CanvasStage() {
         <button
           type="button"
           className="min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary"
-          onClick={() => useCanvasStore.getState().resetView()}
+          onClick={() => {
+            commitLive();
+            animateReset();
+          }}
           title={t('canvas.control.resetZoom')}
         >
           {Math.round(viewport.scale * 100)}%
@@ -1698,11 +1949,29 @@ export function CanvasStage() {
           <Plus size={15} />
         </CtrlButton>
         <div className="mx-0.5 h-5 w-px bg-subtle" />
-        <CtrlButton label={t('canvas.control.fit')} onClick={fit}>
+        <CtrlButton
+          label={t('canvas.control.fit')}
+          onClick={() => {
+            commitLive();
+            fit();
+          }}
+        >
           <Maximize2 size={15} />
         </CtrlButton>
-        <CtrlButton label={t('canvas.control.resetView')} onClick={() => useCanvasStore.getState().resetView()}>
+        <CtrlButton
+          label={t('canvas.control.resetView')}
+          onClick={() => {
+            commitLive();
+            animateReset();
+          }}
+        >
           <RotateCcw size={15} />
+        </CtrlButton>
+        <CtrlButton
+          label={t('canvas.control.arrange')}
+          onClick={() => useCanvasStore.getState().arrangeCards()}
+        >
+          <LayoutGrid size={15} />
         </CtrlButton>
         <CtrlButton
           label={minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow')}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; script-src 'self';" />
+  <title>Pane — Tabs</title>
+  <link rel="stylesheet" href="styles/sidebar.css" />
+</head>
+<body>
+  <div id="sidebar">
+    <div id="vtabs" role="tablist" aria-orientation="vertical" aria-label="Tabs"></div>
+    <button class="vnewtab" id="vnewtab" title="New Tab (Ctrl+T)" aria-label="New Tab">
+      <span class="vnewtab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      </span>
+      <span class="vnewtab-label">New tab</span>
+    </button>
+  </div>
+
+  <script type="module" src="sidebar.js"></script>
+</body>
+</html>
