@@ -133,11 +133,17 @@ All four are now implemented in `marudesk/` (strict TS + tests, no raw-JS copy):
    (`electron/browser/internal-pages.ts` + `internal-page-render.ts`,
    `shared/internal-pages.ts`); `maru://newtab` replaces `about:blank`, and a
    real main-frame `did-fail-load` shows `maru://error` (Retry / Search).
-4. ✅ **Canvas math → eased camera glide + mined gestures** (§D) — pane's easing
-   + `fitPose` + `slotRect` ported to `src/features/canvas/camera-math.ts`
-   (+ test); the canvas Fit / Reset controls glide via a reduced-motion-aware
-   `animateTo` tween. Further mined from `CANVAS.md` §6: **keyboard camera keymap**
-   (`+`/`-`/`0`/`F`/arrows), **focus-a-card** tween (double-click a card header
-   or "Zoom to card" in its menu → frame it), and a quiet **empty-canvas hint**.
-   `easeOutBack` + `slotRect` remain ported and ready for fling / auto-arrange;
-   pan momentum-inertia and the pane-fling spring are still open.
+4. ✅ **Canvas math → eased camera glide + the full CANVAS.md §6 gesture set** (§D)
+   — pane's easing + `fitPose` + `slotRect`/`packGrid` ported to
+   `src/features/canvas/camera-math.ts` (+ tests). Everything pane's canvas
+   shipped is now in marudesk's:
+   - **Eased Fit / Reset** camera glide (`animateTo`, easeInOutCubic).
+   - **Keyboard camera keymap** — `+`/`-`/`0`/`F`/arrows.
+   - **Focus-a-card** tween — double-click a card header or "Zoom to card".
+   - **Auto-arrange (Tidy)** — `packGrid` into an aligned grid, animated; control
+     button + menu item.
+   - **Pan-fling inertia** — friction-decay glide on a fast pan release.
+   - **Card-fling spring** — `easeOutBack` overshoot settle on a fast card flick.
+   - A quiet **empty-canvas hint**.
+   All honor `prefers-reduced-motion`. (pane's `CANVAS.md` is a spec doc; nothing
+   from §1–§5/§7 architecture applies — marudesk's canvas is already shipped.)
