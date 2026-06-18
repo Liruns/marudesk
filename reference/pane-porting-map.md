@@ -120,10 +120,21 @@ re-implemented as typed helpers feeding the canvas `store.ts`.
 
 ## Suggested first ports (prioritized)
 
-1. **"Pane" palette + blue accent** in the theme system — cheap, high visual
-   payoff, and the most direct answer to "pane's design feels better." (§A)
-2. **Smart address-bar URL parser** (PSL + denylist) — the clearest functional
-   gap; self-contained and already test-covered upstream. (§C)
-3. **Start page + custom error page** — the missing `pane://`-style screens. (§B)
-4. **Mine `CANVAS.md` + pane's canvas math** for arrange/camera/easing
-   improvements to marudesk's existing canvas. (§D)
+All four are now implemented in `marudesk/` (strict TS + tests, no raw-JS copy):
+
+1. ✅ **"Pane" palette + "Pane Blue" accent** in the theme system (§A) —
+   `src/styles/tokens.css` (`[data-palette='pane']` + `[data-accent='pane']`),
+   registered in `shared/settings.ts`, `src/features/theme/store.ts`, the swatch
+   grids, and `public/boot-theme.js`. Pick palette = Pane + accent = Pane Blue.
+2. ✅ **Smart address-bar URL parser** (PSL via `tldts` + package denylist) (§C)
+   — `electron/browser/url.ts` + `url.test.ts` (37 cases). Keeps marudesk's
+   refusal of `file:`/`javascript:`/… and its https-for-the-web default.
+3. ✅ **Start page + custom error page** (§B) — a `maru://` privileged scheme
+   (`electron/browser/internal-pages.ts` + `internal-page-render.ts`,
+   `shared/internal-pages.ts`); `maru://newtab` replaces `about:blank`, and a
+   real main-frame `did-fail-load` shows `maru://error` (Retry / Search).
+4. ✅ **Canvas math → eased camera glide** (§D) — pane's easing + `fitPose` +
+   `slotRect` ported to `src/features/canvas/camera-math.ts` (+ test); the
+   canvas Fit / Reset controls now glide via a reduced-motion-aware `animateTo`
+   tween. `easeOutBack` + `slotRect` are ported and ready for fling /
+   auto-arrange. Mining `CANVAS.md` for further interaction ideas remains open.
