@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { launchApp, makeTempUserDataDir } from './helpers/app';
+import { launchApp, makeTempUserDataDir, connectCanvasCards } from './helpers/app';
 
 /**
  * Maru's infinite-canvas surface, integrated into the Shell as the default stage
@@ -53,15 +53,8 @@ test('canvas: cards can be wired together with a connection, then disconnected',
     await expect(cards).toHaveCount(2);
     await page.getByRole('button', { name: 'Fit to content' }).click();
 
-    // Drag from the first card's right-edge connection port onto the second card.
-    const port = page.getByRole('button', { name: 'Connect from right edge' }).first();
-    const pb = await port.boundingBox();
-    const c2 = await cards.nth(1).boundingBox();
-    if (!pb || !c2) throw new Error('missing bounding boxes');
-    await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(c2.x + c2.width / 2, c2.y + c2.height / 2, { steps: 10 });
-    await page.mouse.up();
+    // Drag from the first card's connection port onto the second card.
+    await connectCanvasCards(page, cards.nth(0), cards.nth(1));
 
     // An edge now exists and is auto-selected (its remove control shows).
     await expect(page.locator('[data-edge-id]')).toHaveCount(1);

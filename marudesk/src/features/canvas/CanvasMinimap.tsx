@@ -1,6 +1,17 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useI18n } from '../../i18n/useI18n';
-import type { CardRect, Viewport } from './store';
+import type { TabGroupColor } from '../../../shared/browser';
+import type { CanvasNote, CardRect, CardSection, Viewport } from './store';
+
+/** Per-hue minimap fill for notes (static strings so Tailwind keeps them). */
+const NOTE_FILL: Record<TabGroupColor, string> = {
+  violet: 'fill-tabgroup-violet/60',
+  blue: 'fill-tabgroup-blue/60',
+  teal: 'fill-tabgroup-teal/60',
+  green: 'fill-tabgroup-green/60',
+  amber: 'fill-tabgroup-amber/60',
+  rose: 'fill-tabgroup-rose/60',
+};
 
 /**
  * A small overview of the whole canvas (cate parity — its `Cmd+Shift+M` map):
@@ -17,12 +28,18 @@ type Fit = { minX: number; minY: number; s: number; ox: number; oy: number };
 
 export function CanvasMinimap({
   placements,
+  sections,
+  notes,
   viewport,
   width,
   height,
   onJump,
 }: {
   placements: Record<string, CardRect>;
+  /** Section frames, drawn behind the cards (matches the canvas stacking). */
+  sections: readonly CardSection[];
+  /** Sticky notes, shown as small amber-ish marks in the overview. */
+  notes: readonly CanvasNote[];
   viewport: Viewport;
   /** Container size in screen px (for the viewport-rect overlay). */
   width: number;
@@ -47,13 +64,14 @@ export function CanvasMinimap({
   const viewX = -viewport.panX / viewport.scale;
   const viewY = -viewport.panY / viewport.scale;
 
-  // Fit to the UNION of content bounds and the current viewport rect so the
-  // "where am I" box is on-map at every zoom (content-only fit clipped it away at
-  // default zoom over a small layout).
-  const minX = Math.min(...rects.map((r) => r.x), viewX);
-  const minY = Math.min(...rects.map((r) => r.y), viewY);
-  const maxX = Math.max(...rects.map((r) => r.x + r.w), viewX + visW);
-  const maxY = Math.max(...rects.map((r) => r.y + r.h), viewY + visH);
+  // Fit to the UNION of content bounds (cards + sections) and the current viewport
+  // rect so the "where am I" box is on-map at every zoom (content-only fit clipped
+  // it away at default zoom over a small layout).
+  const bounds = [...rects, ...sections, ...notes];
+  const minX = Math.min(...bounds.map((r) => r.x), viewX);
+  const minY = Math.min(...bounds.map((r) => r.y), viewY);
+  const maxX = Math.max(...bounds.map((r) => r.x + r.w), viewX + visW);
+  const maxY = Math.max(...bounds.map((r) => r.y + r.h), viewY + visH);
   const bw = Math.max(1, maxX - minX);
   const bh = Math.max(1, maxY - minY);
   const s0 = Math.min((MM_W - PAD * 2) / bw, (MM_H - PAD * 2) / bh);
@@ -107,6 +125,35 @@ export function CanvasMinimap({
         onPointerCancel={endDrag}
       >
         <rect x={0} y={0} width={MM_W} height={MM_H} rx={4} fill="var(--surface-page)" />
+        {/* Section frames behind the cards (dashed, like on the canvas). */}
+        {sections.map((sec) => (
+          <rect
+            key={sec.id}
+            x={tx(sec.x)}
+            y={ty(sec.y)}
+            width={Math.max(2, sec.w * tf.s)}
+            height={Math.max(2, sec.h * tf.s)}
+            rx={2}
+            fill="var(--accent)"
+            fillOpacity={0.05}
+            stroke="var(--accent)"
+            strokeOpacity={0.5}
+            strokeWidth={0.5}
+            strokeDasharray="2 2"
+          />
+        ))}
+        {/* Sticky notes — small filled marks (behind cards, above sections). */}
+        {notes.map((n) => (
+          <rect
+            key={n.id}
+            x={tx(n.x)}
+            y={ty(n.y)}
+            width={Math.max(2, n.w * tf.s)}
+            height={Math.max(2, n.h * tf.s)}
+            rx={1}
+            className={NOTE_FILL[n.color]}
+          />
+        ))}
         {entries.map(([id, r]) => (
           <rect
             key={id}

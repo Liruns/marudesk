@@ -41,6 +41,9 @@ export type Viewport = { panX: number; panY: number; scale: number };
 
 /** Which face of a card an edge attaches to (4-directional ports). */
 export type EdgeSide = 'top' | 'right' | 'bottom' | 'left';
+
+/** Edge/center a multi-selection can be aligned to (h* = horizontal axis). */
+export type AlignEdge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
 /** How edges are drawn: a flowing bezier or right-angled (orthogonal) routing. */
 export type EdgeStyle = 'curve' | 'orthogonal';
 export const EDGE_SIDES: readonly EdgeSide[] = ['top', 'right', 'bottom', 'left'];
@@ -85,6 +88,32 @@ export type CardSection = {
   h: number;
 };
 
+/**
+ * A free-floating sticky note on the canvas — a lightweight annotation layer
+ * (Miro/FigJam parity) for jotting next to the work. Like {@link CardSection}
+ * it's pure canvas-space geometry + text (no tab refs), so it serializes verbatim
+ * and survives a restart directly.
+ */
+export type CanvasNote = {
+  id: string;
+  text: string;
+  color: TabGroupColor;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/**
+ * A saved camera position on a canvas (Figma "saveable views"): jump back to a
+ * named pan+zoom. Per-canvas metadata, so it serializes verbatim like notes.
+ */
+export type CanvasBookmark = {
+  id: string;
+  name: string;
+  viewport: Viewport;
+};
+
 /** Pad a section frame this far beyond the bounding box of its seed cards. */
 export const SECTION_PAD = 28;
 /** Height of the section's title/header band (canvas px). */
@@ -110,6 +139,22 @@ function newSectionId(): string {
   sectionSeq += 1;
   return `sec_${sectionSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
 }
+
+let noteSeq = 0;
+function newNoteId(): string {
+  noteSeq += 1;
+  return `note_${noteSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
+}
+
+let bookmarkSeq = 0;
+function newBookmarkId(): string {
+  bookmarkSeq += 1;
+  return `bm_${bookmarkSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
+}
+
+/** Default sticky-note size (canvas px). */
+const NOTE_W = 220;
+const NOTE_H = 160;
 
 /** Section hues, cycled so consecutive new sections read as distinct. */
 const SECTION_COLORS: readonly TabGroupColor[] = ['violet', 'blue', 'teal', 'green', 'amber', 'rose'];
@@ -236,6 +281,8 @@ export type CanvasDoc = {
   groups: CardGroup[];
   /** Labeled section frames grouping the cards inside them (FigJam-style). */
   sections: CardSection[];
+  notes: CanvasNote[];
+  bookmarks: CanvasBookmark[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins (per-canvas). */
   topZ: number;
@@ -260,6 +307,8 @@ function emptyCanvas(name: string): CanvasDoc {
     edgeStyle: 'curve',
     groups: [],
     sections: [],
+    notes: [],
+    bookmarks: [],
     viewport: { panX: 0, panY: 0, scale: 1 },
     topZ: 1,
   };
@@ -430,6 +479,8 @@ type CanvasSnapshot = {
   // Sections are pure canvas-space geometry (no tab-id refs), so they serialize
   // verbatim and survive a restart directly — unlike nodes/edges.
   sections: CardSection[];
+  notes: CanvasNote[];
+  bookmarks: CanvasBookmark[];
 };
 type WorkspaceSnapshot = { activeId: string; canvases: CanvasSnapshot[] };
 
@@ -479,6 +530,8 @@ function serializeCanvas(doc: CanvasDoc, tabsById: Map<string, TabState>): Canva
     nodes,
     edges,
     sections: doc.sections,
+    notes: doc.notes,
+    bookmarks: doc.bookmarks,
   };
 }
 
@@ -525,6 +578,42 @@ function parseSections(raw: unknown): CardSection[] {
   return out;
 }
 
+function parseNotes(raw: unknown): CanvasNote[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CanvasNote[] = [];
+  for (const val of raw) {
+    if (typeof val !== 'object' || val === null) continue;
+    const n = val as Record<string, unknown>;
+    if (!(isStr(n.id) && isNum(n.x) && isNum(n.y) && isNum(n.w) && isNum(n.h))) continue;
+    out.push({
+      id: n.id,
+      text: isStr(n.text) ? n.text : '',
+      color: isSectionColor(n.color) ? n.color : 'amber',
+      x: n.x,
+      y: n.y,
+      w: Math.max(120, n.w),
+      h: Math.max(80, n.h),
+    });
+  }
+  return out;
+}
+
+function parseBookmarks(raw: unknown): CanvasBookmark[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CanvasBookmark[] = [];
+  for (const val of raw) {
+    if (typeof val !== 'object' || val === null) continue;
+    const b = val as Record<string, unknown>;
+    if (!isStr(b.id)) continue;
+    out.push({
+      id: b.id,
+      name: isStr(b.name) ? b.name : 'View',
+      viewport: parseViewport(b.viewport),
+    });
+  }
+  return out;
+}
+
 function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
@@ -558,6 +647,8 @@ function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
     nodes,
     edges,
     sections: parseSections(r.sections),
+    notes: parseNotes(r.notes),
+    bookmarks: parseBookmarks(r.bookmarks),
   };
 }
 
@@ -585,6 +676,8 @@ function metadataDoc(snap: CanvasSnapshot): CanvasDoc {
     // Sections are tab-independent geometry, so they're valid pre-reconcile —
     // carry them straight onto the metadata doc so a section shows immediately.
     sections: snap.sections ?? [],
+    notes: snap.notes ?? [],
+    bookmarks: snap.bookmarks ?? [],
     viewport: snap.viewport,
     topZ: 1,
   };
@@ -665,6 +758,8 @@ function reconcileWorkspace(snaps: readonly CanvasSnapshot[], tabs: readonly Tab
       edgeStyle: snap.edgeStyle,
       groups,
       sections: snap.sections ?? [],
+      notes: snap.notes ?? [],
+      bookmarks: snap.bookmarks ?? [],
       viewport: snap.viewport,
       topZ: z || 1,
     };
@@ -738,6 +833,8 @@ type CanvasState = {
   groups: CardGroup[];
   /** Labeled section frames grouping the cards inside them (FigJam-style). */
   sections: CardSection[];
+  notes: CanvasNote[];
+  bookmarks: CanvasBookmark[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins. */
   topZ: number;
@@ -757,6 +854,9 @@ type CanvasState = {
    * Not persisted (purely a hand-off buffer).
    */
   pendingPlacements: Record<string, { x: number; y: number; w: number; h: number }>;
+  /** Last measured canvas container size (screen px), so reveal/fit can frame a
+   *  card without the CanvasStage component handing its size in. In-memory. */
+  viewportSize: { w: number; h: number };
 };
 
 /** A canvas's switcher-facing summary (id + name + open flag). */
@@ -785,6 +885,12 @@ type CanvasActions = {
   bringToFront: (tabId: string) => void;
   sendToBack: (tabId: string) => void;
   setFocused: (tabId: string | null) => void;
+  /** Record the canvas container size (px) — CanvasStage's ResizeObserver feeds it. */
+  setViewportSize: (w: number, h: number) => void;
+  /** Focus a tab's card, raise it, and pan/zoom the camera to frame it. Used by
+   *  the tab palette / search to "jump to a card" on the infinite canvas. No-op
+   *  if the tab isn't placed on the open canvas. */
+  revealTab: (tabId: string) => void;
   /** Replace the multi-selection (placement keys). */
   setSelection: (keys: string[]) => void;
   /** Add/remove one key from the multi-selection (shift-click). */
@@ -830,6 +936,30 @@ type CanvasActions = {
   removeSection: (id: string) => void;
   /** Card placement keys whose centre falls inside section `id` (spatial members). */
   sectionMemberKeys: (id: string) => string[];
+
+  /* ── sticky notes (annotation layer) ── */
+  /** Add a note centered on a canvas point; returns its id. */
+  addNote: (at: { x: number; y: number }) => string;
+  /** Move a note to an absolute canvas position. */
+  setNotePos: (id: string, x: number, y: number) => void;
+  /** Resize a note (clamped to a sane minimum). */
+  setNoteSize: (id: string, w: number, h: number) => void;
+  /** Replace a note's text. */
+  setNoteText: (id: string, text: string) => void;
+  /** Recolor a note. */
+  setNoteColor: (id: string, color: TabGroupColor) => void;
+  /** Delete a note. */
+  removeNote: (id: string) => void;
+
+  /* ── camera bookmarks (saved views) ── */
+  /** Save the current viewport as a named view on the open canvas; returns its id. */
+  addBookmark: (name?: string) => string;
+  /** Animate the camera to a saved view. */
+  jumpToBookmark: (id: string) => void;
+  /** Delete a saved view. */
+  removeBookmark: (id: string) => void;
+  /** Delete all saved views on the open canvas. */
+  clearBookmarks: () => void;
   /** Commit a section drag: move the section + its member cards + nested sections
    *  by (dx,dy) from captured origins in ONE update (one re-render). The live drag
    *  itself is painted straight to the DOM, so this only runs on release. */
@@ -865,6 +995,15 @@ type CanvasActions = {
   /** Tidy all unlocked cards into an aligned grid, animated into place (ported
       packGrid + easing — reference/pane-porting-map.md §D). */
   arrangeCards: () => void;
+  /** Lay out the cards joined by connections as a left→right layered graph
+   *  (Sugiyama-lite: longest-path layers, centered columns), animated into place.
+   *  Unconnected cards stay put. Pairs with the directed edge arrowheads. */
+  autoLayoutGraph: () => void;
+  /** Align the current multi-selection to a shared edge/center of its bounds. */
+  alignSelection: (edge: AlignEdge) => void;
+  /** Even out the spacing of the current multi-selection along an axis (keeps the
+      two extreme cards fixed, equalizes the edge-to-edge gaps between the rest). */
+  distributeSelection: (axis: 'h' | 'v') => void;
 
   /* ── named-canvas (saved-layout) management ── */
   /** The open workspace's canvases, in switcher order. */
@@ -911,6 +1050,8 @@ function activeDoc(s: CanvasState): CanvasDoc {
     edgeStyle: s.edgeStyle,
     groups: s.groups,
     sections: s.sections,
+    notes: s.notes,
+    bookmarks: s.bookmarks,
     viewport: s.viewport,
     topZ: s.topZ,
   };
@@ -930,7 +1071,7 @@ function snapshotByWorkspace(s: CanvasState): Record<string, WorkspaceCanvases> 
 /** The top-level working-copy fields drawn from a {@link CanvasDoc}. */
 function workingCopy(doc: CanvasDoc): Pick<
   CanvasState,
-  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'viewport' | 'topZ'
+  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'notes' | 'bookmarks' | 'viewport' | 'topZ'
 > {
   return {
     placements: doc.placements,
@@ -938,6 +1079,8 @@ function workingCopy(doc: CanvasDoc): Pick<
     edgeStyle: doc.edgeStyle,
     groups: doc.groups,
     sections: doc.sections,
+    notes: doc.notes,
+    bookmarks: doc.bookmarks,
     viewport: doc.viewport,
     topZ: doc.topZ,
   };
@@ -976,6 +1119,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   selection: [],
   selectedEdgeId: null,
   pendingPlacements: {},
+  viewportSize: { w: 0, h: 0 },
 
   placeNext: (tabId, rect) =>
     set((s) => {
@@ -1289,6 +1433,34 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
   setFocused: (tabId) => set({ focusedTabId: tabId }),
 
+  setViewportSize: (w, h) =>
+    set((s) => (s.viewportSize.w === w && s.viewportSize.h === h ? {} : { viewportSize: { w, h } })),
+
+  revealTab: (tabId) => {
+    const s = get();
+    const grp = s.groups.find((g) => g.tabIds.includes(tabId));
+    const key = grp ? grp.id : tabId;
+    const rect = s.placements[key];
+    if (!rect) return; // not on the open canvas → nothing to frame
+    const z = s.topZ + 1;
+    set((st) => ({
+      focusedTabId: tabId,
+      topZ: z,
+      placements: { ...st.placements, [key]: { ...st.placements[key], z } },
+      // If it's a group member, surface that member in the strip.
+      ...(grp && grp.activeId !== tabId
+        ? { groups: st.groups.map((g) => (g.id === grp.id ? { ...g, activeId: tabId } : g)) }
+        : {}),
+    }));
+    const { w, h } = s.viewportSize;
+    if (w > 0 && h > 0) {
+      // Pan to the card; cap at 100% so a small card doesn't slam to max zoom.
+      get().animateTo(
+        fitPose([rect], { width: w, height: h }, { padding: 120, minScale: SCALE_MIN, maxScale: 1 }),
+      );
+    }
+  },
+
   setSelection: (keys) => set({ selection: [...new Set(keys)] }),
   toggleSelection: (key) =>
     set((s) => ({
@@ -1383,8 +1555,11 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
           },
         };
       }
-      // Maximize: fill the viewport, remembering the prior rect to restore to.
+      // Maximize: fill the viewport, remembering the prior rect to restore to, and
+      // raise it above the rest so no other card floats over the maximized surface.
+      const z = s.topZ + 1;
       return {
+        topZ: z,
         placements: {
           ...s.placements,
           [key]: {
@@ -1394,6 +1569,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             y: vp.y,
             w: vp.w,
             h: vp.h,
+            z,
           },
         },
       };
@@ -1510,6 +1686,58 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     set((st) => ({ sections: [...st.sections, section] }));
     return id;
   },
+
+  addNote: (at) => {
+    const id = newNoteId();
+    const note: CanvasNote = {
+      id,
+      text: '',
+      color: 'amber',
+      x: Math.round(at.x - NOTE_W / 2),
+      y: Math.round(at.y - NOTE_H / 2),
+      w: NOTE_W,
+      h: NOTE_H,
+    };
+    set((s) => ({ notes: [...s.notes, note] }));
+    return id;
+  },
+
+  setNotePos: (id, x, y) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, x, y } : n)) })),
+
+  setNoteSize: (id, w, h) =>
+    set((s) => ({
+      notes: s.notes.map((n) => (n.id === id ? { ...n, w: Math.max(120, w), h: Math.max(80, h) } : n)),
+    })),
+
+  setNoteText: (id, text) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, text } : n)) })),
+
+  setNoteColor: (id, color) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, color } : n)) })),
+
+  removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
+
+  addBookmark: (name) => {
+    const id = newBookmarkId();
+    const s = get();
+    const bm: CanvasBookmark = {
+      id,
+      name: name?.trim() || `View ${s.bookmarks.length + 1}`,
+      viewport: { ...s.viewport },
+    };
+    set((st) => ({ bookmarks: [...st.bookmarks, bm] }));
+    return id;
+  },
+
+  jumpToBookmark: (id) => {
+    const bm = get().bookmarks.find((b) => b.id === id);
+    if (bm) get().animateTo(bm.viewport);
+  },
+
+  removeBookmark: (id) => set((s) => ({ bookmarks: s.bookmarks.filter((b) => b.id !== id) })),
+
+  clearBookmarks: () => set({ bookmarks: [] }),
 
   setSectionPos: (id, x, y) =>
     set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, x, y } : sec)) })),
@@ -1691,6 +1919,169 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     };
     arrangeTweenRaf = requestAnimationFrame(tick);
   },
+
+  autoLayoutGraph: () => {
+    cancelArrangeTween();
+    const s = get();
+    const pl = s.placements;
+    // Edges reference tab ids; resolve to placement keys (group id when merged).
+    // Sections can be edge endpoints too, but they're regions — not laid out.
+    const keyFor = (id: string) => placementKey(s.groups, id);
+    const isCard = (k: string) => !!pl[k] && !s.sections.some((sec) => sec.id === k) && !pl[k].locked;
+    const adj = new Map<string, Set<string>>();
+    const nodes = new Set<string>();
+    for (const e of s.edges) {
+      const a = keyFor(e.from);
+      const b = keyFor(e.to);
+      if (!isCard(a) || !isCard(b) || a === b) continue;
+      nodes.add(a);
+      nodes.add(b);
+      if (!adj.has(a)) adj.set(a, new Set());
+      adj.get(a)!.add(b);
+    }
+    if (nodes.size < 2) return;
+    // Longest-path layering, cycle-safe (cap relaxation by node count).
+    const layer = new Map<string, number>();
+    for (const n of nodes) layer.set(n, 0);
+    for (let iter = 0; iter < nodes.size; iter += 1) {
+      let changed = false;
+      for (const [a, tos] of adj) {
+        const la = layer.get(a) ?? 0;
+        for (const b of tos) {
+          if ((layer.get(b) ?? 0) < la + 1) {
+            layer.set(b, la + 1);
+            changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+    const byLayer = new Map<number, string[]>();
+    for (const n of nodes) {
+      const L = layer.get(n) ?? 0;
+      (byLayer.get(L) ?? byLayer.set(L, []).get(L)!).push(n);
+    }
+    const layers = [...byLayer.keys()].sort((x, y) => x - y);
+    // Stable row order within each column by current y.
+    for (const L of layers) byLayer.get(L)!.sort((a, b) => pl[a].y - pl[b].y);
+    const ns = [...nodes];
+    const originX = Math.min(...ns.map((k) => pl[k].x));
+    const originY = Math.min(...ns.map((k) => pl[k].y));
+    const GAP_X = 80;
+    const GAP_Y = 40;
+    const colTotalH = (L: number) => {
+      const col = byLayer.get(L)!;
+      return col.reduce((sum, k) => sum + pl[k].h, 0) + GAP_Y * (col.length - 1);
+    };
+    const H = Math.max(...layers.map(colTotalH));
+    const midY = originY + H / 2;
+    const colX: number[] = [];
+    let cx = originX;
+    for (const L of layers) {
+      colX[L] = cx;
+      cx += Math.max(...byLayer.get(L)!.map((k) => pl[k].w)) + GAP_X;
+    }
+    const targets: Record<string, { x: number; y: number }> = {};
+    for (const L of layers) {
+      const col = byLayer.get(L)!;
+      let y = midY - colTotalH(L) / 2;
+      for (const k of col) {
+        targets[k] = { x: Math.round(colX[L]), y: Math.round(y) };
+        y += pl[k].h + GAP_Y;
+      }
+    }
+    // Animate to the layout (reuses the arrange tween shape).
+    const keys = Object.keys(targets);
+    const from: Record<string, { x: number; y: number }> = {};
+    for (const k of keys) from[k] = { x: pl[k].x, y: pl[k].y };
+    const apply = (k01: number) =>
+      set((st) => {
+        const next = { ...st.placements };
+        for (const key of keys) {
+          const cur = next[key];
+          const f = from[key];
+          const tt = targets[key];
+          if (!cur || !f || !tt) continue;
+          next[key] = { ...cur, x: f.x + (tt.x - f.x) * k01, y: f.y + (tt.y - f.y) * k01 };
+        }
+        return { placements: next };
+      });
+    if (!canAnimate()) {
+      apply(1);
+      return;
+    }
+    const start = performance.now();
+    const DURATION = 380;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      if (t >= 1) {
+        apply(1);
+        arrangeTweenRaf = null;
+        return;
+      }
+      apply(easeInOutCubic(t));
+      arrangeTweenRaf = requestAnimationFrame(tick);
+    };
+    arrangeTweenRaf = requestAnimationFrame(tick);
+  },
+
+  alignSelection: (edge) =>
+    set((s) => {
+      const keys = s.selection.filter((k) => s.placements[k] && !s.placements[k].locked);
+      if (keys.length < 2) return {};
+      const rects = keys.map((k) => s.placements[k]);
+      const minX = Math.min(...rects.map((r) => r.x));
+      const maxR = Math.max(...rects.map((r) => r.x + r.w));
+      const minY = Math.min(...rects.map((r) => r.y));
+      const maxB = Math.max(...rects.map((r) => r.y + r.h));
+      const cx = (minX + maxR) / 2;
+      const cy = (minY + maxB) / 2;
+      const next = { ...s.placements };
+      for (const k of keys) {
+        const r = next[k];
+        let { x, y } = r;
+        if (edge === 'left') x = minX;
+        else if (edge === 'right') x = maxR - r.w;
+        else if (edge === 'hcenter') x = cx - r.w / 2;
+        else if (edge === 'top') y = minY;
+        else if (edge === 'bottom') y = maxB - r.h;
+        else if (edge === 'vcenter') y = cy - r.h / 2;
+        next[k] = { ...r, x: Math.round(x), y: Math.round(y) };
+      }
+      return { placements: next };
+    }),
+
+  distributeSelection: (axis) =>
+    set((s) => {
+      const keys = s.selection.filter((k) => s.placements[k] && !s.placements[k].locked);
+      if (keys.length < 3) return {}; // distributing 2 is a no-op
+      const items = keys
+        .map((k) => ({ k, r: s.placements[k] }))
+        .sort((a, b) => (axis === 'h' ? a.r.x - b.r.x : a.r.y - b.r.y));
+      const first = items[0].r;
+      const last = items[items.length - 1].r;
+      const next = { ...s.placements };
+      if (axis === 'h') {
+        const sizes = items.reduce((sum, o) => sum + o.r.w, 0);
+        const span = last.x + last.w - first.x;
+        const gap = (span - sizes) / (items.length - 1);
+        let cursor = first.x;
+        for (const o of items) {
+          next[o.k] = { ...o.r, x: Math.round(cursor) };
+          cursor += o.r.w + gap;
+        }
+      } else {
+        const sizes = items.reduce((sum, o) => sum + o.r.h, 0);
+        const span = last.y + last.h - first.y;
+        const gap = (span - sizes) / (items.length - 1);
+        let cursor = first.y;
+        for (const o of items) {
+          next[o.k] = { ...o.r, y: Math.round(cursor) };
+          cursor += o.r.h + gap;
+        }
+      }
+      return { placements: next };
+    }),
 
   listCanvases: () => {
     const s = get();

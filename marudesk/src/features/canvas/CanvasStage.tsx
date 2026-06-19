@@ -21,9 +21,21 @@ import {
   Maximize2,
   Minus,
   Pencil,
+  Bookmark,
   Plus,
   RotateCcw,
+  StickyNote,
   Trash2,
+  Workflow,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
+  Scan,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
@@ -37,10 +49,12 @@ import { CanvasCard, type CardGroupProps } from './CanvasCard';
 import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
+import { CanvasNotes } from './CanvasNotes';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
+import { CanvasShortcuts } from './CanvasShortcuts';
 import { easeOutBack, fitPose } from './camera-math';
-import { edgeEndpoints, nearestSide } from './edgeGeometry';
-import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
+import { edgeEndpoints, edgeMidpoint, nearestSide } from './edgeGeometry';
+import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type AlignEdge, type CardGroup, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
 type CanvasMenu =
@@ -147,6 +161,13 @@ function renderedPredicate(vis: Set<string>, groups: readonly CardGroup[]): (key
 }
 
 /**
+ * A live alignment guide shown while a card snaps to another mid-drag: an axis
+ * line at canvas coordinate `at`, spanning `from`→`to` along the other axis so it
+ * visually bridges the dragged card and the card it lined up with.
+ */
+type SnapGuide = { axis: 'x' | 'y'; at: number; from: number; to: number };
+
+/**
  * Focus + raise a card once it has a placement (its card has materialized) — run
  * after creating/opening a card so the new surface becomes the live one
  * immediately (matters for agent cards, which only run live when focused).
@@ -187,6 +208,8 @@ export function CanvasStage() {
   const edgeStyle = useCanvasStore((s) => s.edgeStyle);
   const groups = useCanvasStore((s) => s.groups);
   const sections = useCanvasStore((s) => s.sections);
+  const notes = useCanvasStore((s) => s.notes);
+  const bookmarks = useCanvasStore((s) => s.bookmarks);
   const selection = useCanvasStore((s) => s.selection);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -243,11 +266,18 @@ export function CanvasStage() {
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
   // Canvas-switcher dropdown anchor + the name dialog (new / rename a canvas).
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(null);
+  // Saved-views (camera bookmarks) menu anchor.
+  const [bmMenu, setBmMenu] = useState<{ x: number; y: number } | null>(null);
   const [nameDialog, setNameDialog] = useState<
     { mode: 'new' } | { mode: 'rename'; id: string; initial: string } | null
   >(null);
   // Marquee (drag-box) selection rect in canvas coords while dragging, or null.
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Keyboard cheat-sheet overlay (opened with `?`).
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Live alignment guides shown while a card snaps mid-drag (Figma/tldraw style).
+  const [dragGuides, setDragGuides] = useState<SnapGuide[]>([]);
+  const dragGuidesSigRef = useRef('');
   // True while Space is held → empty-canvas left-drag pans instead of marqueeing.
   const [spacePan, setSpacePan] = useState(false);
 
@@ -274,6 +304,9 @@ export function CanvasStage() {
   const marqueeRef = useRef<{ pointerId: number; ox: number; oy: number } | null>(null);
   const spaceDownRef = useRef(false);
   const [panning, setPanning] = useState(false);
+  // True while a card (or selection) is mid-drag — the floating selection toolbar
+  // hides so it doesn't lag behind the live-painted cards. Toggled twice per drag.
+  const [cardDragging, setCardDragging] = useState(false);
   // Live element refs for web cards, keyed by tab id, so we can measure their
   // screen rects and position the matching native WebContentsViews.
   const webEls = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -461,6 +494,24 @@ export function CanvasStage() {
         clearTimeout(wheelCommitRef.current);
         wheelCommitRef.current = null;
       }
+      // Reduced motion: snap to the target in one step (no rAF glide), keeping the
+      // cursor pinned to the same content. Matches the canvas's other gestures
+      // (pan/card fling, camera tween, tidy) which all skip motion under
+      // prefers-reduced-motion; the zoom glide was the lone holdout.
+      if (prefersReducedMotion()) {
+        if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+        zoomRef.current = null;
+        const cur = liveRef.current ?? lv;
+        const px = (cx - cur.panX) / cur.scale;
+        const py = (cy - cur.panY) / cur.scale;
+        cur.scale = target;
+        cur.panX = cx - px * cur.scale;
+        cur.panY = cy - py * cur.scale;
+        applyLiveTransform();
+        measureWeb();
+        commitLive();
+        return;
+      }
       if (zoomRef.current) {
         // A glide is already running — just retarget it (and re-anchor to the new
         // cursor); the live rAF chain picks up the new target/anchor next frame.
@@ -527,6 +578,9 @@ export function CanvasStage() {
       measureWeb();
       const r = el.getBoundingClientRect();
       setSize({ w: r.width, h: r.height });
+      // Mirror into the store so revealTab/fit can frame a card without the
+      // component passing its size down.
+      useCanvasStore.getState().setViewportSize(r.width, r.height);
     };
     update();
     const ro = new ResizeObserver(update);
@@ -718,11 +772,16 @@ export function CanvasStage() {
   // within a small threshold — Figma-style alignment; free placement elsewhere.
   // Snapped position for a single dragged card (aligns to other rendered cards),
   // computed WITHOUT writing — the live drag paints the result straight to the DOM.
-  const computeSnap = (tabId: string, x: number, y: number): { x: number; y: number } => {
+  const computeSnap = (
+    tabId: string,
+    x: number,
+    y: number,
+    exclude?: ReadonlySet<string>,
+  ): { x: number; y: number; guides: SnapGuide[] } => {
     const store = useCanvasStore.getState();
     const pl = store.placements;
     const cur = pl[tabId];
-    if (!cur) return { x, y };
+    if (!cur) return { x, y, guides: [] };
     const { w, h } = cur;
     // Constant in screen px (so the feel is the same at any zoom).
     const SNAP = 6 / store.viewport.scale;
@@ -733,27 +792,84 @@ export function CanvasStage() {
     let sy = y;
     let dx = SNAP;
     let dy = SNAP;
+    // Track the winning match per axis so a guide line can be drawn at the shared
+    // edge/center and span both cards. `at` is the line coordinate (which may
+    // differ from the snapped origin, e.g. a right-edge alignment).
+    let gx: { at: number; r: CardRect } | null = null;
+    let gy: { at: number; r: CardRect } | null = null;
     // Snap against every rendered card — ungrouped tabs AND merged group cards
     // (keyed by group id), so a card can align to a group, not just plain cards.
+    // [snapTo, lineAt] pairs: where the origin lands vs. where the guide is drawn.
     for (const [k, r] of Object.entries(pl)) {
-      if (k === tabId) continue;
+      if (k === tabId || exclude?.has(k)) continue;
       if (!isRendered(k)) continue;
-      for (const cx of [r.x, r.x + r.w - w, r.x + (r.w - w) / 2, r.x + r.w, r.x - w]) {
-        const d = Math.abs(x - cx);
+      const xc: readonly [number, number][] = [
+        [r.x, r.x], // left ↔ left
+        [r.x + r.w - w, r.x + r.w], // right ↔ right
+        [r.x + (r.w - w) / 2, r.x + r.w / 2], // center ↔ center
+        [r.x + r.w, r.x + r.w], // dragged left edge ↔ r right edge
+        [r.x - w, r.x], // dragged right edge ↔ r left edge
+      ];
+      for (const [snapTo, lineAt] of xc) {
+        const d = Math.abs(x - snapTo);
         if (d < dx) {
           dx = d;
-          sx = cx;
+          sx = snapTo;
+          gx = { at: lineAt, r };
         }
       }
-      for (const cy of [r.y, r.y + r.h - h, r.y + (r.h - h) / 2, r.y + r.h, r.y - h]) {
-        const d = Math.abs(y - cy);
+      const yc: readonly [number, number][] = [
+        [r.y, r.y],
+        [r.y + r.h - h, r.y + r.h],
+        [r.y + (r.h - h) / 2, r.y + r.h / 2],
+        [r.y + r.h, r.y + r.h],
+        [r.y - h, r.y],
+      ];
+      for (const [snapTo, lineAt] of yc) {
+        const d = Math.abs(y - snapTo);
         if (d < dy) {
           dy = d;
-          sy = cy;
+          sy = snapTo;
+          gy = { at: lineAt, r };
         }
       }
     }
-    return { x: sx, y: sy };
+    const guides: SnapGuide[] = [];
+    if (gx) {
+      guides.push({
+        axis: 'x',
+        at: gx.at,
+        from: Math.min(sy, gx.r.y),
+        to: Math.max(sy + h, gx.r.y + gx.r.h),
+      });
+    }
+    if (gy) {
+      guides.push({
+        axis: 'y',
+        at: gy.at,
+        from: Math.min(sx, gy.r.x),
+        to: Math.max(sx + w, gy.r.x + gy.r.w),
+      });
+    }
+    return { x: sx, y: sy, guides };
+  };
+
+  // Publish drag guides only when they actually change (a serialized signature),
+  // so a steady drag doesn't re-render the stage every frame.
+  const setGuidesIfChanged = (guides: SnapGuide[]) => {
+    const sig = guides
+      .map((g) => `${g.axis}:${Math.round(g.at)}:${Math.round(g.from)}:${Math.round(g.to)}`)
+      .join('|');
+    if (sig !== dragGuidesSigRef.current) {
+      dragGuidesSigRef.current = sig;
+      setDragGuides(guides);
+    }
+  };
+  const clearGuides = () => {
+    if (dragGuidesSigRef.current !== '') {
+      dragGuidesSigRef.current = '';
+      setDragGuides([]);
+    }
   };
 
   // Card header drag, painted STRAIGHT to the DOM (no store write / re-render until
@@ -788,6 +904,8 @@ export function CanvasStage() {
   const flushCardDrag = (d: CardDrag) => {
     cardDragRef.current = null;
     cardVelRef.current = null;
+    clearGuides();
+    setCardDragging(false);
     const store = useCanvasStore.getState();
     const origin = d.cards.find((c) => c.key === d.key);
     const last = d.pos[d.key];
@@ -872,6 +990,7 @@ export function CanvasStage() {
         .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
       d = { key, multi, cards, pos: {} };
       cardDragRef.current = d;
+      setCardDragging(true); // hide the floating selection toolbar during the drag
       cardVelRef.current = t != null ? { x, y, t, vx: 0, vy: 0 } : null;
     } else if (t != null) {
       const cv = cardVelRef.current;
@@ -889,11 +1008,19 @@ export function CanvasStage() {
     if (d.multi) {
       const origin = d.cards.find((c) => c.key === key);
       if (!origin) return;
-      const dx = x - origin.ox;
-      const dy = y - origin.oy;
+      // Snap the grabbed card against cards OUTSIDE the selection (a fellow-
+      // selected card is moving too, so it's not a valid anchor), then shift the
+      // whole selection by the snapped delta.
+      const selSet = new Set(d.cards.map((c) => c.key));
+      const snapped = computeSnap(key, x, y, selSet);
+      const dx = snapped.x - origin.ox;
+      const dy = snapped.y - origin.oy;
       for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
+      setGuidesIfChanged(snapped.guides);
     } else {
-      d.pos[key] = computeSnap(key, x, y);
+      const snapped = computeSnap(key, x, y);
+      d.pos[key] = { x: snapped.x, y: snapped.y };
+      setGuidesIfChanged(snapped.guides);
     }
     paintCardDrag();
   };
@@ -901,6 +1028,7 @@ export function CanvasStage() {
   // Release: a fast flick flings the card(s) with an overshoot settle, otherwise
   // commit immediately. `t` is the pointerup timestamp (for a freshness check).
   const commitCardMove = (t?: number) => {
+    clearGuides(); // the snap is committed — drop the live guide lines
     const d = cardDragRef.current;
     if (!d) return;
     const origin = d.cards.find((c) => c.key === d.key);
@@ -1162,6 +1290,47 @@ export function CanvasStage() {
     st.animateTo(
       fitPose([r], { width: size.w, height: size.h }, { padding: 80, titleH: 28 }),
     );
+  };
+
+  // Zoom the camera to fit the current multi-selection (Figma "zoom to selection",
+  // Shift+2). Falls back to the focused card so a lone card still frames.
+  const frameSelection = () => {
+    const st = useCanvasStore.getState();
+    const keys = st.selection.length > 0 ? st.selection : st.focusedTabId ? [keyOf(st.focusedTabId)] : [];
+    const rects = keys.map((k) => st.placements[k]).filter((r): r is CardRect => !!r);
+    if (rects.length === 0) return;
+    st.animateTo(fitPose(rects, { width: size.w, height: size.h }, { padding: 80, titleH: 28 }));
+  };
+  // Latest-value ref so the (intentionally minimal-dep) keydown effect calls the
+  // current frameSelection — which closes over `size` — without re-subscribing.
+  const frameSelectionRef = useRef(frameSelection);
+  useLayoutEffect(() => {
+    frameSelectionRef.current = frameSelection;
+  });
+
+  // Align/distribute + zoom-to-selection menu items, shown when 2+ cards are
+  // selected (Figma-style). Shared by the canvas and card context menus.
+  const alignDistributeItems = (): MenuItem[] => {
+    const store = useCanvasStore.getState();
+    const n = store.selection.filter((k) => store.placements[k]).length;
+    if (n < 2) return [];
+    const items: MenuItem[] = [
+      { type: 'separator' },
+      { label: t('canvas.menu.alignLeft'), onSelect: () => store.alignSelection('left') },
+      { label: t('canvas.menu.alignHCenter'), onSelect: () => store.alignSelection('hcenter') },
+      { label: t('canvas.menu.alignRight'), onSelect: () => store.alignSelection('right') },
+      { label: t('canvas.menu.alignTop'), onSelect: () => store.alignSelection('top') },
+      { label: t('canvas.menu.alignVCenter'), onSelect: () => store.alignSelection('vcenter') },
+      { label: t('canvas.menu.alignBottom'), onSelect: () => store.alignSelection('bottom') },
+    ];
+    if (n >= 3) {
+      items.push(
+        { label: t('canvas.menu.distributeH'), onSelect: () => store.distributeSelection('h') },
+        { label: t('canvas.menu.distributeV'), onSelect: () => store.distributeSelection('v') },
+      );
+    }
+    items.push({ label: t('canvas.menu.zoomToSelection'), onSelect: () => frameSelection() });
+    return items;
   };
 
   // A spot for a NEW card with no explicit drop point (the toolbar button): the
@@ -1464,6 +1633,8 @@ export function CanvasStage() {
           store.clearSelection();
         },
       });
+      // Align/distribute when this card is part of a multi-selection.
+      if (selection.includes(placeKey)) items.push(...alignDistributeItems());
       if (inGroup) {
         items.push({ label: t('canvas.menu.popOut'), onSelect: () => store.popOutTab(m.tabId) });
       }
@@ -1506,6 +1677,7 @@ export function CanvasStage() {
                 store.clearSelection();
               },
             },
+            ...alignDistributeItems(),
             { type: 'separator' as const },
           ]
         : []),
@@ -1513,10 +1685,12 @@ export function CanvasStage() {
       { label: t('canvas.menu.newTerminal'), onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
       { label: t('canvas.menu.newEditor'), onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
       { label: t('canvas.menu.newAiChat'), onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newNote'), icon: <StickyNote size={14} />, onSelect: () => useCanvasStore.getState().addNote(toCanvas(m.x, m.y)) },
       { type: 'separator' },
       { label: t('canvas.control.fit'), onSelect: () => fit() },
       { label: t('canvas.menu.resetZoom'), onSelect: () => animateReset() },
       { label: t('canvas.menu.arrange'), onSelect: () => store.arrangeCards() },
+      { label: t('canvas.menu.autoLayout'), onSelect: () => store.autoLayoutGraph() },
       { type: 'separator' },
       {
         label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
@@ -1547,6 +1721,12 @@ export function CanvasStage() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         setMinimapOpen((v) => !v);
+        return;
+      }
+      // `?` (Shift+/) — the canvas keymap cheat-sheet. Gated off text fields.
+      if (e.key === '?' && !editable) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
         return;
       }
       if (e.code === 'Space' && !editable) {
@@ -1587,6 +1767,13 @@ export function CanvasStage() {
         commitLive(); // fold any in-flight fling before a keyboard camera command
         const st = useCanvasStore.getState();
         const cr = containerRef.current?.getBoundingClientRect();
+        // Shift+2 — zoom to selection (Figma parity). `code` is layout-independent
+        // (Shift+2 emits '@' on US layouts).
+        if (e.shiftKey && e.code === 'Digit2') {
+          e.preventDefault();
+          frameSelectionRef.current();
+          return;
+        }
         if (e.key === '+' || e.key === '=') {
           if (cr) {
             e.preventDefault();
@@ -1711,7 +1898,7 @@ export function CanvasStage() {
       aria-label={t('canvas.label')}
       tabIndex={-1}
     >
-      {cardItems.length === 0 && sections.length === 0 ? (
+      {cardItems.length === 0 && sections.length === 0 && notes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <div className="select-none text-center">
             <div className="text-body-sm text-fg-tertiary">{t('canvas.empty.title')}</div>
@@ -1736,6 +1923,8 @@ export function CanvasStage() {
           scale={viewport.scale}
           onStartConnect={(sectionId, side, cx, cy) => startConnect(sectionId, side, cx, cy)}
         />
+        {/* Sticky notes — annotation layer above sections, beneath the cards. */}
+        <CanvasNotes notes={notes} scale={viewport.scale} />
         {/* Node connections (card↔card, card↔section, section↔section). */}
         <CanvasEdges
           placements={nodeRects}
@@ -1819,13 +2008,16 @@ export function CanvasStage() {
           const a = nodeRects[keyOf(sel.from)];
           const b = nodeRects[keyOf(sel.to)];
           if (!a || !b) return null;
-          const { p1, p2 } = edgeEndpoints(a, b, sel);
+          const { p1, p2, fromSide, toSide } = edgeEndpoints(a, b, sel);
+          // Sit the control on the rendered path (its visual midpoint), not the
+          // straight chord midpoint — a curved or right-angled wire bows away.
+          const mid = edgeMidpoint(edgeStyle, p1, fromSide, p2, toSide);
           return (
             <button
               type="button"
               aria-label={t('canvas.edge.remove')}
               title={t('canvas.edge.remove')}
-              style={{ left: (p1.x + p2.x) / 2 - 11, top: (p1.y + p2.y) / 2 - 11, zIndex: 100000 }}
+              style={{ left: mid.x - 11, top: mid.y - 11, zIndex: 100000 }}
               className="absolute grid h-[22px] w-[22px] place-items-center rounded-pill border border-default bg-surface-2 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
               onPointerDown={(ev) => ev.stopPropagation()}
               onClick={(ev) => {
@@ -1846,12 +2038,42 @@ export function CanvasStage() {
             style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, zIndex: 99999 }}
           />
         ) : null}
+
+        {/* Live alignment guides (canvas coords) — drawn while a dragged card snaps
+            to another's edge/center, so the snap is visible, not silent. Thickness
+            is 1px on screen at any zoom (canvas-space = 1/scale). */}
+        {dragGuides.map((g) => (
+          <div
+            key={`${g.axis}:${g.at}:${g.from}`}
+            aria-hidden
+            className="pointer-events-none absolute bg-accent"
+            style={
+              g.axis === 'x'
+                ? {
+                    left: g.at - 0.5 / viewport.scale,
+                    top: g.from,
+                    width: 1 / viewport.scale,
+                    height: g.to - g.from,
+                    zIndex: 99998,
+                  }
+                : {
+                    left: g.from,
+                    top: g.at - 0.5 / viewport.scale,
+                    width: g.to - g.from,
+                    height: 1 / viewport.scale,
+                    zIndex: 99998,
+                  }
+            }
+          />
+        ))}
       </div>
 
       {/* Minimap (cate parity — ⌘/Ctrl+Shift+M). */}
       {minimapOpen ? (
         <CanvasMinimap
           placements={placements}
+          sections={sections}
+          notes={notes}
           viewport={viewport}
           width={size.w}
           height={size.h}
@@ -1909,7 +2131,97 @@ export function CanvasStage() {
           <Plus size={14} />
           {t('canvas.toolbar.newCard')}
         </button>
+        {/* Saved views (camera bookmarks): jump back to a named pan+zoom. */}
+        <button
+          type="button"
+          title={t('canvas.toolbar.views')}
+          aria-label={t('canvas.toolbar.views')}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setBmMenu({ x: r.left, y: r.bottom + 4 });
+          }}
+          className="inline-flex items-center gap-1 rounded-lg chrome-panel px-2 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
+        >
+          <Bookmark size={14} />
+          {bookmarks.length > 0 ? <span className="tabular-nums">{bookmarks.length}</span> : null}
+        </button>
       </div>
+
+      {/* Floating selection toolbar (Figma-style): align / distribute / section /
+          zoom for a multi-selection, so those actions aren't buried in the
+          right-click menu. Positioned above the selection's bounding box (screen
+          coords); hidden during a drag/pan so it doesn't lag the live cards. */}
+      {(() => {
+        if (selection.length < 2 || cardDragging || panning || marquee || menu || shortcutsOpen) {
+          return null;
+        }
+        const rects = selection.map((k) => placements[k]).filter((r): r is CardRect => !!r);
+        if (rects.length < 2) return null;
+        const minX = Math.min(...rects.map((r) => r.x));
+        const maxX = Math.max(...rects.map((r) => r.x + r.w));
+        const minY = Math.min(...rects.map((r) => r.y));
+        const left = viewport.panX + ((minX + maxX) / 2) * viewport.scale;
+        const top = Math.max(8, viewport.panY + minY * viewport.scale - 44);
+        const align = (edge: AlignEdge) => useCanvasStore.getState().alignSelection(edge);
+        return (
+          <div
+            className="absolute z-50 flex items-center gap-0.5 rounded-lg chrome-popover px-1 py-1"
+            style={{ left, top, transform: 'translateX(-50%)' }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <CtrlButton label={t('canvas.menu.alignLeft')} onClick={() => align('left')}>
+              <AlignStartVertical size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignHCenter')} onClick={() => align('hcenter')}>
+              <AlignCenterVertical size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignRight')} onClick={() => align('right')}>
+              <AlignEndVertical size={15} />
+            </CtrlButton>
+            <div className="mx-0.5 h-5 w-px bg-subtle" />
+            <CtrlButton label={t('canvas.menu.alignTop')} onClick={() => align('top')}>
+              <AlignStartHorizontal size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignVCenter')} onClick={() => align('vcenter')}>
+              <AlignCenterHorizontal size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignBottom')} onClick={() => align('bottom')}>
+              <AlignEndHorizontal size={15} />
+            </CtrlButton>
+            {selection.length >= 3 ? (
+              <>
+                <div className="mx-0.5 h-5 w-px bg-subtle" />
+                <CtrlButton
+                  label={t('canvas.menu.distributeH')}
+                  onClick={() => useCanvasStore.getState().distributeSelection('h')}
+                >
+                  <AlignHorizontalDistributeCenter size={15} />
+                </CtrlButton>
+                <CtrlButton
+                  label={t('canvas.menu.distributeV')}
+                  onClick={() => useCanvasStore.getState().distributeSelection('v')}
+                >
+                  <AlignVerticalDistributeCenter size={15} />
+                </CtrlButton>
+              </>
+            ) : null}
+            <div className="mx-0.5 h-5 w-px bg-subtle" />
+            <CtrlButton
+              label={formatCanvasGroupSection(selection.length)}
+              onClick={() => {
+                const s = useCanvasStore.getState();
+                s.addSection(selection);
+                s.clearSelection();
+              }}
+            >
+              <Group size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.zoomToSelection')} onClick={() => frameSelection()}>
+              <Scan size={15} />
+            </CtrlButton>
+          </div>
+        );
+      })()}
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
@@ -1956,6 +2268,12 @@ export function CanvasStage() {
           <LayoutGrid size={15} />
         </CtrlButton>
         <CtrlButton
+          label={t('canvas.control.autoLayout')}
+          onClick={() => useCanvasStore.getState().autoLayoutGraph()}
+        >
+          <Workflow size={15} />
+        </CtrlButton>
+        <CtrlButton
           label={minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow')}
           onClick={() => setMinimapOpen((v) => !v)}
         >
@@ -1994,6 +2312,39 @@ export function CanvasStage() {
           items={canvasMenuItems()}
         />
       ) : null}
+
+      {bmMenu ? (
+        <ContextMenu
+          x={bmMenu.x}
+          y={bmMenu.y}
+          onClose={() => setBmMenu(null)}
+          items={[
+            ...bookmarks.map((b) => ({
+              label: b.name,
+              icon: <Bookmark size={14} />,
+              onSelect: () => useCanvasStore.getState().jumpToBookmark(b.id),
+            })),
+            ...(bookmarks.length > 0 ? [{ type: 'separator' as const }] : []),
+            {
+              label: t('canvas.menu.saveView'),
+              icon: <Plus size={14} />,
+              onSelect: () => useCanvasStore.getState().addBookmark(),
+            },
+            ...(bookmarks.length > 0
+              ? [
+                  {
+                    label: t('canvas.menu.clearViews'),
+                    icon: <Trash2 size={14} />,
+                    danger: true,
+                    onSelect: () => useCanvasStore.getState().clearBookmarks(),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
+
+      {shortcutsOpen ? <CanvasShortcuts onClose={() => setShortcutsOpen(false)} /> : null}
 
       {nameDialog ? (
         <NameDialog

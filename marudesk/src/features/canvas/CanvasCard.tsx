@@ -499,6 +499,28 @@ export function CanvasCard({
         )}
       </div>
 
+      {/* Semantic zoom (LOD): zoomed far out, the surface is an unreadable smear,
+          so overlay a legible icon+title chip. Sized in inverse-scale units so it
+          stays ~constant on screen, and pointer-events-none so move/select still
+          pass through to the frame. The heavy surface stays mounted underneath —
+          its state (terminal scrollback, editor, page) survives the zoom. (A web
+          card's native view composites above this, so it keeps showing the page.) */}
+      {scale < 0.5 ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-[5] flex flex-col items-center justify-center rounded-lg bg-surface-1 text-fg-secondary"
+          style={{ gap: `${6 / scale}px` }}
+        >
+          <Icon size={Math.round(22 / scale)} />
+          <span
+            className="max-w-[88%] truncate font-medium text-fg-primary"
+            style={{ fontSize: `${13 / scale}px`, lineHeight: 1.2 }}
+          >
+            {title}
+          </span>
+        </div>
+      ) : null}
+
       {/* Connection ports — one per face (top/right/bottom/left), just outside
           the body so they clear a web card's native view. z-20 so each wins its
           overlap with the resize hit-strips (z-10). Drag a port onto another card

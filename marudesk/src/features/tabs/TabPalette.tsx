@@ -10,6 +10,8 @@ import { cn } from '../../lib/cn';
 import { fuzzyScore } from '../search/fuzzy';
 import { useTabsStore } from './store';
 import { tabKinds } from './registry';
+import { useCanvasStore } from '../canvas/store';
+import { useSurfaceStore } from '../canvas/surface';
 import type { TabState } from '../../../shared/browser';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
@@ -71,6 +73,11 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
 
   const choose = (id: string) => {
     void activateTab(id);
+    // On the infinite canvas, also pan/zoom to the picked card — otherwise
+    // activating a tab off-screen leaves you staring at empty canvas.
+    if (useSurfaceStore.getState().mode === 'canvas') {
+      useCanvasStore.getState().revealTab(id);
+    }
     onClose();
   };
 

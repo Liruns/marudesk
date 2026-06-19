@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { launchApp } from './helpers/app';
+import { launchApp, dragCanvasCardHeader, connectCanvasCards } from './helpers/app';
 
 /**
  * Regression specs for the reported infinite-canvas bugs:
@@ -63,15 +63,7 @@ test('canvas: duplicate canvas recreates panels at their saved positions', async
     await expect(cards).toHaveCount(1);
 
     // Drag the single home card to a distinctive spot via its header.
-    const header = page.locator('[data-card-header]').first();
-    const hb = await header.boundingBox();
-    if (!hb) throw new Error('no header box');
-    const grabX = hb.x + hb.width * 0.4;
-    const grabY = hb.y + hb.height / 2;
-    await page.mouse.move(grabX, grabY);
-    await page.mouse.down();
-    await page.mouse.move(grabX + 220, grabY + 160, { steps: 12 });
-    await page.mouse.up();
+    await dragCanvasCardHeader(page, 0, 220, 160);
 
     const movedBox = await cards.first().boundingBox();
     if (!movedBox) throw new Error('no moved card box');
@@ -171,16 +163,11 @@ test('canvas: duplicate preserves positions of multiple distinct cards', async (
     await expect(cards).toHaveCount(2);
 
     // Drag each card's header to a known spot so the two are clearly separated.
-    const dragHeaderBy = async (idx: number, dx: number, dy: number) => {
-      const hb = await page.locator('[data-card-header]').nth(idx).boundingBox();
-      if (!hb) throw new Error('no header');
-      await page.mouse.move(hb.x + hb.width * 0.4, hb.y + hb.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(hb.x + hb.width * 0.4 + dx, hb.y + hb.height / 2 + dy, { steps: 8 });
-      await page.mouse.up();
-    };
-    await dragHeaderBy(0, 60, 40);
-    await dragHeaderBy(1, -40, -30);
+    // dragTo (not raw page.mouse) so the header's setPointerCapture move actually
+    // commits to the store — a raw drag only paints the DOM here, so the duplicate
+    // (which reads the store) would copy the pre-drag spot and flake.
+    await dragCanvasCardHeader(page, 0, 60, 40);
+    await dragCanvasCardHeader(page, 1, -40, -30);
 
     const src = await Promise.all([cards.nth(0).boundingBox(), cards.nth(1).boundingBox()]);
     const srcCenters = src.map((b) => (b ? centerOf(b) : null));
@@ -245,13 +232,7 @@ test('canvas: converting a home card via its launcher keeps its position', async
     await expect(cards).toHaveCount(1);
 
     // Move the home card to a distinctive spot.
-    const header = page.locator('[data-card-header]').first();
-    const hb = await header.boundingBox();
-    if (!hb) throw new Error('no header box');
-    await page.mouse.move(hb.x + hb.width * 0.4, hb.y + hb.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(hb.x + hb.width * 0.4 + 200, hb.y + hb.height / 2 + 150, { steps: 12 });
-    await page.mouse.up();
+    await dragCanvasCardHeader(page, 0, 200, 150);
     const before = await cards.first().boundingBox();
     if (!before) throw new Error('no moved box');
 
@@ -279,14 +260,9 @@ test('canvas: a connection can be made to a merged (group) card', async () => {
     const cards = page.locator('[data-canvas-card]');
     await expect(cards).toHaveCount(2);
     await page.getByRole('button', { name: 'Fit to content' }).click();
+    // dragTo (not raw page.mouse) so the header's setPointerCapture drag arms.
     const headers = page.locator('[data-card-header]');
-    const h1 = await headers.nth(0).boundingBox();
-    const h2 = await headers.nth(1).boundingBox();
-    if (!h1 || !h2) throw new Error('no header boxes');
-    await page.mouse.move(h1.x + h1.width / 2, h1.y + h1.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(h2.x + h2.width / 2, h2.y + h2.height / 2, { steps: 12 });
-    await page.mouse.up();
+    await headers.nth(0).dragTo(headers.nth(1));
     await expect(cards).toHaveCount(1);
     await expect(page.getByRole('tab')).toHaveCount(2); // the group strip
 
@@ -297,16 +273,9 @@ test('canvas: a connection can be made to a merged (group) card', async () => {
 
     const groupCard = cards.filter({ has: page.getByRole('tab') });
     const plainCard = cards.filter({ hasNot: page.getByRole('tab') });
-    const port = plainCard.getByRole('button', { name: 'Connect from right edge' });
-    const pb = await port.boundingBox();
-    const gb = await groupCard.boundingBox();
-    if (!pb || !gb) throw new Error('missing port/group boxes');
 
     // Drag a connection from the plain card onto the GROUP card.
-    await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(gb.x + gb.width / 2, gb.y + gb.height / 2, { steps: 12 });
-    await page.mouse.up();
+    await connectCanvasCards(page, plainCard, groupCard);
 
     // An edge to the group must exist (was silently dropped before the fix).
     await expect(page.locator('[data-edge-id]')).toHaveCount(1);
@@ -359,15 +328,8 @@ test('canvas: with an edge selected, Delete removes the edge only (not a focused
     await expect(cards).toHaveCount(2);
     await page.getByRole('button', { name: 'Fit to content' }).click();
 
-    // Wire an edge from card 0's right port onto card 1 → auto-selected.
-    const port = page.getByRole('button', { name: 'Connect from right edge' }).first();
-    const pb = await port.boundingBox();
-    const c1 = await cards.nth(1).boundingBox();
-    if (!pb || !c1) throw new Error('missing boxes');
-    await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(c1.x + c1.width / 2, c1.y + c1.height / 2, { steps: 10 });
-    await page.mouse.up();
+    // Wire an edge from card 0's port onto card 1 → auto-selected.
+    await connectCanvasCards(page, cards.nth(0), cards.nth(1));
     await expect(page.locator('[data-edge-id]')).toHaveCount(1);
 
     // Focus a card frame (its header) — the edge stays selected.

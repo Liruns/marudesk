@@ -1,13 +1,15 @@
-import { test, expect, type ElectronApplication } from '@playwright/test';
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import type { AgentChatState } from '../shared/agent';
 import { launchApp } from './helpers/app';
 
 test('agent: subagent tool card shows child task, model, and result', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: /AI Chat/ }).click();
+    // The Home grid has two chat launchers ("AI Chat" + "AI Chat (CLI)"); target
+    // the agent one by its description so the name isn't ambiguous.
+    await page.getByRole('button', { name: /AI Chat Agent/ }).click();
 
-    await emitAgentState(app, chatStateWithSubagentTool());
+    await emitAgentState(app, page, chatStateWithSubagentTool());
     const main = page.getByRole('main');
     const subagentCard = main.getByRole('button', { name: /Subagent/ });
     await expect(subagentCard).toBeVisible();
@@ -64,13 +66,31 @@ function chatStateWithSubagentTool(): AgentChatState {
   };
 }
 
-async function emitAgentState(app: ElectronApplication, state: AgentChatState): Promise<void> {
+/**
+ * Emit agent state to the thread bound to the default (unscoped) AI Chat tab.
+ * Every agent tab now owns its own thread (bound via `agent:thread-event`), so a
+ * plain `agent:event` is no longer received by thread-bound panes. Wait for the
+ * composer (the tab's thread is bound), resolve its active thread from the system
+ * workspace, then emit to that thread. Mirrors agent.spec's helper.
+ */
+async function emitAgentState(
+  app: ElectronApplication,
+  page: Page,
+  state: AgentChatState,
+): Promise<void> {
+  await expect(page.getByRole('main').getByLabel('Agent prompt')).toBeVisible();
+  await page.waitForTimeout(50);
+  const threads = await page.evaluate(() =>
+    window.marudesk.invoke('agent:list-threads', { workspaceId: 'system' }),
+  );
+  const active = (threads as { id: string; active: boolean }[]).find((t) => t.active);
+  if (!active) throw new Error('No active system-workspace thread found after tab was ready');
   await app.evaluate(
     ({ BrowserWindow }, payload) => {
       const win = BrowserWindow.getAllWindows()[0];
       if (!win) throw new Error('Main window not found');
-      win.webContents.send('agent:event', payload);
+      win.webContents.send('agent:thread-event', payload);
     },
-    state,
+    { threadId: active.id, state },
   );
 }

@@ -119,6 +119,41 @@ export function edgeEndpoints(
   return { p1: anchorOnSide(a, fromSide), p2: anchorOnSide(b, toSide), fromSide, toSide };
 }
 
+/**
+ * The visual midpoint of an edge's path — where the delete control sits so it
+ * lands ON the wire. The straight chord midpoint floats far off a curve that
+ * bulges along its face normals (a top↔top wire arcs well above the chord), and
+ * off the elbow of an orthogonal route; this follows the same control points as
+ * {@link pathFor} so the control tracks the rendered path.
+ */
+export function edgeMidpoint(
+  style: EdgeStyle,
+  p1: Point,
+  side1: EdgeSide,
+  p2: Point,
+  side2: EdgeSide,
+): Point {
+  const n1 = normal(side1);
+  const n2 = normal(side2);
+  if (style === 'orthogonal') {
+    // Midpoint of the central span between the two face stubs (matches orthoPath).
+    const STUB = 28;
+    const a1 = { x: p1.x + n1.x * STUB, y: p1.y + n1.y * STUB };
+    const a2 = { x: p2.x + n2.x * STUB, y: p2.y + n2.y * STUB };
+    return { x: (a1.x + a2.x) / 2, y: (a1.y + a2.y) / 2 };
+  }
+  // Cubic bezier at t=0.5 with the same control points curvePath uses:
+  // C(0.5) = (p1 + 3·c1 + 3·c2 + p2) / 8.
+  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const k = Math.max(40, dist / 2);
+  const c1 = { x: p1.x + n1.x * k, y: p1.y + n1.y * k };
+  const c2 = { x: p2.x + n2.x * k, y: p2.y + n2.y * k };
+  return {
+    x: (p1.x + 3 * c1.x + 3 * c2.x + p2.x) / 8,
+    y: (p1.y + 3 * c1.y + 3 * c2.y + p2.y) / 8,
+  };
+}
+
 /** The face nearest an interior point — pins a dropped edge end to where aimed. */
 export function nearestSide(r: CardRect, pt: Point): EdgeSide {
   const d: Record<EdgeSide, number> = {
