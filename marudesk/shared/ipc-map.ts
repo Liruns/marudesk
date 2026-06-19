@@ -46,7 +46,14 @@ import type {
 import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
 import type { Spec, SpecInput } from './specs';
-import type { WorkGraph, RunTaskInput, RunTaskResult, ImplementTaskResult } from './work-os';
+import type {
+  WorkGraph,
+  RunTaskInput,
+  RunTaskResult,
+  ImplementTaskResult,
+  ApplyPatchInput,
+  ApplyPatchResult,
+} from './work-os';
 import type { LaneDevState, LaneDevStartResult } from './lanes';
 import type { LaneGithubStatusResult } from './lane-github';
 import type {
@@ -586,6 +593,8 @@ export interface IpcMap {
   'workos:run-task': { args: [input: RunTaskInput]; result: RunTaskResult };
   /** AI Work OS: implement one task write-capably in an isolated worktree → diff. */
   'workos:implement-task': { args: [input: RunTaskInput]; result: ImplementTaskResult };
+  /** AI Work OS: apply a task's reviewed worktree diff to the live workspace. */
+  'workos:apply-patch': { args: [input: ApplyPatchInput]; result: ApplyPatchResult };
   'specs:delete': { args: [payload: { id: string }]; result: boolean };
 
   // per-lane dev server (§3.8 Mission Control)

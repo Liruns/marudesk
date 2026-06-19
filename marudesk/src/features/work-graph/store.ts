@@ -188,6 +188,8 @@ type WorkGraphState = {
   runToken: number;
   /** A short notice from the last run (e.g. the dry-run fallback reason), or null. */
   runNote: string | null;
+  /** The task whose patch is being applied to the live workspace, or null. */
+  applyingPatchTaskId: TaskId | null;
 };
 
 type WorkGraphActions = {
@@ -236,6 +238,12 @@ type WorkGraphActions = {
    * workspace is never modified. No-op while a run is in flight.
    */
   implementTask: (id: TaskId) => Promise<void>;
+  /**
+   * Apply a task's reviewed worktree diff (`Task.evidence.patch`) to the LIVE
+   * workspace via `workos:apply-patch`. Rejected (not forced) when the live tree
+   * drifted since Implement ran. No-op without a patch or while already applying.
+   */
+  applyPatch: (id: TaskId) => Promise<void>;
   /** Stop the active run/implement: invalidate its token + return running tasks to planned. */
   stopRun: () => void;
 };
@@ -319,6 +327,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   running: false,
   runToken: 0,
   runNote: null,
+  applyingPatchTaskId: null,
 
   setGraph: (graph) =>
     set((s) => ({
@@ -648,6 +657,46 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         running: false,
         runNote: 'Implement failed.',
       }));
+    }
+  },
+
+  applyPatch: async (id) => {
+    const s0 = get();
+    if (s0.applyingPatchTaskId) return; // an apply is already in flight
+    const task = s0.graph?.tasks.find((t) => t.id === id);
+    const patch = task?.evidence?.patch;
+    if (!task || !patch || !patch.trim()) return;
+    set({ applyingPatchTaskId: id, runNote: null });
+    try {
+      const res = await window.marudesk.invoke('workos:apply-patch', { taskId: id, patch });
+      set((s) => {
+        if (!res.ok) return { applyingPatchTaskId: null, runNote: res.reason };
+        const verdict = res.verdict;
+        const files = `Applied ${res.changedFiles.length} file(s) to the workspace`;
+        // Roadmap §7-4: the single workspace-verify result fills the task's
+        // acceptance verdicts — a real pass/fail from the checker, not a claim.
+        const at = Date.now();
+        const graph =
+          s.graph && verdict
+            ? touch({
+                ...s.graph,
+                tasks: s.graph.tasks.map((t) =>
+                  t.id === id
+                    ? { ...t, acceptance: t.acceptance.map((c) => ({ ...c, verdict, checkedAt: at })) }
+                    : t,
+                ),
+              })
+            : s.graph;
+        const note =
+          verdict === 'pass'
+            ? `${files} — workspace verify passed; acceptance marked pass.`
+            : verdict === 'fail'
+              ? `${files} — workspace verify found errors; acceptance marked fail.`
+              : `${files}.`;
+        return { applyingPatchTaskId: null, runNote: note, graph };
+      });
+    } catch {
+      set({ applyingPatchTaskId: null, runNote: 'Applying the patch failed.' });
     }
   },
 
