@@ -1264,6 +1264,47 @@ export function CanvasStage() {
     );
   };
 
+  // Zoom the camera to fit the current multi-selection (Figma "zoom to selection",
+  // Shift+2). Falls back to the focused card so a lone card still frames.
+  const frameSelection = () => {
+    const st = useCanvasStore.getState();
+    const keys = st.selection.length > 0 ? st.selection : st.focusedTabId ? [keyOf(st.focusedTabId)] : [];
+    const rects = keys.map((k) => st.placements[k]).filter((r): r is CardRect => !!r);
+    if (rects.length === 0) return;
+    st.animateTo(fitPose(rects, { width: size.w, height: size.h }, { padding: 80, titleH: 28 }));
+  };
+  // Latest-value ref so the (intentionally minimal-dep) keydown effect calls the
+  // current frameSelection — which closes over `size` — without re-subscribing.
+  const frameSelectionRef = useRef(frameSelection);
+  useLayoutEffect(() => {
+    frameSelectionRef.current = frameSelection;
+  });
+
+  // Align/distribute + zoom-to-selection menu items, shown when 2+ cards are
+  // selected (Figma-style). Shared by the canvas and card context menus.
+  const alignDistributeItems = (): MenuItem[] => {
+    const store = useCanvasStore.getState();
+    const n = store.selection.filter((k) => store.placements[k]).length;
+    if (n < 2) return [];
+    const items: MenuItem[] = [
+      { type: 'separator' },
+      { label: t('canvas.menu.alignLeft'), onSelect: () => store.alignSelection('left') },
+      { label: t('canvas.menu.alignHCenter'), onSelect: () => store.alignSelection('hcenter') },
+      { label: t('canvas.menu.alignRight'), onSelect: () => store.alignSelection('right') },
+      { label: t('canvas.menu.alignTop'), onSelect: () => store.alignSelection('top') },
+      { label: t('canvas.menu.alignVCenter'), onSelect: () => store.alignSelection('vcenter') },
+      { label: t('canvas.menu.alignBottom'), onSelect: () => store.alignSelection('bottom') },
+    ];
+    if (n >= 3) {
+      items.push(
+        { label: t('canvas.menu.distributeH'), onSelect: () => store.distributeSelection('h') },
+        { label: t('canvas.menu.distributeV'), onSelect: () => store.distributeSelection('v') },
+      );
+    }
+    items.push({ label: t('canvas.menu.zoomToSelection'), onSelect: () => frameSelection() });
+    return items;
+  };
+
   // A spot for a NEW card with no explicit drop point (the toolbar button): the
   // first free grid cell inside the visible viewport, so it always lands on-screen
   // (not at the off-screen canvas origin when panned away) AND doesn't stack on an
@@ -1564,6 +1605,8 @@ export function CanvasStage() {
           store.clearSelection();
         },
       });
+      // Align/distribute when this card is part of a multi-selection.
+      if (selection.includes(placeKey)) items.push(...alignDistributeItems());
       if (inGroup) {
         items.push({ label: t('canvas.menu.popOut'), onSelect: () => store.popOutTab(m.tabId) });
       }
@@ -1606,6 +1649,7 @@ export function CanvasStage() {
                 store.clearSelection();
               },
             },
+            ...alignDistributeItems(),
             { type: 'separator' as const },
           ]
         : []),
@@ -1687,6 +1731,13 @@ export function CanvasStage() {
         commitLive(); // fold any in-flight fling before a keyboard camera command
         const st = useCanvasStore.getState();
         const cr = containerRef.current?.getBoundingClientRect();
+        // Shift+2 — zoom to selection (Figma parity). `code` is layout-independent
+        // (Shift+2 emits '@' on US layouts).
+        if (e.shiftKey && e.code === 'Digit2') {
+          e.preventDefault();
+          frameSelectionRef.current();
+          return;
+        }
         if (e.key === '+' || e.key === '=') {
           if (cr) {
             e.preventDefault();

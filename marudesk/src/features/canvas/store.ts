@@ -41,6 +41,9 @@ export type Viewport = { panX: number; panY: number; scale: number };
 
 /** Which face of a card an edge attaches to (4-directional ports). */
 export type EdgeSide = 'top' | 'right' | 'bottom' | 'left';
+
+/** Edge/center a multi-selection can be aligned to (h* = horizontal axis). */
+export type AlignEdge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
 /** How edges are drawn: a flowing bezier or right-angled (orthogonal) routing. */
 export type EdgeStyle = 'curve' | 'orthogonal';
 export const EDGE_SIDES: readonly EdgeSide[] = ['top', 'right', 'bottom', 'left'];
@@ -865,6 +868,11 @@ type CanvasActions = {
   /** Tidy all unlocked cards into an aligned grid, animated into place (ported
       packGrid + easing — reference/pane-porting-map.md §D). */
   arrangeCards: () => void;
+  /** Align the current multi-selection to a shared edge/center of its bounds. */
+  alignSelection: (edge: AlignEdge) => void;
+  /** Even out the spacing of the current multi-selection along an axis (keeps the
+      two extreme cards fixed, equalizes the edge-to-edge gaps between the rest). */
+  distributeSelection: (axis: 'h' | 'v') => void;
 
   /* ── named-canvas (saved-layout) management ── */
   /** The open workspace's canvases, in switcher order. */
@@ -1695,6 +1703,64 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     };
     arrangeTweenRaf = requestAnimationFrame(tick);
   },
+
+  alignSelection: (edge) =>
+    set((s) => {
+      const keys = s.selection.filter((k) => s.placements[k] && !s.placements[k].locked);
+      if (keys.length < 2) return {};
+      const rects = keys.map((k) => s.placements[k]);
+      const minX = Math.min(...rects.map((r) => r.x));
+      const maxR = Math.max(...rects.map((r) => r.x + r.w));
+      const minY = Math.min(...rects.map((r) => r.y));
+      const maxB = Math.max(...rects.map((r) => r.y + r.h));
+      const cx = (minX + maxR) / 2;
+      const cy = (minY + maxB) / 2;
+      const next = { ...s.placements };
+      for (const k of keys) {
+        const r = next[k];
+        let { x, y } = r;
+        if (edge === 'left') x = minX;
+        else if (edge === 'right') x = maxR - r.w;
+        else if (edge === 'hcenter') x = cx - r.w / 2;
+        else if (edge === 'top') y = minY;
+        else if (edge === 'bottom') y = maxB - r.h;
+        else if (edge === 'vcenter') y = cy - r.h / 2;
+        next[k] = { ...r, x: Math.round(x), y: Math.round(y) };
+      }
+      return { placements: next };
+    }),
+
+  distributeSelection: (axis) =>
+    set((s) => {
+      const keys = s.selection.filter((k) => s.placements[k] && !s.placements[k].locked);
+      if (keys.length < 3) return {}; // distributing 2 is a no-op
+      const items = keys
+        .map((k) => ({ k, r: s.placements[k] }))
+        .sort((a, b) => (axis === 'h' ? a.r.x - b.r.x : a.r.y - b.r.y));
+      const first = items[0].r;
+      const last = items[items.length - 1].r;
+      const next = { ...s.placements };
+      if (axis === 'h') {
+        const sizes = items.reduce((sum, o) => sum + o.r.w, 0);
+        const span = last.x + last.w - first.x;
+        const gap = (span - sizes) / (items.length - 1);
+        let cursor = first.x;
+        for (const o of items) {
+          next[o.k] = { ...o.r, x: Math.round(cursor) };
+          cursor += o.r.w + gap;
+        }
+      } else {
+        const sizes = items.reduce((sum, o) => sum + o.r.h, 0);
+        const span = last.y + last.h - first.y;
+        const gap = (span - sizes) / (items.length - 1);
+        let cursor = first.y;
+        for (const o of items) {
+          next[o.k] = { ...o.r, y: Math.round(cursor) };
+          cursor += o.r.h + gap;
+        }
+      }
+      return { placements: next };
+    }),
 
   listCanvases: () => {
     const s = get();
