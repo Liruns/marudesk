@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createElement } from 'react';
-import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { emptyAgentChatState, type AgentChatState } from '../../../shared/agent';
 import { ZERO_NAV, type TabState } from '../../../shared/browser';
@@ -129,6 +129,69 @@ describe('AgentChat composer', () => {
     await waitFor(() =>
       expect(marudesk.invoke).toHaveBeenCalledWith('agent:send', expect.anything()),
     );
+  });
+
+  it('keeps an in-progress draft when a turn completes (no external-update clobber)', async () => {
+    renderChat();
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: 'my next message' } });
+    expect(useAgentStore.getState().draft).toBe('my next message');
+
+    // A finished turn pushes a completed snapshot; ingest() then async-reloads
+    // sessions. Neither should wipe the draft the user is mid-typing.
+    marudesk.emit('agent:event', chatStateWithText('the answer'));
+    await waitFor(() =>
+      expect(marudesk.invoke).toHaveBeenCalledWith('agent:list-sessions', expect.anything()),
+    );
+
+    expect(useAgentStore.getState().draft).toBe('my next message');
+    expect(ta.value).toBe('my next message');
+  });
+
+  it('lets the user keep typing after a turn completes', async () => {
+    renderChat();
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+
+    marudesk.emit('agent:event', chatStateWithText('the answer'));
+    await waitFor(() =>
+      expect(marudesk.invoke).toHaveBeenCalledWith('agent:list-sessions', expect.anything()),
+    );
+
+    // Typing after the turn must still land in the draft.
+    fireEvent.change(ta, { target: { value: 'follow-up question' } });
+    expect(useAgentStore.getState().draft).toBe('follow-up question');
+    expect(ta.value).toBe('follow-up question');
+  });
+
+  it('does not wipe a mid-composition Hangul syllable on a stray re-render (IME-safe)', async () => {
+    renderChat();
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+
+    // A turn finishes — completion snapshot + the async session reload re-render
+    // the panel right as the user starts composing their next message.
+    marudesk.emit('agent:event', chatStateWithText('the answer'));
+    await waitFor(() =>
+      expect(marudesk.invoke).toHaveBeenCalledWith('agent:list-sessions', expect.anything()),
+    );
+
+    // The IME writes the composing syllable straight to the DOM; onChange/draft
+    // lags until compositionend. A controlled `value={draft}` would let React's
+    // value writeback reset node.value to '' here — wiping the syllable. The
+    // uncontrolled composer must leave the composing buffer alone.
+    fireEvent.compositionStart(ta);
+    ta.value = '한';
+    // Flush the stray re-render synchronously (act) so React's commit — and, in
+    // the controlled version, its value writeback — actually runs before we
+    // assert. Without act the re-render is deferred and the clobber is masked.
+    act(() => {
+      marudesk.emit('agent:event', chatStateWithText('the answer'));
+    });
+    expect(ta.value).toBe('한');
+
+    // Finishing the composition commits the settled text to the store.
+    fireEvent.compositionEnd(ta, { target: { value: '한글' } });
+    expect(useAgentStore.getState().draft).toBe('한글');
+    expect(ta.value).toBe('한글');
   });
 
   it('keeps simultaneous workspace chat projections independent', async () => {

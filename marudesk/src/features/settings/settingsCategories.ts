@@ -11,7 +11,6 @@ import {
   KeyRound,
   Palette,
   Plug,
-  Radio,
   SquareTerminal,
 } from 'lucide-react';
 import type { TranslationKey } from '../../i18n/messages';
@@ -104,13 +103,6 @@ const CATEGORY_DEFINITIONS = [
     blurbKey: 'settings.category.automations.blurb',
     icon: Clock,
     keywords: 'automation schedule cron interval daily background prompt recurring 자동화 스케줄 예약 반복 프롬프트',
-  },
-  {
-    id: 'remote',
-    labelKey: 'settings.category.remote.label',
-    blurbKey: 'settings.category.remote.blurb',
-    icon: Radio,
-    keywords: 'remote phone pair qr relay server mobile bridge 원격 휴대폰 페어링 서버',
   },
   {
     id: 'data',

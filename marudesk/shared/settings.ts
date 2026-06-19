@@ -17,7 +17,7 @@ export type ThemeMode = 'dark' | 'light' | 'system';
  * palette × mode × accent compose freely. 'default' is the base Linear
  * graphite and clears the attribute.
  */
-export const THEME_PALETTES = ['default', 'midnight', 'espresso', 'fjord', 'paper'] as const;
+export const THEME_PALETTES = ['default', 'midnight', 'espresso', 'fjord', 'paper', 'pane'] as const;
 export type ThemePalette = (typeof THEME_PALETTES)[number];
 /**
  * Where the custom browser DevTools opens:
@@ -53,7 +53,7 @@ export type AgentApprovalMode = 'read-only' | 'ask' | 'auto' | 'plan';
  * What the window's close button does: 'quit' exits the app; 'tray' hides the
  * window and keeps marudesk running in the background behind a tray icon
  * (Settings → Window). 'tray' is the default so closing the window never kills
- * in-flight agent turns, terminals, or the remote bridge by surprise.
+ * in-flight agent turns or terminals by surprise.
  */
 export type CloseBehavior = 'quit' | 'tray';
 
@@ -218,7 +218,7 @@ export type AppSettings = {
    * PC control — whether the agent may act on the computer OUTSIDE the workspace
    * (open files/folders/URLs in their default app, reveal a path in the file
    * manager). Off by default; even when on, each such call asks for approval
-   * unless the mode is Auto. See docs/remote-mobile-bridge-design §5.
+   * unless the mode is Auto.
    */
   pcControl: {
     enabled: boolean;
@@ -243,54 +243,6 @@ export type AppSettings = {
      */
     persistTabs: boolean;
   };
-  /**
-   * Remote bridge server — a local HTTP server (127.0.0.1 ONLY) that lets a future
-   * companion app drive the AI Chat agent (docs/remote-mobile-bridge-design §M4).
-   * Off by default; when on it binds loopback and requires a bearer token. LAN
-   * exposure / pairing / auth are later phases (M5/M6).
-   */
-  server: {
-    enabled: boolean;
-    /** TCP port for the loopback bind (clamped to 1024–65535). */
-    port: number;
-    /**
-     * Cloud relay (Bridge Model B — docs/bridge-model-b-design.md §B2). When
-     * `cloudEnabled` is on AND a cloud account is logged in, the PC holds an
-     * OUTBOUND host WS to the relay at `relayUrl` so a phone on the same account
-     * can drive the AI Chat from anywhere. Off by default; `relayUrl` is the
-     * non-secret base URL (the account tokens live encrypted in secrets.ts).
-     */
-    relayUrl: string;
-    cloudEnabled: boolean;
-    /**
-     * Optional public base URL where THIS PC's bridge is reachable from outside
-     * the LAN — a self-hosted tunnel (cloudflared/ngrok) or reverse proxy the
-     * user runs in front of `http://localhost:<port>`. When set it is included
-     * in the pairing QR's connect candidates (tried first), so a phone pairs
-     * once and reaches the PC from any network with no cloud relay and nothing
-     * installed on the phone. '' = none.
-     */
-    publicUrl: string;
-    /**
-     * Auto tunnel: while the bridge server runs, the app spawns a cloudflared
-     * quick tunnel (`cloudflared tunnel --url http://127.0.0.1:<port>`) and puts
-     * the captured public URL into the pairing QR — no manual tunnel setup at
-     * all. Needs the `cloudflared` binary on PATH; the quick-tunnel URL changes
-     * on each start, so a stable `publicUrl` (named tunnel / reverse proxy) is
-     * still the better fit for long-lived pairings. Off by default.
-     */
-    tunnelEnabled: boolean;
-    /**
-     * Unattended mode (T2 — docs/t2-secure-pairing-design.md). When on AND the
-     * server is enabled, it skips BOTH human approval gates so a phone can drive
-     * the PC hands-free: (1) device pairing auto-approves (no desktop card), and
-     * (2) gated agent tools (eval_js / cookies / storage / terminal) auto-run
-     * instead of waiting for approval. Off by default; a security trade-off only
-     * for a setup + network you fully trust. `read-only` agent mode still refuses
-     * writes/eval regardless.
-     */
-    skipApprovals: boolean;
-  };
 };
 
 /**
@@ -310,12 +262,8 @@ export type SettingsPatch = {
   lanes?: Partial<AppSettings['lanes']>;
   agent?: Partial<AppSettings['agent']>;
   pcControl?: Partial<AppSettings['pcControl']>;
-  server?: Partial<AppSettings['server']>;
   storage?: Partial<AppSettings['storage']>;
 };
-
-/** Default cloud-relay base URL — the B1 relay's localhost dev port. */
-export const DEFAULT_RELAY_URL = 'http://127.0.0.1:8788';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
@@ -374,15 +322,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pcControl: {
     enabled: false,
   },
-  server: {
-    enabled: false,
-    port: 8787,
-    relayUrl: DEFAULT_RELAY_URL,
-    cloudEnabled: false,
-    publicUrl: '',
-    tunnelEnabled: false,
-    skipApprovals: false,
-  },
   storage: {
     persistSessions: true,
     persistTabs: true,
@@ -397,9 +336,6 @@ export const CHAT_ZOOM_MIN = 80;
 export const CHAT_ZOOM_MAX = 160;
 /** rem anchor: text-scale tokens are authored relative to this px base. */
 export const UI_ZOOM_BASE_PX = 16;
-/** Bridge-server port range — below 1024 needs privilege; cap at the TCP max. */
-export const SERVER_PORT_MIN = 1024;
-export const SERVER_PORT_MAX = 65535;
 
 const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
@@ -422,30 +358,6 @@ const SHELL_SENTINELS: readonly string[] = ['system', 'default', 'os', 'auto', '
 function asShell(value: unknown, fallback: string): string {
   const s = asString(value, fallback);
   return SHELL_SENTINELS.includes(s.trim().toLowerCase()) ? '' : s;
-}
-
-/**
- * Coerce a cloud-relay base URL: a trimmed http(s) URL (trailing slash stripped),
- * else the fallback. A non-URL or non-http(s) value can never reach the relay
- * client (which would otherwise build a request against junk).
- */
-function asRelayUrl(value: unknown, fallback: string): string {
-  if (typeof value !== 'string') return fallback;
-  const trimmed = value.trim().replace(/\/+$/, '');
-  if (trimmed.length === 0) return fallback;
-  try {
-    const u = new URL(trimmed);
-    return u.protocol === 'http:' || u.protocol === 'https:' ? trimmed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-/** Like {@link asRelayUrl}, but an empty string is honored — it means "no public URL". */
-function asOptionalBaseUrl(value: unknown, fallback: string): string {
-  if (typeof value !== 'string') return fallback;
-  if (value.trim().length === 0) return '';
-  return asRelayUrl(value, fallback);
 }
 
 /**
@@ -510,7 +422,6 @@ export function sanitizeSettings(
   const ln = asRecord(root.lanes);
   const ag = asRecord(root.agent);
   const pc = asRecord(root.pcControl);
-  const sv = asRecord(root.server);
   const st = asRecord(root.storage);
 
   return {
@@ -606,15 +517,6 @@ export function sanitizeSettings(
     storage: {
       persistSessions: asBool(st.persistSessions, base.storage.persistSessions),
       persistTabs: asBool(st.persistTabs, base.storage.persistTabs),
-    },
-    server: {
-      enabled: asBool(sv.enabled, base.server.enabled),
-      port: clampNumber(sv.port, base.server.port, SERVER_PORT_MIN, SERVER_PORT_MAX),
-      relayUrl: asRelayUrl(sv.relayUrl, base.server.relayUrl),
-      cloudEnabled: asBool(sv.cloudEnabled, base.server.cloudEnabled),
-      publicUrl: asOptionalBaseUrl(sv.publicUrl, base.server.publicUrl),
-      tunnelEnabled: asBool(sv.tunnelEnabled, base.server.tunnelEnabled),
-      skipApprovals: asBool(sv.skipApprovals, base.server.skipApprovals),
     },
   };
 }

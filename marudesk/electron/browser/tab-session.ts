@@ -5,6 +5,7 @@ import { isTabGroupColor, type TabGroupColor, type TabKind } from '../../shared/
 import type { WorkspaceId } from '../../shared/workspace';
 import { atomicWriteFile } from '../fs-safe';
 import { getActiveTabId, getTabGroup, tabValues } from './state';
+import { displayUrl } from '../../shared/internal-pages';
 
 /**
  * Full tab-session persistence (Settings → Data & Storage → "Restore tabs on
@@ -65,7 +66,9 @@ function sessionFromState(): TabSession {
     let spec: TabSessionSpec | null = null;
     if (rec.kind === 'web' && rec.view) {
       const url = rec.view.webContents.getURL();
-      spec = { kind: 'web', url: url && url !== 'about:blank' ? url : '', pinned: !!rec.pinned };
+      // displayUrl normalizes about:blank / maru://newtab → '' and an error page
+      // back to the URL the user was trying to reach (see internal-pages.ts).
+      spec = { kind: 'web', url: displayUrl(url), pinned: !!rec.pinned };
     } else if (rec.kind === 'editor' && rec.filePath) {
       spec = { kind: 'editor', filePath: rec.filePath, pinned: !!rec.pinned };
     } else if (RESTORABLE_FEATURE_KINDS.has(rec.kind)) {

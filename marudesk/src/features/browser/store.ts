@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Capture } from '../../../shared/capture';
+import { displayUrl } from '../../../shared/internal-pages';
 import { useTabsStore } from '../tabs/store';
 
 /**
@@ -219,9 +220,11 @@ export const useWebPageStore = create<WebPageState & WebPageActions>(
  */
 useTabsStore.subscribe((state, prev) => {
   if (state.nav === prev.nav) return;
-  const navUrl = state.nav.url;
+  // Internal pages read as a clean address: maru://newtab / about:blank → empty,
+  // and the error page → the URL the user tried to reach (so it's editable).
+  const navUrl = displayUrl(state.nav.url);
   useWebPageStore.setState((web) => ({
-    currentUrl: navUrl || web.currentUrl,
+    currentUrl: navUrl,
     pendingUrl:
       web.pendingUrl === web.currentUrl || web.pendingUrl === ''
         ? navUrl

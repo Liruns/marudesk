@@ -11,7 +11,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getSettings } from './settings';
 import { defineHandler } from './ipc/define-handler';
-import { getCompanionConnection, startCompanion } from './server/companion';
+import { getCompanionConnection, startCompanion } from './cli-bridge/companion';
 import { toMessage } from '../shared/to-message';
 import { scrubText } from '../shared/scrub';
 import {

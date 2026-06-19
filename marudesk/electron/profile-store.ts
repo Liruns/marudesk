@@ -9,7 +9,6 @@ import {
   DEFAULT_PROFILE_ID,
   defaultProfilesState,
   sanitizeProfiles,
-  type ProfileLinkedAccount,
   type ProfileMeta,
   type ProfilesState,
 } from '../shared/profiles';
@@ -139,24 +138,6 @@ export async function persistActiveProfile(id: string): Promise<boolean> {
   await writeAtomic({ ...state, activeProfileId: id });
   activeProfileId = id;
   return true;
-}
-
-/**
- * Link (or with null, unlink) a cloud account on the ACTIVE profile — the
- * ProfileSwitcher badge. Called by the relay Google sign-in/sign-out; the link
- * is a display label only (tokens stay in the encrypted vault, per profile).
- */
-export async function setActiveProfileAccount(account: ProfileLinkedAccount | null): Promise<void> {
-  const state = readSync();
-  const next: ProfilesState = {
-    ...state,
-    profiles: state.profiles.map((p) => {
-      if (p.id !== state.activeProfileId) return p;
-      const base: ProfileMeta = { id: p.id, name: p.name };
-      return account ? { ...base, account } : base;
-    }),
-  };
-  await writeAtomic(next);
 }
 
 export function registerProfileHandlers(deps: {

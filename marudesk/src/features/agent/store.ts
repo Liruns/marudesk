@@ -30,6 +30,7 @@ import {
   type PendingFileAttachment,
 } from './chat/attachments';
 import { useDiffCommentsStore } from './chat/diffComments';
+import { acquireCardThread } from './cardThreads';
 
 /**
  * Renderer projection of the agentic AI Chat (docs/agentic-chat-design.md §8).
@@ -99,7 +100,8 @@ type AgentState = {
    * turn finishes. A real queue — each Enter pushes a separate item rather than
    * concatenating into one blob — so the user can line up several follow-ups.
    */
-  /** Active thread id in this workspace, mirrored from the ThreadBar summaries. */
+  /** The conversation this store addresses: a thread-scoped (per-tab) store sets
+   *  it to its bound thread; the workspace store follows whichever thread is active. */
   activeThreadId: string | null;
   /** Prompts staged for the ACTIVE thread while a turn is running. */
   queuedPrompts: { text: string; id: string }[];
@@ -134,7 +136,7 @@ type AgentActions = {
   dequeuePrompt: () => string | null;
   /** Remove one queued prompt by id (the banner's per-item delete). */
   removeQueuedPrompt: (id: string) => void;
-  /** Switch composer-local queue state to the active thread from ThreadBar. */
+  /** Point this store at a thread, switching composer-local state to it. */
   setActiveThreadId: (id: string | null) => void;
   /** Pin the ACTIVE thread to `key` and make it the global default for new threads. */
   setThreadModelKey: (key: string) => void;
@@ -268,6 +270,10 @@ function createAgentStore(
   threadId?: string,
 ): AgentStoreApi {
   const scope = normalizeAgentWorkspaceId(workspaceId);
+  // The thread this store is permanently bound to (a per-tab AI Chat), used to
+  // route hydration/reset/compact at that exact conversation. Aliased so the
+  // per-thread state actions can shadow `threadId` locally without losing it.
+  const boundThreadId = threadId;
   // History/verbosity stay workspace-scoped (shared recall across the workspace's
   // chats); only turn routing + hydration are thread-specific.
   const historyKey = scopedStorageKey(HISTORY_KEY, scope);
@@ -282,7 +288,12 @@ function createAgentStore(
   pendingFiles: [],
   pendingFilesByThread: {},
   promptHistory: loadHistory(historyKey),
-  activeThreadId: null,
+  // A thread-scoped store (a per-tab AI Chat) owns exactly one conversation, so
+  // its active thread IS its bound thread — this keeps dispatch, hydration, and
+  // the per-thread draft/queue maps all keyed to the same id (full per-tab
+  // isolation). The workspace store (drawer / "Fix this") stays unbound (null)
+  // and follows whatever thread is active.
+  activeThreadId: threadId ?? null,
   queuedPrompts: [],
   queuedPromptsByThread: {},
   modelKeyByThread: {},
@@ -637,7 +648,10 @@ function createAgentStore(
 
   resetChat: async () => {
     try {
-      await window.marudesk.invoke('agent:reset', scopedPayload(workspaceId));
+      await window.marudesk.invoke('agent:reset', {
+        ...scopedPayload(workspaceId),
+        ...(boundThreadId ? { threadId: boundThreadId } : {}),
+      });
       useDiffCommentsStore.getState().clearAll();
       const threadId = activeThreadKey(get());
       set((s) => ({
@@ -662,7 +676,11 @@ function createAgentStore(
 
   compact: async (focus?: string) => {
     try {
-      return await window.marudesk.invoke('agent:compact', { ...scopedPayload(workspaceId), focus });
+      return await window.marudesk.invoke('agent:compact', {
+        ...scopedPayload(workspaceId),
+        ...(boundThreadId ? { threadId: boundThreadId } : {}),
+        focus,
+      });
     } catch (err) {
       return { ok: false, reason: toMessage(err) };
     }
@@ -832,20 +850,28 @@ export async function openCliChatTab(workspaceId?: WorkspaceId): Promise<void> {
 }
 
 /**
- * Focus an existing AI Chat tab for the workspace, or create one if none exists.
- * Used by surfaces that need to send a prompt to the workspace's chat session
- * (e.g. "Fix this", specs, captures) — avoids tab clutter while keeping the
- * shared per-workspace agent store reachable.
+ * Focus an existing AI Chat tab for the workspace, or create one if none exists,
+ * and resolve with THAT tab's own thread-scoped store. Each AI Chat tab is an
+ * isolated conversation now, so surfaces that send a prompt ("Fix this", specs,
+ * captures) must target the focused tab's store — not the workspace store, which
+ * no visible tab renders — or the turn would run where the user can't see it.
  */
-export async function focusOrOpenAgentTab(workspaceId?: WorkspaceId): Promise<void> {
+export async function focusOrOpenAgentTab(
+  workspaceId?: WorkspaceId,
+): Promise<AgentStoreApi> {
   const targetWorkspaceId = resolveAgentWorkspaceId(workspaceId);
   const tabsState = useTabsStore.getState();
   const existing = tabsState.tabs.find(
     (t) =>
       t.kind === 'agent' && normalizeAgentWorkspaceId(t.workspaceId) === targetWorkspaceId,
   );
-  if (existing) await tabsState.activateTab(existing.id);
-  else await tabsState.newTab('agent', undefined, targetWorkspaceId);
+  const tabId = existing
+    ? (await tabsState.activateTab(existing.id), existing.id)
+    : await tabsState.newTab('agent', undefined, targetWorkspaceId);
+  // Resolve the tab's bound thread so the prompt lands in the conversation the
+  // user is now looking at (idempotent — the tab's AgentTab shares this thread).
+  const threadId = tabId ? ((await acquireCardThread(tabId, targetWorkspaceId)) ?? undefined) : undefined;
+  return getAgentStore(targetWorkspaceId, threadId);
 }
 
 /**
@@ -857,9 +883,7 @@ export async function focusOrOpenAgentTab(workspaceId?: WorkspaceId): Promise<vo
  * prompt simply waits in the composer.
  */
 export async function askAgent(prompt: string): Promise<void> {
-  const workspaceId = resolveAgentWorkspaceId();
-  await focusOrOpenAgentTab(workspaceId);
-  const store = getAgentStoreForWorkspace(workspaceId).getState();
+  const store = (await focusOrOpenAgentTab()).getState();
   store.setDraft(prompt);
   await store.send();
 }

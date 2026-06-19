@@ -15,6 +15,7 @@ import {
   type TaskStatus,
   type WorkGraph,
 } from '../../../shared/work-os';
+import { useCanvasStore } from '../canvas/store';
 
 /**
  * The AI Work OS task graph rendered as nodes on the canvas (docs/
@@ -40,6 +41,79 @@ export type ConnectResult = { ok: true } | { ok: false; reason: 'self' | 'duplic
 
 const PERSIST_KEY = 'maru.workgraph.v1';
 const LAYOUT = { x0: 120, y0: 120, gapX: 320, gapY: 200 } as const;
+
+// Task-node footprint — must match WorkGraphLayer's NODE_W / NODE_H. Kept local so
+// the store doesn't import the view layer (which imports the store).
+const TASK_NODE_W = 208;
+const TASK_NODE_H = 118;
+// Gutters used when an agent drops tasks into free space.
+const TASK_GAP_X = 96; // between a task and the dependency it flows from
+const TASK_GAP_Y = 56; // between stacked task rows
+const FREE_GUTTER = 140; // clear band kept to the right of the existing tab cards
+
+type Box = { x: number; y: number; w: number; h: number };
+
+function boxesOverlap(a: Box, b: Box): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/**
+ * A free top-left for a new task node at/near `anchor`, nudged straight DOWN past
+ * any occupied box (existing tab cards + task nodes) so a generated task never
+ * lands on top of a tab. Pure → unit-tested in store.test.ts.
+ */
+export function freeTaskSlot(anchor: NodePos, occupied: readonly Box[]): NodePos {
+  const x = anchor.x;
+  let y = anchor.y;
+  const step = TASK_NODE_H + TASK_GAP_Y;
+  for (let guard = 0; guard < 1000; guard += 1) {
+    const cand: Box = { x, y, w: TASK_NODE_W, h: TASK_NODE_H };
+    if (!occupied.some((o) => boxesOverlap(cand, o))) break;
+    y += step;
+  }
+  return { x, y };
+}
+
+/** Every occupied box on the canvas plane: open tab cards + placed task nodes. */
+function occupiedBoxes(taskPos: Record<TaskId, NodePos>, skipTaskId?: TaskId): Box[] {
+  const boxes: Box[] = [];
+  // Tab cards live in the same canvas-space as task nodes (CanvasStage's plane).
+  try {
+    for (const r of Object.values(useCanvasStore.getState().placements)) {
+      boxes.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+    }
+  } catch {
+    // canvas store not ready (tests / headless) — task nodes alone still align.
+  }
+  for (const [id, p] of Object.entries(taskPos)) {
+    if (id === skipTaskId) continue;
+    boxes.push({ x: p.x, y: p.y, w: TASK_NODE_W, h: TASK_NODE_H });
+  }
+  return boxes;
+}
+
+/**
+ * Where to drop an agent-created task. A task with placed dependencies flows to
+ * the RIGHT of its rightmost parent (left→right dependency reading); a root task
+ * starts in the clear band to the right of every existing tab card so the graph
+ * never overlaps the user's tools. {@link freeTaskSlot} then resolves collisions.
+ */
+function agentTaskAnchor(
+  parents: readonly NodePos[],
+  occupied: readonly Box[],
+): NodePos {
+  if (parents.length > 0) {
+    const x = Math.max(...parents.map((p) => p.x)) + TASK_NODE_W + TASK_GAP_X;
+    const y = Math.min(...parents.map((p) => p.y));
+    return { x, y };
+  }
+  // Root: right of all existing content (default to the legacy origin if empty).
+  const right = occupied.reduce((m, b) => Math.max(m, b.x + b.w), Number.NEGATIVE_INFINITY);
+  const top = occupied.reduce((m, b) => Math.min(m, b.y), Number.POSITIVE_INFINITY);
+  const x = Number.isFinite(right) ? right + FREE_GUTTER : LAYOUT.x0;
+  const y = Number.isFinite(top) ? top : LAYOUT.y0;
+  return { x, y };
+}
 
 type Persisted = { graph: WorkGraph | null; pos: Record<TaskId, NodePos> };
 
@@ -85,6 +159,21 @@ function touch(graph: WorkGraph): WorkGraph {
   return { ...graph, updatedAt: Date.now() };
 }
 
+/** A fresh `work` task with the standard defaults (agent executor, empty I/O). */
+function makeTask(fields: { id?: string; title: string; intent: string; acceptance?: Criterion[] }): Task {
+  return {
+    id: fields.id ?? randomId('task'),
+    title: fields.title,
+    intent: fields.intent,
+    kind: 'work',
+    status: 'planned',
+    executor: { type: 'agent', ref: 'agent' },
+    inputs: [],
+    outputs: [],
+    acceptance: fields.acceptance ?? [],
+  };
+}
+
 type WorkGraphState = {
   graph: WorkGraph | null;
   pos: Record<TaskId, NodePos>;
@@ -106,6 +195,20 @@ type WorkGraphActions = {
   setGraph: (graph: WorkGraph) => void;
   clearGraph: () => void;
   addTask: (at?: NodePos) => TaskId;
+  /**
+   * Materialize an agent-created task (the `create_task` MCP tool). Places it in
+   * free space — flowing right of its dependencies, never over a tab card — wires
+   * `depends_on` edges for any `dependsOn` that already exist, and seeds the graph
+   * goal on the first task. Returns the task id.
+   */
+  addTaskFromAgent: (spec: {
+    id?: string;
+    title: string;
+    intent?: string;
+    acceptance?: string[];
+    dependsOn?: readonly string[];
+    goal?: string;
+  }) => TaskId;
   updateTask: (id: TaskId, patch: Partial<Pick<Task, 'title' | 'intent' | 'status' | 'kind'>>) => void;
   deleteTask: (id: TaskId) => void;
   setPos: (id: TaskId, x: number, y: number) => void;
@@ -240,17 +343,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   addTask: (at) => {
     const id = randomId('task');
     set((s) => {
-      const task: Task = {
-        id,
-        title: 'New task',
-        intent: s.graph?.goal ?? '',
-        kind: 'work',
-        status: 'planned',
-        executor: { type: 'agent', ref: 'agent' },
-        inputs: [],
-        outputs: [],
-        acceptance: [],
-      };
+      const task = makeTask({ id, title: 'New task', intent: s.graph?.goal ?? '' });
       const base: WorkGraph = s.graph ?? {
         id: randomId('wg'),
         goal: '',
@@ -266,6 +359,54 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
           ...s.pos,
           [id]: at ?? { x: LAYOUT.x0 + (count % 3) * LAYOUT.gapX, y: LAYOUT.y0 + Math.floor(count / 3) * LAYOUT.gapY },
         },
+        selectedTaskId: id,
+      };
+    });
+    return id;
+  },
+
+  addTaskFromAgent: (spec) => {
+    const id = spec.id ?? randomId('task');
+    set((s) => {
+      const base: WorkGraph = s.graph ?? {
+        id: randomId('wg'),
+        goal: spec.goal?.trim() ?? '',
+        tasks: [],
+        edges: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const goal = base.goal || spec.goal?.trim() || '';
+      const task = makeTask({
+        id,
+        title: spec.title.trim() || 'New task',
+        intent: spec.intent?.trim() || goal,
+        acceptance: (spec.acceptance ?? [])
+          .map((text) => text.trim())
+          .filter(Boolean)
+          .map((text) => ({ id: randomId('crit'), text, verdict: 'unknown' as const })),
+      });
+
+      // Wire depends_on edges for parents that already exist (skip self / cycles).
+      const existingIds = new Set(base.tasks.map((t) => t.id));
+      const parents = (spec.dependsOn ?? []).filter((p) => p !== id && existingIds.has(p));
+      let edges = base.edges;
+      for (const from of parents) {
+        const edgeId = `${from}~${id}~depends_on`;
+        if (edges.some((e) => e.id === edgeId)) continue;
+        const candidate = { ...base, tasks: [...base.tasks, task], edges: [...edges, { id: edgeId, from, to: id, type: 'depends_on' as const }] };
+        if (hasCycle(candidate)) continue;
+        edges = [...edges, { id: edgeId, from, to: id, type: 'depends_on' as const }];
+      }
+
+      // Place it in free space: right of its parents, else right of every card.
+      const parentPos = parents.map((p) => s.pos[p]).filter((p): p is NodePos => !!p);
+      const occupied = occupiedBoxes(s.pos, id);
+      const at = freeTaskSlot(agentTaskAnchor(parentPos, occupied), occupied);
+
+      return {
+        graph: touch({ ...base, goal, tasks: [...base.tasks, task], edges }),
+        pos: { ...s.pos, [id]: at },
         selectedTaskId: id,
       };
     });
@@ -549,17 +690,12 @@ useWorkGraphStore.subscribe(() => {
  */
 export function sampleGraph(goal: string): WorkGraph {
   const g = goal.trim() || 'Ship the feature';
-  const mk = (title: string, intent: string, acceptance: string[]): Task => ({
-    id: randomId('task'),
-    title,
-    intent,
-    kind: 'work',
-    status: 'planned',
-    executor: { type: 'agent', ref: 'agent' },
-    inputs: [],
-    outputs: [],
-    acceptance: acceptance.map((text) => ({ id: randomId('crit'), text, verdict: 'unknown' as const })),
-  });
+  const mk = (title: string, intent: string, acceptance: string[]): Task =>
+    makeTask({
+      title,
+      intent,
+      acceptance: acceptance.map((text) => ({ id: randomId('crit'), text, verdict: 'unknown' as const })),
+    });
   const plan = mk('Plan & scope', `Break down: ${g}`, ['Scope is written down', 'Risks listed']);
   const backend = mk('Implement backend', g, ['Endpoints return 200', 'npm run typecheck passes']);
   const frontend = mk('Implement UI', g, ['Renders without console errors']);

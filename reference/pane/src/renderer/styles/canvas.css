@@ -1,0 +1,320 @@
+/* The infinite-canvas surface (DESIGN §11 roadmap — "many Pane instances float and arrange on one
+   surface"). Its own WebContentsView filling the content region, rendered BEHIND the live page
+   views. This surface draws ONLY pane chrome: a title bar above each pane and a 1px hairline ring
+   around its page rect; the rect interior is a "hole" — the native page view floats there on top,
+   so we paint nothing opaque over it. The window already paints the --canvas substrate behind us,
+   so this document's bg is transparent (base.css). */
+@import "fonts.css";
+@import "tokens.css";
+@import "base.css";
+
+#canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab; /* the empty canvas is the pan surface */
+  /* Dot-grid substrate conveying the infinite pannable surface — a faint low-contrast dot
+     (DESIGN deference; never competes with the page). A single radial-gradient dot tiled by
+     background-size; canvas.js drives background-size (= GRID_STEP × camera.scale) and
+     background-position (= the camera pan offset) from CANVAS_STATE so the grid pans + scales
+     WITH the camera. transparent surface, so it sits over the window's --canvas substrate. */
+  background-image: radial-gradient(circle at center, rgba(255, 255, 255, 0.05) 1px, transparent 1.5px);
+  background-repeat: repeat;
+}
+#canvas.panning { cursor: grabbing; }
+
+/* The empty-canvas hint — one quiet caption centered in the surface when there's nothing to navigate
+   (canvas.js shows it only for a single 'New Tab' pane). Deference: low-contrast, single line.
+   Centered in the VIEWPORT (position:fixed), not world-anchored, so it never pans with the camera;
+   pointer-events:none so it never blocks a pan or the double-click-to-add. DESIGN §10 voice. */
+.canvas-hint {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1; /* above the dot-grid, below the HUD/minimap popovers (z-index:10) */
+  pointer-events: none;
+  white-space: nowrap;
+  color: var(--fg-faint);
+  font-family: var(--font-ui);
+  font-size: 14px; /* DESIGN §3 Body */
+  line-height: 1.45;
+  letter-spacing: -0.006em;
+}
+.canvas-hint.hidden { display: none; }
+
+/* ── A pane's chrome: an absolutely-positioned group laid out in region-local screen px ──
+   .pane is a zero-size anchor at the page rect's top-left; the title bar sits ABOVE it and the
+   ring overlays the page rect. Both are pointer targets; the rect interior stays click-through
+   (the native page view owns it). */
+.pane {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* The frozen snapshot tile — a non-active pane rendered as a scaled bitmap (CANVAS.md §5), so only
+   the active pane needs a live renderer. Fills the page rect; bottom corners meet the title bar's
+   square join. The active pane hides its tile (the live native view shows through the hole). */
+.pane-shot {
+  position: absolute;
+  background-color: var(--canvas);
+  background-size: cover;
+  background-position: top center;
+  background-repeat: no-repeat;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+.pane-shot.hidden { display: none; }
+/* A pane not yet snapshotted reads as a quiet empty surface (the ring + title still mark it):
+   one step lighter than the canvas void it sits on (DESIGN §6 — elevation on dark is a step lighter). */
+.pane-shot.empty { background-color: var(--surface); }
+
+/* The 1px border ring around the page rect — border-as-light (DESIGN §2/§6), no drop shadow.
+   `box-sizing: border-box` keeps the border outside the page content visually; the interior is
+   transparent so the live page shows through. pointer-events:none so drags/wheels over the page
+   rect aren't swallowed by chrome (the native view is on top anyway). */
+.pane-ring {
+  position: absolute;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 0 0 8px 8px; /* meet the title bar's rounded top; square where they join */
+  pointer-events: none;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+.pane.active .pane-ring { border-color: var(--accent-dark); }
+/* Hover (non-active panes): a quiet brighten of the ring toward a stronger hairline — ease motion
+   only (DESIGN §15). The active pane keeps its accent ring and is never overridden. */
+.pane:not(.active):hover .pane-ring { border-color: var(--fg-muted); }
+
+/* Title bar — a small chrome strip ABOVE the page rect (DESIGN §4 component grammar).
+   surface-1 translucent fill, rounded top corners (radius md = 8px), muted control-label text. */
+.pane-title {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  border-radius: 8px 8px 0 0;
+  background: rgba(39, 39, 41, 0.82); /* surface-1 (#272729), translucent */
+  border: 1px solid var(--hairline-strong);
+  border-bottom: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: -0.004em; /* DESIGN §3 control-label tracking */
+  overflow: hidden;
+  cursor: grab; /* drag the title bar to move the pane */
+  transition: background var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.pane-title.dragging { cursor: grabbing; }
+.pane.active .pane-title {
+  border-color: var(--accent-dark);
+  color: var(--fg);
+}
+/* Hover (non-active panes): brighten title text + edge to read as the focus target, ease only. */
+.pane:not(.active):hover .pane-title {
+  border-color: var(--hairline-strong);
+  color: var(--fg);
+}
+
+/* Zoomed far out: the tile is too small to read chrome — hide the title bar (canvas.js adds .tiny
+   when screen.width < 120 or height < 64). The ring + snapshot stay, so the tile still reads. */
+.pane.tiny .pane-title { display: none; }
+
+/* ── Resize handles — ACTIVE pane only ──────────────────────────────────────
+   Eight small accent-tinted targets sitting just OUTSIDE the page rect (canvas.js positions them
+   HANDLE_OUT px outward so their hit area clears the live native view). Quiet at rest, the accent
+   firms on hover/drag. Only the active pane shows them. Ease motion only (DESIGN §15). */
+.pane-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 4px; /* tight chip = radius.xs */
+  background: rgba(41, 151, 255, 0.18); /* --accent-dark, faint */
+  border: 1px solid var(--accent-dark);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+/* Hidden on non-active panes (only the live pane is resizable). */
+.pane:not(.active) .pane-handle { display: none; }
+.pane-handle:hover { background: rgba(41, 151, 255, 0.34); }
+.pane-handle.dragging { background: rgba(41, 151, 255, 0.5); }
+
+/* Loading: a quiet ease pulse on the title bar (chrome motion, never spring — DESIGN §15). */
+@keyframes pane-title-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.62; } }
+.pane.loading .pane-title { animation: pane-title-pulse 1.4s var(--ease-standard) infinite; }
+
+.pane-title .favicon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--fg-faint);
+}
+.pane-title .favicon img { width: 16px; height: 16px; }
+.pane-title .favicon svg { width: 14px; height: 14px; }
+
+.pane-title .title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-title .close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: default;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.pane-title .close:hover { background: rgba(255, 255, 255, 0.12); color: var(--fg); }
+.pane-title .close svg { width: 12px; height: 12px; }
+
+/* ── Canvas HUD — bottom-right zoom / fit / reset / exit cluster ──────────────
+   A floating popover-style control bar (DESIGN §4): surface-1 translucent container, a hairline
+   ring, the one soft popover shadow allowed in the system (DESIGN §6 — elevation by light), and
+   the icon-button grammar inside. Fixed bottom-right so it stays cornered on resize. It's a sibling
+   of #canvas, so its clicks never start a pan. */
+.canvas-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px; /* sibling icon-button rhythm (DESIGN §5) */
+  padding: 4px;
+  border-radius: 12px; /* popover radius (DESIGN §5) */
+  background: rgba(39, 39, 41, 0.82); /* surface-1 (#272729), translucent */
+  border: 1px solid var(--hairline);
+  /* The one soft popover elevation (DESIGN §6) — diffuse shadow + hairline ring of light. */
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  backdrop-filter: saturate(180%) blur(20px); /* DOM-over-DOM popover blur — valid here (DESIGN §2) */
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+.canvas-hud.hidden { display: none; }
+
+/* Icon button — DESIGN §4 nav-button grammar: 30×30, radius 8, muted resting, hover lightens. */
+.canvas-hud .hud-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: default;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.canvas-hud .hud-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--fg); }
+.canvas-hud .hud-btn:active { background: rgba(255, 255, 255, 0.12); }
+.canvas-hud .hud-btn svg { width: 18px; height: 18px; }
+.canvas-hud .hud-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Zoom % label — clickable, resets zoom. Inter micro (DESIGN §3), tabular so the width is steady. */
+.canvas-hud .hud-zoom {
+  flex: none;
+  min-width: 44px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0; /* DESIGN §3 micro tracking */
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  cursor: default;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.canvas-hud .hud-zoom:hover { background: rgba(255, 255, 255, 0.08); color: var(--fg); }
+.canvas-hud .hud-zoom:active { background: rgba(255, 255, 255, 0.12); }
+.canvas-hud .hud-zoom:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Thin separator between the zoom controls and the fit/reset/exit actions — a hairline of light. */
+.canvas-hud .hud-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--hairline-strong);
+}
+
+/* ── Canvas minimap — top-right overview navigator ────────────────────────────
+   Same popover grammar as the HUD (DESIGN §4/§6): surface-1 translucent container, a hairline ring,
+   the one soft popover shadow, blur. Anchored top-right so it clears the bottom-right zoom HUD.
+   A sibling of #canvas, so its clicks never start a pan. */
+.canvas-minimap {
+  position: fixed;
+  right: 16px;
+  top: 16px;
+  z-index: 10;
+  width: 168px;
+  height: 120px;
+  padding: 6px;
+  border-radius: 12px; /* popover radius (DESIGN §5) */
+  background: rgba(39, 39, 41, 0.82); /* surface-1 (#272729), translucent */
+  border: 1px solid var(--hairline);
+  /* The one soft popover elevation (DESIGN §6) — diffuse shadow + hairline ring of light. */
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  backdrop-filter: saturate(180%) blur(20px); /* DOM-over-DOM popover blur — valid here (DESIGN §2) */
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+.canvas-minimap.hidden { display: none; }
+
+/* The drawable inner area — pane + viewport rects are absolutely positioned within it (canvas.js).
+   It is the pointer target for click/drag-to-navigate. */
+.minimap-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* A pane, drawn as an outlined rect: hairline edge + a barely-there fill (border as light). */
+.minimap-rect {
+  position: absolute;
+  border: 1px solid var(--hairline-strong);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px; /* radius.xs */
+}
+/* The active pane reads in the single accent — firmer edge + a faint accent wash. */
+.minimap-rect.active {
+  border-color: var(--accent-dark);
+  background: rgba(41, 151, 255, 0.18); /* --accent-dark, faint */
+}
+
+/* The current viewport — an outlined (no-fill) rect so it reads as the frame, not a surface. */
+.minimap-viewport {
+  position: absolute;
+  border: 1px solid var(--fg-muted);
+  border-radius: 4px; /* radius.xs */
+  pointer-events: none; /* never block a navigate drag */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane.loading .pane-title { animation: none; }
+  .canvas-hud .hud-btn,
+  .canvas-hud .hud-zoom,
+  .pane-handle { transition: none; }
+}

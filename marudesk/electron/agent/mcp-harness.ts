@@ -36,11 +36,10 @@ import {
 import { startHttpMockServer } from './mcp-mock-http-server';
 
 /**
- * Headless harness for the external MCP connector
- * (docs/remote-mobile-bridge-design §M3, docs/context-mcp-design §8). Mirrors
- * electron/server/harness.ts (run with `node --experimental-strip-types`, see
- * package.json `harness:mcp`); a small resolve hook stubs the bare `electron` import
- * and adds `.ts` resolution so the agent module chain loads without Electron.
+ * Headless harness for the external MCP connector (docs/context-mcp-design §8).
+ * Mirrors electron/cli-bridge/harness.ts (run with `node --experimental-strip-types`,
+ * see package.json `harness:mcp`); a small resolve hook stubs the bare `electron`
+ * import and adds `.ts` resolution so the agent module chain loads without Electron.
  *
  * It exercises the manager every way:
  *  - PURE: `sanitizeMcpConfig` over the stdio/http/sse config union (trust,

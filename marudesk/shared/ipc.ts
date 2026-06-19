@@ -13,7 +13,6 @@ import type { BookmarkEntry } from './bookmarks';
 import type { DownloadEntry } from './downloads';
 import type { AppSettings } from './settings';
 import type { UpdateStatus } from './app-info';
-import type { PairingRequestInfo, RelayStatus, ServerStatus } from './remote';
 import type { TerminalDataEvent, TerminalExitEvent } from './terminal';
 import type { TerminalErrorCountEvent } from './terminal-evidence';
 import type { WorkspaceSnapshot } from './workspace';
@@ -116,16 +115,6 @@ export interface EventPayloadMap {
   // Workspace diagnostics (Tier 1): pushed as a checker pass starts and finishes
   // so the Problems panel + Monaco markers update without polling.
   'diagnostics:update': DiagnosticsState;
-  // Cloud relay (Bridge Model B §B2): the sanitized status, pushed when the host
-  // connects/disconnects or the session changes (so the Settings UI reflects the
-  // connected-as-host indicator live). Never carries tokens.
-  'relay:status-changed': RelayStatus;
-  // bridge server status (T2): pushed when the server starts/stops so the Settings
-  // Remote panel reflects running state + reachable URLs live. Never the token.
-  'server:status-changed': ServerStatus;
-  // device pairing (T2 ③): a phone POSTed /pair with a valid code+proof and is
-  // awaiting the PC user's approve/reject. The card shows name + fingerprint.
-  'server:pairing-request': PairingRequestInfo;
   'window:maximize-state': boolean;
   'settings:changed': AppSettings;
   // Windows in-app auto-update (electron-updater, electron/updater.ts): the live
@@ -158,6 +147,18 @@ export interface EventPayloadMap {
   // composites above the React surface and would otherwise eat the wheel. Main
   // forwards it so the canvas zooms (centered on that card) instead of the page.
   'canvas:wheel': { tabId: string; deltaY: number };
+  // The agent's `create_task` MCP tool asks the renderer to materialize a Work-OS
+  // task node on the canvas. Main generates the id (so the agent can reference it
+  // in a later task's `dependsOn`) and the renderer places it in free space next
+  // to the dependency it flows from, never over an existing tab card.
+  'workos:create-task': {
+    id: string;
+    title: string;
+    intent?: string;
+    acceptance?: string[];
+    dependsOn?: string[];
+    goal?: string;
+  };
 }
 
 export type EventChannel = keyof EventPayloadMap;
@@ -187,9 +188,6 @@ export const EVENT_CHANNELS = [
   'lanes:dev-state',
   'workspaces:state',
   'diagnostics:update',
-  'relay:status-changed',
-  'server:status-changed',
-  'server:pairing-request',
   'window:maximize-state',
   'settings:changed',
   'app:update-status-changed',
@@ -199,6 +197,7 @@ export const EVENT_CHANNELS = [
   'app:ui-zoom',
   'app:tab-shortcut',
   'canvas:wheel',
+  'workos:create-task',
 ] as const satisfies readonly EventChannel[];
 
 /* ── Compile-time coverage guards (no runtime cost) ─────────────────────── */

@@ -38,7 +38,7 @@ import {
   getDownloads,
 } from './downloads';
 import { registerBookmarkHandlers } from './bookmarks';
-import { navigateActive } from './navigation';
+import { goBackTab, goForwardTab, navigateActive, navigateTab, reloadTab } from './navigation';
 import { popupNativeMenu } from './native-menu';
 import type { DownloadAction } from '../../shared/downloads';
 import {
@@ -76,6 +76,22 @@ export function registerBrowserHandlers(deps: {
 }): void {
   defineHandler('browser:navigate', async ([url]) => {
     await navigateActive(str(url, 'url'));
+  });
+
+  // Per-tab canvas controls: drive one card's view by id, leaving the active tab
+  // and the grid layout untouched.
+  defineHandler('browser:navigate-tab', async ([payload]) => {
+    const p = obj(payload);
+    await navigateTab(str(p.tabId, 'tabId'), str(p.url, 'url'));
+  });
+
+  defineHandler('browser:go-back-tab', ([tabId]) => goBackTab(str(tabId, 'tabId')));
+
+  defineHandler('browser:go-forward-tab', ([tabId]) => goForwardTab(str(tabId, 'tabId')));
+
+  defineHandler('browser:reload-tab', ([payload]) => {
+    const p = obj(payload);
+    return reloadTab(str(p.tabId, 'tabId'), p.ignoreCache === undefined ? undefined : bool(p.ignoreCache, 'ignoreCache'));
   });
 
   defineHandler('browser:set-bounds', ([bounds]) => {

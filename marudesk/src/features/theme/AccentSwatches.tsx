@@ -14,7 +14,7 @@ export function AccentSwatches({ variant }: { variant: 'grid' | 'row' }) {
   const setAccent = useThemeStore((s) => s.setAccent);
   const grid = variant === 'grid';
   return (
-    <div className={grid ? 'grid grid-cols-6 gap-1.5' : 'flex items-center gap-1.5'}>
+    <div className={grid ? 'grid grid-cols-7 gap-1.5' : 'flex items-center gap-1.5'}>
       {ACCENTS.map((option) => {
         const active = option.name === accent;
         return (

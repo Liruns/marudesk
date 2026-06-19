@@ -1,0 +1,36 @@
+name: CI
+
+# Fast verification gate for pull requests (and pushes to master): the same
+# checks run locally — strict type-check, lint, unit tests, and a production
+# build of the marudesk package. The heavier Playwright e2e suite needs a
+# display + a packaged Electron run, so it stays out of this quick gate.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# Cancel an in-flight run when new commits land on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: marudesk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: marudesk/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:unit
+      - run: npm run build

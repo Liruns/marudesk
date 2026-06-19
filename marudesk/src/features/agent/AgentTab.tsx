@@ -6,7 +6,6 @@ import { AgentScopeProvider, getAgentStoreForWorkspace } from './store';
 import { acquireCardThread } from './cardThreads';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
-import { useSurfaceStore } from '../canvas/surface';
 
 /**
  * The full-surface AI Chat — the `agent` tab kind. Hosts {@link AgentChat} in its
@@ -14,14 +13,15 @@ import { useSurfaceStore } from '../canvas/surface';
  * {@link acquireCardThread}, reused across remounts so a workspace/surface switch
  * never loses the conversation).
  *
- * **Canvas independence:** on the canvas every AI Chat card is mounted at once, so
- * each BINDS to its own thread (`AgentScopeProvider threadId`) — they stream,
- * type, and run turns fully independently and simultaneously. Classic/grid shows
- * one surface at a time and follows the workspace's active thread (threadId
- * unbound), so its behaviour is unchanged.
+ * **Per-tab isolation:** every AI Chat tab BINDS to its own thread
+ * (`AgentScopeProvider threadId`) regardless of surface — classic OR canvas. A
+ * bound scope resolves a thread-scoped store + a thread-filtered live stream
+ * (`agent:thread-event`), so two AI Chat tabs never share a transcript: opening a
+ * new chat in another tab is a fresh conversation, and switching back restores
+ * each tab's own state. (Previously classic tabs left the thread unbound and all
+ * shared the one workspace store — the "every AI Chat shows the same screen" bug.)
  */
 export function AgentTab({ tabId, workspaceId }: { tabId?: string; workspaceId?: WorkspaceId }) {
-  const surface = useSurfaceStore((s) => s.mode);
   const [threadId, setThreadId] = useState<string | null>(null);
 
   // Acquire (once) this tab's thread; kept alive across remounts by the registry,
@@ -56,11 +56,11 @@ export function AgentTab({ tabId, workspaceId }: { tabId?: string; workspaceId?:
     });
   }, [tabId, workspaceId, threadId]);
 
-  // Bind to this card's thread on the canvas (independent live chats); off-canvas
-  // stay unbound (workspace-active). Wait for the thread before mounting the chat
-  // on the canvas so a card never briefly shows another thread's transcript.
-  const boundThreadId = surface === 'canvas' ? (threadId ?? undefined) : undefined;
-  const waiting = surface === 'canvas' && !!tabId && !threadId;
+  // Bind to this tab's own thread in BOTH surfaces so each AI Chat tab is an
+  // independent conversation. Wait for the thread before mounting the chat so a
+  // tab never briefly shows another thread's transcript on first open.
+  const boundThreadId = threadId ?? undefined;
+  const waiting = !!tabId && !threadId;
 
   return (
     <AgentScopeProvider workspaceId={workspaceId} threadId={boundThreadId}>

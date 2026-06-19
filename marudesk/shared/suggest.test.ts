@@ -23,8 +23,9 @@ function build(
   history: HistoryEntry[] = [],
   bookmarks: BookmarkEntry[] = [],
   limit?: number,
+  navUrl?: string,
 ) {
-  return buildSuggestions({ query, history, bookmarks, searchBase: SEARCH_BASE, limit });
+  return buildSuggestions({ query, history, bookmarks, searchBase: SEARCH_BASE, navUrl, limit });
 }
 
 describe('buildSuggestions', () => {
@@ -115,6 +116,35 @@ describe('buildSuggestions', () => {
     const search = rows.find((r) => r.kind === 'search');
     expect(search?.url).toBe(`${SEARCH_BASE}C%23%20tutorial`);
     expect(search?.title).toBe('C# tutorial');
+  });
+
+  it('leads with a "Go to" row when the input resolves to a destination', () => {
+    const rows = build('localhost:3000', [], [], undefined, 'http://localhost:3000');
+    expect(rows[0]).toEqual({ kind: 'go', url: 'http://localhost:3000', title: '' });
+    // The trailing search row still appears for non-explicit input.
+    expect(rows[rows.length - 1]?.kind).toBe('search');
+  });
+
+  it('omits the "Go to" row when that URL is already a bookmark/history match', () => {
+    const rows = build(
+      'github.com',
+      [h('https://github.com', 'GitHub')],
+      [],
+      undefined,
+      'https://github.com',
+    );
+    expect(rows.some((r) => r.kind === 'go')).toBe(false);
+    expect(rows[0]?.kind).toBe('history');
+  });
+
+  it('keeps the total within the limit with both go and search rows', () => {
+    const history = Array.from({ length: 20 }, (_, i) =>
+      h(`https://site${i}.com/`, `site ${i}`, 20 - i),
+    );
+    const rows = build('site', history, [], SUGGEST_LIMIT, 'https://site.dev');
+    expect(rows.length).toBeLessThanOrEqual(SUGGEST_LIMIT);
+    expect(rows[0]?.kind).toBe('go');
+    expect(rows[rows.length - 1]?.kind).toBe('search');
   });
 });
 

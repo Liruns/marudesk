@@ -1,0 +1,3 @@
+/* Bookmarks page — flat searchable list. Shared shell: pane://assets/internal.css. */
+#list { padding: 12px max(24px, 8vw) 40px; }
+.row > .title { max-width: 46%; }

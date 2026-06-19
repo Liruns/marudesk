@@ -144,7 +144,7 @@ test('localizes the settings shell after switching to Korean', async () => {
   }
 });
 
-test('localizes settings MCP and remote guide panels after switching to Korean', async () => {
+test('localizes settings MCP panels after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
     // Given: Korean is selected and the Settings tab is open.
@@ -163,18 +163,6 @@ test('localizes settings MCP and remote guide panels after switching to Korean',
     await expect(page.getByRole('button', { name: '설정 파일 열기' })).toBeVisible();
     await expect(
       page.getByText('설정된 MCP 서버가 없습니다. 설정 파일을 열어 추가하세요.'),
-    ).toBeVisible();
-
-    // When: the user opens the Remote access category.
-    await page.getByRole('button', { name: '원격 접속' }).click();
-
-    // Then: the pairing guide copy uses Korean.
-    await expect(page.getByRole('heading', { name: '원격 기기 연결 방법' })).toBeVisible();
-    await expect(
-      page.getByText('다른 기기의 페어링 스캐너', { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText('보안이 작동하는 방식', { exact: true }),
     ).toBeVisible();
   } finally {
     await app.close();
@@ -262,7 +250,7 @@ test('localizes AI agent settings after switching to Korean', async () => {
   }
 });
 
-test('localizes data and remote settings after switching to Korean', async () => {
+test('localizes data settings after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
     // Given: Korean is selected and the Settings tab is open.
@@ -285,35 +273,6 @@ test('localizes data and remote settings after switching to Korean', async () =>
     // button under this category, so scope to the first like "폴더 열기" below.
     await expect(page.getByRole('button', { name: '새로고침' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: '폴더 열기' }).first()).toBeVisible();
-
-    // When: the user opens Remote access.
-    await page.getByRole('button', { name: '원격 접속' }).click();
-
-    // Then: phone access and cloud relay settings use Korean.
-    await expect(page.getByRole('heading', { name: '원격 접속' })).toBeVisible();
-    await expect(page.getByText('원격 기기 접속', { exact: true })).toBeVisible();
-    await expect(page.getByRole('radio', { name: '끔' }).first()).toBeVisible();
-    await expect(page.getByText('클라우드 릴레이', { exact: true })).toBeVisible();
-    await expect(page.getByText('클라우드 릴레이 활성화', { exact: true })).toBeVisible();
-    await expect(page.getByText('릴레이 URL', { exact: true })).toBeVisible();
-    await expect(page.getByPlaceholder('이메일')).toBeVisible();
-    await expect(page.getByPlaceholder('비밀번호')).toBeVisible();
-    await expect(page.getByRole('button', { name: '로그인' })).toBeVisible();
-    await expect(page.getByRole('button', { name: '가입' })).toBeVisible();
-
-    // When: the user enables phone access.
-    await page
-      .getByRole('radiogroup', { name: '원격 기기 접속' })
-      .getByRole('radio', { name: '켬' })
-      .click();
-
-    // Then: the direct pairing UI is localized too. The pairing heading and the
-    // pair-device button share "기기 페어링", so assert each by its role.
-    await expect(page.getByRole('heading', { name: '기기 페어링' })).toBeVisible();
-    await expect(page.getByRole('button', { name: '기기 페어링' })).toBeVisible();
-    await expect(
-      page.getByText('고급 - 포트, 네트워크 주소, 무인 모드'),
-    ).toBeVisible();
   } finally {
     await app.close();
   }

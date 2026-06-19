@@ -11,6 +11,7 @@ export type I18nContextValue = {
   readonly setLocale: (locale: Locale) => void;
   readonly t: (key: TranslationKey) => string;
   readonly formatFileCount: (input: FileCountInput) => string;
+  readonly formatCanvasGroupSection: (count: number) => string;
   readonly formatCaptureCount: (count: number) => string;
   readonly formatMcpToolCount: (count: number) => string;
   readonly formatProviderModelCount: (count: number) => string;

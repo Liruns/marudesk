@@ -8,7 +8,7 @@ import type { Connection } from './client';
  * Connection + preference resolution for the chat CLI (chat CLI v2 —
  * docs/chat-cli-tui-design.md §5). Connection precedence: explicit flags →
  * env (the embedded terminal profile injects these) → the companion's
- * same-user handshake file `cli-bridge.json` (electron/server/companion-core.ts).
+ * same-user handshake file `cli-bridge.json` (electron/cli-bridge/companion-core.ts).
  */
 
 export type CliArgs = {

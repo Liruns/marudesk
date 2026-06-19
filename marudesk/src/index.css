@@ -66,6 +66,15 @@
   app-region: no-drag;
 }
 
+/* ─── Pane palette: "mono for truth" ──────────────────────────────────────────
+   The Pane theme (ported from the `pane` browser, DESIGN.md §3) renders the
+   address bar + suggestion URLs in monospace so a URL never lies about its
+   characters (l vs 1, O vs 0). Scoped to the opt-in Pane palette so marudesk's
+   Inter-everywhere default (its own DESIGN.md) is untouched everywhere else. */
+:root[data-palette='pane'] .address-url {
+  font-family: var(--font-mono);
+}
+
 /* ─── Custom scrollbars ───────────────────────────────────────────────────────
    Replaces the heavy native Electron/Chromium scrollbar app-wide. The thumb
    carries a transparent border + padding-box clip so it reads as a slim ~4px
@@ -489,7 +498,7 @@ svg.lucide {
   display: flex;
   gap: 0.25rem;
   opacity: 0;
-  transition: opacity var(--duration-fast, 120ms) ease;
+  transition: opacity var(--motion-fast) var(--easing);
 }
 .md-prose pre.md-codeblock:hover .md-pre-actions,
 .md-prose pre.md-codeblock .md-pre-actions:focus-within,
@@ -506,7 +515,7 @@ svg.lucide {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: color var(--duration-fast, 120ms) ease;
+  transition: color var(--motion-fast) var(--easing);
 }
 .md-prose pre.md-codeblock .md-pre-btn:hover {
   color: var(--text-primary);
@@ -548,8 +557,8 @@ svg.lucide {
   border: 1px solid var(--border-subtle);
   border-radius: 0 0 var(--radius) var(--radius);
   cursor: pointer;
-  transition: color var(--duration-fast, 120ms) ease,
-    background-color var(--duration-fast, 120ms) ease;
+  transition: color var(--motion-fast) var(--easing),
+    background-color var(--motion-fast) var(--easing);
 }
 .md-prose .md-expand-btn:hover {
   color: var(--text-primary);

@@ -27,7 +27,6 @@ import {
   UsageMeter,
 } from './chat/Controls';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
-import { ThreadBar } from './ThreadBar';
 import { AttachmentPreview } from './chat/AttachmentPreview';
 import { ComposerToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
@@ -179,6 +178,8 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
     pickSlash,
     syncCaret,
     setDraftAndTrackSlash,
+    onCompositionStart,
+    onCompositionEnd,
     handleSend,
     handlePickSuggestion,
     handlePaste,
@@ -218,8 +219,6 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
         }
       }}
     >
-      {full ? <ThreadBar /> : null}
-
       <div className="relative flex-1 min-h-0 flex">
        {/* min-w-0: this column flexes beside the Mission Control aside — without
            it a wide code block / table in the transcript would set the row's
@@ -403,8 +402,14 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
 
               <textarea
                 ref={textareaRef}
-                value={draft}
+                // Uncontrolled (defaultValue, synced via a layout effect in
+                // useComposer) so React's controlled-value writeback can't wipe a
+                // half-composed IME syllable on a stray re-render — see the
+                // composition handlers + sync effect there.
+                defaultValue={draft}
                 onChange={(e) => setDraftAndTrackSlash(e.target.value, e.target.selectionStart ?? undefined)}
+                onCompositionStart={onCompositionStart}
+                onCompositionEnd={onCompositionEnd}
                 onKeyDown={onKeyDown}
                 onKeyUp={syncCaret}
                 onClick={syncCaret}

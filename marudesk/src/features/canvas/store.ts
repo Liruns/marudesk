@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import type { TabKind, TabState } from '../../../shared/browser';
+import type { TabGroupColor, TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { easeInOutCubic, fitPose, lerpViewport, packGrid } from './camera-math';
 
 /**
  * Infinite-canvas placement store (Maru identity overhaul — see
@@ -65,8 +66,32 @@ export type Edge = {
  */
 export type CardGroup = { id: string; tabIds: string[]; activeId: string };
 
+/**
+ * A labeled rectangular region on the canvas that visually groups the cards
+ * inside it into a named section (FigJam-style frame). Unlike {@link CardGroup}
+ * (which merges cards into one frame), a section is pure GEOMETRY in canvas
+ * space — membership is spatial (any card whose centre falls inside), so it
+ * persists trivially with no tab-id references and never entangles the merge /
+ * placement-key machinery. Drawn behind the cards; dragging it carries the cards
+ * within along for the ride.
+ */
+export type CardSection = {
+  id: string;
+  title: string;
+  color: TabGroupColor;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/** Pad a section frame this far beyond the bounding box of its seed cards. */
+export const SECTION_PAD = 28;
+/** Height of the section's title/header band (canvas px). */
+export const SECTION_HEADER_H = 30;
+
 /** Resolve the group a tab belongs to, if any. */
-export function groupForTab(groups: readonly CardGroup[], tabId: string): CardGroup | undefined {
+function groupForTab(groups: readonly CardGroup[], tabId: string): CardGroup | undefined {
   return groups.find((g) => g.tabIds.includes(tabId));
 }
 /** The placement key for a tab: its group's id when grouped, else the tab id. */
@@ -79,6 +104,15 @@ function newGroupId(): string {
   groupSeq += 1;
   return `grp_${groupSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
 }
+
+let sectionSeq = 0;
+function newSectionId(): string {
+  sectionSeq += 1;
+  return `sec_${sectionSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
+}
+
+/** Section hues, cycled so consecutive new sections read as distinct. */
+const SECTION_COLORS: readonly TabGroupColor[] = ['violet', 'blue', 'teal', 'green', 'amber', 'rose'];
 
 let canvasSeq = 0;
 function newCanvasId(): string {
@@ -130,6 +164,42 @@ export const SCALE_MAX = 2.5;
 const PLACE = { cols: 3, gapX: 600, gapY: 430, x0: 80, y0: 80 } as const;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+// In-flight camera tween (animateTo). Module-scoped: there's one canvas store,
+// and any user pan/zoom or a new tween cancels the previous one.
+let cameraTweenRaf: number | null = null;
+function cancelCameraTween(): void {
+  if (cameraTweenRaf != null && typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(cameraTweenRaf);
+  }
+  cameraTweenRaf = null;
+}
+
+// In-flight auto-arrange tween (arrangeCards), independent of the camera tween.
+let arrangeTweenRaf: number | null = null;
+function cancelArrangeTween(): void {
+  if (arrangeTweenRaf != null && typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(arrangeTweenRaf);
+  }
+  arrangeTweenRaf = null;
+}
+
+/** True when the OS asks for reduced motion (animations should snap, not glide). */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
+function canAnimate(): boolean {
+  return (
+    !prefersReducedMotion() &&
+    typeof requestAnimationFrame !== 'undefined' &&
+    typeof performance !== 'undefined'
+  );
+}
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isEdgeSide = (v: unknown): v is EdgeSide =>
@@ -164,6 +234,8 @@ export type CanvasDoc = {
   edges: Edge[];
   edgeStyle: EdgeStyle;
   groups: CardGroup[];
+  /** Labeled section frames grouping the cards inside them (FigJam-style). */
+  sections: CardSection[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins (per-canvas). */
   topZ: number;
@@ -187,6 +259,7 @@ function emptyCanvas(name: string): CanvasDoc {
     edges: [],
     edgeStyle: 'curve',
     groups: [],
+    sections: [],
     viewport: { panX: 0, panY: 0, scale: 1 },
     topZ: 1,
   };
@@ -354,6 +427,9 @@ type CanvasSnapshot = {
   edgeStyle: EdgeStyle;
   nodes: NodeSnapshot[];
   edges: EdgeSnapshot[];
+  // Sections are pure canvas-space geometry (no tab-id refs), so they serialize
+  // verbatim and survive a restart directly — unlike nodes/edges.
+  sections: CardSection[];
 };
 type WorkspaceSnapshot = { activeId: string; canvases: CanvasSnapshot[] };
 
@@ -402,6 +478,7 @@ function serializeCanvas(doc: CanvasDoc, tabsById: Map<string, TabState>): Canva
     edgeStyle: doc.edgeStyle,
     nodes,
     edges,
+    sections: doc.sections,
   };
 }
 
@@ -423,6 +500,29 @@ function parseIndexPair(raw: unknown, nodeCount: number): [number, number] | nul
   const [a, b] = raw as unknown[];
   if (!isNum(a) || !isNum(b) || a < 0 || a >= nodeCount || b < 0) return null;
   return [a, b];
+}
+
+const isSectionColor = (v: unknown): v is TabGroupColor =>
+  typeof v === 'string' && (SECTION_COLORS as readonly string[]).includes(v);
+
+function parseSections(raw: unknown): CardSection[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CardSection[] = [];
+  for (const val of raw) {
+    if (typeof val !== 'object' || val === null) continue;
+    const s = val as Record<string, unknown>;
+    if (!(isStr(s.id) && isNum(s.x) && isNum(s.y) && isNum(s.w) && isNum(s.h))) continue;
+    out.push({
+      id: s.id,
+      title: isStr(s.title) ? s.title : 'Section',
+      color: isSectionColor(s.color) ? s.color : 'violet',
+      x: s.x,
+      y: s.y,
+      w: Math.max(80, s.w),
+      h: Math.max(60, s.h),
+    });
+  }
+  return out;
 }
 
 function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
@@ -457,6 +557,7 @@ function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
     edgeStyle: isEdgeStyle(r.edgeStyle) ? r.edgeStyle : 'curve',
     nodes,
     edges,
+    sections: parseSections(r.sections),
   };
 }
 
@@ -481,6 +582,9 @@ function metadataDoc(snap: CanvasSnapshot): CanvasDoc {
     edges: [],
     edgeStyle: snap.edgeStyle,
     groups: [],
+    // Sections are tab-independent geometry, so they're valid pre-reconcile —
+    // carry them straight onto the metadata doc so a section shows immediately.
+    sections: snap.sections ?? [],
     viewport: snap.viewport,
     topZ: 1,
   };
@@ -560,6 +664,7 @@ function reconcileWorkspace(snaps: readonly CanvasSnapshot[], tabs: readonly Tab
       edges,
       edgeStyle: snap.edgeStyle,
       groups,
+      sections: snap.sections ?? [],
       viewport: snap.viewport,
       topZ: z || 1,
     };
@@ -631,6 +736,8 @@ type CanvasState = {
   edgeStyle: EdgeStyle;
   /** Merged card stacks (tab groups). Each owns a placement keyed by its id. */
   groups: CardGroup[];
+  /** Labeled section frames grouping the cards inside them (FigJam-style). */
+  sections: CardSection[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins. */
   topZ: number;
@@ -706,14 +813,58 @@ type CanvasActions = {
   setGroupActive: (groupId: string, tabId: string) => void;
   /** Split a tab back out of its group into its own card beside the group. */
   popOutTab: (tabId: string) => void;
+
+  /* ── sections (labeled card-grouping frames) ── */
+  /** Frame the given card keys (default: the current selection) in a new section,
+   *  sized to their bounding box + padding. Returns the new id (or null if empty). */
+  addSection: (keys?: readonly string[], title?: string) => string | null;
+  /** Move a section's frame to an absolute canvas position. */
+  setSectionPos: (id: string, x: number, y: number) => void;
+  /** Resize a section's frame (clamped to a sane minimum). */
+  setSectionSize: (id: string, w: number, h: number) => void;
+  /** Rename a section. */
+  renameSection: (id: string, title: string) => void;
+  /** Recolor a section to a specific hue. */
+  setSectionColor: (id: string, color: TabGroupColor) => void;
+  /** Remove a section frame (its cards are untouched). */
+  removeSection: (id: string) => void;
+  /** Card placement keys whose centre falls inside section `id` (spatial members). */
+  sectionMemberKeys: (id: string) => string[];
+  /** Commit a section drag: move the section + its member cards + nested sections
+   *  by (dx,dy) from captured origins in ONE update (one re-render). The live drag
+   *  itself is painted straight to the DOM, so this only runs on release. */
+  moveSectionGroup: (
+    sectionId: string,
+    dx: number,
+    dy: number,
+    origin: {
+      section: { x: number; y: number };
+      cards: { key: string; x: number; y: number }[];
+      childSections: { id: string; x: number; y: number }[];
+    },
+  ) => void;
+
   panBy: (dx: number, dy: number) => void;
   /** Set the absolute pan (used by the minimap to recenter). */
   setPan: (panX: number, panY: number) => void;
+  /** Commit a full viewport (pan + zoom) in one write — used when a live pan/zoom
+      gesture settles, so the gesture re-renders the card tree once, not per frame.
+      Scale is clamped to the reachable range. */
+  setViewport: (panX: number, panY: number, scale: number) => void;
   /** Zoom by `factor` keeping the point (cx,cy) — container-relative px — fixed. */
   zoomAt: (factor: number, cx: number, cy: number) => void;
   resetView: () => void;
   /** Fit all cards within a container of the given size (px), with padding. */
   fitToContent: (containerW: number, containerH: number) => void;
+  /** The camera pose that fits all cards in a container of the given size (px). */
+  getFitPose: (containerW: number, containerH: number) => Viewport;
+  /** Glide the camera to `target` with an eased tween (instant under
+      prefers-reduced-motion); any user pan/zoom interrupts it. Ported easing —
+      reference/pane-porting-map.md §D. */
+  animateTo: (target: Viewport) => void;
+  /** Tidy all unlocked cards into an aligned grid, animated into place (ported
+      packGrid + easing — reference/pane-porting-map.md §D). */
+  arrangeCards: () => void;
 
   /* ── named-canvas (saved-layout) management ── */
   /** The open workspace's canvases, in switcher order. */
@@ -759,6 +910,7 @@ function activeDoc(s: CanvasState): CanvasDoc {
     edges: s.edges,
     edgeStyle: s.edgeStyle,
     groups: s.groups,
+    sections: s.sections,
     viewport: s.viewport,
     topZ: s.topZ,
   };
@@ -778,13 +930,14 @@ function snapshotByWorkspace(s: CanvasState): Record<string, WorkspaceCanvases> 
 /** The top-level working-copy fields drawn from a {@link CanvasDoc}. */
 function workingCopy(doc: CanvasDoc): Pick<
   CanvasState,
-  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'viewport' | 'topZ'
+  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'viewport' | 'topZ'
 > {
   return {
     placements: doc.placements,
     edges: doc.edges,
     edgeStyle: doc.edgeStyle,
     groups: doc.groups,
+    sections: doc.sections,
     viewport: doc.viewport,
     topZ: doc.topZ,
   };
@@ -1047,8 +1200,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       consumedPending.length > 0
         ? Object.fromEntries(Object.entries(pending).filter(([k]) => !consumedPending.includes(k)))
         : pending;
-    // Drop edges whose endpoints have closed (edges reference tab ids).
-    const liveEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+    // Drop edges whose endpoints have closed. Endpoints are tab ids OR section
+    // ids (a card↔section / section↔section wire), so keep an edge while either
+    // kind of endpoint is still alive.
+    const sectionIds = new Set(state.sections.map((sec) => sec.id));
+    const nodeAlive = (k: string) => ids.has(k) || sectionIds.has(k);
+    const liveEdges = edges.filter((e) => nodeAlive(e.from) && nodeAlive(e.to));
     const edgesChanged = liveEdges.length !== edges.length;
 
     // Prune the multi-selection to keys that still have a placement — a closed or
@@ -1083,7 +1240,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     }
   },
 
-  setPos: (tabId, x, y) =>
+  setPos: (tabId, x, y) => {
+    cancelArrangeTween(); // a manual move interrupts an in-flight tidy
     set((s) => {
       const cur = s.placements[tabId];
       if (!cur || cur.locked) return {};
@@ -1092,7 +1250,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       const next = { ...cur, x, y };
       delete next.preMax;
       return { placements: { ...s.placements, [tabId]: next } };
-    }),
+    });
+  },
 
   setSize: (tabId, w, h) =>
     set((s) => {
@@ -1138,7 +1297,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         : [...s.selection, key],
     })),
   clearSelection: () => set((s) => (s.selection.length ? { selection: [] } : {})),
-  moveSelectionBy: (keys, base, dx, dy) =>
+  moveSelectionBy: (keys, base, dx, dy) => {
+    cancelArrangeTween(); // a manual move interrupts an in-flight tidy
     set((s) => {
       const next = { ...s.placements };
       let changed = false;
@@ -1150,18 +1310,21 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         changed = true;
       }
       return changed ? { placements: next } : {};
-    }),
+    });
+  },
 
   addEdge: (from, to, fromSide, toSide) =>
     set((s) => {
       if (from === to) return {};
-      // Endpoints are tab ids, but a MERGED card's placement is keyed by its
-      // group id — so validate (and reject a same-card pair) through the
-      // placement key, not the raw tab id, or connections to/from a group card
-      // would silently no-op.
+      // Endpoints are tab ids OR section ids. A MERGED card's placement is keyed
+      // by its group id, so validate (and reject a same-node pair) through the
+      // placement key; a section is its own key. A node exists if it has a
+      // placement or is a live section — so card↔card, card↔section, and
+      // section↔section wires are all valid.
       const fromKey = placementKey(s.groups, from);
       const toKey = placementKey(s.groups, to);
-      if (fromKey === toKey || !s.placements[fromKey] || !s.placements[toKey]) return {};
+      const nodeExists = (key: string) => !!s.placements[key] || s.sections.some((sec) => sec.id === key);
+      if (fromKey === toKey || !nodeExists(fromKey) || !nodeExists(toKey)) return {};
       // Directed: A→B and B→A are distinct edges (n:n). Only dedup the exact
       // ordered pair so a node can fan out to / in from many others.
       const id = edgeId(from, to);
@@ -1325,15 +1488,106 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
       };
     }),
 
-  panBy: (dx, dy) =>
+  addSection: (keys, title) => {
+    const s = get();
+    const memberKeys = (keys ?? s.selection).filter((k) => !!s.placements[k]);
+    if (memberKeys.length === 0) return null;
+    const rects = memberKeys.map((k) => s.placements[k]);
+    const minX = Math.min(...rects.map((r) => r.x));
+    const minY = Math.min(...rects.map((r) => r.y));
+    const maxX = Math.max(...rects.map((r) => r.x + r.w));
+    const maxY = Math.max(...rects.map((r) => r.y + r.h));
+    const id = newSectionId();
+    const section: CardSection = {
+      id,
+      title: title?.trim() || `Section ${s.sections.length + 1}`,
+      color: SECTION_COLORS[s.sections.length % SECTION_COLORS.length],
+      x: minX - SECTION_PAD,
+      y: minY - SECTION_PAD - SECTION_HEADER_H,
+      w: maxX - minX + SECTION_PAD * 2,
+      h: maxY - minY + SECTION_PAD * 2 + SECTION_HEADER_H,
+    };
+    set((st) => ({ sections: [...st.sections, section] }));
+    return id;
+  },
+
+  setSectionPos: (id, x, y) =>
+    set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, x, y } : sec)) })),
+
+  setSectionSize: (id, w, h) =>
     set((s) => ({
-      viewport: { ...s.viewport, panX: s.viewport.panX + dx, panY: s.viewport.panY + dy },
+      sections: s.sections.map((sec) =>
+        sec.id === id ? { ...sec, w: Math.max(120, w), h: Math.max(SECTION_HEADER_H + 60, h) } : sec,
+      ),
     })),
 
-  setPan: (panX, panY) => set((s) => ({ viewport: { ...s.viewport, panX, panY } })),
+  renameSection: (id, title) =>
+    set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, title } : sec)) })),
+
+  setSectionColor: (id, color) =>
+    set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, color } : sec)) })),
+
+  removeSection: (id) =>
+    set((s) => ({
+      sections: s.sections.filter((sec) => sec.id !== id),
+      // Drop any wires that were attached to this section.
+      edges: s.edges.filter((e) => e.from !== id && e.to !== id),
+      selectedEdgeId: s.edges.some((e) => (e.from === id || e.to === id) && e.id === s.selectedEdgeId)
+        ? null
+        : s.selectedEdgeId,
+    })),
+
+  sectionMemberKeys: (id) => {
+    const s = get();
+    const sec = s.sections.find((x) => x.id === id);
+    if (!sec) return [];
+    // The body region (below the header band) — a card belongs if its centre is in it.
+    const top = sec.y + SECTION_HEADER_H;
+    return Object.entries(s.placements)
+      .filter(([, r]) => {
+        const cx = r.x + r.w / 2;
+        const cy = r.y + r.h / 2;
+        return cx >= sec.x && cx <= sec.x + sec.w && cy >= top && cy <= sec.y + sec.h;
+      })
+      .map(([k]) => k);
+  },
+
+  moveSectionGroup: (sectionId, dx, dy, origin) =>
+    set((s) => {
+      const placements = { ...s.placements };
+      for (const c of origin.cards) {
+        const cur = placements[c.key];
+        if (cur && !cur.locked) placements[c.key] = { ...cur, x: c.x + dx, y: c.y + dy };
+      }
+      const childById = new Map(origin.childSections.map((c) => [c.id, c]));
+      const sections = s.sections.map((sec) => {
+        if (sec.id === sectionId) return { ...sec, x: origin.section.x + dx, y: origin.section.y + dy };
+        const child = childById.get(sec.id);
+        return child ? { ...sec, x: child.x + dx, y: child.y + dy } : sec;
+      });
+      return { placements, sections };
+    }),
+
+  panBy: (dx, dy) => {
+    cancelCameraTween();
+    set((s) => ({
+      viewport: { ...s.viewport, panX: s.viewport.panX + dx, panY: s.viewport.panY + dy },
+    }));
+  },
+
+  setPan: (panX, panY) => {
+    cancelCameraTween();
+    set((s) => ({ viewport: { ...s.viewport, panX, panY } }));
+  },
+
+  setViewport: (panX, panY, scale) => {
+    cancelCameraTween();
+    set({ viewport: { panX, panY, scale: clamp(scale, SCALE_MIN, SCALE_MAX) } });
+  },
 
   zoomAt: (factor, cx, cy) =>
     set((s) => {
+      cancelCameraTween();
       const { panX, panY, scale } = s.viewport;
       const nextScale = clamp(scale * factor, SCALE_MIN, SCALE_MAX);
       if (nextScale === scale) return {};
@@ -1351,28 +1605,91 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
   resetView: () => set({ viewport: { panX: 0, panY: 0, scale: 1 } }),
 
-  fitToContent: (containerW, containerH) => {
-    const rects = Object.values(get().placements);
-    if (rects.length === 0) {
-      set({ viewport: { panX: 0, panY: 0, scale: 1 } });
+  fitToContent: (containerW, containerH) =>
+    set({ viewport: get().getFitPose(containerW, containerH) }),
+
+  getFitPose: (containerW, containerH) =>
+    fitPose(
+      Object.values(get().placements),
+      { width: containerW, height: containerH },
+      { padding: 80, minScale: SCALE_MIN, maxScale: SCALE_MAX },
+    ),
+
+  animateTo: (target) => {
+    const to: Viewport = {
+      panX: target.panX,
+      panY: target.panY,
+      scale: clamp(target.scale, SCALE_MIN, SCALE_MAX),
+    };
+    cancelCameraTween();
+    const from = get().viewport;
+    if (
+      !canAnimate() ||
+      (from.panX === to.panX && from.panY === to.panY && from.scale === to.scale)
+    ) {
+      set({ viewport: to });
       return;
     }
-    const minX = Math.min(...rects.map((r) => r.x));
-    const minY = Math.min(...rects.map((r) => r.y));
-    const maxX = Math.max(...rects.map((r) => r.x + r.w));
-    const maxY = Math.max(...rects.map((r) => r.y + r.h));
-    const pad = 80;
-    const contentW = maxX - minX + pad * 2;
-    const contentH = maxY - minY + pad * 2;
-    const scale = clamp(
-      Math.min(containerW / contentW, containerH / contentH),
-      SCALE_MIN,
-      SCALE_MAX,
+    const start = performance.now();
+    const DURATION = 360; // ms — a calm glide (pane motion-standard)
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      if (t >= 1) {
+        set({ viewport: to });
+        cameraTweenRaf = null;
+        return;
+      }
+      set({ viewport: lerpViewport(from, to, easeInOutCubic(t)) });
+      cameraTweenRaf = requestAnimationFrame(tick);
+    };
+    cameraTweenRaf = requestAnimationFrame(tick);
+  },
+
+  arrangeCards: () => {
+    cancelArrangeTween();
+    const s = get();
+    const keys = Object.keys(s.placements).filter((k) => !s.placements[k].locked);
+    if (keys.length < 2) return;
+    // Stable reading order (top→bottom, then left→right) so the tidy is
+    // predictable and cards mostly keep their relative arrangement.
+    keys.sort((a, b) => s.placements[a].y - s.placements[b].y || s.placements[a].x - s.placements[b].x);
+    const minX = Math.min(...keys.map((k) => s.placements[k].x));
+    const minY = Math.min(...keys.map((k) => s.placements[k].y));
+    const targets = packGrid(
+      keys.map((k) => ({ key: k, w: s.placements[k].w, h: s.placements[k].h })),
+      { gap: 32, originX: minX, originY: minY },
     );
-    // Center the content bounding box in the container.
-    const panX = (containerW - (maxX - minX) * scale) / 2 - minX * scale;
-    const panY = (containerH - (maxY - minY) * scale) / 2 - minY * scale;
-    set({ viewport: { panX, panY, scale } });
+    const from: Record<string, { x: number; y: number }> = {};
+    for (const k of keys) from[k] = { x: s.placements[k].x, y: s.placements[k].y };
+    const apply = (k01: number) =>
+      set((st) => {
+        const next = { ...st.placements };
+        for (const key of keys) {
+          const cur = next[key];
+          const f = from[key];
+          const t = targets[key];
+          if (!cur || !f || !t) continue;
+          next[key] = { ...cur, x: f.x + (t.x - f.x) * k01, y: f.y + (t.y - f.y) * k01 };
+        }
+        return { placements: next };
+      });
+    if (!canAnimate()) {
+      apply(1);
+      return;
+    }
+    const start = performance.now();
+    const DURATION = 380;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      if (t >= 1) {
+        apply(1);
+        arrangeTweenRaf = null;
+        return;
+      }
+      apply(easeInOutCubic(t));
+      arrangeTweenRaf = requestAnimationFrame(tick);
+    };
+    arrangeTweenRaf = requestAnimationFrame(tick);
   },
 
   listCanvases: () => {

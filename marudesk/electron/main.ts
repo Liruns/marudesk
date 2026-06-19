@@ -49,6 +49,10 @@ import {
 import { initPlugins, shutdownPlugins } from './plugins';
 import { registerPluginHandlers } from './plugins/handlers';
 import { registerPluginProtocol, registerPluginScheme } from './plugins/protocol';
+import {
+  registerInternalPagesProtocol,
+  registerInternalPagesScheme,
+} from './browser/internal-pages';
 import { registerModelsHandlers } from './models';
 import { registerUsageHandlers } from './usage';
 import { getSettings, getSettingsSync, registerSettingsHandlers, resetSettingsCacheForProfile } from './settings';
@@ -67,20 +71,7 @@ import { closeSplash, showSplash } from './splash';
 import { registerUiLayoutHandlers } from './ui-layout';
 import { registerWorkOsHandlers } from './agent/decompose';
 import { openExternalUrl } from './safe-open';
-import {
-  registerServerHandlers,
-  setPairingRequestListener,
-  setServerStatusListener,
-  stopServer,
-  syncServerToSettings,
-} from './server';
-import {
-  disposeRelay,
-  registerRelayHandlers,
-  setRelayStatusListener,
-  syncRelayToSettings,
-} from './server/relay';
-import { startCompanion, stopCompanion } from './server/companion';
+import { startCompanion, stopCompanion } from './cli-bridge/companion';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -134,11 +125,9 @@ function initProfileRuntime(): void {
   void configureAutomationStore(path.join(app.getPath('userData'), 'automations.json')).then(() => {
     if (automationRunner) startScheduler(automationRunner);
   });
-  // Warm the settings cache, then reconcile the bridge server + cloud relay +
-  // tray icon with the new profile's settings.
+  // Warm the settings cache, then reconcile the tray icon with the new profile's
+  // settings.
   void getSettings().then((settings) => {
-    void syncServerToSettings(settings);
-    void syncRelayToSettings(settings);
     syncTrayToSettings(settings, trayHost);
   });
   // The always-on loopback companion (CLI bridge) — per profile, since the
@@ -172,9 +161,7 @@ async function teardownProfileRuntime(): Promise<void> {
   guard(disposeAllTerminals);
   guard(disposeAllLaneDevServers);
   guard(disposeAllLsp);
-  guard(() => void stopServer());
   guard(() => void stopCompanion());
-  guard(disposeRelay);
   guard(() => void shutdownExternalMcp());
   guard(shutdownPlugins);
   guard(stopScheduler);
@@ -439,6 +426,8 @@ maybeOpenEmbeddedDebugPort();
 // Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
 // sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
 registerPluginScheme();
+// Mark the maru:// internal-page scheme privileged too (new-tab + error pages).
+registerInternalPagesScheme();
 
 void app.whenReady().then(() => {
   // Drop Electron's DEFAULT application menu on Windows/Linux. The window is
@@ -455,6 +444,8 @@ void app.whenReady().then(() => {
   applyHostContentSecurityPolicy();
   // Serve plugin panel files over plugin:// (path-scoped + strict CSP, see protocol.ts).
   registerPluginProtocol();
+  // Serve the maru:// new-tab + error pages (self-contained HTML, strict CSP).
+  registerInternalPagesProtocol();
   // Wire the current-workspace accessor once; defineHandler's requireWorkspace()
   // reads it for every workspace-scoped channel's "no workspace open" guard.
   setWorkspaceProvider(getCurrentWorkspace);
@@ -491,34 +482,9 @@ void app.whenReady().then(() => {
   registerWorkOsHandlers();
   // Profile switching is applied live (no app restart) — see applyProfileSwitch.
   registerProfileHandlers({ applyProfileSwitch });
-  registerRelayHandlers();
-  // Push live cloud-relay status (connected-as-host / session changes) to the
-  // renderer so Settings reflects it without polling. Sanitized — never tokens.
-  setRelayStatusListener((status) =>
-    getMainWindow()?.webContents.send('relay:status-changed', status),
-  );
-  registerServerHandlers();
-  // Push live bridge-server status (start/stop → running flag + reachable
-  // LAN/Tailscale URLs) so the Settings Remote panel updates without polling.
-  setServerStatusListener((status) =>
-    getMainWindow()?.webContents.send('server:status-changed', status),
-  );
-  // Push a pairing request to the renderer so Settings can show the approve/reject
-  // card when a phone scans the QR (T2 ③ — docs/t2-secure-pairing-design.md).
-  setPairingRequestListener((info) =>
-    getMainWindow()?.webContents.send('server:pairing-request', info),
-  );
   registerSettingsHandlers({
     broadcast: (settings) => {
       getMainWindow()?.webContents.send('settings:changed', settings);
-      // Reconcile the bridge server with the new settings (start/stop/restart on
-      // the server.enabled/port change). Fire-and-forget — a bind failure is
-      // handled inside and never crashes the app.
-      void syncServerToSettings(settings);
-      // Reconcile the cloud-relay host (connect/disconnect on the cloudEnabled /
-      // relayUrl change). Also fire-and-forget — connection errors are swallowed
-      // by the relay-client's reconnect and never crash the app.
-      void syncRelayToSettings(settings);
       // Create/destroy the tray icon as the close-behavior setting flips.
       syncTrayToSettings(settings, trayHost);
     },
@@ -543,8 +509,8 @@ void app.whenReady().then(() => {
   registerClipboardHandlers();
   // Bring up all per-profile runtime: restore workspaces, warm settings (so
   // getSettingsSync() reflects the persisted choice on the first navigation),
-  // reconcile the bridge server + cloud relay, start automations, and connect
-  // external MCP + plugins. Shared with the live profile switch. Each step is
+  // start the loopback CLI companion, start automations, and connect external
+  // MCP + plugins. Shared with the live profile switch. Each step is
   // off-by-default / fire-and-forget and never crashes the app.
   initProfileRuntime();
   void createMainWindow().catch((err: unknown) => {
@@ -576,14 +542,9 @@ app.on('before-quit', () => {
   disposeAllLaneDevServers();
   // Tear down every language server so no spawned LSP process lingers past exit.
   disposeAllLsp();
-  // Stop the bridge server so its loopback port is released and no SSE
-  // connection lingers past app exit.
-  void stopServer();
-  // Stop the loopback companion too (removes cli-bridge.json so a CLI doesn't
+  // Stop the loopback companion (removes cli-bridge.json so a CLI doesn't
   // try to reach a dead port).
   void stopCompanion();
-  // Stop reconnecting + close the outbound cloud-relay host WS on quit.
-  disposeRelay();
   // Close every external MCP stdio connection so no spawned child process lingers
   // past app exit.
   void shutdownExternalMcp();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import type { AgentChatState } from '../../../shared/agent';
 import type { WorkspaceSummary } from '../../../shared/workspace';
@@ -62,6 +62,10 @@ export function useComposer({
   const { t } = useI18n();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // True while an IME composition (Hangul/Kana/Pinyin) is in flight. Kept in a
+  // ref, not state, so toggling it never re-renders — the whole point is to leave
+  // the textarea DOM untouched while the IME owns it.
+  const composingRef = useRef(false);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +108,22 @@ export function useComposer({
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [draft]);
+
+  // The textarea is *uncontrolled* (defaultValue, no `value`) to stay IME-safe:
+  // a controlled `value={draft}` makes React's value writeback reset node.value
+  // to `draft` on every render, and a stray re-render mid-composition (a late
+  // streaming snapshot, the elapsed-timer reset, or the post-turn session reload)
+  // would wipe the half-composed Hangul/Kana syllable out of the DOM — the
+  // "can't type after a turn" bug. Instead we mirror `draft` into the DOM
+  // ourselves whenever it changes programmatically (slash/mention pick, history
+  // recall, send-clear, "Fix this" prefill) — but never while the IME is mid-
+  // composition, so the composing buffer is left strictly to the IME.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    if (composingRef.current) return;
+    if (el.value !== draft) el.value = draft;
   }, [draft]);
 
   // Slash menu: visible while the draft is a bare `/token` (no argument yet) and
@@ -157,6 +177,19 @@ export function useComposer({
     setHistIndex(-1);
     if (typeof nextCaret === 'number') setCaret(nextCaret);
     if (slashInfo) setSlashInfo(null);
+  };
+
+  // IME lifecycle. While composing, the sync effect leaves the DOM to the IME;
+  // on commit we flush the settled text to the store like a normal edit (some
+  // IMEs don't fire `input`/onChange for the composed run, so compositionend is
+  // the authoritative value).
+  const onCompositionStart = () => {
+    composingRef.current = true;
+  };
+  const onCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    composingRef.current = false;
+    const el = e.currentTarget;
+    setDraftAndTrackSlash(el.value, el.selectionStart ?? undefined);
   };
 
   // Recall a previous prompt. `dir` is -1 for older (ArrowUp), +1 for newer.
@@ -501,6 +534,8 @@ export function useComposer({
     pickSlash,
     syncCaret,
     setDraftAndTrackSlash,
+    onCompositionStart,
+    onCompositionEnd,
     handleSend,
     handlePickSuggestion,
     handlePaste,

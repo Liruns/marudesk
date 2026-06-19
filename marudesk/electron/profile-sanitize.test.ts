@@ -36,28 +36,6 @@ describe('sanitizeProfiles', () => {
     const s = sanitizeProfiles({ activeProfileId: 'gone', profiles: [{ id: 'a', name: 'A' }] });
     expect(s.activeProfileId).toBe(DEFAULT_PROFILE_ID);
   });
-
-  it('keeps a valid linked account and drops a malformed one', () => {
-    const s = sanitizeProfiles({
-      activeProfileId: 'a',
-      profiles: [
-        {
-          id: 'a',
-          name: 'Work',
-          account: { provider: 'google', email: 'a@example.com', displayName: 'A' },
-        },
-        { id: 'b', name: 'NoMail', account: { provider: 'google' } },
-        { id: 'c', name: 'BadProvider', account: { provider: 'x', email: 'c@example.com' } },
-      ],
-    });
-    expect(s.profiles.find((p) => p.id === 'a')?.account).toEqual({
-      provider: 'google',
-      email: 'a@example.com',
-      displayName: 'A',
-    });
-    expect(s.profiles.find((p) => p.id === 'b')?.account).toBeUndefined();
-    expect(s.profiles.find((p) => p.id === 'c')?.account).toBeUndefined();
-  });
 });
 
 describe('webTabPartitionForProfile', () => {

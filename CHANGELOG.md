@@ -2,42 +2,62 @@
 
 ## Unreleased
 
+## 0.9.0 - 2026-06-16
+
 ### Identity & Shell
 - Rebranded the product display name from **MaruDesk** to **Maru** across the
   home hero/tagline, window/splash titles, packaging metadata, and the docs.
-  The `marudesk` codename, app id (`com.marudesk.app`), repo, relay service
-  name, and the `marudesk` PATH command are unchanged.
-- New **infinite-canvas** surface: the browser, editor, terminal, and AI agent
-  become freeform, pannable/zoomable cards instead of a tab strip + split grid.
-  Available behind the `#/canvas` route with feature and web cards, layout
-  persistence, and pan/zoom/drag/resize; promoting it to the default surface is
-  still pending.
+  The `marudesk` codename, app id (`com.marudesk.app`), repo, and the
+  `marudesk` PATH command are unchanged, so Windows in-app auto-update keeps
+  upgrading existing installs in place.
 
-### Mobile (removed)
-- The Capacitor mobile thin client has been **removed from the active
-  workspace** and archived on the `archive/mobile` branch (tag
-  `archive/mobile-v0.8.0`). The relay and the desktop remote bridge stay; they
-  are independent of the mobile package. The mobile-only items below remain for
-  historical reference and ship only on the archived branch.
+### Infinite canvas
+- The **infinite canvas** is now Maru's primary surface: the browser, editor,
+  terminal, and AI agent live as freeform, pannable/zoomable cards instead of a
+  tab strip + split grid. Panning, dragging, and resizing are driven straight to
+  the DOM for smooth interaction at any zoom.
+- **Multiple named canvases** per workspace — create, switch, rename, delete,
+  and **duplicate** a canvas; arrangements persist by panel content and survive
+  a full restart.
+- **Figma-style editing** — multi-select, marquee, move-together, and explicit
+  pan modes; keyboard nav and nudging, zoom-aware alignment snap, and an
+  in-canvas workspace switcher.
+- **Sections** group cards into labeled, nestable containers; **directed edges**
+  wire cards together with hit-tested connect points.
+- **Card affordances** — lock and maximize, drag a file from the explorer to
+  open it as a panel, concurrent independent AI Chat cards (each isolated to its
+  own conversation), web cards that load and behave as real browsers with
+  content zoom-scaling, DevTools opened as a canvas card/tab (not a separate
+  window), a minimap, and responsive layouts that reflow for small cards.
 
-### Remote / Mobile (archived)
-- Manual pairing entry actually works: the desktop pairing card now has a
-  "Copy pairing code" button that copies the full pairing payload (the short
-  on-screen code alone could never pair), and the phone explains the fix when
-  the short code is pasted. Pasted payloads survive copy line-wrapping.
-- QR scanning works in shipped builds: the native ML Kit scanner plugin is now
-  bundled with the Android app, with an in-app camera scanner (Shape Detection
-  API) as the web/PWA fallback and paste entry as the final, clearly-announced
-  fallback — the scan button no longer fails silently.
-- Production mobile builds default to the real relay transport; the in-memory
-  demo transport is now dev-only (opt-in via `VITE_USE_STUB`). A released app
-  can no longer sign a user into a fake demo chat.
-- Relay sessions refresh their access token before connecting instead of dying
-  at token expiry and demanding a fresh sign-in.
-- A revoked PC pairing now surfaces a clear "unpair and pair again" error on
-  the phone instead of endlessly retrying with `HTTP 401`.
-- The phone reloads the PC catalog (workspaces/models/sessions) after every
-  reconnect or address failover, so the pickers can't be left empty.
+### AI Work OS
+- **Task nodes on the canvas** — a task-graph schema with a pure dependency
+  scheduler (shared), an AI goal→task-graph decomposer, and task nodes you can
+  generate, edit, and run. The agent can create canvas task nodes directly via
+  MCP.
+
+### Providers
+- New built-in providers: **Moonshot, NVIDIA, Venice, and Hugging Face**.
+- Provider settings UX pass: API-key deep links, custom-endpoint presets,
+  per-provider badges and model counts, an inline key editor, and an honest
+  **Test connection** that reflects the real result.
+- Subscription/OAuth providers force the editor user-agent and route the Copilot
+  dialect correctly; faithful GitLab Duo transport.
+
+### Fixes & polish
+- Embedded web tabs present the Google Chrome UA-CH brand so sites that gate on
+  Chrome behave.
+- Smooth eased Ctrl+wheel zoom with crisp text at rest.
+- Settings panel uses a side-by-side layout.
+- AI Chat composer stays IME-safe after a turn completes (no dropped
+  composition for CJK input).
+
+### Removed / archived
+- The **phone-remote / relay stack has been removed**; the local CLI bridge is
+  kept. Remote phone pairing, the cloud relay, and the cloudflared auto-tunnel
+  are no longer part of the app.
+- The Capacitor mobile thin client remains archived on the `archive/mobile`
+  branch (tag `archive/mobile-v0.8.0`) and is not part of the active workspace.
 
 ## 0.8.0 - 2026-06-12
 

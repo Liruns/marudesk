@@ -6,7 +6,7 @@ import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { toMessage } from '../../lib/toMessage';
 import { useWebPageStore } from '../browser/store';
-import { useAgentStore, useAgentBusy, focusOrOpenAgentTab } from '../agent/store';
+import { useAgentBusy, focusOrOpenAgentTab } from '../agent/store';
 import { toPayload } from '../composer/store';
 import { useWorkspaceStore } from '../workspace/store';
 import { useEditorStore } from '../editor/store';
@@ -232,7 +232,6 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   const error = useWorkspaceStore((s) => s.rankingError[capture.id]);
   const rankCapture = useWorkspaceStore((s) => s.rankCapture);
   const openFile = useEditorStore((s) => s.openFile);
-  const submitPrompt = useAgentStore((s) => s.submitPrompt);
   const busy = useAgentBusy();
   const [expanded, setExpanded] = useState(false);
 
@@ -247,9 +246,9 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   // v6 §U2: send this element (with the user's note) straight to the agent as a
   // focused turn — only this capture rides along, regardless of the cart selection.
   const sendToAgent = async () => {
-    await focusOrOpenAgentTab();
+    const store = (await focusOrOpenAgentTab()).getState();
     const note = (capture.comment ?? '').trim();
-    const res = await submitPrompt(note || t('context.capture.defaultPrompt'), {
+    const res = await store.submitPrompt(note || t('context.capture.defaultPrompt'), {
       captures: [toPayload(capture)],
     });
     if (!res.ok && res.reason && res.reason !== 'busy') {
@@ -261,10 +260,10 @@ function ElementCaptureCard({ capture }: { capture: ElementCapture }) {
   // fix instructions (find the root cause in source, fix it, reload + verify) —
   // the element analog of the console "Fix this". The user's note is appended.
   const fixWithAgent = async () => {
-    await focusOrOpenAgentTab();
+    const store = (await focusOrOpenAgentTab()).getState();
     const note = (capture.comment ?? '').trim();
     const base = t('context.capture.fixPrompt');
-    const res = await submitPrompt(note ? `${base}\n\n${note}` : base, {
+    const res = await store.submitPrompt(note ? `${base}\n\n${note}` : base, {
       captures: [toPayload(capture)],
     });
     if (!res.ok && res.reason && res.reason !== 'busy') {

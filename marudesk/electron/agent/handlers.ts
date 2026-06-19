@@ -7,7 +7,7 @@ import { cancelBackgroundTask } from './background';
 import { editPlanStep } from './plan';
 import { parseAbort, parseApprove, parseEditPlanStep, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
-import { containerForWorkspace } from './loop-state.ts';
+import { containerForThread, containerForWorkspace } from './loop-state.ts';
 import { builtinToolInfo } from './tools/registry';
 import {
   abortTurn,
@@ -46,6 +46,18 @@ function uiWorkspaceFilterOf(payload: unknown): WorkspaceId | null {
   return workspaceIdOf(payload) ?? null;
 }
 
+/**
+ * The conversation a per-tab/per-card AI Chat addresses. When the renderer pins
+ * a `threadId` (every full-surface AI Chat tab now owns its own thread, so chats
+ * stay isolated across tabs), route to that thread's container; otherwise fall
+ * back to the workspace's active-thread container (the drawer / "Fix this").
+ */
+function containerOf(payload: unknown) {
+  const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const threadId = typeof p.threadId === 'string' ? p.threadId : undefined;
+  return (threadId ? containerForThread(threadId) : null) ?? containerForWorkspace(workspaceIdOf(payload));
+}
+
 /** Defensively coerce the renderer's context mirror into the cached shape. */
 function parseContextSync(payload: unknown): ContextSyncPayload {
   const o = obj(payload);
@@ -81,7 +93,7 @@ function parseContextSync(payload: unknown): ContextSyncPayload {
  * IPC surface for the agentic AI Chat. Like every other domain it validates the
  * untrusted renderer payload before touching the loop; the loop itself owns all
  * state and streams it back on the `agent:event` snapshot. The payload parsers
- * live in ./parse so the headless bridge server (electron/server) reuses the
+ * live in ./parse so the CLI bridge router (electron/cli-bridge) reuses the
  * exact same validation for its REST commands.
  */
 
@@ -95,10 +107,8 @@ export function registerAgentHandlers(): void {
     return respond(turnId, callId, answers);
   });
 
-  // The desktop UI's approve path: it calls the loop DIRECTLY (never the bridge
+  // The desktop UI's approve path calls the loop DIRECTLY (never the CLI bridge
   // dispatcher), so a gated approval made here at the desktop is always honored.
-  // Remote (bridge) self-approval of gated tools is what L-1 refuses, and that is
-  // enforced in electron/server/dispatch.ts — keep this path off the dispatcher.
   defineHandler('agent:approve-tool', ([payload]) => {
     const { turnId, callId, approved, always } = parseApprove(payload);
     return approveTool(turnId, callId, approved, always);
@@ -131,7 +141,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Steerable plan (v6 §U5): the user toggles a step's status or removes it.
-  // Shares parseEditPlanStep with the bridge path so IPC + relay validate alike.
+  // Shares parseEditPlanStep with the CLI bridge path so IPC + bridge validate alike.
   defineHandler('agent:edit-plan-step', ([payload]) => {
     const { id, ...op } = parseEditPlanStep(payload);
     return editPlanStep(id, op);
@@ -143,12 +153,12 @@ export function registerAgentHandlers(): void {
     return snapshot(workspaceIdOf(payload), threadId);
   });
 
-  defineHandler('agent:reset', ([payload]) => reset(containerForWorkspace(workspaceIdOf(payload))));
+  defineHandler('agent:reset', ([payload]) => reset(containerOf(payload)));
 
   defineHandler('agent:compact', ([payload]) => {
     const data = obj(payload ?? {});
     const focus = typeof data.focus === 'string' ? data.focus : undefined;
-    return compactConversation(focus, containerForWorkspace(workspaceIdOf(payload)));
+    return compactConversation(focus, containerOf(payload));
   });
 
   // Session history (v3 §5-C): list past conversations, resume one as the active

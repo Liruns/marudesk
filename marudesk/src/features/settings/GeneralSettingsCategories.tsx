@@ -26,6 +26,7 @@ import {
   TextField,
 } from './SettingsControls';
 import { SEARCH_ENGINE_OPTIONS } from './settingsOptions';
+import { SshHostKeysSettings } from './SshHostKeysSettings';
 import { useDockOptions, useOnOffOptions } from './useLocalizedSettingsOptions';
 import { useSettingsStore } from './store';
 
@@ -326,37 +327,40 @@ export function ApplicationCategory() {
     readonly label: string;
   }[];
   return (
-    <Section>
-      <Field
-        label={t('settings.window.closeBehavior.label')}
-        hint={t('settings.window.closeBehavior.hint')}
-      >
-        <Segmented
-          value={settings.window.closeBehavior}
-          options={closeOptions}
-          onChange={(closeBehavior) => void update({ window: { closeBehavior } })}
-        />
-      </Field>
-      <Field
-        label={t('settings.browser.searchEngine.label')}
-        hint={t('settings.browser.searchEngine.hint')}
-      >
-        <Segmented
-          value={settings.browser.searchEngine}
-          options={SEARCH_ENGINE_OPTIONS}
-          onChange={(searchEngine) => void update({ browser: { searchEngine } })}
-        />
-      </Field>
-      <Field
-        label={t('settings.devtools.dock.label')}
-        hint={t('settings.devtools.dock.hint')}
-      >
-        <Segmented
-          value={settings.devtools.defaultDock}
-          options={dockOptions}
-          onChange={(defaultDock) => void update({ devtools: { defaultDock } })}
-        />
-      </Field>
-    </Section>
+    <>
+      <Section>
+        <Field
+          label={t('settings.window.closeBehavior.label')}
+          hint={t('settings.window.closeBehavior.hint')}
+        >
+          <Segmented
+            value={settings.window.closeBehavior}
+            options={closeOptions}
+            onChange={(closeBehavior) => void update({ window: { closeBehavior } })}
+          />
+        </Field>
+        <Field
+          label={t('settings.browser.searchEngine.label')}
+          hint={t('settings.browser.searchEngine.hint')}
+        >
+          <Segmented
+            value={settings.browser.searchEngine}
+            options={SEARCH_ENGINE_OPTIONS}
+            onChange={(searchEngine) => void update({ browser: { searchEngine } })}
+          />
+        </Field>
+        <Field
+          label={t('settings.devtools.dock.label')}
+          hint={t('settings.devtools.dock.hint')}
+        >
+          <Segmented
+            value={settings.devtools.defaultDock}
+            options={dockOptions}
+            onChange={(defaultDock) => void update({ devtools: { defaultDock } })}
+          />
+        </Field>
+      </Section>
+      <SshHostKeysSettings />
+    </>
   );
 }

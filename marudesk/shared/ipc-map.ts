@@ -79,12 +79,6 @@ import type {
   SshTestResult,
 } from './ssh';
 import type {
-  PairedDeviceInfo,
-  PairingStartInfo,
-  RelayStatus,
-  ServerStatus,
-} from './remote';
-import type {
   CliCommandStatus,
   TerminalCreateOptions,
   TerminalCreated,
@@ -128,6 +122,12 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export interface IpcMap {
   // browser
   'browser:navigate': { args: [url: string]; result: void };
+  // Per-tab controls — the canvas drives a specific card's view by id without
+  // changing the active tab or disturbing the multi-card grid layout.
+  'browser:navigate-tab': { args: [payload: { tabId: string; url: string }]; result: void };
+  'browser:go-back-tab': { args: [tabId: string]; result: boolean };
+  'browser:go-forward-tab': { args: [tabId: string]; result: boolean };
+  'browser:reload-tab': { args: [payload: { tabId: string; ignoreCache?: boolean }]; result: boolean };
   'browser:set-bounds': { args: [bounds: Rect]; result: void };
   'browser:set-pane-bounds': {
     // `scale` (optional) is the canvas zoom; web views render their page at it so
@@ -803,7 +803,7 @@ export interface IpcMap {
   // (result void) — main caches it for the read_editor / read_explorer tools.
   'context:sync': { args: [payload: ContextSyncPayload]; result: void };
 
-  // external (stdio) MCP connectors (docs/remote-mobile-bridge-design §M3). The
+  // external (stdio) MCP connectors (docs/context-mcp-design §8). The
   // Settings UI lists per-server status, reloads from the config file, toggles a
   // server's enabled flag, and reveals the config file for hand-editing. Each
   // mutation returns the fresh statuses so the renderer reprojects without a
@@ -866,48 +866,6 @@ export interface IpcMap {
   'settings:get': { args: []; result: AppSettings };
   'settings:set': { args: [partial: SettingsPatch]; result: AppSettings };
   'settings:reset': { args: []; result: AppSettings };
-
-  // cloud relay (Bridge Model B §B2). `login` does email+password signup/login
-  // against the relay, stores the session (tokens encrypted in main), and connects
-  // as host when cloud is enabled. All return the sanitized status — never tokens.
-  'relay:login': {
-    args: [
-      payload: {
-        relayUrl: string;
-        email: string;
-        password: string;
-        mode: 'login' | 'signup';
-      },
-    ];
-    result: RelayStatus;
-  };
-  // Google sign-in via the relay's OAuth web flow: main opens the SYSTEM browser
-  // and waits on a transient loopback for the relay's one-time handoff code; the
-  // resulting Google identity is also linked onto the active profile's meta.
-  'relay:login-google': {
-    args: [payload: { relayUrl: string }];
-    result: RelayStatus;
-  };
-  'relay:logout': { args: []; result: RelayStatus };
-  'relay:status': { args: []; result: RelayStatus };
-
-  // bridge server status (T2 — docs/remote-mobile-bridge-design §3). Read the
-  // running flag + reachable LAN/Tailscale URLs for the Settings Remote panel;
-  // pushed live on `server:status-changed`. Never carries the bearer token.
-  'server:status': { args: []; result: ServerStatus };
-  // device pairing (T2 ③ — docs/t2-secure-pairing-design.md). `pairing-start` mints
-  // a QR (PC public key + reachable URLs + one-time code) for the phone to scan;
-  // `pairing-approve`/`-reject` answer the desktop approval card (correlated by the
-  // approvalId from the `server:pairing-request` event); `list/revoke-devices`
-  // manage paired phones. Sanitized only — never a session key.
-  'server:pairing-start': { args: []; result: PairingStartInfo };
-  'server:pairing-approve': { args: [payload: { approvalId: string }]; result: boolean };
-  'server:pairing-reject': { args: [payload: { approvalId: string }]; result: boolean };
-  'server:list-devices': { args: []; result: PairedDeviceInfo[] };
-  'server:revoke-device': {
-    args: [payload: { deviceId: string }];
-    result: PairedDeviceInfo[];
-  };
 
   // terminal
   'terminal:create': {

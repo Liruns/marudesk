@@ -13,7 +13,9 @@ import {
   ChevronDown,
   CopyPlus,
   Globe,
+  Group,
   Layers,
+  LayoutGrid,
   ListTree,
   Map as MapIcon,
   Maximize2,
@@ -24,6 +26,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import type { TabKind, TabState } from '../../../shared/browser';
 import { useTabsStore } from '../tabs/store';
@@ -31,11 +34,13 @@ import { tabKinds } from '../tabs/registry';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { NameDialog } from '../workspaces/NameDialog';
 import { CanvasCard, type CardGroupProps } from './CanvasCard';
+import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
+import { easeOutBack, fitPose } from './camera-math';
 import { edgeEndpoints, nearestSide } from './edgeGeometry';
-import { cardDefaultSize, placementKey, useCanvasStore, type CardRect, type EdgeSide } from './store';
+import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
 type CanvasMenu =
@@ -117,6 +122,44 @@ function waitForPlacements(ids: readonly string[], timeoutMs = 5000): Promise<vo
 }
 
 /**
+ * The id set of tabs visible on the canvas right now — the active workspace's
+ * tabs, or all tabs when none is active — read fresh from the stores so a mid-
+ * interaction workspace switch is reflected immediately.
+ */
+function visibleTabIds(): Set<string> {
+  const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
+  const tabs = useTabsStore.getState().tabs;
+  return new Set((aws ? tabs.filter((t) => t.workspaceId === aws) : tabs).map((t) => t.id));
+}
+
+/**
+ * A predicate over placement keys: is this card/group currently rendered? A group
+ * renders if any member is visible; an ungrouped tab if it's visible and not
+ * absorbed into a group. The caller supplies `vis` so a drag-time caller can pass
+ * the render-time set while a fresh caller passes a live {@link visibleTabIds}.
+ */
+function renderedPredicate(vis: Set<string>, groups: readonly CardGroup[]): (key: string) => boolean {
+  const grouped = new Set(groups.flatMap((g) => g.tabIds));
+  return (key) => {
+    const grp = groups.find((g) => g.id === key);
+    return grp ? grp.tabIds.some((id) => vis.has(id)) : vis.has(key) && !grouped.has(key);
+  };
+}
+
+/**
+ * Focus + raise a card once it has a placement (its card has materialized) — run
+ * after creating/opening a card so the new surface becomes the live one
+ * immediately (matters for agent cards, which only run live when focused).
+ */
+function raiseWhenPlaced(tabId: string): void {
+  whenPlaced(tabId, () => {
+    const s = useCanvasStore.getState();
+    s.setFocused(tabId);
+    s.bringToFront(tabId);
+  });
+}
+
+/**
  * The infinite-canvas surface (Maru — see docs/maru-identity-and-canvas-design.md).
  * A pannable / zoomable plane that hosts every open tab as a freeform card. Pan by
  * dragging empty space or scrolling; zoom with ⌘/Ctrl + wheel or the controls.
@@ -126,13 +169,24 @@ function waitForPlacements(ids: readonly string[], timeoutMs = 5000): Promise<vo
  * split grid uses (electron/browser/layout.ts), so the live WebContentsView tracks
  * the card. Repositioning is coalesced to one IPC per animation frame.
  */
+/** True when the OS asks for reduced motion (gesture inertia should be skipped). */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
 export function CanvasStage() {
+  const { t, formatCanvasGroupSection } = useI18n();
   const tabs = useTabsStore((s) => s.tabs);
   const activateTab = useTabsStore((s) => s.activateTab);
   const placements = useCanvasStore((s) => s.placements);
   const edges = useCanvasStore((s) => s.edges);
   const edgeStyle = useCanvasStore((s) => s.edgeStyle);
   const groups = useCanvasStore((s) => s.groups);
+  const sections = useCanvasStore((s) => s.sections);
   const selection = useCanvasStore((s) => s.selection);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -147,7 +201,7 @@ export function CanvasStage() {
   const canvasList = canvasBucket
     ? canvasBucket.order.map((id) => canvasBucket.canvases[id]).filter((d): d is NonNullable<typeof d> => !!d)
     : [];
-  const activeCanvasName = canvasBucket?.canvases[activeCanvasId]?.name ?? 'Canvas';
+  const activeCanvasName = canvasBucket?.canvases[activeCanvasId]?.name ?? t('canvas.toolbar.canvasFallback');
 
   // Scope cards to the active workspace so multiple workspaces don't pile onto
   // one canvas; fall back to all tabs when no workspace is active. Placements are
@@ -157,12 +211,20 @@ export function CanvasStage() {
     ? tabs.filter((t) => t.workspaceId === activeWorkspaceId)
     : tabs;
   const visibleIds = new Set(visibleTabs.map((t) => t.id));
-  // Map a tab to its placement key (group id when merged) for edge anchoring.
+  const sectionIds = new Set(sections.map((s) => s.id));
+  // Map a tab to its placement key (group id when merged) for edge anchoring; a
+  // section id is its own key.
   const keyOf = (tabId: string): string => placementKey(groups, tabId);
+  // An edge endpoint is visible if it's a visible tab or a section on this canvas.
+  const nodeVisible = (key: string): boolean => visibleIds.has(key) || sectionIds.has(key);
+  // Edge endpoints resolve their rect from cards (placements) OR sections, so a
+  // card↔section / section↔section wire anchors to the section frame.
+  const nodeRects: Record<string, CardRect> = { ...placements };
+  for (const s of sections) nodeRects[s.id] = { x: s.x, y: s.y, w: s.w, h: s.h, z: 0 };
   // Only draw edges whose both endpoints are visible; skip intra-group edges
   // (both ends resolve to the same card).
   const visibleEdges = edges.filter(
-    (e) => visibleIds.has(e.from) && visibleIds.has(e.to) && keyOf(e.from) !== keyOf(e.to),
+    (e) => nodeVisible(e.from) && nodeVisible(e.to) && keyOf(e.from) !== keyOf(e.to),
   );
   const activeWsName = workspaces.find((w) => w.id === activeWorkspaceId)?.name;
 
@@ -190,7 +252,24 @@ export function CanvasStage() {
   const [spacePan, setSpacePan] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  // The CSS-transformed plane (cards live inside it). Panning writes its transform
+  // directly so a drag never re-renders React — the perf fix for "휠 클릭 버벅거림".
+  const planeRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  // Smoothed pan velocity (screen px/ms) for fling inertia, and the inertia rAF.
+  const panVelRef = useRef<{ vx: number; vy: number; t: number } | null>(null);
+  const inertiaRef = useRef<number | null>(null);
+  // Live (uncommitted) viewport while a pan OR zoom gesture is in flight, or null
+  // when the store is authoritative. The plane/grid transform is driven straight
+  // from this on each pointer/wheel/animation frame, and only committed to the
+  // store on gesture end — so cards/edges aren't re-rendered ~120×/sec mid-gesture.
+  // Zoom carries `scale` too (pan leaves it at the committed value).
+  const liveRef = useRef<{ panX: number; panY: number; scale: number } | null>(null);
+  // Trailing-commit timer for wheel panning (no pointerup to commit on).
+  const wheelCommitRef = useRef<number | null>(null);
+  // Active eased-zoom glide: the target scale + the container-px anchor the cursor
+  // is pinned to, and the rAF handle driving the ease. Null when no zoom is gliding.
+  const zoomRef = useRef<{ target: number; anchorX: number; anchorY: number; raf: number | null } | null>(null);
   // Marquee anchor (canvas coords) + the multi-selection store keys it began with.
   const marqueeRef = useRef<{ pointerId: number; ox: number; oy: number } | null>(null);
   const spaceDownRef = useRef(false);
@@ -237,8 +316,10 @@ export function CanvasStage() {
           },
         });
       }
-      // Send the canvas zoom so main scales each web view's page to match.
-      const scale = useCanvasStore.getState().viewport.scale;
+      // Send the canvas zoom so main scales each web view's page to match. During a
+      // live pan/zoom the store scale is stale, so prefer the in-flight live scale
+      // — otherwise web cards wouldn't track the zoom until the gesture committed.
+      const scale = liveRef.current?.scale ?? useCanvasStore.getState().viewport.scale;
       const key = JSON.stringify({ panes, scale });
       if (key === lastSentRef.current) return; // nothing changed → skip the IPC
       lastSentRef.current = key;
@@ -246,9 +327,180 @@ export function CanvasStage() {
     });
   }, []);
 
+  // Seed the live viewport from the store on the first event of a gesture, and
+  // promote the plane to its own compositor layer for the duration so pan/zoom run
+  // as GPU transforms (no paint). `will-change` is dropped again on commit so the
+  // plane re-rasterizes at rest — that's what keeps card text crisp when idle.
+  const seedLive = useCallback(() => {
+    if (!liveRef.current) {
+      const vp = useCanvasStore.getState().viewport;
+      liveRef.current = { panX: vp.panX, panY: vp.panY, scale: vp.scale };
+    }
+    if (planeRef.current) planeRef.current.style.willChange = 'transform';
+    return liveRef.current;
+  }, []);
+
+  // Write the live viewport straight to the DOM (plane transform + grid background)
+  // so a pan/zoom moves at the compositor's pace without a React re-render. The
+  // store stays untouched until the gesture commits.
+  const applyLiveTransform = useCallback(() => {
+    const lv = liveRef.current;
+    if (!lv) return;
+    if (planeRef.current) {
+      planeRef.current.style.transform = `translate(${lv.panX}px, ${lv.panY}px) scale(${lv.scale})`;
+    }
+    if (containerRef.current) {
+      containerRef.current.style.backgroundPosition = `${lv.panX}px ${lv.panY}px`;
+      containerRef.current.style.backgroundSize = `${24 * lv.scale}px ${24 * lv.scale}px`;
+    }
+  }, []);
+
+  // Accumulate a pan delta onto the live viewport (seeding on the first move),
+  // repaint the plane directly, and let the native web views follow (measureWeb is
+  // itself rAF-coalesced). A pan cancels any in-flight zoom glide so the two don't
+  // fight over the same live viewport.
+  const livePanBy = useCallback(
+    (dx: number, dy: number) => {
+      if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+      zoomRef.current = null;
+      const lv = seedLive();
+      lv.panX += dx;
+      lv.panY += dy;
+      applyLiveTransform();
+      measureWeb();
+    },
+    [seedLive, applyLiveTransform, measureWeb],
+  );
+
+  // Fold the live viewport back into the store (one update → one re-render), drop
+  // the live offset so React owns the transform again, end any zoom glide, and let
+  // the plane re-rasterize at rest (will-change off → crisp text).
+  const commitLive = useCallback(() => {
+    if (inertiaRef.current != null) {
+      cancelAnimationFrame(inertiaRef.current);
+      inertiaRef.current = null;
+    }
+    if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+    zoomRef.current = null;
+    if (wheelCommitRef.current !== null) {
+      clearTimeout(wheelCommitRef.current);
+      wheelCommitRef.current = null;
+    }
+    if (planeRef.current) planeRef.current.style.willChange = '';
+    const lv = liveRef.current;
+    if (!lv) return;
+    liveRef.current = null;
+    useCanvasStore.getState().setViewport(lv.panX, lv.panY, lv.scale);
+  }, []);
+
+  // Fling inertia: after a fast pan release, glide the live viewport with
+  // exponential friction (τ≈220ms) painted straight to the DOM, then commit.
+  // The caller gates on reduced-motion / speed; commitLive (or any new gesture)
+  // cancels the rAF.
+  const startPanInertia = useCallback(
+    (vx0: number, vy0: number) => {
+      seedLive();
+      let vx = vx0;
+      let vy = vy0;
+      let last = performance.now();
+      const step = (now: number) => {
+        const dt = Math.min(48, now - last);
+        last = now;
+        livePanBy(vx * dt, vy * dt);
+        const decay = Math.exp(-dt / 220);
+        vx *= decay;
+        vy *= decay;
+        if (Math.hypot(vx, vy) < 0.02) {
+          inertiaRef.current = null;
+          commitLive();
+          return;
+        }
+        inertiaRef.current = requestAnimationFrame(step);
+      };
+      inertiaRef.current = requestAnimationFrame(step);
+    },
+    [seedLive, livePanBy, commitLive],
+  );
+
+  // Eased zoom: each wheel notch (or zoom button) nudges a target scale; a rAF loop
+  // glides the live scale toward it, anchored at the cursor, painting straight to
+  // the DOM. So a zoom never re-renders the card tree mid-gesture (the jank that
+  // made wheel-zoom feel choppy) and discrete notches read as one smooth shrink/
+  // grow. The glide commits to the store once it settles.
+  const smoothZoomBy = useCallback(
+    (factor: number, cx: number, cy: number) => {
+      // One ease frame: glide the live scale a fraction toward the target, anchored
+      // at the cursor, paint straight to the DOM, then re-arm or commit on settle.
+      const step = () => {
+        const cur = liveRef.current;
+        const z = zoomRef.current;
+        if (!cur || !z) return;
+        // Canvas-space point under the anchor BEFORE the scale step — keep it fixed
+        // so the cursor stays pinned to the same content as the scale eases.
+        const px = (z.anchorX - cur.panX) / cur.scale;
+        const py = (z.anchorY - cur.panY) / cur.scale;
+        const done = Math.abs(z.target - cur.scale) < 0.0015;
+        cur.scale = done ? z.target : cur.scale + (z.target - cur.scale) * 0.25;
+        cur.panX = z.anchorX - px * cur.scale;
+        cur.panY = z.anchorY - py * cur.scale;
+        applyLiveTransform();
+        measureWeb();
+        if (done) {
+          zoomRef.current = null;
+          commitLive();
+        } else {
+          z.raf = requestAnimationFrame(step);
+        }
+      };
+      const lv = seedLive();
+      const base = zoomRef.current?.target ?? lv.scale;
+      const target = Math.min(SCALE_MAX, Math.max(SCALE_MIN, base * factor));
+      // The glide is the sole committer for a zoom, so cancel any trailing wheel-pan
+      // commit that might otherwise fire mid-glide and finalize early.
+      if (wheelCommitRef.current !== null) {
+        clearTimeout(wheelCommitRef.current);
+        wheelCommitRef.current = null;
+      }
+      if (zoomRef.current) {
+        // A glide is already running — just retarget it (and re-anchor to the new
+        // cursor); the live rAF chain picks up the new target/anchor next frame.
+        zoomRef.current.target = target;
+        zoomRef.current.anchorX = cx;
+        zoomRef.current.anchorY = cy;
+        if (zoomRef.current.raf === null) zoomRef.current.raf = requestAnimationFrame(step);
+        return;
+      }
+      zoomRef.current = { target, anchorX: cx, anchorY: cy, raf: requestAnimationFrame(step) };
+    },
+    [seedLive, applyLiveTransform, measureWeb, commitLive],
+  );
+
+  // Wheel panning has no pointerup, so commit on a short trailing idle.
+  const scheduleWheelCommit = useCallback(() => {
+    if (wheelCommitRef.current !== null) clearTimeout(wheelCommitRef.current);
+    wheelCommitRef.current = window.setTimeout(() => {
+      wheelCommitRef.current = null;
+      commitLive();
+    }, 140);
+  }, [commitLive]);
+
+  // The store is intentionally stale during a pan, so if React happens to
+  // re-render mid-gesture (a tab title update, a card animation, …) it paints the
+  // plane at the committed offset. Re-assert the live transform after every render
+  // (pre-paint) so the pan never snaps back for a frame.
+  useLayoutEffect(() => {
+    if (liveRef.current) applyLiveTransform();
+  });
+
   // Keep placements in step with the open tabs (initial mount + later changes).
   useEffect(() => {
     useCanvasStore.getState().syncPlacements(tabIdsKey ? tabIdsKey.split('\n') : []);
+    // Opening a web card runs createAndActivateTab → showTab in main, which drops
+    // the process out of grid mode (single-active path) until the renderer re-asserts
+    // pane bounds. Clear the dedup so the NEXT measure always re-sends, re-entering
+    // grid mode — otherwise an unchanged pane list is skipped and the card's native
+    // view stays at the stale single-view rect, i.e. blank on the canvas.
+    lastSentRef.current = '';
   }, [tabIdsKey]);
 
   // Re-measure web views on any viewport (pan/zoom) or placement (move) change,
@@ -291,6 +543,9 @@ export function CanvasStage() {
   useEffect(() => {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+      if (inertiaRef.current != null) cancelAnimationFrame(inertiaRef.current);
+      if (wheelCommitRef.current !== null) clearTimeout(wheelCommitRef.current);
       void window.marudesk.invoke('browser:clear-pane-bounds');
     };
   }, []);
@@ -303,22 +558,31 @@ export function CanvasStage() {
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const store = useCanvasStore.getState();
+      // A wheel gesture takes over the live viewport from any fling (keep the
+      // live offset so the wheel continues from where the fling was, no commit).
+      if (inertiaRef.current != null) {
+        cancelAnimationFrame(inertiaRef.current);
+        inertiaRef.current = null;
+      }
       if (e.ctrlKey || e.metaKey) {
-        // Zoom at the cursor (also catches trackpad pinch, which arrives as ctrl+wheel).
+        // Zoom at the cursor (also catches trackpad pinch, which arrives as
+        // ctrl+wheel). Eased + painted straight to the DOM, so consecutive notches
+        // glide into one smooth zoom instead of re-rendering the card tree per tick.
         const r = el.getBoundingClientRect();
-        store.zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+        smoothZoomBy(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
       } else if (e.shiftKey) {
         // Shift + wheel = horizontal pan (Figma).
-        store.panBy(-(e.deltaY || e.deltaX), 0);
+        livePanBy(-(e.deltaY || e.deltaX), 0);
+        scheduleWheelCommit();
       } else {
         // Plain wheel / trackpad = two-axis pan.
-        store.panBy(-e.deltaX, -e.deltaY);
+        livePanBy(-e.deltaX, -e.deltaY);
+        scheduleWheelCommit();
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [livePanBy, smoothZoomBy, scheduleWheelCommit]);
 
   // Ctrl/Cmd+wheel over a web card is eaten by its native view, so main forwards
   // it here (see electron/browser/tabs.ts). Zoom the canvas centered on that
@@ -338,20 +602,24 @@ export function CanvasStage() {
           cy = r.top + r.height / 2 - cr.top;
         }
       }
-      useCanvasStore.getState().zoomAt(Math.exp(-deltaY * 0.0015), cx, cy);
+      smoothZoomBy(Math.exp(-deltaY * 0.0015), cx, cy);
     });
-  }, []);
+  }, [smoothZoomBy]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    // Any pointerdown ends an in-flight fling and folds the live offset into the
+    // store, so the interaction starts from a clean, committed viewport.
+    commitLive();
     // Never start on a card or an on-canvas control — capturing here would
     // swallow their clicks.
-    if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
+    if ((e.target as HTMLElement).closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
     // Pan with the middle button or Space+left (Figma); plain left marquee-selects
     // empty canvas; right opens the context menu.
     const pan = e.button === 1 || (e.button === 0 && spaceDownRef.current);
     if (pan) {
       e.currentTarget.setPointerCapture(e.pointerId);
       panRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      panVelRef.current = { vx: 0, vy: 0, t: e.timeStamp };
       setPanning(true);
       return;
     }
@@ -372,7 +640,17 @@ export function CanvasStage() {
       const dy = e.clientY - p.y;
       p.x = e.clientX;
       p.y = e.clientY;
-      useCanvasStore.getState().panBy(dx, dy);
+      // Track a smoothed velocity (px/ms) for the release fling.
+      const now = e.timeStamp;
+      const pv = panVelRef.current;
+      if (pv) {
+        const dt = Math.max(1, now - pv.t);
+        pv.vx = pv.vx * 0.6 + (dx / dt) * 0.4;
+        pv.vy = pv.vy * 0.6 + (dy / dt) * 0.4;
+        pv.t = now;
+      }
+      // Direct-to-DOM pan — no store write (and no re-render) until pointerup.
+      livePanBy(dx, dy);
       return;
     }
     const m = marqueeRef.current;
@@ -390,6 +668,17 @@ export function CanvasStage() {
     if (panRef.current?.pointerId === e.pointerId) {
       panRef.current = null;
       setPanning(false);
+      // A fast release flings the canvas — glide it out with friction; otherwise
+      // commit the accumulated offset immediately.
+      const pv = panVelRef.current;
+      panVelRef.current = null;
+      const stale = !pv || e.timeStamp - pv.t > 80;
+      const speed = pv ? Math.hypot(pv.vx, pv.vy) : 0;
+      if (pv && !stale && speed > 0.08 && !prefersReducedMotion()) {
+        startPanInertia(pv.vx, pv.vy);
+      } else {
+        commitLive();
+      }
       return;
     }
     const m = marqueeRef.current;
@@ -406,14 +695,10 @@ export function CanvasStage() {
       const thresh = 4 / useCanvasStore.getState().viewport.scale;
       if (maxX - minX < thresh && maxY - minY < thresh) return; // a click, not a drag
       const store = useCanvasStore.getState();
-      const grouped = new Set(groups.flatMap((g) => g.tabIds));
+      const isRendered = renderedPredicate(visibleIds, groups);
       const sel: string[] = [];
       for (const [key, r] of Object.entries(store.placements)) {
-        const grp = groups.find((g) => g.id === key);
-        const rendered = grp
-          ? grp.tabIds.some((id) => visibleIds.has(id))
-          : visibleIds.has(key) && !grouped.has(key);
-        if (!rendered) continue;
+        if (!isRendered(key)) continue;
         if (r.x < maxX && r.x + r.w > minX && r.y < maxY && r.y + r.h > minY) sel.push(key);
       }
       store.setSelection(sel);
@@ -431,24 +716,19 @@ export function CanvasStage() {
 
   // Snap a moving card's edges (left/right/center + adjacency) to nearby cards
   // within a small threshold — Figma-style alignment; free placement elsewhere.
-  const snapMove = (tabId: string, x: number, y: number) => {
+  // Snapped position for a single dragged card (aligns to other rendered cards),
+  // computed WITHOUT writing — the live drag paints the result straight to the DOM.
+  const computeSnap = (tabId: string, x: number, y: number): { x: number; y: number } => {
     const store = useCanvasStore.getState();
     const pl = store.placements;
     const cur = pl[tabId];
-    if (!cur) {
-      return;
-    }
+    if (!cur) return { x, y };
     const { w, h } = cur;
     // Constant in screen px (so the feel is the same at any zoom).
     const SNAP = 6 / store.viewport.scale;
     // Read the visible set fresh (a mid-drag workspace switch shouldn't snap to
     // the previous workspace's cards).
-    const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
-    const tabsNow = useTabsStore.getState().tabs;
-    const visIds = new Set(
-      (aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow).map((t) => t.id),
-    );
-    const grouped = new Set(store.groups.flatMap((g) => g.tabIds));
+    const isRendered = renderedPredicate(visibleTabIds(), store.groups);
     let sx = x;
     let sy = y;
     let dx = SNAP;
@@ -457,9 +737,7 @@ export function CanvasStage() {
     // (keyed by group id), so a card can align to a group, not just plain cards.
     for (const [k, r] of Object.entries(pl)) {
       if (k === tabId) continue;
-      const grp = store.groups.find((g) => g.id === k);
-      const rendered = grp ? grp.tabIds.some((id) => visIds.has(id)) : visIds.has(k) && !grouped.has(k);
-      if (!rendered) continue;
+      if (!isRendered(k)) continue;
       for (const cx of [r.x, r.x + r.w - w, r.x + (r.w - w) / 2, r.x + r.w, r.x - w]) {
         const d = Math.abs(x - cx);
         if (d < dx) {
@@ -475,30 +753,184 @@ export function CanvasStage() {
         }
       }
     }
-    useCanvasStore.getState().setPos(tabId, sx, sy);
+    return { x: sx, y: sy };
   };
 
-  // Header drag: if the dragged card is part of a multi-selection, move the whole
-  // selection together (per-frame delta, no snap); otherwise snap the single card.
-  const handleMove = (key: string, x: number, y: number) => {
-    const store = useCanvasStore.getState();
-    const sel = store.selection;
-    if (sel.length > 1 && sel.includes(key)) {
-      const pl = store.placements;
-      const cur = pl[key];
-      if (!cur) return;
-      const dx = x - cur.x;
-      const dy = y - cur.y;
-      for (const k of sel) {
-        const r = pl[k];
-        if (!r || r.locked) continue;
-        if (k === key) store.setPos(k, x, y);
-        else store.setPos(k, r.x + dx, r.y + dy);
+  // Card header drag, painted STRAIGHT to the DOM (no store write / re-render until
+  // release) — the perf path mirroring the canvas pan + section fixes. Snap (single)
+  // and group-delta (multi) are unchanged; only WHERE the result lands moves: the
+  // card elements during the drag, the store once on drop.
+  const cardDragRef = useRef<{
+    key: string;
+    multi: boolean;
+    cards: { key: string; el: HTMLElement | null; ox: number; oy: number }[];
+    pos: Record<string, { x: number; y: number }>;
+  } | null>(null);
+  // Smoothed drag velocity (canvas px/ms) for the card fling, and the settle rAF.
+  const cardVelRef = useRef<{ x: number; y: number; t: number; vx: number; vy: number } | null>(null);
+  const cardFlingRaf = useRef<number | null>(null);
+  type CardDrag = NonNullable<typeof cardDragRef.current>;
+
+  const paintCardDrag = () => {
+    const d = cardDragRef.current;
+    if (!d) return;
+    for (const c of d.cards) {
+      const p = d.pos[c.key];
+      if (c.el && p) {
+        c.el.style.left = `${p.x}px`;
+        c.el.style.top = `${p.y}px`;
       }
-    } else {
-      snapMove(key, x, y);
     }
   };
+
+  // Write the dragged set's final positions to the store in ONE update; React
+  // then owns the positions again, matching what we painted (no snap-back).
+  const flushCardDrag = (d: CardDrag) => {
+    cardDragRef.current = null;
+    cardVelRef.current = null;
+    const store = useCanvasStore.getState();
+    const origin = d.cards.find((c) => c.key === d.key);
+    const last = d.pos[d.key];
+    if (!origin || !last) return;
+    if (last.x === origin.ox && last.y === origin.oy) return; // a click that didn't move
+    if (d.multi) {
+      const base = Object.fromEntries(d.cards.map((c) => [c.key, { x: c.ox, y: c.oy }]));
+      store.moveSelectionBy(
+        d.cards.map((c) => c.key),
+        base,
+        last.x - origin.ox,
+        last.y - origin.oy,
+      );
+    } else {
+      store.setPos(d.key, last.x, last.y);
+    }
+  };
+
+  // Card fling: a fast release throws the card(s) a little further and settles
+  // with an easeOutBack overshoot (pane DESIGN §15 gesture spring), painted
+  // straight to the DOM, then flushed to the store. The whole set shares one
+  // throw delta; commitCardMove gates on speed + reduced-motion.
+  const startCardFling = (d: CardDrag, vx: number, vy: number) => {
+    const THROW = 120; // ms of velocity projected into a throw distance
+    const CAP = 600; // canvas px — don't hurl a card off into space
+    const tdx = Math.max(-CAP, Math.min(CAP, vx * THROW));
+    const tdy = Math.max(-CAP, Math.min(CAP, vy * THROW));
+    const startPos: Record<string, { x: number; y: number }> = {};
+    const targetPos: Record<string, { x: number; y: number }> = {};
+    for (const c of d.cards) {
+      const s = d.pos[c.key] ?? { x: c.ox, y: c.oy };
+      startPos[c.key] = { x: s.x, y: s.y };
+      targetPos[c.key] = { x: s.x + tdx, y: s.y + tdy };
+    }
+    const DURATION = 460;
+    let startTime = -1;
+    const step = (now: number) => {
+      if (startTime < 0) startTime = now;
+      const t = Math.min(1, (now - startTime) / DURATION);
+      const k = easeOutBack(t);
+      for (const c of d.cards) {
+        const s = startPos[c.key];
+        const tg = targetPos[c.key];
+        d.pos[c.key] = { x: s.x + (tg.x - s.x) * k, y: s.y + (tg.y - s.y) * k };
+      }
+      paintCardDrag();
+      if (t < 1) {
+        cardFlingRaf.current = requestAnimationFrame(step);
+        return;
+      }
+      for (const c of d.cards) d.pos[c.key] = targetPos[c.key];
+      paintCardDrag();
+      cardFlingRaf.current = null;
+      flushCardDrag(d);
+    };
+    cardFlingRaf.current = requestAnimationFrame(step);
+  };
+
+  const handleMove = (key: string, x: number, y: number, t?: number) => {
+    // A new drag interrupts a settling fling — bank its progress first so the
+    // fresh drag starts from where the card actually is.
+    if (cardFlingRaf.current != null) {
+      cancelAnimationFrame(cardFlingRaf.current);
+      cardFlingRaf.current = null;
+      if (cardDragRef.current) flushCardDrag(cardDragRef.current);
+    }
+    const store = useCanvasStore.getState();
+    let d = cardDragRef.current;
+    if (!d || d.key !== key) {
+      // Starting a card drag ends any canvas fling and freezes the viewport, so
+      // the drag maps the pointer against a stable camera.
+      commitLive();
+      const sel = store.selection;
+      const multi = sel.length > 1 && sel.includes(key);
+      const keys = multi ? sel : [key];
+      const cards = keys
+        .map((k) => {
+          const r = store.placements[k];
+          if (!r || r.locked) return null;
+          return { key: k, el: document.querySelector<HTMLElement>(`[data-place-key="${k}"]`), ox: r.x, oy: r.y };
+        })
+        .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
+      d = { key, multi, cards, pos: {} };
+      cardDragRef.current = d;
+      cardVelRef.current = t != null ? { x, y, t, vx: 0, vy: 0 } : null;
+    } else if (t != null) {
+      const cv = cardVelRef.current;
+      if (cv) {
+        const dt = Math.max(1, t - cv.t);
+        cv.vx = cv.vx * 0.6 + ((x - cv.x) / dt) * 0.4;
+        cv.vy = cv.vy * 0.6 + ((y - cv.y) / dt) * 0.4;
+        cv.x = x;
+        cv.y = y;
+        cv.t = t;
+      } else {
+        cardVelRef.current = { x, y, t, vx: 0, vy: 0 };
+      }
+    }
+    if (d.multi) {
+      const origin = d.cards.find((c) => c.key === key);
+      if (!origin) return;
+      const dx = x - origin.ox;
+      const dy = y - origin.oy;
+      for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
+    } else {
+      d.pos[key] = computeSnap(key, x, y);
+    }
+    paintCardDrag();
+  };
+
+  // Release: a fast flick flings the card(s) with an overshoot settle, otherwise
+  // commit immediately. `t` is the pointerup timestamp (for a freshness check).
+  const commitCardMove = (t?: number) => {
+    const d = cardDragRef.current;
+    if (!d) return;
+    const origin = d.cards.find((c) => c.key === d.key);
+    const last = d.pos[d.key];
+    const cv = cardVelRef.current;
+    const moved = !!origin && !!last && (last.x !== origin.ox || last.y !== origin.oy);
+    const fresh = !!cv && t != null && t - cv.t <= 80;
+    const speed = cv ? Math.hypot(cv.vx, cv.vy) : 0;
+    if (moved && fresh && cv && speed > 0.4 && !prefersReducedMotion()) {
+      startCardFling(d, cv.vx, cv.vy);
+      return; // the fling flushes to the store when it settles
+    }
+    flushCardDrag(d);
+  };
+
+  // Re-assert an in-flight card drag after any incidental re-render (e.g. the
+  // merge-highlight setState) so the dragged card never snaps to its stale store
+  // position for a frame. Declared after the helpers so the rule sees the ref.
+  useLayoutEffect(() => {
+    if (cardDragRef.current) paintCardDrag();
+  });
+
+  // Cancel a settling card fling if the canvas unmounts mid-throw. Declared after
+  // the helpers that modify the ref (react-hooks/immutability ordering).
+  useEffect(
+    () => () => {
+      if (cardFlingRaf.current != null) cancelAnimationFrame(cardFlingRaf.current);
+    },
+    [],
+  );
 
   // Keyboard arrow nudge (free, no snap): when the card is part of a multi-
   // selection, move the WHOLE selection by the same delta; otherwise just it.
@@ -536,17 +968,8 @@ export function CanvasStage() {
   // visible groups) — read fresh so it's safe from a []-dep keyboard handler.
   const renderedKeys = (): string[] => {
     const cs = useCanvasStore.getState();
-    const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
-    const tabsNow = useTabsStore.getState().tabs;
-    const vis = new Set((aws ? tabsNow.filter((t) => t.workspaceId === aws) : tabsNow).map((t) => t.id));
-    const grouped = new Set(cs.groups.flatMap((g) => g.tabIds));
-    const keys: string[] = [];
-    for (const key of Object.keys(cs.placements)) {
-      const grp = cs.groups.find((g) => g.id === key);
-      const rendered = grp ? grp.tabIds.some((id) => vis.has(id)) : vis.has(key) && !grouped.has(key);
-      if (rendered) keys.push(key);
-    }
-    return keys;
+    const isRendered = renderedPredicate(visibleTabIds(), cs.groups);
+    return Object.keys(cs.placements).filter(isRendered);
   };
 
   // Close every selected card (a group key closes all its member tabs).
@@ -564,12 +987,21 @@ export function CanvasStage() {
 
   // Use the tracked container `size` (not the ref) so these stay callable from
   // render-built menu items without reading a ref during render.
+  // The +/- buttons step zoom synchronously (one click = one discrete step, so
+  // no need to ease), settling any in-flight wheel gesture first so the step lands
+  // on the real committed viewport.
   const zoomFromCenter = (factor: number) => {
+    commitLive();
     useCanvasStore.getState().zoomAt(factor, size.w / 2, size.h / 2);
   };
+  // Fit / reset glide the camera with an eased tween (ported pane easing —
+  // reference/pane-porting-map.md §D) instead of snapping to the new pose.
   const fit = () => {
-    useCanvasStore.getState().fitToContent(size.w, size.h);
+    const st = useCanvasStore.getState();
+    st.animateTo(st.getFitPose(size.w, size.h));
   };
+  const animateReset = () =>
+    useCanvasStore.getState().animateTo({ panX: 0, panY: 0, scale: 1 });
   // The current visible viewport as a canvas-space rect (for maximize), inset a
   // little so a maximized card doesn't butt against the very edges.
   const maximizeRect = () => {
@@ -583,21 +1015,25 @@ export function CanvasStage() {
     };
   };
 
-  // Screen px → canvas coords (inverse of the plane's translate+scale).
+  // Screen px → canvas coords (inverse of the plane's translate+scale). During a
+  // live pan/zoom the plane is painted from `liveRef`, so map against that (else
+  // the committed store value) — keeps a cursor placement landing under the cursor
+  // even mid-gesture, when the store viewport is intentionally stale.
   const toCanvas = useCallback((clientX: number, clientY: number) => {
     const el = containerRef.current;
     if (!el) return { x: 0, y: 0 };
     const r = el.getBoundingClientRect();
-    const { panX, panY, scale } = useCanvasStore.getState().viewport;
+    const { panX, panY, scale } = liveRef.current ?? useCanvasStore.getState().viewport;
     return { x: (clientX - r.left - panX) / scale, y: (clientY - r.top - panY) / scale };
   }, []);
 
-  // Drag a connection from a card's port to another card. Window listeners (the
-  // drag crosses the whole canvas); the drop target is hit-tested by [data-tab-id].
+  // Drag a connection from a card OR section port to another node. Window
+  // listeners (the drag crosses the whole canvas); the drop target is hit-tested
+  // by geometry. `fromNode` is a tab id or a section id.
   const startConnect = useCallback(
-    (fromTabId: string, fromSide: EdgeSide, clientX: number, clientY: number) => {
+    (fromNode: string, fromSide: EdgeSide, clientX: number, clientY: number) => {
       const p = toCanvas(clientX, clientY);
-      setConnect({ from: fromTabId, fromSide, x: p.x, y: p.y });
+      setConnect({ from: fromNode, fromSide, x: p.x, y: p.y });
       const onMove = (ev: PointerEvent) => {
         const q = toCanvas(ev.clientX, ev.clientY);
         setConnect((c) => (c ? { ...c, x: q.x, y: q.y } : c));
@@ -611,15 +1047,10 @@ export function CanvasStage() {
         // would return that view and the drop would be lost. Find the topmost
         // visible card/group whose rect contains the drop point.
         const pt = toCanvas(ev.clientX, ev.clientY);
-        const { placements: pl, groups: gs } = useCanvasStore.getState();
-        const fromKey = placementKey(gs, fromTabId);
-        const aws = useWorkspaceDeckStore.getState().activeWorkspaceId;
-        const visSet = new Set(
-          (aws ? useTabsStore.getState().tabs.filter((t) => t.workspaceId === aws) : useTabsStore.getState().tabs).map(
-            (t) => t.id,
-          ),
-        );
-        let targetKey: string | null = null;
+        const { placements: pl, groups: gs, sections: secs } = useCanvasStore.getState();
+        const fromKey = placementKey(gs, fromNode);
+        const visSet = visibleTabIds();
+        let targetTabId: string | null = null;
         let targetRect: CardRect | null = null;
         let bestZ = -Infinity;
         for (const [key, r] of Object.entries(pl)) {
@@ -629,16 +1060,31 @@ export function CanvasStage() {
           if (!visible) continue;
           if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h && r.z > bestZ) {
             bestZ = r.z;
-            targetKey = key;
+            // A group target connects to its active member (edges are tab-keyed).
+            targetTabId = grp ? grp.activeId : key;
             targetRect = r;
           }
         }
-        // Pin the target end to the face nearest the drop point (4-directional);
-        // a group target connects to its active member (edges are tab-keyed).
-        if (targetKey && targetRect) {
-          const grp = gs.find((g) => g.id === targetKey);
-          const targetTabId = grp ? grp.activeId : targetKey;
-          useCanvasStore.getState().addEdge(fromTabId, targetTabId, fromSide, nearestSide(targetRect, pt));
+        // No card under the drop → fall back to a section (drawn behind cards), so
+        // you can wire a section by dropping on its empty area. Prefer the SMALLEST
+        // containing section so a nested inner section wins over its parent.
+        if (!targetTabId) {
+          let bestArea = Infinity;
+          for (const sec of secs) {
+            if (sec.id === fromKey) continue;
+            if (pt.x >= sec.x && pt.x <= sec.x + sec.w && pt.y >= sec.y && pt.y <= sec.y + sec.h) {
+              const area = sec.w * sec.h;
+              if (area < bestArea) {
+                bestArea = area;
+                targetTabId = sec.id;
+                targetRect = { x: sec.x, y: sec.y, w: sec.w, h: sec.h, z: 0 };
+              }
+            }
+          }
+        }
+        // Pin the target end to the face nearest the drop point (4-directional).
+        if (targetTabId && targetRect) {
+          useCanvasStore.getState().addEdge(fromNode, targetTabId, fromSide, nearestSide(targetRect, pt));
         }
       };
       window.addEventListener('pointermove', onMove);
@@ -680,12 +1126,12 @@ export function CanvasStage() {
     const g = groups.find((gr) => gr.id === groupId);
     if (!g) return undefined;
     const members = g.tabIds
-      .map((id) => tabs.find((t) => t.id === id))
-      .filter((t): t is TabState => !!t)
-      .map((t) => ({
-        id: t.id,
-        title: t.title?.trim() || tabKinds[t.kind]?.title || 'Tab',
-        icon: tabKinds[t.kind]?.icon ?? Globe,
+      .map((id) => tabs.find((tb) => tb.id === id))
+      .filter((tb): tb is TabState => !!tb)
+      .map((tb) => ({
+        id: tb.id,
+        title: tb.title?.trim() || tabKinds[tb.kind]?.title || t('canvas.tabFallback'),
+        icon: tabKinds[tb.kind]?.icon ?? Globe,
       }));
     return {
       members,
@@ -705,6 +1151,19 @@ export function CanvasStage() {
     useCanvasStore.getState().setPan(size.w / 2 - wx * scale, size.h / 2 - wy * scale);
   };
 
+  // Frame a single card: glide the camera so the card fills the viewport (the
+  // "focus a pane" camera command — pane CANVAS.md §6, reuses the ported
+  // fitPose + animateTo tween). Uses `size` state (like centerOn) so it's safe
+  // to build from render (the card menu is rendered).
+  const frameCard = (placeKey: string) => {
+    const st = useCanvasStore.getState();
+    const r = st.placements[placeKey];
+    if (!r) return;
+    st.animateTo(
+      fitPose([r], { width: size.w, height: size.h }, { padding: 80, titleH: 28 }),
+    );
+  };
+
   // A spot for a NEW card with no explicit drop point (the toolbar button): the
   // first free grid cell inside the visible viewport, so it always lands on-screen
   // (not at the off-screen canvas origin when panned away) AND doesn't stack on an
@@ -712,7 +1171,10 @@ export function CanvasStage() {
   const placeInView = useCallback(
     (kind: TabKind): { x: number; y: number; w: number; h: number } => {
       const cs = useCanvasStore.getState();
-      const { panX, panY, scale } = cs.viewport;
+      // Prefer the in-flight live viewport (a pan/zoom may not have committed yet)
+      // so a card created right after a wheel pan still lands in the visible area,
+      // not at the stale (pre-pan) viewport the store still holds.
+      const { panX, panY, scale } = liveRef.current ?? cs.viewport;
       const { w, h } = cardDefaultSize(kind);
       const inset = 36 / scale;
       const vx = -panX / scale + inset;
@@ -763,13 +1225,8 @@ export function CanvasStage() {
         } else {
           store.placeNext(id, placeInView(kind));
         }
-        // Focus the new card (it became the active tab) so it's the live surface
-        // immediately — matters for agent cards, which only run live when focused.
-        whenPlaced(id, () => {
-          const s = useCanvasStore.getState();
-          s.setFocused(id);
-          s.bringToFront(id);
-        });
+        // Focus the new card so it's the live surface immediately.
+        raiseWhenPlaced(id);
       })();
     },
     [activeWorkspaceId, placeInView],
@@ -800,11 +1257,7 @@ export function CanvasStage() {
         }
         if (!id) return;
         const tabId = id;
-        whenPlaced(tabId, () => {
-          const store = useCanvasStore.getState();
-          store.setFocused(tabId);
-          store.bringToFront(tabId);
-        });
+        raiseWhenPlaced(tabId);
       })();
     },
     [activeWorkspaceId],
@@ -819,6 +1272,9 @@ export function CanvasStage() {
       const placements = { ...cs.placements };
       const groups = cs.groups.map((g) => ({ ...g }));
       const edges = cs.edges.map((e) => ({ ...e }));
+      // Sections are tab-independent geometry, so a faithful duplicate just copies
+      // them verbatim (ids stay unique within the new canvas's own list).
+      const sections = cs.sections.map((sec) => ({ ...sec }));
       // A faithful copy keeps the same view + wire style, not just card rects.
       const sourceViewport = { ...cs.viewport };
       const sourceEdgeStyle = cs.edgeStyle;
@@ -834,9 +1290,9 @@ export function CanvasStage() {
       }
 
       useCanvasStore.getState().newCanvas(`${sourceName} copy`);
-      // Open the copy on the same view + edge style as the source so it looks
-      // identical, not reset to the origin at 100%.
-      useCanvasStore.setState({ viewport: sourceViewport, edgeStyle: sourceEdgeStyle });
+      // Open the copy on the same view + edge style + sections as the source so it
+      // looks identical, not reset to the origin at 100%.
+      useCanvasStore.setState({ viewport: sourceViewport, edgeStyle: sourceEdgeStyle, sections });
 
       const idMap = new Map<string, string>();
       const newIds: string[] = [];
@@ -881,19 +1337,19 @@ export function CanvasStage() {
     }));
     items.push(
       { type: 'separator' },
-      { label: 'New canvas', icon: <Plus size={14} />, onSelect: () => setNameDialog({ mode: 'new' }) },
+      { label: t('canvas.dialog.newCanvas'), icon: <Plus size={14} />, onSelect: () => setNameDialog({ mode: 'new' }) },
       {
-        label: 'Rename canvas',
+        label: t('canvas.dialog.renameCanvas'),
         icon: <Pencil size={14} />,
         onSelect: () => setNameDialog({ mode: 'rename', id: activeCanvasId, initial: activeCanvasName }),
       },
       {
-        label: 'Duplicate canvas',
+        label: t('canvas.dialog.duplicateCanvas'),
         icon: <CopyPlus size={14} />,
         onSelect: () => duplicateCanvas(activeCanvasName),
       },
       {
-        label: 'Delete canvas',
+        label: t('canvas.dialog.deleteCanvas'),
         icon: <Trash2 size={14} />,
         danger: true,
         disabled: canvasList.length <= 1,
@@ -908,6 +1364,7 @@ export function CanvasStage() {
   // a web page) so its own menu still works — only the card header opens the card
   // menu.
   const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    commitLive(); // a context-menu open ends any in-flight fling
     const t = e.target as HTMLElement;
     const edgeEl = t.closest('[data-edge-id]');
     if (edgeEl) {
@@ -955,7 +1412,17 @@ export function CanvasStage() {
 
   // Double-click empty canvas creates a card (Figma-style).
   const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('[data-canvas-card], button, [data-edge-id]')) return;
+    const target = e.target as HTMLElement;
+    // Double-click a card's title bar → frame it (zoom the camera to the card).
+    const header = target.closest('[data-card-header]');
+    if (header) {
+      const id = header.closest('[data-tab-id]')?.getAttribute('data-tab-id');
+      if (id) {
+        frameCard(keyOf(id));
+        return;
+      }
+    }
+    if (target.closest('[data-canvas-card], [data-canvas-section], button, [data-edge-id]')) return;
     newCard('home', toCanvas(e.clientX, e.clientY));
   };
 
@@ -964,11 +1431,11 @@ export function CanvasStage() {
     if (m.kind === 'edge') {
       return [
         {
-          label: edgeStyle === 'curve' ? 'Square connections' : 'Curved connections',
+          label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
           onSelect: () => store.toggleEdgeStyle(),
         },
         { type: 'separator' },
-        { label: 'Remove connection', danger: true, onSelect: () => store.removeEdge(m.edgeId) },
+        { label: t('canvas.edge.remove'), danger: true, onSelect: () => store.removeEdge(m.edgeId) },
       ];
     }
     if (m.kind === 'card') {
@@ -978,22 +1445,33 @@ export function CanvasStage() {
       const inGroup = placeKey !== m.tabId;
       const rect = placements[placeKey];
       const items: MenuItem[] = [
-        { label: 'Bring to front', onSelect: () => store.bringToFront(placeKey) },
-        { label: 'Send to back', onSelect: () => store.sendToBack(placeKey) },
+        { label: t('canvas.menu.zoomToCard'), onSelect: () => frameCard(placeKey) },
+        { label: t('canvas.menu.bringFront'), onSelect: () => store.bringToFront(placeKey) },
+        { label: t('canvas.menu.sendBack'), onSelect: () => store.sendToBack(placeKey) },
         {
-          label: rect?.preMax ? 'Restore size' : 'Maximize',
+          label: rect?.preMax ? t('canvas.menu.restoreSize') : t('canvas.card.maximize'),
           onSelect: () => store.toggleMaximize(placeKey, maximizeRect()),
         },
-        { label: rect?.locked ? 'Unlock' : 'Lock', onSelect: () => store.toggleLock(placeKey) },
+        { label: rect?.locked ? t('canvas.card.unlock') : t('canvas.card.lock'), onSelect: () => store.toggleLock(placeKey) },
       ];
+      // Frame this card (or the whole multi-selection it's part of) in a section.
+      const secKeys = selection.includes(placeKey) && selection.length > 1 ? selection : [placeKey];
+      items.push({
+        label: formatCanvasGroupSection(secKeys.length),
+        icon: <Group size={14} />,
+        onSelect: () => {
+          store.addSection(secKeys);
+          store.clearSelection();
+        },
+      });
       if (inGroup) {
-        items.push({ label: 'Pop out tab', onSelect: () => store.popOutTab(m.tabId) });
+        items.push({ label: t('canvas.menu.popOut'), onSelect: () => store.popOutTab(m.tabId) });
       }
       if (tab?.kind === 'web') {
         items.push(
           { type: 'separator' },
           {
-            label: 'Reload',
+            label: t('canvas.card.reload'),
             onSelect: () =>
               void (async () => {
                 await useTabsStore.getState().activateTab(m.tabId);
@@ -1001,11 +1479,11 @@ export function CanvasStage() {
               })(),
           },
           {
-            label: 'Open DevTools',
+            label: t('canvas.card.devtools'),
             onSelect: () => openDevtoolsFor(m.tabId),
           },
           {
-            label: 'Copy link',
+            label: t('canvas.menu.copyLink'),
             disabled: !tab.url,
             onSelect: () => void window.marudesk.invoke('clipboard:write-text', tab.url),
           },
@@ -1013,25 +1491,39 @@ export function CanvasStage() {
       }
       items.push(
         { type: 'separator' },
-        { label: 'Close card', danger: true, onSelect: () => void useTabsStore.getState().closeTab(m.tabId) },
+        { label: t('canvas.card.close'), danger: true, onSelect: () => void useTabsStore.getState().closeTab(m.tabId) },
       );
       return items;
     }
     return [
-      { label: 'New browser tab', onSelect: () => newCard('web', toCanvas(m.x, m.y)) },
-      { label: 'New terminal', onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
-      { label: 'New editor', onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
-      { label: 'New AI chat', onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
+      ...(selection.length > 0
+        ? [
+            {
+              label: formatCanvasGroupSection(selection.length),
+              icon: <Group size={14} />,
+              onSelect: () => {
+                store.addSection(selection);
+                store.clearSelection();
+              },
+            },
+            { type: 'separator' as const },
+          ]
+        : []),
+      { label: t('canvas.menu.newBrowserTab'), onSelect: () => newCard('web', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newTerminal'), onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newEditor'), onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newAiChat'), onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
       { type: 'separator' },
-      { label: 'Fit to content', onSelect: () => fit() },
-      { label: 'Reset zoom', onSelect: () => store.resetView() },
+      { label: t('canvas.control.fit'), onSelect: () => fit() },
+      { label: t('canvas.menu.resetZoom'), onSelect: () => animateReset() },
+      { label: t('canvas.menu.arrange'), onSelect: () => store.arrangeCards() },
       { type: 'separator' },
       {
-        label: edgeStyle === 'curve' ? 'Square connections' : 'Curved connections',
+        label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
         onSelect: () => store.toggleEdgeStyle(),
       },
-      { label: minimapOpen ? 'Hide minimap' : 'Show minimap', onSelect: () => setMinimapOpen((v) => !v) },
-      { label: planFlowOpen ? 'Hide process' : 'Show process', onSelect: () => setPlanFlowOpen((v) => !v) },
+      { label: minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow'), onSelect: () => setMinimapOpen((v) => !v) },
+      { label: planFlowOpen ? t('agent.flow.hide') : t('agent.flow.show'), onSelect: () => setPlanFlowOpen((v) => !v) },
     ];
   };
 
@@ -1081,6 +1573,46 @@ export function CanvasStage() {
           e.preventDefault();
           closeSelection();
         }
+        return;
+      }
+      // Camera commands (ported from pane's canvas keymap — CANVAS.md §6):
+      // +/- zoom about center, 0 reset, F fit-all, arrows pan. Plain keys only,
+      // so they never collide with page zoom (Ctrl±) or select-all (Ctrl/⌘+A).
+      if (!editable && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        commitLive(); // fold any in-flight fling before a keyboard camera command
+        const st = useCanvasStore.getState();
+        const cr = containerRef.current?.getBoundingClientRect();
+        if (e.key === '+' || e.key === '=') {
+          if (cr) {
+            e.preventDefault();
+            st.zoomAt(1.2, cr.width / 2, cr.height / 2);
+          }
+          return;
+        }
+        if (e.key === '-' || e.key === '_') {
+          if (cr) {
+            e.preventDefault();
+            st.zoomAt(1 / 1.2, cr.width / 2, cr.height / 2);
+          }
+          return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          st.animateTo({ panX: 0, panY: 0, scale: 1 });
+          return;
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          if (cr) {
+            e.preventDefault();
+            st.animateTo(st.getFitPose(cr.width, cr.height));
+          }
+          return;
+        }
+        const PAN = e.shiftKey ? 240 : 80;
+        if (e.key === 'ArrowRight') { e.preventDefault(); st.panBy(-PAN, 0); return; }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); st.panBy(PAN, 0); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); st.panBy(0, -PAN); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); st.panBy(0, PAN); return; }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -1106,7 +1638,9 @@ export function CanvasStage() {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, []);
+    // commitLive is a stable useCallback; listed so the camera keys always fold
+    // an in-flight fling before acting.
+  }, [commitLive]);
 
   // What to render: each ungrouped visible tab as a card, plus one card per group
   // (showing its active member with a tab strip). Grouped members aren't drawn
@@ -1164,25 +1698,40 @@ export function CanvasStage() {
           // Dropped files open as editor cards — center one on the drop point.
           const { w, h } = cardDefaultSize('editor');
           store.placeNext(id, { x: Math.round(pt.x - w / 2), y: Math.round(pt.y - h / 2), w, h });
-          whenPlaced(id, () => {
-            const s = useCanvasStore.getState();
-            s.setFocused(id);
-            s.bringToFront(id);
-          });
+          raiseWhenPlaced(id);
         })();
       }}
-      aria-label="Canvas"
+      aria-label={t('canvas.label')}
       tabIndex={-1}
     >
+      {cardItems.length === 0 && sections.length === 0 ? (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="select-none text-center">
+            <div className="text-body-sm text-fg-tertiary">{t('canvas.empty.title')}</div>
+            <div className="mt-1 text-caption text-fg-tertiary/70">{t('canvas.empty.hint')}</div>
+          </div>
+        </div>
+      ) : null}
       <div
+        ref={planeRef}
         className="absolute inset-0 origin-top-left"
         style={{
           transform: `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`,
+          // `will-change: transform` is toggled imperatively for the duration of a
+          // pan/zoom gesture (seedLive → commitLive) so the plane is a GPU layer
+          // while moving, then re-rasterizes at rest — keeping card text crisp when
+          // idle instead of permanently scaling a frozen bitmap.
         }}
       >
-        {/* Node connections, drawn behind the cards. */}
+        {/* Section frames, drawn behind everything (zIndex 0). */}
+        <CanvasSections
+          sections={sections}
+          scale={viewport.scale}
+          onStartConnect={(sectionId, side, cx, cy) => startConnect(sectionId, side, cx, cy)}
+        />
+        {/* Node connections (card↔card, card↔section, section↔section). */}
         <CanvasEdges
-          placements={placements}
+          placements={nodeRects}
           edges={visibleEdges}
           edgeStyle={edgeStyle}
           selectedEdgeId={selectedEdgeId}
@@ -1198,6 +1747,7 @@ export function CanvasStage() {
             <CanvasCard
               key={key}
               tab={tab}
+              placeKey={key}
               rect={rect}
               scale={viewport.scale}
               focused={focusedTabId === tab.id}
@@ -1213,7 +1763,8 @@ export function CanvasStage() {
                 void useTabsStore.getState().closeTab(tab.id);
                 containerRef.current?.focus(); // keep keyboard focus on the canvas
               }}
-              onMove={(x, y) => handleMove(key, x, y)}
+              onMove={(x, y, t) => handleMove(key, x, y, t)}
+              onMoveEnd={commitCardMove}
               onNudge={(x, y) => handleNudge(key, x, y)}
               onResize={(w, h) => useCanvasStore.getState().setSize(key, w, h)}
               // Merge only by dragging a single ungrouped card (its key === tab
@@ -1234,16 +1785,17 @@ export function CanvasStage() {
               onNavigate={
                 isWeb
                   ? (input) => {
-                      // Navigate targets the active tab, so activate this card's
-                      // tab first, then hand the input to the browser (it
-                      // normalizes URL vs. search term in the main process).
-                      void (async () => {
-                        await useTabsStore.getState().activateTab(tab.id);
-                        await window.marudesk.invoke('browser:navigate', input);
-                      })();
+                      // Navigate THIS card's own view in place (by tab id) — never
+                      // touches the active tab or the grid, so the page loads in the
+                      // card instead of leaving it blank. Main normalizes URL vs.
+                      // search term.
+                      void window.marudesk.invoke('browser:navigate-tab', { tabId: tab.id, url: input });
                     }
                   : undefined
               }
+              onGoBack={isWeb ? () => void window.marudesk.invoke('browser:go-back-tab', tab.id) : undefined}
+              onGoForward={isWeb ? () => void window.marudesk.invoke('browser:go-forward-tab', tab.id) : undefined}
+              onReload={isWeb ? () => void window.marudesk.invoke('browser:reload-tab', { tabId: tab.id }) : undefined}
               onOpenDevtools={isWeb ? () => openDevtoolsFor(tab.id) : undefined}
               onStartConnect={(side, cx, cy) => startConnect(tab.id, side, cx, cy)}
             />
@@ -1257,15 +1809,15 @@ export function CanvasStage() {
           if (!selectedEdgeId) return null;
           const sel = visibleEdges.find((e) => e.id === selectedEdgeId);
           if (!sel) return null;
-          const a = placements[keyOf(sel.from)];
-          const b = placements[keyOf(sel.to)];
+          const a = nodeRects[keyOf(sel.from)];
+          const b = nodeRects[keyOf(sel.to)];
           if (!a || !b) return null;
           const { p1, p2 } = edgeEndpoints(a, b, sel);
           return (
             <button
               type="button"
-              aria-label="Remove connection"
-              title="Remove connection"
+              aria-label={t('canvas.edge.remove')}
+              title={t('canvas.edge.remove')}
               style={{ left: (p1.x + p2.x) / 2 - 11, top: (p1.y + p2.y) / 2 - 11, zIndex: 100000 }}
               className="absolute grid h-[22px] w-[22px] place-items-center rounded-pill border border-default bg-surface-2 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
               onPointerDown={(ev) => ev.stopPropagation()}
@@ -1315,22 +1867,22 @@ export function CanvasStage() {
         {workspaces.length > 1 ? (
           <button
             type="button"
-            title="Switch workspace"
+            title={t('canvas.toolbar.switchWorkspace')}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               setWsMenu({ x: r.left, y: r.bottom + 4 });
             }}
             className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
           >
-            <span className="max-w-[10rem] truncate">{activeWsName ?? 'Workspace'}</span>
+            <span className="max-w-[10rem] truncate">{activeWsName ?? t('canvas.toolbar.workspaceFallback')}</span>
             <ChevronDown size={13} />
           </button>
         ) : null}
         {/* Canvas switcher — each canvas is a named saved layout. */}
         <button
           type="button"
-          title="Switch canvas / saved layout"
-          aria-label="Switch canvas"
+          title={t('canvas.toolbar.switchCanvasTitle')}
+          aria-label={t('canvas.toolbar.switchCanvas')}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setCanvasMenu({ x: r.left, y: r.bottom + 4 });
@@ -1343,45 +1895,67 @@ export function CanvasStage() {
         </button>
         <button
           type="button"
+          title={t('canvas.toolbar.newCard')}
           onClick={() => newCard('home')}
           className="inline-flex items-center gap-1.5 rounded-lg chrome-panel px-2.5 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
         >
           <Plus size={14} />
-          New card
+          {t('canvas.toolbar.newCard')}
         </button>
       </div>
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
-        <CtrlButton label="Zoom out" onClick={() => zoomFromCenter(1 / 1.2)}>
+        <CtrlButton label={t('canvas.control.zoomOut')} onClick={() => zoomFromCenter(1 / 1.2)}>
           <Minus size={15} />
         </CtrlButton>
         <button
           type="button"
           className="min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary"
-          onClick={() => useCanvasStore.getState().resetView()}
-          title="Reset zoom to 100%"
+          onClick={() => {
+            commitLive();
+            animateReset();
+          }}
+          title={t('canvas.control.resetZoom')}
         >
           {Math.round(viewport.scale * 100)}%
         </button>
-        <CtrlButton label="Zoom in" onClick={() => zoomFromCenter(1.2)}>
+        <CtrlButton label={t('canvas.control.zoomIn')} onClick={() => zoomFromCenter(1.2)}>
           <Plus size={15} />
         </CtrlButton>
         <div className="mx-0.5 h-5 w-px bg-subtle" />
-        <CtrlButton label="Fit to content" onClick={fit}>
+        <CtrlButton
+          label={t('canvas.control.fit')}
+          onClick={() => {
+            commitLive();
+            fit();
+          }}
+        >
           <Maximize2 size={15} />
         </CtrlButton>
-        <CtrlButton label="Reset view" onClick={() => useCanvasStore.getState().resetView()}>
+        <CtrlButton
+          label={t('canvas.control.resetView')}
+          onClick={() => {
+            commitLive();
+            animateReset();
+          }}
+        >
           <RotateCcw size={15} />
         </CtrlButton>
         <CtrlButton
-          label={minimapOpen ? 'Hide minimap' : 'Show minimap'}
+          label={t('canvas.control.arrange')}
+          onClick={() => useCanvasStore.getState().arrangeCards()}
+        >
+          <LayoutGrid size={15} />
+        </CtrlButton>
+        <CtrlButton
+          label={minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow')}
           onClick={() => setMinimapOpen((v) => !v)}
         >
           <MapIcon size={15} />
         </CtrlButton>
         <CtrlButton
-          label={planFlowOpen ? 'Hide process' : 'Show process'}
+          label={planFlowOpen ? t('agent.flow.hide') : t('agent.flow.show')}
           onClick={() => setPlanFlowOpen((v) => !v)}
         >
           <ListTree size={15} />
@@ -1398,7 +1972,7 @@ export function CanvasStage() {
           y={wsMenu.y}
           onClose={() => setWsMenu(null)}
           items={workspaces.map((w) => ({
-            label: w.name || 'Untitled',
+            label: w.name || t('canvas.menu.untitledWorkspace'),
             disabled: w.id === activeWorkspaceId,
             onSelect: () => void useWorkspaceDeckStore.getState().setActiveWorkspace(w.id),
           }))}
@@ -1416,9 +1990,9 @@ export function CanvasStage() {
 
       {nameDialog ? (
         <NameDialog
-          title={nameDialog.mode === 'new' ? 'New canvas' : 'Rename canvas'}
-          confirmLabel={nameDialog.mode === 'new' ? 'Create' : 'Rename'}
-          placeholder="Canvas name"
+          title={nameDialog.mode === 'new' ? t('canvas.dialog.newCanvas') : t('canvas.dialog.renameCanvas')}
+          confirmLabel={nameDialog.mode === 'new' ? t('canvas.dialog.create') : t('canvas.dialog.rename')}
+          placeholder={t('canvas.dialog.canvasNamePlaceholder')}
           initialValue={nameDialog.mode === 'rename' ? nameDialog.initial : ''}
           allowEmpty={nameDialog.mode === 'new'}
           onSubmit={(value) => {

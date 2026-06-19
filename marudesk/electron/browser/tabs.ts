@@ -48,6 +48,7 @@ import { reapplyZoom } from './zoom';
 import { handleTabShortcut } from './tab-shortcuts';
 import { groupContiguousOrder, pinnedFirst } from './tab-order.ts';
 import { buildWebTabUserAgent } from './user-agent.ts';
+import { withChromeBrand } from './client-hints.ts';
 export { reorderTabs, setTabPinned } from './tab-order.ts';
 import { registerDownloadHandler } from './downloads';
 import { recordTitle, recordVisit } from '../history';
@@ -57,6 +58,11 @@ import { getSettingsSync } from '../settings';
 import { getActiveWorkspaceId } from '../workspace';
 import { getActiveProfileId } from '../profile-store';
 import { webTabPartitionForProfile } from '../../shared/profiles';
+import {
+  INTERNAL_NEWTAB_URL,
+  buildInternalErrorUrl,
+  isInternalUrl,
+} from '../../shared/internal-pages';
 
 /**
  * Tab lifecycle: create / activate / close / reorder, plus the mount and dispose
@@ -66,7 +72,9 @@ import { webTabPartitionForProfile } from '../../shared/profiles';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const NEW_TAB_URL = 'about:blank';
+// A URL-less web tab lands on the maru:// start page (pane's new-tab, §B port)
+// instead of a blank document.
+const NEW_TAB_URL = INTERNAL_NEWTAB_URL;
 
 /**
  * The web tabs' session partition, scoped to the ACTIVE profile. Electron caches
@@ -203,8 +211,23 @@ export function createTab(
   // shouldn't disturb the toolbar — only a real main-frame failure updates state.
   view.webContents.on(
     'did-fail-load',
-    (_event, errorCode, _desc, _url, isMainFrame) => {
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame || errorCode === -3) return;
+      // Replace the dead frame with the custom maru://error page (pane §14 error
+      // state). Guard against recursion if an internal page itself fails, and
+      // navigate on the next tick — loadURL inside did-fail-load is unsafe.
+      if (validatedURL && !isInternalUrl(validatedURL)) {
+        const errorUrl = buildInternalErrorUrl({
+          failedUrl: validatedURL,
+          code: errorCode,
+          description: errorDescription,
+        });
+        setImmediate(() => {
+          if (!view.webContents.isDestroyed()) {
+            void view.webContents.loadURL(errorUrl);
+          }
+        });
+      }
       pushState();
     },
   );
@@ -256,8 +279,17 @@ export function createTab(
   view.webContents.on('context-menu', (_event, params) => {
     const h = getHost();
     if (!h || h.isDestroyed()) return;
-    const menu = buildWebContextMenu(rec, params, (url) => {
-      createAndActivateTab('web', url);
+    const menu = buildWebContextMenu(rec, params, (url, opts) => {
+      // Background open (Open Link/Image in New Tab): create + place via the
+      // normal activate path, then restore focus to the page you were reading.
+      // Both activations commit in one frame, so the new view never flashes.
+      if (opts?.background) {
+        const prev = getActiveTabId();
+        createAndActivateTab('web', url);
+        if (prev) activateTab(prev);
+      } else {
+        createAndActivateTab('web', url);
+      }
     });
     if (menu.items.length > 0) menu.popup({ window: h });
   });
@@ -647,6 +679,24 @@ export function mountBrowserView(win: BrowserWindow): void {
   inspectSession.setUserAgent(
     buildWebTabUserAgent(inspectSession.getUserAgent(), app.getName()),
   );
+  // The UA *string* is only half the disguise: Electron's UA Client Hints brand
+  // list still reads as Chromium-only (no "Google Chrome" entry), which is the
+  // exact fingerprint embedded-webview sign-in gates fall back to — Google's
+  // "this browser or app may not be secure" block keys on it even after the UA
+  // string is clean. Mirror the strip at the header layer: add a truthful
+  // "Google Chrome" brand to the Sec-CH-UA headers on every web-tab request. See
+  // ./client-hints. Re-registering on a profile switch replaces the prior
+  // listener (one per session), so this stays in lockstep with setUserAgent.
+  inspectSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    const requestHeaders = details.requestHeaders;
+    for (const name of Object.keys(requestHeaders)) {
+      const lower = name.toLowerCase();
+      if (lower === 'sec-ch-ua' || lower === 'sec-ch-ua-full-version-list') {
+        requestHeaders[name] = withChromeBrand(requestHeaders[name]);
+      }
+    }
+    callback({ requestHeaders });
+  });
   // Track downloads originating from the web tabs (this partition), auto-saving
   // them to the Downloads folder and feeding the renderer's download shelf.
   registerDownloadHandler(inspectSession);

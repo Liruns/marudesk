@@ -8,7 +8,6 @@ import {
   type ProviderId,
   type ProviderStatus,
 } from '../shared/providers';
-import type { RelayAccount } from '../shared/remote';
 import { invalidateModelsCache } from './models';
 import { defineHandler } from './ipc/define-handler';
 import { str } from './ipc/validate';
@@ -126,7 +125,7 @@ export async function hasProviderKey(provider: ProviderId): Promise<boolean> {
 /**
  * Connection status for every built-in provider (key stored / OAuth stored /
  * keyless). Backs the `secrets:list-providers` IPC and the bridge's
- * `GET /agent/models` catalog (electron/server/extras.ts).
+ * `GET /agent/models` catalog (electron/cli-bridge/extras.ts).
  */
 export async function listProviders(): Promise<ProviderStatus[]> {
   let map: CredMap = {};
@@ -249,11 +248,11 @@ export async function rotateProviderOAuth(provider: ProviderId): Promise<OAuthTo
   return next;
 }
 
-/* ── bridge-server token (docs/remote-mobile-bridge-design §M4) ──────────── */
+/* ── CLI bridge token (electron/cli-bridge/token.ts) ──────────────────────── */
 
-// The headless bridge server's bearer secret, stored safeStorage-encrypted like
-// the provider credentials but in its own file (it isn't provider-keyed). Read
-// back defensively (trust nothing on disk). Never logged or sent to the renderer.
+// The loopback CLI bridge's bearer secret, stored safeStorage-encrypted like the
+// provider credentials but in its own file (it isn't provider-keyed). Read back
+// defensively (trust nothing on disk). Never logged or sent to the renderer.
 const SERVER_TOKEN_FILE = 'marudesk-server-token.enc';
 
 function serverTokenFilePath(): string {
@@ -286,173 +285,6 @@ export async function setServerTokenStored(token: string): Promise<void> {
   const file = serverTokenFilePath();
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, safeStorage.encryptString(token), { mode: 0o600 });
-}
-
-/* ── cloud-relay session (docs/bridge-model-b-design.md §B2/§3) ──────────────── */
-
-// The PC's cloud-account session for the relay: the relay base URL plus the
-// account's JWTs and public account. Stored safeStorage-encrypted in its own file
-// (the access/refresh tokens are bearer credentials — same handling as provider
-// secrets). NEVER returned to the renderer in plaintext: only a sanitized
-// `{ account, connected }` status crosses IPC (see electron/server/relay.ts).
-const RELAY_SESSION_FILE = 'marudesk-relay-session.enc';
-
-/** The persisted relay session shape (validated on read — trust nothing on disk). */
-export type RelaySession = {
-  relayUrl: string;
-  accessToken: string;
-  refreshToken: string;
-  account: RelayAccount;
-};
-
-function relaySessionFilePath(): string {
-  return path.join(app.getPath('userData'), RELAY_SESSION_FILE);
-}
-
-/** Coerce a stored blob back into a {@link RelaySession}, or null if malformed. */
-function coerceRelaySession(value: unknown): RelaySession | null {
-  if (!value || typeof value !== 'object') return null;
-  const v = value as Record<string, unknown>;
-  if (typeof v.relayUrl !== 'string' || v.relayUrl.length === 0) return null;
-  if (typeof v.accessToken !== 'string' || v.accessToken.length === 0) return null;
-  if (typeof v.refreshToken !== 'string' || v.refreshToken.length === 0) return null;
-  const acc = v.account as Record<string, unknown> | undefined;
-  if (!acc || typeof acc !== 'object') return null;
-  if (
-    typeof acc.id !== 'string' ||
-    typeof acc.email !== 'string' ||
-    typeof acc.createdAt !== 'string' ||
-    (acc.method !== 'local' && acc.method !== 'google' && acc.method !== 'github')
-  ) {
-    return null;
-  }
-  const account: RelayAccount = {
-    id: acc.id,
-    method: acc.method,
-    email: acc.email,
-    createdAt: acc.createdAt,
-    ...(typeof acc.displayName === 'string' ? { displayName: acc.displayName } : {}),
-  };
-  return { relayUrl: v.relayUrl, accessToken: v.accessToken, refreshToken: v.refreshToken, account };
-}
-
-/** The stored relay session, or null if none/undecryptable. Never throws. */
-export async function getRelaySession(): Promise<RelaySession | null> {
-  let buf: Buffer;
-  try {
-    buf = await fs.readFile(relaySessionFilePath());
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    return null;
-  }
-  if (buf.length === 0) return null;
-  if (!safeStorage.isEncryptionAvailable()) return null;
-  try {
-    return coerceRelaySession(JSON.parse(safeStorage.decryptString(buf)));
-  } catch {
-    return null;
-  }
-}
-
-/** Persist the relay session (safeStorage-encrypted, 0600). */
-export async function setRelaySession(session: RelaySession): Promise<void> {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('safeStorage encryption unavailable; refuse to write a plaintext relay session');
-  }
-  const file = relaySessionFilePath();
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, safeStorage.encryptString(JSON.stringify(session)), { mode: 0o600 });
-}
-
-/** Update just the tokens of the stored session (after a refresh). No-op if none stored. */
-export async function updateRelayTokens(
-  accessToken: string,
-  refreshToken: string,
-): Promise<void> {
-  const session = await getRelaySession();
-  if (!session) return;
-  await setRelaySession({ ...session, accessToken, refreshToken });
-}
-
-/** Forget the stored relay session (logout / disconnect). Best-effort. */
-export async function clearRelaySession(): Promise<void> {
-  try {
-    await fs.unlink(relaySessionFilePath());
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-}
-
-/* ── paired device records (T2 ③ — docs/t2-secure-pairing-design.md §2) ────── */
-
-// Phones paired for the direct LAN/Tailscale bridge. Each record holds the E2E
-// session key (32-byte AES key, b64url) — a bearer-equivalent secret — so the whole
-// list is safeStorage-encrypted in its own file, 0600, and NEVER returned to the
-// renderer (only the sanitized PairedDeviceInfo crosses IPC). Coerced on read.
-const DEVICES_FILE = 'marudesk-devices.enc';
-
-export type StoredDevice = {
-  deviceId: string;
-  name: string;
-  /** b64url(raw X25519 public key) — identification / fingerprint only. */
-  phPub: string;
-  /** b64url(32-byte AES-GCM session key) — the E2E secret. */
-  key: string;
-  fingerprint: string;
-  /** ISO timestamp. */
-  createdAt: string;
-  /** ISO timestamp of last request, or null if not seen since pairing. */
-  lastSeenAt: string | null;
-};
-
-function devicesFilePath(): string {
-  return path.join(app.getPath('userData'), DEVICES_FILE);
-}
-
-function coerceDevice(value: unknown): StoredDevice | null {
-  if (!value || typeof value !== 'object') return null;
-  const v = value as Record<string, unknown>;
-  if (typeof v.deviceId !== 'string' || v.deviceId.length === 0) return null;
-  if (typeof v.key !== 'string' || v.key.length === 0) return null;
-  if (typeof v.phPub !== 'string' || typeof v.fingerprint !== 'string') return null;
-  if (typeof v.name !== 'string' || typeof v.createdAt !== 'string') return null;
-  return {
-    deviceId: v.deviceId,
-    name: v.name,
-    phPub: v.phPub,
-    key: v.key,
-    fingerprint: v.fingerprint,
-    createdAt: v.createdAt,
-    lastSeenAt: typeof v.lastSeenAt === 'string' ? v.lastSeenAt : null,
-  };
-}
-
-/** The persisted paired-device list, or [] if none/undecryptable. Never throws. */
-export async function getPairedDevicesStored(): Promise<StoredDevice[]> {
-  let buf: Buffer;
-  try {
-    buf = await fs.readFile(devicesFilePath());
-  } catch {
-    return [];
-  }
-  if (buf.length === 0 || !safeStorage.isEncryptionAvailable()) return [];
-  try {
-    const parsed = JSON.parse(safeStorage.decryptString(buf)) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(coerceDevice).filter((d): d is StoredDevice => d !== null);
-  } catch {
-    return [];
-  }
-}
-
-/** Persist the paired-device list (safeStorage-encrypted, 0600). */
-export async function setPairedDevicesStored(devices: StoredDevice[]): Promise<void> {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('safeStorage encryption unavailable; refuse to write plaintext device keys');
-  }
-  const file = devicesFilePath();
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, safeStorage.encryptString(JSON.stringify(devices)), { mode: 0o600 });
 }
 
 export function registerSecretsHandlers(): void {

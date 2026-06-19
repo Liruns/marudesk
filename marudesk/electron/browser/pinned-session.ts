@@ -3,6 +3,7 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { atomicWriteFile } from '../fs-safe';
 import { tabValues } from './state';
+import { displayUrl } from '../../shared/internal-pages';
 
 /**
  * Pinned-tab session persistence. Pinned tabs are the one part of the tab set
@@ -31,7 +32,9 @@ function specsFromState(): PinnedSpec[] {
     if (!rec.pinned) continue;
     if (rec.kind === 'web' && rec.view) {
       const url = rec.view.webContents.getURL();
-      out.push({ kind: 'web', url: url && url !== 'about:blank' ? url : '' });
+      // displayUrl maps about:blank / maru://newtab → '' and an error page → the
+      // URL the user was trying to reach, so a restart retries the real target.
+      out.push({ kind: 'web', url: displayUrl(url) });
     } else if (rec.kind === 'editor' && rec.filePath) {
       out.push({ kind: 'editor', filePath: rec.filePath });
     }

@@ -10,7 +10,6 @@ import { PROVIDERS } from './provider-catalog.ts';
 
 function isParseableUrl(value: string): boolean {
   try {
-    // eslint-disable-next-line no-new
     new URL(value);
     return true;
   } catch {

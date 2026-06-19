@@ -1,0 +1,47 @@
+/* Design tokens — single source for the chrome. Mirrors DESIGN.md §2/§3.
+   (Keep in sync with DESIGN.md; this is the implementation of that spec.) */
+:root {
+  /* accent (the only chroma) */
+  --accent: #0071e3;
+  --accent-dark: #2997ff;
+
+  /* surfaces */
+  --canvas: #0a0a0b;
+  --surface: #1d1d1f;
+  --surface-1: #272729;
+
+  /* text on dark */
+  --fg: #f5f5f7;
+  --fg-muted: rgba(245, 245, 247, 0.62);
+  --fg-faint: rgba(245, 245, 247, 0.38);
+
+  /* hairlines (border as light) */
+  --hairline: rgba(255, 255, 255, 0.09);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+
+  /* semantic */
+  --danger: #ff453a;
+  --success: #30d158;
+
+  /* metrics */
+  --tabstrip-h: 40px;
+  --toolbar-h: 48px;
+  --wco-right: 140px; /* reserved for native window controls; set at runtime (window-controls.js) */
+
+  /* Opaque toolbar. Mica-through-toolbar is BLOCKED by an Electron bug — backgroundMaterial
+     'mica' + titleBarOverlay (the native window buttons) renders black (electron/electron
+     issues 42393, 39959). Native buttons take precedence per the brief; ship the opaque dark. */
+  --toolbar-bg: var(--surface);
+
+  /* type */
+  --font-ui: "Inter", "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "SF Mono", monospace;
+
+  /* motion (DESIGN §15) — ease curves for chrome; spring is reserved for future gestures */
+  --motion-fast: 150ms;     /* hover, icon crossfade, ring draw-in, tap feedback */
+  --motion-standard: 300ms; /* menu/popover open; loading-bar completion leg */
+  --motion-slow: 500ms;     /* new-tab / settings transitions */
+  --ease-enter: cubic-bezier(0.2, 0.6, 0.25, 1);    /* popovers, dropdowns arriving */
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);          /* dismissals, fades-out */
+  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1); /* two-way chrome transitions */
+}

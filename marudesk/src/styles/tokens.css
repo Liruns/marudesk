@@ -273,6 +273,34 @@
   --text-disabled:  #ABA69A;
 }
 
+/* Pane — Apple-inspired near-black graphite, ported from the `pane` browser's
+   design system (reference/pane/DESIGN.md §2: canvas #0a0a0b, surface #1d1d1f,
+   surface-1 #272729, surface-2 #2a2a2d; Inter fog-gray ink #f5f5f7). Pane is
+   dark-default; the light half is a clean Apple-style light so palette × mode
+   still composes. Pair with [data-accent='pane'] (Apple Blue) for the full
+   pane look. Text steps land on Apple's system-gray scale rather than pane's
+   alpha-on-ink so they read solid on marudesk's varied surfaces. */
+:root[data-palette='pane'] {
+  --surface-page: #0A0A0B;
+  --surface-1:    #1D1D1F;
+  --surface-2:    #272729;
+  --surface-3:    #2A2A2D;
+  --text-primary:   #F5F5F7;
+  --text-secondary: #98989D;
+  --text-tertiary:  #6C6C70;
+  --text-disabled:  #48484A;
+}
+:root[data-theme='light'][data-palette='pane'] {
+  --surface-page: #FFFFFF;
+  --surface-1:    #F5F5F7;
+  --surface-2:    #ECECEF;
+  --surface-3:    #E1E1E6;
+  --text-primary:   #1D1D1F;
+  --text-secondary: #6E6E73;
+  --text-tertiary:  #8E8E93;
+  --text-disabled:  #B4B4B9;
+}
+
 /* Accent presets — reskin the single accent app-wide via a [data-accent]
    attribute on <html>. Every component reads var(--accent)/-hover/-subtle (and
    --ring rides --accent), so one attribute reskins the whole UI in both themes.
@@ -283,3 +311,6 @@
 :root[data-accent='green'] { --accent: #46B17F; --accent-hover: #5BC492; --accent-subtle: rgba(70, 177, 127, 0.14); }
 :root[data-accent='amber'] { --accent: #E0A03A; --accent-hover: #EDB155; --accent-subtle: rgba(224, 160, 58, 0.14); }
 :root[data-accent='rose']  { --accent: #E5618B; --accent-hover: #EE789D; --accent-subtle: rgba(229, 97, 139, 0.14); }
+/* Pane — Apple Blue (reference/pane/DESIGN.md §2): #0071e3 fills, #2997ff the
+   higher-luminance on-dark accent, reused here as hover. */
+:root[data-accent='pane']  { --accent: #0071E3; --accent-hover: #2997FF; --accent-subtle: rgba(0, 113, 227, 0.14); }

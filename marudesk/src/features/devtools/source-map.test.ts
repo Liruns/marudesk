@@ -179,10 +179,22 @@ describe('defaultSourceIndex', () => {
   });
 });
 
+/**
+ * Browser-safe UTF-8 → base64 (the renderer test env has no node `Buffer`).
+ * Inverse of {@link decodeBase64Text}: UTF-8-encode, pack the bytes into a
+ * binary string, then btoa.
+ */
+function toBase64Utf8(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 describe('decodeSourceMapDataUrl', () => {
   it('decodes base64 data: URLs', () => {
     const json = JSON.stringify({ version: 3, sources: ['x.ts'], mappings: 'AAAA' });
-    const b64 = Buffer.from(json, 'utf8').toString('base64');
+    const b64 = toBase64Utf8(json);
     const decoded = decodeSourceMapDataUrl(
       `data:application/json;charset=utf-8;base64,${b64}`,
     );
@@ -205,7 +217,7 @@ describe('decodeSourceMapDataUrl', () => {
 
 describe('decodeBase64Text', () => {
   it('decodes UTF-8 payloads', () => {
-    const b64 = Buffer.from('héllo → 世界', 'utf8').toString('base64');
+    const b64 = toBase64Utf8('héllo → 世界');
     expect(decodeBase64Text(b64)).toBe('héllo → 世界');
   });
 
