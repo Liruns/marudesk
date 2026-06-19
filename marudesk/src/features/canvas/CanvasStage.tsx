@@ -147,6 +147,13 @@ function renderedPredicate(vis: Set<string>, groups: readonly CardGroup[]): (key
 }
 
 /**
+ * A live alignment guide shown while a card snaps to another mid-drag: an axis
+ * line at canvas coordinate `at`, spanning `from`→`to` along the other axis so it
+ * visually bridges the dragged card and the card it lined up with.
+ */
+type SnapGuide = { axis: 'x' | 'y'; at: number; from: number; to: number };
+
+/**
  * Focus + raise a card once it has a placement (its card has materialized) — run
  * after creating/opening a card so the new surface becomes the live one
  * immediately (matters for agent cards, which only run live when focused).
@@ -248,6 +255,9 @@ export function CanvasStage() {
   >(null);
   // Marquee (drag-box) selection rect in canvas coords while dragging, or null.
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Live alignment guides shown while a card snaps mid-drag (Figma/tldraw style).
+  const [dragGuides, setDragGuides] = useState<SnapGuide[]>([]);
+  const dragGuidesSigRef = useRef('');
   // True while Space is held → empty-canvas left-drag pans instead of marqueeing.
   const [spacePan, setSpacePan] = useState(false);
 
@@ -736,11 +746,16 @@ export function CanvasStage() {
   // within a small threshold — Figma-style alignment; free placement elsewhere.
   // Snapped position for a single dragged card (aligns to other rendered cards),
   // computed WITHOUT writing — the live drag paints the result straight to the DOM.
-  const computeSnap = (tabId: string, x: number, y: number): { x: number; y: number } => {
+  const computeSnap = (
+    tabId: string,
+    x: number,
+    y: number,
+    exclude?: ReadonlySet<string>,
+  ): { x: number; y: number; guides: SnapGuide[] } => {
     const store = useCanvasStore.getState();
     const pl = store.placements;
     const cur = pl[tabId];
-    if (!cur) return { x, y };
+    if (!cur) return { x, y, guides: [] };
     const { w, h } = cur;
     // Constant in screen px (so the feel is the same at any zoom).
     const SNAP = 6 / store.viewport.scale;
@@ -751,27 +766,84 @@ export function CanvasStage() {
     let sy = y;
     let dx = SNAP;
     let dy = SNAP;
+    // Track the winning match per axis so a guide line can be drawn at the shared
+    // edge/center and span both cards. `at` is the line coordinate (which may
+    // differ from the snapped origin, e.g. a right-edge alignment).
+    let gx: { at: number; r: CardRect } | null = null;
+    let gy: { at: number; r: CardRect } | null = null;
     // Snap against every rendered card — ungrouped tabs AND merged group cards
     // (keyed by group id), so a card can align to a group, not just plain cards.
+    // [snapTo, lineAt] pairs: where the origin lands vs. where the guide is drawn.
     for (const [k, r] of Object.entries(pl)) {
-      if (k === tabId) continue;
+      if (k === tabId || exclude?.has(k)) continue;
       if (!isRendered(k)) continue;
-      for (const cx of [r.x, r.x + r.w - w, r.x + (r.w - w) / 2, r.x + r.w, r.x - w]) {
-        const d = Math.abs(x - cx);
+      const xc: readonly [number, number][] = [
+        [r.x, r.x], // left ↔ left
+        [r.x + r.w - w, r.x + r.w], // right ↔ right
+        [r.x + (r.w - w) / 2, r.x + r.w / 2], // center ↔ center
+        [r.x + r.w, r.x + r.w], // dragged left edge ↔ r right edge
+        [r.x - w, r.x], // dragged right edge ↔ r left edge
+      ];
+      for (const [snapTo, lineAt] of xc) {
+        const d = Math.abs(x - snapTo);
         if (d < dx) {
           dx = d;
-          sx = cx;
+          sx = snapTo;
+          gx = { at: lineAt, r };
         }
       }
-      for (const cy of [r.y, r.y + r.h - h, r.y + (r.h - h) / 2, r.y + r.h, r.y - h]) {
-        const d = Math.abs(y - cy);
+      const yc: readonly [number, number][] = [
+        [r.y, r.y],
+        [r.y + r.h - h, r.y + r.h],
+        [r.y + (r.h - h) / 2, r.y + r.h / 2],
+        [r.y + r.h, r.y + r.h],
+        [r.y - h, r.y],
+      ];
+      for (const [snapTo, lineAt] of yc) {
+        const d = Math.abs(y - snapTo);
         if (d < dy) {
           dy = d;
-          sy = cy;
+          sy = snapTo;
+          gy = { at: lineAt, r };
         }
       }
     }
-    return { x: sx, y: sy };
+    const guides: SnapGuide[] = [];
+    if (gx) {
+      guides.push({
+        axis: 'x',
+        at: gx.at,
+        from: Math.min(sy, gx.r.y),
+        to: Math.max(sy + h, gx.r.y + gx.r.h),
+      });
+    }
+    if (gy) {
+      guides.push({
+        axis: 'y',
+        at: gy.at,
+        from: Math.min(sx, gy.r.x),
+        to: Math.max(sx + w, gy.r.x + gy.r.w),
+      });
+    }
+    return { x: sx, y: sy, guides };
+  };
+
+  // Publish drag guides only when they actually change (a serialized signature),
+  // so a steady drag doesn't re-render the stage every frame.
+  const setGuidesIfChanged = (guides: SnapGuide[]) => {
+    const sig = guides
+      .map((g) => `${g.axis}:${Math.round(g.at)}:${Math.round(g.from)}:${Math.round(g.to)}`)
+      .join('|');
+    if (sig !== dragGuidesSigRef.current) {
+      dragGuidesSigRef.current = sig;
+      setDragGuides(guides);
+    }
+  };
+  const clearGuides = () => {
+    if (dragGuidesSigRef.current !== '') {
+      dragGuidesSigRef.current = '';
+      setDragGuides([]);
+    }
   };
 
   // Card header drag, painted STRAIGHT to the DOM (no store write / re-render until
@@ -806,6 +878,7 @@ export function CanvasStage() {
   const flushCardDrag = (d: CardDrag) => {
     cardDragRef.current = null;
     cardVelRef.current = null;
+    clearGuides();
     const store = useCanvasStore.getState();
     const origin = d.cards.find((c) => c.key === d.key);
     const last = d.pos[d.key];
@@ -907,11 +980,19 @@ export function CanvasStage() {
     if (d.multi) {
       const origin = d.cards.find((c) => c.key === key);
       if (!origin) return;
-      const dx = x - origin.ox;
-      const dy = y - origin.oy;
+      // Snap the grabbed card against cards OUTSIDE the selection (a fellow-
+      // selected card is moving too, so it's not a valid anchor), then shift the
+      // whole selection by the snapped delta.
+      const selSet = new Set(d.cards.map((c) => c.key));
+      const snapped = computeSnap(key, x, y, selSet);
+      const dx = snapped.x - origin.ox;
+      const dy = snapped.y - origin.oy;
       for (const c of d.cards) d.pos[c.key] = { x: c.ox + dx, y: c.oy + dy };
+      setGuidesIfChanged(snapped.guides);
     } else {
-      d.pos[key] = computeSnap(key, x, y);
+      const snapped = computeSnap(key, x, y);
+      d.pos[key] = { x: snapped.x, y: snapped.y };
+      setGuidesIfChanged(snapped.guides);
     }
     paintCardDrag();
   };
@@ -919,6 +1000,7 @@ export function CanvasStage() {
   // Release: a fast flick flings the card(s) with an overshoot settle, otherwise
   // commit immediately. `t` is the pointerup timestamp (for a freshness check).
   const commitCardMove = (t?: number) => {
+    clearGuides(); // the snap is committed — drop the live guide lines
     const d = cardDragRef.current;
     if (!d) return;
     const origin = d.cards.find((c) => c.key === d.key);
@@ -1867,6 +1949,34 @@ export function CanvasStage() {
             style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, zIndex: 99999 }}
           />
         ) : null}
+
+        {/* Live alignment guides (canvas coords) — drawn while a dragged card snaps
+            to another's edge/center, so the snap is visible, not silent. Thickness
+            is 1px on screen at any zoom (canvas-space = 1/scale). */}
+        {dragGuides.map((g) => (
+          <div
+            key={`${g.axis}:${g.at}:${g.from}`}
+            aria-hidden
+            className="pointer-events-none absolute bg-accent"
+            style={
+              g.axis === 'x'
+                ? {
+                    left: g.at - 0.5 / viewport.scale,
+                    top: g.from,
+                    width: 1 / viewport.scale,
+                    height: g.to - g.from,
+                    zIndex: 99998,
+                  }
+                : {
+                    left: g.from,
+                    top: g.at - 0.5 / viewport.scale,
+                    width: g.to - g.from,
+                    height: 1 / viewport.scale,
+                    zIndex: 99998,
+                  }
+            }
+          />
+        ))}
       </div>
 
       {/* Minimap (cate parity — ⌘/Ctrl+Shift+M). */}
