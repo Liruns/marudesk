@@ -2034,6 +2034,7 @@ export function CanvasStage() {
       {minimapOpen ? (
         <CanvasMinimap
           placements={placements}
+          sections={sections}
           viewport={viewport}
           width={size.w}
           height={size.h}
