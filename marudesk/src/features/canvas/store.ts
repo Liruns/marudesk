@@ -88,6 +88,22 @@ export type CardSection = {
   h: number;
 };
 
+/**
+ * A free-floating sticky note on the canvas — a lightweight annotation layer
+ * (Miro/FigJam parity) for jotting next to the work. Like {@link CardSection}
+ * it's pure canvas-space geometry + text (no tab refs), so it serializes verbatim
+ * and survives a restart directly.
+ */
+export type CanvasNote = {
+  id: string;
+  text: string;
+  color: TabGroupColor;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 /** Pad a section frame this far beyond the bounding box of its seed cards. */
 export const SECTION_PAD = 28;
 /** Height of the section's title/header band (canvas px). */
@@ -113,6 +129,16 @@ function newSectionId(): string {
   sectionSeq += 1;
   return `sec_${sectionSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
 }
+
+let noteSeq = 0;
+function newNoteId(): string {
+  noteSeq += 1;
+  return `note_${noteSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
+}
+
+/** Default sticky-note size (canvas px). */
+const NOTE_W = 220;
+const NOTE_H = 160;
 
 /** Section hues, cycled so consecutive new sections read as distinct. */
 const SECTION_COLORS: readonly TabGroupColor[] = ['violet', 'blue', 'teal', 'green', 'amber', 'rose'];
@@ -239,6 +265,7 @@ export type CanvasDoc = {
   groups: CardGroup[];
   /** Labeled section frames grouping the cards inside them (FigJam-style). */
   sections: CardSection[];
+  notes: CanvasNote[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins (per-canvas). */
   topZ: number;
@@ -263,6 +290,7 @@ function emptyCanvas(name: string): CanvasDoc {
     edgeStyle: 'curve',
     groups: [],
     sections: [],
+    notes: [],
     viewport: { panX: 0, panY: 0, scale: 1 },
     topZ: 1,
   };
@@ -433,6 +461,7 @@ type CanvasSnapshot = {
   // Sections are pure canvas-space geometry (no tab-id refs), so they serialize
   // verbatim and survive a restart directly — unlike nodes/edges.
   sections: CardSection[];
+  notes: CanvasNote[];
 };
 type WorkspaceSnapshot = { activeId: string; canvases: CanvasSnapshot[] };
 
@@ -482,6 +511,7 @@ function serializeCanvas(doc: CanvasDoc, tabsById: Map<string, TabState>): Canva
     nodes,
     edges,
     sections: doc.sections,
+    notes: doc.notes,
   };
 }
 
@@ -528,6 +558,26 @@ function parseSections(raw: unknown): CardSection[] {
   return out;
 }
 
+function parseNotes(raw: unknown): CanvasNote[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CanvasNote[] = [];
+  for (const val of raw) {
+    if (typeof val !== 'object' || val === null) continue;
+    const n = val as Record<string, unknown>;
+    if (!(isStr(n.id) && isNum(n.x) && isNum(n.y) && isNum(n.w) && isNum(n.h))) continue;
+    out.push({
+      id: n.id,
+      text: isStr(n.text) ? n.text : '',
+      color: isSectionColor(n.color) ? n.color : 'amber',
+      x: n.x,
+      y: n.y,
+      w: Math.max(120, n.w),
+      h: Math.max(80, n.h),
+    });
+  }
+  return out;
+}
+
 function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
@@ -561,6 +611,7 @@ function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
     nodes,
     edges,
     sections: parseSections(r.sections),
+    notes: parseNotes(r.notes),
   };
 }
 
@@ -588,6 +639,7 @@ function metadataDoc(snap: CanvasSnapshot): CanvasDoc {
     // Sections are tab-independent geometry, so they're valid pre-reconcile —
     // carry them straight onto the metadata doc so a section shows immediately.
     sections: snap.sections ?? [],
+    notes: snap.notes ?? [],
     viewport: snap.viewport,
     topZ: 1,
   };
@@ -668,6 +720,7 @@ function reconcileWorkspace(snaps: readonly CanvasSnapshot[], tabs: readonly Tab
       edgeStyle: snap.edgeStyle,
       groups,
       sections: snap.sections ?? [],
+      notes: snap.notes ?? [],
       viewport: snap.viewport,
       topZ: z || 1,
     };
@@ -741,6 +794,7 @@ type CanvasState = {
   groups: CardGroup[];
   /** Labeled section frames grouping the cards inside them (FigJam-style). */
   sections: CardSection[];
+  notes: CanvasNote[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins. */
   topZ: number;
@@ -842,6 +896,20 @@ type CanvasActions = {
   removeSection: (id: string) => void;
   /** Card placement keys whose centre falls inside section `id` (spatial members). */
   sectionMemberKeys: (id: string) => string[];
+
+  /* ── sticky notes (annotation layer) ── */
+  /** Add a note centered on a canvas point; returns its id. */
+  addNote: (at: { x: number; y: number }) => string;
+  /** Move a note to an absolute canvas position. */
+  setNotePos: (id: string, x: number, y: number) => void;
+  /** Resize a note (clamped to a sane minimum). */
+  setNoteSize: (id: string, w: number, h: number) => void;
+  /** Replace a note's text. */
+  setNoteText: (id: string, text: string) => void;
+  /** Recolor a note. */
+  setNoteColor: (id: string, color: TabGroupColor) => void;
+  /** Delete a note. */
+  removeNote: (id: string) => void;
   /** Commit a section drag: move the section + its member cards + nested sections
    *  by (dx,dy) from captured origins in ONE update (one re-render). The live drag
    *  itself is painted straight to the DOM, so this only runs on release. */
@@ -928,6 +996,7 @@ function activeDoc(s: CanvasState): CanvasDoc {
     edgeStyle: s.edgeStyle,
     groups: s.groups,
     sections: s.sections,
+    notes: s.notes,
     viewport: s.viewport,
     topZ: s.topZ,
   };
@@ -947,7 +1016,7 @@ function snapshotByWorkspace(s: CanvasState): Record<string, WorkspaceCanvases> 
 /** The top-level working-copy fields drawn from a {@link CanvasDoc}. */
 function workingCopy(doc: CanvasDoc): Pick<
   CanvasState,
-  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'viewport' | 'topZ'
+  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'notes' | 'viewport' | 'topZ'
 > {
   return {
     placements: doc.placements,
@@ -955,6 +1024,7 @@ function workingCopy(doc: CanvasDoc): Pick<
     edgeStyle: doc.edgeStyle,
     groups: doc.groups,
     sections: doc.sections,
+    notes: doc.notes,
     viewport: doc.viewport,
     topZ: doc.topZ,
   };
@@ -1560,6 +1630,37 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     set((st) => ({ sections: [...st.sections, section] }));
     return id;
   },
+
+  addNote: (at) => {
+    const id = newNoteId();
+    const note: CanvasNote = {
+      id,
+      text: '',
+      color: 'amber',
+      x: Math.round(at.x - NOTE_W / 2),
+      y: Math.round(at.y - NOTE_H / 2),
+      w: NOTE_W,
+      h: NOTE_H,
+    };
+    set((s) => ({ notes: [...s.notes, note] }));
+    return id;
+  },
+
+  setNotePos: (id, x, y) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, x, y } : n)) })),
+
+  setNoteSize: (id, w, h) =>
+    set((s) => ({
+      notes: s.notes.map((n) => (n.id === id ? { ...n, w: Math.max(120, w), h: Math.max(80, h) } : n)),
+    })),
+
+  setNoteText: (id, text) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, text } : n)) })),
+
+  setNoteColor: (id, color) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, color } : n)) })),
+
+  removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
 
   setSectionPos: (id, x, y) =>
     set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, x, y } : sec)) })),

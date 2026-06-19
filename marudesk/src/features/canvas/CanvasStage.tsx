@@ -23,6 +23,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  StickyNote,
   Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -37,6 +38,7 @@ import { CanvasCard, type CardGroupProps } from './CanvasCard';
 import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
+import { CanvasNotes } from './CanvasNotes';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
 import { CanvasShortcuts } from './CanvasShortcuts';
 import { easeOutBack, fitPose } from './camera-math';
@@ -195,6 +197,7 @@ export function CanvasStage() {
   const edgeStyle = useCanvasStore((s) => s.edgeStyle);
   const groups = useCanvasStore((s) => s.groups);
   const sections = useCanvasStore((s) => s.sections);
+  const notes = useCanvasStore((s) => s.notes);
   const selection = useCanvasStore((s) => s.selection);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -1663,6 +1666,7 @@ export function CanvasStage() {
       { label: t('canvas.menu.newTerminal'), onSelect: () => newCard('terminal', toCanvas(m.x, m.y)) },
       { label: t('canvas.menu.newEditor'), onSelect: () => newCard('editor', toCanvas(m.x, m.y)) },
       { label: t('canvas.menu.newAiChat'), onSelect: () => newCard('agent', toCanvas(m.x, m.y)) },
+      { label: t('canvas.menu.newNote'), icon: <StickyNote size={14} />, onSelect: () => useCanvasStore.getState().addNote(toCanvas(m.x, m.y)) },
       { type: 'separator' },
       { label: t('canvas.control.fit'), onSelect: () => fit() },
       { label: t('canvas.menu.resetZoom'), onSelect: () => animateReset() },
@@ -1874,7 +1878,7 @@ export function CanvasStage() {
       aria-label={t('canvas.label')}
       tabIndex={-1}
     >
-      {cardItems.length === 0 && sections.length === 0 ? (
+      {cardItems.length === 0 && sections.length === 0 && notes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <div className="select-none text-center">
             <div className="text-body-sm text-fg-tertiary">{t('canvas.empty.title')}</div>
@@ -1899,6 +1903,8 @@ export function CanvasStage() {
           scale={viewport.scale}
           onStartConnect={(sectionId, side, cx, cy) => startConnect(sectionId, side, cx, cy)}
         />
+        {/* Sticky notes — annotation layer above sections, beneath the cards. */}
+        <CanvasNotes notes={notes} scale={viewport.scale} />
         {/* Node connections (card↔card, card↔section, section↔section). */}
         <CanvasEdges
           placements={nodeRects}
