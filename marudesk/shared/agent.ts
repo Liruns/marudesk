@@ -402,6 +402,24 @@ export type AgentSendInput = {
    * thread (classic single-view behaviour).
    */
   threadId?: string;
+  /**
+   * Cards wired to this agent card on the canvas (incoming/peer connections),
+   * passed as first-turn context so the agent knows which tools/files/pages are
+   * relevant and can pull their contents with its own tools. Identity-level
+   * (kind + title + locator), never raw page/file content — treated as untrusted
+   * data in the model preamble.
+   */
+  connections?: AgentConnection[];
+};
+
+/** A canvas card wired to an agent card, surfaced to the model as context. */
+export type AgentConnection = {
+  /** Tab kind: 'web' | 'terminal' | 'editor' | 'agent' | 'home' | 'devtools' | … */
+  kind: string;
+  /** Human label (card title). */
+  title: string;
+  /** Optional locator the agent can act on — a URL (web) or file path (editor). */
+  locator?: string;
 };
 
 export type AgentSendResult =

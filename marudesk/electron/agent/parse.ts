@@ -1,4 +1,5 @@
 import type {
+  AgentConnection,
   AgentImageInput,
   AgentAnswers,
   AgentPlanStepStatus,
@@ -68,7 +69,28 @@ export function parseSendInput(payload: unknown): AgentSendInput {
     images: parseImages(o.images),
     tabId: optStr(o.tabId, 'tabId'),
     threadId: optStr(o.threadId, 'threadId'),
+    connections: parseConnections(o.connections),
   };
+}
+
+/** Validate the optional canvas `connections` array (identity-level card refs). */
+function parseConnections(value: unknown): AgentConnection[] | undefined {
+  // Lenient: this is optional best-effort context, so malformed input is ignored
+  // rather than rejecting the whole send.
+  if (!Array.isArray(value)) return undefined;
+  const MAX = 24; // a sane cap; the model preamble shouldn't balloon
+  const out: AgentConnection[] = [];
+  for (const item of value.slice(0, MAX)) {
+    if (typeof item !== 'object' || item === null) continue;
+    const c = item as Record<string, unknown>;
+    if (typeof c.kind !== 'string' || typeof c.title !== 'string') continue;
+    out.push({
+      kind: c.kind,
+      title: c.title,
+      ...(typeof c.locator === 'string' && c.locator ? { locator: c.locator } : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** ask_user answers map: keep only string values (drop anything else). */
