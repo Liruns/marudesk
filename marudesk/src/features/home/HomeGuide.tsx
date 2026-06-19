@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
 import { useTourStore } from '../tour/tourStore';
@@ -48,12 +49,17 @@ export function HomeGuide({
       </div>
 
       <div className="mt-4 grid grid-cols-1 @md:grid-cols-2 gap-2.5">
-        {scenarios.map((s) => (
+        {scenarios.map((s, i) => (
           <button
             key={s.key}
             type="button"
             onClick={s.onOpen}
-            className="group flex items-start gap-3 rounded-lg border border-subtle bg-surface-page p-3 text-left transition-colors duration-fast hover:border-default hover:bg-surface-3"
+            className={cn(
+              'group flex items-start gap-3 rounded-lg border border-subtle bg-surface-page p-3 text-left transition-colors duration-fast hover:border-default hover:bg-surface-3',
+              // Odd card out spans the full row at the 2-column breakpoint, so the
+              // last scenario never sits beside an empty half-cell.
+              i === scenarios.length - 1 && scenarios.length % 2 === 1 && '@md:col-span-2',
+            )}
           >
             <span className="mt-0.5 shrink-0 text-accent">{s.icon}</span>
             <span className="min-w-0 flex flex-col gap-0.5">

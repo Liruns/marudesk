@@ -114,6 +114,9 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
               hint={t('home.launcher.editor.hint')}
               icon={<Code2 size={18} />}
               onOpen={() => open('editor')}
+              // Odd card out: span the full row at the 2-column breakpoint so the
+              // grid never leaves a dead half-cell beside the last launcher.
+              className="@lg:col-span-2"
             />
           </div>
         )}
