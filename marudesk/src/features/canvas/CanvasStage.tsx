@@ -25,6 +25,15 @@ import {
   RotateCcw,
   StickyNote,
   Trash2,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
+  Scan,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
@@ -43,7 +52,7 @@ import { CanvasPlanFlow } from './CanvasPlanFlow';
 import { CanvasShortcuts } from './CanvasShortcuts';
 import { easeOutBack, fitPose } from './camera-math';
 import { edgeEndpoints, edgeMidpoint, nearestSide } from './edgeGeometry';
-import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
+import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type AlignEdge, type CardGroup, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
 type CanvasMenu =
@@ -290,6 +299,9 @@ export function CanvasStage() {
   const marqueeRef = useRef<{ pointerId: number; ox: number; oy: number } | null>(null);
   const spaceDownRef = useRef(false);
   const [panning, setPanning] = useState(false);
+  // True while a card (or selection) is mid-drag — the floating selection toolbar
+  // hides so it doesn't lag behind the live-painted cards. Toggled twice per drag.
+  const [cardDragging, setCardDragging] = useState(false);
   // Live element refs for web cards, keyed by tab id, so we can measure their
   // screen rects and position the matching native WebContentsViews.
   const webEls = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -888,6 +900,7 @@ export function CanvasStage() {
     cardDragRef.current = null;
     cardVelRef.current = null;
     clearGuides();
+    setCardDragging(false);
     const store = useCanvasStore.getState();
     const origin = d.cards.find((c) => c.key === d.key);
     const last = d.pos[d.key];
@@ -972,6 +985,7 @@ export function CanvasStage() {
         .filter((c): c is { key: string; el: HTMLElement | null; ox: number; oy: number } => !!c);
       d = { key, multi, cards, pos: {} };
       cardDragRef.current = d;
+      setCardDragging(true); // hide the floating selection toolbar during the drag
       cardVelRef.current = t != null ? { x, y, t, vx: 0, vy: 0 } : null;
     } else if (t != null) {
       const cv = cardVelRef.current;
@@ -2112,6 +2126,82 @@ export function CanvasStage() {
           {t('canvas.toolbar.newCard')}
         </button>
       </div>
+
+      {/* Floating selection toolbar (Figma-style): align / distribute / section /
+          zoom for a multi-selection, so those actions aren't buried in the
+          right-click menu. Positioned above the selection's bounding box (screen
+          coords); hidden during a drag/pan so it doesn't lag the live cards. */}
+      {(() => {
+        if (selection.length < 2 || cardDragging || panning || marquee || menu || shortcutsOpen) {
+          return null;
+        }
+        const rects = selection.map((k) => placements[k]).filter((r): r is CardRect => !!r);
+        if (rects.length < 2) return null;
+        const minX = Math.min(...rects.map((r) => r.x));
+        const maxX = Math.max(...rects.map((r) => r.x + r.w));
+        const minY = Math.min(...rects.map((r) => r.y));
+        const left = viewport.panX + ((minX + maxX) / 2) * viewport.scale;
+        const top = Math.max(8, viewport.panY + minY * viewport.scale - 44);
+        const align = (edge: AlignEdge) => useCanvasStore.getState().alignSelection(edge);
+        return (
+          <div
+            className="absolute z-50 flex items-center gap-0.5 rounded-lg chrome-popover px-1 py-1"
+            style={{ left, top, transform: 'translateX(-50%)' }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <CtrlButton label={t('canvas.menu.alignLeft')} onClick={() => align('left')}>
+              <AlignStartVertical size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignHCenter')} onClick={() => align('hcenter')}>
+              <AlignCenterVertical size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignRight')} onClick={() => align('right')}>
+              <AlignEndVertical size={15} />
+            </CtrlButton>
+            <div className="mx-0.5 h-5 w-px bg-subtle" />
+            <CtrlButton label={t('canvas.menu.alignTop')} onClick={() => align('top')}>
+              <AlignStartHorizontal size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignVCenter')} onClick={() => align('vcenter')}>
+              <AlignCenterHorizontal size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.alignBottom')} onClick={() => align('bottom')}>
+              <AlignEndHorizontal size={15} />
+            </CtrlButton>
+            {selection.length >= 3 ? (
+              <>
+                <div className="mx-0.5 h-5 w-px bg-subtle" />
+                <CtrlButton
+                  label={t('canvas.menu.distributeH')}
+                  onClick={() => useCanvasStore.getState().distributeSelection('h')}
+                >
+                  <AlignHorizontalDistributeCenter size={15} />
+                </CtrlButton>
+                <CtrlButton
+                  label={t('canvas.menu.distributeV')}
+                  onClick={() => useCanvasStore.getState().distributeSelection('v')}
+                >
+                  <AlignVerticalDistributeCenter size={15} />
+                </CtrlButton>
+              </>
+            ) : null}
+            <div className="mx-0.5 h-5 w-px bg-subtle" />
+            <CtrlButton
+              label={formatCanvasGroupSection(selection.length)}
+              onClick={() => {
+                const s = useCanvasStore.getState();
+                s.addSection(selection);
+                s.clearSelection();
+              }}
+            >
+              <Group size={15} />
+            </CtrlButton>
+            <CtrlButton label={t('canvas.menu.zoomToSelection')} onClick={() => frameSelection()}>
+              <Scan size={15} />
+            </CtrlButton>
+          </div>
+        );
+      })()}
 
       {/* Viewport controls (bottom-right). */}
       <div className="absolute bottom-4 right-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card">
