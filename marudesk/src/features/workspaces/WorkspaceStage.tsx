@@ -620,6 +620,7 @@ function SplitPicker({
             <button
               type="button"
               title={t('workspace.split.right')}
+              aria-label={`${t('workspace.split.right')}: ${ws.name}`}
               onClick={() => onSplit(ws.id, 'row')}
               className="chrome-icon-button size-6"
             >
@@ -628,6 +629,7 @@ function SplitPicker({
             <button
               type="button"
               title={t('workspace.split.down')}
+              aria-label={`${t('workspace.split.down')}: ${ws.name}`}
               onClick={() => onSplit(ws.id, 'col')}
               className="chrome-icon-button size-6"
             >

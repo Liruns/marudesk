@@ -5,12 +5,14 @@ import {
   Frame,
   GitBranch,
   KeyRound,
+  LayoutGrid,
   MessageSquareText,
   Palette,
   Plug,
   Search,
   Settings as SettingsIcon,
   SlidersHorizontal,
+  Workflow,
 } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { useWebPageStore } from '../features/browser/store';
@@ -64,8 +66,18 @@ export function ActivityBar({
   const agentWaiting = useAgentStore((s) => s.chat.status === 'waiting_for_user');
   const surfaceMode = useSurfaceStore((s) => s.mode);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [surfaceMenu, setSurfaceMenu] = useState<{ x: number; y: number } | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const { t } = useI18n();
+
+  const surfaceIcon =
+    surfaceMode === 'workgraph' ? (
+      <Workflow size={18} />
+    ) : surfaceMode === 'classic' ? (
+      <LayoutGrid size={18} />
+    ) : (
+      <Frame size={18} />
+    );
 
   return (
     <nav
@@ -117,12 +129,42 @@ export function ActivityBar({
       </ActivityButton>
       <span className="flex-1" aria-hidden />
       <ActivityButton
-        label={surfaceMode === 'canvas' ? 'Switch to classic view' : 'Switch to canvas'}
-        active={surfaceMode === 'canvas'}
-        onClick={() => useSurfaceStore.getState().toggle()}
+        label={`Surface: ${surfaceMode === 'workgraph' ? 'Work OS' : surfaceMode === 'canvas' ? 'Canvas' : 'Classic'} — click to switch`}
+        active={!!surfaceMenu}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setSurfaceMenu({ x: r.right + 6, y: r.top });
+        }}
       >
-        <Frame size={18} />
+        {surfaceIcon}
       </ActivityButton>
+      {surfaceMenu ? (
+        <ContextMenu
+          x={surfaceMenu.x}
+          y={surfaceMenu.y}
+          onClose={() => setSurfaceMenu(null)}
+          items={[
+            {
+              label: 'Work OS',
+              icon: <Workflow size={15} />,
+              checked: surfaceMode === 'workgraph',
+              onSelect: () => useSurfaceStore.getState().setMode('workgraph'),
+            },
+            {
+              label: 'Canvas',
+              icon: <Frame size={15} />,
+              checked: surfaceMode === 'canvas',
+              onSelect: () => useSurfaceStore.getState().setMode('canvas'),
+            },
+            {
+              label: 'Classic',
+              icon: <LayoutGrid size={15} />,
+              checked: surfaceMode === 'classic',
+              onSelect: () => useSurfaceStore.getState().setMode('classic'),
+            },
+          ]}
+        />
+      ) : null}
       <ActivityButton
         label={t('activity.settings')}
         active={!!menu}
@@ -203,9 +245,9 @@ function ActivityButton({
       aria-pressed={active}
       title={label}
       className={cn(
-        'chrome-icon-button relative size-9 shrink-0',
+        'chrome-icon-button relative size-9 shrink-0 transition-colors duration-fast',
         active
-          ? 'text-accent bg-accent-subtle/50 shadow-highlight hover:bg-accent-subtle/60 hover:text-accent'
+          ? 'text-accent bg-accent-subtle shadow-highlight hover:bg-accent-subtle hover:text-accent'
           : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2/70',
         disabled ? 'opacity-40 cursor-not-allowed' : '',
       )}
@@ -220,12 +262,12 @@ function ActivityButton({
       {attention ? (
         <span
           aria-hidden
-          className="absolute -top-0.5 -right-0.5 size-2.5 rounded-pill bg-warning ring-2 ring-surface-1 animate-pulse"
+          className="absolute -top-0.5 -right-0.5 size-2.5 rounded-pill bg-warning ring-2 ring-surface-1 motion-safe:animate-fade-rise"
         />
       ) : typeof badge === 'number' && badge > 0 ? (
         <span
           aria-hidden
-          className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-pill bg-accent text-[10px] font-medium text-white flex items-center justify-center tabular-nums"
+          className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-pill bg-accent text-caption font-medium text-white flex items-center justify-center tabular-nums"
         >
           {badge > 99 ? '99+' : badge}
         </span>

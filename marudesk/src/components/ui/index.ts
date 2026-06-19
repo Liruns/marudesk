@@ -7,3 +7,4 @@ export { Badge, type BadgeProps } from './Badge';
 export { Switch, type SwitchProps } from './Switch';
 export { Toast, type ToastProps } from './Toast';
 export { CopyButton, type CopyButtonProps } from './CopyButton';
+export { ZoomSlider, type ZoomSliderProps } from './ZoomSlider';

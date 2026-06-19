@@ -114,7 +114,7 @@ export function describeToolInput(name: string, input: unknown): string {
       : '(no requestId)';
   }
   // PC-control / path tools: show the target plainly — this is an approval card.
-  if (typeof o.path === 'string') return o.path.slice(0, 300);
-  if (typeof o.url === 'string') return o.url.slice(0, 300);
-  return JSON.stringify(o).slice(0, 300);
+  if (typeof o.path === 'string') return scrubText(o.path).slice(0, 300);
+  if (typeof o.url === 'string') return scrubText(o.url).slice(0, 300);
+  return scrubText(JSON.stringify(o)).slice(0, 300);
 }

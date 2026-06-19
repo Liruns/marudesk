@@ -30,14 +30,14 @@ export type ComposerDeps = {
   busy: boolean;
   summary: WorkspaceSummary | null;
   promptHistory: string[];
-  queuedPrompts: string[];
+  queuedPrompts: { text: string; id: string }[];
   setDraft: (v: string) => void;
   enqueuePrompt: (text: string) => void;
   dequeuePrompt: () => string | null;
   send: () => Promise<void>;
   resetChat: () => Promise<void>;
   compact: (focus?: string) => Promise<{ ok: boolean; reason?: string }>;
-  addImages: (images: Awaited<ReturnType<typeof readImageFiles>>) => void;
+  addImages: (images: Awaited<ReturnType<typeof readImageFiles>>['images']) => void;
   addFiles: (files: Awaited<ReturnType<typeof fileAttachmentsFromFiles>>) => void;
   stickToBottom: () => void;
 };
@@ -375,8 +375,15 @@ export function useComposer({
   };
 
   const ingestAttachmentFiles = async (files: readonly File[]) => {
-    const images = await readImageFiles(files);
+    const { images, truncated } = await readImageFiles(files);
     if (images.length > 0) addImages(images);
+    if (truncated) {
+      toast({
+        title: t('agent.chat.toast.attachmentLimit.title'),
+        description: t('agent.chat.toast.attachmentLimit.description'),
+        variant: 'error',
+      });
+    }
     const attachedFiles = await fileAttachmentsFromFiles(files);
     if (attachedFiles.length > 0) addFiles(attachedFiles);
   };

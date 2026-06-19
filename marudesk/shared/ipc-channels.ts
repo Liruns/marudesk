@@ -187,7 +187,7 @@ export const CHANNELS = {
   workflows: ['workflows:list', 'workflows:save', 'workflows:delete', 'workflows:run'],
   // Spec lifecycle (§3.10): per-workspace spec docs + task lists.
   specs: ['specs:list', 'specs:save', 'specs:delete'],
-  workos: ['workos:decompose'],
+  workos: ['workos:decompose', 'workos:run-task', 'workos:implement-task'],
   // Per-lane dev server + GitHub PR/CI status (§3.8 Mission Control): run/stop
   // the dev command in a worktree lane, open its detected URL, fetch PR/CI.
   lanes: [

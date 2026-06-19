@@ -104,9 +104,9 @@ type AgentState = {
    *  it to its bound thread; the workspace store follows whichever thread is active. */
   activeThreadId: string | null;
   /** Prompts staged for the ACTIVE thread while a turn is running. */
-  queuedPrompts: string[];
+  queuedPrompts: { text: string; id: string }[];
   /** Per-thread queued prompts so one chat's follow-ups don't leak into another. */
-  queuedPromptsByThread: Record<string, string[]>;
+  queuedPromptsByThread: Record<string, { text: string; id: string }[]>;
   /**
    * Per-thread model pin (model-catalog key). A thread pins its model on first
    * send (or an explicit pick in its composer) and keeps it even when another
@@ -134,8 +134,8 @@ type AgentActions = {
   enqueuePrompt: (text: string) => void;
   /** Pop the oldest queued prompt (FIFO) and return it, or null when empty. */
   dequeuePrompt: () => string | null;
-  /** Remove one queued prompt by index (the banner's per-item delete). */
-  removeQueuedPrompt: (index: number) => void;
+  /** Remove one queued prompt by id (the banner's per-item delete). */
+  removeQueuedPrompt: (id: string) => void;
   /** Point this store at a thread, switching composer-local state to it. */
   setActiveThreadId: (id: string | null) => void;
   /** Pin the ACTIVE thread to `key` and make it the global default for new threads. */
@@ -341,7 +341,8 @@ function createAgentStore(
     if (trimmed.length === 0) return;
     set((s) => {
       const threadId = s.activeThreadId ?? '__main__';
-      const nextQueue = [...(s.queuedPromptsByThread[threadId] ?? []), trimmed];
+      const item = { text: trimmed, id: crypto.randomUUID() };
+      const nextQueue = [...(s.queuedPromptsByThread[threadId] ?? []), item];
       return {
         queuedPrompts: nextQueue,
         queuedPromptsByThread: { ...s.queuedPromptsByThread, [threadId]: nextQueue },
@@ -357,13 +358,13 @@ function createAgentStore(
       queuedPrompts: rest,
       queuedPromptsByThread: { ...s.queuedPromptsByThread, [threadId]: rest },
     }));
-    return next;
+    return next.text;
   },
 
-  removeQueuedPrompt: (index) =>
+  removeQueuedPrompt: (id) =>
     set((s) => {
       const threadId = s.activeThreadId ?? '__main__';
-      const nextQueue = (s.queuedPromptsByThread[threadId] ?? []).filter((_, i) => i !== index);
+      const nextQueue = (s.queuedPromptsByThread[threadId] ?? []).filter((item) => item.id !== id);
       return {
         queuedPrompts: nextQueue,
         queuedPromptsByThread: { ...s.queuedPromptsByThread, [threadId]: nextQueue },
@@ -378,7 +379,7 @@ function createAgentStore(
         draft: s.draftByThread[threadId] ?? '',
         pendingImages: s.pendingImagesByThread[threadId] ?? [],
         pendingFiles: s.pendingFilesByThread[threadId] ?? [],
-        queuedPrompts: s.queuedPromptsByThread[threadId] ?? [],
+        queuedPrompts: s.queuedPromptsByThread[threadId] ?? ([] as { text: string; id: string }[]),
         localError: s.localErrorByThread[threadId] ?? null,
       };
     }),
@@ -459,16 +460,24 @@ function createAgentStore(
     }));
     const res = await get().dispatchPrompt(prompt, { images: pendingImages });
     // Restore the draft + attachments so the user can retry without re-attaching.
+    // Guard live display fields behind activeThreadId === threadId: if the user
+    // switched threads while the send was in flight, only write the per-thread
+    // maps (keyed by the original threadId) so we don't clobber the new thread's
+    // live draft/images/files/error with stale data from the old send.
     if (!res.ok) {
       const reason = res.reason ?? null;
       set((s) => ({
-        localError: reason,
+        ...(s.activeThreadId === threadId
+          ? {
+              localError: reason,
+              draft: text,
+              pendingImages,
+              pendingFiles,
+            }
+          : {}),
         localErrorByThread: { ...s.localErrorByThread, [threadId]: reason },
-        draft: text,
         draftByThread: { ...s.draftByThread, [threadId]: text },
-        pendingImages,
         pendingImagesByThread: { ...s.pendingImagesByThread, [threadId]: pendingImages },
-        pendingFiles,
         pendingFilesByThread: { ...s.pendingFilesByThread, [threadId]: pendingFiles },
       }));
     }

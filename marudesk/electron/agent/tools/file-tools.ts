@@ -250,6 +250,18 @@ async function applyEdits(
   label: string,
 ): Promise<ToolResult> {
   if (!ctx.ws) return noWorkspaceResult(label);
+  // Never let the agent WRITE a credentials/secret file. The read path already
+  // refuses these (SECRET_FILE is correctly anchored with (^|/)), but denyGlobs —
+  // the only other write gate — can miss root-level secrets (a leading `**/`
+  // requires a literal '/'), so guard writes with the same anchored pattern.
+  const secret = ops.find((op) => SECRET_FILE.test(op.path));
+  if (secret) {
+    return {
+      summary: `${label} blocked`,
+      text: `Blocked: "${secret.path}" looks like a credentials/secret file and cannot be written by the agent.`,
+      isError: true,
+    };
+  }
   if (ctx.denyGlobs?.length) {
     const blocked = ops.find((op) =>
       ctx.denyGlobs!.some((g) => globToRegExp(g).test(op.path)),

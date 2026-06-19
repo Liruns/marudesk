@@ -639,6 +639,8 @@ export const EN_MESSAGES = {
   'agent.chat.toast.revertFailed.stale':
     'This file changed since the edit — revert was skipped to avoid losing newer content.',
   'agent.chat.toast.revertFailed.title': 'Could not revert',
+  'agent.chat.toast.attachmentLimit.title': 'Too many images',
+  'agent.chat.toast.attachmentLimit.description': 'Only the first 8 images were attached — remove some to add more.',
   'agent.chat.toast.unknownError': 'unknown error',
   'agent.chat.tool.consoleErrors': 'Console errors',
   'agent.chat.tool.consoleOutput': 'Console output',

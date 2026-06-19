@@ -2,6 +2,7 @@ import {
   emptyAgentChatState,
   type AgentMessage,
 } from '../../shared/agent';
+import { scrubText } from '../../shared/scrub';
 import type { SessionRecord, SessionSummary } from '../../shared/context';
 import { getSettingsSync } from '../settings';
 import { clearReadTracker } from './read-tracker';
@@ -36,9 +37,11 @@ function snapshotMessagesForSave(S: ThreadContainer): AgentMessage[] {
     parts: m.parts.map((p) => {
       if (p.type !== 'tool') return p;
       const rt = p.call.resultText;
-      return rt && rt.length > 4_000
-        ? { ...p, call: { ...p.call, resultText: `${rt.slice(0, 4_000)}…` } }
-        : p;
+      if (!rt) return p;
+      const scrubbed = scrubText(rt);
+      return scrubbed.length > 4_000
+        ? { ...p, call: { ...p.call, resultText: `${scrubbed.slice(0, 4_000)}…` } }
+        : { ...p, call: { ...p.call, resultText: scrubbed } };
     }),
   }));
 }

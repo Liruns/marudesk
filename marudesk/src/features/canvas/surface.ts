@@ -1,22 +1,33 @@
 import { create } from 'zustand';
 
 /**
- * Which surface the Shell renders in its stage region: the infinite **canvas**
- * (Maru's default) or the **classic** tab-strip + split-grid. Persisted to
- * localStorage so the choice sticks across launches; both modes share the same
- * chrome (activity bar, side panels, status bar, tab strip) — only the centre
- * swaps. Tests seed `maru.surface=classic` so the classic-shell specs are
- * unaffected by the canvas default (see e2e/helpers/app.ts).
+ * Which surface the Shell renders in its stage region:
+ *  - **canvas**    — Maru's infinite canvas of tool cards (the historic default).
+ *  - **classic**   — the classic tab-strip + split-grid IDE.
+ *  - **workgraph** — the **AI Work OS**: a goal decomposed into a Task graph on
+ *    its own plane, with tools opening in a sibling dock rather than inside nodes
+ *    (docs/ai-work-os-roadmap.md §3/§7-1). This is the product spine; canvas and
+ *    classic remain as alternative layouts behind the surface switcher.
+ *
+ * Persisted to localStorage so the choice sticks across launches; every mode
+ * shares the same chrome (activity bar, side panels, status bar) — only the
+ * centre stage swaps. Tests seed `maru.surface` so each surface's specs are
+ * isolated (see e2e/helpers/app.ts).
  */
-export type SurfaceMode = 'canvas' | 'classic';
+export type SurfaceMode = 'canvas' | 'classic' | 'workgraph';
 
 const KEY = 'maru.surface';
+const MODES: readonly SurfaceMode[] = ['canvas', 'classic', 'workgraph'];
+
+function isMode(v: unknown): v is SurfaceMode {
+  return typeof v === 'string' && (MODES as readonly string[]).includes(v);
+}
 
 function load(): SurfaceMode {
   try {
     if (typeof localStorage !== 'undefined') {
       const v = localStorage.getItem(KEY);
-      if (v === 'classic' || v === 'canvas') return v;
+      if (isMode(v)) return v;
     }
   } catch {
     // ignore storage failures — fall through to the default
@@ -27,10 +38,9 @@ function load(): SurfaceMode {
 type SurfaceState = {
   mode: SurfaceMode;
   setMode: (mode: SurfaceMode) => void;
-  toggle: () => void;
 };
 
-export const useSurfaceStore = create<SurfaceState>((set, get) => ({
+export const useSurfaceStore = create<SurfaceState>((set) => ({
   mode: load(),
   setMode: (mode) => {
     try {
@@ -40,5 +50,4 @@ export const useSurfaceStore = create<SurfaceState>((set, get) => ({
     }
     set({ mode });
   },
-  toggle: () => get().setMode(get().mode === 'canvas' ? 'classic' : 'canvas'),
 }));

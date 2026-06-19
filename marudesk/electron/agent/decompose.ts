@@ -4,6 +4,8 @@ import { parseWorkGraph, type WorkGraph } from '../../shared/work-os';
 import { buildModel, humanizeModelError } from './model';
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
+import { runTask, implementTask } from './run-task';
+import { scrubText } from '../../shared/scrub';
 
 /**
  * Goal → Task-graph generator (docs/ai-work-os-roadmap.md §6, the "Phase 1
@@ -48,6 +50,33 @@ Rules:
 - Each task gets 1-3 concrete, checkable acceptance criteria (e.g. "npm run typecheck passes", "endpoint returns 200", "no console errors").
 - All acceptance verdicts start as "unknown".`;
 
+/**
+ * Race a promise against a timeout. Provider resolution / auth can stall when
+ * nothing is connected (network probes with no fast "not configured" answer);
+ * a bounded wait lets the Work OS fall back to its offline sample instead of
+ * hanging the Generate button forever.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  p.catch(() => undefined); // the race loser must not surface as an unhandledRejection
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
+const RESOLVE_TIMEOUT_MS = 4_000;
+/**
+ * Upper bound on the decompose model call. A connected-but-unresponsive provider
+ * (outage, bad gateway) would otherwise freeze the Generate button forever; on
+ * timeout the renderer falls back to its offline sample graph. Generous so a
+ * legitimately slow model still completes.
+ */
+const MODEL_TIMEOUT_MS = 30_000;
+
+/** Upper bound on the goal text forwarded to the model — keeps the prompt bounded. */
+const MAX_GOAL_CHARS = 8_000;
+
 /** Extract the first balanced JSON object from a model reply (tolerates fences/prose). */
 function extractJsonObject(text: string): unknown {
   const start = text.indexOf('{');
@@ -84,37 +113,55 @@ export async function decomposeGoal(
 ): Promise<{ ok: true; graph: WorkGraph } | { ok: false; reason: string }> {
   const trimmed = goal.trim();
   if (!trimmed) return { ok: false, reason: 'Enter a goal first.' };
+  if (trimmed.length > MAX_GOAL_CHARS) {
+    return { ok: false, reason: 'Goal is too long — shorten it.' };
+  }
 
   let target: Awaited<ReturnType<typeof resolveSubagentTarget>>;
   try {
-    target = await resolveSubagentTarget({
-      explicit: { provider: null, model: null },
-      tierHint: 'smart',
-      agent: null,
-      parent: null,
-    });
+    target = await withTimeout(
+      resolveSubagentTarget({
+        explicit: { provider: null, model: null },
+        tierHint: 'smart',
+        agent: null,
+        parent: null,
+      }),
+      RESOLVE_TIMEOUT_MS,
+      'provider resolution',
+    );
   } catch {
     return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
   }
 
-  const resolved = await resolveProviderAuth(target.provider);
+  let resolved: Awaited<ReturnType<typeof resolveProviderAuth>>;
+  try {
+    resolved = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth');
+  } catch {
+    return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
+  }
   if (!resolved.ok) return { ok: false, reason: resolved.reason };
 
   try {
-    const res = await generateText({
-      model: buildModel(target.provider, target.model, resolved.auth, resolved.baseUrl),
-      system: DECOMPOSE_SYSTEM,
-      prompt: `GOAL:\n${trimmed}`,
-      maxOutputTokens: 2048,
-    });
+    const res = await withTimeout(
+      generateText({
+        model: buildModel(target.provider, target.model, resolved.auth, resolved.baseUrl),
+        system: DECOMPOSE_SYSTEM,
+        prompt: `GOAL:\n${trimmed}`,
+        maxOutputTokens: 2048,
+      }),
+      MODEL_TIMEOUT_MS,
+      'decompose',
+    );
     const graph = parseWorkGraph(extractJsonObject(res.text));
     if (!graph) return { ok: false, reason: 'The model did not return a valid task graph.' };
     return { ok: true, graph: { ...graph, goal: trimmed } };
   } catch (err) {
-    return { ok: false, reason: humanizeModelError(err, target.provider, target.model) };
+    return { ok: false, reason: scrubText(humanizeModelError(err, target.provider, target.model)) };
   }
 }
 
 export function registerWorkOsHandlers(): void {
   defineHandler('workos:decompose', async ([goal]) => decomposeGoal(typeof goal === 'string' ? goal : ''));
+  defineHandler('workos:run-task', async ([input]) => runTask(input));
+  defineHandler('workos:implement-task', async ([input]) => implementTask(input));
 }

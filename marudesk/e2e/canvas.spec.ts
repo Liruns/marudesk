@@ -28,14 +28,16 @@ test('canvas: default surface renders cards and toggles to/from classic', async 
 
     await page.screenshot({ path: 'test-results/maru-canvas-shell.png' });
 
-    // Toggle to the classic shell — the canvas controls vanish and the tab strip
-    // returns (WorkspaceStage owns the strip).
-    await page.getByRole('button', { name: 'Switch to classic view' }).click();
+    // Switch to the classic shell via the surface switcher — the canvas controls
+    // vanish and the tab strip returns (WorkspaceStage owns the strip).
+    await page.getByRole('button', { name: /Surface:/ }).click();
+    await page.getByRole('menuitem', { name: 'Classic', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toHaveCount(0);
     await expect(page.getByRole('tab').first()).toBeVisible();
 
-    // Toggle back to the canvas.
-    await page.getByRole('button', { name: 'Switch to canvas' }).click();
+    // Switch back to the canvas.
+    await page.getByRole('button', { name: /Surface:/ }).click();
+    await page.getByRole('menuitem', { name: 'Canvas', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Fit to content' })).toBeVisible();
   } finally {
     await app.close();
@@ -358,29 +360,49 @@ test('canvas: named canvases + panel positions persist across a full restart', a
   }
 });
 
-test('canvas: AI task graph — generate, render Task nodes, run to done', async () => {
-  const { app, page } = await launchApp({ surface: 'canvas' });
-  try {
-    // Open the Work-OS panel and generate a graph from a goal (offline sample
-    // when no provider is configured — deterministic 4-task DAG).
-    await page.getByRole('button', { name: 'Toggle task graph' }).click();
-    const goal = page.getByPlaceholder('Describe a goal…');
-    await goal.fill('Build the orders feature');
-    await page.getByRole('button', { name: 'Generate', exact: true }).click();
+// A deterministic Task graph for the Work OS surface specs. The AI decompose
+// path (the "Generate" button) is provider-dependent — it calls a model or falls
+// back to an offline sample only when NO provider is connected — so it isn't
+// deterministic across environments; these specs seed the graph directly and
+// exercise the surface (render, select, inspector) instead.
+const WORKGRAPH_SAMPLE = {
+  graph: {
+    id: 'wg_e2e',
+    goal: 'Ship the orders feature',
+    createdAt: 1,
+    updatedAt: 1,
+    tasks: [
+      { id: 't1', title: 'Plan & scope', intent: 'break it down', kind: 'work', status: 'planned', executor: { type: 'agent', ref: 'agent' }, inputs: [], outputs: [], acceptance: [{ id: 'c1', text: 'Scope is written down', verdict: 'unknown' }] },
+      { id: 't2', title: 'Implement backend', intent: 'endpoints', kind: 'work', status: 'planned', executor: { type: 'agent', ref: 'agent' }, inputs: [], outputs: [], acceptance: [] },
+      { id: 't3', title: 'Implement UI', intent: 'screens', kind: 'work', status: 'planned', executor: { type: 'agent', ref: 'agent' }, inputs: [], outputs: [], acceptance: [] },
+      { id: 't4', title: 'Test & verify', intent: 'verify', kind: 'work', status: 'planned', executor: { type: 'agent', ref: 'agent' }, inputs: [], outputs: [], acceptance: [] },
+    ],
+    edges: [
+      { id: 't1~t2~depends_on', from: 't1', to: 't2', type: 'depends_on' },
+      { id: 't1~t3~depends_on', from: 't1', to: 't3', type: 'depends_on' },
+    ],
+  },
+  pos: { t1: { x: 120, y: 160 }, t2: { x: 440, y: 80 }, t3: { x: 440, y: 280 }, t4: { x: 760, y: 160 } },
+};
 
-    // Task nodes render on the canvas (not tab cards).
+test('workgraph: renders the Task graph on its own surface + opens the inspector', async () => {
+  const { app, page } = await launchApp({ surface: 'workgraph' });
+  try {
+    // Seed a deterministic graph and reload so the Work OS surface restores it.
+    await page.evaluate((g) => localStorage.setItem('maru.workgraph.v1', g), JSON.stringify(WORKGRAPH_SAMPLE));
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+
+    // Task nodes render on the Work OS plane (NOT as tab cards), with the panel summary.
     const nodes = page.locator('[data-task-node]');
     await expect(nodes).toHaveCount(4);
     await expect(page.getByText(/4 tasks/)).toBeVisible();
     await page.screenshot({ path: 'test-results/maru-task-graph.png' });
 
-    // Run drives the dependency-ordered scheduler to completion (all done/green).
-    await page.getByRole('button', { name: 'Run', exact: true }).click();
-    await expect(page.getByText(/4 done/)).toBeVisible({ timeout: 10_000 });
-
-    // Reset re-arms the graph (nothing done).
-    await page.getByRole('button', { name: 'Reset', exact: true }).click();
-    await expect(page.getByText(/0 done/)).toBeVisible();
+    // Selecting a node opens the supervision inspector (intent, acceptance, Implement).
+    await nodes.first().click();
+    await expect(page.getByRole('button', { name: 'Implement', exact: true })).toBeVisible();
+    await expect(page.getByText('Acceptance')).toBeVisible();
   } finally {
     await app.close();
   }

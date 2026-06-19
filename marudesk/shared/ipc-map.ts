@@ -46,7 +46,7 @@ import type {
 import type { Automation, AutomationInput, AutomationRun } from './automations';
 import type { Workflow, WorkflowRunResult, WorkflowStep } from './workflows';
 import type { Spec, SpecInput } from './specs';
-import type { WorkGraph } from './work-os';
+import type { WorkGraph, RunTaskInput, RunTaskResult, ImplementTaskResult } from './work-os';
 import type { LaneDevState, LaneDevStartResult } from './lanes';
 import type { LaneGithubStatusResult } from './lane-github';
 import type {
@@ -582,6 +582,10 @@ export interface IpcMap {
   'specs:save': { args: [input: SpecInput]; result: Spec };
   /** AI Work OS: decompose a goal into a Task graph (null when no provider/error). */
   'workos:decompose': { args: [goal: string]; result: { ok: true; graph: WorkGraph } | { ok: false; reason: string } };
+  /** AI Work OS: run one task as a real agent against the active workspace. */
+  'workos:run-task': { args: [input: RunTaskInput]; result: RunTaskResult };
+  /** AI Work OS: implement one task write-capably in an isolated worktree → diff. */
+  'workos:implement-task': { args: [input: RunTaskInput]; result: ImplementTaskResult };
   'specs:delete': { args: [payload: { id: string }]; result: boolean };
 
   // per-lane dev server (§3.8 Mission Control)

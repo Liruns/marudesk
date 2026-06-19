@@ -11,6 +11,7 @@ import type {
 import type { AppliedChange } from '../../shared/patch';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { MODELS } from '../../shared/providers';
+import { scrubText } from '../../shared/scrub';
 import { CLAUDE_CODE_SYSTEM_PREFIX } from '../oauth/config';
 import { getSettingsSync, patchSettings } from '../settings';
 import type { AgentApprovalMode, ModelRef, ReasoningEffort } from '../../shared/settings';
@@ -451,6 +452,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
           const i = S.state.messages.indexOf(assistantMsg);
           if (i !== -1) S.state.messages.splice(i, 1);
           current = next;
+          // Fresh provider: don't carry stale per-tool consecutive-failure counts
+          // (else a tool that failed once before fail-over hits the recovery-hint
+          // threshold prematurely on the new provider).
+          toolFailures.clear();
           emit();
           step--; // re-run this step index on the new model
           continue;
@@ -496,6 +501,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
       if (!textPart.text.trim() && !reasoningPart?.text.trim()) {
         const i = S.state.messages.indexOf(assistantMsg);
         if (i !== -1) S.state.messages.splice(i, 1);
+        // The empty assistant turn was already pushed to S.transcript above — drop
+        // it so a resume / next turn never streams a content:[] assistant message
+        // (AI-SDK ModelMessage contract requires non-empty assistant content).
+        S.transcript.pop();
         return finish(
           S,
           'failed',
@@ -594,7 +603,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       const preApproved =
         S.sessionAllowedTools.has(call.name) ||
         getSettingsSync().agent.alwaysAllowTools.includes(call.name);
-      if ((gatedApproval || editPreview) && !preApproved) {
+      if ((gatedApproval && !preApproved) || editPreview) {
         call.state = 'awaiting_approval';
         S.state.status = 'waiting_for_user';
         S.state.pendingApproval = {
@@ -621,13 +630,15 @@ async function runLoop(opts: RunOpts): Promise<void> {
         // (in-memory) AND future ones (persisted, v6 §W7/U10; revocable in
         // Settings → Agent). Editor-preview parks aren't gated tools, so persist
         // only genuine gated tools.
-        if (decision.approved && decision.always) {
+        // Persist "Allow always" ONLY for genuine gated tools. An editor-preview
+        // park is a UX safeguard (show the diff), not an approval gate, so it must
+        // keep previewing every edit — never enter the allowed set (which line 597
+        // reads via preApproved and would then silently bypass the preview).
+        if (decision.approved && decision.always && gatedApproval) {
           S.sessionAllowedTools.add(call.name);
-          if (isGatedTool(call.name)) {
-            const cur = getSettingsSync().agent.alwaysAllowTools;
-            if (!cur.includes(call.name)) {
-              void patchSettings({ agent: { alwaysAllowTools: [...cur, call.name] } });
-            }
+          const cur = getSettingsSync().agent.alwaysAllowTools;
+          if (!cur.includes(call.name)) {
+            void patchSettings({ agent: { alwaysAllowTools: [...cur, call.name] } });
           }
         }
         if (!decision.approved) {
@@ -891,7 +902,10 @@ function finish(S: ThreadContainer, status: AgentChatState['status'], note?: str
   // LABEL, not a fake assistant message in the S.transcript (v3 polish).
   S.state.endNote = note ?? null;
   S.state.status = status;
-  S.state.error = error ?? null;
+  // Scrub before it crosses to the renderer — provider/OAuth error bodies in the
+  // message can carry tokens/keys/PII (scrubText is idempotent + already applied
+  // to humanizeModelError at its other callers).
+  S.state.error = error ? scrubText(error) : null;
   S.state.pendingApproval = null;
   S.state.pendingQuestions = null;
   // Settle + drop any parked resolver so none leaks past the turn.

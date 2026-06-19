@@ -14,6 +14,7 @@ import {
 } from 'ai';
 import type { ProviderId } from '../../shared/providers';
 import { toMessage } from '../../shared/to-message';
+import { scrubText } from '../../shared/scrub';
 import { OLLAMA_BASE } from '../providers/ollama';
 import { ANTHROPIC_OAUTH_HEADERS, OPENAI_CODEX_BASE_URL, codexHeaders } from '../oauth/config';
 import { chatgptAccountId } from '../oauth/jwt';
@@ -139,7 +140,7 @@ export function humanizeModelError(
   if (APICallError.isInstance(err)) {
     const status = err.statusCode;
     const body = typeof err.responseBody === 'string' ? err.responseBody : '';
-    const snippet = body ? ` — ${body.slice(0, 300)}` : '';
+    const snippet = body ? ` — ${scrubText(body).slice(0, 300)}` : '';
     const who = String(provider);
     if (status === 401 || status === 403) {
       return `${who} rejected the credentials (${status}). Check the API key in Settings, or reconnect the account.${snippet}`;
@@ -156,9 +157,9 @@ export function humanizeModelError(
     if (typeof status === 'number' && status >= 500) {
       return `${who} had a server error (${status}). Try again shortly.${snippet}`;
     }
-    return `${who} request failed${status ? ` (${status})` : ''}: ${err.message}${snippet}`;
+    return `${who} request failed${status ? ` (${status})` : ''}: ${scrubText(err.message)}${snippet}`;
   }
-  return toMessage(err);
+  return scrubText(toMessage(err));
 }
 
 /**

@@ -371,7 +371,7 @@ async function main(): Promise<void> {
           '--import',
           // file URL, not a bare path — a Windows drive letter would otherwise
           // parse as a protocol in the module-specifier position.
-          pathToFileURL(path.join(PKG_ROOT, 'electron', 'server', 'harness-register.mjs')).href,
+          pathToFileURL(path.join(PKG_ROOT, 'electron', 'cli-bridge', 'harness-register.mjs')).href,
           path.join(PKG_ROOT, 'cli', 'main.ts'),
           '--url',
           url,

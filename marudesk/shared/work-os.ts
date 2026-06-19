@@ -45,6 +45,12 @@ export const RESOURCE_KINDS: readonly ResourceKind[] = ['code', 'doc', 'url', 't
 export type EdgeType = 'depends_on' | 'data';
 export const EDGE_TYPES: readonly EdgeType[] = ['depends_on', 'data'];
 
+/** The canonical edge id for a (from, to, type) triple — one source of truth so
+ * producers (connect, sampleGraph) and the parser fallback never drift. */
+export function edgeId(from: TaskId, to: TaskId, type: EdgeType = 'depends_on'): EdgeId {
+  return `${from}~${to}~${type}`;
+}
+
 export type Resource = {
   id: ResourceId;
   kind: ResourceKind;
@@ -91,6 +97,12 @@ export type TaskEvidence = {
   trajectory: TrajectoryStep[];
   /** Human-readable result summary. */
   result: string;
+  /**
+   * A unified diff the task's agent produced in an ISOLATED git worktree (never
+   * applied to the live workspace) — surfaced for the user to review before
+   * applying. Present only after an "implement" run.
+   */
+  patch?: string;
 };
 
 export type Task = {
@@ -124,6 +136,52 @@ export type WorkGraph = {
   createdAt: number;
   updatedAt: number;
 };
+
+/**
+ * Input to run ONE task as a real agent (electron/agent/run-task.ts, behind the
+ * `workos:run-task` IPC). The acceptance texts are passed so the executing agent
+ * knows what it is being judged against; verdicts themselves stay system-filled.
+ */
+export type RunTaskInput = {
+  taskId: TaskId;
+  title: string;
+  intent: string;
+  goal: string;
+  acceptance: string[];
+};
+
+/**
+ * Result of a real per-task agent run. `ok:false` means the run could not be
+ * attempted (e.g. no provider connected) — the caller may fall back to a dry run;
+ * `ok:true` always reflects a real attempt, with `status` 'done' or 'failed'.
+ */
+export type RunTaskResult =
+  | {
+      ok: true;
+      status: Extract<TaskStatus, 'done' | 'failed'>;
+      result: string;
+      /** Real workspace files the agent identified as relevant (validated to exist). */
+      outputs: Resource[];
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Result of an "implement" run — the task's agent edits files in an ISOLATED git
+ * worktree, the diff is captured, and the worktree is discarded (the live
+ * workspace is never touched). The `patch` is surfaced for the user to review and
+ * apply deliberately.
+ */
+export type ImplementTaskResult =
+  | {
+      ok: true;
+      status: Extract<TaskStatus, 'done' | 'failed'>;
+      result: string;
+      /** Unified diff produced in the worktree (empty string if the agent made no edits). */
+      patch: string;
+      /** Paths the agent changed in the worktree. */
+      changedFiles: string[];
+    }
+  | { ok: false; reason: string };
 
 /* ── type guards (specs.ts / providers.ts convention) ──────────────────────── */
 
@@ -174,6 +232,9 @@ export function readyTasks(graph: WorkGraph): Task[] {
   const byId = new Map(graph.tasks.map((t) => [t.id, t]));
   return graph.tasks.filter((t) => {
     if (t.status !== 'planned') return false;
+    // A `decision` node or a `human` executor is a manual gate — the scheduler
+    // never auto-runs it (the user advances it by hand). Only agent work tasks run.
+    if (t.kind === 'decision' || t.executor.type !== 'agent') return false;
     return dependenciesOf(graph, t.id).every((dep) => {
       const up = byId.get(dep);
       return !up || up.status === 'done';
@@ -182,16 +243,27 @@ export function readyTasks(graph: WorkGraph): Task[] {
 }
 
 /**
- * Tasks blocked by a failed (or still-unfinished) upstream — surfaced so the UI
- * can mark them `blocked` rather than leaving them silently `planned`.
+ * Tasks transitively blocked by a `failed` upstream — surfaced so the UI marks
+ * them `blocked` rather than leaving them silently `planned`. Propagates in
+ * topological order so a task downstream of an already-blocked (not just
+ * directly-failed) task is also blocked; falls back to array order on a cycle.
  */
 export function blockedTaskIds(graph: WorkGraph): Set<TaskId> {
   const byId = new Map(graph.tasks.map((t) => [t.id, t]));
   const blocked = new Set<TaskId>();
-  for (const t of graph.tasks) {
-    if (isTerminalStatus(t.status)) continue;
-    const deps = dependenciesOf(graph, t.id);
-    if (deps.some((d) => byId.get(d)?.status === 'failed')) blocked.add(t.id);
+  const order = topologicalOrder(graph) ?? graph.tasks.map((t) => t.id);
+  for (const id of order) {
+    const t = byId.get(id);
+    if (!t || isTerminalStatus(t.status)) continue;
+    const deps = dependenciesOf(graph, id);
+    if (
+      deps.some((d) => {
+        const up = byId.get(d);
+        return up?.status === 'failed' || up?.status === 'blocked' || blocked.has(d);
+      })
+    ) {
+      blocked.add(id);
+    }
   }
   return blocked;
 }
@@ -271,7 +343,7 @@ export function parallelLayers(graph: WorkGraph): TaskId[][] | null {
 }
 
 /* ── defensive parsing (AI output / IPC / persistence) ──────────────────────
- * The decomposer's `generateObject` output is `unknown` until validated; mirror
+ * The decomposer's `generateText` output is `unknown` (raw JSON) until validated; mirror
  * the repo's hand-rolled guards (canvas/store.ts isNum/isStr) so a malformed
  * graph fails closed to null rather than corrupting state. */
 
@@ -350,7 +422,7 @@ function parseEdge(raw: unknown, taskIds: Set<TaskId>): Edge | null {
   if (!r || !isStr(r.from) || !isStr(r.to) || r.from === r.to) return null;
   if (!taskIds.has(r.from) || !taskIds.has(r.to)) return null;
   const type: EdgeType = isEdgeType(r.type) ? r.type : 'depends_on';
-  return { id: isStr(r.id) ? r.id : `${r.from}~${r.to}~${type}`, from: r.from, to: r.to, type };
+  return { id: isStr(r.id) ? r.id : edgeId(r.from, r.to, type), from: r.from, to: r.to, type };
 }
 
 /**

@@ -49,6 +49,7 @@ export async function runChildAgent(
   onUsage?: ChildUsageSink,
   onProgress?: SubagentProgressSink,
   allowTools?: readonly string[],
+  opts?: { write?: boolean },
 ): Promise<ToolResult> {
   const env = await buildEnvironmentContext(ctx.ws);
   const effort = getSettingsSync().agent.reasoningEffort;
@@ -100,7 +101,7 @@ export async function runChildAgent(
     return null;
   };
 
-  const tools = aiTools(listChildToolDefs(effectiveAllow ?? undefined));
+  const tools = aiTools(listChildToolDefs(effectiveAllow ?? undefined, { write: opts?.write === true }));
   const transcript: ModelMessage[] = [{ role: 'user', content: childPrompt(request, ctx) }];
   let finalText = '';
 
@@ -194,8 +195,19 @@ function combineAllowLists(
  */
 const CHILD_WEB_RESEARCH_TOOLS = new Set(['web_search', 'fetch_url']);
 const CHILD_EXCLUDED_TOOL_GROUPS = new Set(['mcp', 'plugin']);
+/**
+ * Filesystem WRITE tools a child may use when explicitly run write-capable
+ * (Work OS "implement", which runs in an ISOLATED git worktree). Deliberately
+ * only the file editors — never `run_command`/`eval_js`/page-control (those stay
+ * gated and out of a no-approval child).
+ */
+const CHILD_WRITE_TOOLS = new Set(['edit_file', 'multi_edit']);
 
-export function listChildToolDefs(allowTools?: readonly string[]): McpToolDef[] {
+export function listChildToolDefs(
+  allowTools?: readonly string[],
+  opts?: { write?: boolean },
+): McpToolDef[] {
+  const allowWrite = opts?.write === true;
   const excluded = new Set<string>([
     ASK_USER,
     SPAWN_SUBAGENT,
@@ -213,7 +225,7 @@ export function listChildToolDefs(allowTools?: readonly string[]): McpToolDef[] 
     (tool) =>
       !excluded.has(tool.name) &&
       !CHILD_EXCLUDED_TOOL_GROUPS.has(tool.group) &&
-      tool.write !== true &&
+      (tool.write !== true || (allowWrite && CHILD_WRITE_TOOLS.has(tool.name))) &&
       (tool.gated !== true || CHILD_WEB_RESEARCH_TOOLS.has(tool.name)) &&
       (!allow || allow.has(tool.name)),
   );

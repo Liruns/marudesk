@@ -9,7 +9,7 @@ import { supportsOAuth } from '../oauth/config';
 import { getProviderApiKey } from '../secrets';
 import { fetchUsageForProvider } from '../usage';
 import type { ModelAuth } from './model';
-import { toMessage } from '../../shared/to-message';
+import { toScrubbedMessage } from '../../shared/to-message';
 
 export type ResolvedProviderAuth =
   | { ok: true; auth: ModelAuth; baseUrl?: string }
@@ -29,7 +29,10 @@ async function resolveAdcAuth(provider: ProviderId): Promise<ModelAuth | null> {
     try {
       const { resolveAwsCredentials } = await import('../auth/aws-sigv4');
       const creds = await resolveAwsCredentials();
-      if (creds) return { mode: 'api-key', apiKey: `${creds.accessKeyId}:${creds.secretAccessKey}${creds.sessionToken ? ':' + creds.sessionToken : ''}` };
+      // The Bedrock branch in model.ts re-resolves SigV4 credentials fresh and
+      // ignores auth.apiKey (it hardcodes a 'bedrock-sigv4' placeholder), so the
+      // real secret must never be carried in the auth object.
+      if (creds) return { mode: 'api-key', apiKey: 'bedrock-sigv4' };
     } catch { /* AWS creds not configured */ }
   }
   return null;
@@ -42,7 +45,7 @@ export async function resolveProviderAuth(
   try {
     apiKey = await getProviderApiKey(provider);
   } catch (err) {
-    return { ok: false, reason: toMessage(err) };
+    return { ok: false, reason: toScrubbedMessage(err) };
   }
   if (isBuiltinProviderId(provider)) {
     let auth: ModelAuth | null = null;
@@ -68,7 +71,7 @@ export async function resolveProviderAuth(
       try {
         accessToken = await getValidAccessToken(provider);
       } catch (err) {
-        if (!apiKey) return { ok: false, reason: toMessage(err) };
+        if (!apiKey) return { ok: false, reason: toScrubbedMessage(err) };
       }
       if (accessToken) auth = { mode: 'oauth', accessToken };
     }

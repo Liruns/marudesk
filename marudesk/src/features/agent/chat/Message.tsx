@@ -96,7 +96,7 @@ export const MessageView = memo(function MessageView({
           {images.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {images.map((img, i) => (
-                <ChatImage key={i} mediaType={img.mediaType} data={img.data} />
+                <ChatImage key={`${img.mediaType}:${img.data.length}:${i}`} mediaType={img.mediaType} data={img.data} />
               ))}
             </div>
           ) : null}

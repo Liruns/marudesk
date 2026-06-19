@@ -96,18 +96,18 @@ export function ComposerBanners() {
           </div>
           {queuedPrompts.map((prompt, index) => (
             <div
-              key={`${index}:${prompt}`}
+              key={prompt.id}
               className="group flex items-start gap-2 rounded bg-surface-2/60 px-2 py-1"
             >
               <span className="mt-px shrink-0 text-caption text-fg-tertiary tabular-nums">
                 {index + 1}
               </span>
               <span className="flex-1 min-w-0 line-clamp-2 text-caption text-fg-secondary break-words">
-                {prompt}
+                {prompt.text}
               </span>
               <button
                 type="button"
-                onClick={() => removeQueuedPrompt(index)}
+                onClick={() => removeQueuedPrompt(prompt.id)}
                 aria-label={t('agent.chat.cancelQueued')}
                 className="mt-px shrink-0 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:text-fg-secondary group-hover:opacity-100"
               >

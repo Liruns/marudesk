@@ -6,6 +6,7 @@ import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
 import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
 import { CanvasStage } from '../features/canvas/CanvasStage';
+import { WorkGraphStage } from '../features/work-graph/WorkGraphStage';
 import { useSurfaceStore } from '../features/canvas/surface';
 import { useWorkGraphStore } from '../features/work-graph/store';
 import { useWebPageStore } from '../features/browser/store';
@@ -393,7 +394,13 @@ export function Shell() {
           onRequestClose={() => setLeftPanel(null)}
         />
         <main data-stage-region className="flex-1 min-w-0 flex">
-          {surfaceMode === 'canvas' ? <CanvasStage /> : <WorkspaceStage />}
+          {surfaceMode === 'canvas' ? (
+            <CanvasStage />
+          ) : surfaceMode === 'workgraph' ? (
+            <WorkGraphStage />
+          ) : (
+            <WorkspaceStage />
+          )}
         </main>
         <ContextDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
       </div>

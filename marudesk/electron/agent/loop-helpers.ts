@@ -85,7 +85,7 @@ export function buildUserText(
   // preamble for every CURRENTLY-ACTIVE (sticky) mode. Applied to the
   // model-facing text only — the chat shows the original message unchanged.
   if (modePreambleText) lines.push('', modePreambleText);
-  lines.push('', `User request: ${input.prompt.trim()}`);
+  lines.push('', `User request: ${scrubText(input.prompt).trim()}`);
   if (input.captures.length > 0) {
     // Captures carry page-derived text (DOM text/attributes, console messages) from
     // arbitrary sites — treat it as UNTRUSTED data, never instructions (v6 §S.1
