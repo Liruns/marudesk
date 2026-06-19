@@ -38,6 +38,7 @@ import { CanvasSections } from './CanvasSections';
 import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
+import { CanvasShortcuts } from './CanvasShortcuts';
 import { easeOutBack, fitPose } from './camera-math';
 import { edgeEndpoints, edgeMidpoint, nearestSide } from './edgeGeometry';
 import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
@@ -255,6 +256,8 @@ export function CanvasStage() {
   >(null);
   // Marquee (drag-box) selection rect in canvas coords while dragging, or null.
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Keyboard cheat-sheet overlay (opened with `?`).
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Live alignment guides shown while a card snaps mid-drag (Figma/tldraw style).
   const [dragGuides, setDragGuides] = useState<SnapGuide[]>([]);
   const dragGuidesSigRef = useRef('');
@@ -1696,6 +1699,12 @@ export function CanvasStage() {
         setMinimapOpen((v) => !v);
         return;
       }
+      // `?` (Shift+/) — the canvas keymap cheat-sheet. Gated off text fields.
+      if (e.key === '?' && !editable) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
       if (e.code === 'Space' && !editable) {
         if (!spaceDownRef.current) {
           spaceDownRef.current = true;
@@ -2180,6 +2189,8 @@ export function CanvasStage() {
           items={canvasMenuItems()}
         />
       ) : null}
+
+      {shortcutsOpen ? <CanvasShortcuts onClose={() => setShortcutsOpen(false)} /> : null}
 
       {nameDialog ? (
         <NameDialog
