@@ -25,6 +25,7 @@ import {
   RotateCcw,
   StickyNote,
   Trash2,
+  Workflow,
   AlignStartVertical,
   AlignCenterVertical,
   AlignEndVertical,
@@ -1685,6 +1686,7 @@ export function CanvasStage() {
       { label: t('canvas.control.fit'), onSelect: () => fit() },
       { label: t('canvas.menu.resetZoom'), onSelect: () => animateReset() },
       { label: t('canvas.menu.arrange'), onSelect: () => store.arrangeCards() },
+      { label: t('canvas.menu.autoLayout'), onSelect: () => store.autoLayoutGraph() },
       { type: 'separator' },
       {
         label: edgeStyle === 'curve' ? t('canvas.edge.square') : t('canvas.edge.curved'),
@@ -2246,6 +2248,12 @@ export function CanvasStage() {
           onClick={() => useCanvasStore.getState().arrangeCards()}
         >
           <LayoutGrid size={15} />
+        </CtrlButton>
+        <CtrlButton
+          label={t('canvas.control.autoLayout')}
+          onClick={() => useCanvasStore.getState().autoLayoutGraph()}
+        >
+          <Workflow size={15} />
         </CtrlButton>
         <CtrlButton
           label={minimapOpen ? t('canvas.minimapHide') : t('canvas.minimapShow')}

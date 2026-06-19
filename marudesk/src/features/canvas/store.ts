@@ -945,6 +945,10 @@ type CanvasActions = {
   /** Tidy all unlocked cards into an aligned grid, animated into place (ported
       packGrid + easing — reference/pane-porting-map.md §D). */
   arrangeCards: () => void;
+  /** Lay out the cards joined by connections as a left→right layered graph
+   *  (Sugiyama-lite: longest-path layers, centered columns), animated into place.
+   *  Unconnected cards stay put. Pairs with the directed edge arrowheads. */
+  autoLayoutGraph: () => void;
   /** Align the current multi-selection to a shared edge/center of its bounds. */
   alignSelection: (edge: AlignEdge) => void;
   /** Even out the spacing of the current multi-selection along an axis (keeps the
@@ -1821,6 +1825,111 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
           const t = targets[key];
           if (!cur || !f || !t) continue;
           next[key] = { ...cur, x: f.x + (t.x - f.x) * k01, y: f.y + (t.y - f.y) * k01 };
+        }
+        return { placements: next };
+      });
+    if (!canAnimate()) {
+      apply(1);
+      return;
+    }
+    const start = performance.now();
+    const DURATION = 380;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      if (t >= 1) {
+        apply(1);
+        arrangeTweenRaf = null;
+        return;
+      }
+      apply(easeInOutCubic(t));
+      arrangeTweenRaf = requestAnimationFrame(tick);
+    };
+    arrangeTweenRaf = requestAnimationFrame(tick);
+  },
+
+  autoLayoutGraph: () => {
+    cancelArrangeTween();
+    const s = get();
+    const pl = s.placements;
+    // Edges reference tab ids; resolve to placement keys (group id when merged).
+    // Sections can be edge endpoints too, but they're regions — not laid out.
+    const keyFor = (id: string) => placementKey(s.groups, id);
+    const isCard = (k: string) => !!pl[k] && !s.sections.some((sec) => sec.id === k) && !pl[k].locked;
+    const adj = new Map<string, Set<string>>();
+    const nodes = new Set<string>();
+    for (const e of s.edges) {
+      const a = keyFor(e.from);
+      const b = keyFor(e.to);
+      if (!isCard(a) || !isCard(b) || a === b) continue;
+      nodes.add(a);
+      nodes.add(b);
+      if (!adj.has(a)) adj.set(a, new Set());
+      adj.get(a)!.add(b);
+    }
+    if (nodes.size < 2) return;
+    // Longest-path layering, cycle-safe (cap relaxation by node count).
+    const layer = new Map<string, number>();
+    for (const n of nodes) layer.set(n, 0);
+    for (let iter = 0; iter < nodes.size; iter += 1) {
+      let changed = false;
+      for (const [a, tos] of adj) {
+        const la = layer.get(a) ?? 0;
+        for (const b of tos) {
+          if ((layer.get(b) ?? 0) < la + 1) {
+            layer.set(b, la + 1);
+            changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+    const byLayer = new Map<number, string[]>();
+    for (const n of nodes) {
+      const L = layer.get(n) ?? 0;
+      (byLayer.get(L) ?? byLayer.set(L, []).get(L)!).push(n);
+    }
+    const layers = [...byLayer.keys()].sort((x, y) => x - y);
+    // Stable row order within each column by current y.
+    for (const L of layers) byLayer.get(L)!.sort((a, b) => pl[a].y - pl[b].y);
+    const ns = [...nodes];
+    const originX = Math.min(...ns.map((k) => pl[k].x));
+    const originY = Math.min(...ns.map((k) => pl[k].y));
+    const GAP_X = 80;
+    const GAP_Y = 40;
+    const colTotalH = (L: number) => {
+      const col = byLayer.get(L)!;
+      return col.reduce((sum, k) => sum + pl[k].h, 0) + GAP_Y * (col.length - 1);
+    };
+    const H = Math.max(...layers.map(colTotalH));
+    const midY = originY + H / 2;
+    const colX: number[] = [];
+    let cx = originX;
+    for (const L of layers) {
+      colX[L] = cx;
+      cx += Math.max(...byLayer.get(L)!.map((k) => pl[k].w)) + GAP_X;
+    }
+    const targets: Record<string, { x: number; y: number }> = {};
+    for (const L of layers) {
+      const col = byLayer.get(L)!;
+      let y = midY - colTotalH(L) / 2;
+      for (const k of col) {
+        targets[k] = { x: Math.round(colX[L]), y: Math.round(y) };
+        y += pl[k].h + GAP_Y;
+      }
+    }
+    // Animate to the layout (reuses the arrange tween shape).
+    const keys = Object.keys(targets);
+    const from: Record<string, { x: number; y: number }> = {};
+    for (const k of keys) from[k] = { x: pl[k].x, y: pl[k].y };
+    const apply = (k01: number) =>
+      set((st) => {
+        const next = { ...st.placements };
+        for (const key of keys) {
+          const cur = next[key];
+          const f = from[key];
+          const tt = targets[key];
+          if (!cur || !f || !tt) continue;
+          next[key] = { ...cur, x: f.x + (tt.x - f.x) * k01, y: f.y + (tt.y - f.y) * k01 };
         }
         return { placements: next };
       });

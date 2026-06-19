@@ -1493,6 +1493,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'canvas.control.resetView': '보기 초기화',
   'canvas.control.arrange': '정렬하기',
   'canvas.menu.arrange': '정렬하기',
+  'canvas.control.autoLayout': '연결 자동 배치',
+  'canvas.menu.autoLayout': '연결 자동 배치',
   'canvas.menu.alignLeft': '왼쪽 맞춤',
   'canvas.menu.alignHCenter': '가로 가운데 맞춤',
   'canvas.menu.alignRight': '오른쪽 맞춤',

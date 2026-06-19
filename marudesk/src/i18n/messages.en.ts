@@ -1498,6 +1498,8 @@ export const EN_MESSAGES = {
   'canvas.control.resetView': 'Reset view',
   'canvas.control.arrange': 'Tidy layout',
   'canvas.menu.arrange': 'Tidy layout',
+  'canvas.control.autoLayout': 'Lay out connections',
+  'canvas.menu.autoLayout': 'Lay out connections',
   'canvas.menu.alignLeft': 'Align left',
   'canvas.menu.alignHCenter': 'Align center',
   'canvas.menu.alignRight': 'Align right',
