@@ -461,6 +461,24 @@ export function CanvasStage() {
         clearTimeout(wheelCommitRef.current);
         wheelCommitRef.current = null;
       }
+      // Reduced motion: snap to the target in one step (no rAF glide), keeping the
+      // cursor pinned to the same content. Matches the canvas's other gestures
+      // (pan/card fling, camera tween, tidy) which all skip motion under
+      // prefers-reduced-motion; the zoom glide was the lone holdout.
+      if (prefersReducedMotion()) {
+        if (zoomRef.current?.raf != null) cancelAnimationFrame(zoomRef.current.raf);
+        zoomRef.current = null;
+        const cur = liveRef.current ?? lv;
+        const px = (cx - cur.panX) / cur.scale;
+        const py = (cy - cur.panY) / cur.scale;
+        cur.scale = target;
+        cur.panX = cx - px * cur.scale;
+        cur.panY = cy - py * cur.scale;
+        applyLiveTransform();
+        measureWeb();
+        commitLive();
+        return;
+      }
       if (zoomRef.current) {
         // A glide is already running — just retarget it (and re-anchor to the new
         // cursor); the live rAF chain picks up the new target/anchor next frame.

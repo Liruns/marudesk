@@ -163,16 +163,11 @@ test('canvas: duplicate preserves positions of multiple distinct cards', async (
     await expect(cards).toHaveCount(2);
 
     // Drag each card's header to a known spot so the two are clearly separated.
-    const dragHeaderBy = async (idx: number, dx: number, dy: number) => {
-      const hb = await page.locator('[data-card-header]').nth(idx).boundingBox();
-      if (!hb) throw new Error('no header');
-      await page.mouse.move(hb.x + hb.width * 0.4, hb.y + hb.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(hb.x + hb.width * 0.4 + dx, hb.y + hb.height / 2 + dy, { steps: 8 });
-      await page.mouse.up();
-    };
-    await dragHeaderBy(0, 60, 40);
-    await dragHeaderBy(1, -40, -30);
+    // dragTo (not raw page.mouse) so the header's setPointerCapture move actually
+    // commits to the store — a raw drag only paints the DOM here, so the duplicate
+    // (which reads the store) would copy the pre-drag spot and flake.
+    await dragCanvasCardHeader(page, 0, 60, 40);
+    await dragCanvasCardHeader(page, 1, -40, -30);
 
     const src = await Promise.all([cards.nth(0).boundingBox(), cards.nth(1).boundingBox()]);
     const srcCenters = src.map((b) => (b ? centerOf(b) : null));
