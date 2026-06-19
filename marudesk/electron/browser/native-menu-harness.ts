@@ -1,15 +1,7 @@
-import assert from 'node:assert/strict';
 import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
 import type { BrowserNativeMenuItem } from '../../shared/browser';
 import { nativeMenuTemplate, popupNativeMenu, toElectronAccelerator } from './native-menu.ts';
-
-let passed = 0;
-
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
+import { check, passedCount } from '../harness-kit.ts';
 
 const selected: string[] = [];
 const items: BrowserNativeMenuItem[] = [
@@ -71,7 +63,7 @@ const dismissedId = await popupNativeMenu({
 });
 check('popup helper resolves null when the menu is dismissed', dismissedId === null);
 
-console.log(`\nbrowser native menu harness: ${passed} assertions passed`);
+console.log(`\nbrowser native menu harness: ${passedCount()} assertions passed`);
 
 function popupOptionsRounded(options: { readonly x: number; readonly y: number } | null): boolean {
   return options !== null && options.x === 12 && options.y === 10;

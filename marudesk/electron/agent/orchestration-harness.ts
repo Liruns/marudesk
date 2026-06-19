@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+import { check, passedCount } from '../harness-kit';
 import { approveTool } from './loop-turn-actions.ts';
 import {
   S,
@@ -22,14 +22,6 @@ import { listChildToolDefs } from './subagent.ts';
 import { registerMcpServer, unregisterMcpServer } from './mcp.ts';
 import type { ToolContext } from './tools/types.ts';
 import type { SubagentRunRequest } from './subagent-types.ts';
-
-let passed = 0;
-
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 function ackId(text: string): string {
   return text.match(/agent (bg-[\w-]+)/)?.[1] ?? '';
@@ -208,4 +200,4 @@ cancelBackgroundForConversation('session-side');
 setBackgroundRunnerForTests(null);
 __resetThreadsForTests();
 
-console.log(`\norchestration harness: ${passed} assertions passed`);
+console.log(`\norchestration harness: ${passedCount()} assertions passed`);

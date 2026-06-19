@@ -94,7 +94,7 @@ async function resolveTaskTarget(): Promise<
 }
 
 /** The first balanced JSON object in a string (tolerates surrounding prose). */
-function firstJsonObject(text: string): Record<string, unknown> | null {
+export function firstJsonObject(text: string): Record<string, unknown> | null {
   const start = text.indexOf('{');
   if (start === -1) return null;
   let depth = 0;
@@ -126,7 +126,7 @@ function firstJsonObject(text: string): Record<string, unknown> | null {
 }
 
 /** Pull a `{ artifacts: [{ path, label? }] }` block from the agent's report. */
-function extractArtifacts(text: string): { path: string; label?: string }[] {
+export function extractArtifacts(text: string): { path: string; label?: string }[] {
   const blocks: string[] = [];
   const fence = /```(?:json)?\s*([\s\S]*?)```/gi;
   for (let m = fence.exec(text); m !== null; m = fence.exec(text)) blocks.push(m[1]);
@@ -148,7 +148,7 @@ function extractArtifacts(text: string): { path: string; label?: string }[] {
 }
 
 /** Resolve reported artifacts to real, existing files INSIDE the workspace root. */
-function resolveOutputs(root: string | null, artifacts: { path: string; label?: string }[]): Resource[] {
+export function resolveOutputs(root: string | null, artifacts: { path: string; label?: string }[]): Resource[] {
   if (!root) return [];
   const out: Resource[] = [];
   const seen = new Set<string>();
@@ -176,12 +176,12 @@ function resolveOutputs(root: string | null, artifacts: { path: string; label?: 
 }
 
 /** Drop fenced ```json artifact blocks from the human-readable result text. */
-function stripJsonFences(text: string): string {
+export function stripJsonFences(text: string): string {
   return text.replace(/```json[\s\S]*?```/gi, '').trim();
 }
 
 /** Defensively validate the IPC payload (args arrive as `unknown`). */
-function parseInput(raw: unknown): RunTaskInput | null {
+export function parseInput(raw: unknown): RunTaskInput | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.taskId !== 'string' || typeof r.title !== 'string') return null;

@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+import { check, passedCount } from '../harness-kit';
 import { listMcpTools } from './mcp.ts';
 import { editPlanStep, updatePlanTool } from './plan.ts';
 import { S } from './loop-state.ts';
@@ -11,13 +11,6 @@ import { emptyAgentChatState } from '../../shared/agent.ts';
  * assert the projection: parsing/validation, stable slug ids, and the
  * transcript-jump anchor merge (C).
  */
-
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 /* ── listed to the model, ungated ─────────────────────────────────────── */
 const listed = listMcpTools();
@@ -109,4 +102,4 @@ check('a model step matching a user title takes over (sheds userAdded)',
   addOnly.isError !== true && S.state.plan!.steps.some((s) => s.title === 'My step' && !s.userAdded));
 
 S.state = emptyAgentChatState();
-console.log(`\nplan harness: ${passed} assertions passed`);
+console.log(`\nplan harness: ${passedCount()} assertions passed`);

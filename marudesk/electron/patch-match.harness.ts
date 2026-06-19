@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+import { check, passedCount } from './harness-kit.ts';
 import { locatePatch } from '../shared/patch.ts';
 import { lineAnchor, locateAnchorLine } from './agent/line-anchor.ts';
 
@@ -9,13 +9,6 @@ import { lineAnchor, locateAnchorLine } from './agent/line-anchor.ts';
  * resolution and stale/ambiguous rejection). Pure, so it runs standalone via
  * `npm run harness:patch-match`.
  */
-
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 /** Apply a successful match the way patch.ts does, to verify the replaced span. */
 function applied(content: string, oldString: string, newString: string): string | null {
@@ -152,4 +145,4 @@ function appliedByAnchor(
   check('anchor: a hash matching two identical lines is ambiguous', !m.ok && m.reason === 'ambiguous');
 }
 
-console.log(`\n${passed} checks passed`);
+console.log(`\n${passedCount()} checks passed`);

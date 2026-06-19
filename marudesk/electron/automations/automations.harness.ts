@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { check, passedCount } from '../harness-kit';
 import {
   describeSchedule,
   isDue,
@@ -34,13 +34,6 @@ import type { Automation, AutomationRun } from '../../shared/automations.ts';
  * find-due→run→record core with a MOCK runner — all headless. Run via
  * `npm run harness:automations`.
  */
-
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 const T0 = 1_700_000_000_000; // a fixed reference "now"
 
@@ -142,7 +135,7 @@ async function main(): Promise<void> {
 
     check('delete: removes the automation', (await deleteAutomation(listAutomations()[0]!.id)) === true && listAutomations().length === 0);
 
-    console.log(`\nautomations harness: ${passed} assertions passed`);
+    console.log(`\nautomations harness: ${passedCount()} assertions passed`);
   } finally {
     rmSync(path.dirname(file), { recursive: true, force: true });
   }

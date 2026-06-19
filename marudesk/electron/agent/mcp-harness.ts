@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+import { check, passedCount } from '../harness-kit';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -62,13 +62,6 @@ import { startHttpMockServer } from './mcp-mock-http-server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_SERVER = path.join(__dirname, 'mcp-mock-server.ts');
-
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 /** A fake MCP client that records callTool invocations — for the routing assertions. */
 function makeMockClient(): {
@@ -1105,7 +1098,7 @@ async function main(): Promise<void> {
     setWebSearchHtmlTransportForTests(null);
   }
 
-  console.log(`\nexternal-mcp harness: ${passed} assertions passed`);
+  console.log(`\nexternal-mcp harness: ${passedCount()} assertions passed`);
 }
 
 main()

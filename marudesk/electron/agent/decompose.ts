@@ -78,7 +78,7 @@ const MODEL_TIMEOUT_MS = 30_000;
 const MAX_GOAL_CHARS = 8_000;
 
 /** Extract the first balanced JSON object from a model reply (tolerates fences/prose). */
-function extractJsonObject(text: string): unknown {
+export function extractJsonObject(text: string): unknown {
   const start = text.indexOf('{');
   if (start === -1) return null;
   let depth = 0;

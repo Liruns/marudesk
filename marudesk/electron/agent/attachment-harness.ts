@@ -1,18 +1,10 @@
-import assert from 'node:assert/strict';
+import { check, passedCount } from '../harness-kit.ts';
 import {
   fileAttachmentsFromFiles,
   formatAttachedFilesForPrompt,
   mergeFileAttachments,
   type PendingFileAttachment,
 } from '../../src/features/agent/chat/attachments.ts';
-
-let passed = 0;
-
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 class TrackingTextFile extends File {
   readonly path = '';
@@ -52,4 +44,4 @@ const incoming: PendingFileAttachment[] = [
 ];
 check('merge caps persisted attachments at eight', mergeFileAttachments(existing, incoming).length === 8);
 
-console.log(`\nagent attachment harness: ${passed} assertions passed`);
+console.log(`\nagent attachment harness: ${passedCount()} assertions passed`);
