@@ -38,6 +38,22 @@ export function CanvasEdges({
 }) {
   return (
     <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1}>
+      <defs>
+        {/* Arrowhead at the target end so an edge reads as directed (from → to).
+            `context-stroke` makes it inherit the wire's stroke, so it matches the
+            default vs. selected colour without a second marker. */}
+        <marker
+          id="maru-edge-arrow"
+          viewBox="0 0 10 10"
+          refX="8.5"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="context-stroke" />
+        </marker>
+      </defs>
       {edges.map((e) => {
         const a = placements[keyOf(e.from)];
         const b = placements[keyOf(e.to)];
@@ -65,6 +81,7 @@ export function CanvasEdges({
               strokeLinejoin="round"
               strokeLinecap="round"
               strokeWidth={selected ? 2.5 : 1.5}
+              markerEnd="url(#maru-edge-arrow)"
               style={{ stroke: selected ? 'var(--accent)' : 'var(--border-strong)' }}
             />
           </g>
@@ -88,6 +105,7 @@ export function CanvasEdges({
                 strokeDasharray="5 4"
                 strokeLinejoin="round"
                 strokeLinecap="round"
+                markerEnd="url(#maru-edge-arrow)"
                 style={{ stroke: 'var(--accent)' }}
               />
             );
