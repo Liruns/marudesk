@@ -4,7 +4,7 @@ import { parseWorkGraph, type WorkGraph } from '../../shared/work-os';
 import { buildModel, humanizeModelError } from './model';
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
-import { runTask, implementTask } from './run-task';
+import { runTask, implementTask, applyTaskPatch } from './run-task';
 import { scrubText } from '../../shared/scrub';
 
 /**
@@ -164,4 +164,5 @@ export function registerWorkOsHandlers(): void {
   defineHandler('workos:decompose', async ([goal]) => decomposeGoal(typeof goal === 'string' ? goal : ''));
   defineHandler('workos:run-task', async ([input]) => runTask(input));
   defineHandler('workos:implement-task', async ([input]) => implementTask(input));
+  defineHandler('workos:apply-patch', async ([input]) => applyTaskPatch(input));
 }

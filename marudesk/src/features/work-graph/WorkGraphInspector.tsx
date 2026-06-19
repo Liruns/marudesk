@@ -1,4 +1,4 @@
-import { ExternalLink, Hammer, X } from 'lucide-react';
+import { Check, ExternalLink, Hammer, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useSurfaceStore } from '../canvas/surface';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
@@ -72,6 +72,7 @@ export function WorkGraphInspector() {
   const graph = useWorkGraphStore((s) => s.graph);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const running = useWorkGraphStore((s) => s.running);
+  const applyingPatchTaskId = useWorkGraphStore((s) => s.applyingPatchTaskId);
   const task: Task | undefined = graph?.tasks.find((t) => t.id === selectedTaskId);
   if (!task) return null;
 
@@ -155,6 +156,16 @@ export function WorkGraphInspector() {
             <p className="mt-1 text-caption text-fg-tertiary">
               Produced in a throwaway worktree — your files are unchanged. Review before applying.
             </p>
+            <button
+              type="button"
+              disabled={running || applyingPatchTaskId !== null}
+              onClick={() => void useWorkGraphStore.getState().applyPatch(taskId)}
+              title="Apply this diff to your workspace files. Rejected if the workspace changed since this task ran."
+              className="mt-2 inline-flex items-center gap-1.5 self-start rounded bg-surface-2 border border-default px-2.5 py-1 text-caption font-medium text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+            >
+              {applyingPatchTaskId === taskId ? <Spinner size={13} label="Applying" /> : <Check size={12} />}
+              Apply to workspace
+            </button>
           </div>
         ) : null}
 

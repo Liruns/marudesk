@@ -58,6 +58,16 @@ export function resetWorkspaceRegistryForProfile(): void {
   focusedPaneId = null;
 }
 
+/**
+ * Test-only: point {@link getCurrentWorkspace} at a fixture workspace so headless
+ * harnesses can exercise workspace-scoped main-process code (e.g. the Work OS
+ * apply-patch flow) without standing up the full registry/IPC. With no records
+ * registered, `summaryForActiveRoot()` is null so this fallback wins. No prod caller.
+ */
+export function __setCurrentWorkspaceForTests(ws: WorkspaceSummary | null): void {
+  currentWorkspace = ws;
+}
+
 /** Write the live registry to disk so workspaces survive a restart. */
 function persistRegistry(): void {
   saveWorkspaceRegistry([...workspaceRecords.values()], activeWorkspaceId);

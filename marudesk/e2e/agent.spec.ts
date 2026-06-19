@@ -318,8 +318,9 @@ test('agent: workspace AI Chat tabs keep scoped chat and history', async ({}, te
     await expect(alphaPane).toBeVisible();
     await expect(betaPane).toBeVisible();
 
-    await emitAgentWorkspaceState(
+    await emitAgentThreadStateForWorkspace(
       app,
+      page,
       workspaces.alphaId,
       chatStateWithAssistantText('alpha-only e2e answer'),
     );
@@ -388,7 +389,7 @@ test('agent: streaming transcript does not re-pin after a small upward scroll', 
     await page.getByRole('button', { name: /^AI Chat(?! \(CLI\))/ }).click();
 
     const baseText = longAssistantText('scroll-regression-start');
-    await emitAgentState(app, chatStateWithAssistantText(baseText));
+    await emitAgentStateViaActiveThread(app, page, chatStateWithAssistantText(baseText));
     const transcript = page
       .locator('main .overflow-y-auto')
       .filter({ hasText: 'scroll-regression-start' })
@@ -405,8 +406,9 @@ test('agent: streaming transcript does not re-pin after a small upward scroll', 
     await page.mouse.wheel(0, -24);
     await expect.poll(async () => (await readScrollMetrics(page)).scrollTop).toBeLessThan(bottomTop);
 
-    await emitAgentState(
+    await emitAgentStateViaActiveThread(
       app,
+      page,
       chatStateWithAssistantText(`${baseText}\n\nstreaming update after small scroll`),
     );
     await expect(page.getByRole('main').getByText('streaming update after small scroll')).toBeAttached();
@@ -586,14 +588,78 @@ function chatStateWithAssistantText(text: string): AgentChatState {
   };
 }
 
-async function emitAgentState(app: ElectronApplication, state: AgentChatState): Promise<void> {
+/**
+ * Emit agent state to the thread bound to the default (unscoped) AI Chat tab.
+ * Since every agent tab now owns its own thread (bound via `agent:thread-event`),
+ * `agent:event` is no longer received by thread-bound panes. This helper waits
+ * for the AgentChat composer to be ready (confirming the tab's thread is bound),
+ * then resolves the active thread from the system workspace (where the default AI
+ * Chat tab lives — `workspaceId: 'system'` normalizes to undefined for agent scoping
+ * but the thread is created under 'system' from `acquireCardThread`) and emits.
+ */
+async function emitAgentStateViaActiveThread(
+  app: ElectronApplication,
+  page: Page,
+  state: AgentChatState,
+): Promise<void> {
+  // Wait until the AgentChat composer is visible — this means AgentTab has
+  // finished acquiring its thread (the spinner is gone, AgentChat is mounted),
+  // and give React one extra tick to run the useEffect that registers the listener.
+  await expect(page.getByRole('main').getByLabel('Agent prompt')).toBeVisible();
+  await page.waitForTimeout(50);
+  // The default AI Chat tab is in the system workspace (`workspaceId: 'system'`).
+  // acquireCardThread creates the thread under that workspaceId, so list with it.
+  const threads = await page.evaluate(() =>
+    window.marudesk.invoke('agent:list-threads', { workspaceId: 'system' }),
+  );
+  const active = (threads as { id: string; active: boolean }[]).find((t) => t.active);
+  if (!active) throw new Error('No active system-workspace thread found after tab was ready');
   await app.evaluate(
     ({ BrowserWindow }, payload) => {
       const win = BrowserWindow.getAllWindows()[0];
       if (!win) throw new Error('Main window not found');
-      win.webContents.send('agent:event', payload);
+      win.webContents.send('agent:thread-event', payload);
     },
-    state,
+    { threadId: active.id, state },
+  );
+}
+
+/**
+ * Emit agent state to the thread bound to the AI Chat tab scoped to a workspace.
+ * Workspace-scoped agent tabs are thread-bound; `agent:workspace-event` is not
+ * received once a `boundThreadId` is set on the pane. Resolves the active thread
+ * for the given workspace and emits to `agent:thread-event` instead.
+ */
+async function emitAgentThreadStateForWorkspace(
+  app: ElectronApplication,
+  page: Page,
+  workspaceId: string,
+  state: AgentChatState,
+): Promise<void> {
+  // Wait until the workspace tab acquires its thread (async via acquireCardThread).
+  let threadId: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const threads = await page.evaluate(
+          (id) => window.marudesk.invoke('agent:list-threads', { workspaceId: id }),
+          workspaceId,
+        );
+        const active = (threads as { id: string; active: boolean }[]).find((t) => t.active);
+        threadId = active?.id;
+        return !!threadId;
+      },
+      { timeout: 8000 },
+    )
+    .toBe(true);
+  if (!threadId) throw new Error(`No active thread for workspace ${workspaceId}`);
+  await app.evaluate(
+    ({ BrowserWindow }, payload) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('Main window not found');
+      win.webContents.send('agent:thread-event', payload);
+    },
+    { threadId, state },
   );
 }
 
@@ -602,21 +668,6 @@ async function mkWorkspaceRoot(base: string, name: string): Promise<string> {
   await fs.mkdir(path.join(dir, 'src'), { recursive: true });
   await fs.writeFile(path.join(dir, 'src', 'App.tsx'), `export const n = "${name}";\n`, 'utf8');
   return dir;
-}
-
-async function emitAgentWorkspaceState(
-  app: ElectronApplication,
-  workspaceId: string,
-  state: AgentChatState,
-): Promise<void> {
-  await app.evaluate(
-    ({ BrowserWindow }, payload) => {
-      const win = BrowserWindow.getAllWindows()[0];
-      if (!win) throw new Error('Main window not found');
-      win.webContents.send('agent:workspace-event', payload);
-    },
-    { workspaceId, state },
-  );
 }
 
 async function installWorkspaceSessionStubs(

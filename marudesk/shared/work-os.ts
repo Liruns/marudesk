@@ -183,6 +183,24 @@ export type ImplementTaskResult =
     }
   | { ok: false; reason: string };
 
+/** Input to apply a task's reviewed worktree diff to the LIVE workspace. */
+export type ApplyPatchInput = { taskId: TaskId; patch: string };
+
+/**
+ * Result of applying a task's patch to the live workspace. `ok:false` carries a
+ * human reason — notably when the patch no longer applies cleanly because the live
+ * tree drifted since the task was implemented; the apply is rejected, never forced.
+ *
+ * `verdict` is the system-verified acceptance signal (roadmap §7-4 Phase-1
+ * single-verdict approximation): after the diff lands, the workspace's own checker
+ * (run_diagnostics / typecheck) runs over the applied files. 'pass' = no errors,
+ * 'fail' = errors, `null` = no checker applied so it stays honestly unverified.
+ * Never derived from the agent's self-claim or a human toggle.
+ */
+export type ApplyPatchResult =
+  | { ok: true; changedFiles: string[]; verdict: 'pass' | 'fail' | null }
+  | { ok: false; reason: string };
+
 /* ── type guards (specs.ts / providers.ts convention) ──────────────────────── */
 
 export function isTaskKind(v: unknown): v is TaskKind {

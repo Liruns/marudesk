@@ -5,11 +5,19 @@ import { pathToFileURL } from 'node:url';
 import { clipText } from '../../shared/text-clip';
 import { randomId } from '../../shared/id';
 import { resolveWorkspacePath } from '../fs-safe';
-import type { ImplementTaskResult, Resource, RunTaskInput, RunTaskResult } from '../../shared/work-os';
+import type {
+  ApplyPatchInput,
+  ApplyPatchResult,
+  ImplementTaskResult,
+  Resource,
+  RunTaskInput,
+  RunTaskResult,
+} from '../../shared/work-os';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { getCurrentWorkspace } from '../workspace';
 import { getSettingsSync } from '../settings';
 import { runGit } from '../git';
+import { runDiagnostics } from '../diagnostics/runner';
 import {
   agentBranchName,
   createWorktree,
@@ -369,5 +377,114 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
       console.warn('[workos] worktree discard failed; temp tree may leak at', worktreePath, (err as Error).message),
     );
     await fs.promises.rm(path.dirname(worktreePath), { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/** Upper bound on an incoming patch — defends `git apply` from a pathological blob. */
+const MAX_APPLY_PATCH_CHARS = 1_000_000;
+
+function parseApplyPatchInput(raw: unknown): ApplyPatchInput | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.taskId !== 'string' || typeof r.patch !== 'string') return null;
+  return { taskId: r.taskId, patch: r.patch };
+}
+
+const normalizeRel = (p: string): string => p.replace(/\\/g, '/').replace(/^\.\//, '').trim();
+
+/**
+ * System-verified acceptance signal (docs/ai-work-os-roadmap.md §7-4 Phase-1
+ * single-verdict approximation): after a task's diff is applied, run the
+ * workspace's own checker (run_diagnostics — tsc/eslint/… per the active recipes)
+ * and judge the APPLIED files. 'fail' if any error lands on a changed file,
+ * 'pass' if the checker ran clean, `null` when no checker applies (left honestly
+ * unverified rather than faked green). Both the diagnostics paths and git's
+ * --numstat output are workspace-relative POSIX, so they compare directly.
+ */
+async function verifyChangedFiles(
+  root: string,
+  changedFiles: string[],
+): Promise<'pass' | 'fail' | null> {
+  if (changedFiles.length === 0) return null;
+  let lastRun: Awaited<ReturnType<typeof runDiagnostics>>['lastRun'];
+  try {
+    ({ lastRun } = await runDiagnostics(root));
+  } catch {
+    return null;
+  }
+  // No applicable checker ran (exitCode stays null) → we can't honestly judge.
+  if (!lastRun || lastRun.exitCode === null) return null;
+  const changed = new Set(changedFiles.map(normalizeRel));
+  const errored = lastRun.diagnostics.some(
+    (d) => d.severity === 'error' && changed.has(normalizeRel(d.file)),
+  );
+  return errored ? 'fail' : 'pass';
+}
+
+/**
+ * Apply a task's reviewed worktree diff (captured by {@link implementTask}) to the
+ * LIVE workspace. This is the deliberate write-back: `implementTask` only *shows*
+ * the diff; the user applies it here. Honest + safe — `git apply --check` runs
+ * first and the apply is REJECTED (never forced) when the live tree has drifted
+ * since the task ran, so a stale patch can't half-apply or clobber later edits.
+ */
+export async function applyTaskPatch(raw: unknown): Promise<ApplyPatchResult> {
+  const input = parseApplyPatchInput(raw);
+  if (!input) return { ok: false, reason: 'Invalid patch payload.' };
+  if (!input.patch.trim()) return { ok: false, reason: 'There is no diff to apply.' };
+  if (input.patch.length > MAX_APPLY_PATCH_CHARS) {
+    return { ok: false, reason: 'The diff is too large to apply.' };
+  }
+
+  const ws = getCurrentWorkspace();
+  if (!ws) return { ok: false, reason: 'Open a workspace folder first.' };
+  if (!(await isGitRepo(ws.root))) {
+    return { ok: false, reason: 'Apply needs a local git repository.' };
+  }
+
+  // `git apply` reads the diff from a file; it wants a trailing newline on the
+  // final hunk line or it reports a corrupt patch.
+  const dir = path.join(os.tmpdir(), 'marudesk-workos', randomId('apply'));
+  const patchFile = path.join(dir, 'task.diff');
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.writeFile(
+    patchFile,
+    input.patch.endsWith('\n') ? input.patch : `${input.patch}\n`,
+    'utf8',
+  );
+  try {
+    // Dry-run first: if the live tree drifted since Implement ran the patch won't
+    // apply cleanly — reject rather than force a half-applied edit (runGit throws
+    // on git's non-zero exit).
+    try {
+      await runGit(ws.root, ['apply', '--check', patchFile]);
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `The patch no longer applies cleanly — the workspace changed since this task was implemented. (${(err as Error).message.trim()})`,
+      };
+    }
+    // Best-effort: which files the patch touches (for the apply notice).
+    let changedFiles: string[] = [];
+    try {
+      const stat = (await runGit(ws.root, ['apply', '--numstat', patchFile])).stdout;
+      changedFiles = stat
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => line.split('\t').pop() ?? '')
+        .filter(Boolean);
+    } catch {
+      // numstat is context only — the apply still proceeds.
+    }
+    await runGit(ws.root, ['apply', patchFile]);
+    // The diff is now live — verify it against the workspace's own checker so the
+    // task's acceptance verdicts reflect a real pass/fail, not the agent's claim.
+    const verdict = await verifyChangedFiles(ws.root, changedFiles);
+    return { ok: true, changedFiles, verdict };
+  } catch (err) {
+    return { ok: false, reason: `Applying the patch failed: ${(err as Error).message.trim()}` };
+  } finally {
+    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

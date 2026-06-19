@@ -34,6 +34,7 @@
     "harness:patch-match": "node --experimental-strip-types electron/patch-match.harness.ts",
     "harness:worktree": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/git-worktree.harness.ts",
     "harness:worktree-iso": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/worktree-isolation.harness.ts",
+    "harness:workos-apply": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/workos-apply.harness.ts",
     "harness:automations": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/automations/automations.harness.ts",
     "harness:mcp": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-harness.ts",
     "harness:mcp-config": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/mcp-config-harness.ts",
