@@ -2,6 +2,7 @@ import type { AgentImageInput } from '../../../../shared/agent';
 
 const MAX_FILE_TEXT_CHARS = 24_000;
 const MAX_FILE_ATTACHMENTS = 8;
+const MAX_IMAGE_BYTES = 10_000_000;
 
 export type PendingFileAttachment = {
   readonly name: string;
@@ -11,10 +12,17 @@ export type PendingFileAttachment = {
   readonly truncated: boolean;
 };
 
-export async function readImageFiles(files: readonly File[]): Promise<AgentImageInput[]> {
-  const images = files.filter((file) => file.type.startsWith('image/'));
-  const decoded = await Promise.all(images.map((file) => readImageFile(file).catch(() => null)));
-  return decoded.filter((image): image is AgentImageInput => image !== null);
+export async function readImageFiles(
+  files: readonly File[],
+): Promise<{ images: AgentImageInput[]; truncated: boolean }> {
+  const allImages = files.filter((file) => file.type.startsWith('image/'));
+  const truncated = allImages.length > MAX_FILE_ATTACHMENTS;
+  const capped = allImages.slice(0, MAX_FILE_ATTACHMENTS);
+  const decoded = await Promise.all(capped.map((file) => readImageFile(file).catch(() => null)));
+  return {
+    images: decoded.filter((image): image is AgentImageInput => image !== null),
+    truncated,
+  };
 }
 
 export async function fileAttachmentsFromFiles(files: readonly File[]): Promise<PendingFileAttachment[]> {
@@ -44,6 +52,9 @@ export function formatAttachedFilesForPrompt(files: readonly PendingFileAttachme
 }
 
 async function readImageFile(file: File): Promise<AgentImageInput> {
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error('Image exceeds 10 MB limit');
+  }
   const buf = await file.arrayBuffer();
   const bytes = new Uint8Array(buf);
   return { mediaType: file.type, data: bytesToBase64(bytes) };

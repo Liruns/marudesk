@@ -454,7 +454,7 @@ export async function readEditor(
   }
   const mir = getEditorMirror(target.mirrorPath);
   if (mir) {
-    const head = mir.dirty ? `(open in editor — UNSAVED edits${mir.truncated ? ', truncated' : ''})` : '(open in editor — saved)';
+    const head = mir.dirty ? `(open in editor — UNSAVED edits${mir.truncated ? ', truncated' : ''})` : `(open in editor — saved${mir.truncated ? ', truncated' : ''})`;
     return { summary: `editor ${target.displayPath}${mir.dirty ? ' *' : ''}`, text: clip(scrubText(`${head}\n\n${mir.content}`)) };
   }
   // Not open in the editor — fall back to the on-disk content if there's a workspace.

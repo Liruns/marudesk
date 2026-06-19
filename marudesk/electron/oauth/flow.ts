@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from 'node:crypto';
 import type { OAuthTokens, ProviderId } from '../../shared/providers';
 import { clearProviderOAuth, getProviderOAuth, setProviderOAuth } from '../secrets';
+import { scrubText } from '../../shared/scrub';
 import {
   oauthConfigFor,
   OAUTH_TOKEN_USER_AGENT,
@@ -110,7 +111,7 @@ async function postToken(
     try {
       const resp = await fetch(url, { method: 'POST', headers, body: payload });
       if (!resp.ok) {
-        const detail = (await resp.text().catch(() => '')).slice(0, 300);
+        const detail = scrubText((await resp.text().catch(() => '')).slice(0, 300));
         lastErr = new OAuthHttpError(
           `OAuth token endpoint returned HTTP ${resp.status}: ${detail}`,
           resp.status,
