@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { createBookmarksStore, parseBookmarks } from './bookmarks-core.ts';
+import { check, passedCount } from '../harness-kit.ts';
 import type { BookmarkEntry } from '../../shared/bookmarks';
 
 /**
@@ -10,14 +10,6 @@ import type { BookmarkEntry } from '../../shared/bookmarks';
  * add/remove/update semantics, change notifications, and the persist → reload
  * round-trip against a real temp file. Run via `npm run harness:bookmarks`.
  */
-
-let passed = 0;
-
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-bookmarks-'));
 const file = path.join(dir, 'bookmarks.json');
@@ -94,7 +86,7 @@ try {
   check('reload: entry fields survive the round-trip', restored[0]?.title === 'Alpha renamed');
   check('reload: createdAt survives the round-trip', restored[0]?.createdAt === first.createdAt);
 
-  console.log(`\nbookmarks harness: ${passed} assertions passed`);
+  console.log(`\nbookmarks harness: ${passedCount()} assertions passed`);
 } finally {
   await fs.rm(dir, { recursive: true, force: true });
 }

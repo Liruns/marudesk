@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import type { SessionRecord } from '../../shared/context';
+import { check, passedCount } from '../harness-kit';
 import {
   S,
   activeThreadId,
@@ -28,13 +28,6 @@ import type { ToolContext } from './tools/types.ts';
  * switch guard, exercised against the real loop-state registry (emit() is a
  * no-op here — no renderer host). Run via `npm run harness:threads`.
  */
-
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 function sessionRecord(id: string, title: string, workspaceId?: string): SessionRecord {
   const now = Date.now();
@@ -240,7 +233,7 @@ async function main(): Promise<void> {
   );
   await clearAllSessions();
 
-  console.log(`\nthread-registry harness: ${passed} assertions passed`);
+  console.log(`\nthread-registry harness: ${passedCount()} assertions passed`);
 }
 
 await main();

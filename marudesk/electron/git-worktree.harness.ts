@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { check, passedCount } from './harness-kit';
 import {
   agentBranchName,
   createCheckpoint,
@@ -26,12 +26,6 @@ import { isAgentWorktreeBranch } from '../shared/worktree.ts';
  */
 
 const exec = promisify(execFile);
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await exec('git', ['-C', root, ...args], { env: { ...process.env, LC_ALL: 'C' } });
@@ -180,7 +174,7 @@ async function main(): Promise<void> {
       await git(base, ['stash', 'clear']);
     }
 
-    console.log(`\ngit-worktree harness: ${passed} assertions passed`);
+    console.log(`\ngit-worktree harness: ${passedCount()} assertions passed`);
   } finally {
     rmSync(base, { recursive: true, force: true });
     rmSync(path.dirname(wtPath), { recursive: true, force: true });

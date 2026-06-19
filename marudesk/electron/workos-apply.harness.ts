@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
@@ -7,6 +6,7 @@ import path from 'node:path';
 import type { WorkspaceSummary } from '../shared/workspace.ts';
 import { applyTaskPatch } from './agent/run-task.ts';
 import { __setCurrentWorkspaceForTests } from './workspace-registry.ts';
+import { check, passedCount } from './harness-kit';
 
 /**
  * Harness for the Work OS apply-patch flow (`workos:apply-patch` →
@@ -19,12 +19,6 @@ import { __setCurrentWorkspaceForTests } from './workspace-registry.ts';
  */
 
 const exec = promisify(execFile);
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await exec('git', ['-C', root, ...args], { env: { ...process.env, LC_ALL: 'C' } });
   return stdout;
@@ -84,7 +78,7 @@ async function main(): Promise<void> {
     const noWs = await applyTaskPatch({ taskId: 't1', patch: diff });
     check('no workspace open → ok:false', noWs.ok === false);
 
-    console.log(`\nworkos-apply harness: ${passed} assertions passed`);
+    console.log(`\nworkos-apply harness: ${passedCount()} assertions passed`);
   } finally {
     __setCurrentWorkspaceForTests(null);
     rmSync(repo, { recursive: true, force: true });

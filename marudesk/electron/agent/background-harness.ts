@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+import { check, passedCount } from '../harness-kit';
 import { listMcpTools } from './mcp.ts';
 import {
   startBackgroundAgentTool,
@@ -12,13 +12,6 @@ import {
 import { S } from './loop-state.ts';
 import type { ToolContext } from './tools/types.ts';
 import type { SubagentRunRequest } from './subagent-types.ts';
-
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 // A background task id is extracted from the spawn ack text ("... agent <id> ...").
 function ackId(text: string): string {
@@ -151,4 +144,4 @@ cancelBackgroundForConversation('session-evict');
 
 setBackgroundRunnerForTests(null);
 S.conversationId = null;
-console.log(`\nbackground harness: ${passed} assertions passed`);
+console.log(`\nbackground harness: ${passedCount()} assertions passed`);

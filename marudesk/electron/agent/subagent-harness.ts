@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+import { check, passedCount } from '../harness-kit';
 import { listMcpTools, registerMcpServer, unregisterMcpServer } from './mcp.ts';
 import {
   listChildToolDefs,
@@ -8,14 +8,6 @@ import {
 } from './subagent.ts';
 import { DEFAULT_CHILD_STEPS, MAX_CHILD_STEPS } from './subagent-types.ts';
 import type { ToolContext } from './tools/types.ts';
-
-let passed = 0;
-
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 const listed = listMcpTools();
 check('spawn_subagent is listed for the model', listed.some((tool) => tool.name === 'spawn_subagent'));
@@ -177,4 +169,4 @@ check(
 }
 setSubagentRunnerForTests(null);
 
-console.log(`\nsubagent harness: ${passed} assertions passed`);
+console.log(`\nsubagent harness: ${passedCount()} assertions passed`);

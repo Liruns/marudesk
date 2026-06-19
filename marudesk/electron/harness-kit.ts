@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { toMessage } from '../shared/to-message';
 
 /**
  * Shared assertion helpers for the headless harnesses (the `harness:*`
@@ -32,7 +31,10 @@ export async function expectReject(
   try {
     await action();
   } catch (err) {
-    message = toMessage(err);
+    // Inlined from shared/to-message so this kit stays dependency-free and
+    // resolves under the plain `--experimental-strip-types` harnesses (no
+    // loader hook) as well as the loader-based ones. Same result as toMessage.
+    message = err instanceof Error ? err.message : String(err);
   }
   check(label, pattern.test(message));
 }

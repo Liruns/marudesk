@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { check, passedCount } from '../harness-kit';
 import type { WorkspaceSummary } from '../../shared/workspace';
 import { isSafePanelPath } from '../../shared/plugin';
 import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
@@ -37,13 +37,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_ENTRY = path.join(__dirname, 'worker.ts');
 const HELLO_DIR = path.resolve(__dirname, '../../examples/plugins/hello-world');
 const EVIL_DIR = path.join(__dirname, '__fixtures__/evil');
-
-let passed = 0;
-function check(label: string, cond: boolean): void {
-  assert.ok(cond, label);
-  passed += 1;
-  console.log(`  ok ${passed} - ${label}`);
-}
 
 /** A minimal ToolContext pointing at a throwaway workspace root. */
 function toolContext(root: string): ToolContext {
@@ -245,7 +238,7 @@ async function main(): Promise<void> {
   check('engine: >= and exact', satisfiesEngine('0.2.0', '>=0.1.0') && !satisfiesEngine('0.1.0', '0.2.0'));
   check('engine: unparseable range does not block', satisfiesEngine('0.1.1', 'next'));
 
-  console.log(`\n# plugin harness: ${passed} checks passed`);
+  console.log(`\n# plugin harness: ${passedCount()} checks passed`);
 }
 
 main().then(

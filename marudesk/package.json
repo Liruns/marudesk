@@ -53,6 +53,8 @@
     "harness:plan": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/plan-harness.ts",
     "harness:threads": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/thread-registry.harness.ts",
     "harness:agent-turn-edits": "node --experimental-strip-types electron/agent/turn-edits-harness.ts",
+    "harness:run-task": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/run-task-harness.ts",
+    "harness:decompose": "node --experimental-strip-types --import ./electron/agent/mcp-harness-register.mjs electron/agent/decompose-harness.ts",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest"
   },
