@@ -1,24 +1,5 @@
 {
   "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@playwright/mcp@latest",
-        "--headless",
-        "--isolated",
-        "--no-sandbox"
-      ]
-    },
-    "chrome-devtools": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@latest",
-        "--headless",
-        "--isolated"
-      ]
-    },
     "puppeteer": {
       "command": "npx",
       "args": [
