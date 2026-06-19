@@ -39,7 +39,7 @@ import { CanvasEdges, type ConnectPreview } from './CanvasEdges';
 import { CanvasMinimap } from './CanvasMinimap';
 import { CanvasPlanFlow } from './CanvasPlanFlow';
 import { easeOutBack, fitPose } from './camera-math';
-import { edgeEndpoints, nearestSide } from './edgeGeometry';
+import { edgeEndpoints, edgeMidpoint, nearestSide } from './edgeGeometry';
 import { cardDefaultSize, placementKey, SCALE_MAX, SCALE_MIN, useCanvasStore, type CardGroup, type CardRect, type EdgeSide } from './store';
 import { FILE_DND_MIME, openFileDragAsTab, parseFileDrag } from '../workspace/fileDrag';
 
@@ -1819,13 +1819,16 @@ export function CanvasStage() {
           const a = nodeRects[keyOf(sel.from)];
           const b = nodeRects[keyOf(sel.to)];
           if (!a || !b) return null;
-          const { p1, p2 } = edgeEndpoints(a, b, sel);
+          const { p1, p2, fromSide, toSide } = edgeEndpoints(a, b, sel);
+          // Sit the control on the rendered path (its visual midpoint), not the
+          // straight chord midpoint — a curved or right-angled wire bows away.
+          const mid = edgeMidpoint(edgeStyle, p1, fromSide, p2, toSide);
           return (
             <button
               type="button"
               aria-label={t('canvas.edge.remove')}
               title={t('canvas.edge.remove')}
-              style={{ left: (p1.x + p2.x) / 2 - 11, top: (p1.y + p2.y) / 2 - 11, zIndex: 100000 }}
+              style={{ left: mid.x - 11, top: mid.y - 11, zIndex: 100000 }}
               className="absolute grid h-[22px] w-[22px] place-items-center rounded-pill border border-default bg-surface-2 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
               onPointerDown={(ev) => ev.stopPropagation()}
               onClick={(ev) => {

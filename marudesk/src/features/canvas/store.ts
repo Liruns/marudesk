@@ -1383,8 +1383,11 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
           },
         };
       }
-      // Maximize: fill the viewport, remembering the prior rect to restore to.
+      // Maximize: fill the viewport, remembering the prior rect to restore to, and
+      // raise it above the rest so no other card floats over the maximized surface.
+      const z = s.topZ + 1;
       return {
+        topZ: z,
         placements: {
           ...s.placements,
           [key]: {
@@ -1394,6 +1397,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             y: vp.y,
             w: vp.w,
             h: vp.h,
+            z,
           },
         },
       };
