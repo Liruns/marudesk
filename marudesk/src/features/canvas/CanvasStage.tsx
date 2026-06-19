@@ -2053,6 +2053,7 @@ export function CanvasStage() {
         <CanvasMinimap
           placements={placements}
           sections={sections}
+          notes={notes}
           viewport={viewport}
           width={size.w}
           height={size.h}
