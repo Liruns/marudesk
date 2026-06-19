@@ -4,6 +4,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import type {
   AgentAnswers,
   AgentChatState,
+  AgentConnection,
   AgentEditActionResult,
   AgentImageInput,
 } from '../../../shared/agent';
@@ -30,7 +31,8 @@ import {
   type PendingFileAttachment,
 } from './chat/attachments';
 import { useDiffCommentsStore } from './chat/diffComments';
-import { acquireCardThread } from './cardThreads';
+import { acquireCardThread, tabForThread } from './cardThreads';
+import { useCanvasStore, placementKey } from '../canvas/store';
 
 /**
  * Renderer projection of the agentic AI Chat (docs/agentic-chat-design.md §8).
@@ -213,6 +215,37 @@ function activeWebTabId(): string | undefined {
   const { activeTabId, tabs } = useTabsStore.getState();
   const active = tabs.find((t) => t.id === activeTabId);
   return active?.kind === 'web' ? active.id : undefined;
+}
+
+/**
+ * Cards wired to the agent card `agentTabId` on the canvas → identity-level
+ * context for the send (the agent pulls real contents with its own tools). Peers
+ * via an edge in either direction; a web card contributes its URL, an editor its
+ * file path. Empty when the chat isn't a connected canvas card.
+ */
+function gatherConnections(agentTabId: string): AgentConnection[] {
+  const cs = useCanvasStore.getState();
+  const aKey = placementKey(cs.groups, agentTabId);
+  const peers = new Set<string>();
+  for (const e of cs.edges) {
+    const f = placementKey(cs.groups, e.from);
+    const tk = placementKey(cs.groups, e.to);
+    if (f === aKey && tk !== aKey) peers.add(tk);
+    else if (tk === aKey && f !== aKey) peers.add(f);
+  }
+  if (peers.size === 0) return [];
+  const tabs = useTabsStore.getState().tabs;
+  const out: AgentConnection[] = [];
+  for (const key of peers) {
+    const grp = cs.groups.find((g) => g.id === key);
+    const tabId = grp ? grp.activeId : key;
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab || tab.id === agentTabId) continue;
+    const title = tab.title?.trim() || tab.kind;
+    const locator = tab.kind === 'web' ? tab.url : tab.kind === 'editor' ? tab.filePath : undefined;
+    out.push({ kind: tab.kind, title, ...(locator ? { locator } : {}) });
+  }
+  return out;
 }
 
 /**
@@ -517,6 +550,9 @@ function createAgentStore(
       opts?.captures ??
       web.captures.filter((c) => web.selectedCaptureIds.has(c.id)).map(toPayload);
     const images = opts?.images;
+    // Canvas wiring: cards connected to this agent card become first-turn context.
+    const agentTabId = tabForThread(threadId);
+    const connections = agentTabId ? gatherConnections(agentTabId) : [];
     try {
       const res = await window.marudesk.invoke('agent:send', {
         provider,
@@ -527,6 +563,7 @@ function createAgentStore(
         captures,
         images: images && images.length > 0 ? images : undefined,
         tabId: activeWebTabId(),
+        ...(connections.length > 0 ? { connections } : {}),
       });
       return res.ok ? { ok: true } : { ok: false, reason: res.reason };
     } catch (err) {

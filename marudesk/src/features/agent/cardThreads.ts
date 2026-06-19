@@ -48,6 +48,15 @@ export function cardThreadId(tabId: string): string | null {
   return byTab.get(tabId)?.threadId ?? null;
 }
 
+/** The AI Chat tab a thread is bound to, if any (reverse of {@link cardThreadId}).
+ *  Lets a send resolve which canvas card it's running in, to gather connections. */
+export function tabForThread(threadId: string): string | null {
+  for (const [tabId, bound] of byTab) {
+    if (bound.threadId === threadId) return tabId;
+  }
+  return null;
+}
+
 // Close a tab's thread only when the AI Chat tab actually closes (not on a mere
 // unmount from a workspace/surface switch). Mirrors the terminal/editor prune.
 subscribeTabsByKind(
