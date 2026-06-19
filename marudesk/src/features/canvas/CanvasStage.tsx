@@ -21,6 +21,7 @@ import {
   Maximize2,
   Minus,
   Pencil,
+  Bookmark,
   Plus,
   RotateCcw,
   StickyNote,
@@ -208,6 +209,7 @@ export function CanvasStage() {
   const groups = useCanvasStore((s) => s.groups);
   const sections = useCanvasStore((s) => s.sections);
   const notes = useCanvasStore((s) => s.notes);
+  const bookmarks = useCanvasStore((s) => s.bookmarks);
   const selection = useCanvasStore((s) => s.selection);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -264,6 +266,8 @@ export function CanvasStage() {
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
   // Canvas-switcher dropdown anchor + the name dialog (new / rename a canvas).
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(null);
+  // Saved-views (camera bookmarks) menu anchor.
+  const [bmMenu, setBmMenu] = useState<{ x: number; y: number } | null>(null);
   const [nameDialog, setNameDialog] = useState<
     { mode: 'new' } | { mode: 'rename'; id: string; initial: string } | null
   >(null);
@@ -2127,6 +2131,20 @@ export function CanvasStage() {
           <Plus size={14} />
           {t('canvas.toolbar.newCard')}
         </button>
+        {/* Saved views (camera bookmarks): jump back to a named pan+zoom. */}
+        <button
+          type="button"
+          title={t('canvas.toolbar.views')}
+          aria-label={t('canvas.toolbar.views')}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setBmMenu({ x: r.left, y: r.bottom + 4 });
+          }}
+          className="inline-flex items-center gap-1 rounded-lg chrome-panel px-2 py-1.5 text-caption text-fg-secondary shadow-card transition-colors duration-fast hover:text-fg-primary active:translate-y-px"
+        >
+          <Bookmark size={14} />
+          {bookmarks.length > 0 ? <span className="tabular-nums">{bookmarks.length}</span> : null}
+        </button>
       </div>
 
       {/* Floating selection toolbar (Figma-style): align / distribute / section /
@@ -2292,6 +2310,37 @@ export function CanvasStage() {
           y={canvasMenu.y}
           onClose={() => setCanvasMenu(null)}
           items={canvasMenuItems()}
+        />
+      ) : null}
+
+      {bmMenu ? (
+        <ContextMenu
+          x={bmMenu.x}
+          y={bmMenu.y}
+          onClose={() => setBmMenu(null)}
+          items={[
+            ...bookmarks.map((b) => ({
+              label: b.name,
+              icon: <Bookmark size={14} />,
+              onSelect: () => useCanvasStore.getState().jumpToBookmark(b.id),
+            })),
+            ...(bookmarks.length > 0 ? [{ type: 'separator' as const }] : []),
+            {
+              label: t('canvas.menu.saveView'),
+              icon: <Plus size={14} />,
+              onSelect: () => useCanvasStore.getState().addBookmark(),
+            },
+            ...(bookmarks.length > 0
+              ? [
+                  {
+                    label: t('canvas.menu.clearViews'),
+                    icon: <Trash2 size={14} />,
+                    danger: true,
+                    onSelect: () => useCanvasStore.getState().clearBookmarks(),
+                  },
+                ]
+              : []),
+          ]}
         />
       ) : null}
 

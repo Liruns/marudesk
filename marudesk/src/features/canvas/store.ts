@@ -104,6 +104,16 @@ export type CanvasNote = {
   h: number;
 };
 
+/**
+ * A saved camera position on a canvas (Figma "saveable views"): jump back to a
+ * named pan+zoom. Per-canvas metadata, so it serializes verbatim like notes.
+ */
+export type CanvasBookmark = {
+  id: string;
+  name: string;
+  viewport: Viewport;
+};
+
 /** Pad a section frame this far beyond the bounding box of its seed cards. */
 export const SECTION_PAD = 28;
 /** Height of the section's title/header band (canvas px). */
@@ -134,6 +144,12 @@ let noteSeq = 0;
 function newNoteId(): string {
   noteSeq += 1;
   return `note_${noteSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
+}
+
+let bookmarkSeq = 0;
+function newBookmarkId(): string {
+  bookmarkSeq += 1;
+  return `bm_${bookmarkSeq.toString(36)}_${Math.round(performance.now()).toString(36)}`;
 }
 
 /** Default sticky-note size (canvas px). */
@@ -266,6 +282,7 @@ export type CanvasDoc = {
   /** Labeled section frames grouping the cards inside them (FigJam-style). */
   sections: CardSection[];
   notes: CanvasNote[];
+  bookmarks: CanvasBookmark[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins (per-canvas). */
   topZ: number;
@@ -291,6 +308,7 @@ function emptyCanvas(name: string): CanvasDoc {
     groups: [],
     sections: [],
     notes: [],
+    bookmarks: [],
     viewport: { panX: 0, panY: 0, scale: 1 },
     topZ: 1,
   };
@@ -462,6 +480,7 @@ type CanvasSnapshot = {
   // verbatim and survive a restart directly — unlike nodes/edges.
   sections: CardSection[];
   notes: CanvasNote[];
+  bookmarks: CanvasBookmark[];
 };
 type WorkspaceSnapshot = { activeId: string; canvases: CanvasSnapshot[] };
 
@@ -512,6 +531,7 @@ function serializeCanvas(doc: CanvasDoc, tabsById: Map<string, TabState>): Canva
     edges,
     sections: doc.sections,
     notes: doc.notes,
+    bookmarks: doc.bookmarks,
   };
 }
 
@@ -578,6 +598,22 @@ function parseNotes(raw: unknown): CanvasNote[] {
   return out;
 }
 
+function parseBookmarks(raw: unknown): CanvasBookmark[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CanvasBookmark[] = [];
+  for (const val of raw) {
+    if (typeof val !== 'object' || val === null) continue;
+    const b = val as Record<string, unknown>;
+    if (!isStr(b.id)) continue;
+    out.push({
+      id: b.id,
+      name: isStr(b.name) ? b.name : 'View',
+      viewport: parseViewport(b.viewport),
+    });
+  }
+  return out;
+}
+
 function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
@@ -612,6 +648,7 @@ function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
     edges,
     sections: parseSections(r.sections),
     notes: parseNotes(r.notes),
+    bookmarks: parseBookmarks(r.bookmarks),
   };
 }
 
@@ -640,6 +677,7 @@ function metadataDoc(snap: CanvasSnapshot): CanvasDoc {
     // carry them straight onto the metadata doc so a section shows immediately.
     sections: snap.sections ?? [],
     notes: snap.notes ?? [],
+    bookmarks: snap.bookmarks ?? [],
     viewport: snap.viewport,
     topZ: 1,
   };
@@ -721,6 +759,7 @@ function reconcileWorkspace(snaps: readonly CanvasSnapshot[], tabs: readonly Tab
       groups,
       sections: snap.sections ?? [],
       notes: snap.notes ?? [],
+      bookmarks: snap.bookmarks ?? [],
       viewport: snap.viewport,
       topZ: z || 1,
     };
@@ -795,6 +834,7 @@ type CanvasState = {
   /** Labeled section frames grouping the cards inside them (FigJam-style). */
   sections: CardSection[];
   notes: CanvasNote[];
+  bookmarks: CanvasBookmark[];
   viewport: Viewport;
   /** Monotonic z allocator so bringToFront always wins. */
   topZ: number;
@@ -910,6 +950,16 @@ type CanvasActions = {
   setNoteColor: (id: string, color: TabGroupColor) => void;
   /** Delete a note. */
   removeNote: (id: string) => void;
+
+  /* ── camera bookmarks (saved views) ── */
+  /** Save the current viewport as a named view on the open canvas; returns its id. */
+  addBookmark: (name?: string) => string;
+  /** Animate the camera to a saved view. */
+  jumpToBookmark: (id: string) => void;
+  /** Delete a saved view. */
+  removeBookmark: (id: string) => void;
+  /** Delete all saved views on the open canvas. */
+  clearBookmarks: () => void;
   /** Commit a section drag: move the section + its member cards + nested sections
    *  by (dx,dy) from captured origins in ONE update (one re-render). The live drag
    *  itself is painted straight to the DOM, so this only runs on release. */
@@ -1001,6 +1051,7 @@ function activeDoc(s: CanvasState): CanvasDoc {
     groups: s.groups,
     sections: s.sections,
     notes: s.notes,
+    bookmarks: s.bookmarks,
     viewport: s.viewport,
     topZ: s.topZ,
   };
@@ -1020,7 +1071,7 @@ function snapshotByWorkspace(s: CanvasState): Record<string, WorkspaceCanvases> 
 /** The top-level working-copy fields drawn from a {@link CanvasDoc}. */
 function workingCopy(doc: CanvasDoc): Pick<
   CanvasState,
-  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'notes' | 'viewport' | 'topZ'
+  'placements' | 'edges' | 'edgeStyle' | 'groups' | 'sections' | 'notes' | 'bookmarks' | 'viewport' | 'topZ'
 > {
   return {
     placements: doc.placements,
@@ -1029,6 +1080,7 @@ function workingCopy(doc: CanvasDoc): Pick<
     groups: doc.groups,
     sections: doc.sections,
     notes: doc.notes,
+    bookmarks: doc.bookmarks,
     viewport: doc.viewport,
     topZ: doc.topZ,
   };
@@ -1665,6 +1717,27 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, color } : n)) })),
 
   removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
+
+  addBookmark: (name) => {
+    const id = newBookmarkId();
+    const s = get();
+    const bm: CanvasBookmark = {
+      id,
+      name: name?.trim() || `View ${s.bookmarks.length + 1}`,
+      viewport: { ...s.viewport },
+    };
+    set((st) => ({ bookmarks: [...st.bookmarks, bm] }));
+    return id;
+  },
+
+  jumpToBookmark: (id) => {
+    const bm = get().bookmarks.find((b) => b.id === id);
+    if (bm) get().animateTo(bm.viewport);
+  },
+
+  removeBookmark: (id) => set((s) => ({ bookmarks: s.bookmarks.filter((b) => b.id !== id) })),
+
+  clearBookmarks: () => set({ bookmarks: [] }),
 
   setSectionPos: (id, x, y) =>
     set((s) => ({ sections: s.sections.map((sec) => (sec.id === id ? { ...sec, x, y } : sec)) })),
