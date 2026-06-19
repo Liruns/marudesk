@@ -17,15 +17,35 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 // then invalidate a token already handed out).
 let pending: Promise<string> | null = null;
 
-/** Get the stored server token, minting and persisting one on first need. */
+// Process-lifetime fallback when safeStorage can't persist (no OS keyring —
+// headless Linux / CI / minimal desktops). The loopback bearer is session-scoped
+// and reaches the embedded CLI via env injection (electron/terminal.ts), so an
+// unpersisted token still runs the full CLI surface; only an EXTERNAL `npm run
+// chat` across app restarts loses the durable handshake token.
+let memoryToken: string | null = null;
+
+/**
+ * Get the bridge server token, minting one on first need. Persists it
+ * (safeStorage-encrypted) when possible, but degrades to an in-memory token if
+ * the keyring is unavailable rather than refusing to start the companion.
+ */
 export function getServerToken(): Promise<string> {
   if (pending) return pending;
   pending = (async () => {
     const { getServerTokenStored, setServerTokenStored } = await import('../secrets');
-    const existing = await getServerTokenStored();
-    if (existing) return existing;
-    const token = randomBytes(32).toString('base64url');
-    await setServerTokenStored(token);
+    try {
+      const existing = await getServerTokenStored();
+      if (existing) return existing;
+    } catch {
+      // safeStorage unavailable — fall through to an unpersisted in-memory token.
+    }
+    const token = memoryToken ?? randomBytes(32).toString('base64url');
+    memoryToken = token;
+    try {
+      await setServerTokenStored(token);
+    } catch {
+      // Best-effort persistence: a keyring-less box still runs the companion.
+    }
     return token;
   })();
   // Don't cache a rejected attempt (e.g. safeStorage briefly unavailable) — let

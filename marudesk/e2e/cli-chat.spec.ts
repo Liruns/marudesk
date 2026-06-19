@@ -24,10 +24,12 @@ test('cli chat: the Home launcher opens the CLI terminal tab', async () => {
     // The tab strip shows the dedicated CLI tab (not a plain Terminal).
     await expect(page.getByText('AI Chat (CLI)').first()).toBeVisible({ timeout: 10_000 });
 
-    // The PTY hosts the CLI: its banner lands in xterm once it authenticated
-    // against the companion bridge.
+    // The PTY hosts the CLI: its TUI banner lands in xterm once it authenticated
+    // against the companion bridge. The banner tagline ("agentic chat · terminal
+    // client") is the version-independent proof the TUI booted (the plain-mode
+    // "marudesk chat" connect line never shows in the boxed TUI banner).
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('.xterm')).toContainText('marudesk chat', {
+    await expect(page.locator('.xterm')).toContainText('agentic chat', {
       timeout: 15_000,
     });
   } finally {
@@ -43,7 +45,9 @@ test('cli chat: the chat toggle opens the context drawer alongside', async () =>
     await expect(page.getByRole('complementary', { name: 'Context cart' })).toBeVisible({
       timeout: 10_000,
     });
-    expect(await page.getByText('AI Chat (CLI)').count()).toBe(0);
+    // No CLI *terminal tab* was spawned — scope to the tab strip, since the Home
+    // launcher grid itself carries an "AI Chat (CLI)" card (its own affordance).
+    await expect(page.getByRole('tab', { name: /AI Chat \(CLI\)/ })).toHaveCount(0);
   } finally {
     await app.close();
   }

@@ -98,6 +98,52 @@ export async function dismissHomeGuide(page: Page): Promise<void> {
   await guide.waitFor({ state: 'hidden', timeout: 5_000 });
 }
 
+/**
+ * Drag a canvas card's header by a screen-space offset (dx, dy).
+ *
+ * Uses Playwright's `locator.dragTo` rather than raw `page.mouse.down/move/up`:
+ * the card header drag arms a `setPointerCapture` gesture and only commits the
+ * new position to the store on a matching `pointerup`. Raw `page.mouse` events
+ * don't carry a stable pointerId in this Electron+Playwright harness, so the
+ * captured pointerup is dropped — the card paints to the moved spot but the
+ * store keeps the old position. `dragTo` preserves the pointerId, so the move
+ * commits (matches the real-mouse behavior).
+ */
+export async function dragCanvasCardHeader(
+  page: Page,
+  headerIndex: number,
+  dx: number,
+  dy: number,
+): Promise<void> {
+  const header = page.locator('[data-card-header]').nth(headerIndex);
+  const hb = await header.boundingBox();
+  const canvas = page.locator('[aria-label="Canvas"]');
+  const cb = await canvas.boundingBox();
+  if (!hb || !cb) throw new Error('missing card-header / canvas box');
+  const sx = hb.width * 0.4;
+  const sy = hb.height / 2;
+  await header.dragTo(canvas, {
+    sourcePosition: { x: sx, y: sy },
+    targetPosition: { x: hb.x + sx + dx - cb.x, y: hb.y + sy + dy - cb.y },
+  });
+}
+
+/**
+ * Wire a connection from one card onto another. Drags from the source card's
+ * TOP-edge port (which faces empty space above the card) to avoid the
+ * facing-port occlusion you hit with adjacent cards' right/left ports — when two
+ * cards sit side by side, the higher card's near-edge port covers the other's,
+ * so a raw drag from the occluded port lands on the wrong card. The drop target
+ * is geometry-hit-tested by the canvas, so any port side reaches `target`.
+ */
+export async function connectCanvasCards(
+  page: Page,
+  source: ReturnType<Page['locator']>,
+  target: ReturnType<Page['locator']>,
+): Promise<void> {
+  await source.getByRole('button', { name: 'Connect from top edge' }).dragTo(target);
+}
+
 /** Resolve the main renderer window (URL ends in index.html), not the splash. */
 export async function mainWindow(app: ElectronApplication): Promise<Page> {
   const isMain = (p: Page): boolean => {
