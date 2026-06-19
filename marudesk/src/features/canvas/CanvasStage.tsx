@@ -555,6 +555,9 @@ export function CanvasStage() {
       measureWeb();
       const r = el.getBoundingClientRect();
       setSize({ w: r.width, h: r.height });
+      // Mirror into the store so revealTab/fit can frame a card without the
+      // component passing its size down.
+      useCanvasStore.getState().setViewportSize(r.width, r.height);
     };
     update();
     const ro = new ResizeObserver(update);

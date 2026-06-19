@@ -760,6 +760,9 @@ type CanvasState = {
    * Not persisted (purely a hand-off buffer).
    */
   pendingPlacements: Record<string, { x: number; y: number; w: number; h: number }>;
+  /** Last measured canvas container size (screen px), so reveal/fit can frame a
+   *  card without the CanvasStage component handing its size in. In-memory. */
+  viewportSize: { w: number; h: number };
 };
 
 /** A canvas's switcher-facing summary (id + name + open flag). */
@@ -788,6 +791,12 @@ type CanvasActions = {
   bringToFront: (tabId: string) => void;
   sendToBack: (tabId: string) => void;
   setFocused: (tabId: string | null) => void;
+  /** Record the canvas container size (px) — CanvasStage's ResizeObserver feeds it. */
+  setViewportSize: (w: number, h: number) => void;
+  /** Focus a tab's card, raise it, and pan/zoom the camera to frame it. Used by
+   *  the tab palette / search to "jump to a card" on the infinite canvas. No-op
+   *  if the tab isn't placed on the open canvas. */
+  revealTab: (tabId: string) => void;
   /** Replace the multi-selection (placement keys). */
   setSelection: (keys: string[]) => void;
   /** Add/remove one key from the multi-selection (shift-click). */
@@ -984,6 +993,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
   selection: [],
   selectedEdgeId: null,
   pendingPlacements: {},
+  viewportSize: { w: 0, h: 0 },
 
   placeNext: (tabId, rect) =>
     set((s) => {
@@ -1296,6 +1306,34 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     }),
 
   setFocused: (tabId) => set({ focusedTabId: tabId }),
+
+  setViewportSize: (w, h) =>
+    set((s) => (s.viewportSize.w === w && s.viewportSize.h === h ? {} : { viewportSize: { w, h } })),
+
+  revealTab: (tabId) => {
+    const s = get();
+    const grp = s.groups.find((g) => g.tabIds.includes(tabId));
+    const key = grp ? grp.id : tabId;
+    const rect = s.placements[key];
+    if (!rect) return; // not on the open canvas → nothing to frame
+    const z = s.topZ + 1;
+    set((st) => ({
+      focusedTabId: tabId,
+      topZ: z,
+      placements: { ...st.placements, [key]: { ...st.placements[key], z } },
+      // If it's a group member, surface that member in the strip.
+      ...(grp && grp.activeId !== tabId
+        ? { groups: st.groups.map((g) => (g.id === grp.id ? { ...g, activeId: tabId } : g)) }
+        : {}),
+    }));
+    const { w, h } = s.viewportSize;
+    if (w > 0 && h > 0) {
+      // Pan to the card; cap at 100% so a small card doesn't slam to max zoom.
+      get().animateTo(
+        fitPose([rect], { width: w, height: h }, { padding: 120, minScale: SCALE_MIN, maxScale: 1 }),
+      );
+    }
+  },
 
   setSelection: (keys) => set({ selection: [...new Set(keys)] }),
   toggleSelection: (key) =>
