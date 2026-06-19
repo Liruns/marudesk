@@ -70,8 +70,8 @@ test('workspace split: selecting a pre-split tab shows its grid (non-zero height
 
     // Split the workspace deck, then move Beta into the right pane so the two
     // panes hold different workspaces (Alpha keeps its split group on the left).
-    await page.getByRole('button', { name: 'Split workspace right' }).first().click();
-    await page.getByRole('button', { name: 'Workspace Project Beta' }).click();
+    await page.getByRole('button', { name: 'Split workspace' }).first().click();
+    await page.getByRole('button', { name: 'Split right: Project Beta' }).click();
 
     const alphaPane = page.getByRole('region', { name: 'Project Alpha' });
     await expect(alphaPane).toBeVisible();
@@ -141,8 +141,8 @@ test('workspace split: creating a tab in a sibling workspace keeps browser panes
     await page.mouse.up();
     await expect(page.getByLabel('Grid pane')).toHaveCount(2);
 
-    await page.getByRole('button', { name: 'Split workspace right' }).first().click();
-    await page.getByRole('button', { name: 'Workspace Project Beta' }).click();
+    await page.getByRole('button', { name: 'Split workspace' }).first().click();
+    await page.getByRole('button', { name: 'Split right: Project Beta' }).click();
 
     const alphaPane = page.getByRole('region', { name: 'Project Alpha' });
     const betaPane = page.getByRole('region', { name: 'Project Beta' });

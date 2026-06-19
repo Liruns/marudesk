@@ -66,8 +66,8 @@ test('multi-workspace deck: split panes can show different workspaces', async ()
     await explorer.getByRole('button', { name: 'Use root BE' }).click();
     await expect(explorer.getByText('Project Beta / BE')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Split workspace right' }).click();
-    await page.getByRole('button', { name: 'Workspace Project Alpha' }).click();
+    await page.getByRole('button', { name: 'Split workspace' }).first().click();
+    await page.getByRole('button', { name: 'Split right: Project Alpha' }).click();
 
     await expect(page.getByText('Project Alpha', { exact: true })).toBeVisible();
     await expect(page.getByText('Project Beta', { exact: true })).toBeVisible();
@@ -170,8 +170,8 @@ test('multi-workspace deck: panes remember active tabs per workspace', async () 
     );
 
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Split workspace right' }).click();
-    await page.getByRole('button', { name: 'Workspace Project Alpha' }).click();
+    await page.getByRole('button', { name: 'Split workspace' }).first().click();
+    await page.getByRole('button', { name: 'Split right: Project Alpha' }).click();
 
     const alphaPane = page.getByRole('region', { name: 'Project Alpha' });
     const betaPane = page.getByRole('region', { name: 'Project Beta' });

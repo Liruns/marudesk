@@ -307,8 +307,11 @@ test('agent: workspace AI Chat tabs keep scoped chat and history', async ({}, te
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('navigation', { name: 'Workspace rail' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Split workspace right' }).first().click();
-    await page.getByRole('button', { name: 'Workspace Project Beta' }).click();
+    // Split the active (Alpha) pane to the right, opening Beta beside it. The
+    // direction buttons live in the "Split workspace" picker popover; each is
+    // accessible-named per workspace ("Split right: <name>").
+    await page.getByRole('button', { name: 'Split workspace' }).first().click();
+    await page.getByRole('button', { name: 'Split right: Project Beta' }).click();
 
     const alphaPane = page.getByRole('region', { name: 'Project Alpha' });
     const betaPane = page.getByRole('region', { name: 'Project Beta' });

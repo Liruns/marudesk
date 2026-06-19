@@ -301,8 +301,8 @@ test('capture workspace deck surfaces', async () => {
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(700);
       await shot(page, '14-workspace-single');
-      await page.getByRole('button', { name: 'Split workspace right' }).click();
-      await page.getByRole('button', { name: 'Workspace Project Alpha' }).click();
+      await page.getByRole('button', { name: 'Split workspace' }).first().click();
+      await page.getByRole('button', { name: 'Split right: Project Alpha' }).click();
       await page.waitForTimeout(400);
       await shot(page, '15-workspace-split');
       await page.getByRole('button', { name: 'Peek Explorer' }).last().click();
