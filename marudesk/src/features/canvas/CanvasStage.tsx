@@ -1539,6 +1539,11 @@ export function CanvasStage() {
           t.tagName === 'TEXTAREA' ||
           t.isContentEditable ||
           !!t.closest('input, textarea, [contenteditable], button'));
+      // A focused canvas card owns the arrow keys (it nudges itself). Without this
+      // the global camera handler ALSO pans, so the card and viewport fight — the
+      // card moves +8px while the canvas pans -80px. Arrow-pan is for the unfocused
+      // canvas only; +/-/0/F have no card binding so they stay live either way.
+      const onCard = !!t?.closest('[data-canvas-card]');
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         setMinimapOpen((v) => !v);
@@ -1608,11 +1613,13 @@ export function CanvasStage() {
           }
           return;
         }
-        const PAN = e.shiftKey ? 240 : 80;
-        if (e.key === 'ArrowRight') { e.preventDefault(); st.panBy(-PAN, 0); return; }
-        if (e.key === 'ArrowLeft') { e.preventDefault(); st.panBy(PAN, 0); return; }
-        if (e.key === 'ArrowDown') { e.preventDefault(); st.panBy(0, -PAN); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); st.panBy(0, PAN); return; }
+        if (!onCard) {
+          const PAN = e.shiftKey ? 240 : 80;
+          if (e.key === 'ArrowRight') { e.preventDefault(); st.panBy(-PAN, 0); return; }
+          if (e.key === 'ArrowLeft') { e.preventDefault(); st.panBy(PAN, 0); return; }
+          if (e.key === 'ArrowDown') { e.preventDefault(); st.panBy(0, -PAN); return; }
+          if (e.key === 'ArrowUp') { e.preventDefault(); st.panBy(0, PAN); return; }
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {

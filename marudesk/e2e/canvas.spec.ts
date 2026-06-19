@@ -114,6 +114,7 @@ test('canvas: a focused card moves with arrow keys and closes with Delete', asyn
     if (!before) throw new Error('no card box');
 
     await card.focus();
+    await page.waitForTimeout(16);
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('ArrowDown');
     const after = await card.boundingBox();
@@ -185,14 +186,7 @@ test('canvas: dragging a card onto another merges them into a tab group, then po
 
     // Drag the first card's header onto the second card's header → merge.
     const headers = page.locator('[data-card-header]');
-    const h1 = await headers.nth(0).boundingBox();
-    const h2 = await headers.nth(1).boundingBox();
-    if (!h1 || !h2) throw new Error('missing header boxes');
-    await page.mouse.move(h1.x + h1.width / 2, h1.y + h1.height / 2);
-    await page.mouse.down();
-    // Move in steps so the drag registers, landing on the target's header band.
-    await page.mouse.move(h2.x + h2.width / 2, h2.y + h2.height / 2, { steps: 12 });
-    await page.mouse.up();
+    await headers.nth(0).dragTo(headers.nth(1));
 
     // Two cards became one group card with a 2-tab strip.
     await expect(cards).toHaveCount(1);
