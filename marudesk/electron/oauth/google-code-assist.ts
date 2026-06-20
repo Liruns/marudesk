@@ -22,11 +22,11 @@ import { sleep } from '../../shared/sleep';
 const META = { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' };
 
 /** The Code-Assist base URL, overridable via env for tests / an advanced proxy. */
-function caaBase(): string {
+export function caaBase(): string {
   return process.env.MARUDESK_CAA_BASE_URL || 'https://cloudcode-pa.googleapis.com';
 }
 
-function caaHeaders(token: string): Record<string, string> {
+export function caaHeaders(token: string): Record<string, string> {
   return {
     'content-type': 'application/json',
     accept: 'application/json',
@@ -77,7 +77,7 @@ function extractProjectString(value: unknown): string | undefined {
 let cachedProject: string | null = null;
 
 /** Bootstrap the free-tier project (loadCodeAssist → onboardUser LRO), cached. */
-async function resolveProject(token: string): Promise<string> {
+export async function resolveProject(token: string): Promise<string> {
   if (cachedProject) return cachedProject;
 
   const load = await caaCall<LoadResp>(token, 'loadCodeAssist', { metadata: META });

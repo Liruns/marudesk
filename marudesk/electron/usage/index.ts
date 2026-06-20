@@ -5,13 +5,25 @@ import type {
   CredentialRankingStrategy,
 } from './types';
 import { claudeUsageProvider, claudeRankingStrategy } from './claude';
+import { openaiCodexUsageProvider } from './openai-codex';
+import { githubCopilotUsageProvider } from './github-copilot';
+import { googleCaaUsageProvider } from './google-caa';
 import { defineHandler } from '../ipc/define-handler';
 import { getProviderOAuth, getProviderApiKey } from '../secrets';
 import { isProviderId, type ProviderId } from '../../shared/providers';
 
 /* ── Provider registry ─────────────────────────────────────────────────── */
 
-const USAGE_PROVIDERS: UsageProvider[] = [claudeUsageProvider];
+// OAuth-subscription providers whose auth/base-URL infra already exists in
+// marudesk (SECOND-PASS item 4) — registering them lets the gauge show data and,
+// crucially, lets `checkProviderQuota` (resolve-auth.ts) detect an exhausted
+// subscription so failover actually triggers instead of returning ok blindly.
+const USAGE_PROVIDERS: UsageProvider[] = [
+  claudeUsageProvider,
+  openaiCodexUsageProvider,
+  githubCopilotUsageProvider,
+  googleCaaUsageProvider,
+];
 
 const RANKING_STRATEGIES: Partial<Record<string, CredentialRankingStrategy>> = {
   anthropic: claudeRankingStrategy,

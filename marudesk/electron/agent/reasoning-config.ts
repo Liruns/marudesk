@@ -87,18 +87,27 @@ export function buildProviderOptions(
 }
 
 /**
- * Output-token cap for the turn. Anthropic extended thinking REQUIRES
- * max_tokens > thinking.budget_tokens (or the API 400s), so a reasoning Claude
- * turn gets its thinking budget plus answer headroom; every other provider uses
- * the flat per-step cap (their reasoning tokens are managed server-side).
+ * Output-token cap for the turn (SECOND-PASS item 1). `catalogMax` is the
+ * selected model's documented per-call output ceiling from the model catalog
+ * ({@link import('../../shared/providers').ModelEntry.maxOutputTokens}); the flat
+ * {@link AGENT_MAX_TOKENS} is only a FLOOR/fallback for models the catalog has no
+ * value for. Before this, every model was capped at the 4096 floor regardless of
+ * its real ceiling, so large outputs (Opus/Sonnet 64K, gpt-5 128K) truncated
+ * silently.
+ *
+ * Anthropic extended thinking REQUIRES max_tokens > thinking.budget_tokens (or
+ * the API 400s), so a reasoning Claude turn's cap is raised to at least the
+ * thinking budget plus answer headroom even when the catalog value is smaller.
  */
 export function maxTokensForTurn(
   provider: AgentSendInput['provider'],
   modelReasoning: boolean,
   effort: ReasoningEffort,
+  catalogMax?: number,
 ): number {
+  const base = catalogMax && catalogMax > 0 ? Math.max(catalogMax, AGENT_MAX_TOKENS) : AGENT_MAX_TOKENS;
   if (modelReasoning && provider === 'anthropic') {
-    return ANTHROPIC_THINKING_BUDGET[effort] + AGENT_MAX_TOKENS;
+    return Math.max(base, ANTHROPIC_THINKING_BUDGET[effort] + AGENT_MAX_TOKENS);
   }
-  return AGENT_MAX_TOKENS;
+  return base;
 }

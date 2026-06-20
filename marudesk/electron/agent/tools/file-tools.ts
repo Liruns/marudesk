@@ -6,8 +6,17 @@ import { clipText as clip } from '../../../shared/text-clip';
 import { readFileSafe, readFileWindow } from '../../workspace';
 import { resolveWorkspacePath } from '../../fs-safe';
 import { applyPatch } from '../../patch';
-import { isStaleForEdit, recordRead, updateAfterWrite } from '../read-tracker';
+import { isStaleForEdit, recordRead, snapshotLineContent, updateAfterWrite } from '../read-tracker';
 import { pageLines } from '../text-window';
+import {
+  AnchorMismatchError,
+  batchValidateAnchors,
+  relocateAnchorByContent,
+  resolveEditSpan,
+  type ValidatedOp,
+} from '../edit-span';
+import { getDiagnosticsState } from '../../diagnostics/runner';
+import type { Diagnostic } from '../../../shared/diagnostics';
 import type { ToolContext, ToolResult } from './types';
 
 /**
@@ -212,13 +221,19 @@ export async function grep(
 }
 
 /** One edit op as the model supplies it — verbatim oldString and/or B-layer anchor. */
-type EditOp = {
+export type EditOp = {
   path: string;
   oldString: string;
   newString: string;
   anchor?: string;
   endAnchor?: string;
+  anchorLine?: number;
+  endAnchorLine?: number;
 };
+
+function isPosInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1;
+}
 
 function isOp(v: unknown): v is EditOp {
   if (!v || typeof v !== 'object') return false;
@@ -229,8 +244,131 @@ function isOp(v: unknown): v is EditOp {
     typeof o.oldString === 'string' &&
     typeof o.newString === 'string' &&
     (o.anchor === undefined || typeof o.anchor === 'string') &&
-    (o.endAnchor === undefined || typeof o.endAnchor === 'string')
+    (o.endAnchor === undefined || typeof o.endAnchor === 'string') &&
+    (o.anchorLine === undefined || isPosInt(o.anchorLine)) &&
+    (o.endAnchorLine === undefined || isPosInt(o.endAnchorLine))
   );
+}
+
+/** Cap how many post-edit diagnostic lines ride back on an edit result. */
+const MAX_INLINE_DIAGNOSTICS = 20;
+
+const DIAG_SEV_RANK: Record<Diagnostic['severity'], number> = { error: 0, warning: 1, info: 2 };
+
+/**
+ * After a successful write, surface the CACHED diagnostics that already cover the
+ * just-edited files inline in the tool result, so the model sees a compile error it
+ * just introduced in the SAME turn instead of needing a separate run_diagnostics
+ * call. Reuses the shared diagnostics state ({@link getDiagnosticsState}) — the last
+ * batch pass plus any live language-server findings — WITHOUT running the checker
+ * (that path is gated/slow); so this is "errors known as of the last check", which
+ * is exactly what a follow-up run_diagnostics would also have to refresh. Empty
+ * string when there's nothing cached for the touched paths (the common clean case).
+ */
+function inlineDiagnostics(root: string | null, changedPaths: string[]): string {
+  if (root === null || changedPaths.length === 0) return '';
+  const state = getDiagnosticsState(root);
+  const all = [...(state.lastRun?.diagnostics ?? []), ...state.live];
+  if (all.length === 0) return '';
+  const touched = new Set(changedPaths.map((p) => p.replace(/\\/g, '/')));
+  const relevant = all
+    .filter((d) => touched.has(d.file.replace(/\\/g, '/')))
+    .sort((a, b) => DIAG_SEV_RANK[a.severity] - DIAG_SEV_RANK[b.severity] || a.line - b.line);
+  if (relevant.length === 0) return '';
+
+  const errors = relevant.filter((d) => d.severity === 'error').length;
+  const warnings = relevant.filter((d) => d.severity === 'warning').length;
+  const shown = relevant.slice(0, MAX_INLINE_DIAGNOSTICS);
+  const lines = shown.map((d) => {
+    const code = d.code ? ` ${d.code}` : '';
+    return `  ${d.file}:${d.line}:${d.column} ${d.severity}${code} — ${d.message}`;
+  });
+  const more = relevant.length > shown.length ? `\n  …(${relevant.length - shown.length} more)` : '';
+  return (
+    `\n\nDiagnostics for the edited file(s) as of the last check (${errors} error(s), ${warnings} warning(s); ` +
+    `run_diagnostics to refresh):\n${lines.join('\n')}${more}`
+  );
+}
+
+/**
+ * Zero-retry stale-anchor recovery (SECOND-PASS item 5). For every failing op in
+ * `mismatch`, try to re-locate its stale anchor(s) by the exact line content the
+ * model saw at read time (read-tracker snapshot) found uniquely in the current
+ * file. On success, rewrite BOTH the validated copy and the original op (the one
+ * applyPatch will run) to the fresh anchor + line, then re-validate the whole
+ * batch. Returns true ONLY when the batch fully re-resolves after relocation —
+ * any residual failure (a non-anchored vanished oldString, an ambiguous/absent
+ * line) leaves the ops UNCHANGED and returns false, so the caller falls back to
+ * the safe "re-read the file" self-heal. Conservative by construction: it can only
+ * ever move an anchor onto a line whose content is identical + unique, never guess.
+ */
+function relocateStaleAnchors(
+  mismatch: AnchorMismatchError,
+  validated: ValidatedOp[],
+  meta: { op: EditOp; abs: string; current: string }[],
+): boolean {
+  // Snapshot the current anchors so we can roll back atomically if the batch still
+  // doesn't resolve — a partial relocate must never leak into the applied edit.
+  const backups = meta.map((m) => ({
+    anchor: m.op.anchor,
+    anchorLine: m.op.anchorLine,
+    endAnchor: m.op.endAnchor,
+    endAnchorLine: m.op.endAnchorLine,
+  }));
+
+  let relocatedAny = false;
+  for (const failure of mismatch.failures) {
+    const v = validated[failure.opIndex];
+    const m = meta[failure.opIndex];
+    if (!v || !m) return false; // index drift — bail to the safe path
+    // Only ANCHORED ops with a known read-view line can be relocated by content.
+    if (!m.op.anchor || m.op.anchorLine === undefined) return false;
+    const startLine = snapshotLineContent(m.abs, m.op.anchorLine);
+    const startReloc = relocateAnchorByContent(m.current, startLine);
+    if (!startReloc.ok) return false;
+    m.op.anchor = startReloc.anchor;
+    m.op.anchorLine = startReloc.line;
+    v.op.anchor = startReloc.anchor;
+    v.op.anchorLine = startReloc.line;
+    // Relocate the endAnchor too when the op spans a range.
+    if (m.op.endAnchor !== undefined && m.op.endAnchorLine !== undefined) {
+      const endLine = snapshotLineContent(m.abs, m.op.endAnchorLine);
+      const endReloc = relocateAnchorByContent(m.current, endLine);
+      if (!endReloc.ok) return false;
+      m.op.endAnchor = endReloc.anchor;
+      m.op.endAnchorLine = endReloc.line;
+      v.op.endAnchor = endReloc.anchor;
+      v.op.endAnchorLine = endReloc.line;
+    }
+    relocatedAny = true;
+  }
+  if (!relocatedAny) return false;
+
+  // Re-validate: every op (including any that weren't in `failures`) must now
+  // resolve against its current content, or we roll back and fall through.
+  for (const v of validated) {
+    if (v.op.oldString.length === 0 && !v.op.anchor) continue;
+    if (!resolveEditSpan(v.current, v.op).ok) {
+      restoreAnchors(meta, backups);
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Roll back anchor mutations on a failed relocate (keeps the original edit ops intact). */
+function restoreAnchors(
+  meta: { op: EditOp }[],
+  backups: { anchor?: string; anchorLine?: number; endAnchor?: string; endAnchorLine?: number }[],
+): void {
+  for (let i = 0; i < meta.length; i++) {
+    const b = backups[i];
+    if (!b) continue;
+    meta[i].op.anchor = b.anchor;
+    meta[i].op.anchorLine = b.anchorLine;
+    meta[i].op.endAnchor = b.endAnchor;
+    meta[i].op.endAnchorLine = b.endAnchorLine;
+  }
 }
 
 /** Pick only the patch-op fields from a validated edit op (drops any extras). */
@@ -241,10 +379,20 @@ function toPatchOp(op: EditOp): EditOp {
     newString: op.newString,
     ...(op.anchor ? { anchor: op.anchor } : {}),
     ...(op.endAnchor ? { endAnchor: op.endAnchor } : {}),
+    ...(op.anchorLine !== undefined ? { anchorLine: op.anchorLine } : {}),
+    ...(op.endAnchorLine !== undefined ? { endAnchorLine: op.endAnchorLine } : {}),
   };
 }
 
-async function applyEdits(
+/**
+ * Apply a batch of edit ops through the full write gate — SECRET_FILE refusal,
+ * denyGlobs, staleness/anchor validation, then the atomic 3-phase patch — and
+ * return a ToolResult (with `edits` for revert history). Exported so other tools
+ * that synthesize multi-file edits (e.g. the LSP rename tool, LSP-1) route their
+ * writes through the SAME guards instead of a raw fs write. file-tools does not
+ * import those callers, so the export introduces no import cycle.
+ */
+export async function applyEdits(
   ops: EditOp[],
   ctx: ToolContext,
   label: string,
@@ -274,11 +422,19 @@ async function applyEdits(
       };
     }
   }
-  // Staleness guard: refuse an edit to a file that changed on disk since the
-  // agent read it (oh-my-openagent's hashline insight). Compare against the same
-  // full-document view read_file anchors, so an edit anywhere in a large file is
-  // validated correctly. Skip creates (oldString === '') and unresolvable/missing
-  // paths — applyPatch emits the precise error for those.
+  // Staleness + anchor-resolution guard: refuse edits to a file that changed on
+  // disk since the agent read it (oh-my-openagent's hashline insight) OR whose
+  // anchored/verbatim target no longer resolves. Unlike the old fail-on-first
+  // behaviour, this validates ALL ops up front and reports EVERY failing op at
+  // once, so a multi_edit can be re-anchored in a SINGLE retry. Compare against
+  // the same full-document view read_file anchors. Skip creates (oldString === ''
+  // and no anchor) — they have nothing to clobber.
+  const validated: ValidatedOp[] = [];
+  // Parallel to `validated`: the ORIGINAL op + its abs path, so the zero-retry
+  // relocate (item 5) can look up the per-read line snapshot for a failing op and
+  // rewrite its anchor on the original op that applyPatch will run.
+  const validatedMeta: { op: EditOp; abs: string; current: string }[] = [];
+  const staleEntries: { op: EditOp; abs: string; current: string }[] = [];
   for (const op of ops) {
     // Creates (no oldString and no anchor) have nothing to clobber — skip them.
     if (op.oldString.length === 0 && !op.anchor) continue;
@@ -294,21 +450,81 @@ async function applyEdits(
     } catch {
       continue;
     }
-    if (isStaleForEdit(abs, current)) {
-      // Self-heal (oh-my-openagent's mismatch UX): instead of just telling the
-      // agent to re-read, hand back the CURRENT line-numbered content inline and
-      // re-anchor the tracker to it — so the agent can redo the edit against the
-      // fresh text in the same turn (the retry then passes this guard). The echo
-      // is windowed (a large file can't be dumped) but the anchor is the full read.
-      // It carries fresh hash anchors so an anchored retry can re-target by hash.
-      recordRead(abs, current);
-      const view = pageLines(current, { anchors: true });
-      return {
-        summary: `${label} blocked (stale)`,
-        text: `"${op.path}" changed on disk since you last read it, so this edit was refused to avoid clobbering the newer content. Here is the file's CURRENT content (line-numbered with per-line anchors; the "N <hash>" prefix before the tab is not part of the file) — redo your edit against it:\n\n${view.text}`,
-        isError: true,
-      };
+    validated.push({ op: toPatchOp(op), current });
+    validatedMeta.push({ op, abs, current });
+    if (isStaleForEdit(abs, current)) staleEntries.push({ op, abs, current });
+  }
+
+  // Two sources of trouble: a file that changed on disk (stale hash) and an op
+  // that no longer resolves. Collect both into ONE batch of failures + remaps.
+  let mismatch: AnchorMismatchError | null = null;
+  try {
+    batchValidateAnchors(validated);
+  } catch (err) {
+    if (err instanceof AnchorMismatchError) mismatch = err;
+    else throw err;
+  }
+
+  // Zero-retry stale-anchor recovery (SECOND-PASS item 5): before bouncing back to
+  // the model for a re-read, try to re-locate each failing ANCHORED op by the exact
+  // line content the model saw at read time (read-tracker snapshot). The relocate
+  // is conservative — it only succeeds on an EXACT, UNIQUE whole-line match (see
+  // relocateAnchorByContent), so it can never land on the wrong line. We only take
+  // the recovery when EVERY validated op then re-resolves cleanly; otherwise we
+  // leave `ops`/`mismatch` untouched and fall through to the normal self-heal.
+  if (mismatch && relocateStaleAnchors(mismatch, validated, validatedMeta)) {
+    mismatch = null;
+    // Re-anchor the trackers for any file that only tripped the hash check but is
+    // now fully resolvable, so the relocated ops apply below without a stale block.
+    staleEntries.length = 0;
+  }
+
+  if (staleEntries.length > 0 || mismatch) {
+    // Self-heal (oh-my-openagent's mismatch UX): instead of just telling the agent
+    // to re-read, hand back the CURRENT line-numbered content for every affected
+    // file inline (with fresh per-line anchors) and re-anchor the tracker to it,
+    // so the agent can redo EVERY failing edit against fresh text in the same turn.
+    // Re-anchor each stale file's tracker to its current bytes (the retry then
+    // passes this guard for files that only tripped the hash check).
+    for (const s of staleEntries) recordRead(s.abs, s.current);
+
+    // De-dup affected files (a multi_edit may touch one file several times) while
+    // keeping the current content we already read for each.
+    const affected = new Map<string, string>();
+    for (const s of staleEntries) affected.set(s.op.path, s.current);
+    for (const f of mismatch?.failures ?? []) {
+      const v = validated.find((e) => e.op.path === f.path);
+      if (v && !affected.has(f.path)) affected.set(f.path, v.current);
     }
+
+    // Per-op failure lines (path + reason). Stale-but-resolvable files get a
+    // staleness reason so every affected target is named.
+    const reasons: string[] = [];
+    const named = new Set<string>();
+    for (const f of mismatch?.failures ?? []) {
+      reasons.push(`${f.path}: ${f.reason}`);
+      named.add(f.path);
+    }
+    for (const s of staleEntries) {
+      if (!named.has(s.op.path)) {
+        reasons.push(`${s.op.path}: changed on disk since you last read it`);
+        named.add(s.op.path);
+      }
+    }
+
+    const blocks: string[] = [];
+    for (const [p, current] of affected) {
+      blocks.push(`── ${p} ──\n${pageLines(current, { anchors: true }).text}`);
+    }
+    return {
+      summary: `${label} blocked (${reasons.length} failing op${reasons.length === 1 ? '' : 's'})`,
+      text:
+        `${reasons.length} edit${reasons.length === 1 ? '' : 's'} were refused — the file(s) changed since you read them, so applying would clobber newer content or target the wrong line.\n\n` +
+        `Failing edits:\n${reasons.map((r) => `  - ${r}`).join('\n')}\n\n` +
+        `Here is the CURRENT content of each affected file (line-numbered with per-line anchors; the "N <hash>" prefix before the tab is not part of the file) — redo every failing edit against it:\n\n` +
+        blocks.join('\n\n'),
+      isError: true,
+    };
   }
 
   const res = await applyPatch(ctx.ws, ops.map(toPatchOp));
@@ -328,9 +544,12 @@ async function applyEdits(
   }
   const changedPaths = (res.changes ?? []).map((c) => c.path);
   const files = changedPaths.join(', ');
+  // Append the touched files' cached diagnostics so a just-introduced compile error
+  // is visible in THIS turn rather than after a separate run_diagnostics call.
+  const diagnostics = inlineDiagnostics(ctx.ws.root, changedPaths);
   return {
     summary: `${label}: ${files}`,
-    text: `applied ${res.applied.length} edit${res.applied.length === 1 ? '' : 's'} to ${files}`,
+    text: `applied ${res.applied.length} edit${res.applied.length === 1 ? '' : 's'} to ${files}${diagnostics}`,
     edits: res.changes,
     touchedPaths: changedPaths,
   };

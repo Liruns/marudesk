@@ -9,8 +9,9 @@ import {
   type ThreadSummary,
 } from '../../shared/agent';
 import type { WorkspaceId } from '../../shared/workspace';
-import { refreshOrchestrationState } from './orchestration-state.ts';
+import { deriveRuntimeSnapshot, refreshOrchestrationState } from './orchestration-state.ts';
 import type { OrchestrationThreadEntry } from './orchestration-state.ts';
+import type { RuntimeSnapshot } from '../../shared/agent-orchestration';
 
 /** Approval decision from the UI: approved/denied, plus "always for this session". */
 export type ApprovalDecision = { approved: boolean; always: boolean };
@@ -52,6 +53,20 @@ export type ThreadContainer = {
   conversationProvider: string;
   conversationModel: string;
   conversationTitle: string;
+  // Epoch ms of the last successful compaction (manual, auto, or preemptive).
+  // Drives the preemptive mid-turn cooldown so a long multi-tool turn can't
+  // thrash the compactor, and the post-compaction degradation monitor.
+  lastCompactionAt: number;
+  // Consecutive empty / tool-only assistant responses observed SINCE the last
+  // compaction (degradation signal — a too-lossy summary leaves the model
+  // spinning). Reset to 0 by any response carrying visible text, and on
+  // compaction. See the post-compaction degradation monitor in loop.ts.
+  postCompactionEmptyStreak: number;
+  // Assistant responses still left in the post-compaction degradation MONITOR
+  // window. Set to a fixed count by a compaction and decremented per response;
+  // the monitor is inert once it reaches 0 so normal long tool-only stretches in
+  // a healthy session never trip it. See the degradation monitor in loop.ts.
+  postCompactionMonitorRemaining: number;
 };
 
 function makeThreadContainer(workspaceId: WorkspaceId | null = null): ThreadContainer {
@@ -71,6 +86,9 @@ function makeThreadContainer(workspaceId: WorkspaceId | null = null): ThreadCont
     conversationProvider: '',
     conversationModel: '',
     conversationTitle: '',
+    lastCompactionAt: 0,
+    postCompactionEmptyStreak: 0,
+    postCompactionMonitorRemaining: 0,
   };
 }
 
@@ -133,6 +151,19 @@ export function containerForThread(id: string): ThreadContainer | null {
 
 export function refreshOrchestrationProjection(): void {
   refreshOrchestrationState(threadProjectionEntries());
+}
+
+/**
+ * A typed, serializable snapshot of all live agent work — every thread plus its
+ * background agents (SECOND-PASS "Typed runtime snapshot"). Optionally scoped to
+ * one workspace (omit for every thread, e.g. a bug-report dump). Pure read of the
+ * in-memory registry via the same projection the orchestration tree uses.
+ */
+export function runtimeSnapshot(workspaceId?: WorkspaceId): RuntimeSnapshot {
+  const entries = threadProjectionEntries().filter((entry) =>
+    workspaceId ? entry.container.workspaceId === workspaceId : true,
+  );
+  return deriveRuntimeSnapshot(entries);
 }
 
 function activeThreadIdForWorkspace(workspaceId: WorkspaceId): string | null {

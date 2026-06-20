@@ -7,6 +7,7 @@ import {
   type ToolResult,
 } from './types';
 import { readFile, listFiles, grep, editFile, multiEdit } from './file-tools.ts';
+import { lspNavigate, lspSymbols, lspRename } from './lsp-tools.ts';
 import {
   getConsoleErrors,
   queryDom,
@@ -43,6 +44,9 @@ export const EXECUTORS: Record<string, Executor> = {
   grep: grep as Executor,
   edit_file: editFile as Executor,
   multi_edit: multiEdit as Executor,
+  lsp_navigate: lspNavigate as Executor,
+  lsp_symbols: lspSymbols as Executor,
+  lsp_rename: lspRename as Executor,
   get_console_errors: getConsoleErrors as Executor,
   query_dom: queryDom as Executor,
   eval_js: evalJs as Executor,
@@ -107,6 +111,13 @@ export function describeToolInput(name: string, input: unknown): string {
   if (name === 'scroll') {
     if (typeof o.selector === 'string') return `scroll to ${o.selector}`.slice(0, 300);
     return `scroll ${o.direction === 'up' ? 'up' : 'down'}`;
+  }
+  if (name === 'lsp_rename') {
+    const p = typeof o.path === 'string' ? o.path : '?';
+    const line = typeof o.line === 'number' ? o.line : '?';
+    const col = typeof o.character === 'number' ? o.character : '?';
+    const newName = typeof o.newName === 'string' ? o.newName : '?';
+    return scrubText(`rename symbol at ${p}:${line}:${col} → ${newName}`).slice(0, 300);
   }
   if (name === 'triage_network_failure') {
     return typeof o.requestId === 'string'

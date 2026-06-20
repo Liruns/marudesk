@@ -86,6 +86,22 @@ function allTools(): McpTool[] {
   return servers.flatMap((s) => s.tools);
 }
 
+/**
+ * The dynamic (built-in `marudesk` + external) tools sorted deterministically by
+ * name. {@link allTools} returns them in server-registration order, which churns as
+ * external connectors connect / reconnect in a non-deterministic order — that
+ * reorders the bytes of the Anthropic prompt prefix and busts its prompt cache
+ * (MCP-1 / CACHE-1). Sorting a COPY by name makes the array order independent of
+ * connection-completion order. The fixed built-in tail (SPAWN_* / UPDATE_PLAN /
+ * ASK_USER) is appended by {@link listMcpTools} after this and keeps its own order —
+ * `ASK_USER_DEF` must stay last so a single cache breakpoint can cover the prefix.
+ */
+function sortedDynamicTools(): McpTool[] {
+  return allTools()
+    .slice()
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
 function index(): Map<string, McpTool> {
   if (cachedIndex) return cachedIndex;
   cachedIndex = new Map(allTools().map((t) => [t.name, t] as const));
@@ -100,7 +116,7 @@ function index(): Map<string, McpTool> {
  */
 export function listMcpTools(): McpToolDef[] {
   return [
-    ...allTools(),
+    ...sortedDynamicTools(),
     SPAWN_SUBAGENT_DEF,
     SPAWN_BACKGROUND_AGENT_DEF,
     COLLECT_BACKGROUND_AGENT_DEF,

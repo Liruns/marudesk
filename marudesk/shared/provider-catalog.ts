@@ -394,25 +394,25 @@ export const PROVIDERS: ProviderDef[] = [
 export const MODELS: ModelEntry[] = [
   // Anthropic (Claude 4.x — all tool-capable; vision + extended thinking).
   // Opus/Sonnet 4.6+ carry a 1M-token context; Haiku 4.5 is 200K.
-  { key: 'anthropic:claude-opus-4-8', id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'anthropic', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
-  { key: 'anthropic:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
-  { key: 'anthropic:claude-haiku-4-5-20251001', id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200_000, tools: true, vision: true, reasoning: true },
-  // OpenAI (GPT-5 family = 400K context; gpt-4.1 the prior 1M-context gen).
-  { key: 'openai:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'openai', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
-  { key: 'openai:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'openai', contextWindow: 400_000, tools: true, vision: true, reasoning: true },
-  { key: 'openai:gpt-4.1', id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai', contextWindow: 1_047_576, tools: true, vision: true },
-  { key: 'openai:o4-mini', id: 'o4-mini', label: 'o4-mini', provider: 'openai', contextWindow: 200_000, tools: true, reasoning: true },
+  { key: 'anthropic:claude-opus-4-8', id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'anthropic', contextWindow: 1_000_000, maxOutputTokens: 64_000, tools: true, vision: true, reasoning: true },
+  { key: 'anthropic:claude-sonnet-4-6', id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic', contextWindow: 1_000_000, maxOutputTokens: 64_000, tools: true, vision: true, reasoning: true },
+  { key: 'anthropic:claude-haiku-4-5-20251001', id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200_000, maxOutputTokens: 64_000, tools: true, vision: true, reasoning: true },
+  // OpenAI (GPT-5 family = 400K context, 128K output; gpt-4.1 the prior 1M-context gen).
+  { key: 'openai:gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'openai', contextWindow: 400_000, maxOutputTokens: 128_000, tools: true, vision: true, reasoning: true },
+  { key: 'openai:gpt-5-mini', id: 'gpt-5-mini', label: 'GPT-5 mini', provider: 'openai', contextWindow: 400_000, maxOutputTokens: 128_000, tools: true, vision: true, reasoning: true },
+  { key: 'openai:gpt-4.1', id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai', contextWindow: 1_047_576, maxOutputTokens: 32_768, tools: true, vision: true },
+  { key: 'openai:o4-mini', id: 'o4-mini', label: 'o4-mini', provider: 'openai', contextWindow: 200_000, maxOutputTokens: 100_000, tools: true, reasoning: true },
   { key: 'openai:gpt-image-2', id: 'gpt-image-2', label: 'GPT Image 2', provider: 'openai', tools: false, vision: true, imageGeneration: true, imageEdit: true, imageTransport: 'openai-images' },
   { key: 'openai:sora-2', id: 'sora-2', label: 'Sora 2', provider: 'openai', tools: false, vision: true, videoGeneration: true, videoEdit: true, videoTransport: 'openai-videos' },
   { key: 'openai:sora-2-pro', id: 'sora-2-pro', label: 'Sora 2 Pro', provider: 'openai', tools: false, vision: true, videoGeneration: true, videoEdit: true, videoTransport: 'openai-videos' },
   // Google Gemini (~1M context).
-  { key: 'google:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
-  { key: 'google:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true, reasoning: true },
-  { key: 'google:gemini-2.5-flash-lite', id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', provider: 'google', contextWindow: 1_048_576, tools: true, vision: true },
+  { key: 'google:gemini-2.5-pro', id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 1_048_576, maxOutputTokens: 65_536, tools: true, vision: true, reasoning: true },
+  { key: 'google:gemini-2.5-flash', id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1_048_576, maxOutputTokens: 65_536, tools: true, vision: true, reasoning: true },
+  { key: 'google:gemini-2.5-flash-lite', id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', provider: 'google', contextWindow: 1_048_576, maxOutputTokens: 65_536, tools: true, vision: true },
   // xAI Grok (OpenAI-compatible API at api.x.ai/v1; tool-capable). grok-2/3/4*
   // and grok-code-fast-1 were retired 2026-05-15 — current models only.
-  { key: 'xai:grok-4.3', id: 'grok-4.3', label: 'Grok 4.3', provider: 'xai', contextWindow: 1_000_000, tools: true, vision: true, reasoning: true },
-  { key: 'xai:grok-build-0.1', id: 'grok-build-0.1', label: 'Grok Build (coding)', provider: 'xai', contextWindow: 256_000, tools: true },
+  { key: 'xai:grok-4.3', id: 'grok-4.3', label: 'Grok 4.3', provider: 'xai', contextWindow: 1_000_000, maxOutputTokens: 64_000, tools: true, vision: true, reasoning: true },
+  { key: 'xai:grok-build-0.1', id: 'grok-build-0.1', label: 'Grok Build (coding)', provider: 'xai', contextWindow: 256_000, maxOutputTokens: 64_000, tools: true },
   { key: 'xai:grok-imagine-image-quality', id: 'grok-imagine-image-quality', label: 'Grok Imagine Image Quality', provider: 'xai', tools: false, vision: true, imageGeneration: true, imageEdit: true, imageTransport: 'openai-compatible-images' },
   { key: 'xai:grok-imagine-video', id: 'grok-imagine-video', label: 'Grok Imagine Video', provider: 'xai', tools: false, vision: true, videoGeneration: true, videoEdit: true, videoTransport: 'xai-videos' },
   // OpenAI ChatGPT (Codex backend, OAuth-only — Responses dialect). Experimental.

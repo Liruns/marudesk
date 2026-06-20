@@ -16,6 +16,7 @@ export type PluginPermission =
   | 'fs:read' // ctx.fs.read/list (read-only; P1)
   | 'fs:write' // ctx.fs.write (P3 — needs AppliedChange diff wiring)
   | 'net' // ctx.http.fetch (P3 — host-mediated, allowlisted)
+  | 'cmd' // ctx.exec — run a project CLI, host-mediated (same spawn as run_command)
   | 'ui'; // a sandboxed UI panel (v2 — manifest `panel`)
 
 export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
@@ -24,6 +25,7 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'fs:read',
   'fs:write',
   'net',
+  'cmd',
   'ui',
 ];
 
@@ -127,12 +129,34 @@ export type PluginCommandSnapshot = PluginSlashContribution & { pluginId: string
 
 /* ── RPC envelope (host ↔ worker, structured-clone-safe) ──────────────────── */
 
+/**
+ * Plugin lifecycle phase the host announces to the worker (SECOND-PASS "Plugin
+ * onSession lifecycle callback"). A `deactivate` tears the worker down; these are
+ * softer signals a stateful plugin can hook to reset per-conversation state
+ * WITHOUT being torn down: `session-start` on a new/resumed conversation,
+ * `session-end` when one ends. Distinct from `deactivate` (process shutdown).
+ */
+export type PluginSessionPhase = 'session-start' | 'session-end';
+
+/** The result of a host-mediated `ctx.exec` — a project CLI run (design §4). */
+export type PluginExecResult = {
+  /** Process exit code, or null when killed by a signal / timeout. */
+  exitCode: number | null;
+  /** Combined stdout+stderr, scrubbed and bounded. */
+  output: string;
+  /** True when the run hit the time limit. */
+  timedOut: boolean;
+};
+
 /** Messages the host sends to the worker. */
 export type HostToWorker =
   | { kind: 'load'; pluginDir: string; main: string; granted: PluginPermission[] }
   | { kind: 'callTool'; id: number; name: string; callId: string; input: unknown }
   | { kind: 'resolve'; id: number; ok: true; value: unknown } // answer to a perm RPC
   | { kind: 'resolve'; id: number; ok: false; error: string }
+  // Conversation lifecycle (item: onSession). The worker may implement
+  // onSessionStart/onSessionEnd; absent handlers are a no-op.
+  | { kind: 'session'; phase: PluginSessionPhase; sessionId: string }
   | { kind: 'deactivate' };
 
 /** A permission request the worker asks the host to fulfil (carries its callId). */
@@ -140,7 +164,11 @@ export type WorkerPermissionRequest =
   | { kind: 'perm'; id: number; op: 'fs.read'; callId: string; path: string }
   | { kind: 'perm'; id: number; op: 'fs.list'; callId: string; path: string }
   | { kind: 'perm'; id: number; op: 'fs.write'; callId: string; path: string; data: string }
-  | { kind: 'perm'; id: number; op: 'http.fetch'; callId: string; url: string };
+  | { kind: 'perm'; id: number; op: 'http.fetch'; callId: string; url: string }
+  // ctx.exec — run a workspace CLI through the host (same guarded spawn as the
+  // run_command tool), gated on the `cmd` permission. Carries its callId so the
+  // host runs it against the originating tool call's workspace + abort signal.
+  | { kind: 'perm'; id: number; op: 'exec'; callId: string; command: string; timeoutMs?: number };
 
 /** Messages the worker sends to the host. */
 export type WorkerToHost =
@@ -149,6 +177,10 @@ export type WorkerToHost =
   | { kind: 'result'; id: number; ok: true; text: string }
   | { kind: 'result'; id: number; ok: false; error: string }
   | { kind: 'log'; level: 'info' | 'warn' | 'error'; message: string }
+  // ctx.setStatus — a keyed status/progress line for a long-running plugin op
+  // (one-way; no resolve). An empty `text` clears the key. Carries its callId so
+  // the host can scope the status to the originating tool call.
+  | { kind: 'status'; callId: string; statusKey: string; text: string }
   | WorkerPermissionRequest;
 
 /** Default timeouts (ms), mirrored from the external-MCP connector. */

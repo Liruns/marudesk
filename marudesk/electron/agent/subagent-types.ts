@@ -22,6 +22,13 @@ export type SubagentRunRequest = {
    * (subagent-resolve.ts) — walked on a mid-run 429/5xx, parent-loop style.
    */
   readonly fallbacks?: readonly ModelRef[];
+  /**
+   * Continuation id from a PRIOR child run (item: sub-session continuation). When
+   * set, the child seeds its transcript from that saved session instead of
+   * starting cold — the new {@link task} rides on as a follow-up user turn. An
+   * unknown/evicted id falls back to a cold start. See subagent-continuation.ts.
+   */
+  readonly resumeId?: string | null;
 };
 
 export type SubagentRunner = (

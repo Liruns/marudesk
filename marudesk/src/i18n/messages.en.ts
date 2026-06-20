@@ -498,6 +498,7 @@ export const EN_MESSAGES = {
   'agent.chat.costEstimateNote':
     'Estimated from published per-token list prices (June 2026). Actual billing may differ.',
   'agent.chat.export': 'Export conversation (.md)',
+  'agent.chat.exportHtml': 'Export conversation (.html)',
   'agent.chat.search.open': 'Search transcript (Ctrl+F)',
   'agent.chat.search.placeholder': 'Search · empty = prompts',
   'agent.chat.search.older': 'Older match',

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expandInstructionImports } from './instruction-imports';
+import { parseInstructionRule, ruleAppliesToPath } from './instruction-rules.ts';
 
 /**
  * On-demand directory instruction injection (docs/agentic-chat-v4-design.md §B2,
@@ -75,12 +76,23 @@ export async function claimNestedInstructions(wsRoot: string, relPath: string): 
       } catch {
         continue; // not present / unreadable — try the next candidate
       }
+      // Glob-scoped rules: an instruction file may declare `applies-to` globs in
+      // frontmatter; it then injects only when the touched path matches. A file
+      // with no frontmatter is unconditional (today's behavior). The body fed
+      // downstream has the frontmatter stripped.
+      const rule = parseInstructionRule(content);
+      if (!ruleAppliesToPath(rule, relPath)) {
+        // Doesn't apply to THIS path — don't inject or claim it (a later touch of
+        // a matching path can still trigger it). Still first-match-wins for the
+        // directory: AGENTS.md presence decides the slot regardless of its scope.
+        break;
+      }
       // Found this directory's instruction file; inject once per conversation.
       if (!claimed.has(abs)) {
         claimed.add(abs);
         // Expand `@import` tokens (bounded to the workspace) just like the root
         // file, then clip — so a nested AGENTS.md that imports siblings resolves.
-        const expanded = await expandInstructionImports(content, abs, root);
+        const expanded = await expandInstructionImports(rule.body, abs, root);
         const trimmed = expanded.slice(0, MAX_NESTED_BYTES).trim();
         if (trimmed) {
           const relDir = (path.relative(root, d) || '.').split(path.sep).join('/');

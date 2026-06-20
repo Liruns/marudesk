@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   isPatchOpArray,
-  locatePatch,
   type AppliedChange,
   type ApplyError,
   type ApplyOutcome,
@@ -15,69 +14,9 @@ import {
 import type { WorkspaceSummary } from '../shared/workspace';
 import { assertRealParentInsideRoot, isInsideRoot, resolveWorkspacePath } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
-import { locateAnchorLine } from './agent/line-anchor';
+import { isAnchored, resolveEditSpan, resolveSequentialEdits } from './agent/edit-span';
 
 const MAX_PATCH_FILE_SIZE = 4 * 1024 * 1024;
-
-/** Whether an op carries a hash anchor (v6 §W1 B-layer), vs a verbatim oldString. */
-function isAnchored(op: PatchOp): boolean {
-  return typeof op.anchor === 'string' && op.anchor.length > 0;
-}
-
-/**
- * Locate the `[start, end)` char span an edit op replaces. Anchored ops (B-layer)
- * resolve by the unique line hash — and optionally extend through `endAnchor` for
- * a multi-line span; everything else uses the A-layer verbatim `oldString` path
- * unchanged. Shared by classifyOp (preview) and applyPatch (apply) so the two
- * can't drift. A stale/ambiguous anchor comes back as an error reason.
- */
-function resolveEditSpan(
-  content: string,
-  op: PatchOp,
-): { ok: true; start: number; end: number } | { ok: false; reason: string } {
-  if (isAnchored(op)) {
-    const startSpan = locateAnchorLine(content, op.anchor as string);
-    if (!startSpan.ok) {
-      return {
-        ok: false,
-        reason:
-          startSpan.reason === 'ambiguous'
-            ? 'anchor matches multiple identical lines; use oldString or an endAnchor'
-            : 'anchor not found — the file changed since you read it; re-read it for fresh anchors',
-      };
-    }
-    let end = startSpan.end;
-    if (typeof op.endAnchor === 'string' && op.endAnchor.length > 0) {
-      const endSpan = locateAnchorLine(content, op.endAnchor);
-      if (!endSpan.ok) {
-        return {
-          ok: false,
-          reason:
-            endSpan.reason === 'ambiguous'
-              ? 'endAnchor matches multiple identical lines; not unique'
-              : 'endAnchor not found — re-read the file for fresh anchors',
-        };
-      }
-      if (endSpan.end < startSpan.start) {
-        return { ok: false, reason: 'endAnchor precedes anchor' };
-      }
-      end = endSpan.end;
-    }
-    return { ok: true, start: startSpan.start, end };
-  }
-
-  const match = locatePatch(content, op.oldString);
-  if (!match.ok) {
-    return {
-      ok: false,
-      reason:
-        match.reason === 'ambiguous'
-          ? 'oldString matches multiple locations; must be unique'
-          : 'oldString not found in file',
-    };
-  }
-  return { ok: true, start: match.start, end: match.end };
-}
 
 // Unpredictable sibling temp name for the multi-file write. patch deliberately
 // does NOT use fs-safe.atomicWriteFile: it needs a 3-phase batch (write all
@@ -88,7 +27,17 @@ function pendingTmpPath(abs: string): string {
   return `${abs}.marudesk-tmp-${randomBytes(6).toString('hex')}`;
 }
 
-async function readForPatch(absPath: string): Promise<string> {
+/**
+ * A file read for patching: `content` has any leading UTF-8 BOM STRIPPED so the
+ * first line's oldString/anchor can match (a verbatim `indexOf` or a line-anchor
+ * hash never matches a line silently prefixed by U+FEFF), and `bom` carries the
+ * stripped prefix so the caller can RESTORE it on write. The BOM is normalized
+ * for LOCATING only; callers re-prepend `bom` to both the written bytes and the
+ * rollback snapshot, so the file keeps its exact original byte prefix.
+ */
+type PatchRead = { content: string; bom: string };
+
+async function readForPatch(absPath: string): Promise<PatchRead> {
   const st = await fs.stat(absPath);
   if (st.size > MAX_PATCH_FILE_SIZE) {
     throw new Error(
@@ -103,7 +52,12 @@ async function readForPatch(absPath: string): Promise<string> {
   if (buf.subarray(0, 8192).includes(0)) {
     throw new Error('file appears to be binary; patch only edits text files');
   }
-  return buf.toString('utf8');
+  const decoded = buf.toString('utf8');
+  // Strip a single leading BOM for matching; remember it to restore on write.
+  if (decoded.charCodeAt(0) === 0xfeff) {
+    return { content: decoded.slice(1), bom: '\uFEFF' };
+  }
+  return { content: decoded, bom: '' };
 }
 
 async function classifyOp(root: string, op: PatchOp): Promise<PatchOpPreview> {
@@ -188,7 +142,10 @@ async function classifyOp(root: string, op: PatchOp): Promise<PatchOpPreview> {
 
   let content: string;
   try {
-    content = await readForPatch(abs);
+    // BOM-stripped content: the preview matches/locates against the same text the
+    // apply will (so a BOM file's first-line edit previews correctly); the BOM is
+    // re-prepended only when the apply writes bytes.
+    ({ content } = await readForPatch(abs));
   } catch (err) {
     return { kind: 'error', path: op.path, reason: (err as Error).message };
   }
@@ -248,10 +205,18 @@ export async function applyPatch(
 ): Promise<ApplyResult> {
   const root = ws.root;
 
-  // Phase 1: classify + plan against current disk state.
+  // Phase 1: classify + plan against current disk state. Ops are GROUPED by
+  // resolved absolute path so multiple edits to the SAME file compose into a
+  // single plan: each later op re-resolves against the running content and the
+  // file is written ONCE. (Planning per-op instead let two same-file ops each
+  // compute a full-file replacement from the original, and Phase 3's sequential
+  // renames silently dropped all but the last — a data-loss bug.)
   const plans: Plan[] = [];
   const planErrors: ApplyError[] = [];
 
+  type Bucket = { abs: string; kind: 'edit' | 'create'; ops: PatchOp[] };
+  const buckets: Bucket[] = [];
+  const byAbs = new Map<string, Bucket>();
   for (const op of ops) {
     const preview = await classifyOp(root, op);
     if (preview.kind === 'error') {
@@ -265,38 +230,62 @@ export async function applyPatch(
       planErrors.push({ path: op.path, reason: (err as Error).message });
       continue;
     }
-    if (preview.kind === 'create') {
-      plans.push({
-        kind: 'create',
-        op,
-        abs: resolved.abs,
-        tmp: pendingTmpPath(resolved.abs),
-        nextContent: op.newString,
-        originalContent: null,
-      });
+    const existing = byAbs.get(resolved.abs);
+    if (existing) {
+      existing.ops.push(op);
     } else {
-      let content: string;
-      try {
-        content = await readForPatch(resolved.abs);
-      } catch (err) {
-        planErrors.push({ path: op.path, reason: (err as Error).message });
-        continue;
+      const bucket: Bucket = { abs: resolved.abs, kind: preview.kind, ops: [op] };
+      byAbs.set(resolved.abs, bucket);
+      buckets.push(bucket);
+    }
+  }
+
+  // Only build plans when every op validated — keep the all-or-nothing contract.
+  if (planErrors.length === 0) {
+    for (const bucket of buckets) {
+      const first = bucket.ops[0];
+      if (bucket.kind === 'create') {
+        // A create is a whole-file write; any further same-file ops (rare) chain
+        // onto the created content as edits.
+        const chained = resolveSequentialEdits(first.newString, bucket.ops.slice(1));
+        if (!chained.ok) {
+          planErrors.push({ path: first.path, reason: chained.reason });
+          continue;
+        }
+        plans.push({
+          kind: 'create',
+          op: first,
+          abs: bucket.abs,
+          tmp: pendingTmpPath(bucket.abs),
+          nextContent: chained.next,
+          originalContent: null,
+        });
+      } else {
+        let content: string;
+        let bom: string;
+        try {
+          ({ content, bom } = await readForPatch(bucket.abs));
+        } catch (err) {
+          planErrors.push({ path: first.path, reason: (err as Error).message });
+          continue;
+        }
+        // Match/splice against the BOM-stripped content, then RESTORE the BOM on
+        // both the bytes we write AND the rollback snapshot, so a BOM file keeps
+        // its exact original byte prefix and an edit to its first line still lands.
+        const chained = resolveSequentialEdits(content, bucket.ops);
+        if (!chained.ok) {
+          planErrors.push({ path: first.path, reason: chained.reason });
+          continue;
+        }
+        plans.push({
+          kind: 'edit',
+          op: first,
+          abs: bucket.abs,
+          tmp: pendingTmpPath(bucket.abs),
+          nextContent: bom + chained.next,
+          originalContent: bom + content,
+        });
       }
-      const span = resolveEditSpan(content, op);
-      if (!span.ok) {
-        planErrors.push({ path: op.path, reason: span.reason });
-        continue;
-      }
-      const nextContent =
-        content.slice(0, span.start) + op.newString + content.slice(span.end);
-      plans.push({
-        kind: 'edit',
-        op,
-        abs: resolved.abs,
-        tmp: pendingTmpPath(resolved.abs),
-        nextContent,
-        originalContent: content,
-      });
     }
   }
 

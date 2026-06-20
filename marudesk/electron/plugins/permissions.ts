@@ -1,10 +1,14 @@
+import { spawn } from 'node:child_process';
 import dns from 'node:dns/promises';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import type { AppliedChange } from '../../shared/patch';
+import type { PluginExecResult } from '../../shared/plugin';
 import { globToRegExp } from '../../shared/glob';
+import { scrubText } from '../../shared/scrub';
+import { inheritSafeEnv } from '../proc-env';
 import type { ToolContext } from '../agent/tools';
 import { applyPatch } from '../patch';
 import { assertRealInsideRoot, resolveWorkspacePath } from '../fs-safe';
@@ -88,6 +92,80 @@ export async function guardedWrite(
     throw new Error(`plugin fs.write: ${why}`);
   }
   return res.changes[0];
+}
+
+/** Cap captured exec output (mirror run_command's MAX_OUTPUT). */
+const MAX_EXEC_OUTPUT = 60_000;
+const DEFAULT_EXEC_TIMEOUT_MS = 120_000;
+const MIN_EXEC_TIMEOUT_MS = 1_000;
+const MAX_EXEC_TIMEOUT_MS = 600_000;
+
+function clampExecTimeout(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return DEFAULT_EXEC_TIMEOUT_MS;
+  return Math.min(MAX_EXEC_TIMEOUT_MS, Math.max(MIN_EXEC_TIMEOUT_MS, Math.floor(raw)));
+}
+
+/**
+ * `ctx.exec` — run a workspace CLI (linter/formatter/build) through the HOST, the
+ * SAME guarded spawn as the run_command tool: workspace root as cwd, secret-shaped
+ * env stripped (inheritSafeEnv), output bounded, time-boxed, and killed on the
+ * call's AbortSignal. The worker can NEVER spawn a process itself (the module shim
+ * + Node Permission Model deny child_process), so this host path — gated on the
+ * `cmd` permission at the call site — is the only way a plugin reaches a CLI.
+ */
+export function guardedExec(
+  ctx: ToolContext,
+  command: string,
+  timeoutMs?: number,
+): Promise<PluginExecResult> {
+  const trimmed = typeof command === 'string' ? command.trim() : '';
+  if (!trimmed) return Promise.reject(new Error('plugin exec: command must be a non-empty string'));
+  if (!ctx.ws?.root) return Promise.reject(new Error('plugin exec: no workspace is open for this call'));
+  const cwd = ctx.ws.root;
+  const limit = clampExecTimeout(timeoutMs);
+  return new Promise<PluginExecResult>((resolve, reject) => {
+    // Same trust model as run_command: the command targets the user's machine and
+    // is gated by the plugin `cmd` grant; shell interpretation is intended.
+    const child = spawn(trimmed, { cwd, env: inheritSafeEnv(), shell: true });
+    let output = '';
+    let truncated = false;
+    const append = (chunk: Buffer): void => {
+      if (truncated) return;
+      output += chunk.toString('utf8');
+      if (output.length > MAX_EXEC_OUTPUT) {
+        output = output.slice(0, MAX_EXEC_OUTPUT);
+        truncated = true;
+      }
+    };
+    child.stdout?.on('data', append);
+    child.stderr?.on('data', append);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, limit);
+    const onAbort = (): void => {
+      child.kill();
+    };
+    ctx.signal.addEventListener('abort', onAbort, { once: true });
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      ctx.signal.removeEventListener('abort', onAbort);
+    };
+    child.on('error', (err) => {
+      cleanup();
+      reject(new Error(`plugin exec: failed to start — ${scrubText(err.message)}`));
+    });
+    child.on('close', (code) => {
+      cleanup();
+      const body = scrubText(output);
+      resolve({
+        exitCode: timedOut ? null : code,
+        output: truncated ? `${body}\n…(output truncated to ${MAX_EXEC_OUTPUT} chars)` : body,
+        timedOut,
+      });
+    });
+  });
 }
 
 /** Reject hostnames that resolve to a private / loopback / link-local address. */

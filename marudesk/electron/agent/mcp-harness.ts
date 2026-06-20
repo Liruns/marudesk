@@ -10,7 +10,7 @@ import {
   type McpServerConfig,
 } from '../../shared/mcp';
 import { callMcpTool, isWriteTool, listMcpTools } from './mcp';
-import type { ToolContext } from './tools';
+import type { ToolContext, ToolResult } from './tools';
 import {
   parseBoundedWebSearchJsonForTests,
   setWebSearchHtmlTransportForTests,
@@ -1096,6 +1096,140 @@ async function main(): Promise<void> {
     check('web_search: HTML fallback surfaces the title + snippet', out.text.includes('Example Wiki') && out.text.includes('example wiki'));
     setWebSearchTransportForTests(null);
     setWebSearchHtmlTransportForTests(null);
+  }
+
+  /* ── MCP-1 Case A: stable tool-name sort (order-independent of connect order) ── */
+  {
+    // Register two servers whose ids sort z > a, but connect z FIRST so it would land
+    // earlier in registration (flatMap) order. A stable name sort must place a_* before
+    // z_* regardless. The fixed built-in tail (ask_user, spawn_*) must stay at the end.
+    const { client: zClient } = makeMockClient();
+    const { client: aClient } = makeMockClient();
+    await syncExternalMcpServers([{ id: 'z_server', command: 'noop', enabled: true }], async () => ({ client: zClient }));
+    await syncExternalMcpServers(
+      [
+        { id: 'z_server', command: 'noop', enabled: true },
+        { id: 'a_server', command: 'noop', enabled: true },
+      ],
+      async (c) => ({ client: c.id === 'a_server' ? aClient : zClient }),
+    );
+    const names = listMcpTools().map((t) => t.name);
+    const dynamic = names.filter((n) => n.startsWith('a_server__') || n.startsWith('z_server__'));
+    const sortedDynamic = [...dynamic].sort();
+    check('sort: dynamic MCP tools are alphabetical regardless of connect order', JSON.stringify(dynamic) === JSON.stringify(sortedDynamic));
+    check('sort: a_server tools precede z_server tools', names.indexOf('a_server__echo') < names.indexOf('z_server__echo'));
+    check('sort: ask_user stays in the fixed built-in tail (last)', names[names.length - 1] === 'ask_user');
+    check('sort: spawn_subagent is in the fixed tail (after the sorted dynamic tools)', names.indexOf('spawn_subagent') > names.indexOf('z_server__echo'));
+    // A second sync of the SAME set yields byte-identical ordering (cache-stable).
+    const namesAgain = listMcpTools().map((t) => t.name);
+    check('sort: repeated listMcpTools is order-stable', JSON.stringify(names) === JSON.stringify(namesAgain));
+    await syncExternalMcpServers([], async () => ({ client: zClient }));
+  }
+
+  /* ── MCP-1 Case C: pending-connect dedup (concurrent connects share one client) ── */
+  {
+    let connectCalls = 0;
+    let release = (): void => {};
+    const { client } = makeMockClient();
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const connect = async (): Promise<{ client: McpClientLike }> => {
+      connectCalls += 1;
+      await gate; // hold both callers in the same in-flight connect
+      return { client };
+    };
+    const cfg: McpServerConfig = { id: 'dedup', command: 'noop', enabled: true };
+    // Two concurrent connect calls for the same id — must share ONE connection.
+    const p1 = connectServer(cfg, connect);
+    const p2 = connectServer(cfg, connect);
+    check('dedup: a concurrent connect returns the same in-flight promise', p1 === p2);
+    release();
+    const [s1, s2] = await Promise.all([p1, p2]);
+    check('dedup: the connector factory ran exactly once for concurrent calls', connectCalls === 1);
+    check('dedup: both callers see the connected status', s1.state === 'connected' && s2.state === 'connected');
+    check('dedup: the shared server registered its tools once', listMcpTools().filter((t) => t.name === 'dedup__echo').length === 1);
+    // After it settles, a fresh connect runs the factory again (pending map cleared).
+    await connectServer(cfg, connect);
+    check('dedup: a later connect runs the factory again (pending cleared)', connectCalls === 2);
+    await syncExternalMcpServers([], connect);
+  }
+
+  /* ── MCP-1 Case B: deferred tools on reconnect + abort-aware exec ──────────────── */
+  {
+    // Capture (don't auto-run) backoff retries so we control the reconnect timing.
+    const queue: (() => Promise<void>)[] = [];
+    setReconnectSchedulerForTests((run) => {
+      queue.push(run);
+    });
+
+    // 1) Connect normally so lastKnownTools is seeded with [echo, boom].
+    const { client: first } = makeMockClient();
+    const cfg: McpServerConfig = { id: 'defer', command: 'noop', enabled: true };
+    await syncExternalMcpServers([cfg], async () => ({ client: first }));
+    check('defer: server connected and tools seeded', listMcpTools().some((t) => t.name === 'defer__echo'));
+
+    // 2) Drop the transport — schedules a backoff reconnect (captured, not yet run).
+    first.onclose?.();
+    check('defer: a backoff reconnect was scheduled after the drop', queue.length === 1);
+
+    // 3) Run the reconnect, but hold the connect open so the server stays "connecting".
+    //    The deferred tools (from lastKnownTools) must be exposed immediately.
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { client: second, calls: secondCalls } = makeMockClient();
+    setReconnectSchedulerForTests((run) => {
+      queue.push(run);
+    });
+    // Swap the connector the reconnect uses by re-driving connectServer with a slow connect.
+    const slowConnect = async (): Promise<{ client: McpClientLike }> => {
+      await gate;
+      return { client: second };
+    };
+    const reconnectPromise = connectServer(cfg, slowConnect);
+    check('defer: deferred tools are exposed immediately while (re)connecting', listMcpTools().some((t) => t.name === 'defer__echo'));
+
+    // 4) A deferred tool call issued WHILE connecting must wait, then route to the real client.
+    const liveCtx: ToolContext = { ws: null, signal: new AbortController().signal };
+    const deferredTool = listMcpTools().find((t) => t.name === 'defer__echo');
+    const execPromise = deferredTool && 'exec' in deferredTool && typeof deferredTool.exec === 'function'
+      ? deferredTool.exec({ text: 'deferred' }, liveCtx)
+      : Promise.resolve({ summary: '', text: '', isError: true } as ToolResult);
+    // Let the connect settle; the queued deferred call then routes to the real client.
+    release();
+    await reconnectPromise;
+    const deferredOut = await execPromise;
+    check('defer: a deferred call routes to the reconnected client', secondCalls.some((c) => c.name === 'echo'));
+    check('defer: the deferred call returns the real result', deferredOut.text.includes('echo: deferred'));
+
+    // 5) Abort mid-wait: drop again, start a slow reconnect, call a deferred tool with an
+    //    already-aborting signal — it must reject fast with an error ToolResult, not hang.
+    second.onclose?.();
+    const gate2 = new Promise<void>(() => {}); // never resolves — server stays connecting
+    const stalledConnect = async (): Promise<{ client: McpClientLike }> => {
+      await gate2;
+      return { client: second };
+    };
+    const stalledPromise = connectServer(cfg, stalledConnect);
+    const abortController = new AbortController();
+    const abortCtx: ToolContext = { ws: null, signal: abortController.signal };
+    const stalledTool = listMcpTools().find((t) => t.name === 'defer__echo');
+    const abortExec = stalledTool && 'exec' in stalledTool && typeof stalledTool.exec === 'function'
+      ? stalledTool.exec({ text: 'x' }, abortCtx)
+      : Promise.resolve({ summary: '', text: '', isError: false } as ToolResult);
+    abortController.abort(); // turn cancelled while the deferred tool waits
+    const abortOut = await abortExec;
+    check('defer: a deferred call aborted mid-wait returns an error ToolResult', abortOut.isError === true);
+    check('defer: the abort error names the waiting cause', abortOut.text.includes('aborted'));
+
+    // 6) before-quit teardown must not hang on the still-stalled connect / waiters.
+    await disposeExternalMcpServers();
+    check('defer: dispose removed the deferred server tools', !listMcpTools().some((t) => t.name.startsWith('defer__')));
+    // Let the never-resolving connect settle into a no-op (its registration was already torn down).
+    void stalledPromise.catch(() => {});
+    setReconnectSchedulerForTests(null);
   }
 
   console.log(`\nexternal-mcp harness: ${passedCount()} assertions passed`);

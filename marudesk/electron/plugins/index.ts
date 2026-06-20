@@ -1,8 +1,14 @@
 import { app } from 'electron';
 import path from 'node:path';
-import type { PluginCommandSnapshot, PluginStatus } from '../../shared/plugin';
+import type {
+  PluginCommandSnapshot,
+  PluginSessionPhase,
+  PluginStatus,
+} from '../../shared/plugin';
 import { ensurePluginsConfigFile } from './config';
 import { PluginManager } from './manager';
+import type { PluginStatusUpdate } from './host';
+import { setSessionLifecycleNotifier } from '../agent/loop-sessions.ts';
 import type { SpawnWorker } from './transport';
 
 /**
@@ -21,6 +27,14 @@ let userPluginsDir: string | null = null;
 export type InitPluginsDeps = {
   userDir?: string;
   spawn?: SpawnWorker;
+  /**
+   * Sink for plugin `ctx.setStatus` updates. The worker→host pipe is complete and
+   * host-side scrubbed; production (main.ts) does NOT yet pass a sink, so a status
+   * push is an intentional no-op until a renderer HUD subscribes — same
+   * "not-yet-surfaced" posture as `agent:handoff` / `agent:runtime-snapshot`. Wire
+   * a renderer subscriber here when the status UI lands.
+   */
+  onStatus?: (update: PluginStatusUpdate) => void;
 };
 
 /** Scan the user/project plugin folders and activate any approved plugins. */
@@ -35,6 +49,12 @@ export async function initPlugins(
     userDir: userPluginsDir,
     getWorkspaceRoot,
     ...(deps.spawn ? { spawn: deps.spawn } : {}),
+    ...(deps.onStatus ? { onStatus: deps.onStatus } : {}),
+  });
+  // Bridge the agent loop's conversation lifecycle to live plugins (item:
+  // onSession), so a stateful plugin can reset per-conversation state.
+  setSessionLifecycleNotifier((phase: PluginSessionPhase, sessionId: string) => {
+    manager?.notifySession(phase, sessionId);
   });
   await ensurePluginsConfigFile();
   await manager.reload();
@@ -82,6 +102,7 @@ export function resolvePluginPanelFile(pluginId: string, relPath: string): strin
 
 /** Tear down every plugin worker (before-quit). */
 export function shutdownPlugins(): void {
+  setSessionLifecycleNotifier(null);
   manager?.dispose();
   manager = null;
   initialized = false;

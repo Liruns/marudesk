@@ -25,6 +25,8 @@ import {
   GITLAB_DUO_OPENAI_PROXY,
 } from '../auth/gitlab-duo';
 import type { ToolSchema } from './tools';
+import { normalizeToolSchema } from './tools/normalize-schema';
+import { classifyStreamError, backoffDelayMs } from './stream-error.ts';
 
 /**
  * How a turn authenticates to the provider: a stored API key, or an OAuth
@@ -429,14 +431,36 @@ export function buildModel(
  * is attached on purpose: streamText then surfaces each tool call back to the
  * loop, which runs it through the existing validated executor (and can park for
  * approval / ask_user between calls).
+ *
+ * CACHE-1 (docs/agent-port-plan.md): when `opts.cacheable` is true, attach an
+ * Anthropic `cacheControl` breakpoint to ONLY the LAST tool. MCP-1 made the tail
+ * stable — the last entry is always the fixed built-in `ASK_USER_DEF` — so this
+ * one breakpoint covers the whole system+tools prefix as a single cache slot.
+ * `@ai-sdk/anthropic`'s prepareTools reads each tool's
+ * `providerOptions.anthropic.cacheControl` and emits `cache_control` on the wire
+ * (verified against the installed 3.0.x). Non-Anthropic providers ignore the
+ * extra option, and the no-opts / `cacheable: false` / empty-schema paths attach
+ * nothing — byte-identical to the prior behavior.
+ *
+ * PROV-1 (docs/agent-port-plan.md): when `opts.provider` is set, each tool's
+ * input schema is run through {@link normalizeToolSchema} BEFORE `jsonSchema()`
+ * wrapping, so google/openai see a provider-shaped schema (fail-open — a
+ * normalizer error returns the original). Undefined provider (subagent-runtime,
+ * harnesses) is pass-through identity, so those call sites are unaffected.
  */
-export function aiTools(schemas: ToolSchema[]): ToolSet {
+export function aiTools(schemas: ToolSchema[], opts?: { cacheable?: boolean; provider?: ProviderId }): ToolSet {
+  const lastIndex = schemas.length - 1;
+  const cacheLast = opts?.cacheable === true && schemas.length > 0;
+  const provider = opts?.provider;
   return Object.fromEntries(
-    schemas.map((t) => [
+    schemas.map((t, i) => [
       t.name,
       tool({
         description: t.description,
-        inputSchema: jsonSchema(t.inputSchema as JSONSchema7),
+        inputSchema: jsonSchema(normalizeToolSchema(provider, t.inputSchema) as JSONSchema7),
+        ...(cacheLast && i === lastIndex
+          ? { providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } }
+          : {}),
       }),
     ]),
   ) as ToolSet;
@@ -445,18 +469,24 @@ export function aiTools(schemas: ToolSchema[]): ToolSet {
 /* ── Streaming error recovery ──────────────────────────────────────────── */
 
 const MAX_STREAM_RETRIES = 2;
-const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 529]);
 
+/**
+ * Whether a failed stream call should be retried on the SAME provider. Delegates
+ * to the shared classifier ({@link classifyStreamError}) so this and the agent
+ * loop agree on what "transient" means — a `retry` action (429 rate-limit /
+ * overload / 5xx / network) is retryable; quota-exhaustion, overflow, auth, and
+ * bad-request are not (the loop routes those to failover / compaction / surface).
+ */
 export function isRetryableStreamError(err: unknown): boolean {
-  if (APICallError.isInstance(err)) {
-    return typeof err.statusCode === 'number' && RETRYABLE_STATUS.has(err.statusCode);
-  }
-  if (err instanceof Error && /timeout|ECONNRESET|EPIPE|fetch failed/i.test(err.message)) {
-    return true;
-  }
-  return false;
+  return classifyStreamError(err).action === 'retry';
 }
 
+/**
+ * Retry a streaming call on transient errors with exponential backoff, honoring a
+ * server-supplied `Retry-After` when present (item 1). Used by the non-loop stream
+ * paths (subagent / media generation); the main loop drives its own classifier-
+ * based retry/compact/failover routing inline so it can do more than retry-in-place.
+ */
 export async function withStreamRetry<T>(
   fn: () => Promise<T>,
   provider: ProviderId,
@@ -468,8 +498,9 @@ export async function withStreamRetry<T>(
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (!isRetryableStreamError(err) || attempt === MAX_STREAM_RETRIES) break;
-      const delay = Math.min(1000 * 2 ** attempt, 8000);
+      const klass = classifyStreamError(err);
+      if (klass.action !== 'retry' || attempt === MAX_STREAM_RETRIES) break;
+      const delay = klass.retryAfterMs ?? backoffDelayMs(attempt);
       console.warn(
         `[agent] ${provider}/${modelId} stream error (attempt ${attempt + 1}/${
           MAX_STREAM_RETRIES + 1

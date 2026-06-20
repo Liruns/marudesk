@@ -497,6 +497,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.costEstimateNote':
     '공개된 토큰 단가(2026년 6월 기준)로 계산한 추정치입니다. 실제 청구 금액과 다를 수 있습니다.',
   'agent.chat.export': '대화 내보내기 (.md)',
+  'agent.chat.exportHtml': '대화 내보내기 (.html)',
   'agent.chat.search.open': '대화 검색 (Ctrl+F)',
   'agent.chat.search.placeholder': '검색 · 비우면 프롬프트 이동',
   'agent.chat.search.older': '이전(위) 결과',
