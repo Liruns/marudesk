@@ -27,7 +27,13 @@ let userPluginsDir: string | null = null;
 export type InitPluginsDeps = {
   userDir?: string;
   spawn?: SpawnWorker;
-  /** Sink for plugin ctx.setStatus updates (forwarded to the renderer). */
+  /**
+   * Sink for plugin `ctx.setStatus` updates. The worker→host pipe is complete and
+   * host-side scrubbed; production (main.ts) does NOT yet pass a sink, so a status
+   * push is an intentional no-op until a renderer HUD subscribes — same
+   * "not-yet-surfaced" posture as `agent:handoff` / `agent:runtime-snapshot`. Wire
+   * a renderer subscriber here when the status UI lands.
+   */
   onStatus?: (update: PluginStatusUpdate) => void;
 };
 

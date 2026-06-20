@@ -1036,6 +1036,10 @@ function handleUnexpectedClose(id: string): void {
 async function disconnectServer(id: string): Promise<void> {
   // Cancel a pending reconnect first (a reconnecting server isn't in `live`).
   cancelReconnect(id);
+  // Abandon any in-flight connect promise too, so a re-add with NEW config (trust
+  // downgrade, tighter disabledTools, …) starts a fresh connect instead of reusing
+  // the stale-config promise the dedup map would otherwise hand back.
+  pendingConnects.delete(id);
   // Deliberate teardown (MCP-1): drop the deferred cache and fail any waiting deferred
   // tool calls so they don't hang on a client that will never come back.
   lastKnownTools.delete(id);
@@ -1087,6 +1091,9 @@ export async function syncExternalMcpServers(
     const next = byId.get(id);
     if (!next || !next.enabled || configChanged(reconnects.get(id)!.config, next)) {
       cancelReconnect(id);
+      // Drop a stale in-flight connect too (see disconnectServer) so the changed
+      // config isn't silently ignored for the rest of this sync cycle.
+      pendingConnects.delete(id);
     }
   }
 

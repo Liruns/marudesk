@@ -49,7 +49,9 @@ export type StreamErrorClass = {
  */
 const OVERFLOW_KEYWORDS = [
   'prompt is too long',
-  'is too long',
+  // NOT a bare 'is too long' — that also matches field/argument length-validation
+  // 400s that compaction can't fix (it would mangle the transcript and burn the
+  // overflow-compaction budget). Keep only anchored, unambiguous overflow phrases.
   'context_length_exceeded',
   'context length exceeded',
   'maximum context length',

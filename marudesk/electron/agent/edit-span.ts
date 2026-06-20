@@ -128,12 +128,33 @@ export type SequentialEditResult =
 export function resolveSequentialEdits(content: string, ops: PatchOp[]): SequentialEditResult {
   let cur = content;
   for (let i = 0; i < ops.length; i++) {
-    const span = resolveEditSpan(cur, ops[i]);
+    // After the first op, the running content's line numbers have shifted, so a
+    // later op's anchorLine/endAnchorLine HINT (computed from the model's ORIGINAL
+    // read view) is stale. Trusting it would let resolveByLineAndHash short-circuit
+    // onto whatever same-hash duplicate line has moved into the stale position — a
+    // silent wrong-line write. Drop the hints past the first op so the matcher
+    // falls back to the UNIQUE whole-file hash scan, which cleanly rejects two
+    // identical lines as ambiguous instead of guessing.
+    const op = i === 0 ? ops[i] : dropLineHints(ops[i]);
+    const span = resolveEditSpan(cur, op);
     if (!span.ok) return { ok: false, reason: span.reason, opIndex: i };
-    const newString = resolveNewString(cur, ops[i], span);
+    const newString = resolveNewString(cur, op, span);
     cur = cur.slice(0, span.start) + newString + cur.slice(span.end);
   }
   return { ok: true, next: cur };
+}
+
+/**
+ * An op with the line-number HINTS removed (keeps anchor/oldString/newString). Used
+ * for the 2nd+ op of a same-file batch, whose running content has shifted line
+ * numbers and made an `anchorLine` from the original read view unsafe to trust.
+ */
+function dropLineHints(op: PatchOp): PatchOp {
+  if (op.anchorLine === undefined && op.endAnchorLine === undefined) return op;
+  const next: PatchOp = { path: op.path, oldString: op.oldString, newString: op.newString };
+  if (op.anchor !== undefined) next.anchor = op.anchor;
+  if (op.endAnchor !== undefined) next.endAnchor = op.endAnchor;
+  return next;
 }
 
 /* ── batch anchor validation + self-healing remap (EDIT-1 follow-up §4-5) ─── */

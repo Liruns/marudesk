@@ -95,16 +95,14 @@ export function resolveModelEntry(
   const exact = models.find((m) => m.provider === provider && m.id === id);
   if (exact) return exact;
   const norm = normalizeModelId(id);
-  if (norm !== id) {
-    const byProvider = models.find(
-      (m) => m.provider === provider && normalizeModelId(m.id) === norm,
-    );
-    if (byProvider) return byProvider;
-  }
-  // Same-provider normalized match where the CATALOG id is the dotted/prefixed
-  // variant and the incoming id is the canonical one (the reverse skew).
-  const byProviderRev = models.find(
-    (m) => m.provider === provider && normalizeModelId(m.id) === normalizeModelId(id),
+  // Normalized match within the same provider — canonicalizes BOTH sides, so it
+  // catches skew in either direction (incoming dotted vs catalog dashed, or the
+  // reverse) in one pass.
+  const sameProvider = models.find(
+    (m) => m.provider === provider && normalizeModelId(m.id) === norm,
   );
-  return byProviderRev;
+  if (sameProvider) return sameProvider;
+  // Last resort: a normalized match by id ALONE, for a live id whose provider tag
+  // drifted (e.g. an OpenRouter `vendor/model` routed under a compat provider).
+  return models.find((m) => normalizeModelId(m.id) === norm);
 }

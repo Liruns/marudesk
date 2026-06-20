@@ -240,6 +240,33 @@ function appliedByAnchor(
   check('sequential: an op hitting removed text fails at its opIndex', !r.ok && r.opIndex === 1);
 }
 
+{
+  // SAFETY (pre-merge review): a later same-file op's anchorLine hint is computed
+  // from the ORIGINAL read view. After an earlier op shifts line numbers, a same-
+  // hash DUPLICATE line can slide into that stale line position — trusting the hint
+  // would silently write to the WRONG line. resolveSequentialEdits drops the hint
+  // past the first op, so the matcher falls back to the unique scan and a duplicate
+  // is cleanly rejected as ambiguous instead of mis-targeted.
+  const content = 'x\nDUP\nDUP\n'; // x(1), DUP(2), DUP(3)
+  const r = resolveSequentialEdits(content, [
+    { path: 'f', oldString: 'x\n', newString: '' }, // op1: delete line 1 -> 'DUP\nDUP\n'
+    // op2: stale anchorLine=2 now points at the OTHER duplicate; must NOT mis-write.
+    { path: 'f', oldString: '', newString: 'EDITED', anchor: lineAnchor('DUP'), anchorLine: 2 },
+  ]);
+  check('sequential: a stale anchorLine on a duplicate line fails cleanly (no wrong-line write)', !r.ok && r.opIndex === 1);
+}
+
+{
+  // The hint-drop still lets a later op resolve a UNIQUE line by hash via the scan
+  // fallback — the common case is unaffected.
+  const content = 'a\nb\nc\n';
+  const r = resolveSequentialEdits(content, [
+    { path: 'f', oldString: 'a', newString: 'A' }, // op1 shifts nothing structurally
+    { path: 'f', oldString: '', newString: 'C', anchor: lineAnchor('c'), anchorLine: 3 },
+  ]);
+  check('sequential: a later op still resolves a UNIQUE line by hash after the hint is dropped', r.ok && r.next === 'A\nb\nC\n');
+}
+
 /* ── batch anchor validation + remap (EDIT-1 follow-up §4-5) ─────────────── */
 
 /** Run batchValidateAnchors and return the thrown AnchorMismatchError, or null. */
