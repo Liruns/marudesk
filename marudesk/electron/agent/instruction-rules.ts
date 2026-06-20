@@ -35,7 +35,7 @@ export type InstructionRule = {
   readonly body: string;
 };
 
-const FRONTMATTER = /^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+const FRONTMATTER = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 /**
  * Split an instruction file into its (optional) `applies-to` globs and the body
