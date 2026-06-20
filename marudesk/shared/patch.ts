@@ -18,6 +18,15 @@ export type PatchOp = {
    * edits omit it.
    */
   endAnchor?: string;
+  /**
+   * Optional 1-based line-number HINT for {@link anchor} (the line number the read
+   * view showed next to the hash). When present, the matcher checks that exact line
+   * first, so two identical lines are no longer rejected as ambiguous; a wrong/stale
+   * hint falls back to the unique whole-file hash scan. Purely additive.
+   */
+  anchorLine?: number;
+  /** 1-based line-number hint for {@link endAnchor} (same semantics as {@link anchorLine}). */
+  endAnchorLine?: number;
 };
 
 export type PatchOpPreview =
@@ -90,7 +99,12 @@ export function isPatchOp(value: unknown): value is PatchOp {
     typeof v.newString === 'string' &&
     // Optional anchors, when present, must be strings (v6 §W1 B-layer).
     (v.anchor === undefined || typeof v.anchor === 'string') &&
-    (v.endAnchor === undefined || typeof v.endAnchor === 'string')
+    (v.endAnchor === undefined || typeof v.endAnchor === 'string') &&
+    // Optional line-number hints, when present, must be positive integers.
+    (v.anchorLine === undefined ||
+      (typeof v.anchorLine === 'number' && Number.isInteger(v.anchorLine) && v.anchorLine >= 1)) &&
+    (v.endAnchorLine === undefined ||
+      (typeof v.endAnchorLine === 'number' && Number.isInteger(v.endAnchorLine) && v.endAnchorLine >= 1))
   );
 }
 
@@ -124,6 +138,31 @@ export function locatePatch(content: string, oldString: string): PatchMatch {
   return locateFuzzy(content, oldString);
 }
 
+/**
+ * Fold typographic look-alikes to their ASCII equivalents FOR COMPARISON ONLY —
+ * never for the bytes written. Web/markdown paste turns straight quotes into
+ * curly ones, hyphens into en/em dashes, and spaces into NBSP/zero-width, so a
+ * model's oldString and the file's real bytes differ only in these code-points
+ * and both exact `indexOf` and a CR+trim fuzzy match miss. Folding them here lets
+ * the fuzzy locator find the block; the caller still splices the file's REAL
+ * bytes from the matched span, so the original characters are preserved verbatim.
+ */
+function foldTypography(s: string): string {
+  return (
+    s
+      // Fancy single quotes / backtick / acute accent -> '
+      .replace(/[\u2018\u2019\u201A\u201B\u0060\u00B4]/g, "'")
+      // Fancy double quotes / guillemets -> "
+      .replace(/[\u201C\u201D\u201E\u201F\u00AB\u00BB]/g, '"')
+      // Hyphens / en+em dashes / minus sign -> -
+      .replace(/[\u2010-\u2015\u2212]/g, '-')
+      // NBSP / narrow + wide spaces -> a normal space
+      .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ')
+      // Zero-width characters (incl. a mid-string BOM) -> removed
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+  );
+}
+
 /** Per-line whitespace-insensitive (and CRLF-insensitive) block match. */
 function locateFuzzy(content: string, oldString: string): PatchMatch {
   const contentLines = content.split('\n');
@@ -134,7 +173,11 @@ function locateFuzzy(content: string, oldString: string): PatchMatch {
     acc += contentLines[i].length + 1;
   }
 
-  const norm = (s: string): string => s.replace(/\r$/, '').trim();
+  // Normalize for LOCATING only: strip a trailing CR, trim, and fold typographic
+  // look-alikes (curly quotes, en/em dashes, NBSP, zero-width) to ASCII. The span
+  // we return still points at the file's untouched bytes — the caller splices the
+  // real text, so the file's true characters/line-endings are preserved.
+  const norm = (s: string): string => foldTypography(s.replace(/\r$/, '')).trim();
   const old = oldString.split('\n').map(norm);
   // Tolerate stray leading/trailing blank lines in the model's oldString.
   while (old.length > 1 && old[old.length - 1] === '') old.pop();
@@ -169,4 +212,82 @@ function locateFuzzy(content: string, oldString: string): PatchMatch {
   const lastLen = last.endsWith('\r') ? last.length - 1 : last.length;
   const end = offsets[endLine] + lastLen;
   return { ok: true, start, end, fuzzy: true };
+}
+
+/* ── indentation-delta adjustment (fuzzy match, EDIT-2 §3) ──────────────── */
+
+/** Leading run of spaces/tabs on one line (the trailing CR is irrelevant — already trimmed by callers). */
+function leadingIndent(line: string): string {
+  const m = line.match(/^[ \t]*/);
+  return m ? m[0] : '';
+}
+
+/** A line is "blank" for indent purposes when it has no non-whitespace content. */
+function isBlankLine(line: string): boolean {
+  return line.trim().length === 0;
+}
+
+/**
+ * When a fuzzy match landed a block at a DIFFERENT (but uniform) indentation than
+ * the model's `oldString`, shift `newString` by that same indent delta so the
+ * written result keeps the file's REAL indentation instead of the model's guess.
+ *
+ * Pure and conservative — returns `newString` UNCHANGED unless every signal lines
+ * up, so it can never corrupt an intentional indentation change:
+ *   - both `oldString` and `actualText` have the SAME number of non-blank lines;
+ *   - the per-line indent delta (actual − old) is the SAME nonzero value on every
+ *     non-blank pair (a single uniform shift, not a reflow);
+ *   - the indentation is single-character (all spaces OR all tabs), so a delta is
+ *     meaningful — mixed/!uniform indentation is left alone;
+ *   - the edit is not a pure re-indentation (old/new trimmed content identical),
+ *     where the model's indentation IS the intent.
+ * `actualText` is the file's real spanned bytes (LF-normalized, no trailing CR).
+ */
+export function adjustNewIndent(oldString: string, actualText: string, newString: string): string {
+  // If the model's oldString already equals the matched bytes, its indentation is
+  // correct as-is — never touch newString (this also covers the exact-match path).
+  if (oldString === actualText) return newString;
+
+  const stripCR = (s: string): string[] => s.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l));
+  const oldLines = stripCR(oldString);
+  const actLines = stripCR(actualText);
+  const newLines = stripCR(newString);
+
+  // A pure re-indentation (same trimmed content, line-for-line) means the model is
+  // deliberately changing indentation — keep its newString verbatim.
+  if (oldLines.length === newLines.length && oldLines.every((l, i) => l.trim() === newLines[i].trim())) {
+    return newString;
+  }
+
+  // Pair non-blank lines of old vs actual and require ONE uniform, nonzero delta.
+  const oldNonBlank = oldLines.filter((l) => !isBlankLine(l));
+  const actNonBlank = actLines.filter((l) => !isBlankLine(l));
+  if (oldNonBlank.length === 0 || oldNonBlank.length !== actNonBlank.length) return newString;
+
+  const charSet = new Set<string>();
+  let delta = 0;
+  for (let i = 0; i < oldNonBlank.length; i++) {
+    const oi = leadingIndent(oldNonBlank[i]);
+    const ai = leadingIndent(actNonBlank[i]);
+    // Require single-character indentation on both sides so the count is a real delta.
+    if (/ /.test(oi)) charSet.add(' ');
+    if (/\t/.test(oi)) charSet.add('\t');
+    if (/ /.test(ai)) charSet.add(' ');
+    if (/\t/.test(ai)) charSet.add('\t');
+    const d = ai.length - oi.length;
+    if (i === 0) delta = d;
+    else if (d !== delta) return newString; // not a uniform shift
+  }
+  if (delta === 0 || charSet.size > 1) return newString;
+
+  // The indent character to add (positive delta): the one actually used by the file.
+  const indentChar = charSet.has('\t') ? '\t' : ' ';
+  const shifted = newLines.map((line) => {
+    if (isBlankLine(line)) return line; // leave blank lines untouched
+    if (delta > 0) return indentChar.repeat(delta) + line;
+    const cur = leadingIndent(line);
+    const remove = Math.min(-delta, cur.length);
+    return line.slice(remove);
+  });
+  return shifted.join('\n');
 }

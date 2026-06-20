@@ -55,6 +55,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         newString: strProp('Replacement (or full contents for a new file).'),
         anchor: strProp('Optional line <hash> from read_file: replace that line (instead of oldString).'),
         endAnchor: strProp('Optional line <hash>: with anchor, replace the span of lines from anchor through this line (inclusive).'),
+        anchorLine: intProp('Optional 1-based line number shown next to the hash in the read view; pass it with `anchor` to target one of several identical lines.'),
+        endAnchorLine: intProp('Optional 1-based line number for `endAnchor` (same role as `anchorLine`): pass it when the endAnchor line is one of several identical lines.'),
       },
       required: ['path', 'oldString', 'newString'],
       additionalProperties: false,
@@ -76,6 +78,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
               newString: strProp('Replacement.'),
               anchor: strProp('Optional line <hash> from read_file: replace that line.'),
               endAnchor: strProp('Optional line <hash>: span from anchor through this line (inclusive).'),
+              anchorLine: intProp('Optional 1-based line number shown next to the hash in the read view; pass it with `anchor` to target one of several identical lines.'),
+              endAnchorLine: intProp('Optional 1-based line number for `endAnchor` (same role as `anchorLine`): pass it when the endAnchor line is one of several identical lines.'),
             },
             required: ['path', 'oldString', 'newString'],
             additionalProperties: false,
@@ -83,6 +87,49 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         },
       },
       required: ['edits'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'lsp_navigate',
+    description:
+      'Use the workspace language server to jump from a symbol to its definition or find its references. Pass the file plus the 1-based line and character of the symbol (e.g. from read_file). kind="definition" returns the declaration site(s); kind="references" returns every use site. Each result is "relPath:line:col". Requires a configured, ready language server for the file type (Settings → languages.json) — otherwise it reports that no server is available.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: strProp('Workspace-relative path of the file the symbol is in.'),
+        line: intProp('1-based line of the symbol.'),
+        character: intProp('1-based character (column) of the symbol on that line.'),
+        kind: { type: 'string', enum: ['definition', 'references'], description: 'definition (declaration site) or references (use sites).' },
+      },
+      required: ['path', 'line', 'character', 'kind'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'lsp_symbols',
+    description:
+      'List the symbols (classes, functions, methods, variables …) declared in ONE file, as a name/kind/line tree, via the workspace language server. Use it to get a structural outline of a file before reading it in full. Requires a configured, ready language server for the file type — otherwise it reports that no server is available.',
+    inputSchema: {
+      type: 'object',
+      properties: { path: strProp('Workspace-relative path of the file to outline.') },
+      required: ['path'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'lsp_rename',
+    description:
+      'Rename a symbol everywhere it is used, via the workspace language server (a semantic, project-wide rename — not text find/replace). Pass the file plus the 1-based line and character of the symbol and the newName. The server computes every edit; they are applied atomically through the same edit safeguards as edit_file (credential-file and denied-path blocks, plus a refusal if a touched file changed since it was indexed). Requires user approval. Requires a configured, ready language server for the file type.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: strProp('Workspace-relative path of the file the symbol is in.'),
+        line: intProp('1-based line of the symbol.'),
+        character: intProp('1-based character (column) of the symbol on that line.'),
+        newName: strProp('The new name for the symbol.'),
+      },
+      required: ['path', 'line', 'character', 'newName'],
       additionalProperties: false,
     },
   },
@@ -133,6 +180,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         model: strProp('Optional model id, or the tier sentinel "fast"/"smart". Omit to auto-resolve — that is the normal choice.'),
         label: strProp('Optional short label for the child result card.'),
         maxSteps: { type: 'number', description: 'Optional child loop step cap (default 6, max 12).' },
+        resume: strProp('Optional continuation id from a PRIOR spawn_subagent report ("Continuation id: …"). Pass it to RESUME that child — it seeds from the prior transcript so it keeps its workspace understanding instead of re-exploring. The new task becomes a follow-up turn. Omit to start fresh.'),
       },
       required: ['task'],
       additionalProperties: false,

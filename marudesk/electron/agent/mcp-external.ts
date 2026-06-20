@@ -179,6 +179,182 @@ const live = new Map<string, LiveServer>();
 /** Latest status per configured id (incl. disabled/errored ones the UI lists). */
 const statuses = new Map<string, McpServerStatus>();
 
+/* ── MCP-1: deferred-tool exposure during (re)connect ────────────────────────── */
+
+/**
+ * In-flight {@link connectServer} calls keyed by id, so two concurrent connect /
+ * sync calls for the same server share ONE connection instead of racing. Without
+ * this, a second caller would open a second client, register over the first, and
+ * leak the first's transport. The promise is removed in a `finally` once it settles.
+ */
+const pendingConnects = new Map<string, Promise<McpServerStatus>>();
+
+/**
+ * The last tool list a server reported, kept so a reconnecting server can expose its
+ * previously-known tools IMMEDIATELY (a {@link buildDeferredServer}) instead of
+ * adding a full connect round-trip of per-turn latency. Set after a successful
+ * `listTools`; cleared only on a DELIBERATE teardown (disconnect / dispose), never on
+ * an unexpected drop — so a transient blip keeps serving the cached schema while it
+ * reconnects (gajae manager.ts:927).
+ */
+const lastKnownTools = new Map<string, McpExternalToolInfo[]>();
+
+/** A queued waiter for a server's live client (a deferred tool exec mid-reconnect). */
+type ClientWaiter = {
+  resolve: (client: McpClientLike) => void;
+  reject: (err: Error) => void;
+};
+/** Pending client waiters per id, drained when the server reconnects (or rejected on teardown). */
+const clientResolvers = new Map<string, ClientWaiter[]>();
+
+/**
+ * Ids whose tools are currently registered as a DEFERRED placeholder (exposed from
+ * cache while a (re)connect is still in flight, before the server is in {@link live}).
+ * Teardown uses this to unregister a deferred server that never reached `live` — it
+ * wouldn't be caught by iterating `live`. Cleared when the real connection replaces
+ * the placeholder, or on teardown.
+ */
+const deferredRegistered = new Set<string>();
+
+/**
+ * Resolve the live client for an id: if the server is already connected, resolve
+ * immediately; otherwise queue a waiter that {@link drainClientResolvers} settles
+ * when the (re)connect completes. The `signal` (the turn's AbortSignal) rejects the
+ * wait if the turn is cancelled while a slow server is still connecting, so a deferred
+ * tool call never hangs past its turn. A pre-aborted signal rejects synchronously.
+ */
+function resolveClientFor(id: string, signal: AbortSignal): Promise<McpClientLike> {
+  const entry = live.get(id);
+  if (entry) return Promise.resolve(entry.client);
+  if (signal.aborted) {
+    return Promise.reject(new Error('turn aborted while waiting for MCP server'));
+  }
+  return new Promise<McpClientLike>((resolve, reject) => {
+    const waiter: ClientWaiter = { resolve, reject };
+    const queue = clientResolvers.get(id);
+    if (queue) queue.push(waiter);
+    else clientResolvers.set(id, [waiter]);
+    const onAbort = (): void => {
+      removeWaiter(id, waiter);
+      reject(new Error('turn aborted while waiting for MCP server'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    // Wrap resolve/reject so the abort listener is always detached once we settle —
+    // a settled waiter must not later fire onAbort (it would be a no-op, but we keep
+    // the listener set tidy and avoid retaining the closure).
+    waiter.resolve = (client) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(client);
+    };
+    waiter.reject = (err) => {
+      signal.removeEventListener('abort', onAbort);
+      reject(err);
+    };
+  });
+}
+
+/** Remove a specific waiter from a server's resolver queue (on abort). */
+function removeWaiter(id: string, waiter: ClientWaiter): void {
+  const queue = clientResolvers.get(id);
+  if (!queue) return;
+  const i = queue.indexOf(waiter);
+  if (i !== -1) queue.splice(i, 1);
+  if (queue.length === 0) clientResolvers.delete(id);
+}
+
+/** Hand a freshly-connected client to every waiter queued for this id. */
+function drainClientResolvers(id: string, client: McpClientLike): void {
+  const queue = clientResolvers.get(id);
+  if (!queue) return;
+  clientResolvers.delete(id);
+  for (const waiter of queue) waiter.resolve(client);
+}
+
+/**
+ * Reject every waiter for an id (a deliberate teardown, or a drop with no cached
+ * tools). Pending deferred tool calls fail fast with an error ToolResult instead of
+ * hanging — so before-quit teardown never leaves a deferred exec dangling.
+ */
+function rejectClientResolvers(id: string, reason: string): void {
+  const queue = clientResolvers.get(id);
+  if (!queue) return;
+  clientResolvers.delete(id);
+  for (const waiter of queue) waiter.reject(new Error(reason));
+}
+
+/**
+ * Build a placeholder {@link McpServer} from a server's last-known tool list so the
+ * model can see (and call) its tools the instant a reconnect starts, without waiting
+ * for the connect round-trip. Each tool's `exec` awaits the real client via
+ * {@link resolveClientFor} (racing the turn's AbortSignal) and only then issues the
+ * real `client.callTool`. The wrapping (namespacing / gating / write derivation) is
+ * the SAME as {@link buildExternalServer} so a deferred tool behaves identically to a
+ * fully-connected one — it just defers acquiring the client.
+ */
+export function buildDeferredServer(
+  id: string,
+  tools: McpExternalToolInfo[],
+  opts: ExternalServerOptions = {},
+): McpServer {
+  const prefix = `${id}__`;
+  const policy = createExternalToolPolicy(opts);
+  const wrapped: McpTool[] = tools
+    .filter((t): t is ExposedMcpExternalToolInfo => shouldExposeExternalTool(t.name, policy, id))
+    .map((t) => {
+      const toolName = t.name;
+      const namespaced = `${prefix}${toolName}`;
+      const gated = isExternalToolGated(toolName, policy);
+      const write = annotatedAsWrite(t.annotations);
+      const title =
+        t.title ?? (typeof t.annotations?.title === 'string' ? t.annotations.title : undefined);
+      const safeTitle = title ? scrubAndClipToolMetadataText(title) : undefined;
+      const label = safeTitle && safeTitle !== toolName ? `${safeTitle} - ${toolName}` : toolName;
+      const inputSchema = sanitizeExternalInputSchema(t.inputSchema);
+      const description = t.description
+        ? `[${id}] ${label}: ${scrubAndClipToolMetadataText(t.description)}`
+        : `[${id}] external MCP tool "${label}".`;
+      const tool: McpTool = {
+        name: namespaced,
+        description,
+        inputSchema,
+        group: 'mcp',
+        gated,
+        ...(write ? { write: true } : {}),
+        async exec(input, ctx): Promise<ToolResult> {
+          let client: McpClientLike;
+          try {
+            // Wait for the real (re)connecting client; the turn's AbortSignal rejects
+            // this if the turn is cancelled mid-wait so we never hang. We do NOT close
+            // the client on abort — it belongs to the manager, not this call.
+            client = await resolveClientFor(id, ctx.signal);
+          } catch (err) {
+            return {
+              summary: `${namespaced} error`,
+              text: externalErrorText(namespaced, err),
+              isError: true,
+            };
+          }
+          try {
+            const res = await client.callTool(
+              { name: toolName, arguments: (input ?? {}) as Record<string, unknown> },
+              undefined,
+              { timeout: CALL_TIMEOUT_MS },
+            );
+            return toToolResult(namespaced, res);
+          } catch (err) {
+            return {
+              summary: `${namespaced} error`,
+              text: externalErrorText(namespaced, err),
+              isError: true,
+            };
+          }
+        },
+      };
+      return tool;
+    });
+  return { name: id, tools: wrapped };
+}
+
 function setStatus(
   config: McpServerConfig,
   state: McpConnectionState,
@@ -571,12 +747,38 @@ function getInheritedEnv(): Record<string, string> {
  * wrapping/registration against a mock client without spawning a real process.
  * Never throws — failure is logged + recorded as `error` status (graceful).
  */
-export async function connectServer(
+export function connectServer(
   config: McpServerConfig,
   connect: ConnectFn = connectClient,
 ): Promise<McpServerStatus> {
+  // Pending-connect dedup (MCP-1): two concurrent connect/sync calls for the same id
+  // share ONE connection instead of racing (which would double-register and leak the
+  // first client). The first caller drives the connect; the rest await its result.
+  const inflight = pendingConnects.get(config.id);
+  if (inflight) return inflight;
+  const run = connectServerInner(config, connect).finally(() => {
+    pendingConnects.delete(config.id);
+  });
+  pendingConnects.set(config.id, run);
+  return run;
+}
+
+async function connectServerInner(
+  config: McpServerConfig,
+  connect: ConnectFn,
+): Promise<McpServerStatus> {
   // A deliberate connect supersedes any pending backoff retry for this id.
   cancelReconnect(config.id);
+  // Deferred exposure (MCP-1): if we've seen this server's tools before (a reconnect),
+  // register them from cache RIGHT NOW so the model can call them with zero connect
+  // latency. Each cached tool's exec waits for the real client (see buildDeferredServer)
+  // — the fully-connected server replaces this entry once the connect settles below.
+  const cachedTools = lastKnownTools.get(config.id);
+  const hasDeferred = Array.isArray(cachedTools) && cachedTools.length > 0;
+  if (hasDeferred) {
+    registerMcpServer(buildDeferredServer(config.id, cachedTools, optsFromConfig(config)));
+    deferredRegistered.add(config.id);
+  }
   setStatus(config, 'connecting', 0);
   try {
     const { client } = await connect(config);
@@ -588,11 +790,17 @@ export async function connectServer(
       await client.close().catch(() => {});
       throw err;
     }
+    // Cache the fresh list for the next reconnect's deferred exposure.
+    lastKnownTools.set(config.id, tools);
     const server = wrapExternalServer(config.id, client, tools, optsFromConfig(config));
     registerMcpServer(server);
+    // The real connection now backs the tools — the deferred placeholder (if any) is replaced.
+    deferredRegistered.delete(config.id);
     const status = setConnectedStatus(config, server);
     // Keep the connector on the live entry so an unexpected drop reconnects the same way.
     live.set(config.id, { config, client, status, connect });
+    // Hand the live client to any deferred tool calls that were waiting on this reconnect.
+    drainClientResolvers(config.id, client);
     // Crash detection: if the transport drops after we're connected, drop the dead
     // tools and schedule a backoff reconnect (§health) so a transient blip recovers.
     client.onclose = () => handleUnexpectedClose(config.id);
@@ -605,6 +813,14 @@ export async function connectServer(
     // Don't log the message verbatim (args/env/headers could be sensitive) — id + a
     // scrubbed reason is enough to debug.
     console.error(`[mcp] server "${config.id}" failed to connect: ${scrubAndClipToolMetadataText(message)}`);
+    // If this attempt exposed deferred tools but failed to connect, drop them so the
+    // model doesn't see tools backed by a never-resolving client. A subsequent backoff
+    // retry re-exposes them. Waiters are left queued for the retry (the turn signal
+    // still bounds them); a final give-up reaches beginReconnect's give-up branch.
+    if (hasDeferred && !live.has(config.id)) {
+      unregisterMcpServer(config.id);
+      deferredRegistered.delete(config.id);
+    }
     return setStatus(config, 'error', 0, { error: message });
   }
 }
@@ -685,6 +901,8 @@ async function refreshServerTools(id: string): Promise<void> {
   try {
     const listed = await entry.client.listTools();
     const tools = Array.isArray(listed?.tools) ? listed.tools : [];
+    // Keep the deferred cache fresh so a later reconnect exposes the current tools.
+    lastKnownTools.set(id, tools);
     const server = wrapExternalServer(id, entry.client, tools, optsFromConfig(entry.config));
     registerMcpServer(server);
     entry.status = setConnectedStatus(entry.config, server);
@@ -702,8 +920,12 @@ type ConnectFn = (c: McpServerConfig) => Promise<{ client: McpClientLike }>;
 
 /** Fast exponential-backoff retries right after a drop (transient blips). */
 const MAX_RECONNECT_ATTEMPTS = 5;
-/** First retry delay; doubles each attempt, capped at {@link RECONNECT_CAP_MS}. */
-const RECONNECT_BASE_MS = 1_000;
+/**
+ * First retry delay; doubles each attempt, capped at {@link RECONNECT_CAP_MS}. The
+ * backoff schedule is therefore [500, 1000, 2000, 4000, 8000…] (MCP-1) so a
+ * transient blip recovers fast without a full second of dead air on the first retry.
+ */
+const RECONNECT_BASE_MS = 500;
 const RECONNECT_CAP_MS = 30_000;
 /**
  * After the fast burst, keep trying on a slow fixed interval (circuit-breaker
@@ -767,6 +989,12 @@ function beginReconnect(config: McpServerConfig, connect: ConnectFn, attempt: nu
   if (attempt > MAX_TOTAL_ATTEMPTS) {
     console.error(`[mcp] server "${config.id}" gave up reconnecting after ${MAX_TOTAL_ATTEMPTS} attempts`);
     setStatus(config, 'error', 0, { error: 'connection closed' });
+    // The server is now considered dead — fail any deferred tool calls still waiting
+    // for it, drop its cache, and remove any deferred placeholder tools so a future
+    // deliberate connect starts clean (MCP-1).
+    lastKnownTools.delete(config.id);
+    rejectClientResolvers(config.id, 'MCP server unavailable (reconnect gave up)');
+    if (deferredRegistered.delete(config.id) && !live.has(config.id)) unregisterMcpServer(config.id);
     return;
   }
   const idle = attempt > MAX_RECONNECT_ATTEMPTS;
@@ -808,10 +1036,18 @@ function handleUnexpectedClose(id: string): void {
 async function disconnectServer(id: string): Promise<void> {
   // Cancel a pending reconnect first (a reconnecting server isn't in `live`).
   cancelReconnect(id);
+  // Deliberate teardown (MCP-1): drop the deferred cache and fail any waiting deferred
+  // tool calls so they don't hang on a client that will never come back.
+  lastKnownTools.delete(id);
+  rejectClientResolvers(id, 'MCP server disconnected');
+  // A deferred placeholder may be registered for a server that's mid-reconnect (not in
+  // `live`) — unregister it here so a deliberate removal/disable clears its tools too.
+  if (deferredRegistered.delete(id) && !live.has(id)) unregisterMcpServer(id);
   const entry = live.get(id);
   if (!entry) return;
   live.delete(id);
   unregisterMcpServer(id);
+  deferredRegistered.delete(id);
   // Detach the crash handler first — this is a deliberate teardown, not a drop.
   entry.client.onclose = undefined;
   await entry.client.close().catch(() => {});
@@ -909,5 +1145,17 @@ export async function disposeExternalMcpServers(): Promise<void> {
   for (const id of [...reconnects.keys()]) cancelReconnect(id);
   const ids = [...live.keys()];
   await Promise.all(ids.map((id) => disconnectServer(id)));
+  // Unregister any deferred placeholder still registered for a server that never reached
+  // `live` (a stalled reconnect) — disconnectServer above only iterates live ids.
+  for (const id of [...deferredRegistered]) unregisterMcpServer(id);
+  deferredRegistered.clear();
+  // Fail any deferred tool calls still waiting on a server that never became live (a
+  // reconnecting one disconnectServer didn't cover), and drop all deferred state so
+  // nothing dangles past app exit (MCP-1 before-quit teardown).
+  for (const id of [...clientResolvers.keys()]) {
+    rejectClientResolvers(id, 'app shutting down');
+  }
+  lastKnownTools.clear();
+  pendingConnects.clear();
   statuses.clear();
 }

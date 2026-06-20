@@ -62,6 +62,39 @@ function describeContentItem(item: { type: string; [k: string]: unknown }): stri
 }
 
 /**
+ * Whether an external `client.callTool` value is a shape that {@link toToolResult}
+ * cannot safely read — i.e. would THROW (or yield nonsense) on field access. The
+ * throw risk is specifically a NON-OBJECT: `null` / `undefined` / a string /
+ * number, where reading `.content` either throws (null/undefined) or is
+ * meaningless. A well-formed object that merely OMITS `content` (a bare `{}`,
+ * `{content:"x"}` …) is NOT malformed — the existing code path already degrades
+ * those to "(no content)" gracefully, so we leave that behavior untouched and
+ * only intercept the genuinely unreadable values. Pure + exported for the harness.
+ */
+export function isMalformedMcpResult(res: unknown): boolean {
+  return res === null || typeof res !== 'object';
+}
+
+/**
+ * Normalize a malformed external tool result into a SAFE error {@link ToolResult}
+ * the loop can fold into the transcript without throwing (SECOND-PASS item 5 /
+ * gajae `agent-loop.ts` coerceToolResult). A third-party MCP/plugin that returns
+ * `null`, a non-object, or a result missing both `content` and
+ * `structuredContent` would otherwise make {@link toToolResult} read `.content`
+ * off a non-object and throw MID-LOOP, leaving a half-written transcript (an
+ * assistant tool_use with no paired tool_result). Routing it through here yields
+ * an `isError` result instead, so the turn stays valid and the model is told the
+ * tool misbehaved. Pure + exported for the harness.
+ */
+export function coerceMalformedMcpResult(name: string): ToolResult {
+  return {
+    summary: `${name} returned a malformed result`,
+    text: `${name} returned a malformed result (no content). The tool did not return a valid MCP response — treat it as failed and try a different approach.`,
+    isError: true,
+  };
+}
+
+/**
  * Map one `client.callTool` result into marudesk's {@link ToolResult}. MCP returns a
  * content ARRAY (text / image / audio / resource / resource_link); we join the text
  * parts verbatim and render every non-text part as a compact note via
@@ -70,8 +103,14 @@ function describeContentItem(item: { type: string; [k: string]: unknown }): stri
  * that so the model still sees the payload. Text is scrubbed at egress (a
  * third-party tool may echo secrets). `isError` carries through. Exported for the
  * headless harness.
+ *
+ * Boundary guard (SECOND-PASS item 5): a malformed `res` (null / non-object /
+ * missing content+structuredContent) is normalized to a safe error result BEFORE
+ * any field access, so a misbehaving external server can never throw here and
+ * orphan the transcript mid-loop.
  */
 export function toToolResult(name: string, res: McpCallToolResult): ToolResult {
+  if (isMalformedMcpResult(res)) return coerceMalformedMcpResult(name);
   const items = Array.isArray(res.content) ? res.content : [];
   const parts: string[] = [];
   for (const item of items) {

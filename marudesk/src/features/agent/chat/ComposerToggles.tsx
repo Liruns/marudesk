@@ -1,8 +1,8 @@
-import { Download, Eraser, Search } from 'lucide-react';
+import { Code2, Download, Eraser, Search } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
 import { useSettingsStore } from '../../settings/store';
 import { useAgentStore } from '../store';
-import { downloadTranscript } from './exportTranscript';
+import { downloadTranscript, downloadTranscriptHtml } from './exportTranscript';
 import { ApprovalToggle, EffortToggle, VerbosityToggle } from './Toggles';
 
 /**
@@ -72,6 +72,15 @@ export function ComposerToggles({
             className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
           >
             <Download size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadTranscriptHtml(messages)}
+            aria-label={t('agent.chat.exportHtml')}
+            title={t('agent.chat.exportHtml')}
+            className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
+          >
+            <Code2 size={11} />
           </button>
         </>
       ) : null}

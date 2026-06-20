@@ -14,6 +14,7 @@ import type {
   AgentToolInfo,
   ThreadSummary,
 } from './agent';
+import type { RuntimeSnapshot } from './agent-orchestration';
 import type { ConsoleErrorEvidence } from './runtime-evidence';
 import type { DiagnosticsState } from './diagnostics';
 import type {
@@ -761,6 +762,12 @@ export interface IpcMap {
     args: [payload?: { workspaceId?: WorkspaceId; threadId?: string }];
     result: AgentChatState;
   };
+  // Typed whole-runtime snapshot (all threads + background agents) for a future
+  // HUD/status card or a bug-report dump. Optional workspace scope.
+  'agent:runtime-snapshot': {
+    args: [payload?: { workspaceId?: WorkspaceId }];
+    result: RuntimeSnapshot;
+  };
   // Start a fresh conversation (clears transcript; keeps still-applied edits).
   'agent:reset': { args: [payload?: { workspaceId?: WorkspaceId }]; result: boolean };
   // Compact the conversation: summarize the transcript for the model while
@@ -770,6 +777,26 @@ export interface IpcMap {
   'agent:compact': {
     args: [payload?: { focus?: string; workspaceId?: WorkspaceId }];
     result: { ok: boolean; reason?: string };
+  };
+  // Session handoff (SECOND-PASS): generate an explicit LLM checkpoint of the live
+  // transcript to seed a fresh session. Non-destructive by default — returns the
+  // document + the raw model brief. With `startNew`, also resets the addressed
+  // thread and seeds a new turn (returning its `seededTurnId`). Provider/model are
+  // optional overrides for the seeded session (default: the conversation's own).
+  'agent:handoff': {
+    args: [
+      payload?: {
+        provider?: ProviderId;
+        model?: string;
+        workspaceId?: WorkspaceId;
+        threadId?: string;
+        focus?: string;
+        startNew?: boolean;
+      },
+    ];
+    result:
+      | { ok: true; document: string; summary: string; seededTurnId?: string }
+      | { ok: false; reason: string };
   };
   // Session history (v3 §5-C): list past saved conversations, resume one as the
   // active chat, or delete one. The list backs the sessions UI; resume swaps state.

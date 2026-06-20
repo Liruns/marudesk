@@ -21,10 +21,11 @@ export function subagentSuccess(
   request: SubagentRunRequest,
   result: string,
   traces: readonly string[],
+  continuationId?: string,
 ): ToolResult {
   return {
     summary: subagentSummary(request),
-    text: formatSubagentResult(request, 'completed', result, traces),
+    text: formatSubagentResult(request, 'completed', result, traces, continuationId),
   };
 }
 
@@ -33,13 +34,14 @@ export function subagentFailure(
   error: string,
   traces: readonly string[] = [],
   partial = '',
+  continuationId?: string,
 ): ToolResult {
   const detail = partial.trim()
     ? `${partial.trim()}\n\nError: ${error}`
     : `Error: ${error}`;
   return {
     summary: `${subagentSummary(request)} failed`,
-    text: formatSubagentResult(request, 'failed', detail, traces),
+    text: formatSubagentResult(request, 'failed', detail, traces, continuationId),
     isError: true,
   };
 }
@@ -54,8 +56,15 @@ function formatSubagentResult(
   status: 'completed' | 'failed',
   body: string,
   traces: readonly string[],
+  continuationId?: string,
 ): string {
   const traceText = traces.length > 0 ? `\n\nTool trace:\n${traces.map((trace) => `- ${trace}`).join('\n')}` : '';
+  // Surface the continuation id so the parent can RESUME this child (item:
+  // sub-session continuation) by passing `resume: <id>` to a follow-up
+  // spawn_subagent — seeding the child from this transcript instead of cold.
+  const contText = continuationId
+    ? `\n\nContinuation id: ${continuationId} (pass as spawn_subagent \`resume\` to continue this session without re-exploring).`
+    : '';
   const text = [
     `Task: ${request.task}`,
     ...(request.agent ? [`Agent: ${request.agent.name}`] : []),
@@ -65,7 +74,7 @@ function formatSubagentResult(
     'Result:',
     body,
   ].join('\n');
-  const scrubbed = scrubText(`${text}${traceText}`);
+  const scrubbed = scrubText(`${text}${traceText}${contText}`);
   return scrubbed.length <= MAX_CHILD_RESULT_CHARS
     ? scrubbed
     : `${scrubbed.slice(0, MAX_CHILD_RESULT_CHARS)}\n...[subagent output clipped]`;

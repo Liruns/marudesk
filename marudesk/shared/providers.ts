@@ -214,6 +214,14 @@ export type ModelEntry = {
   provider: ProviderId;
   /** Token context window when known — drives the chat's usage indicator. */
   contextWindow?: number;
+  /**
+   * Per-call output-token ceiling when the provider documents one above the
+   * agent's flat 4096 floor (SECOND-PASS item 1). Opus/Sonnet 4.x admit 64K and
+   * the gpt-5 family 128K, so a large answer is silently truncated at 4096 unless
+   * the cap is lifted here. Omitted where unknown — the agent then keeps the 4096
+   * floor (see reasoning-config.maxTokensForTurn).
+   */
+  maxOutputTokens?: number;
   /** Whether the model supports tool calling (the agent requires it). */
   tools?: boolean;
   /** Supports image input — drives the picker's capability badge. */

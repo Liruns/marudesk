@@ -1,5 +1,6 @@
 import { streamText, type ModelMessage } from 'ai';
 import { MODELS, isProviderId, type ProviderId } from '../../shared/providers';
+import { resolveModelEntry } from '../../shared/model-normalize';
 import { getSettingsSync } from '../settings';
 import { CLAUDE_CODE_SYSTEM_PREFIX } from '../oauth/config';
 import { buildEnvironmentContext } from './environment';
@@ -21,6 +22,7 @@ import {
 } from './tools/types';
 import { childPrompt, subagentFailure, subagentSuccess, SUBAGENT_SYSTEM } from './subagent-format';
 import type { ChildToolCall, ChildToolResultPart, SubagentRunRequest } from './subagent-types';
+import { loadContinuation, saveContinuation } from './subagent-continuation.ts';
 
 /**
  * Optional per-step usage sink (audit H5). The foreground subagent passes one
@@ -41,6 +43,8 @@ type ActiveChildModel = {
   model: ReturnType<typeof buildModel>;
   system: string;
   modelReasoning: boolean;
+  /** Catalog per-call output ceiling (item 1); undefined → 4096 floor. */
+  maxOutputTokens?: number;
 };
 
 export async function runChildAgent(
@@ -69,14 +73,15 @@ export async function runChildAgent(
         ? `${CLAUDE_CODE_SYSTEM_PREFIX}\n(The line above is an API routing requirement. Your name is Maru — identify yourself as such, never as "Claude Code".)\n\n${SUBAGENT_SYSTEM}`
         : SUBAGENT_SYSTEM;
     const system = [baseSystem, roleSystem, env].filter((s): s is string => !!s?.trim()).join('\n\n---\n\n');
-    const modelReasoning =
-      MODELS.find((entry) => entry.provider === provider && entry.id === modelId)?.reasoning ?? false;
+    const entry = resolveModelEntry(MODELS, provider, modelId);
+    const modelReasoning = entry?.reasoning ?? false;
     return {
       provider,
       modelId,
       model: buildModel(provider, modelId, resolved.auth, resolved.baseUrl),
       system,
       modelReasoning,
+      maxOutputTokens: entry?.maxOutputTokens,
     };
   };
 
@@ -102,7 +107,15 @@ export async function runChildAgent(
   };
 
   const tools = aiTools(listChildToolDefs(effectiveAllow ?? undefined, { write: opts?.write === true }));
-  const transcript: ModelMessage[] = [{ role: 'user', content: childPrompt(request, ctx) }];
+  // Continuation resume (item: sub-session continuation): when the spawn carries a
+  // `resumeId`, seed from that saved transcript so the child keeps its prior
+  // workspace understanding; the new task rides on as a follow-up user turn. An
+  // unknown/evicted id falls back to a cold start (a fresh childPrompt). The child
+  // loop's transcript is provider-neutral, so a resumed run can still fail over.
+  const resumed = request.resumeId ? loadContinuation(request.resumeId) : null;
+  const transcript: ModelMessage[] = resumed
+    ? [...resumed, { role: 'user', content: `Follow-up task:\n${request.task}` }]
+    : [{ role: 'user', content: childPrompt(request, ctx) }];
   let finalText = '';
 
   try {
@@ -145,7 +158,10 @@ export async function runChildAgent(
       }
       transcript.push({ role: 'assistant', content: assistantContent(text, calls) });
       if (calls.length === 0) {
-        return subagentSuccess(request, finalText || '(child returned no text)', traces);
+        // Persist this child's transcript so a follow-up spawn can resume it
+        // (item: sub-session continuation) and surface the id in the report.
+        const continuationId = saveContinuation(transcript);
+        return subagentSuccess(request, finalText || '(child returned no text)', traces, continuationId);
       }
       const toolResults: ChildToolResultPart[] = [];
       for (const call of calls) {
@@ -161,11 +177,16 @@ export async function runChildAgent(
     return subagentFailure(request, humanizeModelError(err, current.provider, current.modelId), traces);
   }
 
+  // Stepped out before a final report: persist the transcript so the parent can
+  // RESUME this child to finish, instead of restarting it cold (item:
+  // sub-session continuation).
+  const continuationId = saveContinuation(transcript);
   return subagentFailure(
     request,
     `stopped at the child step limit (${request.maxSteps}) before a final report`,
     traces,
     finalText,
+    continuationId,
   );
 }
 
@@ -255,7 +276,7 @@ async function childStep(params: {
     tools: params.tools,
     maxOutputTokens: codexBackend
       ? undefined
-      : maxTokensForTurn(active.provider, active.modelReasoning, params.effort),
+      : maxTokensForTurn(active.provider, active.modelReasoning, params.effort, active.maxOutputTokens),
     providerOptions: buildProviderOptions(
       active.provider,
       active.system,

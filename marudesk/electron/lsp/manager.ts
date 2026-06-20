@@ -226,6 +226,27 @@ export function syncFromContext(root: string | null, editors: readonly EditorMir
   pushStatuses(root);
 }
 
+/**
+ * The ready language-server clients that handle `file` (by extension) under
+ * `root` — what the LSP agent tools (LSP-1) query for definition/references/
+ * symbols/rename. Filters the live client map to ready entries whose server spec
+ * lists the file's extension, so a caller never reaches a starting/errored
+ * client or one that doesn't speak the file's language. Empty array = no ready
+ * server for this file type (the tools turn that into a graceful error, not a
+ * throw).
+ */
+export function getReadyClientsForFile(root: string, file: string): LspClient[] {
+  const ext = extOf(file);
+  const out: LspClient[] = [];
+  for (const entry of clients.values()) {
+    if (entry.root !== root) continue;
+    if (entry.status !== 'ready') continue;
+    if (!entry.spec.extensions.includes(ext)) continue;
+    out.push(entry.client);
+  }
+  return out;
+}
+
 /** Tear down every language server (call on app quit). */
 export function disposeAllLsp(): void {
   for (const entry of clients.values()) entry.client.dispose();

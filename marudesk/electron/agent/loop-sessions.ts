@@ -7,6 +7,7 @@ import type { SessionRecord, SessionSummary } from '../../shared/context';
 import { getSettingsSync } from '../settings';
 import { clearReadTracker } from './read-tracker';
 import { clearNestedInstructionClaims } from './nested-instructions';
+import { clearContinuations } from './subagent-continuation.ts';
 import { clearTurnRuntimeState } from './loop-turn-actions.ts';
 import {
   deleteSession,
@@ -29,6 +30,43 @@ import { cancelBackgroundForConversation } from './background.ts';
  * (handlers.ts surface). Operate on the shared {@link S} container so they can
  * reassign loop state by reference. Extracted from loop.ts.
  */
+
+/**
+ * Conversation-lifecycle notifier seam (item: plugin onSession). The plugin
+ * runtime registers a notifier at boot ({@link import('../plugins').initPlugins});
+ * the loop fires it on a conversation boundary so stateful plugins can reset
+ * per-conversation state. A registration seam (not a direct import) keeps the
+ * agent loop free of any plugins/ dependency — avoiding an import cycle, since
+ * plugins/host imports from agent/. No notifier ⇒ a no-op (default).
+ */
+type SessionLifecycleNotifier = (phase: 'session-start' | 'session-end', sessionId: string) => void;
+let sessionNotifier: SessionLifecycleNotifier | null = null;
+
+/** Register the conversation-lifecycle notifier (the plugin runtime, at boot). */
+export function setSessionLifecycleNotifier(fn: SessionLifecycleNotifier | null): void {
+  sessionNotifier = fn;
+}
+
+function notifySession(phase: 'session-start' | 'session-end', S: ThreadContainer): void {
+  if (!sessionNotifier) return;
+  // The leaving conversation's id, or a synthetic per-thread id when it never
+  // started a turn (still a valid boundary signal — the chat is being cleared).
+  const sessionId = S.conversationId ?? `thread:${S.workspaceId ?? 'global'}`;
+  try {
+    sessionNotifier(phase, sessionId);
+  } catch {
+    // A misbehaving notifier must never break a reset/resume.
+  }
+}
+
+/**
+ * Announce the start of a fresh conversation (item: plugin onSession). Called by
+ * the loop the first time a turn assigns a new conversationId after a reset, so a
+ * stateful plugin can initialize per-conversation state.
+ */
+export function notifySessionStart(S: ThreadContainer): void {
+  notifySession('session-start', S);
+}
 
 /** Clip a tool result before persisting so a session file can't grow unbounded. */
 function snapshotMessagesForSave(S: ThreadContainer): AgentMessage[] {
@@ -76,6 +114,9 @@ export async function persistSession(S: ThreadContainer = activeContainer()): Pr
 
 export function reset(S: ThreadContainer = activeContainer()): boolean {
   if (containerBusy(S)) return false;
+  // The leaving conversation ends here — tell stateful plugins to drop its state
+  // (item: plugin onSession) before we clear conversationId below.
+  notifySession('session-end', S);
   // Detached background agents are conversation-scoped — abort + drop the leaving
   // conversation's tasks so they never bleed into the next chat.
   cancelBackgroundForConversation(S.conversationId);
@@ -93,6 +134,8 @@ export function reset(S: ThreadContainer = activeContainer()): boolean {
   // Drop lazily-injected directory instruction claims so the next conversation
   // re-injects them on demand.
   clearNestedInstructionClaims();
+  // Drop saved subagent continuations — they belong to the leaving conversation.
+  clearContinuations();
   // Per-turn runtime markers (turn start URL + checkpoint snapshot) are
   // conversation-scoped and session-lived; drop them so they don't accumulate.
   clearTurnRuntimeState();
@@ -129,6 +172,9 @@ export async function resumeSession(
   const record = await readSession(id);
   if (!record) return false;
   if (!sameWorkspace(record, S)) return false;
+  // The current conversation is being swapped out — end it for stateful plugins
+  // (item: plugin onSession), then start the resumed one once its id is set below.
+  notifySession('session-end', S);
   // Abort the leaving conversation's background agents (a detached child process
   // can't be restored on resume, so the resumed chat starts with none).
   cancelBackgroundForConversation(S.conversationId);
@@ -138,6 +184,7 @@ export async function resumeSession(
   // edit in the resumed session.
   clearReadTracker();
   clearNestedInstructionClaims();
+  clearContinuations();
   S.activeModes = [];
   S.state = emptyAgentChatState();
   // Restore this session's own edits (kept as the leaving chat's were saved on

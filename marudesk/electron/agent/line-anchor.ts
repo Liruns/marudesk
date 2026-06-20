@@ -59,3 +59,25 @@ export function locateAnchorLine(content: string, anchor: string): AnchorSpan {
   if (foundStart < 0) return { ok: false, reason: 'not-found' };
   return { ok: true, start, end };
 }
+
+/**
+ * Resolve an anchor with a line-number HINT (1-based): check line `lineNo` first
+ * and, only when its hash matches, return that line's span — so two identical
+ * lines are no longer `ambiguous` when the model passes the line it read the
+ * anchor from. If the hint doesn't match (the file shifted, or no usable hint),
+ * fall back to the unique whole-file scan {@link locateAnchorLine}; a stale anchor
+ * still resolves to `not-found`.
+ */
+export function resolveByLineAndHash(content: string, lineNo: number, anchor: string): AnchorSpan {
+  const lines = content.split('\n');
+  if (Number.isInteger(lineNo) && lineNo >= 1 && lineNo <= lines.length) {
+    const line = lines[lineNo - 1];
+    if (lineAnchor(line) === anchor) {
+      let start = 0;
+      for (let i = 0; i < lineNo - 1; i++) start += lines[i].length + 1; // + 1 for the '\n'
+      const end = start + line.length - (line.endsWith('\r') ? 1 : 0);
+      return { ok: true, start, end };
+    }
+  }
+  return locateAnchorLine(content, anchor);
+}

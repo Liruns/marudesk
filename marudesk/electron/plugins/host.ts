@@ -8,15 +8,24 @@ import {
   pluginToolName,
   type PluginContributions,
   type PluginPermission,
+  type PluginSessionPhase,
   type WorkerPermissionRequest,
   type WorkerToHost,
 } from '../../shared/plugin';
 import type { AppliedChange } from '../../shared/patch';
 import type { McpServer } from '../agent/mcp';
 import type { McpTool, ToolContext, ToolResult } from '../agent/tools';
-import { guardedFetch, guardedList, guardedRead, guardedWrite } from './permissions';
+import { guardedExec, guardedFetch, guardedList, guardedRead, guardedWrite } from './permissions';
 import type { HostChannel } from './rpc';
 import { makeIdGen } from './rpc';
+
+/** A keyed status line a plugin pushed via ctx.setStatus, surfaced by the host. */
+export type PluginStatusUpdate = {
+  pluginId: string;
+  statusKey: string;
+  /** Empty string clears the key. */
+  text: string;
+};
 
 /**
  * PluginHost — drives one worker (one plugin) over a {@link HostChannel}
@@ -60,16 +69,37 @@ export class PluginHost implements PluginHostLike {
   private granted: PluginPermission[] = [];
   /** Manifest net allowlist — the only hosts ctx.http.fetch may reach. */
   private netAllow: string[] = [];
+  /** Where ctx.setStatus updates go (the manager forwards to the renderer). */
+  private readonly onStatus?: (update: PluginStatusUpdate) => void;
 
-  constructor(channel: HostChannel, pluginId: string) {
+  constructor(
+    channel: HostChannel,
+    pluginId: string,
+    onStatus?: (update: PluginStatusUpdate) => void,
+  ) {
     this.channel = channel;
     this.pluginId = pluginId;
+    this.onStatus = onStatus;
     this.disposers.push(channel.onMessage((msg) => this.onMessage(msg)));
     this.disposers.push(
       channel.onClose(() => {
         if (!this.disposed) this.failAll(new Error('plugin worker exited'));
       }),
     );
+  }
+
+  /**
+   * Announce a conversation-lifecycle phase to the worker (item: onSession). A
+   * best-effort one-way send — the worker invokes its optional onSessionStart /
+   * onSessionEnd handler. No-op once disposed.
+   */
+  notifySession(phase: PluginSessionPhase, sessionId: string): void {
+    if (this.disposed) return;
+    try {
+      this.channel.postMessage({ kind: 'session', phase, sessionId });
+    } catch {
+      // worker may already be gone
+    }
   }
 
   /** Send the load request and await the worker's `ready` (or `loadError`). */
@@ -158,6 +188,13 @@ export class PluginHost implements PluginHostLike {
       case 'log':
         console.log(`[plugin:${this.pluginId}] ${scrubText(msg.message)}`);
         break;
+      case 'status':
+        // Only honor a status for an active call (same guard as perm RPCs), so a
+        // stale/forged status can't surface after the call settled.
+        if (this.inflight.has(msg.callId)) {
+          this.onStatus?.({ pluginId: this.pluginId, statusKey: msg.statusKey, text: scrubText(msg.text) });
+        }
+        break;
       case 'perm':
         await this.handlePerm(msg);
         break;
@@ -192,6 +229,9 @@ export class PluginHost implements PluginHostLike {
         const change = await guardedWrite(entry.ctx, msg.path, msg.data);
         if (change) entry.edits.push(change);
         value = null;
+      } else if (msg.op === 'exec') {
+        require('cmd');
+        value = await guardedExec(entry.ctx, msg.command, msg.timeoutMs);
       } else {
         require('net');
         value = await guardedFetch(msg.url, this.netAllow);

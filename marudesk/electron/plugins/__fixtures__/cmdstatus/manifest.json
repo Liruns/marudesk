@@ -1,0 +1,8 @@
+{
+  "id": "cmdstatus",
+  "name": "Cmd + Status",
+  "version": "1.0.0",
+  "description": "Test fixture — exercises ctx.exec (host-mediated CLI), ctx.setStatus, and the onSessionStart/onSessionEnd lifecycle callbacks.",
+  "main": "index.js",
+  "permissions": ["tools", "cmd"]
+}

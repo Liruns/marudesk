@@ -5,6 +5,7 @@ import {
   type PluginCommandSnapshot,
   type PluginPanel,
   type PluginPermission,
+  type PluginSessionPhase,
   type PluginSlashContribution,
   type PluginStatus,
 } from '../../shared/plugin';
@@ -12,7 +13,7 @@ import { appVersion } from './app-version';
 import { discoverPlugins, type DiscoveredPlugin } from './discovery';
 import { registerMcpServer, unregisterMcpServer } from '../agent/mcp';
 import { satisfiesEngine } from './engine-compat';
-import { buildPluginServer, PluginHost } from './host';
+import { buildPluginServer, PluginHost, type PluginStatusUpdate } from './host';
 import { readPluginsConfig, removePluginConfig, setPluginConfig } from './config';
 import { hasUserPluginFolder, installUserPluginFolder, removeUserPluginFolder } from './lifecycle';
 import { readPluginManifest } from './manifest';
@@ -35,6 +36,8 @@ export type PluginManagerDeps = {
   getWorkspaceRoot: () => string | null;
   /** Spawn backend; defaults to utilityProcess (overridable for tests). */
   spawn?: SpawnWorker;
+  /** Sink for plugin ctx.setStatus updates (forwarded to the renderer). */
+  onStatus?: (update: PluginStatusUpdate) => void;
 };
 
 export class PluginManager {
@@ -126,7 +129,7 @@ export class PluginManager {
     }
     try {
       const { channel } = this.spawn({ workerEntry: '', pluginDir: d.dir, granted });
-      const host = new PluginHost(channel, d.manifest.id);
+      const host = new PluginHost(channel, d.manifest.id, this.deps.onStatus);
       const netAllow = d.manifest.net?.allow ?? [];
       const contributions = await host.load(d.dir, d.manifest.main, granted, netAllow);
       registerMcpServer(buildPluginServer(d.manifest.id, host, contributions));
@@ -184,6 +187,12 @@ export class PluginManager {
       for (const c of live.commands) out.push({ ...c, pluginId: id });
     }
     return out;
+  }
+
+  // Announce a conversation-lifecycle phase to every live plugin (item: onSession)
+  // so a stateful plugin can reset per-conversation state. Best-effort, one-way.
+  notifySession(phase: PluginSessionPhase, sessionId: string): void {
+    for (const [, live] of this.live) live.host.notifySession(phase, sessionId);
   }
 
   // Enable/disable one plugin; enabling records declared permissions as approved.

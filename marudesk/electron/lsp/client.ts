@@ -44,10 +44,49 @@ type LspDiagnostic = {
 };
 type PublishParams = { uri?: string; diagnostics?: LspDiagnostic[] };
 
+/** A 1-based caret the agent supplies; converted to LSP's 0-based wire position. */
+export type LspRequestPosition = { line: number; character: number };
+
+/** A `textDocument/definition` | `references` location (uri + range). */
+export type LspLocation = { uri?: string; range?: LspRange };
+/** A `textDocument/hover` result — MarkupContent | MarkedString | string | null. */
+export type LspHover = unknown;
+/** A `textDocument/prepareRename` result — Range | { range } | { defaultBehavior } | null. */
+export type LspPrepareRename = unknown;
+/** A `textDocument/rename` result — a WorkspaceEdit (or null). */
+export type LspWorkspaceEdit = unknown;
+/** A `textDocument/documentSymbol` result — DocumentSymbol[] | SymbolInformation[] | null. */
+export type LspDocumentSymbols = unknown;
+
 function severityOf(n: number | undefined): DiagnosticSeverity {
   if (n === 1) return 'error';
   if (n === 2) return 'warning';
   return 'info'; // 3 = information, 4 = hint
+}
+
+/**
+ * `textDocument/definition` and `references` each answer with one of several
+ * shapes: a single Location, a Location[], or a LocationLink[] (the latter uses
+ * `targetUri`/`targetRange`). Normalize them all to a flat {@link LspLocation}[]
+ * so callers handle one shape. Anything unrecognized → empty list (never throw).
+ */
+function normalizeLocations(result: unknown): LspLocation[] {
+  const items = Array.isArray(result) ? result : result ? [result] : [];
+  const out: LspLocation[] = [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.uri === 'string') {
+      out.push({ uri: o.uri, range: o.range as LspRange | undefined });
+    } else if (typeof o.targetUri === 'string') {
+      // LocationLink: prefer the selection range, fall back to the full target range.
+      out.push({
+        uri: o.targetUri,
+        range: (o.targetSelectionRange ?? o.targetRange) as LspRange | undefined,
+      });
+    }
+  }
+  return out;
 }
 
 export class LspClient {
@@ -108,6 +147,18 @@ export class LspClient {
         textDocument: {
           synchronization: { dynamicRegistration: false, didSave: false },
           publishDiagnostics: { relatedInformation: false },
+          // Declare the request features the agent tools (LSP-1) exercise so the
+          // server advertises + answers them. All backward-compatible: a server
+          // that doesn't implement one simply ignores the capability and replies
+          // with null / a method-not-found error, which the callers handle.
+          definition: { dynamicRegistration: false },
+          references: { dynamicRegistration: false },
+          documentSymbol: {
+            dynamicRegistration: false,
+            hierarchicalDocumentSymbolSupport: true,
+          },
+          rename: { dynamicRegistration: false, prepareSupport: true },
+          hover: { dynamicRegistration: false, contentFormat: ['markdown', 'plaintext'] },
         },
         workspace: { workspaceFolders: true, configuration: true },
       },
@@ -153,6 +204,68 @@ export class LspClient {
   /** Files currently open against this server. */
   openFiles(): string[] {
     return [...this.versions.keys()];
+  }
+
+  /**
+   * Build the `{ textDocument, position }` params every position-based request
+   * shares, converting the agent's 1-based line/character to LSP's 0-based wire
+   * position. Throws if the connection isn't ready so a disposed/errored client
+   * returns a clean error instead of a silent no-op.
+   */
+  private positionParams(file: string, pos: LspRequestPosition): {
+    textDocument: { uri: string };
+    position: { line: number; character: number };
+  } {
+    if (!this.conn || !this.ready) throw new Error('LSP server is not ready');
+    return {
+      textDocument: { uri: this.uriFor(file) },
+      position: { line: pos.line - 1, character: pos.character - 1 },
+    };
+  }
+
+  /** `textDocument/definition` — the symbol's declaration site(s). */
+  async definition(file: string, pos: LspRequestPosition): Promise<LspLocation[]> {
+    const params = this.positionParams(file, pos);
+    const result = await this.conn!.sendRequest('textDocument/definition', params, 20_000);
+    return normalizeLocations(result);
+  }
+
+  /** `textDocument/references` — every use site (declaration included). */
+  async references(file: string, pos: LspRequestPosition): Promise<LspLocation[]> {
+    const params = {
+      ...this.positionParams(file, pos),
+      context: { includeDeclaration: true },
+    };
+    const result = await this.conn!.sendRequest('textDocument/references', params, 20_000);
+    return normalizeLocations(result);
+  }
+
+  /** `textDocument/hover` — docs/signature at the caret (deferred from the agent surface). */
+  async hover(file: string, pos: LspRequestPosition): Promise<LspHover> {
+    const params = this.positionParams(file, pos);
+    return this.conn!.sendRequest('textDocument/hover', params, 10_000);
+  }
+
+  /** `textDocument/prepareRename` — whether the symbol at the caret can be renamed. */
+  async prepareRename(file: string, pos: LspRequestPosition): Promise<LspPrepareRename> {
+    const params = this.positionParams(file, pos);
+    return this.conn!.sendRequest('textDocument/prepareRename', params, 10_000);
+  }
+
+  /** `textDocument/rename` — the WorkspaceEdit that renames the symbol to `newName`. */
+  async rename(file: string, pos: LspRequestPosition, newName: string): Promise<LspWorkspaceEdit> {
+    const params = { ...this.positionParams(file, pos), newName };
+    return this.conn!.sendRequest('textDocument/rename', params, 20_000);
+  }
+
+  /** `textDocument/documentSymbol` — the symbol tree (or flat list) for one file. */
+  async documentSymbols(file: string): Promise<LspDocumentSymbols> {
+    if (!this.conn || !this.ready) throw new Error('LSP server is not ready');
+    return this.conn.sendRequest(
+      'textDocument/documentSymbol',
+      { textDocument: { uri: this.uriFor(file) } },
+      20_000,
+    );
   }
 
   private onPublish(params: unknown): void {

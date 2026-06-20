@@ -21,7 +21,9 @@ import path from 'node:path';
 import type {
   HostToWorker,
   PluginContributions,
+  PluginExecResult,
   PluginPermission,
+  PluginSessionPhase,
   PluginSlashContribution,
   PluginToolContribution,
   WorkerToHost,
@@ -172,6 +174,34 @@ function makeContext(granted: PluginPermission[]): BuiltContext {
         return permRpc((id, callId) => ({ kind: 'perm', id, op: 'http.fetch', callId, url }), 'http.fetch') as Promise<{ status: number; text: string }>;
       },
     },
+    /**
+     * Run a workspace CLI (linter/formatter/build) through the HOST — never a raw
+     * child_process in the worker (which the module shim + Permission Model deny).
+     * Routes over the same guarded spawn as the run_command tool, gated on the
+     * `cmd` permission. Only callable inside a tool handler (it needs the call's
+     * workspace + abort signal).
+     */
+    exec(command: string, opts?: { timeoutMs?: number }): Promise<PluginExecResult> {
+      if (!granted.includes('cmd')) throw new Error('plugin: "cmd" permission not granted');
+      if (typeof command !== 'string' || !command.trim()) {
+        throw new Error('plugin exec: command must be a non-empty string');
+      }
+      const timeoutMs = typeof opts?.timeoutMs === 'number' ? opts.timeoutMs : undefined;
+      return permRpc(
+        (id, callId) => ({ kind: 'perm', id, op: 'exec', callId, command, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }),
+        'exec',
+      ) as Promise<PluginExecResult>;
+    },
+    /**
+     * Push a keyed status/progress line for a long-running operation (one-way, no
+     * grant required — it's display only). An empty `text` clears the key. Only
+     * callable inside a tool handler so the status can be scoped to the call.
+     */
+    setStatus(statusKey: string, text: string): void {
+      const callId = requirePermContext('setStatus');
+      if (typeof statusKey !== 'string' || !statusKey) throw new Error('plugin setStatus: key required');
+      send({ kind: 'status', callId, statusKey, text: typeof text === 'string' ? text : safeStringify(text) });
+    },
     log(...args: unknown[]) {
       const message = args.map((a) => (typeof a === 'string' ? a : safeStringify(a))).join(' ');
       send({ kind: 'log', level: 'info', message });
@@ -199,6 +229,14 @@ function safeStringify(v: unknown): string {
 /* ── Lifecycle ───────────────────────────────────────────────────────────────── */
 
 let toolMap: Map<string, PluginToolDef> = new Map();
+/**
+ * Optional conversation-lifecycle handlers a plugin may export (item: onSession).
+ * A stateful plugin uses these to reset per-conversation state instead of leaking
+ * it across conversations — distinct from `deactivate` (shutdown). Both optional.
+ */
+type SessionHandler = (info: { sessionId: string }) => unknown;
+let onSessionStart: SessionHandler | null = null;
+let onSessionEnd: SessionHandler | null = null;
 
 async function load(msg: Extract<HostToWorker, { kind: 'load' }>): Promise<void> {
   try {
@@ -209,10 +247,16 @@ async function load(msg: Extract<HostToWorker, { kind: 'load' }>): Promise<void>
     if (!entry.startsWith(path.resolve(msg.pluginDir) + path.sep)) {
       throw new Error('plugin main escapes the plugin folder');
     }
-    const mod = require(entry) as { activate?: (ctx: unknown) => unknown };
+    const mod = require(entry) as {
+      activate?: (ctx: unknown) => unknown;
+      onSessionStart?: SessionHandler;
+      onSessionEnd?: SessionHandler;
+    };
     if (typeof mod.activate !== 'function') throw new Error('plugin has no activate(ctx) export');
     await mod.activate(built.ctx);
     built.seal();
+    onSessionStart = typeof mod.onSessionStart === 'function' ? mod.onSessionStart : null;
+    onSessionEnd = typeof mod.onSessionEnd === 'function' ? mod.onSessionEnd : null;
     toolMap = built.tools;
     const contributions: PluginContributions = {
       tools: [...built.tools.values()].map(({ name, description, inputSchema }) => ({
@@ -243,6 +287,18 @@ async function callTool(msg: Extract<HostToWorker, { kind: 'callTool' }>): Promi
   }
 }
 
+/** Dispatch a conversation-lifecycle signal to the plugin's optional handler. */
+async function onSession(phase: PluginSessionPhase, sessionId: string): Promise<void> {
+  const handler = phase === 'session-start' ? onSessionStart : onSessionEnd;
+  if (!handler) return;
+  try {
+    await handler({ sessionId });
+  } catch (err) {
+    // A throwing lifecycle handler must not crash the worker — log and move on.
+    send({ kind: 'log', level: 'warn', message: `plugin ${phase} handler threw: ${(err as Error).message}` });
+  }
+}
+
 onHostMessage((msg) => {
   switch (msg.kind) {
     case 'load':
@@ -259,6 +315,9 @@ onHostMessage((msg) => {
       else pending.reject(new Error(msg.error));
       break;
     }
+    case 'session':
+      void onSession(msg.phase, msg.sessionId);
+      break;
     case 'deactivate':
       process.exit(0);
       break;

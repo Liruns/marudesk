@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { expandInstructionImports } from './instruction-imports';
 
+export { dedupInstructionSources } from './instructions-dedup';
+
 /**
  * Project + global agent-instruction loading (docs/agentic-chat-v4-design.md
  * §B2). Before a turn we fold instruction files into the system prompt — the

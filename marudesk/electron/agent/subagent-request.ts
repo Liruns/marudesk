@@ -47,6 +47,8 @@ export type ParsedSubagentInput = {
   readonly explicitModel: string | null;
   /** `model: "fast" | "smart"` — a tier request instead of a concrete model id. */
   readonly tierHint: 'fast' | 'smart' | null;
+  /** A continuation id (item: sub-session continuation) to resume from, or null. */
+  readonly resumeId: string | null;
 };
 
 export function parseSubagentInput(input: Record<string, unknown>): ParsedSubagentInput {
@@ -58,6 +60,7 @@ export function parseSubagentInput(input: Record<string, unknown>): ParsedSubage
   const model = tierHint || modelRaw === '' || isInheritSentinel(modelRaw) ? null : modelRaw;
   const agentName = stringInput(input.agent, 'agent').trim() || null;
   const label = stringInput(input.label, 'label', task).trim().slice(0, MAX_LABEL_CHARS);
+  const resumeId = stringInput(input.resume, 'resume').trim() || null;
   return {
     task: task.slice(0, MAX_TASK_CHARS),
     label: label || task.slice(0, MAX_LABEL_CHARS),
@@ -66,6 +69,7 @@ export function parseSubagentInput(input: Record<string, unknown>): ParsedSubage
     explicitProvider: provider,
     explicitModel: model,
     tierHint,
+    resumeId,
   };
 }
 
@@ -106,6 +110,7 @@ export async function buildSubagentRequest(
     maxSteps: parsed.maxSteps,
     agent,
     fallbacks: target.fallbacks,
+    resumeId: parsed.resumeId,
   };
 }
 

@@ -13,12 +13,14 @@ import {
 } from './types';
 import { TOOL_SCHEMAS } from './schemas';
 import { EXECUTORS } from './executors';
+import { concurrencyOf } from '../tool-concurrency.ts';
 import { IMAGE_GENERATION_TOOL } from './image-generation';
 import { VIDEO_GENERATION_TOOL } from './video-generation';
 import { WEB_SEARCH_TOOL } from './web-search';
 import { FETCH_URL_TOOL } from './fetch-url';
 import { CREATE_ARTIFACT_TOOL } from './artifact';
 import { CREATE_TASK_TOOL } from './create-task';
+import { SUGGEST_COMMIT_TOOL } from './commit-suggest';
 
 /**
  * The MCP descriptor layer (docs/context-mcp-design §1.1) — pairs each tool's
@@ -36,6 +38,9 @@ const TOOL_GROUP: Record<string, McpGroup> = {
   grep: 'files',
   edit_file: 'files',
   multi_edit: 'files',
+  lsp_navigate: 'files',
+  lsp_symbols: 'files',
+  lsp_rename: 'files',
   get_console_errors: 'devtools',
   read_network: 'devtools',
   read_network_body: 'devtools',
@@ -53,7 +58,7 @@ const TOOL_GROUP: Record<string, McpGroup> = {
   arm_exception_capture: 'devtools',
   read_exception_capture: 'devtools',
 };
-const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit', 'run_command', 'run_diagnostics', 'click', 'fill', 'press_key', 'scroll']);
+const WRITE_TOOL_NAMES = new Set(['edit_file', 'multi_edit', 'lsp_rename', 'run_command', 'run_diagnostics', 'click', 'fill', 'press_key', 'scroll']);
 const WEB_TOOL_NAMES = new Set([
   'get_console_errors',
   'query_dom',
@@ -72,7 +77,7 @@ const WEB_TOOL_NAMES = new Set([
   'arm_exception_capture',
   'read_exception_capture',
 ]);
-const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_file', 'multi_edit', 'run_command', 'run_diagnostics', 'read_diagnostics']);
+const WORKSPACE_TOOL_NAMES = new Set(['read_file', 'list_files', 'grep', 'edit_file', 'multi_edit', 'lsp_navigate', 'lsp_symbols', 'lsp_rename', 'run_command', 'run_diagnostics', 'read_diagnostics']);
 
 /**
  * The original file/runtime/context tools, expressed as MCP tools (schema +
@@ -87,18 +92,24 @@ export const BUILTIN_TOOLS: McpTool[] = [
   FETCH_URL_TOOL,
   CREATE_ARTIFACT_TOOL,
   CREATE_TASK_TOOL,
+  SUGGEST_COMMIT_TOOL,
   ...TOOL_SCHEMAS.flatMap((s) => {
   if (s.name === ASK_USER) return [];
   const exec = EXECUTORS[s.name];
   if (!exec) return [];
+  const gated = GATED_TOOLS.has(s.name);
+  const write = WRITE_TOOL_NAMES.has(s.name);
   return [
     {
       ...s,
       group: TOOL_GROUP[s.name] ?? 'files',
-      gated: GATED_TOOLS.has(s.name),
-      write: WRITE_TOOL_NAMES.has(s.name),
+      gated,
+      write,
       requiresWeb: WEB_TOOL_NAMES.has(s.name),
       requiresWorkspace: WORKSPACE_TOOL_NAMES.has(s.name),
+      // Read-parallel scheduling hint, derived from the read-only allowlist gated
+      // by the write/gated flags above (a mutating/gated tool is never `shared`).
+      concurrency: concurrencyOf({ name: s.name, write, gated }),
       exec,
     },
   ];

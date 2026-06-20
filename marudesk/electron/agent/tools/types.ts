@@ -111,6 +111,7 @@ export const GATED_TOOLS = new Set([
   'generate_video',
   'run_command',
   'run_diagnostics',
+  'lsp_rename',
   'eval_js',
   'click',
   'fill',
@@ -159,6 +160,18 @@ export type McpGroup =
   | 'plugin'
   | 'ask';
 
+/**
+ * How a tool may be scheduled relative to others in the SAME model turn:
+ *  - `shared`   — read-only, no side effects (read_file/grep/list_files/lsp reads).
+ *                 A consecutive run of `shared` calls can execute in parallel.
+ *  - `exclusive`— anything that mutates the workspace/app/page or whose ordering
+ *                 matters (edits, run_command, eval_js, browser interaction). Runs
+ *                 strictly serially so a later call sees the earlier call's effects.
+ * Undefined is treated as `exclusive` (the safe default) — only tools explicitly
+ * declared `shared` are ever parallelized.
+ */
+export type ToolConcurrency = 'shared' | 'exclusive';
+
 /** A self-describing tool definition (JSON-Schema + the metadata the loop needs). */
 export type McpToolDef = ToolSchema & {
   group: McpGroup;
@@ -170,6 +183,12 @@ export type McpToolDef = ToolSchema & {
   requiresWeb?: boolean;
   /** Needs an open workspace folder. */
   requiresWorkspace?: boolean;
+  /**
+   * Read-parallel scheduling hint (defaults to `exclusive` when omitted). Only a
+   * tool explicitly marked `shared` (read-only, side-effect-free) is ever run
+   * concurrently with its neighbors; see {@link concurrencyOf}.
+   */
+  concurrency?: ToolConcurrency;
 };
 
 /** A tool definition plus its in-process executor — what a built-in server holds. */

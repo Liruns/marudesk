@@ -8,7 +8,7 @@ import type {
 import type { AgentApprovalMode, ReasoningEffort } from '../../shared/settings';
 import { isCapturePayload, type CapturePayload } from '../../shared/composer';
 import { isProviderId } from '../../shared/providers';
-import { arr, nonEmptyStr, obj, optStr } from '../ipc/validate';
+import { arr, bool, nonEmptyStr, obj, optStr } from '../ipc/validate';
 
 /** The valid plan-step statuses (mirror {@link AgentPlanStepStatus}). */
 const PLAN_STEP_STATUSES: readonly AgentPlanStepStatus[] = ['pending', 'in_progress', 'done'];
@@ -70,6 +70,33 @@ export function parseSendInput(payload: unknown): AgentSendInput {
     tabId: optStr(o.tabId, 'tabId'),
     threadId: optStr(o.threadId, 'threadId'),
     connections: parseConnections(o.connections),
+  };
+}
+
+/**
+ * Validate an `agent:handoff` payload (SECOND-PASS session handoff). All fields
+ * optional: provider/model seed a fresh session (must be a known provider when
+ * present); focus folds extra detail into the handoff; startNew resets + seeds.
+ */
+export function parseHandoff(payload: unknown): {
+  provider?: import('../../shared/providers').ProviderId;
+  model?: string;
+  workspaceId?: string;
+  threadId?: string;
+  focus?: string;
+  startNew?: boolean;
+} {
+  const o = obj(payload ?? {});
+  if (o.provider !== undefined && !isProviderId(o.provider)) {
+    throw new Error('provider must be a known provider id');
+  }
+  return {
+    ...(o.provider !== undefined ? { provider: o.provider } : {}),
+    model: optStr(o.model, 'model'),
+    workspaceId: optStr(o.workspaceId, 'workspaceId'),
+    threadId: optStr(o.threadId, 'threadId'),
+    focus: optStr(o.focus, 'focus'),
+    ...(o.startNew !== undefined ? { startNew: bool(o.startNew, 'startNew') } : {}),
   };
 }
 

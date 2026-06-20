@@ -11,7 +11,8 @@ import type { ToolContext, ToolResult } from '../agent/tools';
 import { satisfiesEngine } from './engine-compat';
 import { buildPluginServer, PluginHost } from './host';
 import { installUserPluginFolder, removeUserPluginFolder } from './lifecycle';
-import { guardedFetch } from './permissions';
+import { guardedExec, guardedFetch } from './permissions';
+import type { PluginStatusUpdate } from './host';
 import { readPluginManifest } from './manifest';
 import { openUserPluginsFolder } from './open-folder';
 import { spawnViaChildProcess } from './transport';
@@ -37,6 +38,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_ENTRY = path.join(__dirname, 'worker.ts');
 const HELLO_DIR = path.resolve(__dirname, '../../examples/plugins/hello-world');
 const EVIL_DIR = path.join(__dirname, '__fixtures__/evil');
+const CMDSTATUS_DIR = path.join(__dirname, '__fixtures__/cmdstatus');
 
 /** A minimal ToolContext pointing at a throwaway workspace root. */
 function toolContext(root: string): ToolContext {
@@ -160,6 +162,66 @@ async function main(): Promise<void> {
   }
   check('sandbox denies raw network modules even with the net grant', /not permitted|sandbox/.test(evilError));
   evilHost.dispose();
+
+  // ── ctx.exec + ctx.setStatus + onSession lifecycle (host-mediated) ───────────
+  {
+    const grants = ['tools', 'cmd'] as const;
+    const statuses: PluginStatusUpdate[] = [];
+    const cs = spawnViaChildProcess({ workerEntry: WORKER_ENTRY, pluginDir: CMDSTATUS_DIR, granted: [...grants] });
+    const csHost = new PluginHost(cs.channel, 'cmdstatus', (u) => statuses.push(u));
+    const csContrib = await csHost.load(CMDSTATUS_DIR, 'index.js', [...grants]);
+    const csServer = buildPluginServer('cmdstatus', csHost, csContrib);
+    const runTool = csServer.tools.find((t) => t.name === 'plugin:cmdstatus__run_and_count')!;
+
+    // Lifecycle: a session-start before the call, so the tool sees a non-zero count.
+    csHost.notifySession('session-start', 'sess-A');
+    const csCtx = toolContext(wsRoot);
+    const ran = await runTool.exec(
+      { command: 'node -e "process.stdout.write(\'EXEC-OK\')"' },
+      csCtx,
+    );
+    check('ctx.exec routes a CLI through the host and returns its output', !ran.isError && /EXEC-OK/.test(ran.text));
+    const parsed = JSON.parse(ran.text) as { exitCode: number | null; output: string; sessions: number };
+    check('ctx.exec reports exitCode 0 for a successful command', parsed.exitCode === 0);
+    check('onSessionStart was delivered (lifecycle log has 1 session)', parsed.sessions === 1);
+    check('ctx.setStatus pushes a keyed status update to the host', statuses.some((s) => s.statusKey === 'progress' && /running/.test(s.text)));
+    check('ctx.setStatus with empty text clears the key', statuses.some((s) => s.statusKey === 'progress' && s.text === ''));
+
+    // Lifecycle: session-end resets the plugin's per-conversation state.
+    csHost.notifySession('session-end', 'sess-A');
+    csHost.notifySession('session-start', 'sess-B');
+    const ranAgain = await runTool.exec({ command: 'node -e "process.stdout.write(\'OK\')"' }, csCtx);
+    const parsedAgain = JSON.parse(ranAgain.text) as { sessions: number };
+    check('onSessionEnd reset per-conversation state (count back to 1, not 2)', parsedAgain.sessions === 1);
+    csHost.dispose();
+  }
+
+  // ── ctx.exec is refused without the `cmd` grant (host re-checks) ──────────────
+  {
+    const noCmd = spawnViaChildProcess({ workerEntry: WORKER_ENTRY, pluginDir: CMDSTATUS_DIR, granted: ['tools'] });
+    const noCmdHost = new PluginHost(noCmd.channel, 'cmdstatus');
+    const noCmdContrib = await noCmdHost.load(CMDSTATUS_DIR, 'index.js', ['tools']);
+    const noCmdTool = buildPluginServer('cmdstatus', noCmdHost, noCmdContrib).tools.find(
+      (t) => t.name === 'plugin:cmdstatus__run_and_count',
+    )!;
+    const denied = await noCmdTool.exec({ command: 'node -e "0"' }, toolContext(wsRoot));
+    check('ctx.exec is refused when the plugin lacks the cmd grant', denied.isError === true && /cmd/.test(denied.text));
+    noCmdHost.dispose();
+  }
+
+  // ── guardedExec directly: bounded, workspace-rooted, no-workspace refused ─────
+  {
+    const ec = toolContext(wsRoot);
+    const ok = await guardedExec(ec, 'node -e "process.stdout.write(\'direct\')"');
+    check('guardedExec runs in the workspace and captures output', ok.exitCode === 0 && /direct/.test(ok.output) && ok.timedOut === false);
+    let noWsExecErr = '';
+    try {
+      await guardedExec({ ws: null, signal: new AbortController().signal }, 'node -e "0"');
+    } catch (err) {
+      noWsExecErr = (err as Error).message;
+    }
+    check('guardedExec refuses when no workspace is open', /no workspace/.test(noWsExecErr));
+  }
 
   // ── v2: panel path-scoping gate (the plugin:// resolver's first check) ───────
   check('panel path allows a plain relative file', isSafePanelPath('panel.html') && isSafePanelPath('assets/app.js'));

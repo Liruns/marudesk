@@ -9,8 +9,9 @@ import type {
   ToolCall,
 } from '../../shared/agent';
 import type { AppliedChange } from '../../shared/patch';
-import type { WorkspaceSummary } from '../../shared/workspace';
-import { MODELS } from '../../shared/providers';
+import type { WorkspaceSummary, WorkspaceId } from '../../shared/workspace';
+import { MODELS, isProviderId, type ProviderId } from '../../shared/providers';
+import { resolveModelEntry } from '../../shared/model-normalize';
 import { scrubText } from '../../shared/scrub';
 import { CLAUDE_CODE_SYSTEM_PREFIX } from '../oauth/config';
 import { getSettingsSync, patchSettings } from '../settings';
@@ -19,8 +20,21 @@ import { requireWorkspace } from '../ipc/define-handler';
 import { effectiveAgentRoot } from '../worktree-isolation';
 import { setNetworkCapture } from '../browser/state';
 import { streamText } from 'ai';
-import { buildModel, aiTools, humanizeModelError, isFailoverError, type ModelAuth } from './model';
-import { loadGlobalUserInstructions, loadWorkspaceInstructions } from './instructions';
+import { buildModel, aiTools, humanizeModelError, type ModelAuth } from './model';
+import { classifyStreamError, backoffDelayMs } from './stream-error.ts';
+import {
+  emptyLoopDetectorState,
+  recordToolCall as recordLoopDetectorCall,
+  loopDetectorNudge,
+  type LoopDetectorState,
+} from './loop-detector.ts';
+import {
+  emptyDelegationReminderState,
+  recordDelegationCall,
+  delegationReminderNudge,
+  type DelegationReminderState,
+} from './delegation-reminder.ts';
+import { dedupInstructionSources, loadGlobalUserInstructions, loadWorkspaceInstructions } from './instructions';
 import { claimNestedInstructions } from './nested-instructions';
 import { buildEnvironmentContext } from './environment';
 import {
@@ -43,7 +57,8 @@ import {
   approvalModeContext,
   modelGuidance,
 } from './prompts.ts';
-import { callMcpTool, isGatedTool, isWriteTool, listMcpTools } from './mcp';
+import { callMcpTool, getMcpToolDef, isGatedTool, isWriteTool, listMcpTools } from './mcp';
+import { isSharedTool } from './tool-concurrency.ts';
 import { isModeClear, modePreamble, modeRaisesThinking, modesInPrompt } from './keyword-modes';
 import { buildProviderOptions, maxTokensForTurn } from './reasoning-config';
 import { resolveProviderAuth } from './resolve-auth';
@@ -55,6 +70,13 @@ import {
   cancelBackgroundTool,
 } from './background';
 import { runContextHook, runVerifyNote } from './loop-commands.ts';
+import { runBeforeTurnContributors } from './before-turn.ts';
+export { registerBeforeTurnContributor } from './before-turn.ts';
+import { runBeforeToolCall, runAfterToolCall } from './tool-intercept.ts';
+export {
+  registerBeforeToolCall,
+  registerAfterToolCall,
+} from './tool-intercept.ts';
 import {
   emitContainer,
   currentContainer,
@@ -73,11 +95,21 @@ export {
   switchThread,
   closeThread,
   activeThreadId,
+  runtimeSnapshot,
 } from './loop-state.ts';
-import { persistSession } from './loop-sessions.ts';
+import { notifySessionStart, persistSession, reset as resetConversation } from './loop-sessions.ts';
 export { reset, resumeSession, listSavedSessions, deleteSavedSession } from './loop-sessions.ts';
+import { generateHandoff, buildHandoffSeed, type HandoffResult } from './handoff.ts';
+export type { HandoffResult } from './handoff.ts';
+import { TtsrManager } from './ttsr-manager.ts';
 import { compactConversation } from './loop-compaction.ts';
 export { compactConversation } from './loop-compaction.ts';
+import {
+  messageChars,
+  emergencyCompactionReason,
+  advanceDegradationMonitor,
+  capToolOutput,
+} from './compaction-utils.ts';
 export {
   abortTurn,
   respond,
@@ -123,6 +155,31 @@ const TOOL_WALL_CLOCK_MS = 15 * 60_000;
  * provider with 10 concurrent streams (mirrors MAX_ACTIVE_BACKGROUND's intent).
  */
 const MAX_PARALLEL_SUBAGENTS = 4;
+
+/**
+ * How many consecutive `shared` (read-only) tool calls from one model step run
+ * concurrently. A run larger than this proceeds in chunks. Bounds parallel fs /
+ * search load while still turning a multi-read survey from a sum of latencies into
+ * (roughly) a max. Mirrors MAX_PARALLEL_SUBAGENTS' chunking intent.
+ */
+const MAX_PARALLEL_SHARED_TOOLS = 4;
+
+/**
+ * Max same-provider transient retries (429/overload/5xx/network) per turn before
+ * we give up retrying THIS provider and fall over to the next configured model
+ * (item 1). With exponential backoff (1s, 2s, 4s, 8s) this rides out a brief
+ * provider blip — crucially for a single-provider user (Anthropic OAuth, no
+ * fallback) who would otherwise hard-fail on the first 429.
+ */
+const MAX_STREAM_RETRIES = 4;
+
+/**
+ * Max context-overflow → compaction → retry cycles per turn (item 2). One pass
+ * normally clears the overflow; the cap stops an un-shrinkable transcript (a
+ * single huge tool result) from compacting forever. When spent we fall over /
+ * surface instead of looping.
+ */
+const MAX_OVERFLOW_COMPACTIONS = 2;
 
 /**
  * Fraction of the conversation (by character weight) kept VERBATIM as the tail
@@ -173,6 +230,28 @@ function waitForAnswers(S: ThreadContainer): Promise<AgentAnswers> {
   S.answersResolver?.({});
   return new Promise((resolve) => {
     S.answersResolver = resolve;
+  });
+}
+
+/**
+ * Sleep `ms`, resolving early if the turn is aborted (item 1 retry backoff).
+ * Resolves `true` when the wait was cut short by an abort, `false` when the full
+ * delay elapsed — so a user Stop during a Retry-After backoff ends the turn
+ * immediately instead of after the (possibly minutes-long) wait.
+ */
+function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(true);
+  if (ms <= 0) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(false);
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -251,20 +330,61 @@ async function runLoop(opts: RunOpts): Promise<void> {
     model: opts.model,
     thread: S,
   };
-  const tools = aiTools(listMcpTools());
+  // CACHE-1 (docs/agent-port-plan.md): cache the system+tools prefix on Anthropic
+  // by attaching one breakpoint to the stable last tool (see aiTools). Other
+  // providers ignore the extra per-tool option, so it is always safe to pass.
+  //
+  // syncContextBeforeModelCall (SECOND-PASS item 6): the tool set is now built
+  // FRESH per step from {@link listMcpTools}, not captured once at turn start, so
+  // an MCP reconnect or a newly-appeared plugin tool (the MCP-1 reconnect work on
+  // this branch) becomes callable MID-TURN instead of only on the next startTurn.
+  // `listMcpTools` is a cheap sorted snapshot of the in-memory registry, and its
+  // tail is the stable built-in `ASK_USER_DEF` (so the single cache breakpoint
+  // still covers the whole prefix); when the registry is unchanged the bytes are
+  // identical, so the Anthropic prompt cache still hits across steps. PROV-1
+  // normalization keys off the CURRENT provider so a failed-over provider gets its
+  // own correct shaping (and an Anthropic that failed over to Anthropic still caches).
+  const buildTools = (provider: AgentSendInput['provider']) =>
+    aiTools(listMcpTools(), {
+      cacheable: provider === 'anthropic',
+      provider,
+    });
   // Fold instruction files + runtime grounding into the system prompt (Track B
   // §B2; Claude Code / Codex parity). Independent reads run in parallel:
   //  - repo conventions (AGENTS.md / CLAUDE.md + CLAUDE.local.md, @imports expanded)
   //  - the user's GLOBAL standing instructions (~/.claude, ~/.codex)
   //  - the runtime/environment block (date, OS, workspace, git state)
-  const [wsInstructions, globalUserInstructions, envContext] = await Promise.all([
+  const [rawWsInstructions, rawGlobalUserInstructions, envContext] = await Promise.all([
     loadWorkspaceInstructions(opts.ws),
     loadGlobalUserInstructions(),
     buildEnvironmentContext(opts.ws),
   ]);
+  // Paragraph-level dedup across the instruction sources (item 7): repo
+  // (AGENTS.md/steering) → global (~/.claude/CLAUDE.md) → Settings custom box, in
+  // that DISPLAY order so the earliest copy of a repeated paragraph survives and
+  // the later duplicates are dropped (saving tokens every turn). Pure + harnessed
+  // (instruction-dedup.harness.ts). No-instruction path is unchanged.
+  const [wsInstructions, globalUserInstructions, customInstructions] = dedupInstructionSources([
+    rawWsInstructions,
+    rawGlobalUserInstructions,
+    opts.customInstructions,
+  ]);
   // The current approval constraints, so the model knows what it may do (Codex
   // environment-context parity). Plan mode uses its own addendum below.
   const modeContext = approvalModeContext(opts.approvalMode);
+
+  // Before-turn contributor seam (HOOK-1): run the registered first-party hooks
+  // once, here, before any system prompt is assembled. The strings are spliced
+  // into the join below between the user's standing instructions and the plan
+  // addendum (trust order preserved). v1 registry is empty, so this is `[]` and
+  // the assembled prompt is byte-identical to before. Captured by `activate`'s
+  // closure, so a mid-turn fail-over reuses the same contributions.
+  const contributorAddenda = await runBeforeTurnContributors({
+    ws: opts.ws ? opts.ws.root : null,
+    approvalMode: opts.approvalMode,
+    provider: opts.provider,
+    modelId: opts.model,
+  });
 
   // Build the per-provider scaffolding for a given model in ONE place, so a
   // mid-turn fail-over (pickNextFallback) can rebuild all of it for the new
@@ -296,7 +416,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
     const hasFoldedInstructions = !!(
       wsInstructions.trim() ||
       globalUserInstructions.trim() ||
-      opts.customInstructions.trim()
+      customInstructions.trim()
     );
     const trustFooter = hasFoldedInstructions ? SAFETY_FOOTER : null;
     const system = [
@@ -306,13 +426,23 @@ async function runLoop(opts: RunOpts): Promise<void> {
       modeContext,
       wsInstructions,
       globalUserInstructions,
-      opts.customInstructions,
+      customInstructions,
+      // Before-turn contributors (HOOK-1): inserted BETWEEN the user's standing
+      // instructions and the plan addendum by position (no numeric index) so the
+      // trust order is preserved. Empty when no contributor is registered (v1),
+      // and the `.filter()` below drops any empty/whitespace strings — so the
+      // assembled prompt is byte-identical to before when the registry is empty.
+      ...contributorAddenda,
       planAddendum,
       trustFooter,
     ]
       .filter((s): s is string => !!s && !!s.trim())
       .join('\n\n---\n\n');
     const codexBackend = a.provider === 'openai-codex';
+    // Per-model output cap (item 1): resolve the catalog entry tolerating
+    // slightly-varied ids (item 2) so a dotted/prefixed id still lifts the cap
+    // above the 4096 floor.
+    const catalogMax = resolveModelEntry(MODELS, a.provider, a.modelId)?.maxOutputTokens;
     return {
       provider: a.provider,
       modelId: a.modelId,
@@ -322,7 +452,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       providerOptions: buildProviderOptions(a.provider, system, a.modelReasoning, opts.reasoningEffort),
       maxOutputTokens: codexBackend
         ? undefined
-        : maxTokensForTurn(a.provider, a.modelReasoning, opts.reasoningEffort),
+        : maxTokensForTurn(a.provider, a.modelReasoning, opts.reasoningEffort, catalogMax),
     };
   };
 
@@ -344,6 +474,20 @@ async function runLoop(opts: RunOpts): Promise<void> {
   // recovery hint to its model-facing result so the agent stops blindly repeating
   // the same call and instead re-reads state, changes approach, or asks the user.
   const toolFailures = new Map<string, number>();
+  // Same-input loop detector (SECOND-PASS item 4): tracks consecutive identical
+  // (name + args) tool calls so a success-spin (re-reading the same file forever)
+  // is caught and nudged, which `toolFailures` (failures only) misses.
+  let loopDetector: LoopDetectorState = emptyLoopDetectorState();
+  // Task-delegation reminder (item: agent-usage-reminder): nudge once per turn
+  // when the agent does a long run of direct survey reads without ever delegating
+  // to a subagent. Suppressed the moment it uses spawn_subagent.
+  let delegationReminder: DelegationReminderState = emptyDelegationReminderState();
+  // Transient-retry / overflow-compaction bookkeeping (items 1 & 2). Bounded so a
+  // persistently-failing provider or an un-shrinkable overflow can't spin forever:
+  // after the caps spend we fall over (then surface). Turn-level (a retried step
+  // re-runs the same `step` index, so a per-step reset would never trip the cap).
+  let streamRetries = 0;
+  let overflowCompactions = 0;
   const pickNextFallback = async (): Promise<ActiveTurnModel | null> => {
     for (const ref of opts.fallbacks) {
       const key = `${ref.provider}::${ref.model}`;
@@ -353,7 +497,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
       const resolved = await resolveProviderAuth(candidateProvider);
       if (!resolved.ok) continue; // not connected (no key / dead OAuth) → skip
       const modelReasoning =
-        MODELS.find((m) => m.provider === candidateProvider && m.id === ref.model)?.reasoning ?? false;
+        resolveModelEntry(MODELS, candidateProvider, ref.model)?.reasoning ?? false;
       return activate({
         provider: candidateProvider,
         modelId: ref.model,
@@ -364,6 +508,15 @@ async function runLoop(opts: RunOpts): Promise<void> {
     }
     return null;
   };
+
+  // TTSR mid-stream rule matcher (SECOND-PASS item 6). Constructed INERT: no rules
+  // and `enabled: false`, so `ttsr.active` is false and `checkDelta` is a
+  // guaranteed no-op. This is the safe hook point — the pure matcher
+  // (ttsr-manager.ts) is fully implemented + tested, but the live abort+retry that
+  // would act on a match is deferred (it is the transcript-integrity-sensitive
+  // half). Turning it on later is: pass real rules + `enabled: true` here and
+  // handle the returned matches in the delta loop, without touching the matcher.
+  const ttsr = new TtsrManager([], { enabled: false });
 
   for (let step = 0; !opts.signal.aborted; step++) {
     if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
@@ -393,8 +546,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
     // delta and kept display-only (never pushed into the provider S.transcript).
     let reasoningPart: AgentReasoningPart | null = null;
 
-    let toolUses: { id: string; name: string; input: unknown }[];
+    let toolUses: { id: string; name: string; input: unknown; invalid?: boolean }[];
     try {
+      // syncContextBeforeModelCall (item 6): rebuild the tool set for THIS step
+      // and THIS (possibly failed-over) provider — picks up mid-turn MCP/plugin
+      // registry changes and applies the current provider's schema shaping/cache.
+      const tools = buildTools(current.provider);
       const res = streamText({
         model: current.model,
         // codex carries the system prompt in providerOptions.openai.instructions
@@ -408,9 +565,19 @@ async function runLoop(opts: RunOpts): Promise<void> {
       });
       // Consume the stream for live text; the assembled tool calls + usage come
       // from the settled promises afterwards.
+      ttsr.resetBuffers(); // fresh per-step stream buffers (no-op while inert)
       for await (const part of res.fullStream) {
         if (part.type === 'text-delta') {
           textPart.text += part.text;
+          // TTSR hook point (item 6): while inert (`ttsr.active === false`) this
+          // returns [] and changes nothing. The deferred live path would, on a
+          // match, abort this stream + re-inject the matched rule + retry the step.
+          const matches = ttsr.checkDelta(part.text, { source: 'text' });
+          if (matches.length > 0) {
+            // Intentionally inert: with no enabled rules this branch is unreachable.
+            // Left as the explicit seam for the deferred abort+retry wiring.
+            void matches;
+          }
           emit();
         } else if (part.type === 'reasoning-delta') {
           if (!reasoningPart) {
@@ -424,7 +591,16 @@ async function runLoop(opts: RunOpts): Promise<void> {
       }
       const calls = await res.toolCalls;
       const usage = await res.usage;
-      toolUses = calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input }));
+      // `invalid` (item 3): the AI SDK marks a tool call whose JSON arguments
+      // couldn't be parsed `dynamic: true, invalid: true` (rather than throwing),
+      // so it surfaces here. We carry the flag through to dispatch and answer it
+      // with an immediate JSON-correction reminder on the FIRST failure.
+      toolUses = calls.map((c) => ({
+        id: c.toolCallId,
+        name: c.toolName,
+        input: c.input,
+        ...(('invalid' in c && c.invalid === true) ? { invalid: true } : {}),
+      }));
       S.state.usage.inputTokens += usage.inputTokens ?? 0;
       S.state.usage.outputTokens += usage.outputTokens ?? 0;
       // The latest call's input size is the live context-window occupancy (the
@@ -435,32 +611,78 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // Drop the optimistic streaming bubble if nothing was streamed into it, so
       // a failed/aborted step doesn't leave an empty assistant message behind.
       // Reasoning-only content still counts — keep a thinking-only bubble.
-      if (!textPart.text.trim() && !reasoningPart?.text.trim()) {
-        const i = S.state.messages.indexOf(assistantMsg);
-        if (i !== -1) S.state.messages.splice(i, 1);
-      }
-      if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
-      // Provider exhausted (429) or a transient server error (5xx): fall over to
-      // the next configured model and retry THIS step. The S.transcript is
-      // provider-neutral, so only the per-provider scaffolding swaps; once we
-      // switch, the rest of the turn stays on the new model.
-      if (isFailoverError(err)) {
-        const next = await pickNextFallback();
-        if (next) {
-          // Discard any partial bubble from the failed attempt; the retry makes a
-          // fresh one. (429 usually fires before any text streams.)
+      const dropOptimisticBubble = (): void => {
+        if (!textPart.text.trim() && !reasoningPart?.text.trim()) {
           const i = S.state.messages.indexOf(assistantMsg);
           if (i !== -1) S.state.messages.splice(i, 1);
-          current = next;
-          // Fresh provider: don't carry stale per-tool consecutive-failure counts
-          // (else a tool that failed once before fail-over hits the recovery-hint
-          // threshold prematurely on the new provider).
-          toolFailures.clear();
-          emit();
+        }
+      };
+      dropOptimisticBubble();
+      if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
+
+      // Classify the failure into the right recovery (items 1 & 2): a transient
+      // blip → retry the SAME provider with backoff; a context overflow →
+      // compact + retry (NOT a model swap); quota exhaustion / unrecoverable
+      // client error → fall over to the next model; anything else → surface.
+      const klass = classifyStreamError(err);
+      const failOver = async (): Promise<boolean> => {
+        const next = await pickNextFallback();
+        if (!next) return false;
+        // Discard any partial bubble from the failed attempt; the retry makes a
+        // fresh one. (429 usually fires before any text streams.)
+        const i = S.state.messages.indexOf(assistantMsg);
+        if (i !== -1) S.state.messages.splice(i, 1);
+        current = next;
+        // Fresh provider: don't carry stale per-tool consecutive-failure counts
+        // (else a tool that failed once before fail-over hits the recovery-hint
+        // threshold prematurely on the new provider).
+        toolFailures.clear();
+        emit();
+        return true;
+      };
+
+      // 1) Transient (429 rate-limit / overload / 5xx / network): retry the same
+      //    model with exponential backoff, honoring a server Retry-After. Only
+      //    after the retry budget spends do we fall over (then surface) — so a
+      //    single-provider user rides out a brief 429 instead of hard-failing.
+      if (klass.action === 'retry' && streamRetries < MAX_STREAM_RETRIES) {
+        streamRetries += 1;
+        const delay = klass.retryAfterMs ?? backoffDelayMs(streamRetries - 1);
+        const i = S.state.messages.indexOf(assistantMsg);
+        if (i !== -1) S.state.messages.splice(i, 1);
+        S.state.status = 'thinking';
+        emit();
+        const aborted = await sleepUnlessAborted(delay, opts.signal);
+        if (aborted) return finish(S, 'completed', 'Stopped');
+        step--; // re-run this step on the same model after the backoff
+        continue;
+      }
+
+      // 2) Context-window overflow: compact, then retry. A different model has
+      //    the same prompt + window, so failover is wrong here — compaction is.
+      if (klass.action === 'compact' && overflowCompactions < MAX_OVERFLOW_COMPACTIONS) {
+        overflowCompactions += 1;
+        const i = S.state.messages.indexOf(assistantMsg);
+        if (i !== -1) S.state.messages.splice(i, 1);
+        S.state.status = 'thinking';
+        emit();
+        // Synchronous, mid-turn compaction (allowDuringTurn) shrinks S.transcript
+        // before the retry; best-effort — if it can't help, the retry will surface.
+        await compactConversation(undefined, S, { allowDuringTurn: true }).catch(() => {});
+        step--; // re-run this step against the compacted transcript
+        continue;
+      }
+
+      // 3) Failover-class (quota exhausted / unrecoverable), OR a transient/overflow
+      //    that exhausted its budget above: try the next configured model.
+      if (klass.action === 'failover' || klass.action === 'retry' || klass.action === 'compact') {
+        if (await failOver()) {
           step--; // re-run this step index on the new model
           continue;
         }
       }
+
+      // 4) Fatal (auth / bad request / thinking-block 400) or nothing left to try.
       return finish(
         S,
         'failed',
@@ -484,6 +706,13 @@ async function runLoop(opts: RunOpts): Promise<void> {
     }
     for (const c of calls) assistantMsg.parts.push({ type: 'tool', call: c });
 
+    // In-band JSON-parse-error reminder (item 3): a tool call whose arguments the
+    // model emitted as invalid JSON arrives flagged `invalid`. We answer EACH such
+    // call immediately with a corrective reminder (its own tool_result, so the
+    // transcript stays valid) instead of dispatching un-parseable input — and we
+    // do it on the FIRST failure, unlike the 2-strike `recoveryHint`.
+    const invalidCallIds = new Set(toolUses.filter((t) => t.invalid === true).map((t) => t.id));
+
     const assistantContent: Array<
       | { type: 'text'; text: string }
       | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
@@ -494,6 +723,29 @@ async function runLoop(opts: RunOpts): Promise<void> {
     }
     S.transcript.push({ role: 'assistant', content: assistantContent });
     emit();
+
+    // Post-compaction degradation monitor (item 3): right after a compaction,
+    // watch the next few responses. If the model emits several consecutive
+    // no-visible-text (tool-only / empty) responses, the summary was likely too
+    // lossy and it's spinning. Advance the monitor here (pure counting); the
+    // corrective note is injected only at a VALID transcript position — after
+    // this step's tool results below — so it never splits a tool_use/tool_result
+    // pair. Inert outside the window, so a healthy tool-only stretch is ignored.
+    const advanced = advanceDegradationMonitor(
+      {
+        monitorRemaining: S.postCompactionMonitorRemaining,
+        emptyStreak: S.postCompactionEmptyStreak,
+      },
+      textPart.text.trim().length > 0,
+    );
+    S.postCompactionMonitorRemaining = advanced.state.monitorRemaining;
+    S.postCompactionEmptyStreak = advanced.state.emptyStreak;
+    const degradedThisStep = advanced.degraded;
+    if (degradedThisStep) {
+      // Close the monitor so the note fires at most once per compaction.
+      S.postCompactionMonitorRemaining = 0;
+      S.postCompactionEmptyStreak = 0;
+    }
 
     if (calls.length === 0) {
       // Empty response: no text, no tools, no reasoning → surface as an error
@@ -677,7 +929,38 @@ async function runLoop(opts: RunOpts): Promise<void> {
               },
             }
           : ctx;
-      const out = await dispatchToolBounded(call.name, call.input, dispatchCtx);
+      // Per-tool intercept seam: a before-hook may BLOCK this cleared call with a
+      // reason (an extra overlay on top of the approval/deny gating above). With
+      // the v1 empty registry this is always null, so dispatch is unchanged.
+      const interceptMeta = {
+        name: call.name,
+        input: call.input,
+        ws: opts.ws ? opts.ws.root : null,
+        provider: current.provider,
+        modelId: current.modelId,
+      };
+      const blockedByHook = await runBeforeToolCall(interceptMeta);
+      let out: ToolResult;
+      if (blockedByHook) {
+        out = { summary: `${call.name} blocked`, text: blockedByHook.reason, isError: true };
+      } else {
+        const dispatched = await dispatchToolBounded(call.name, call.input, dispatchCtx);
+        // An after-hook may rewrite/annotate the model-facing fields (summary /
+        // text / isError) — e.g. attach a verify-note. The structured side-channels
+        // (edits/media/artifact/touchedPaths/image) ride through untouched, so a
+        // hook can't drop a file edit or media artifact. Empty registry ⇒ no-op.
+        const annotated = await runAfterToolCall(interceptMeta, {
+          summary: dispatched.summary,
+          text: dispatched.text,
+          ...(dispatched.isError ? { isError: true } : {}),
+        });
+        out = {
+          ...dispatched,
+          summary: annotated.summary,
+          text: annotated.text,
+          isError: annotated.isError,
+        };
+      }
       // The final result card supersedes the live stream — drop the partials.
       call.streamedText = undefined;
       call.streamedTraces = undefined;
@@ -692,7 +975,19 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // Lazily inject not-yet-seen per-directory instruction files for any path
       // this tool entered (§B2 on-demand). Appended to the MODEL-facing result
       // only — the UI card (call.resultText) stays focused on the tool output.
-      let modelText = out.text;
+      // Per-tool output cap (item 7): bound the MODEL-facing text of high-volume
+      // search/fetch tools to a context-window-aware char budget so one large
+      // result can't silently force a compaction. The UI card (call.resultText,
+      // set above) keeps the full output, and read_file is exempt (anchors).
+      const currentContextWindow = resolveModelEntry(
+        MODELS,
+        current.provider,
+        current.modelId,
+      )?.contextWindow;
+      const capped = out.isError
+        ? { text: out.text, truncated: false }
+        : capToolOutput(call.name, out.text, currentContextWindow);
+      let modelText = capped.text;
       // Recovery hint (§G4): track consecutive per-tool failures and nudge the
       // agent out of a retry loop. Appended to the model-facing text only.
       if (out.isError) {
@@ -703,13 +998,37 @@ async function runLoop(opts: RunOpts): Promise<void> {
       } else {
         toolFailures.delete(call.name);
       }
+      // Same-input loop detector (item 4): nudge when the model repeats the SAME
+      // call (name + args) too many times in a row EVEN ON SUCCESS — a no-progress
+      // spin `toolFailures` (failures only) can't see. ask_user/spawn meta-tools
+      // are excluded (parking / fan-out are legitimately repeatable).
+      if (call.name !== ASK_USER && call.name !== SPAWN_SUBAGENT && call.name !== SPAWN_BACKGROUND_AGENT) {
+        const ld = recordLoopDetectorCall(loopDetector, call.name, call.input);
+        loopDetector = ld.state;
+        if (ld.tripped && ld.toolName) {
+          modelText = `${modelText}\n\n${loopDetectorNudge(ld.toolName, ld.repeatedCount)}`;
+        }
+      }
+      // Task-delegation reminder (item: agent-usage-reminder): a delegation
+      // (spawn_subagent) suppresses it; a long run of direct survey reads with no
+      // delegation trips a once-per-turn nudge. Appended to the model-facing text.
+      {
+        const dr = recordDelegationCall(delegationReminder, call.name, call.name === SPAWN_SUBAGENT);
+        delegationReminder = dr.state;
+        if (dr.tripped) {
+          modelText = `${modelText}\n\n${delegationReminderNudge(dr.state.directCount)}`;
+        }
+      }
       if (!out.isError && opts.ws && out.touchedPaths?.length) {
         const reminders: string[] = [];
         for (const rel of out.touchedPaths) {
           const block = await claimNestedInstructions(opts.ws.root, rel);
           if (block) reminders.push(block);
         }
-        if (reminders.length > 0) modelText = `${out.text}\n\n${reminders.join('\n\n')}`;
+        // Append to the ACCUMULATED modelText (which already carries the output
+        // cap + any loop-detector/delegation nudges) — not raw out.text, which
+        // would discard them.
+        if (reminders.length > 0) modelText = `${modelText}\n\n${reminders.join('\n\n')}`;
       }
       // An inline image (screenshot tool) rides into the transcript as a
       // multipart tool result so a vision-capable model can SEE the page.
@@ -722,11 +1041,72 @@ async function runLoop(opts: RunOpts): Promise<void> {
     // (in chunks of MAX_PARALLEL_SUBAGENTS) — so the model can issue several
     // spawns in one step and get real parallelism. Every other tool keeps the
     // strict sequential semantics: a later call sees the earlier call's effects.
+    // Item 3: a malformed-JSON tool call is answered with a corrective reminder
+    // and NEVER dispatched (its `input` is the raw unparsed string — running it
+    // would just error opaquely). Returns the terminal result, or null to proceed.
+    const interceptInvalidJson = (call: ToolCall): ToolResultPartLite | null => {
+      if (!invalidCallIds.has(call.id)) return null;
+      call.state = 'error';
+      call.error = JSON_ERROR_REMINDER;
+      call.resultText = JSON_ERROR_REMINDER;
+      emit();
+      return toolResult(call.id, call.name, JSON_ERROR_REMINDER, true);
+    };
+
+    // A call's scheduling class (item: per-tool concurrency). A `shared` call is
+    // a read-only, side-effect-free tool whose ordering relative to siblings does
+    // not matter, so a CONSECUTIVE run of them can dispatch in parallel. Anything
+    // else is `exclusive` and keeps the strict one-at-a-time semantics (a later
+    // call sees the earlier call's effects). spawn_subagent has its own fan-out
+    // branch below and is never folded into a shared run.
+    const isSharedCall = (call: ToolCall): boolean => {
+      if (call.name === SPAWN_SUBAGENT) return false;
+      const def = getMcpToolDef(call.name);
+      return def ? isSharedTool(def) : false;
+    };
     const toolResultParts: ToolResultPartLite[] = [];
     for (let ci = 0; ci < calls.length; ) {
       if (calls[ci].name !== SPAWN_SUBAGENT) {
+        // A run of consecutive `shared` (read-only) calls: preflight each one in
+        // order (approval/abort gating stays single-slot — shared tools are
+        // ungated so they don't park, but the invariant is preserved), then
+        // dispatch the cleared ones concurrently in chunks. The settled map keeps
+        // the transcript in the model's original call order. A lone shared call
+        // falls through this with a 1-element run (a Promise.all of one) — same
+        // result as the serial path, no special-casing needed.
+        if (isSharedCall(calls[ci])) {
+          const run: ToolCall[] = [];
+          while (ci < calls.length && isSharedCall(calls[ci])) {
+            run.push(calls[ci]);
+            ci += 1;
+          }
+          const settled = new Map<string, ToolResultPartLite>();
+          const cleared: ToolCall[] = [];
+          for (const call of run) {
+            const invalid = interceptInvalidJson(call);
+            if (invalid) {
+              settled.set(call.id, invalid);
+              continue;
+            }
+            const blocked = await preflight(call);
+            if (blocked) settled.set(call.id, blocked);
+            else cleared.push(call);
+          }
+          for (let s = 0; s < cleared.length; s += MAX_PARALLEL_SHARED_TOOLS) {
+            const chunk = cleared.slice(s, s + MAX_PARALLEL_SHARED_TOOLS);
+            const outs = await Promise.all(chunk.map((call) => dispatchCleared(call)));
+            chunk.forEach((call, k) => settled.set(call.id, outs[k]));
+          }
+          for (const call of run) toolResultParts.push(settled.get(call.id)!);
+          continue;
+        }
         const call = calls[ci];
         ci += 1;
+        const invalid = interceptInvalidJson(call);
+        if (invalid) {
+          toolResultParts.push(invalid);
+          continue;
+        }
         const blocked = await preflight(call);
         toolResultParts.push(blocked ?? (await dispatchCleared(call)));
         continue;
@@ -739,6 +1119,11 @@ async function runLoop(opts: RunOpts): Promise<void> {
       const settled = new Map<string, ToolResultPartLite>();
       const cleared: ToolCall[] = [];
       for (const call of run) {
+        const invalid = interceptInvalidJson(call);
+        if (invalid) {
+          settled.set(call.id, invalid);
+          continue;
+        }
         const blocked = await preflight(call);
         if (blocked) settled.set(call.id, blocked);
         else cleared.push(call);
@@ -757,6 +1142,32 @@ async function runLoop(opts: RunOpts): Promise<void> {
     if (limitNote) appendNoteToLastToolResult(toolResultParts, limitNote);
     S.transcript.push({ role: 'tool', content: toolResultParts });
     if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
+
+    // Degradation corrective note (item 3): the monitor flagged this step's
+    // response. Inject the nudge HERE — after the tool results — so every
+    // tool_use from this step keeps its paired tool_result and the transcript
+    // stays valid before the next model call.
+    if (degradedThisStep) {
+      S.transcript.push({
+        role: 'user',
+        content:
+          '[system] You have produced several responses with no explanation since the last context compaction. The compacted summary above may be missing detail. Before continuing, briefly re-state in plain text what you are doing and why — re-reading the summary and any files it references if needed — then proceed.',
+      });
+      emit();
+    }
+
+    // Preemptive compaction (item 2): a long multi-tool turn can cross the
+    // context threshold mid-turn — the auto-compact in finish() only fires at
+    // turn end, so without this the NEXT model call below overflows. Compact
+    // BETWEEN tool results and the next model call, synchronously, guarded by a
+    // cooldown so a tool-heavy turn can't thrash the compactor. The current
+    // model call already consumed `usage.inputTokens` (= live context), so the
+    // ratio reflects what the next call would send.
+    if (shouldPreemptiveCompact(S)) {
+      await compactConversation(undefined, S, { allowDuringTurn: true }).catch(() => {});
+      S.state.status = 'thinking';
+      emit();
+    }
   }
 
   finish(S, 'completed', 'Stopped');
@@ -833,6 +1244,17 @@ function recoveryHint(name: string, consecutiveFailures: number): string | null 
   }
   return `[recovery] ${name} has failed ${consecutiveFailures} times in a row. Stop retrying this approach: either solve the problem a fundamentally different way, or call ask_user to get the user's help instead of guessing.`;
 }
+
+/**
+ * The model-facing reminder injected as the tool_result for a call whose JSON
+ * arguments couldn't be parsed (item 3 / omo json-error-recovery). Fires on the
+ * FIRST malformed call — unlike the 2-strike {@link recoveryHint} — so the model
+ * corrects its syntax immediately instead of repeating the same broken call.
+ */
+const JSON_ERROR_REMINDER =
+  '[invalid tool arguments] The arguments for this tool call were not valid JSON, so the call could not be run. ' +
+  'Look at the schema, fix the JSON syntax (balanced braces/brackets, quoted keys, escaped quotes, no trailing commas), ' +
+  'and re-issue the call with valid arguments. Do not repeat the exact same malformed call.';
 
 /**
  * Derive the proposed per-op diffs from an edit_file/multi_edit call input, for
@@ -940,17 +1362,55 @@ function finish(S: ThreadContainer, status: AgentChatState['status'], note?: str
   }
 }
 
+/**
+ * Emergency compaction floor — fires regardless of the auto-compact setting and
+ * regardless of whether the model's context window is known. It's the backstop
+ * for unbounded transcript growth on disabled auto-compact or unlisted / custom
+ * / openai-compat models, where `shouldAutoCompact`'s ratio path can't compute a
+ * threshold. See `emergencyCompactionReason` for the ceilings.
+ */
+function shouldEmergencyCompact(S: ThreadContainer): boolean {
+  const transcriptChars = S.transcript.reduce((n, m) => n + messageChars(m), 0);
+  return emergencyCompactionReason(S.transcript.length, transcriptChars) !== null;
+}
+
 /** True when auto-compaction is enabled and the live context is over threshold. */
 function shouldAutoCompact(S: ThreadContainer): boolean {
+  // Emergency floor first: an unconditional backstop that fires even when
+  // auto-compact is disabled or the model's context window is unknown.
+  if (shouldEmergencyCompact(S)) return true;
   const cfg = getSettingsSync().agent.autoCompact;
   if (!cfg.enabled) return false;
   const ctx = S.state.usage.contextTokens;
   if (ctx <= 0) return false;
-  const window = MODELS.find(
-    (mm) => mm.provider === S.conversationProvider && mm.id === S.conversationModel,
+  const window = resolveModelEntry(
+    MODELS,
+    S.conversationProvider,
+    S.conversationModel,
   )?.contextWindow;
   if (!window) return false;
   return ctx / window >= cfg.threshold;
+}
+
+/**
+ * Minimum gap between two preemptive (mid-turn) compactions on one container, so
+ * a long tool-heavy turn can't thrash the compactor (item 2). A normal turn-end
+ * auto-compact is not gated by this — only the mid-turn path is.
+ */
+const PREEMPTIVE_COMPACTION_COOLDOWN_MS = 60_000;
+
+/**
+ * Whether to compact mid-turn, BEFORE the next model call (item 2). Reuses the
+ * same over-threshold decision as the turn-end auto-compact, but adds a cooldown
+ * lock so a turn that keeps crossing the threshold doesn't compact on every
+ * step. The emergency floor (transcript size) bypasses the cooldown — at that
+ * point growth is unbounded and a thrash is preferable to an overflow.
+ */
+function shouldPreemptiveCompact(S: ThreadContainer): boolean {
+  if (!shouldAutoCompact(S)) return false;
+  if (shouldEmergencyCompact(S)) return true;
+  if (S.starting) return false;
+  return Date.now() - S.lastCompactionAt >= PREEMPTIVE_COMPACTION_COOLDOWN_MS;
 }
 
 
@@ -1011,6 +1471,9 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
       S.conversationId = uid('session');
       S.conversationStartedAt = Date.now();
       S.conversationTitle = input.prompt.trim().split('\n')[0].slice(0, 60) || 'Untitled chat';
+      // A fresh conversation began — let stateful plugins initialize per-chat
+      // state (item: plugin onSession). No notifier registered ⇒ a no-op.
+      notifySessionStart(S);
     }
     S.conversationProvider = input.provider;
     S.conversationModel = input.model;
@@ -1083,7 +1546,7 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // the builder ignores it otherwise (matched by provider + id, so a live-fetched
     // or remapped id still resolves through the same static catalog entry).
     const modelReasoning =
-      MODELS.find((m) => m.provider === input.provider && m.id === input.model)?.reasoning ?? false;
+      resolveModelEntry(MODELS, input.provider, input.model)?.reasoning ?? false;
     // Deep-thinking mode active (think/ultrathink, sticky): raise this turn's
     // reasoning effort to the max for a reasoning model. Never lowers the
     // configured effort and is a no-op for non-reasoning models.
@@ -1129,5 +1592,53 @@ export async function startTurn(input: AgentSendInput): Promise<AgentSendResult>
     // way subsequent sends are gated by busy(), so releasing `S.starting` is safe.
     S.starting = false;
   }
+}
+
+/**
+ * Session handoff (SECOND-PASS: gajae handoff-generation-pipeline.md). Generate an
+ * explicit LLM checkpoint of the LIVE transcript on the addressed thread, and —
+ * when `startNew` is set — reset that thread and seed a fresh session with the
+ * handoff document so work continues with full context but a clean window.
+ *
+ * The generation step ({@link generateHandoff}) is non-destructive: it only reads
+ * S.transcript. The optional seed reuses the existing reset + startTurn paths
+ * unchanged (the seed rides in as a normal first user message), so transcript
+ * integrity and every turn-setup guard are preserved. Returns the document either
+ * way; `seededTurnId` is present only when a fresh session was started.
+ */
+export async function handoffConversation(input: {
+  provider?: ProviderId;
+  model?: string;
+  workspaceId?: WorkspaceId;
+  threadId?: string;
+  focus?: string;
+  startNew?: boolean;
+}): Promise<HandoffResult & { seededTurnId?: string }> {
+  const S =
+    (input.threadId ? containerForThread(input.threadId) : null) ??
+    (input.workspaceId ? containerForWorkspace(input.workspaceId) : currentContainer());
+  // Capture provider/model BEFORE any reset clears them — a seeded session must
+  // start on the same provider/model the handoff was generated against, unless the
+  // caller explicitly overrides.
+  const seedProvider = input.provider ?? S.conversationProvider ?? undefined;
+  const seedModel = input.model ?? S.conversationModel ?? undefined;
+  const result = await generateHandoff(input.focus, S);
+  if (!result.ok) return result;
+  if (!input.startNew) return result;
+  // Seed a fresh session: clear the thread (refused mid-turn — generateHandoff
+  // already guarded busy, and reset re-checks), then send the handoff document as
+  // the first prompt of the new conversation. A missing provider/model (e.g. a
+  // never-run thread) means we can't start a turn — return the doc without seeding.
+  if (!seedProvider || !seedModel || !isProviderId(seedProvider)) return result;
+  if (!resetConversation(S)) return result;
+  const seeded = await startTurn({
+    provider: seedProvider,
+    model: seedModel,
+    prompt: buildHandoffSeed(result.document),
+    captures: [],
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+    ...(input.threadId ? { threadId: input.threadId } : {}),
+  });
+  return seeded.ok ? { ...result, seededTurnId: seeded.turnId } : result;
 }
 

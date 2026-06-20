@@ -1,4 +1,11 @@
-import type { AgentRunTreeNode, ApprovalQueueItem } from '../../shared/agent-orchestration';
+import type {
+  AgentRunTreeNode,
+  ApprovalQueueItem,
+  RuntimeBackgroundSnapshot,
+  RuntimeSnapshot,
+  RuntimeThreadSnapshot,
+} from '../../shared/agent-orchestration';
+import { RUNTIME_SNAPSHOT_VERSION } from '../../shared/agent-orchestration';
 import type { BackgroundTask } from '../../shared/agent';
 import type { ThreadContainer } from './loop-state';
 
@@ -75,6 +82,66 @@ function backgroundNode(task: BackgroundTask, parentId: string): AgentRunTreeNod
     startedAt: task.startedAt,
     finishedAt: task.finishedAt,
     children: [],
+  };
+}
+
+/**
+ * Pure derive: project the live thread entries into a stable, serializable
+ * {@link RuntimeSnapshot} (SECOND-PASS "Typed runtime snapshot"). No I/O, no
+ * Electron — just a deterministic read of the in-memory containers, so it is
+ * harness-testable and safe to call for a HUD card, a test, or a bug-report dump.
+ * `now` is injectable so a test can assert a fixed `capturedAt`.
+ */
+export function deriveRuntimeSnapshot(
+  entries: readonly OrchestrationThreadEntry[],
+  now: number = Date.now(),
+): RuntimeSnapshot {
+  const threads: RuntimeThreadSnapshot[] = sortedEntries(entries).map(({ id, container, active }) => {
+    const background = container.state.background.map(backgroundSnapshot);
+    return {
+      id,
+      title: threadTitle(container),
+      status: container.state.status,
+      busy: isContainerBusy(container),
+      active,
+      provider: container.conversationProvider || null,
+      model: container.conversationModel || null,
+      startedAt: container.conversationStartedAt || null,
+      usage: {
+        inputTokens: container.state.usage.inputTokens,
+        outputTokens: container.state.usage.outputTokens,
+        contextTokens: container.state.usage.contextTokens,
+      },
+      backgroundCount: background.length,
+      background,
+    };
+  });
+  return {
+    version: RUNTIME_SNAPSHOT_VERSION,
+    capturedAt: now,
+    totals: {
+      threads: threads.length,
+      busyThreads: threads.filter((t) => t.busy).length,
+      backgroundAgents: threads.reduce((n, t) => n + t.backgroundCount, 0),
+      runningBackgroundAgents: threads.reduce(
+        (n, t) => n + t.background.filter((b) => b.running).length,
+        0,
+      ),
+    },
+    threads,
+  };
+}
+
+function backgroundSnapshot(task: BackgroundTask): RuntimeBackgroundSnapshot {
+  return {
+    id: task.id,
+    label: task.label,
+    status: task.status,
+    provider: task.provider,
+    model: task.model,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+    running: task.status === 'running',
   };
 }
 

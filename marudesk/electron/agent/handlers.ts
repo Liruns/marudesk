@@ -5,7 +5,7 @@ import { nonEmptyStr, obj } from '../ipc/validate';
 import { updateContextCache } from './context-cache';
 import { cancelBackgroundTask } from './background';
 import { editPlanStep } from './plan';
-import { parseAbort, parseApprove, parseEditPlanStep, parseRespond, parseSendInput } from './parse';
+import { parseAbort, parseApprove, parseEditPlanStep, parseHandoff, parseRespond, parseSendInput } from './parse';
 import { searchSessions } from './sessions-store';
 import { containerForThread, containerForWorkspace } from './loop-state.ts';
 import { builtinToolInfo } from './tools/registry';
@@ -15,6 +15,7 @@ import {
   approveTool,
   closeThread,
   compactConversation,
+  handoffConversation,
   deleteSavedSession,
   listSavedSessions,
   listThreads,
@@ -25,6 +26,7 @@ import {
   restoreTurnPage,
   resumeSession,
   revertEdit,
+  runtimeSnapshot,
   snapshot,
   startTurn,
   switchThread,
@@ -153,6 +155,11 @@ export function registerAgentHandlers(): void {
     return snapshot(workspaceIdOf(payload), threadId);
   });
 
+  // Typed whole-runtime snapshot (all threads + background agents) for a future
+  // HUD/status card or a bug-report dump. Optional workspace scope; omit for every
+  // thread. A pure read — no turn state is touched.
+  defineHandler('agent:runtime-snapshot', ([payload]) => runtimeSnapshot(workspaceIdOf(payload)));
+
   defineHandler('agent:reset', ([payload]) => reset(containerOf(payload)));
 
   defineHandler('agent:compact', ([payload]) => {
@@ -160,6 +167,11 @@ export function registerAgentHandlers(): void {
     const focus = typeof data.focus === 'string' ? data.focus : undefined;
     return compactConversation(focus, containerOf(payload));
   });
+
+  // Session handoff (SECOND-PASS): generate an explicit LLM checkpoint of the live
+  // transcript that seeds a fresh session. Returns the document; with startNew it
+  // also resets the addressed thread and starts a new turn seeded with the doc.
+  defineHandler('agent:handoff', ([payload]) => handoffConversation(parseHandoff(payload)));
 
   // Session history (v3 §5-C): list past conversations, resume one as the active
   // chat, or delete one. list/delete proxy sessions-store; resume swaps loop state.
