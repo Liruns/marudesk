@@ -278,7 +278,7 @@ function implementPrompt(input: RunTaskInput): string {
     input.acceptance.length > 0
       ? `\n\nAcceptance criteria — satisfy each:\n${input.acceptance.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
       : '';
-  return `You are implementing ONE task in a larger plan. You are working in an ISOLATED git worktree (a throwaway copy of the repo) — make the real edits this task needs with edit_file / multi_edit. Nothing you change touches the user's live files: the diff is captured for the user to review and apply deliberately. Read a file before you edit it; keep the change minimal and focused on THIS task only. When done, briefly summarize what you changed and why.
+  return `You are implementing ONE task in a larger plan. You are working in an ISOLATED git worktree (a throwaway copy of the repo) — make the real edits this task needs with edit_file / multi_edit. Nothing you change touches the user's live files: the diff is captured for the user to review and apply deliberately. Read a file before you edit it; keep the change minimal and focused on THIS task only. Your changes WILL be type-checked in this worktree after you finish — make sure the files you touch still compile/lint cleanly before you stop. When done, briefly summarize what you changed and why.
 
 Task: ${input.title.trim() || '(untitled)'}
 Intent: ${input.intent.trim() || '(none given)'}${goal}${criteria}`;
@@ -337,12 +337,16 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
       model: target.model,
       denyGlobs: getSettingsSync().agent.denyGlobs,
     };
+    const deadline = Date.now() + RUN_TIMEOUT_MS;
     const timer = setTimeout(() => ac.abort(), RUN_TIMEOUT_MS);
-    let out: Awaited<ReturnType<typeof runChildAgent>>;
-    try {
-      out = await runChildAgent(
+    // One implement turn against the worktree. The verify→fix turn re-runs against
+    // the SAME worktree — the child's prior edits are already on disk there, so a
+    // fresh turn reads the (already-edited) files and fixes the remaining errors;
+    // no transcript-resume plumbing is needed for correctness.
+    const runImplementTurn = (task: string): Promise<Awaited<ReturnType<typeof runChildAgent>>> =>
+      runChildAgent(
         {
-          task: implementPrompt(input),
+          task,
           label: input.title.trim() || 'Task',
           provider: target.provider,
           model: target.model,
@@ -355,18 +359,47 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
         undefined,
         { write: true },
       );
+    // Re-stage the worktree and return the current changed-file list.
+    const restage = async (): Promise<string[]> => {
+      try {
+        await runGit(worktreePath, ['add', '-A']);
+        return (await worktreeChanges(worktreePath)).files;
+      } catch {
+        return [];
+      }
+    };
+
+    let out: Awaited<ReturnType<typeof runChildAgent>>;
+    let worktreeVerified: boolean | undefined;
+    let verifyNote: string | undefined;
+    let changedFiles: string[] = [];
+    try {
+      out = await runImplementTurn(implementPrompt(input));
+      changedFiles = await restage();
+
+      // In-worktree pre-flight (audit #1): type-check the changed files in the
+      // throwaway worktree and, if errors remain on them, run one bounded fix turn
+      // seeded with the exact diagnostics — so a type error no longer ships into
+      // the diff unverified. The apply-time verifyChangedFiles stays the binding
+      // gate; this is the earlier, advisory signal.
+      const outcome = await runVerifyFixLoop({
+        root: worktreePath,
+        changedFiles,
+        runDiag: (r) => runDiagnostics(r),
+        restage,
+        runFixTurn: async (seed) => {
+          await runImplementTurn(seed);
+        },
+        remainingMs: () => deadline - Date.now(),
+      });
+      changedFiles = await restage();
+      worktreeVerified = outcome.verified;
+      verifyNote = outcome.verifyNote;
     } finally {
       clearTimeout(timer);
     }
 
     let patch = '';
-    let changedFiles: string[] = [];
-    try {
-      await runGit(worktreePath, ['add', '-A']);
-      changedFiles = (await worktreeChanges(worktreePath)).files;
-    } catch {
-      // staging/status failed — leave changedFiles empty
-    }
     if (changedFiles.length > 0) {
       try {
         patch = (await runGit(worktreePath, ['diff', '--cached'])).stdout;
@@ -381,6 +414,8 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
       result: clipText(out.text, MAX_RESULT_CHARS),
       patch: clipText(patch, MAX_PATCH_CHARS),
       changedFiles,
+      ...(worktreeVerified !== undefined ? { worktreeVerified } : {}),
+      ...(verifyNote ? { verifyNote } : {}),
     };
   } finally {
     // Always discard — the live workspace stays untouched whatever happened.
@@ -428,19 +463,106 @@ async function verifyChangedFiles(
   changedFiles: string[],
 ): Promise<'pass' | 'fail' | null> {
   if (changedFiles.length === 0) return null;
+  const probe = await probeChangedFiles((r) => runDiagnostics(r), root, changedFiles);
+  if (probe === null) return null;
+  return probe.errors.length > 0 ? 'fail' : 'pass';
+}
+
+/**
+ * The error diagnostics landing on `changedFiles` after running the workspace's
+ * own checker over `root`, or `null` when no applicable checker ran (so we can't
+ * honestly judge). Shared by {@link verifyChangedFiles} (apply-time verdict) and
+ * the in-worktree verify→fix loop ({@link runVerifyFixLoop}), so the two never
+ * drift on what counts as an error on a changed file. `runDiag` is injected so a
+ * harness can stub the checker without a real provider/toolchain.
+ */
+export async function probeChangedFiles(
+  runDiag: (root: string) => Promise<Pick<Awaited<ReturnType<typeof runDiagnostics>>, 'lastRun'>>,
+  root: string,
+  changedFiles: string[],
+): Promise<{ errors: { file: string; message: string }[] } | null> {
   let lastRun: Awaited<ReturnType<typeof runDiagnostics>>['lastRun'];
   try {
-    ({ lastRun } = await runDiagnostics(root));
+    ({ lastRun } = await runDiag(root));
   } catch {
     return null;
   }
   // No applicable checker ran (exitCode stays null) → we can't honestly judge.
   if (!lastRun || lastRun.exitCode === null) return null;
   const changed = new Set(changedFiles.map(normalizeRel));
-  const errored = lastRun.diagnostics.some(
-    (d) => d.severity === 'error' && changed.has(normalizeRel(d.file)),
-  );
-  return errored ? 'fail' : 'pass';
+  const errors = lastRun.diagnostics
+    .filter((d) => d.severity === 'error' && changed.has(normalizeRel(d.file)))
+    .map((d) => ({ file: normalizeRel(d.file), message: d.message }));
+  return { errors };
+}
+
+/** Hard cap on in-worktree fix turns after the first implement pass (audit #1). */
+const MAX_VERIFY_FIX = 1;
+/** Don't start another fix turn unless this much of the run budget remains. */
+const VERIFY_FIX_MIN_REMAINING_MS = 30_000;
+
+/** A short, deterministic note describing the in-worktree verification outcome. */
+export function verifyNoteFor(verified: boolean | undefined, errorCount: number): string {
+  if (verified === undefined) return 'no checker applied — left unverified';
+  if (verified) return 'verified: no errors on changed files';
+  return `${errorCount} error${errorCount === 1 ? '' : 's'} remain on changed files`;
+}
+
+export type VerifyFixOutcome = {
+  /** undefined = no checker applied; true = clean; false = errors remain. */
+  verified: boolean | undefined;
+  verifyNote: string;
+  /** Errors still present after the loop (empty when verified true / undefined). */
+  remainingErrors: { file: string; message: string }[];
+};
+
+/**
+ * After the first implement pass, type-check the worktree over the changed files
+ * and — if errors remain on them — run up to {@link MAX_VERIFY_FIX} bounded extra
+ * implement turns seeded with the EXACT diagnostics, re-staging + re-probing
+ * between turns. Honest: never fakes green — when errors survive the cap it
+ * returns `verified:false` with the remaining count (the apply-time
+ * {@link verifyChangedFiles} stays the binding gate). All collaborators are
+ * injected so the harness can drive the loop without a provider:
+ *  - `runDiag` runs the checker (stub: a scripted diagnostics sequence),
+ *  - `restage` re-stages and returns the current changed-file list,
+ *  - `runFixTurn` runs one more implement turn given the seed text,
+ *  - `remainingMs` reports the run-budget time left (so we don't blow the timeout).
+ */
+export async function runVerifyFixLoop(deps: {
+  root: string;
+  changedFiles: string[];
+  runDiag: (root: string) => Promise<Pick<Awaited<ReturnType<typeof runDiagnostics>>, 'lastRun'>>;
+  restage: () => Promise<string[]>;
+  runFixTurn: (seed: string) => Promise<void>;
+  remainingMs: () => number;
+}): Promise<VerifyFixOutcome> {
+  let changedFiles = deps.changedFiles;
+  let probe = await probeChangedFiles(deps.runDiag, deps.root, changedFiles);
+  // No checker applies (or nothing changed) → honestly unverified, no fix turns.
+  if (probe === null || changedFiles.length === 0) {
+    return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [] };
+  }
+  for (let attempt = 0; attempt < MAX_VERIFY_FIX && probe.errors.length > 0; attempt += 1) {
+    if (deps.remainingMs() < VERIFY_FIX_MIN_REMAINING_MS) break; // respect RUN_TIMEOUT_MS
+    const seed = `Your changes still have type/lint errors in the worktree — fix them before finishing. These errors remain on files you changed:\n${probe.errors
+      .map((e) => `- ${e.file}: ${e.message}`)
+      .join('\n')}`;
+    await deps.runFixTurn(seed);
+    changedFiles = await deps.restage();
+    const next = await probeChangedFiles(deps.runDiag, deps.root, changedFiles);
+    if (next === null) {
+      // The checker stopped applying mid-loop (unexpected) — stop honestly unverified.
+      return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [] };
+    }
+    probe = next;
+  }
+  const verified = probe.errors.length === 0;
+  return {
+    verified,
+    verifyNote: verifyNoteFor(verified, probe.errors.length),
+    remainingErrors: probe.errors,
+  };
 }
 
 /**

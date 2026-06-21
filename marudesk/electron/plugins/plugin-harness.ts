@@ -9,7 +9,7 @@ import { isSafePanelPath } from '../../shared/plugin';
 import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
 import { satisfiesEngine } from './engine-compat';
-import { buildPluginServer, PluginHost } from './host';
+import { buildPluginServer, PluginHost, PLUGIN_LOG_BUFFER_MAX } from './host';
 import { installUserPluginFolder, removeUserPluginFolder } from './lifecycle';
 import { guardedExec, guardedFetch } from './permissions';
 import type { PluginStatusUpdate } from './host';
@@ -107,6 +107,13 @@ async function main(): Promise<void> {
   // fs without a workspace: the same tool with a null-ws context must be refused.
   const noWsRes = await readTool.exec({ path: 'NOTES.md' }, { ws: null, signal: new AbortController().signal });
   check('fs:read refuses when no workspace is open', noWsRes.isError === true);
+
+  // A failed tool call is recorded in the host's per-plugin log ring (the in-app
+  // debug view), tagged as an error so an author can see WHY a call failed.
+  check(
+    'a tool-call failure is buffered in the host log ring as an [error] line',
+    host.getLogs().some((l) => l.startsWith('[error] tool read_file failed')),
+  );
 
   // ── fs:write → AppliedChange surfaced as ToolResult.edits (P3) ────────────────
   const writeTool = server.tools.find((t) => t.name === 'plugin:hello-world__write_note')!;
@@ -216,6 +223,27 @@ async function main(): Promise<void> {
     const ranAgain = await runTool.exec({ command: 'node -e "process.stdout.write(\'OK\')"' }, csCtx);
     const parsedAgain = JSON.parse(toolJson(ranAgain.text)) as { sessions: number };
     check('onSessionEnd reset per-conversation state (count back to 1, not 2)', parsedAgain.sessions === 1);
+
+    // ── per-plugin log ring: ctx.log lines are buffered + retrievable, bounded ──
+    const logTool = csServer.tools.find((t) => t.name === 'plugin:cmdstatus__log_many')!;
+    await logTool.exec({ count: 3 }, csCtx);
+    const fewLogs = csHost.getLogs();
+    check(
+      'ctx.log lines are buffered + retrievable via the host log ring',
+      fewLogs.includes('line-0') && fewLogs.includes('line-2'),
+    );
+
+    // Overflow the ring: emit more than the cap; the oldest must be dropped and the
+    // total never exceeds PLUGIN_LOG_BUFFER_MAX.
+    const overflow = PLUGIN_LOG_BUFFER_MAX + 50;
+    await logTool.exec({ count: overflow }, csCtx);
+    const cappedLogs = csHost.getLogs();
+    check('log ring is bounded to PLUGIN_LOG_BUFFER_MAX (oldest dropped)', cappedLogs.length === PLUGIN_LOG_BUFFER_MAX);
+    check(
+      'log ring keeps the newest lines after overflow',
+      cappedLogs[cappedLogs.length - 1] === `line-${overflow - 1}` && !cappedLogs.includes('line-0'),
+    );
+
     csHost.dispose();
   }
 

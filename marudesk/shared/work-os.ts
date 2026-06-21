@@ -180,6 +180,18 @@ export type ImplementTaskResult =
       patch: string;
       /** Paths the agent changed in the worktree. */
       changedFiles: string[];
+      /**
+       * Whether the worktree's own checker (run_diagnostics / typecheck) ran over
+       * the changed files and found NO errors — an in-worktree pre-flight done
+       * BEFORE the diff is surfaced, so a type error no longer ships into the diff
+       * unverified. `true` = clean, `false` = error(s) remain (after the bounded
+       * fix loop), `undefined` = no applicable checker so it stays honestly
+       * unverified. Additive/optional: the binding gate is still the apply-time
+       * {@link ApplyPatchResult.verdict}; this is the earlier, advisory signal.
+       */
+      worktreeVerified?: boolean;
+      /** Short human note describing the worktree verification outcome. */
+      verifyNote?: string;
     }
   | { ok: false; reason: string };
 

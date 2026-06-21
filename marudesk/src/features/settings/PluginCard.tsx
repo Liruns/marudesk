@@ -1,8 +1,12 @@
+import { useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CircleSlash,
   PanelRight,
+  ScrollText,
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
@@ -24,9 +28,21 @@ export function PluginCard({ status, busy, onToggle, onRemove }: PluginCardProps
   const on = status.state === 'active';
   const panel = status.panel;
   const canRemove = status.scope === 'user' || status.hasUserInstall === true;
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [logLines, setLogLines] = useState<readonly string[]>([]);
+
+  const toggleLogs = async (): Promise<void> => {
+    const next = !logsOpen;
+    setLogsOpen(next);
+    if (next) {
+      const lines = await window.marudesk.invoke('plugins:logs', { id: status.id });
+      setLogLines(lines);
+    }
+  };
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-2">
+    <div className="flex flex-col gap-2 rounded-lg border border-subtle bg-surface-1 px-4 py-2">
+      <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-body-sm font-medium text-fg-primary truncate">{status.name}</span>
@@ -81,6 +97,31 @@ export function PluginCard({ status, busy, onToggle, onRemove }: PluginCardProps
           label={`${on ? t('settings.plugins.toggle.disable') : t('settings.plugins.toggle.enable')} ${status.name}`}
         />
       </div>
+      </div>
+
+      {on ? (
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => void toggleLogs()}
+            aria-expanded={logsOpen}
+            className="flex items-center gap-1 self-start text-caption text-fg-tertiary transition-colors hover:text-fg-secondary"
+          >
+            {logsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <ScrollText size={12} />
+            {t('settings.plugins.logs')}
+          </button>
+          {logsOpen ? (
+            logLines.length > 0 ? (
+              <pre className="max-h-40 overflow-auto rounded-md bg-surface-3 px-2 py-1.5 text-caption font-mono whitespace-pre-wrap break-words text-fg-secondary">
+                {logLines.join('\n')}
+              </pre>
+            ) : (
+              <span className="text-caption text-fg-tertiary">{t('settings.plugins.logs.empty')}</span>
+            )
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

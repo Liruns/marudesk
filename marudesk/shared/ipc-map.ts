@@ -899,6 +899,9 @@ export interface IpcMap {
   };
   'plugins:install-folder': { args: []; result: PluginStatus[] };
   'plugins:commands': { args: []; result: PluginCommandSnapshot[] };
+  // Recent (scrubbed) log lines + errors for one plugin — the Settings card's
+  // collapsible "Logs" view (bounded ring kept in the host).
+  'plugins:logs': { args: [payload: { id: string }]; result: readonly string[] };
   'plugins:open-folder': { args: []; result: { path: string } };
   'plugins:remove': {
     args: [payload: { id: string }];

@@ -1180,6 +1180,8 @@ export const EN_MESSAGES = {
   'settings.plugins.empty': 'No plugins found. Install a plugin folder to add one.',
   'settings.plugins.installFolder': 'Install folder',
   'settings.plugins.loading': 'Loading...',
+  'settings.plugins.logs': 'Logs',
+  'settings.plugins.logs.empty': 'No log output yet.',
   'settings.plugins.openFolder': 'Open plugins folder',
   'settings.plugins.openPanel': 'Open panel',
   'settings.plugins.permissions': 'Grants',

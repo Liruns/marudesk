@@ -1175,6 +1175,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.plugins.empty': '플러그인이 없습니다. 플러그인 폴더를 설치하세요.',
   'settings.plugins.installFolder': '폴더 설치',
   'settings.plugins.loading': '불러오는 중...',
+  'settings.plugins.logs': '로그',
+  'settings.plugins.logs.empty': '아직 로그 출력이 없습니다.',
   'settings.plugins.openFolder': '플러그인 폴더 열기',
   'settings.plugins.openPanel': '패널 열기',
   'settings.plugins.permissions': '권한',

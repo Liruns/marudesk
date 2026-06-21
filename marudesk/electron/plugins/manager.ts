@@ -175,6 +175,12 @@ export class PluginManager {
     return this.statuses;
   }
 
+  // Recent (scrubbed) log lines + errors for one live plugin (the in-app debug
+  // view). Empty when the plugin isn't currently active.
+  logs(id: string): readonly string[] {
+    return this.live.get(id)?.host.getLogs() ?? [];
+  }
+
   // Resolve a plugin panel request to an absolute file, or null.
   resolvePanelFile(pluginId: string, relPath: string): string | null {
     return resolvePanelFile(this.live.get(pluginId), relPath);
