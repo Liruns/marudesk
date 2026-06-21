@@ -339,7 +339,7 @@ function TerminalErrorsPanel({
       </div>
       <div className="max-h-64 overflow-y-auto">
         {events.length === 0 ? (
-          <div className="px-3 py-4 text-center text-caption text-fg-tertiary">
+          <div className="px-3 py-3 text-center text-caption text-fg-tertiary">
             {t('terminal.errors.empty')}
           </div>
         ) : (

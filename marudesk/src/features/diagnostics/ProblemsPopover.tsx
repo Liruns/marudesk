@@ -123,7 +123,7 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
 
       <div className="flex-1 overflow-auto py-1">
         {groups.length === 0 ? (
-          <p className="px-3 py-4 text-fg-tertiary">
+          <p className="px-3 py-3 text-fg-tertiary">
             {state.lastRun
               ? `No problems — the last check was clean (${state.lastRun.checkerId}).`
               : 'Run a check to see compiler/linter problems here.'}

@@ -173,7 +173,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2.5 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
+        <div className="flex shrink-0 items-center gap-2 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
           <Hint k="↑↓" label={t('palette.hint.move')} />
           <Hint k="↵" label={t('tabPalette.hint.switch')} />
           <Hint k="esc" label={t('palette.hint.close')} />

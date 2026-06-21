@@ -3,14 +3,14 @@ export const INSPECT_OVERLAY_SCRIPT = String.raw`
   if (window.__marudeskInspectActive) return;
   window.__marudeskInspectActive = true;
 
-  const ACCENT = '#5E6AD2';
+  const ACCENT = '#C75A3B';
   const overlay = document.createElement('div');
   overlay.style.cssText = [
     'position:fixed',
     'pointer-events:none',
     'z-index:2147483646',
     'border:2px solid ' + ACCENT,
-    'background:rgba(94,106,210,0.10)',
+    'background:rgba(199,90,59,0.10)',
     'transition:none',
     'box-sizing:border-box',
     'top:0;left:0;width:0;height:0;display:none',

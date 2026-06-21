@@ -10,7 +10,7 @@ import type { ProviderId } from '../../../shared/providers';
 
 export type ProviderVisual = { mono: string; color: string };
 
-const ACCENT = '#5E6AD2'; // design-system accent
+const ACCENT = '#C75A3B'; // design-system accent
 
 /** Resolve a (brand-less) provider + optional label to its monogram + color. */
 export function providerVisual(_provider: ProviderId, label?: string): ProviderVisual {

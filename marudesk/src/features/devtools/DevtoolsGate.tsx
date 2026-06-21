@@ -12,7 +12,7 @@ export function DevtoolsGate({ kind }: { kind: 'detached' | 'attaching' }) {
     );
   }
   return (
-    <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+    <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
       <p className="text-body-sm text-fg-secondary">{t('devtools.disconnected')}</p>
       {reason ? (
         <p className="text-caption text-fg-tertiary max-w-xs break-words">{reason}</p>

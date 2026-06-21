@@ -97,7 +97,7 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
         onClick={onClose}
       />
       <div className="relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lifted animate-scale-in">
-        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-11">
+        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-10">
           <Search size={15} className="shrink-0 text-fg-tertiary" />
           <input
             ref={inputRef}

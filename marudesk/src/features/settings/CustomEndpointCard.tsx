@@ -48,7 +48,7 @@ export function CustomEndpointCard({
         </Badge>
       </button>
       {expanded ? (
-        <div className="border-t border-subtle px-3 py-3 flex flex-col gap-3">
+        <div className="border-t border-subtle px-3 py-2 flex flex-col gap-2">
           <div className="text-caption text-fg-tertiary">
             {t('settings.providers.custom.models')}{' '}
             <span className="font-mono text-fg-secondary break-all">

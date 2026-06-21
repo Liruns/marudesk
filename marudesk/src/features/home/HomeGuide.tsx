@@ -30,7 +30,7 @@ export function HomeGuide({
   return (
     <section
       aria-label={t('home.guide.title')}
-      className="@container w-full max-w-2xl rounded-lg border border-subtle bg-surface-2 p-5 animate-fade-rise"
+      className="@container w-full max-w-2xl rounded-lg border border-subtle bg-surface-2 p-4 animate-fade-rise"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-0.5">

@@ -56,7 +56,7 @@ export function SshHostKeysSettings() {
 
   return (
     <Section>
-      <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex flex-col gap-2 px-4 py-2">
         <div className="flex items-center gap-2">
           <KeyRound size={15} className="text-fg-tertiary" />
           <span className="text-body-sm font-medium text-fg-primary">

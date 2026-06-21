@@ -48,7 +48,7 @@ export function openDevtoolsWindow(tabId: string): boolean {
     height: 600,
     minWidth: 480,
     minHeight: 320,
-    backgroundColor: '#08090A',
+    backgroundColor: '#121211',
     title: 'DevTools',
     autoHideMenuBar: true,
     // Parent it to the host so Electron tears the popup down with the main

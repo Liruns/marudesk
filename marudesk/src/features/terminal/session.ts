@@ -36,18 +36,18 @@ const IS_MAC =
 function xtermTheme(resolved: 'dark' | 'light') {
   return resolved === 'light'
     ? {
-        background: '#FFFFFF',
-        foreground: '#1C1D21',
-        cursor: '#5E6AD2',
-        cursorAccent: '#FFFFFF',
-        selectionBackground: 'rgba(94, 106, 210, 0.25)',
+        background: '#FAF9F6',
+        foreground: '#1C1B18',
+        cursor: '#C75A3B',
+        cursorAccent: '#FAF9F6',
+        selectionBackground: 'rgba(199, 90, 59, 0.25)',
       }
     : {
-        background: '#08090A',
-        foreground: '#F7F8F8',
-        cursor: '#5E6AD2',
-        cursorAccent: '#08090A',
-        selectionBackground: 'rgba(94, 106, 210, 0.32)',
+        background: '#121211',
+        foreground: '#F4F3F0',
+        cursor: '#C75A3B',
+        cursorAccent: '#121211',
+        selectionBackground: 'rgba(199, 90, 59, 0.32)',
       };
 }
 

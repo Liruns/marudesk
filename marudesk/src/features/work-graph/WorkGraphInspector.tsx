@@ -1,7 +1,9 @@
 import { Check, ExternalLink, Hammer, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { useSurfaceStore } from '../canvas/surface';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
+import type { TabKind } from '../../../shared/browser';
+import { useTabsStore } from '../tabs/store';
+import { useInstrumentStore } from './instrument';
 import { useWorkGraphStore } from './store';
 import { toast } from '../../lib/toast';
 import { parseUnifiedDiff } from '../git/parseDiff';
@@ -38,13 +40,19 @@ const STATUS_LABEL: Record<Task['status'], string> = {
   failed: 'Failed',
 };
 
-/** Open a Resource as a real tool surface (canvas card), keyed by its uri scheme. */
-function openResource(r: Resource): void {
+/**
+ * Open a Resource as a live instrument that fills Mission Control's main area
+ * (the runtime-aware browser gets full real estate), keyed by its uri scheme.
+ * The tab is created + activated so its surface/native view shows, then pinned
+ * as the active instrument; "← Graph" closes it back to the Task graph.
+ */
+async function openResource(r: Resource): Promise<void> {
   const uri = r.uri;
-  let opened = false;
+  let kind: TabKind | null = null;
+  let id: string | null = null;
   if (/^https?:\/\//.test(uri)) {
-    void window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: uri });
-    opened = true;
+    kind = 'web';
+    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: uri });
   } else if (uri.startsWith('file://')) {
     const raw = uri.replace(/^file:\/\/\/?/, '').replace(/#.*$/, '');
     // A malformed percent-escape makes decodeURI throw — fall back to the raw path.
@@ -55,20 +63,27 @@ function openResource(r: Resource): void {
       path = raw;
     }
     if (path) {
-      void window.marudesk.invoke('browser:tabs-new', { kind: 'editor', path });
-      opened = true;
+      kind = 'editor';
+      id = await window.marudesk.invoke('browser:tabs-new', { kind: 'editor', path });
     }
   } else if (uri.startsWith('term://')) {
-    void window.marudesk.invoke('browser:tabs-new', { kind: 'terminal' });
-    opened = true;
+    kind = 'terminal';
+    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'terminal' });
   }
-  // The resource opens on the canvas surface (the Work OS tool dock is a later
-  // slice); switch there so the user actually sees it.
-  if (opened) useSurfaceStore.getState().setMode('canvas');
-  else toast({ title: 'No opener for this resource type', variant: 'warning' });
+  if (kind && id) {
+    await useTabsStore.getState().activateTab(id);
+    useInstrumentStore.getState().open(id, kind);
+  } else {
+    toast({ title: 'No opener for this resource type', variant: 'warning' });
+  }
 }
 
-export function WorkGraphInspector() {
+/**
+ * The inspector's inner content (header + Implement + intent/acceptance/result/
+ * diff/resources), filling its container. Shared by the floating overlay (legacy
+ * canvas surface) and the Mission Control Instrument Dock.
+ */
+export function WorkGraphInspectorContent() {
   const graph = useWorkGraphStore((s) => s.graph);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const running = useWorkGraphStore((s) => s.running);
@@ -83,7 +98,7 @@ export function WorkGraphInspector() {
   const diffLines = patch ? parseUnifiedDiff(patch) : [];
 
   return (
-    <div className="absolute right-4 top-14 bottom-16 z-50 flex w-80 flex-col overflow-hidden rounded-lg chrome-panel p-3 shadow-card motion-safe:animate-scale-in">
+    <div className="flex h-full flex-col overflow-hidden p-3">
       <div className="mb-2 flex items-start gap-2">
         <div className="min-w-0">
           <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
@@ -116,7 +131,7 @@ export function WorkGraphInspector() {
         <p className="mt-0.5 text-caption text-fg-tertiary">Isolated from your workspace. Review diff before applying.</p>
       ) : null}
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 pb-4">
         {task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null}
 
         {task.acceptance.length > 0 ? (
@@ -177,7 +192,7 @@ export function WorkGraphInspector() {
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => openResource(r)}
+                  onClick={() => void openResource(r)}
                   title={r.uri}
                   className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
                 >
@@ -189,6 +204,23 @@ export function WorkGraphInspector() {
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Floating overlay variant, anchored bottom-right of the legacy canvas surface.
+ * Mission Control renders {@link WorkGraphInspectorContent} inside the Instrument
+ * Dock instead, so the inspector is a docked panel there, not a floater.
+ */
+export function WorkGraphInspector() {
+  const has = useWorkGraphStore(
+    (s) => s.selectedTaskId !== null && (s.graph?.tasks.some((t) => t.id === s.selectedTaskId) ?? false),
+  );
+  if (!has) return null;
+  return (
+    <div className="absolute right-4 top-14 bottom-16 z-50 w-80 overflow-hidden rounded-lg chrome-panel shadow-card motion-safe:animate-scale-in">
+      <WorkGraphInspectorContent />
     </div>
   );
 }

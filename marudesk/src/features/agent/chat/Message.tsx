@@ -212,7 +212,7 @@ export const MessageView = memo(function MessageView({
   flushToolRun();
 
   return (
-    <div id={`agent-msg-${message.id}`} className="group/msg relative flex min-w-0 flex-col gap-3">
+    <div id={`agent-msg-${message.id}`} className="group/msg relative flex min-w-0 flex-col gap-2">
       {/* Copy the assistant's prose — appears on hover, hidden mid-stream. */}
       {!streaming && answerText.trim() ? (
         <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">

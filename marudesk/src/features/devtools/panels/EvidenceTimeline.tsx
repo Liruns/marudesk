@@ -203,7 +203,7 @@ export function EvidenceTimeline() {
                       ? `Open ${row.refId}`
                       : `Jump to ${row.source}`
                 }
-                className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
+                className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1 text-left"
               >
                 <span className="w-[58px] shrink-0 font-mono text-caption tabular-nums text-fg-tertiary">
                   {clockLabel(row.t)}

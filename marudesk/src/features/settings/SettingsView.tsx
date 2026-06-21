@@ -84,7 +84,7 @@ export function SettingsView() {
         </aside>
 
         <div className="flex-1 min-w-0 overflow-y-auto bg-vignette">
-          <div className="max-w-3xl px-3 py-4 @[20rem]:px-8 @[20rem]:py-7 flex flex-col gap-5">
+          <div className="max-w-3xl px-3 py-3 @[20rem]:px-8 @[20rem]:py-7 flex flex-col gap-4">
             {searching ? (
               <>
                 <header className="flex flex-col gap-1">

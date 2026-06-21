@@ -221,7 +221,7 @@ export function SshRootDialog({
         role="dialog"
         aria-label={createMode ? 'New SSH workspace' : 'Add SSH folder'}
         onMouseDown={(event) => event.stopPropagation()}
-        className="w-[420px] max-h-[88vh] overflow-y-auto rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-3"
+        className="w-[420px] max-h-[88vh] overflow-y-auto rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2"
       >
         <h2 className="text-body font-semibold text-fg-primary">
           {createMode ? 'New SSH workspace' : 'Add SSH folder'}

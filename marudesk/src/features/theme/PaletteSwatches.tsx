@@ -16,7 +16,7 @@ export function PaletteSwatches({ variant }: { variant: 'grid' | 'row' }) {
   const update = useSettingsStore((s) => s.update);
   const grid = variant === 'grid';
   return (
-    <div className={grid ? 'grid grid-cols-6 gap-1.5' : 'flex items-center gap-1.5'}>
+    <div className={grid ? 'grid grid-cols-7 gap-1.5' : 'flex items-center gap-1.5'}>
       {PALETTES.map((option) => {
         const active = option.name === palette;
         return (

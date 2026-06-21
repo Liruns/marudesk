@@ -61,7 +61,7 @@ export function AddCustomEndpointForm({
     'w-full rounded-md bg-surface-page border border-default px-3 text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent transition-colors duration-fast';
 
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 px-3 py-3 flex flex-col gap-2.5">
+    <div className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 flex flex-col gap-2">
       <div className="flex flex-col gap-1">
         <span className="text-caption text-fg-tertiary">
           {t('settings.providers.custom.presetsLabel')}

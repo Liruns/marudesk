@@ -14,10 +14,11 @@ export type ThemeMode = 'dark' | 'light' | 'system';
  * Full-surface theme palettes — applied as a `[data-palette]` attribute on
  * <html> (tokens.css owns the actual colors). Orthogonal to BOTH the dark/light
  * mode and the accent: every palette ships a dark and a light half, so
- * palette × mode × accent compose freely. 'default' is the base Linear
- * graphite and clears the attribute.
+ * palette × mode × accent compose freely. 'default' is the base Graphite & Minium
+ * and clears the attribute; 'graphite' is the cooler classic near-black ("Carbon"),
+ * kept selectable.
  */
-export const THEME_PALETTES = ['default', 'midnight', 'espresso', 'fjord', 'paper', 'pane'] as const;
+export const THEME_PALETTES = ['default', 'graphite', 'midnight', 'espresso', 'fjord', 'paper', 'pane'] as const;
 export type ThemePalette = (typeof THEME_PALETTES)[number];
 /**
  * Where the custom browser DevTools opens:

@@ -15,8 +15,10 @@ try {
     document.documentElement.dataset.theme = 'light';
   }
   // Keep this allowlist in sync with THEME_PALETTES in shared/settings.ts.
+  // 'default' (Graphite & Minium) clears the attribute, so it is intentionally absent.
   var p = localStorage.getItem('marudesk.theme.palette');
   if (
+    p === 'graphite' ||
     p === 'midnight' ||
     p === 'espresso' ||
     p === 'fjord' ||

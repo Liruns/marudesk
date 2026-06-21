@@ -26,7 +26,7 @@ export function PluginCard({ status, busy, onToggle, onRemove }: PluginCardProps
   const canRemove = status.scope === 'user' || status.hasUserInstall === true;
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-1 px-4 py-3">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-2">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-body-sm font-medium text-fg-primary truncate">{status.name}</span>

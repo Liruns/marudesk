@@ -258,7 +258,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       : {}),
     minWidth: 1024,
     minHeight: 640,
-    backgroundColor: '#08090A',
+    backgroundColor: '#121211',
     // Fully frameless on every platform; the renderer paints its own title
     // bar (drag region + min/maximize/close) so the chrome can feel
     // browser-native instead of OS-native.

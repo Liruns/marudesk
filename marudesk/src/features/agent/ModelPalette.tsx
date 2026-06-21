@@ -184,7 +184,7 @@ export function ModelPalette({
       />
       <div className="relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lifted animate-scale-in">
         {/* search */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-11">
+        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-10">
           <Search size={15} className="shrink-0 text-fg-tertiary" />
           <input
             ref={inputRef}
@@ -251,7 +251,7 @@ export function ModelPalette({
         </div>
 
         {/* footer hint bar */}
-        <div className="flex shrink-0 items-center gap-2.5 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
+        <div className="flex shrink-0 items-center gap-2 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
           <Hint k="↑↓" label={t('palette.hint.move')} />
           <Hint k="↵" label={t('agent.modelPalette.select')} />
           <Hint k="1–9" label={t('agent.modelPalette.quick')} />

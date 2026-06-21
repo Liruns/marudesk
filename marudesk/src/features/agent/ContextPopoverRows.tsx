@@ -38,7 +38,7 @@ export function CaptureRow({
       type="button"
       onClick={onToggle}
       className={cn(
-        'w-full flex items-center gap-2.5 px-3 h-7 text-left',
+        'w-full flex items-center gap-2 px-3 h-7 text-left',
         'transition-colors duration-fast',
         'hover:bg-surface-2 focus:bg-surface-2 outline-none',
         selected ? 'text-fg-primary' : 'text-fg-secondary',
@@ -98,7 +98,7 @@ export function TabRow({
       onClick={onClick}
       title={title}
       className={cn(
-        'w-full flex items-center gap-2.5 px-3 h-7 text-left',
+        'w-full flex items-center gap-2 px-3 h-7 text-left',
         'transition-colors duration-fast',
         'text-fg-secondary hover:bg-surface-2 hover:text-fg-primary',
         'focus:bg-surface-2 focus:text-fg-primary outline-none',

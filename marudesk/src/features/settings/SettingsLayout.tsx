@@ -50,7 +50,7 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-6 px-4 py-3">
+    <div className="flex items-center justify-between gap-6 px-4 py-2">
       <div className="flex flex-col gap-0.5 min-w-0">
         <span className="text-body-sm text-fg-primary">{label}</span>
         {hint ? (

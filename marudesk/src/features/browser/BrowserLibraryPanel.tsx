@@ -33,7 +33,7 @@ export function BrowserLibraryPanel() {
 
   return (
     <div className="w-80 shrink-0 min-h-0 flex flex-col bg-surface-1 border-l border-subtle">
-      <div className="shrink-0 flex items-center gap-2 px-3 pt-3 pb-2">
+      <div className="shrink-0 flex items-center gap-2 px-3 pt-2 pb-2">
         <div className="flex-1 flex items-center gap-0.5 p-0.5 rounded-md bg-surface-2">
           <SectionTab
             label={t('browser.library.tab.bookmarks')}
@@ -155,7 +155,7 @@ function RowAction({
 }
 
 function EmptyNote({ text }: { text: string }) {
-  return <p className="px-3 py-4 text-body-sm text-fg-tertiary">{text}</p>;
+  return <p className="px-3 py-3 text-body-sm text-fg-tertiary">{text}</p>;
 }
 
 /**
@@ -361,7 +361,7 @@ function HistorySection({ query }: { query: string }) {
         ) : (
           groups.map((group) => (
             <div key={group.label} role="list" aria-label={group.label}>
-              <p className="px-3 pt-3 pb-1 text-caption font-medium text-fg-secondary">
+              <p className="px-3 pt-2 pb-1 text-caption font-medium text-fg-secondary">
                 {group.label}
               </p>
               {group.entries.map((e) => (

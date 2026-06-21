@@ -105,7 +105,7 @@ function ResultRow({
       type="button"
       onClick={onClick}
       className={cn(
-        'chrome-list-row group gap-3 px-4 py-3 text-left rounded-none',
+        'chrome-list-row group gap-2 px-4 py-2 text-left rounded-none',
       )}
     >
       <span className="shrink-0 text-fg-tertiary group-hover:text-accent" aria-hidden>

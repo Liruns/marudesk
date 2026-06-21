@@ -69,7 +69,7 @@ export function BoxModel({ model }: { model: BoxModelData }) {
   const border = edges(model.border, model.padding);
   const padding = edges(model.padding, model.content);
   return (
-    <div className="flex justify-center py-3 font-mono text-caption">
+    <div className="flex justify-center py-2 font-mono text-caption">
       <Ring label="margin" fillClass="bg-boxmodel-margin" e={margin}>
         <Ring label="border" fillClass="bg-boxmodel-border" e={border}>
           <Ring label="padding" fillClass="bg-boxmodel-padding" e={padding}>

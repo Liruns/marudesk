@@ -77,7 +77,7 @@ export function DataCategory() {
     : t('settings.data.sessionStorage.reading');
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <Section>
         <Field
           label={t('settings.data.persistSessions.label')}

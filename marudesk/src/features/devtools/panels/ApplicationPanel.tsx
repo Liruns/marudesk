@@ -694,7 +694,7 @@ function ServiceWorkersSection() {
         return (
           <div
             key={r.registrationId}
-            className="border-b border-subtle/40 px-3 py-1.5 flex flex-col gap-0.5"
+            className="border-b border-subtle/40 px-3 py-1 flex flex-col gap-0.5"
           >
             <div className="font-mono text-caption break-all">
               <span className="text-fg-tertiary">Scope: </span>

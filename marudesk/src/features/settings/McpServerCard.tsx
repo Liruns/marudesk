@@ -155,7 +155,7 @@ export function McpServerCard({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-3">
+    <div className="flex flex-col gap-2 rounded-lg border border-subtle bg-surface-1 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -307,7 +307,7 @@ function ToolPolicyRow({
 }) {
   const { t } = useI18n();
   return (
-    <div className="flex min-h-10 items-center gap-2 border-b border-subtle px-2 py-1 last:border-b-0">
+    <div className="flex min-h-9 items-center gap-2 border-b border-subtle px-2 py-1 last:border-b-0">
       <span className="min-w-0 flex-1 truncate font-mono text-caption text-fg-secondary" title={tool}>
         {tool}
       </span>

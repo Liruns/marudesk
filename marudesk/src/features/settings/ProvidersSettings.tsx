@@ -18,7 +18,7 @@ export function ProvidersSettings() {
   }, [statusChecked, refreshStatus]);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       <p className="text-caption text-fg-tertiary">
         {t('settings.providers.description')}
       </p>

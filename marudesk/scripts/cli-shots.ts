@@ -257,7 +257,7 @@ async function render(snaps: { name: string; bytes: Buffer }[]): Promise<void> {
   const page = await browser.newPage({ viewport: { width: 1000, height: 720 } });
   await page.setContent(
     `<!doctype html><html><head><style>${fs.readFileSync(xtermCss, 'utf8')}</style>
-     <style>body{margin:0;background:#08090A;padding:16px}</style></head>
+     <style>body{margin:0;background:#121211;padding:16px}</style></head>
      <body><div id="t"></div></body></html>`,
   );
   await page.addScriptTag({ path: xtermJs });
@@ -273,11 +273,11 @@ async function render(snaps: { name: string; bytes: Buffer }[]): Promise<void> {
           fontSize: 14,
           fontFamily: 'monospace',
           theme: {
-            background: '#08090A',
-            foreground: '#F7F8F8',
-            cursor: '#5E6AD2',
-            cursorAccent: '#08090A',
-            selectionBackground: 'rgba(94, 106, 210, 0.32)',
+            background: '#121211',
+            foreground: '#F4F3F0',
+            cursor: '#C75A3B',
+            cursorAccent: '#121211',
+            selectionBackground: 'rgba(199, 90, 59, 0.32)',
           },
         });
         term.open(document.getElementById('t')!);

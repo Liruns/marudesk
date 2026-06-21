@@ -5,27 +5,35 @@
  */
 
 :root {
-  /* Surface — dark first */
-  --surface-page: #08090A;        /* page background, deepest */
-  --surface-1:    #1A1B1F;        /* panel, drawer */
-  --surface-2:    #23252B;        /* card (elevated) */
-  --surface-3:    #2D2F36;        /* input, hover */
+  /* Surface — dark first. Graphite: a warm-neutral matte ink (paper-and-graphite,
+     faint warm-grey bias, NO blue/purple chroma) so the stage reads hand-crafted,
+     not a tinted "AI" canvas. Strictly monotonic ~10% spread. Light describes flat
+     material — there is no colored glow anywhere (see the depth tokens below). The
+     cooler classic near-black is kept selectable as [data-palette='graphite']. */
+  --surface-page: #121211;        /* page background, deepest */
+  --surface-1:    #1A1A18;        /* panel, drawer */
+  --surface-2:    #222220;        /* card (elevated) */
+  --surface-3:    #2C2B29;        /* input, hover */
 
-  /* Text */
-  --text-primary:   #F7F8F8;
-  --text-secondary: #8A8F98;
-  --text-tertiary:  #62666D;
-  --text-disabled:  #4A4D54;
+  /* Text — warm off-white, the same warm-neutral world as the surfaces.
+     primary ~16:1 on page, secondary ~8.5:1, tertiary ~4.2:1. */
+  --text-primary:   #F4F3F0;
+  --text-secondary: #B0AEA8;
+  --text-tertiary:  #7E7C75;
+  --text-disabled:  #56544E;
 
   /* Border */
   --border-subtle:  rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.10);
   --border-strong:  rgba(255, 255, 255, 0.16);
 
-  /* Accent — Linear violet, single accent */
-  --accent:         #5E6AD2;
-  --accent-hover:   #7176E0;
-  --accent-subtle:  rgba(94, 106, 210, 0.12);
+  /* Accent — a single, disciplined minium (lead-oxide orange-red) used sparingly:
+     active state, focus ring, cursor, one primary action. Desaturated and brick-
+     warm so it harmonizes with the graphite rather than "popping" like an AI brand
+     gradient. No violet, no teal, no neon. */
+  --accent:         #C75A3B;
+  --accent-hover:   #D86A49;
+  --accent-subtle:  rgba(199, 90, 59, 0.13);
 
   /* Semantic */
   --success:        #4CB782;
@@ -60,7 +68,7 @@
      the picker swatches. The hues mirror the [data-accent] presets (plus the
      base violet) so grouped strips stay in the app's existing color family;
      they hold across both themes and every palette. */
-  --tabgroup-violet: #5E6AD2;
+  --tabgroup-violet: #6E78E8;
   --tabgroup-blue:   #4C8DFF;
   --tabgroup-teal:   #2DB8A8;
   --tabgroup-green:  #46B17F;
@@ -72,10 +80,13 @@
   --font-body:    'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  /* Radius */
-  --radius-sm:   4px;
-  --radius:      6px;
-  --radius-lg:   10px;
+  /* Radius — crisp/dense language: small corners so chrome reads sharp and
+     technical (IDE-tight), not soft. Pill stays full-round for status dots and
+     true pills. Tailwind's md/xl ride these too (see tailwind.config.ts) so the
+     whole rounded-* scale sharpens from one place. */
+  --radius-sm:   3px;
+  --radius:      4px;
+  --radius-lg:   6px;
   --radius-pill: 9999px;
 
   /* Motion */
@@ -117,16 +128,14 @@
   --inset-shadow:  inset 0 1px 2px rgba(0, 0, 0, 0.18);
   /* Featured-surface gradient — layered over a surface fill (the token still
      owns the base color); a ~2.5% lift at the top fading out by ~64%. */
-  --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 64%);
-  /* Page vignette — a barely-there top-center lift so the canvas reads as a lit
-     stage. "Light pools up out of the page" (§1), made literal. */
-  /* Accent moments — the one place chromatic brand light is allowed to bloom.
-     Both ride var(--accent) via color-mix, so they follow the single accent
-     (incl. every [data-accent] reskin) without per-preset upkeep. --accent-glow
-     is a radial bloom behind hero brand marks; --focus-glow is a soft accent
-     halo for the primary input's focus state (additive to its border). */
-  --accent-glow: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 72%);
-  --focus-glow:  0 0 0 3px var(--accent-subtle);
+  --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0) 64%);
+  /* No decorative light. Glows / blooms / halos read as "AI-generated" — depth
+     here comes only from the monotonic surface ramp + hairline borders + a flat
+     top-edge sheen. The page vignette and the brand-mark accent glow are OFF; the
+     only accent halo is the functional focus ring below. */
+  --page-vignette: none;
+  --accent-glow:   none;
+  --focus-glow:    0 0 0 3px var(--accent-subtle);
 }
 
 /* Light theme — applied via data-theme="light" on <html>. Only surfaces, text,
@@ -135,22 +144,25 @@
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --surface-page: #FFFFFF;
-  --surface-1:    #F7F8FA;
-  --surface-2:    #EEF0F3;
-  --surface-3:    #E2E5EA;
+  /* Graphite light — warm bone/paper (not a sterile white invert), the same
+     warm-neutral family as the dark half. primary ~15:1, secondary ~7:1 on page. */
+  --surface-page: #FAF9F6;
+  --surface-1:    #F2F1EC;
+  --surface-2:    #E9E7E1;
+  --surface-3:    #DEDCD4;
 
-  --text-primary:   #1C1D21;
-  --text-secondary: #585C64;
-  --text-tertiary:  #80858E;
-  --text-disabled:  #A9ADB5;
+  --text-primary:   #1C1B18;
+  --text-secondary: #54524C;
+  --text-tertiary:  #827F77;
+  --text-disabled:  #ABA8A0;
 
   --border-subtle:  rgba(0, 0, 0, 0.07);
   --border-default: rgba(0, 0, 0, 0.12);
   --border-strong:  rgba(0, 0, 0, 0.18);
 
-  --accent-hover:   #4F5AC0;
-  --accent-subtle:  rgba(94, 106, 210, 0.14);
+  /* Minium darkened for hover on the pale paper; subtle wash a touch stronger. */
+  --accent-hover:   #B14E32;
+  --accent-subtle:  rgba(199, 90, 59, 0.15);
 
   --diff-add-bg:    rgba(76, 183, 130, 0.16);
   --diff-remove-bg: rgba(235, 87, 87, 0.14);
@@ -167,10 +179,10 @@
   --elevate-card:  inset 0 1px 0 0 var(--highlight-top-strong), 0 1px 2px rgba(0, 0, 0, 0.06);
   --inset-shadow:  inset 0 1px 2px rgba(0, 0, 0, 0.05);
   --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 64%);
-  --page-vignette: radial-gradient(120% 90% at 50% -8%, rgba(0, 0, 0, 0.012), rgba(0, 0, 0, 0) 46%);
+  --page-vignette: none;
 
-  /* Softer bloom on a white canvas so the hero glow stays a hint, not a stain. */
-  --accent-glow: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%);
+  /* No decorative glow on light either — the focus ring is the only accent halo. */
+  --accent-glow: none;
 
   /* Menu shadow on light surfaces: tighter, less black. */
   --shadow-menu: 0 0 0 1px var(--border-default), 0 4px 6px rgba(0,0,0,0.06), 0 12px 32px rgba(0,0,0,0.14), 0 2px 4px rgba(0,0,0,0.04);
@@ -182,8 +194,33 @@
    the accent system stay shared, so palette × mode × accent compose freely.
    The light half is declared with the [data-theme='light'] compound so it wins
    over the palette's dark half AND the base light block. No attribute (or
-   'default') = the base Linear graphite above. Preview swatch hexes live in
+   'default') = the base Graphite & Minium above. Preview swatch hexes live in
    src/features/theme/store.ts and must mirror --surface-page / --surface-2. */
+
+/* Carbon (key 'graphite') — the cooler, undertone-free classic near-black Maru
+   shipped with before the warm Graphite & Minium default. Kept selectable for
+   anyone who wants the tighter, cooler stage back. These are the original Linear
+   graphite [:root] / [data-theme='light'] surface + text values verbatim. */
+:root[data-palette='graphite'] {
+  --surface-page: #08090A;
+  --surface-1:    #1A1B1F;
+  --surface-2:    #23252B;
+  --surface-3:    #2D2F36;
+  --text-primary:   #F7F8F8;
+  --text-secondary: #8A8F98;
+  --text-tertiary:  #62666D;
+  --text-disabled:  #4A4D54;
+}
+:root[data-theme='light'][data-palette='graphite'] {
+  --surface-page: #FFFFFF;
+  --surface-1:    #F7F8FA;
+  --surface-2:    #EEF0F3;
+  --surface-3:    #E2E5EA;
+  --text-primary:   #1C1D21;
+  --text-secondary: #585C64;
+  --text-tertiary:  #80858E;
+  --text-disabled:  #A9ADB5;
+}
 
 /* Midnight — deep blue-black; cool slate text. */
 :root[data-palette='midnight'] {
