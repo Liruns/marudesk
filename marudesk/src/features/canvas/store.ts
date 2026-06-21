@@ -187,6 +187,9 @@ const CARD_SIZE: Record<TabKind, { def: CardSize; min: CardSize }> = {
   settings: { def: { w: 640, h: 520 }, min: { w: 420, h: 360 } },
   plugin: { def: { w: 520, h: 400 }, min: { w: 320, h: 240 } },
   devtools: { def: { w: 720, h: 480 }, min: { w: 420, h: 300 } },
+  files: { def: { w: 480, h: 520 }, min: { w: 300, h: 280 } },
+  search: { def: { w: 520, h: 520 }, min: { w: 320, h: 280 } },
+  sourceControl: { def: { w: 560, h: 520 }, min: { w: 360, h: 300 } },
 };
 
 /** Minimum card size for a tab kind (falls back to the generic floor). */
@@ -385,6 +388,9 @@ export type PanelDescriptor =
   | { kind: 'agent' }
   | { kind: 'home' }
   | { kind: 'settings' }
+  | { kind: 'files' }
+  | { kind: 'search' }
+  | { kind: 'sourceControl' }
   | { kind: 'plugin'; pluginId?: string; entry?: string }
   | { kind: 'devtools'; targetTabId?: string };
 

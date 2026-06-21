@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/useI18n';
 import { cn } from '../lib/cn';
 import { WindowControls } from './WindowControls';
 import { ProfileSwitcher } from '../features/workspaces/ProfileSwitcher';
+import { WorkspaceSwitcher } from '../features/workspaces/WorkspaceSwitcher';
 import { FlightStatus } from '../features/work-graph/FlightStatus';
 import { FlightLogButton } from '../features/work-graph/FlightLog';
 import { CommandPaletteButton } from '../features/commands/CommandPalette';
@@ -118,6 +119,7 @@ export function TitleBar() {
       )}
       <div className="flex items-center gap-1.5 pl-2">
         <ProfileSwitcher />
+        <WorkspaceSwitcher />
         <CommandPaletteButton />
         <UpdateIndicator />
       </div>

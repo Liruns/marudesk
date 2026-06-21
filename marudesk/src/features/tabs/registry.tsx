@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactNode } from 'react';
-import { Blocks, Bug, Code2, Globe, House, Sparkles, SlidersHorizontal, SquareTerminal } from 'lucide-react';
+import { Blocks, Bug, Code2, FolderTree, GitBranch, Globe, House, Search, Sparkles, SlidersHorizontal, SquareTerminal } from 'lucide-react';
 import { AgentTab } from '../agent/AgentTab';
 import { BrowserCanvas } from '../browser/BrowserCanvas';
 import { DevtoolsTab } from '../devtools/DevtoolsTab';
@@ -7,6 +7,9 @@ import { EditorView } from '../editor/EditorView';
 import { HomeView } from '../home/HomeView';
 import { PluginPanel } from '../plugins/PluginPanel';
 import { SettingsView } from '../settings/SettingsView';
+import { FilesInstrument } from '../workspace/FilesInstrument';
+import { SearchInstrument } from '../search/SearchInstrument';
+import { SourceControlInstrument } from '../git/SourceControlInstrument';
 import { TerminalSurface } from './TerminalSurface';
 import type { TabKind, TabState } from '../../../shared/browser';
 
@@ -66,5 +69,20 @@ export const tabKinds: Record<TabKind, TabKindDef> = {
     render: (_tabId, tab) => (
       <DevtoolsTab targetTabId={tab?.kind === 'devtools' ? tab.devtoolsTargetTabId : undefined} />
     ),
+  },
+  files: {
+    title: 'Files',
+    icon: FolderTree,
+    render: () => <FilesInstrument />,
+  },
+  search: {
+    title: 'Search',
+    icon: Search,
+    render: () => <SearchInstrument />,
+  },
+  sourceControl: {
+    title: 'Source Control',
+    icon: GitBranch,
+    render: () => <SourceControlInstrument />,
   },
 };

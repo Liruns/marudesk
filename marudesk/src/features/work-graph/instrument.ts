@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { TabKind } from '../../../shared/browser';
 import type { WorkspaceId } from '../../../shared/workspace';
-import { confirmCloseTab } from '../editor/store';
+import { confirmCloseTab, useEditorStore, type EditorFileInput } from '../editor/store';
 import { useTabsStore } from '../tabs/store';
 
 /**
@@ -85,4 +85,25 @@ export async function openInstrument(
   if (!id) return;
   await useTabsStore.getState().activateTab(id);
   useInstrumentStore.getState().open(id, kind);
+}
+
+/**
+ * Open a workspace file in an editor instrument. The summonable panels (Files /
+ * Search) open files this way: editorStore.openFile creates + activates the
+ * editor tab, then we host that tab as the full-area instrument (replacing the
+ * panel). Optional line/col positions the cursor (Search match → file:line:col).
+ */
+export async function openFileInstrument(
+  file: EditorFileInput,
+  line?: number,
+  col?: number,
+): Promise<void> {
+  if (line !== undefined && col !== undefined) {
+    await useEditorStore.getState().openFileAt(file, line, col);
+  } else {
+    await useEditorStore.getState().openFile(file);
+  }
+  const st = useTabsStore.getState();
+  const active = st.tabs.find((t) => t.id === st.activeTabId);
+  if (active && active.kind === 'editor') useInstrumentStore.getState().open(active.id, 'editor');
 }

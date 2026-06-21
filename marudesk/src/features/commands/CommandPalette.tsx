@@ -1,5 +1,5 @@
 import { useMemo, useState, type ComponentType } from 'react';
-import { Code2, Command, Globe, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
+import { Code2, Command, FolderTree, GitBranch, Globe, Search, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { openInstrument } from '../work-graph/instrument';
 import { openSettingsTab } from '../settings/store';
@@ -61,6 +61,27 @@ const COMMANDS: Cmd[] = [
     hint: 'An untitled Monaco buffer',
     icon: Code2,
     run: () => openInstrument('editor', { workspaceId: activeWorkspaceId() }),
+  },
+  {
+    id: 'files',
+    label: 'Open Files',
+    hint: 'Browse the workspace file tree',
+    icon: FolderTree,
+    run: () => openInstrument('files', { workspaceId: activeWorkspaceId() }),
+  },
+  {
+    id: 'search',
+    label: 'Search in Files',
+    hint: 'Find text across the workspace',
+    icon: Search,
+    run: () => openInstrument('search', { workspaceId: activeWorkspaceId() }),
+  },
+  {
+    id: 'source-control',
+    label: 'Source Control',
+    hint: 'Git status, diffs, and commits',
+    icon: GitBranch,
+    run: () => openInstrument('sourceControl', { workspaceId: activeWorkspaceId() }),
   },
   {
     id: 'web',

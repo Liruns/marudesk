@@ -20,7 +20,7 @@ function isUntitledKey(key: string): boolean {
 }
 export type { ErrorFileBuf, FileBuf } from './buffer';
 
-type EditorFileInput = string | WorkspaceFileRef;
+export type EditorFileInput = string | WorkspaceFileRef;
 
 function isWorkspaceFileRef(value: EditorFileInput): value is WorkspaceFileRef {
   return typeof value !== 'string';

@@ -88,6 +88,9 @@ const FEATURE_TITLES: Record<Exclude<TabKind, 'web'>, string> = {
   agent: 'AI Chat',
   plugin: 'Plugin',
   devtools: 'DevTools',
+  files: 'Files',
+  search: 'Search',
+  sourceControl: 'Source Control',
 };
 
 // Renderer input is never trusted: validate the kind before acting on it.
