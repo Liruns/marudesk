@@ -25,6 +25,7 @@ import { openFileInstrument } from '../work-graph/instrument';
 import { useWorkGraphStore } from '../work-graph/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import type { WorkspaceFileRef, WorkspaceId } from '../../../shared/workspace';
+import { resolveActiveRootId } from '../../../shared/workspace';
 import { FileGroup, Toggle } from './SearchPanel.parts';
 
 type Props = {
@@ -104,7 +105,7 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
   // only re-renders that group instead of every result row.
   const openMatch = useCallback(
     (filePath: string, line: number, col: number): void => {
-      const rootId = boundWorkspace?.activeRootId ?? boundWorkspace?.roots[0]?.id ?? null;
+      const rootId = resolveActiveRootId(boundWorkspace);
       const target: WorkspaceFileRef | string =
         boundWorkspace && rootId
           ? { workspaceId: boundWorkspace.id, rootId, path: filePath }

@@ -14,6 +14,7 @@ import { toast } from '../../lib/toast';
 import { changedFilePaths, parseUnifiedDiff } from '../git/parseDiff';
 import { openFileInstrument } from './instrument';
 import type { WorkspaceFileRef } from '../../../shared/workspace';
+import { resolveActiveRootId } from '../../../shared/workspace';
 import { DiffBlock, Spinner, Badge } from '../../components/ui';
 import { STATUS_BADGE, STATUS_LABEL_KEY } from './status';
 
@@ -130,7 +131,7 @@ export function WorkGraphInspectorContent() {
     ? useWorkspaceDeckStore.getState().workspaces.find((w) => w.id === resourceWorkspaceId) ?? null
     : null;
   const openChangedFile = (path: string): void => {
-    const rootId = boundWorkspace?.activeRootId ?? boundWorkspace?.roots[0]?.id ?? null;
+    const rootId = resolveActiveRootId(boundWorkspace);
     const target: WorkspaceFileRef | string =
       boundWorkspace && rootId ? { workspaceId: boundWorkspace.id, rootId, path } : path;
     void openFileInstrument(target);

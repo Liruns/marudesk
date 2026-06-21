@@ -23,6 +23,11 @@ export const TOUR_STEPS: readonly TourStep[] = [
     title: 'tour.step.goal.title',
     body: 'tour.step.goal.body',
   },
+  // Anchorless (centered) steps teach the implement → review → apply → commit
+  // spine. They have no `target` so they render even on the empty-graph first
+  // run, where no task is selected and the Instrument Dock isn't mounted.
+  { title: 'tour.step.implement.title', body: 'tour.step.implement.body' },
+  { title: 'tour.step.apply.title', body: 'tour.step.apply.body' },
   {
     target: '[data-tour="workspace"]',
     title: 'tour.step.workspace.title',

@@ -33,6 +33,7 @@ import type {
   WorkspaceFileRef,
   WorkspaceId,
 } from '../../../shared/workspace';
+import { resolveActiveRootId } from '../../../shared/workspace';
 import { IconButton, WorkspaceRootsBar } from './ExplorerPanel.parts';
 import { summaryFromWorkspaceRecord, useWorkspaceStore } from './store';
 import { resolveWorkspaceFor, useWorkspaceDeckStore } from '../workspaces/store';
@@ -143,7 +144,7 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false, workspac
     () => resolveWorkspaceFor(workspaces, workspaceId, activeWorkspaceId),
     [workspaces, workspaceId, activeWorkspaceId],
   );
-  const activeRootId = activeWorkspace?.activeRootId ?? activeWorkspace?.roots[0]?.id ?? null;
+  const activeRootId = resolveActiveRootId(activeWorkspace);
   // When bound to a NON-active workspace, derive its summary from the deck record
   // so the tree reflects THAT workspace. For the active workspace (the legacy rail
   // and the coincident ⌘K case) keep the mirrored summary — it's the live source

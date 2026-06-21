@@ -63,6 +63,25 @@ export type WorkspaceRecord = {
   activeRootId: WorkspaceRootId | null;
 };
 
+/**
+ * Active-root resolution policy: prefer the workspace's explicit
+ * {@link WorkspaceRecord.activeRootId}, else fall back to its first root, else
+ * null (no roots / no workspace). Centralized so all call sites share one
+ * behavior. Accepts a minimal structural shape so it works with any
+ * record-like object carrying `activeRootId` + `roots`.
+ */
+export function resolveActiveRootId(
+  ws:
+    | {
+        activeRootId?: WorkspaceRootId | null;
+        roots: readonly { id: WorkspaceRootId }[];
+      }
+    | null
+    | undefined,
+): WorkspaceRootId | null {
+  return ws?.activeRootId ?? ws?.roots[0]?.id ?? null;
+}
+
 export type WorkspaceSnapshot = {
   revision: number;
   workspaces: WorkspaceRecord[];
