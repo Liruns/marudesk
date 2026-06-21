@@ -16,6 +16,7 @@ import { useInstrumentStore } from '../work-graph/instrument';
 import type { TabState } from '../../../shared/browser';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
+import { Hint, PaletteHints, PaletteOverlay } from '../commands/PaletteOverlay';
 
 /**
  * Tab switcher palette (Ctrl/Cmd+Shift+A). A keyboard-first overlay that
@@ -106,20 +107,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('tabPalette.dialogLabel')}
-    >
-      <button
-        type="button"
-        aria-hidden
-        tabIndex={-1}
-        className="absolute inset-0 cursor-default bg-black/30"
-        onClick={onClose}
-      />
-      <div className="relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lifted animate-scale-in">
+    <PaletteOverlay ariaLabel={t('tabPalette.dialogLabel')} onClose={onClose}>
         <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-11">
           <Search size={15} className="shrink-0 text-fg-tertiary" />
           <input
@@ -180,23 +168,11 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
+        <PaletteHints>
           <Hint k="↑↓" label={t('palette.hint.move')} />
           <Hint k="↵" label={t('tabPalette.hint.switch')} />
           <Hint k="esc" label={t('palette.hint.close')} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Hint({ k, label }: { k: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1">
-      <kbd className="rounded bg-surface-3 px-1 text-kbd font-medium text-fg-secondary">
-        {k}
-      </kbd>
-      <span>{label}</span>
-    </span>
+        </PaletteHints>
+    </PaletteOverlay>
   );
 }

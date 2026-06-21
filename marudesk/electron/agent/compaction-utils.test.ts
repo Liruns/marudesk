@@ -48,6 +48,38 @@ describe('serializeForCompaction', () => {
     expect(line).toMatch(/…$/);
   });
 
+  it('keeps both head and tail of a long error result so the signature survives', () => {
+    // A long stack/diff where the signature lives at the END of the text.
+    const head = 'STACKSTART '.repeat(80); // ~880 chars of leading noise
+    const middle = 'frame '.repeat(400); // bulk that should be elided
+    const value = `${head}${middle}Error: ENOENT signature at tail`;
+    const out = serializeForCompaction([
+      toolMsg('run_command', { type: 'error-text', value }),
+    ]);
+    const line = out.split('\n').find((l) => l.includes('[result of run_command]'))!;
+    // Head survives.
+    expect(line).toContain('STACKSTART');
+    // Tail signature survives — this is the whole point of the larger budget.
+    expect(line).toContain('Error: ENOENT signature at tail');
+    // Middle is elided with a marker.
+    expect(line).toContain('chars elided');
+    // Bounded near the error budget (1500) + framing, not the raw input length.
+    expect(line.length).toBeLessThan(1700);
+    expect(value.length).toBeGreaterThan(1700);
+  });
+
+  it('still clips an ordinary result to ~300 head-only', () => {
+    const out = serializeForCompaction([
+      toolMsg('read_file', { type: 'text', value: 'y'.repeat(5000) }),
+    ]);
+    const line = out.split('\n').find((l) => l.includes('[result of read_file]'))!;
+    // No head+tail elision marker for non-error results.
+    expect(line).not.toContain('chars elided');
+    expect(line).toMatch(/…$/);
+    // Bounded near the 300 head-only budget, not the larger error budget.
+    expect(line.length).toBeLessThan(400);
+  });
+
   it('collapses whitespace inside the excerpt', () => {
     const out = serializeForCompaction([
       toolMsg('grep', { type: 'text', value: 'a\n\n   b\t\tc' }),

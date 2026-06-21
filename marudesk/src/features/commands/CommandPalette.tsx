@@ -1,12 +1,14 @@
-import { useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { Code2, Command, CornerUpLeft, FolderTree, GitBranch, Globe, MessagesSquare, RotateCcw, Search, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 import { openInstrument, useInstrumentStore } from '../work-graph/instrument';
 import { openSettingsTab } from '../settings/store';
 import { useFlightLogStore } from '../work-graph/flight-log-store';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useCommandPaletteStore } from './command-palette-store';
+import { Hint, PaletteHints, PaletteOverlay } from './PaletteOverlay';
 
 /**
  * The ⌘K command palette. Runs two kinds of command: "Open…" entries summon a
@@ -170,8 +172,10 @@ export function CommandPalette() {
 }
 
 function CommandPaletteBody({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
+  const activeRef = useRef<HTMLButtonElement | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -193,15 +197,14 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
 
   const clampedIndex = Math.min(index, Math.max(0, filtered.length - 1));
 
+  // Keep the highlighted row in view as the keyboard moves the selection (DOM
+  // sync only — mirrors the sibling palettes).
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [clampedIndex]);
+
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-start justify-center p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Command palette"
-    >
-      <button type="button" aria-label="Close command palette" className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 mt-16 flex w-full max-w-lg flex-col overflow-hidden rounded-lg chrome-panel shadow-lifted motion-safe:animate-scale-in">
+    <PaletteOverlay ariaLabel="Command palette" onClose={onClose} className="max-w-lg">
         <div className="flex items-center gap-2 border-b border-subtle px-3 py-2.5">
           <Command size={14} className="shrink-0 text-fg-tertiary" />
           <input
@@ -233,13 +236,14 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
           />
         </div>
-        <ul className="max-h-[min(60vh,360px)] overflow-y-auto p-1.5">
+        <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {filtered.length === 0 ? (
             <li className="px-3 py-6 text-center text-caption text-fg-tertiary">No matching command.</li>
           ) : (
             filtered.map((cmd, i) => {
               const Icon = cmd.icon;
               const startsGroup = i === 0 || filtered[i - 1]?.group !== cmd.group;
+              const isActive = i === clampedIndex;
               return (
                 <li key={cmd.id}>
                   {startsGroup ? (
@@ -248,13 +252,14 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
                     </div>
                   ) : null}
                   <button
+                    ref={isActive ? activeRef : undefined}
                     type="button"
                     onMouseEnter={() => setIndex(i)}
                     onClick={() => run(cmd)}
                     aria-label={cmd.label}
                     className={cn(
                       'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors duration-fast',
-                      i === clampedIndex ? 'bg-surface-3' : 'hover:bg-surface-2',
+                      isActive ? 'bg-surface-3' : 'hover:bg-surface-2',
                     )}
                   >
                     <Icon size={15} />
@@ -266,7 +271,13 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
             })
           )}
         </ul>
-      </div>
-    </div>
+        <PaletteHints>
+          <Hint k="↑↓" label={t('palette.hint.move')} />
+          {/* No palette.hint.run key exists yet and i18n is owned elsewhere this
+              round; the dialog label is already a literal, so this verb is too. */}
+          <Hint k="↵" label="run" />
+          <Hint k="esc" label={t('palette.hint.close')} />
+        </PaletteHints>
+    </PaletteOverlay>
   );
 }

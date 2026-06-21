@@ -8,7 +8,8 @@ import { pruneStaleToolOutputsInHead } from './compaction-utils.ts';
  * (요약 전)").
  *
  * Pure + dependency-free: `compaction-utils.ts` imports only `type ModelMessage`
- * (stripped at runtime), so this runs standalone via
+ * (stripped at runtime) plus the pure value `toolCallSignature` from
+ * `./loop-detector.ts`, so this runs standalone via
  * `npm run harness:compaction-prune` under bare
  * `node --experimental-strip-types` — no Electron stub needed.
  *

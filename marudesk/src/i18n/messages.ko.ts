@@ -278,7 +278,6 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'git.branch.createSubmit': '만들기',
   'git.branch.detached': '분리됨',
   'git.branch.newPlaceholder': '새 브랜치 이름',
-  'git.branch.newPrompt': '새 브랜치 이름',
   'git.branch.switch': '브랜치 전환',
   'git.branch.tracking': '추적 중',
   'git.branch.unborn': '아직 커밋 없음',

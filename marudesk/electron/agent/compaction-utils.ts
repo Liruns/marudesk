@@ -16,6 +16,36 @@ import { toolCallSignature } from './loop-detector.ts';
  */
 const TOOL_RESULT_EXCERPT_CHARS = 300;
 
+/**
+ * A larger budget reserved for `error-text` results, kept as a head+tail window
+ * (not head-only) so both the START and END of a stack trace / tsc chain / test
+ * diff survive. The compaction instruction promises to keep "error signatures
+ * verbatim", and an error's signature often lives at the tail (the final
+ * `Error: …` line, the failing assertion), which a 300-char head-only clip drops.
+ */
+const TOOL_RESULT_ERROR_EXCERPT_CHARS = 1500;
+
+/** Clip `text` to `budget` chars, keeping the head only with a trailing ellipsis. */
+function clipHead(text: string, budget: number): string {
+  return text.length <= budget ? text : `${text.slice(0, budget)}…`;
+}
+
+/**
+ * Clip `text` to `budget` chars as a head+tail window with a middle elision
+ * marker, so the start AND end of an error trace both survive. Splits the budget
+ * evenly between the two ends. Falls back to a head-only clip when the budget is
+ * too small to carry a meaningful tail.
+ */
+function clipHeadAndTail(text: string, budget: number): string {
+  if (text.length <= budget) return text;
+  const half = Math.floor(budget / 2);
+  if (half <= 0) return clipHead(text, budget);
+  const head = text.slice(0, half);
+  const tail = text.slice(text.length - half);
+  const elided = text.length - head.length - tail.length;
+  return `${head}… [${elided} chars elided] …${tail}`;
+}
+
 /** A clipped, whitespace-collapsed slice of one tool result's textual output. */
 function toolResultExcerpt(output: unknown): string {
   if (!output || typeof output !== 'object') return '';
@@ -36,9 +66,12 @@ function toolResultExcerpt(output: unknown): string {
   }
   text = text.replace(/\s+/g, ' ').trim();
   if (!text) return '';
-  const clipped =
-    text.length <= TOOL_RESULT_EXCERPT_CHARS ? text : `${text.slice(0, TOOL_RESULT_EXCERPT_CHARS)}…`;
-  return o.type === 'error-text' ? `ERROR: ${clipped}` : clipped;
+  // Error results get a larger head+tail budget so the signature (often at the
+  // tail) survives; ordinary results stay at the small head-only budget.
+  if (o.type === 'error-text') {
+    return `ERROR: ${clipHeadAndTail(text, TOOL_RESULT_ERROR_EXCERPT_CHARS)}`;
+  }
+  return clipHead(text, TOOL_RESULT_EXCERPT_CHARS);
 }
 
 /** Flatten the running transcript to plain text for the summarization prompt. */

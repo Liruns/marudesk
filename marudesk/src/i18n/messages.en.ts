@@ -279,7 +279,6 @@ export const EN_MESSAGES = {
   'git.branch.createSubmit': 'Create',
   'git.branch.detached': 'detached',
   'git.branch.newPlaceholder': 'New branch name',
-  'git.branch.newPrompt': 'New branch name',
   'git.branch.switch': 'Switch branch',
   'git.branch.tracking': 'Tracking',
   'git.branch.unborn': 'no commits yet',

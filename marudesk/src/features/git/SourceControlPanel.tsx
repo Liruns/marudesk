@@ -844,11 +844,15 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
           aria-label={confirmRequest.message}
           data-testid="git-confirm"
           className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-3"
+          onClick={() => setConfirmRequest(null)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') setConfirmRequest(null);
           }}
         >
-          <div className="w-full max-w-xs rounded-lg border border-default bg-surface-1 p-3 shadow-lifted">
+          <div
+            className="w-full max-w-xs rounded-lg border border-default bg-surface-1 p-3 shadow-lifted"
+            onClick={(e) => e.stopPropagation()}
+          >
             <p className="text-body-sm text-fg-primary">{confirmRequest.message}</p>
             <div className="mt-3 flex justify-end gap-1.5">
               <button

@@ -11,6 +11,25 @@ export function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
+/**
+ * Narrow `value` to a plain object: a non-null, non-array object. Use this to
+ * gate property access on `unknown` without a broad cast — the narrowed type is
+ * `Record<string, unknown>`, so member reads stay typed.
+ */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Narrow `value` to a finite number (excludes `NaN`/`±Infinity`). */
+export function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** Narrow `value` to a string. */
+export function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
 /** A finite number rounded and clamped to `[min, max]`, else `fallback`. */
 export function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
