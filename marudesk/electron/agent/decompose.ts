@@ -7,6 +7,9 @@ import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget, type SubagentTarget } from './subagent-resolve';
 import { runTask, implementTask, applyTaskPatch } from './run-task';
 import { scrubText } from '../../shared/scrub';
+import { detectRepoCheckFacts } from '../diagnostics/checkers';
+import { getActiveCheckers } from '../diagnostics/config';
+import { getCurrentWorkspace } from '../workspace';
 
 /**
  * Goal → Task-graph generator (docs/ai-work-os-roadmap.md §6, the "Phase 1
@@ -77,6 +80,45 @@ const MODEL_TIMEOUT_MS = 30_000;
 
 /** Upper bound on the goal text forwarded to the model — keeps the prompt bounded. */
 const MAX_GOAL_CHARS = 8_000;
+
+/**
+ * Compact, repo-grounding facts handed to the planner alongside the goal so its
+ * acceptance criteria are runnable for THIS workspace — the detected stack(s) and
+ * the REAL check command(s) the diagnostics runner would invoke here (so it won't
+ * emit "npm run typecheck passes" for a Go/Python repo). Derived from the active
+ * checker recipes; both arrays empty = no known checker applies.
+ */
+export type RepoFacts = {
+  workspaceName?: string;
+  stacks: string[];
+  checkCommands: string[];
+};
+
+/**
+ * The compact repo-facts block folded into the decompose prompt before the goal,
+ * or '' when nothing useful is known. Kept terse on purpose — it grounds the
+ * model's acceptance criteria without bloating the prompt. Pure: the caller
+ * supplies the facts (so the harness can drive every shape without a workspace).
+ */
+export function buildRepoFactsBlock(facts: RepoFacts | null): string {
+  if (!facts) return '';
+  const lines: string[] = [];
+  if (facts.workspaceName) lines.push(`Workspace: ${facts.workspaceName}`);
+  if (facts.stacks.length > 0) lines.push(`Detected stack: ${facts.stacks.join(', ')}`);
+  lines.push(
+    facts.checkCommands.length > 0
+      ? `The real check command(s) for this repo (use THESE in acceptance criteria, not a guessed one): ${facts.checkCommands.join(' && ')}`
+      : 'No automated check command was detected for this repo — do NOT invent one (e.g. "npm run typecheck"); prefer behaviour-level, human-checkable acceptance criteria.',
+  );
+  if (lines.length === 0) return '';
+  return `REPO FACTS (ground your acceptance criteria in these):\n${lines.join('\n')}`;
+}
+
+/** Assemble the decompose user prompt: the repo-facts block (when present) then the goal. */
+export function buildDecomposePrompt(goal: string, facts: RepoFacts | null): string {
+  const block = buildRepoFactsBlock(facts);
+  return block ? `${block}\n\nGOAL:\n${goal}` : `GOAL:\n${goal}`;
+}
 
 /** Extract the first balanced JSON object from a model reply (tolerates fences/prose). */
 export function extractJsonObject(text: string): unknown {
@@ -153,6 +195,7 @@ async function attemptGenerate(
   provider: ProviderId,
   model: string,
   goal: string,
+  facts: RepoFacts | null,
   deps: GenerateGraphDeps,
 ): Promise<AttemptOutcome> {
   let resolved: Awaited<ReturnType<typeof resolveProviderAuth>>;
@@ -170,7 +213,7 @@ async function attemptGenerate(
       deps.generate({
         model: deps.makeModel(provider, model, resolved.auth, resolved.baseUrl),
         system: DECOMPOSE_SYSTEM,
-        prompt: `GOAL:\n${goal}`,
+        prompt: buildDecomposePrompt(goal, facts),
         maxOutputTokens: 2048,
       }),
       MODEL_TIMEOUT_MS,
@@ -210,6 +253,7 @@ function isTimeoutError(err: unknown): boolean {
 export async function generateGraphWithFailover(
   target: SubagentTarget,
   goal: string,
+  facts: RepoFacts | null = null,
   deps: GenerateGraphDeps = DEFAULT_GENERATE_DEPS,
 ): Promise<{ ok: true; graph: WorkGraph } | { ok: false; reason: string }> {
   const chain: { provider: ProviderId; model: string }[] = [
@@ -228,7 +272,7 @@ export async function generateGraphWithFailover(
   const attempts = Math.min(chain.length, MAX_DECOMPOSE_ATTEMPTS);
   for (let i = 0; i < attempts; i += 1) {
     const { provider, model } = chain[i];
-    const outcome = await attemptGenerate(provider, model, goal, deps);
+    const outcome = await attemptGenerate(provider, model, goal, facts, deps);
     if (outcome.kind === 'graph') return { ok: true, graph: outcome.graph };
     if (outcome.kind === 'parse') {
       return { ok: false, reason: 'The model did not return a valid task graph.' };
@@ -246,6 +290,23 @@ export async function generateGraphWithFailover(
       ? scrubText(humanizeModelError(lastErr, target.provider, target.model))
       : lastReason ?? 'No AI provider is connected — add one in Settings.';
   return { ok: false, reason };
+}
+
+/**
+ * The active workspace's repo facts (name + detected stack + real check command),
+ * or null when no workspace is open. Best-effort: reading the recipe set / disk
+ * markers can't throw past here — any failure degrades to null so the planner
+ * just sees the bare goal rather than failing the whole decompose.
+ */
+function collectRepoFacts(): RepoFacts | null {
+  try {
+    const ws = getCurrentWorkspace();
+    if (!ws) return null;
+    const { stacks, checkCommands } = detectRepoCheckFacts(ws.root, getActiveCheckers());
+    return { workspaceName: ws.name, stacks, checkCommands };
+  } catch {
+    return null;
+  }
 }
 
 export async function decomposeGoal(
@@ -273,12 +334,19 @@ export async function decomposeGoal(
     return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
   }
 
+  // Ground the planner in THIS repo: the workspace name + the real check
+  // command(s) the diagnostics runner would invoke here, so acceptance criteria
+  // are runnable for this stack instead of a guessed `npm run typecheck`. Pure
+  // facts (our own data, not repo-controlled prose); best-effort — a missing
+  // workspace just yields null and the prompt falls back to the bare goal.
+  const facts = collectRepoFacts();
+
   // Try the primary provider, then fail over through `target.fallbacks` on any
   // transient (timeout / 429 / 5xx / not-connected) blip — the same resilience
   // run-task/implement-task get — before the renderer drops to its offline
   // sample. A malformed model answer or a fatal transport error stops early
   // rather than burning the rest of the chain.
-  const result = await generateGraphWithFailover(target, trimmed);
+  const result = await generateGraphWithFailover(target, trimmed, facts);
   if (!result.ok) return result;
   return { ok: true, graph: { ...result.graph, goal: trimmed } };
 }

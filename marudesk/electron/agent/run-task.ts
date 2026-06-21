@@ -29,6 +29,7 @@ import {
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
 import { runChildAgent } from './subagent-runtime';
+import { loadWorkspaceInstructions } from './instructions';
 import type { ToolContext } from './tools/types';
 
 /**
@@ -272,16 +273,24 @@ export async function runTask(raw: unknown): Promise<RunTaskResult> {
   };
 }
 
-function implementPrompt(input: RunTaskInput): string {
+/**
+ * The implement child's seed prompt. `instructions` is the workspace's folded
+ * AGENTS.md/CLAUDE.md conventions ('' when none) — the same repo conventions the
+ * PARENT chat loop folds in, so the child making the real edits respects "TS
+ * strict / colors via tokens.css / no any / …" instead of being blind to them.
+ * Already framed + bounded by {@link loadWorkspaceInstructions}, so it appends as-is.
+ */
+export function implementPrompt(input: RunTaskInput, instructions: string): string {
   const goal = input.goal.trim() ? `\n\nOverall goal: ${input.goal.trim()}` : '';
   const criteria =
     input.acceptance.length > 0
       ? `\n\nAcceptance criteria — satisfy each:\n${input.acceptance.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
       : '';
+  const conventions = instructions.trim() ? `\n\n${instructions.trim()}` : '';
   return `You are implementing ONE task in a larger plan. You are working in an ISOLATED git worktree (a throwaway copy of the repo) — make the real edits this task needs with edit_file / multi_edit. Nothing you change touches the user's live files: the diff is captured for the user to review and apply deliberately. Read a file before you edit it; keep the change minimal and focused on THIS task only. Your changes WILL be type-checked in this worktree after you finish — make sure the files you touch still compile/lint cleanly before you stop. When done, briefly summarize what you changed and why.
 
 Task: ${input.title.trim() || '(untitled)'}
-Intent: ${input.intent.trim() || '(none given)'}${goal}${criteria}`;
+Intent: ${input.intent.trim() || '(none given)'}${goal}${criteria}${conventions}`;
 }
 
 /**
@@ -373,12 +382,19 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
       }
     };
 
+    // Fold the repo's own conventions (AGENTS.md/CLAUDE.md) into the implement
+    // seed so the child's edits respect them — the parent chat loop already does
+    // this; the child making the real edits should too. Read from the WORKTREE
+    // root (a faithful copy of the repo, so the instruction files are present
+    // there) and best-effort: a missing/unreadable file just yields ''.
+    const instructions = await loadWorkspaceInstructions({ root: worktreePath }).catch(() => '');
+
     let out: Awaited<ReturnType<typeof runChildAgent>>;
     let worktreeVerified: boolean | undefined;
     let verifyNote: string | undefined;
     let changedFiles: string[] = [];
     try {
-      out = await runImplementTurn(implementPrompt(input));
+      out = await runImplementTurn(implementPrompt(input, instructions));
       const staged = await restage();
 
       // In-worktree pre-flight (audit #1): type-check the changed files in the

@@ -15,6 +15,7 @@ import {
   probeChangedFiles,
   runVerifyFixLoop,
   verifyNoteFor,
+  implementPrompt,
 } from './run-task';
 
 /**
@@ -189,6 +190,36 @@ async function testRunTaskEarlyReturns(): Promise<void> {
   // Valid shape but no title AND no intent → early return before provider resolution.
   const empty = await runTask({ taskId: 't', title: '', intent: '' });
   check('runTask: no title or intent → ok:false (before any provider resolution)', empty.ok === false);
+}
+
+function testImplementPrompt(): void {
+  const input = parseInput({
+    taskId: 't1',
+    title: 'Add the orders endpoint',
+    intent: 'expose orders over HTTP',
+    goal: 'ship orders',
+    acceptance: ['endpoint returns 200'],
+  });
+  check('implementPrompt: fixture payload parses', input !== null);
+  if (!input) return;
+
+  // With folded workspace instructions, the child's seed carries the repo's own
+  // conventions (the FIX: the implement child should see AGENTS.md like the parent).
+  const folded = implementPrompt(
+    input,
+    "The user's repository ships instruction file(s). (AGENTS.md)\nTypeScript stays strict. No any.",
+  );
+  check('implementPrompt: the task title is present', folded.includes('Add the orders endpoint'));
+  check('implementPrompt: the acceptance criterion is present', folded.includes('endpoint returns 200'));
+  check(
+    'implementPrompt: the folded workspace conventions are included',
+    folded.includes('TypeScript stays strict. No any.'),
+  );
+
+  // Empty instructions ('' — no AGENTS.md present) must not add a dangling block.
+  const bare = implementPrompt(input, '');
+  check('implementPrompt: empty instructions adds no conventions block', !bare.includes('repository ships'));
+  check('implementPrompt: bare prompt still carries the task', bare.includes('Add the orders endpoint'));
 }
 
 /** Build a stub diagnostics run that errors on `errorFiles` (empty = clean pass). */
@@ -425,6 +456,7 @@ async function main(): Promise<void> {
     testExtractArtifacts();
     testResolveOutputs(workspace);
     testStripJsonFences();
+    testImplementPrompt();
     await testRunTaskEarlyReturns();
     await testProbeChangedFiles();
     testVerifyNoteFor();

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ExternalLink, FileText, Hammer, Play, Plus, X } from 'lucide-react';
+import { Check, ExternalLink, FileText, GitCommit, Hammer, Play, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
@@ -85,6 +85,7 @@ export function WorkGraphInspectorContent() {
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const running = useWorkGraphStore((s) => s.running);
   const applyingPatchTaskId = useWorkGraphStore((s) => s.applyingPatchTaskId);
+  const lastAppliedTaskId = useWorkGraphStore((s) => s.lastAppliedTaskId);
   const task: Task | undefined = graph?.tasks.find((t) => t.id === selectedTaskId);
 
   // Local edit buffers (hooks must run unconditionally, before the early return):
@@ -344,6 +345,25 @@ export function WorkGraphInspectorContent() {
               {applyingPatchTaskId === taskId ? <Spinner size={13} label={t('workGraph.inspector.applyingLabel')} /> : <Check size={12} />}
               {t('workGraph.inspector.applyToWorkspace')}
             </button>
+            {/* Finish the agent diff → review → apply → COMMIT loop: once this exact
+                task's patch landed (lastAppliedTaskId === taskId), offer a one-click
+                commit of the now-staged changes with the task title as the default
+                subject. Routes through the existing git:commit IPC; gated on !running. */}
+            {lastAppliedTaskId === taskId ? (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  disabled={running || applyingPatchTaskId !== null}
+                  onClick={() => void useWorkGraphStore.getState().commitTask(taskId)}
+                  title={t('workGraph.inspector.commitTaskTitle').replace('{title}', task.title.trim())}
+                  className="inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+                >
+                  <GitCommit size={12} />
+                  {t('workGraph.inspector.commitTask')}
+                </button>
+                <p className="mt-1 text-caption text-fg-tertiary">{t('workGraph.inspector.commitTaskHint')}</p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

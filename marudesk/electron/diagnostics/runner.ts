@@ -171,8 +171,15 @@ export async function runDiagnostics(root: string, signal?: AbortSignal): Promis
     const ran: string[] = [];
     let exitCode: number | null = null;
     let truncated = false;
+    let abortedEarly = false;
     for (const checker of checkers) {
-      if (signal?.aborted) break; // run deadline fired — stop before the next checker
+      if (signal?.aborted) {
+        // Run deadline fired — stop before the next applicable checker. Some
+        // applicable checker never ran, so the aggregate can't honestly claim a
+        // clean pass (see the null downgrade below).
+        abortedEarly = true;
+        break;
+      }
       const command = checker.resolveCommand(root);
       if (!command) continue; // recipe opted out for this root
       commands.push(command);
@@ -185,6 +192,12 @@ export async function runDiagnostics(root: string, signal?: AbortSignal): Promis
       // Surface the first non-zero/failed exit (a clean pass leaves it at 0).
       if (result.exitCode !== 0) exitCode = result.exitCode;
     }
+    // An abort that truncated the applicable set leaves earlier checkers' clean
+    // exit (0) as the aggregate, which probeChangedFiles would read as verified
+    // even though a checker never ran. Downgrade a stale clean exit to the
+    // "no checker conclusively ran" sentinel (null → verified:undefined). A real
+    // failure (non-zero) already recorded by a checker that DID run is kept.
+    if (abortedEarly && exitCode === 0) exitCode = null;
     lastRun = {
       checkerId: ran.join('+') || 'none',
       command: commands.join(' && '),

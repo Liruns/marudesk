@@ -212,6 +212,34 @@ describe('useWorkGraphStore.applyPatch', () => {
     expect(c2?.checkedAt).toBeUndefined();
   });
 
+  it('records the just-applied task so the inspector can offer to commit it', async () => {
+    applyResult = { ok: true, changedFiles: ['src/a.ts'], verdict: 'pass' };
+    useGitStore.setState({ refresh: vi.fn(async () => {}) });
+    useWorkGraphStore.setState({
+      graph: graphWithPatch('t9', 'diff --git a b\n'),
+      applyingPatchTaskId: null,
+      lastAppliedTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().applyPatch('t9');
+
+    expect(useWorkGraphStore.getState().lastAppliedTaskId).toBe('t9');
+  });
+
+  it('does NOT record a just-applied task when the apply fails', async () => {
+    applyResult = { ok: false, reason: 'patch no longer applies cleanly' };
+    useGitStore.setState({ refresh: vi.fn(async () => {}) });
+    useWorkGraphStore.setState({
+      graph: graphWithPatch('t10', 'diff --git a b\n'),
+      applyingPatchTaskId: null,
+      lastAppliedTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().applyPatch('t10');
+
+    expect(useWorkGraphStore.getState().lastAppliedTaskId).toBeNull();
+  });
+
   it('invokes apply-patch with an undefined workspaceId for an unbound task', async () => {
     applyResult = { ok: true, changedFiles: ['src/a.ts'], verdict: 'pass' };
     useGitStore.setState({ refresh: vi.fn(async () => {}) });
@@ -226,5 +254,83 @@ describe('useWorkGraphStore.applyPatch', () => {
 
     expect(applyPatchCalls).toHaveLength(1);
     expect(applyPatchCalls[0].workspaceId).toBeUndefined();
+  });
+});
+
+describe('useWorkGraphStore.commitTask', () => {
+  function graphWithTask(taskId: string, title: string): WorkGraph {
+    return {
+      id: 'g',
+      goal: 'goal',
+      tasks: [task(taskId, { title })],
+      edges: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  }
+
+  it('commits the just-applied task with the task title as the message, then clears the gate', async () => {
+    const commit = vi.fn(async () => true);
+    useGitStore.setState({ commit });
+    useWorkGraphStore.setState({
+      graph: graphWithTask('c1', '  Add login form  '),
+      lastAppliedTaskId: 'c1',
+      running: false,
+      applyingPatchTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().commitTask('c1');
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    // The title is trimmed into the commit subject (the existing git:commit path).
+    expect(commit).toHaveBeenCalledWith('Add login form');
+    // Success drops the gate so the button doesn't re-offer an already-done commit.
+    expect(useWorkGraphStore.getState().lastAppliedTaskId).toBeNull();
+  });
+
+  it('keeps the gate when the commit fails so the user can retry', async () => {
+    const commit = vi.fn(async () => false);
+    useGitStore.setState({ commit });
+    useWorkGraphStore.setState({
+      graph: graphWithTask('c2', 'Fix bug'),
+      lastAppliedTaskId: 'c2',
+      running: false,
+      applyingPatchTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().commitTask('c2');
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(useWorkGraphStore.getState().lastAppliedTaskId).toBe('c2');
+  });
+
+  it('is a no-op when the task was not the one just applied', async () => {
+    const commit = vi.fn(async () => true);
+    useGitStore.setState({ commit });
+    useWorkGraphStore.setState({
+      graph: graphWithTask('c3', 'Some task'),
+      lastAppliedTaskId: null,
+      running: false,
+      applyingPatchTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().commitTask('c3');
+
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op while a run is in flight', async () => {
+    const commit = vi.fn(async () => true);
+    useGitStore.setState({ commit });
+    useWorkGraphStore.setState({
+      graph: graphWithTask('c4', 'Some task'),
+      lastAppliedTaskId: 'c4',
+      running: true,
+      applyingPatchTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().commitTask('c4');
+
+    expect(commit).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,12 @@
 import { APICallError } from 'ai';
 import { check, passedCount } from '../harness-kit';
-import { extractJsonObject, decomposeGoal, generateGraphWithFailover } from './decompose';
+import {
+  extractJsonObject,
+  decomposeGoal,
+  generateGraphWithFailover,
+  buildRepoFactsBlock,
+  buildDecomposePrompt,
+} from './decompose';
 import { buildModel } from './model';
 import { parseWorkGraph } from '../../shared/work-os';
 import type { SubagentTarget } from './subagent-resolve';
@@ -143,6 +149,57 @@ async function main(): Promise<void> {
     check('integration: exactly one edge survives the gate', graph !== null && graph.edges.length === 1);
   }
 
+  /* ── repo-facts grounding: the planner prompt carries the real check command ─ */
+
+  {
+    const block = buildRepoFactsBlock({
+      workspaceName: 'marudesk',
+      stacks: ['TypeScript', 'ESLint'],
+      checkCommands: ['npm run typecheck --silent', 'npx --no-install eslint . --format json'],
+    });
+    check('repo-facts: the workspace name is grounded', block.includes('Workspace: marudesk'));
+    check('repo-facts: the detected stack is grounded', block.includes('TypeScript, ESLint'));
+    check(
+      'repo-facts: the REAL check command is grounded (not a guessed one)',
+      block.includes('npm run typecheck --silent'),
+    );
+  }
+
+  {
+    // No checker detected → the model is told NOT to invent one, the failure mode
+    // the FIX targets (a Python/Go repo getting "npm run typecheck passes").
+    const block = buildRepoFactsBlock({ workspaceName: 'pyproj', stacks: [], checkCommands: [] });
+    check(
+      'repo-facts: no detected checker tells the model not to invent one',
+      block.includes('do NOT invent one') && !block.includes('typecheck --silent'),
+    );
+  }
+
+  {
+    const prompt = buildDecomposePrompt('ship the thing', {
+      workspaceName: 'marudesk',
+      stacks: ['TypeScript'],
+      checkCommands: ['npm run typecheck --silent'],
+    });
+    check(
+      'decompose-prompt: facts precede the goal when present',
+      prompt.indexOf('REPO FACTS') < prompt.indexOf('GOAL:') && prompt.includes('ship the thing'),
+    );
+    check(
+      'decompose-prompt: the real check command rides in the assembled prompt',
+      prompt.includes('npm run typecheck --silent'),
+    );
+  }
+
+  {
+    // No facts → the prompt is the bare goal (back-compat with the prior behavior).
+    const prompt = buildDecomposePrompt('ship the thing', null);
+    check(
+      'decompose-prompt: null facts yields the bare GOAL prompt',
+      prompt === 'GOAL:\nship the thing',
+    );
+  }
+
   /* ── generateGraphWithFailover: transient fail-over + offline-sample net ──── */
 
   // A model reply the real extract → parseWorkGraph gate accepts, tagged with the
@@ -177,7 +234,7 @@ async function main(): Promise<void> {
   const makeDeps = (
     script: Record<string, () => Promise<{ text: string }>>,
     calls: ProviderId[],
-  ): Parameters<typeof generateGraphWithFailover>[2] => {
+  ): Parameters<typeof generateGraphWithFailover>[3] => {
     // `attemptGenerate` calls makeModel immediately before generate within the
     // same attempt, so the provider captured here is the one `generate` runs.
     let pending: ProviderId = 'anthropic';
@@ -217,7 +274,7 @@ async function main(): Promise<void> {
       },
       calls,
     );
-    const res = await generateGraphWithFailover(target, 'ship the thing', deps);
+    const res = await generateGraphWithFailover(target, 'ship the thing', null, deps);
     check(
       'failover: a transient 429 on the primary falls over to a connected fallback',
       res.ok === true && res.graph.tasks.length === 1 && res.graph.tasks[0].id === 'b',
@@ -249,7 +306,7 @@ async function main(): Promise<void> {
       },
       calls,
     );
-    const res = await generateGraphWithFailover(target, 'ship the thing', deps);
+    const res = await generateGraphWithFailover(target, 'ship the thing', null, deps);
     check(
       'failover: all providers failing transiently returns ok:false (renderer → offline sample)',
       res.ok === false,
@@ -276,7 +333,7 @@ async function main(): Promise<void> {
       },
       calls,
     );
-    const res = await generateGraphWithFailover(target, 'ship the thing', deps);
+    const res = await generateGraphWithFailover(target, 'ship the thing', null, deps);
     check(
       'failover: a parse failure stops early and does NOT burn the fallback',
       res.ok === false && JSON.stringify(calls) === JSON.stringify(['anthropic']),

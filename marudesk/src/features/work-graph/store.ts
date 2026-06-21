@@ -194,6 +194,14 @@ type WorkGraphState = {
   runNote: string | null;
   /** The task whose patch is being applied to the live workspace, or null. */
   applyingPatchTaskId: TaskId | null;
+  /**
+   * The task whose patch was just successfully applied to the live workspace, or
+   * null. Gates the inspector's "Commit this task" affordance — it proves an apply
+   * landed (the diff is now staged) WITHOUT trusting `task.evidence.patch` alone
+   * (which survives a re-select / reload). Cleared on selecting another task and on
+   * any new run/implement/reset so the commit button never leaks past its apply.
+   */
+  lastAppliedTaskId: TaskId | null;
 };
 
 type WorkGraphActions = {
@@ -258,6 +266,13 @@ type WorkGraphActions = {
    * drifted since Implement ran. No-op without a patch or while already applying.
    */
   applyPatch: (id: TaskId) => Promise<void>;
+  /**
+   * Commit the just-applied task's staged changes through the EXISTING git store
+   * (`git:commit`) with a sensible default message derived from the task title.
+   * Gated on a fresh successful apply ({@link lastAppliedTaskId}) and not running.
+   * Surfaces the outcome as a runNote (git's own commit() also toasts).
+   */
+  commitTask: (id: TaskId) => Promise<void>;
   /** Stop the active run/implement: invalidate its token + return running tasks to planned. */
   stopRun: () => void;
 };
@@ -438,6 +453,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   runToken: 0,
   runNote: null,
   applyingPatchTaskId: null,
+  lastAppliedTaskId: null,
 
   setGraph: (graph) =>
     set((s) => ({
@@ -447,6 +463,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       running: false,
       runToken: s.runToken + 1, // invalidate any in-flight run/implement
       runNote: null,
+      lastAppliedTaskId: null,
     })),
 
   clearGraph: () =>
@@ -457,6 +474,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       running: false,
       runToken: s.runToken + 1,
       runNote: null,
+      lastAppliedTaskId: null,
     })),
 
   addTask: (at) => {
@@ -556,7 +574,13 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
   setPos: (id, x, y) => set((s) => ({ pos: { ...s.pos, [id]: { x, y } } })),
 
-  selectTask: (id) => set({ selectedTaskId: id }),
+  selectTask: (id) =>
+    set((s) => ({
+      selectedTaskId: id,
+      // Selecting a DIFFERENT task drops the just-applied gate (the commit
+      // affordance belongs to the task that was applied, not the new selection).
+      lastAppliedTaskId: id === s.lastAppliedTaskId ? s.lastAppliedTaskId : null,
+    })),
 
   connect: (from, to) => {
     if (from === to) return { ok: false, reason: 'self' };
@@ -625,6 +649,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       return {
         running: false,
         runNote: null,
+        lastAppliedTaskId: null,
         graph: touch({
           ...s.graph,
           tasks: s.graph.tasks.map((t): Task => {
@@ -730,6 +755,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       running: true,
       runToken: token,
       runNote: null,
+      lastAppliedTaskId: null,
       graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph,
     }));
     // This turn owns the run only while its token is current; a stopRun() / new run
@@ -760,6 +786,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       running: true,
       runToken: token,
       runNote: null,
+      lastAppliedTaskId: null,
       graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph,
     }));
     try {
@@ -864,7 +891,10 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
             : verdict === 'fail'
               ? `${files} — checker found errors; checker-verifiable acceptance marked fail.`
               : `${files}.`;
-        return { applyingPatchTaskId: null, runNote: note, graph };
+        // Record the just-applied task so the inspector can offer to COMMIT the
+        // now-staged changes (the agent diff → review → apply → commit loop). Only
+        // a successful apply reaches here (the !res.ok branch returned above).
+        return { applyingPatchTaskId: null, runNote: note, graph, lastAppliedTaskId: id };
       });
       // The patch wrote real workspace files — refresh Source Control so an
       // already-open SCM instrument reflects the change without a manual reload
@@ -906,6 +936,31 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     } catch {
       set({ applyingPatchTaskId: null, runNote: 'Applying the patch failed.' });
     }
+  },
+
+  commitTask: async (id) => {
+    const s0 = get();
+    // Gate on the SAME condition that proves apply happened: a fresh successful
+    // apply for this exact task. Never run mid-flight (a run/implement/apply could
+    // be mutating the tree). The diff is already staged by `workos:apply-patch`.
+    if (s0.running || s0.applyingPatchTaskId !== null) return;
+    if (s0.lastAppliedTaskId !== id) return;
+    const task = s0.graph?.tasks.find((t) => t.id === id);
+    if (!task) return;
+    // Sensible default: the task title as the commit subject. An empty title can't
+    // be a commit message — fall back so git:commit never gets a blank subject.
+    const message = task.title.trim() || `Apply task ${id}`;
+    // Route through the EXISTING git store commit() (git:commit IPC); it stages
+    // nothing new but commits the apply's staged changes, toasts on success, and
+    // surfaces failures via its own error toast. We mirror the outcome as a runNote
+    // and clear the gate on success so the button doesn't re-offer a done commit.
+    const ok = await useGitStore.getState().commit(message);
+    set((s) => ({
+      runNote: ok
+        ? `Committed “${message}”.`
+        : 'Commit failed — see Source Control for details.',
+      lastAppliedTaskId: ok ? null : s.lastAppliedTaskId,
+    }));
   },
 
   stopRun: () =>
