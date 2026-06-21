@@ -1,4 +1,5 @@
 import { useToastStore } from '../lib/toast';
+import { cn } from '../lib/cn';
 import { Toast } from './ui';
 
 /**
@@ -8,7 +9,9 @@ import { Toast } from './ui';
  *
  * Each toast rides the shared `fade-rise` entrance (200ms, single easing) and
  * pauses its auto-dismiss countdown while the pointer is over it, so a notice
- * never slides away mid-read (DESIGN.md §4 — "pause on hover").
+ * never slides away mid-read (DESIGN.md §4 — "pause on hover"). On dismissal it
+ * plays `toast-out` in place (the store keeps it mounted, flagged `leaving`,
+ * for the exit duration) and goes non-interactive so it can't be re-triggered.
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts);
@@ -22,15 +25,18 @@ export function ToastHost() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="pointer-events-auto animate-fade-rise"
-          onMouseEnter={() => pause(t.id)}
-          onMouseLeave={() => resume(t.id)}
+          className={cn(
+            t.leaving ? 'pointer-events-none animate-toast-out' : 'pointer-events-auto animate-fade-rise',
+          )}
+          aria-hidden={t.leaving ? true : undefined}
+          onMouseEnter={t.leaving ? undefined : () => pause(t.id)}
+          onMouseLeave={t.leaving ? undefined : () => resume(t.id)}
         >
           <Toast
             title={t.title}
             description={t.description}
             variant={t.variant}
-            onDismiss={() => dismiss(t.id)}
+            onDismiss={t.leaving ? undefined : () => dismiss(t.id)}
           />
         </div>
       ))}

@@ -7,6 +7,8 @@ import {
   type TaskStatus,
   type WorkGraph,
 } from '../../../shared/work-os';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { toast } from '../../lib/toast';
 import { sampleGraph, useWorkGraphStore } from './store';
 
@@ -14,13 +16,27 @@ export const NODE_W = 208;
 export const NODE_H = 118;
 
 /** Token-only status styling (success/warning/error/accent — tailwind.config.ts). */
-const STATUS_STYLE: Record<TaskStatus, { ring: string; chip: string; label: string }> = {
-  planned: { ring: 'border-default', chip: 'bg-surface-3 text-fg-tertiary', label: 'Planned' },
-  running: { ring: 'border-accent', chip: 'bg-accent-subtle text-accent', label: 'Running' },
-  blocked: { ring: 'border-warning', chip: 'bg-warning-subtle text-warning', label: 'Blocked' },
-  done: { ring: 'border-success', chip: 'bg-success-subtle text-success', label: 'Done' },
-  failed: { ring: 'border-error', chip: 'bg-error-subtle text-error', label: 'Failed' },
-  needs_review: { ring: 'border-warning', chip: 'bg-warning-subtle text-warning', label: 'Review' },
+const STATUS_STYLE: Record<TaskStatus, { ring: string; chip: string }> = {
+  planned: { ring: 'border-default', chip: 'bg-surface-3 text-fg-tertiary' },
+  running: { ring: 'border-accent', chip: 'bg-accent-subtle text-accent' },
+  blocked: { ring: 'border-warning', chip: 'bg-warning-subtle text-warning' },
+  done: { ring: 'border-success', chip: 'bg-success-subtle text-success' },
+  failed: { ring: 'border-error', chip: 'bg-error-subtle text-error' },
+  needs_review: { ring: 'border-warning', chip: 'bg-warning-subtle text-warning' },
+};
+
+/**
+ * Human status labels resolve through the shared Flight Log i18n keys so the node
+ * chip + aria-label stay in the active locale (the Flight Log, node, and dock
+ * inspector all read the same translated string). English values are unchanged.
+ */
+const STATUS_LABEL_KEY: Record<TaskStatus, TranslationKey> = {
+  planned: 'flightLog.status.planned',
+  running: 'flightLog.status.running',
+  blocked: 'flightLog.status.blocked',
+  done: 'flightLog.status.done',
+  failed: 'flightLog.status.failed',
+  needs_review: 'flightLog.status.needsReview',
 };
 
 type Props = {
@@ -180,8 +196,10 @@ const TaskNodeCard = memo(function TaskNodeCard({
   onStartConnect: (fromId: string, clientX: number, clientY: number) => void;
   entranceDelayMs: number;
 }) {
+  const { t } = useI18n();
   const dragRef = useRef<{ pointerId: number; sx: number; sy: number; ox: number; oy: number } | null>(null);
   const style = STATUS_STYLE[task.status];
+  const statusLabel = t(STATUS_LABEL_KEY[task.status]);
   const passed = task.acceptance.filter((c) => c.verdict === 'pass').length;
   const failed = task.acceptance.filter((c) => c.verdict === 'fail').length;
 
@@ -207,7 +225,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
       data-task-node={task.id}
       tabIndex={0}
       role="group"
-      aria-label={`${style.label} task: ${task.title}`}
+      aria-label={`${statusLabel} task: ${task.title}`}
       className={cn(
         'absolute rounded-lg border bg-surface-2 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:outline-none motion-safe:animate-fade-rise transition-colors transition-transform duration-fast active:scale-[0.99]',
         style.ring,
@@ -257,7 +275,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
         className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 cursor-grab active:cursor-grabbing"
       >
         <span className={cn('rounded-pill px-1.5 py-0.5 text-caption font-medium leading-none transition-colors duration-standard', style.chip, task.status === 'running' && 'inline-flex items-center gap-0.5')}>
-          {task.status === 'running' && <Spinner size={10} label="Task running" className="-ml-0.5" />}{style.label}
+          {task.status === 'running' && <Spinner size={10} label="Task running" className="-ml-0.5" />}{statusLabel}
         </span>
         {task.kind === 'decision' ? (
           <span className="rounded-pill bg-surface-3 px-1.5 py-0.5 text-caption font-medium text-fg-tertiary leading-none">Decision</span>

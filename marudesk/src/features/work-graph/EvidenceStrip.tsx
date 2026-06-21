@@ -20,6 +20,10 @@ export function EvidenceStrip() {
   const runNote = useWorkGraphStore((s) => s.runNote);
   const task = graph?.tasks.find((t) => t.id === selectedTaskId);
   const passed = task ? task.acceptance.filter((c) => c.verdict === 'pass').length : 0;
+  const total = task ? task.acceptance.length : 0;
+  const MAX_DOTS = 12;
+  const visibleDots = task ? task.acceptance.slice(0, MAX_DOTS) : [];
+  const overflowDots = total - visibleDots.length;
 
   return (
     <footer
@@ -31,14 +35,19 @@ export function EvidenceStrip() {
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate max-w-[220px]">{task.title}</span>
           {task.acceptance.length > 0 ? (
-            <span className="flex shrink-0 items-center gap-1.5">
-              <span className="flex items-center gap-0.5">
-                {task.acceptance.map((c) => (
-                  <span key={c.id} aria-hidden className={cn('size-1.5 rounded-pill', VERDICT_DOT[c.verdict])} />
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="flex min-w-0 shrink items-center gap-0.5 overflow-hidden">
+                {visibleDots.map((c) => (
+                  <span key={c.id} aria-hidden className={cn('size-1.5 shrink-0 rounded-pill', VERDICT_DOT[c.verdict])} />
                 ))}
+                {overflowDots > 0 ? (
+                  <span aria-hidden className="shrink-0 text-caption text-fg-quaternary">
+                    +{overflowDots}
+                  </span>
+                ) : null}
               </span>
-              <span>
-                {passed}/{task.acceptance.length} verified by runtime
+              <span className="min-w-0 shrink truncate">
+                {passed}/{total} verified by runtime
               </span>
             </span>
           ) : (

@@ -141,11 +141,20 @@ const config: Config = {
           '0%': { opacity: '0', transform: 'translateY(4px) scale(0.98)' },
           '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
         },
+        // Exit motion for toasts — mirrors `fade-rise` in reverse (fade out +
+        // settle down a touch) so a dismissed notice glides away instead of
+        // popping. Short by design; rides `--motion-fast`.
+        'toast-out': {
+          '0%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(8px) scale(0.98)' },
+        },
       },
       animation: {
         // `both` holds the 0% (hidden) state through any stagger delay.
         'fade-rise': 'fade-rise var(--motion-standard) var(--easing) both',
         'scale-in': 'scale-in var(--motion-standard) var(--easing)',
+        // `forwards` keeps the faded-out end state while the store removes it.
+        'toast-out': 'toast-out var(--motion-fast) var(--easing) forwards',
         // Model-state Spinner: a calm 1.2s linear sweep (§4 Spinner), slower than
         // Tailwind's default 1s so the four AI-timeline arcs read as unhurried.
         'spin-ai': 'spin 1.2s linear infinite',

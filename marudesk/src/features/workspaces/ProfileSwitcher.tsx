@@ -85,7 +85,7 @@ export function ProfileSwitcher() {
         aria-label={triggerLabel}
         title={t('profiles.trigger.title').replace('{name}', activeName)}
         onClick={openMenu}
-        className="no-drag self-center inline-flex items-center gap-1.5 h-7 rounded-md border border-subtle bg-surface-2 pl-2 pr-1.5 text-caption text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 transition-colors duration-fast"
+        className="no-drag self-center inline-flex min-w-0 items-center gap-1.5 h-7 rounded-md border border-subtle bg-surface-2 pl-2 pr-1.5 text-caption text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 transition-colors duration-fast"
       >
         <UserRound size={14} aria-hidden />
         <span className="max-w-[140px] truncate font-medium">{activeName}</span>

@@ -3,6 +3,8 @@ import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
 import type { WorkspaceId } from '../../../shared/workspace';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { useTabsStore } from '../tabs/store';
 import { useInstrumentStore } from './instrument';
 import { taskThreadWorkspaceId } from './taskThreads';
@@ -34,13 +36,18 @@ const STATUS_BADGE: Record<Task['status'], 'neutral' | 'accent' | 'success' | 'w
   failed: 'error',
 };
 
-const STATUS_LABEL: Record<Task['status'], string> = {
-  planned: 'Planned',
-  running: 'Running',
-  done: 'Done',
-  blocked: 'Blocked',
-  needs_review: 'Review',
-  failed: 'Failed',
+/**
+ * Status labels resolve through the shared Flight Log i18n keys so the dock
+ * header badge stays in the active locale, matching the graph node + Flight Log.
+ * English values are unchanged.
+ */
+const STATUS_LABEL_KEY: Record<Task['status'], TranslationKey> = {
+  planned: 'flightLog.status.planned',
+  running: 'flightLog.status.running',
+  done: 'flightLog.status.done',
+  blocked: 'flightLog.status.blocked',
+  needs_review: 'flightLog.status.needsReview',
+  failed: 'flightLog.status.failed',
 };
 
 /**
@@ -92,6 +99,7 @@ async function openResource(r: Resource, workspaceId?: WorkspaceId): Promise<voi
  * canvas surface) and the Mission Control Instrument Dock.
  */
 export function WorkGraphInspectorContent() {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const running = useWorkGraphStore((s) => s.running);
@@ -116,7 +124,7 @@ export function WorkGraphInspectorContent() {
         <div className="min-w-0">
           <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
           <div className="mt-0.5 flex items-center gap-1.5">
-            <Badge variant={STATUS_BADGE[task.status]}>{STATUS_LABEL[task.status]}</Badge>
+            <Badge variant={STATUS_BADGE[task.status]}>{t(STATUS_LABEL_KEY[task.status])}</Badge>
             <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : 'human'}{task.kind === 'decision' ? ' · decision' : ''}</p>
           </div>
         </div>

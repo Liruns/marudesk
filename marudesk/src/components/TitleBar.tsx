@@ -160,7 +160,7 @@ export function TitleBar() {
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}
-      <div className="flex items-center gap-1.5 pl-2">
+      <div className="flex items-center gap-1.5 pl-2 min-w-0">
         <ProfileSwitcher />
         <WorkspaceSwitcher />
         <CommandPaletteButton />

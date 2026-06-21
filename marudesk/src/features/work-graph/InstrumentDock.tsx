@@ -110,13 +110,13 @@ export function InstrumentDock() {
         'chrome-panel relative shrink-0 border-y-0 border-r-0 overflow-hidden',
         'transition-[width] duration-standard',
       )}
-      style={{ width: open ? 360 : 0, maxWidth: 'calc(100vw - 3rem)' }}
+      style={{ width: open ? '22.5rem' : 0, maxWidth: 'calc(100vw - 3rem)' }}
     >
       {/* Only mount the content (incl. focusable chat) while open — keeps the
           collapsed, aria-hidden dock free of tab-reachable controls. Fixed inner
           width so the width animation doesn't reflow content. */}
       {open && selectedTaskId ? (
-        <div className="h-full flex flex-col" style={{ width: 360 }}>
+        <div className="h-full flex flex-col" style={{ width: '22.5rem' }}>
           <div className="h-[44%] shrink-0 overflow-hidden border-b border-subtle">
             <WorkGraphInspectorContent />
           </div>
