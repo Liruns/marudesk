@@ -103,7 +103,7 @@ function TaskChat({ taskId, workspaceId }: { taskId: string; workspaceId?: Works
   if (!resolved) {
     return (
       <div className="grid flex-1 place-items-center">
-        <Spinner size={16} label="Opening task conversation" />
+        <Spinner size={16} label={t('workGraph.taskChat.opening')} />
       </div>
     );
   }
@@ -124,13 +124,14 @@ function TaskChat({ taskId, workspaceId }: { taskId: string; workspaceId?: Works
  * Phase 2b: the chat below is scoped per-task (see {@link TaskChat}).
  */
 export function InstrumentDock() {
+  const { t } = useI18n();
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const open = selectedTaskId !== null;
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
 
   return (
     <aside
-      aria-label="Task instrument dock"
+      aria-label={t('workGraph.dock.label')}
       aria-hidden={!open}
       className={cn(
         'chrome-panel relative shrink-0 border-y-0 border-r-0 overflow-hidden',

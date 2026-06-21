@@ -9,9 +9,9 @@ import {
   type WorkGraph,
 } from '../../../shared/work-os';
 import { useI18n } from '../../i18n/useI18n';
-import type { TranslationKey } from '../../i18n/messages';
 import { toast } from '../../lib/toast';
 import { sampleGraph, useWorkGraphStore } from './store';
+import { STATUS_LABEL_KEY } from './status';
 
 export const NODE_W = 208;
 export const NODE_H = 118;
@@ -24,20 +24,6 @@ const STATUS_STYLE: Record<TaskStatus, { ring: string; chip: string }> = {
   done: { ring: 'border-success', chip: 'bg-success-subtle text-success' },
   failed: { ring: 'border-error', chip: 'bg-error-subtle text-error' },
   needs_review: { ring: 'border-warning', chip: 'bg-warning-subtle text-warning' },
-};
-
-/**
- * Human status labels resolve through the shared Flight Log i18n keys so the node
- * chip + aria-label stay in the active locale (the Flight Log, node, and dock
- * inspector all read the same translated string). English values are unchanged.
- */
-const STATUS_LABEL_KEY: Record<TaskStatus, TranslationKey> = {
-  planned: 'flightLog.status.planned',
-  running: 'flightLog.status.running',
-  blocked: 'flightLog.status.blocked',
-  done: 'flightLog.status.done',
-  failed: 'flightLog.status.failed',
-  needs_review: 'flightLog.status.needsReview',
 };
 
 type Props = {

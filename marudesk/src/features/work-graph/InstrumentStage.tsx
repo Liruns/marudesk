@@ -1,6 +1,8 @@
 import { ArrowLeft } from 'lucide-react';
 import { tabKinds } from '../tabs/registry';
 import { useTabsStore } from '../tabs/store';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { useInstrumentStore } from './instrument';
 import type { TabKind, TabState } from '../../../shared/browser';
 
@@ -8,20 +10,22 @@ import type { TabKind, TabState } from '../../../shared/browser';
  * Friendly, human-facing label for each instrument kind — what the user reads
  * in the stage header instead of the raw camelCase `TabKind` id (so
  * `sourceControl` reads "Source Control", not "sourceControl"). Keyed by every
- * `TabKind` so adding a kind to the union forces a label here too.
+ * `TabKind` so adding a kind to the union forces a label key here too. The
+ * `agent` / `sourceControl` kinds reuse existing translations; the rest have
+ * dedicated `workGraph.instrument.kind.*` keys resolved via `t()` at render.
  */
-const KIND_LABELS: Record<TabKind, string> = {
-  web: 'Web',
-  home: 'Home',
-  terminal: 'Terminal',
-  editor: 'Editor',
-  settings: 'Settings',
-  agent: 'AI Chat',
-  plugin: 'Plugin',
-  devtools: 'DevTools',
-  files: 'Files',
-  search: 'Search',
-  sourceControl: 'Source Control',
+const KIND_LABEL_KEYS: Record<TabKind, TranslationKey> = {
+  web: 'workGraph.instrument.kind.web',
+  home: 'workGraph.instrument.kind.home',
+  terminal: 'workGraph.instrument.kind.terminal',
+  editor: 'workGraph.instrument.kind.editor',
+  settings: 'workGraph.instrument.kind.settings',
+  agent: 'agent.card.title',
+  plugin: 'workGraph.instrument.kind.plugin',
+  devtools: 'workGraph.instrument.kind.devtools',
+  files: 'workGraph.instrument.kind.files',
+  search: 'workGraph.instrument.kind.search',
+  sourceControl: 'activity.sourceControl',
 };
 
 /**
@@ -50,6 +54,7 @@ function instrumentIdentity(kind: TabKind, tab: TabState | undefined): string {
  * The "← Graph" affordance returns to the Task graph home.
  */
 export function InstrumentStage() {
+  const { t } = useI18n();
   const tabId = useInstrumentStore((s) => s.tabId);
   const kind = useInstrumentStore((s) => s.kind);
   const close = useInstrumentStore((s) => s.close);
@@ -69,9 +74,9 @@ export function InstrumentStage() {
           className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-caption font-medium text-fg-secondary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <ArrowLeft size={13} />
-          Graph
+          {t('workGraph.stage.backToGraph')}
         </button>
-        <span data-testid="instrument-kind" className="text-caption text-fg-tertiary">{KIND_LABELS[kind]}</span>
+        <span data-testid="instrument-kind" className="text-caption text-fg-tertiary">{t(KIND_LABEL_KEYS[kind])}</span>
         {identity ? (
           <span className="min-w-0 truncate text-caption text-fg-tertiary">· {identity}</span>
         ) : null}

@@ -35,21 +35,21 @@ import type {
 } from '../../../shared/workspace';
 import { IconButton, WorkspaceRootsBar } from './ExplorerPanel.parts';
 import { summaryFromWorkspaceRecord, useWorkspaceStore } from './store';
-import { serializeFileDrag } from './fileDrag';
 import { resolveWorkspaceFor, useWorkspaceDeckStore } from '../workspaces/store';
-import { buildFileTree, flattenTree } from './tree';
-import { FileTree, type MenuTarget } from './FileTree';
 import { FileTreePierreSpike } from './FileTreePierreSpike';
 import { openFileInstrument } from '../work-graph/instrument';
 import {
-  commitCreate,
-  commitRename,
   copyAbsolutePath,
   copyRelativePath,
   deletePath,
   pasteInto,
   revealPath,
 } from './fsActions';
+
+/** A right-clicked tree target (file/dir), or the empty body (workspace root). */
+export type MenuTarget =
+  | { kind: 'dir' | 'file'; path: string; name: string }
+  | { kind: 'empty' };
 
 type Props = {
   open: boolean;
@@ -106,11 +106,6 @@ function readShowIgnored(): boolean {
   }
 }
 
-// SPIKE flag: render the @pierre/trees-backed tree instead of the in-house one.
-// Default off so shipped behavior is unchanged; flip locally to evaluate.
-// See FileTreePierreSpike.tsx / docs/pierre-trees-spike.md.
-const USE_PIERRE_TREE = true;
-
 function readExplorerWidth(): number {
   return readStoredWidth(EXPLORER_WIDTH_KEY, EXPLORER_MIN, EXPLORER_MAX, EXPLORER_DEFAULT);
 }
@@ -130,15 +125,10 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false, workspac
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
   const reindex = useWorkspaceStore((s) => s.reindex);
   const expandedDirs = useWorkspaceStore((s) => s.expandedDirs);
-  const selectedPath = useWorkspaceStore((s) => s.selectedPath);
-  const pendingEdit = useWorkspaceStore((s) => s.pendingEdit);
   const clipboard = useWorkspaceStore((s) => s.clipboard);
-  const toggleDir = useWorkspaceStore((s) => s.toggleDir);
-  const selectFile = useWorkspaceStore((s) => s.selectFile);
   const collapseAll = useWorkspaceStore((s) => s.collapseAll);
   const beginRename = useWorkspaceStore((s) => s.beginRename);
   const beginCreate = useWorkspaceStore((s) => s.beginCreate);
-  const cancelPending = useWorkspaceStore((s) => s.cancelPending);
   const setClipboard = useWorkspaceStore((s) => s.setClipboard);
   const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
@@ -267,19 +257,6 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false, workspac
         : summary?.files ?? [],
     [showIgnored, ignoredFiles, summary],
   );
-  // The in-house FileTree branch is unreachable while USE_PIERRE_TREE is true
-  // (the Pierre tree builds its own input from displayFiles). Gate the
-  // buildFileTree/flattenTree work behind the flag so a large workspace doesn't
-  // pay for tree construction + flattening on every reindex / expand-collapse
-  // only to discard the result. When the spike flag is off these run as before.
-  const tree = useMemo(
-    () => (USE_PIERRE_TREE ? [] : buildFileTree(displayFiles)),
-    [displayFiles],
-  );
-  const rows = useMemo(
-    () => (USE_PIERRE_TREE ? [] : flattenTree(tree, expandedDirs)),
-    [tree, expandedDirs],
-  );
   const workspaceFile = (filePath: string): WorkspaceFileRef | string => {
     if (!activeWorkspace || !activeRootId) return filePath;
     return {
@@ -294,12 +271,6 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false, workspac
   // editor tab and hands it to the instrument dock.
   const openFile = (filePath: string) => void openFileInstrument(workspaceFile(filePath));
 
-  const openRowMenu = (e: ReactMouseEvent, target: MenuTarget) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (target.kind === 'file' || target.kind === 'dir') selectFile(target.path);
-    setMenu({ x: e.clientX, y: e.clientY, target });
-  };
   const openEmptyMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
     setMenu({ x: e.clientX, y: e.clientY, target: { kind: 'empty' } });
@@ -446,34 +417,7 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false, workspac
               className="flex-1 min-h-0 overflow-y-auto"
               onContextMenu={openEmptyMenu}
             >
-              {USE_PIERRE_TREE ? (
-                <FileTreePierreSpike
-                  files={displayFiles}
-                  onOpenFile={openFile}
-                />
-              ) : rows.length === 0 && !pendingEdit ? (
-                <p className="px-3 py-4 text-body-sm text-fg-tertiary">
-                  {t('workspace.emptyFolder')}
-                </p>
-              ) : (
-                <FileTree
-                  rows={rows}
-                  expanded={expandedDirs}
-                  selectedPath={selectedPath}
-                  pendingEdit={pendingEdit}
-                  clipboard={clipboard}
-                  onToggleDir={toggleDir}
-                  onSelectFile={selectFile}
-                  onOpenFile={openFile}
-                  getDragData={(p) => serializeFileDrag(workspaceFile(p))}
-                  onContextMenu={openRowMenu}
-                  onCommitRename={(p, n) => commitRename(p, n).then((r) => r !== null)}
-                  onCommitCreate={(dir, n, k) =>
-                    commitCreate(dir, n, k).then((r) => r !== null)
-                  }
-                  onCancelEdit={cancelPending}
-                />
-              )}
+              <FileTreePierreSpike files={displayFiles} onOpenFile={openFile} />
               {summary.truncated ? (
                 <p className="px-3 py-2 text-caption text-fg-tertiary border-t border-subtle">
                   {formatWorkspaceTruncated(summary.files.length)}

@@ -11,6 +11,7 @@ import { WorkGraphNodes, WorkGraphPanel, NODE_H, NODE_W } from './WorkGraphLayer
 import { WorkGraphInspector } from './WorkGraphInspector';
 import { useWorkGraphStore } from './store';
 import { ZoomSlider } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 
 /**
@@ -32,6 +33,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 type Viewport = { panX: number; panY: number; scale: number };
 
 export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement | null>(null);
   const [vp, setVp] = useState<Viewport>({ panX: 0, panY: 0, scale: 1 });
   // Latest viewport mirrored into a ref so the per-node callbacks (`toCanvas`,
@@ -201,7 +203,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
     <div
       ref={ref}
       data-stage="workgraph"
-      aria-label="Work OS task graph"
+      aria-label={t('workGraph.stage.ariaLabel')}
       tabIndex={-1}
       className="relative h-full w-full flex-1 min-w-0 overflow-clip bg-surface-page cursor-grab data-[panning]:cursor-grabbing"
       style={{
@@ -233,11 +235,11 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center animate-fade-rise">
             <Workflow size={24} className="text-fg-tertiary" />
-            <p className="text-body font-medium text-fg-primary">Describe a goal to generate a task graph.</p>
+            <p className="text-body font-medium text-fg-primary">{t('workGraph.stage.emptyTitle')}</p>
             <p className="text-caption text-fg-tertiary">
-              Each node runs an agent and checks its own acceptance criteria.
+              {t('workGraph.stage.emptyBody')}
             </p>
-            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">Drag the dot at the bottom of a node to link tasks.</p>
+            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">{t('workGraph.stage.linkHint')}</p>
           </div>
         </div>
       ) : null}
@@ -249,7 +251,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
           inspectorOpen ? 'right-[344px]' : 'right-4',
         )}
       >
-        <CtrlButton label="Zoom out" onClick={() => zoomFromCenter(1 / 1.2)}>
+        <CtrlButton label={t('canvas.control.zoomOut')} onClick={() => zoomFromCenter(1 / 1.2)}>
           <Minus size={14} />
         </CtrlButton>
         {/* Zoom slider — drags the scale directly; zooms about the viewport center
@@ -275,18 +277,18 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
           type="button"
           className="h-7 min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary transition-colors duration-fast active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
           onClick={() => setVpAnimated({ ...vpRef.current, scale: 1 })}
-          title="Reset zoom to 100%"
+          title={t('canvas.control.resetZoom')}
         >
           {Math.round(vp.scale * 100)}%
         </button>
-        <CtrlButton label="Zoom in" onClick={() => zoomFromCenter(1.2)}>
+        <CtrlButton label={t('canvas.control.zoomIn')} onClick={() => zoomFromCenter(1.2)}>
           <Plus size={14} />
         </CtrlButton>
         <div className="mx-1 w-px self-stretch border-l border-default" />
-        <CtrlButton label="Fit to content" onClick={fit}>
+        <CtrlButton label={t('canvas.control.fit')} onClick={fit}>
           <Maximize2 size={14} />
         </CtrlButton>
-        <CtrlButton label="Reset view" onClick={() => setVpAnimated({ panX: 0, panY: 0, scale: 1 })}>
+        <CtrlButton label={t('canvas.control.resetView')} onClick={() => setVpAnimated({ panX: 0, panY: 0, scale: 1 })}>
           <RotateCcw size={14} />
         </CtrlButton>
       </div>

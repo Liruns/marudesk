@@ -740,7 +740,21 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         // Source Control. (taskWorkspaceId/activeWorkspaceId resolved before invoke.)
         const sameWorkspace =
           taskWorkspaceId === undefined || taskWorkspaceId === activeWorkspaceId;
-        if (sameWorkspace) void useGitStore.getState().refresh();
+        if (sameWorkspace) {
+          void useGitStore.getState().refresh();
+          // Complete the agent diff → review → commit handoff in the UI: a user
+          // with no SCM instrument open otherwise has no way to reach the commit
+          // box after a successful apply (only the ⌘K palette opens it). Land them
+          // on the staged changes by summoning Source Control as the full-area
+          // instrument. Deferred dynamic import so the work-graph store never takes
+          // a top-level dependency on the instrument module (which imports tab/
+          // editor stores) — avoids an init cycle. The apply targeted the active
+          // workspace (mismatch already bailed above), so pass that workspaceId.
+          const scmWorkspaceId = taskWorkspaceId ?? activeWorkspaceId ?? undefined;
+          void import('./instrument').then((m) =>
+            m.openInstrument('sourceControl', { workspaceId: scmWorkspaceId }),
+          );
+        }
       }
     } catch {
       set({ applyingPatchTaskId: null, runNote: 'Applying the patch failed.' });

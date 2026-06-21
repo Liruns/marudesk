@@ -4,7 +4,6 @@ import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useI18n } from '../../i18n/useI18n';
-import type { TranslationKey } from '../../i18n/messages';
 import { useTabsStore } from '../tabs/store';
 import { useInstrumentStore } from './instrument';
 import { taskThreadWorkspaceId } from './taskThreads';
@@ -15,6 +14,7 @@ import { changedFilePaths, parseUnifiedDiff } from '../git/parseDiff';
 import { openFileInstrument } from './instrument';
 import type { WorkspaceFileRef } from '../../../shared/workspace';
 import { DiffBlock, Spinner, Badge } from '../../components/ui';
+import { STATUS_BADGE, STATUS_LABEL_KEY } from './status';
 
 /**
  * The Work OS supervision panel: the selected Task's intent, acceptance criteria
@@ -27,29 +27,6 @@ const VERDICT_DOT: Record<Criterion['verdict'], string> = {
   unknown: 'bg-fg-tertiary',
   pass: 'bg-success',
   fail: 'bg-error',
-};
-
-const STATUS_BADGE: Record<Task['status'], 'neutral' | 'accent' | 'success' | 'warning' | 'error'> = {
-  planned: 'neutral',
-  running: 'accent',
-  done: 'success',
-  blocked: 'warning',
-  needs_review: 'warning',
-  failed: 'error',
-};
-
-/**
- * Status labels resolve through the shared Flight Log i18n keys so the dock
- * header badge stays in the active locale, matching the graph node + Flight Log.
- * English values are unchanged.
- */
-const STATUS_LABEL_KEY: Record<Task['status'], TranslationKey> = {
-  planned: 'flightLog.status.planned',
-  running: 'flightLog.status.running',
-  done: 'flightLog.status.done',
-  blocked: 'flightLog.status.blocked',
-  needs_review: 'flightLog.status.needsReview',
-  failed: 'flightLog.status.failed',
 };
 
 /**

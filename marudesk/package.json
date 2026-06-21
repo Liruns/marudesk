@@ -2,7 +2,7 @@
   "name": "marudesk",
   "private": true,
   "version": "0.9.0",
-  "description": "Maru — an infinite canvas where AI sees your running app.",
+  "description": "Maru — mission control for AI development: a Task graph where the agent proves it fixed your running app.",
   "author": "Liruns",
   "homepage": "https://github.com/Liruns/marudesk",
   "type": "module",
@@ -160,7 +160,7 @@
         }
       ],
       "category": "Development",
-      "synopsis": "An infinite canvas where AI sees your running app.",
+      "synopsis": "Mission control for AI development: a Task graph where the agent proves it fixed your running app.",
       "maintainer": "Liruns <duct1235@gmail.com>"
     }
   },
