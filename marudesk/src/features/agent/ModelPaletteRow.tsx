@@ -53,6 +53,7 @@ export function ModelRow({
   reasoningLabel,
   favoriteLabel,
   unfavoriteLabel,
+  optionProps,
   onChoose,
   onHover,
   onToggleFavorite,
@@ -68,6 +69,8 @@ export function ModelRow({
   reasoningLabel: string;
   favoriteLabel: string;
   unfavoriteLabel: string;
+  /** ARIA option semantics (stable id + aria-selected) from the shared palette listbox. */
+  optionProps: { id: string; 'aria-selected': boolean };
   onChoose: () => void;
   onHover: () => void;
   onToggleFavorite: () => void;
@@ -78,6 +81,7 @@ export function ModelRow({
       type="button"
       onClick={onChoose}
       onMouseEnter={onHover}
+      {...optionProps}
       className={cn(
         'group flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',
         active ? 'bg-surface-2 text-fg-primary' : 'text-fg-secondary',

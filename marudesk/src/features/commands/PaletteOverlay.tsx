@@ -12,21 +12,20 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
  * - ONE scrim — an `aria-hidden tabIndex={-1}` button (NOT a focusable close
  *   control, so the first Tab lands on real content) that dismisses on click;
  * - ONE card treatment (rounded-xl, bordered, lifted) at ONE top offset;
- * - a single Escape handler so every palette dismisses the same way.
+ * - a single Escape handler so every palette dismisses the same way;
+ * - an UNCONDITIONAL focus trap (`role="dialog" aria-modal` promises focus stays
+ *   inside): Tab/Shift+Tab cycle within the card and focus restores to the trigger
+ *   on close. The trap focuses the first focusable on open — which for the search
+ *   palettes is the same input they also rAF-/autofocus, so the two agree (the
+ *   input wins either way and there is no visible focus fight).
  *
  * Palettes keep their own `max-width`, their input/list content, and their own
  * filtering/selection logic — this only standardises the frame.
- *
- * Pass `trapFocus` when the overlay must move focus inside on open, trap Tab, and
- * restore focus to the trigger on close (the Flight Log is aria-modal and the
- * mission-control focus spec asserts this). Palettes whose own input autofocuses
- * leave it off and manage focus themselves.
  */
 export function PaletteOverlay({
   ariaLabel,
   onClose,
   className,
-  trapFocus = false,
   children,
 }: {
   /** The dialog's accessible name (e.g. 'Command palette', 'Search tabs'). */
@@ -34,8 +33,6 @@ export function PaletteOverlay({
   onClose: () => void;
   /** Card width override + any palette-specific layout (defaults to a roomy max-w-xl). */
   className?: string;
-  /** Move focus inside on open, trap Tab, restore to the trigger on close. */
-  trapFocus?: boolean;
   children: ReactNode;
 }) {
   // Escape always dismisses, regardless of where focus sits. Palettes that also
@@ -63,29 +60,22 @@ export function PaletteOverlay({
         className="absolute inset-0 cursor-default bg-black/30"
         onClick={onClose}
       />
-      <PaletteCard className={className} trapFocus={trapFocus}>
-        {children}
-      </PaletteCard>
+      <PaletteCard className={className}>{children}</PaletteCard>
     </div>
   );
 }
 
-function PaletteCard({
-  className,
-  trapFocus,
-  children,
-}: {
-  className?: string;
-  trapFocus: boolean;
-  children: ReactNode;
-}) {
+function PaletteCard({ className, children }: { className?: string; children: ReactNode }) {
+  // Always trap focus: the dialog is `aria-modal`, so Tab must never escape onto
+  // the chrome behind the dimmed scrim. The hook focuses the first focusable on
+  // open (the search input for every palette that has one — the same element the
+  // palette also rAF-/autofocuses, so they agree) and restores focus to the
+  // trigger on unmount.
   const cardRef = useFocusTrap<HTMLDivElement>();
   return (
     <div
-      // Only attach the trap when requested; otherwise the palette's own input
-      // autofocus owns focus and we must not also pull it to the card.
-      ref={trapFocus ? cardRef : undefined}
-      tabIndex={trapFocus ? -1 : undefined}
+      ref={cardRef}
+      tabIndex={-1}
       className={cn(
         'relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden',
         'rounded-xl border border-default bg-surface-1 shadow-lifted animate-scale-in',

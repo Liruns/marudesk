@@ -150,7 +150,7 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <PaletteOverlay ariaLabel="Flight log" onClose={onClose} trapFocus className="max-w-2xl">
+    <PaletteOverlay ariaLabel="Flight log" onClose={onClose} className="max-w-2xl">
         <header className="flex items-center gap-2 border-b border-subtle px-4 py-3">
           <MessagesSquare size={15} className="text-accent" />
           <h2 className="text-body-sm font-medium text-fg-primary">Flight log</h2>
@@ -189,7 +189,7 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
                         type="button"
                         onClick={() => setExpanded(isOpen ? null : c.threadId)}
                         aria-expanded={isOpen}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                       >
                         <Badge variant={STATUS_BADGE[c.task.status]}>{STATUS_LABEL[c.task.status]}</Badge>
                         <span className="truncate text-body-sm text-fg-primary">{c.task.title}</span>

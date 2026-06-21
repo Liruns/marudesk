@@ -1,11 +1,16 @@
 import { Check, ChevronDown, FolderPlus, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import { cn } from '../../lib/cn';
 import { NameDialog } from './NameDialog';
 import { useWorkspaceDeckStore } from './store';
 
 type WorkspaceDialog = { mode: 'create' } | { mode: 'rename'; id: WorkspaceId; name: string };
+
+/** A workspace pending in-app delete confirmation. */
+type PendingDelete = { id: WorkspaceId; name: string };
 
 /**
  * Workspace switcher in the title bar — the Mission Control home for workspace
@@ -25,6 +30,7 @@ export function WorkspaceSwitcher() {
   const addRoot = useWorkspaceDeckStore((s) => s.addRoot);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
 
   // Ensure the list is populated (the deck store loads lazily elsewhere).
   useEffect(() => {
@@ -73,11 +79,7 @@ export function WorkspaceSwitcher() {
         label: `Delete "${w.name}"`,
         icon: <Trash2 size={14} />,
         danger: true,
-        onSelect: () => {
-          if (window.confirm(`Delete workspace "${w.name}"? This removes it from Maru (your files are not deleted).`)) {
-            void deleteWorkspace(w.id);
-          }
-        },
+        onSelect: () => setPendingDelete({ id: w.id, name: w.name }),
       });
     }
     return out;
@@ -136,6 +138,91 @@ export function WorkspaceSwitcher() {
           onClose={() => setDialog(null)}
         />
       ) : null}
+      {pendingDelete ? (
+        <DeleteConfirm
+          name={pendingDelete.name}
+          onConfirm={() => {
+            void deleteWorkspace(pendingDelete.id);
+            setPendingDelete(null);
+          }}
+          onClose={() => setPendingDelete(null)}
+        />
+      ) : null}
     </>
+  );
+}
+
+/**
+ * Tokenized in-app confirm for the destructive delete-workspace action. Replaces
+ * the native `window.confirm` (untranslated, blocking, un-driveable in tests) and
+ * mirrors {@link NameDialog}: portaled, hides the compositing browser view while
+ * open, and dismisses on Escape / backdrop click.
+ */
+function DeleteConfirm({
+  name,
+  onConfirm,
+  onClose,
+}: {
+  name: string;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    void window.marudesk.invoke('browser:set-visible', false);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      void window.marudesk.invoke('browser:set-visible', true);
+    };
+  }, [onClose]);
+
+  const title = `Delete workspace "${name}"?`;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        data-testid="workspace-delete-confirm"
+        onMouseDown={(event) => event.stopPropagation()}
+        className="w-[360px] rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2"
+      >
+        <h2 className="text-body font-semibold text-fg-primary">{title}</h2>
+        <p className="text-body-sm text-fg-secondary">
+          This removes it from Maru (your files are not deleted).
+        </p>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-8 px-3 rounded-md text-body-sm text-fg-secondary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            autoFocus
+            onClick={onConfirm}
+            className={cn(
+              'h-8 px-3 rounded-md text-body-sm font-medium bg-error text-white',
+              'transition-opacity duration-fast hover:opacity-90',
+            )}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

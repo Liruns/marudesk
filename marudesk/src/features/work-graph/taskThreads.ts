@@ -24,6 +24,8 @@ export async function acquireTaskThread(
   taskId: string,
   workspaceId?: WorkspaceId,
 ): Promise<string | null> {
+  // Register the remove-from-graph cleanup on first use (see ensureGraphSubscription).
+  ensureGraphSubscription();
   const existing = byTask.get(taskId);
   if (existing) return existing.threadId;
   const inFlight = pending.get(taskId);
@@ -50,6 +52,16 @@ export function taskThreadId(taskId: string): string | null {
   return byTask.get(taskId)?.threadId ?? null;
 }
 
+/**
+ * The workspace a Task is bound to (via its conversation thread), if known.
+ * `undefined` when the task has no thread yet OR was opened without a workspace
+ * (i.e. it targets the active workspace). Used to detect a cross-workspace
+ * apply→refresh mismatch in the Source Control handoff.
+ */
+export function taskThreadWorkspaceId(taskId: string): WorkspaceId | undefined {
+  return byTask.get(taskId)?.workspaceId;
+}
+
 /** Every task that already owns a conversation thread (for the flight log). */
 export function taskThreadEntries(): { taskId: string; threadId: string; workspaceId?: WorkspaceId }[] {
   return [...byTask.entries()].map(([taskId, bound]) => ({
@@ -68,15 +80,27 @@ export function __resetTaskThreadsForTests(): void {
 // Close a task's thread only when the task itself is removed from the graph — not
 // on deselect/remount. Guarded against a null graph (a transient clear/reload)
 // so a live conversation is never torn down by a momentary empty state.
-useWorkGraphStore.subscribe((state, prev) => {
-  const graph = state.graph;
-  if (!graph || graph === prev.graph) return;
-  const live = new Set(graph.tasks.map((t) => t.id));
-  for (const [taskId, bound] of [...byTask.entries()]) {
-    if (live.has(taskId)) continue;
-    byTask.delete(taskId);
-    void window.marudesk
-      .invoke('agent:close-thread', { id: bound.threadId, workspaceId: bound.workspaceId })
-      .catch(() => {});
-  }
-});
+//
+// Registered LAZILY (on the first acquireTaskThread) rather than at module load:
+// work-graph/store.ts imports taskThreadWorkspaceId from this module, so this
+// module can be evaluated DURING store.ts's own init (a circular import) — before
+// useWorkGraphStore is defined. Deferring the subscription past module evaluation
+// avoids dereferencing the not-yet-initialized store; nothing needs cleaning up
+// before the first thread is acquired, so first-acquire registration loses nothing.
+let graphSubscribed = false;
+function ensureGraphSubscription(): void {
+  if (graphSubscribed) return;
+  graphSubscribed = true;
+  useWorkGraphStore.subscribe((state, prev) => {
+    const graph = state.graph;
+    if (!graph || graph === prev.graph) return;
+    const live = new Set(graph.tasks.map((t) => t.id));
+    for (const [taskId, bound] of [...byTask.entries()]) {
+      if (live.has(taskId)) continue;
+      byTask.delete(taskId);
+      void window.marudesk
+        .invoke('agent:close-thread', { id: bound.threadId, workspaceId: bound.workspaceId })
+        .catch(() => {});
+    }
+  });
+}

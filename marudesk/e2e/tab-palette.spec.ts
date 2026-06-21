@@ -57,3 +57,60 @@ test('tab palette hosts the picked tab as a Mission Control instrument', async (
     await app.close();
   }
 });
+
+/**
+ * A11y contract for the shared palette shell (PaletteOverlay): every palette is an
+ * `aria-modal` dialog that must (a) expose the WAI-ARIA combobox/listbox/option
+ * pattern so a screen reader hears the moving selection while DOM focus stays on
+ * the search input, and (b) trap Tab so focus never escapes onto the title-bar
+ * chrome behind the dimmed scrim. Asserted on the tab switcher as the representative
+ * palette (the semantics are wired once in the shared shell, not per palette).
+ */
+test('tab palette exposes listbox semantics and traps Tab inside the dialog', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(async () => {
+      await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: 'about:blank' });
+      await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: 'about:blank' });
+    });
+
+    await page.keyboard.press('Control+Shift+A');
+    const dialog = page.getByRole('dialog', { name: 'Search tabs' });
+    await expect(dialog).toBeVisible();
+
+    // The input is a combobox that controls a listbox of option rows.
+    const input = dialog.getByRole('combobox');
+    await expect(input).toBeVisible();
+    const listbox = dialog.getByRole('listbox');
+    await expect(listbox).toBeVisible();
+
+    // Filter to the seeded web tabs so option rows render, then arrow the selection.
+    // Rows stay <button> (so the runCommand getByRole('button') helpers keep
+    // matching); the option semantics ride on top via aria-selected + an id that
+    // the combobox's aria-activedescendant points at. So target the row buttons
+    // inside the listbox, not getByRole('option').
+    await page.keyboard.type('blank');
+    await expect(dialog.getByText('about:blank').first()).toBeVisible();
+    const options = listbox.getByRole('button');
+    await expect(options.first()).toHaveAttribute('aria-selected', 'true');
+
+    // ArrowDown moves the active option; the combobox's aria-activedescendant must
+    // point at the newly selected row (the announcement a screen reader reads).
+    await page.keyboard.press('ArrowDown');
+    await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(options.first()).toHaveAttribute('aria-selected', 'false');
+    const activeId = await input.getAttribute('aria-activedescendant');
+    expect(activeId).toBeTruthy();
+    await expect(options.nth(1)).toHaveAttribute('id', activeId ?? '');
+
+    // Tab must stay inside the aria-modal dialog (no escape to the chrome behind
+    // the backdrop). After several Tabs, focus is still within the card.
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
+    const focusTrapped = await dialog.evaluate(
+      (el) => el.contains(document.activeElement) || el === document.activeElement,
+    );
+    expect(focusTrapped).toBe(true);
+  } finally {
+    await app.close();
+  }
+});

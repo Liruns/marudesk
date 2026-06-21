@@ -10,6 +10,7 @@ import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useTourStore } from '../tour/tourStore';
 import { useCommandPaletteStore } from './command-palette-store';
 import { Hint, PaletteHints, PaletteOverlay } from './PaletteOverlay';
+import { usePaletteListbox } from './usePaletteListbox';
 
 /**
  * The ⌘K command palette. Runs two kinds of command: "Open…" entries summon a
@@ -206,6 +207,10 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
   };
 
   const clampedIndex = Math.min(index, Math.max(0, filtered.length - 1));
+  const { inputProps, listboxProps, optionProps } = usePaletteListbox(
+    clampedIndex,
+    filtered.length,
+  );
 
   // Keep the highlighted row in view as the keyboard moves the selection (DOM
   // sync only — mirrors the sibling palettes).
@@ -243,10 +248,11 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
             aria-label="Command"
             placeholder="Type a command…"
             spellCheck={false}
+            {...inputProps}
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
           />
         </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        <ul {...listboxProps} className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {filtered.length === 0 ? (
             <li className="px-3 py-6 text-center text-caption text-fg-tertiary">No matching command.</li>
           ) : (
@@ -267,6 +273,7 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
                     onMouseEnter={() => setIndex(i)}
                     onClick={() => run(cmd)}
                     aria-label={cmd.label}
+                    {...optionProps(i)}
                     className={cn(
                       'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors duration-fast',
                       isActive ? 'bg-surface-3' : 'hover:bg-surface-2',

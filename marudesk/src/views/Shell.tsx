@@ -5,7 +5,8 @@ import { useGridStore } from '../features/tabs/grid';
 import { WorkGraphStage } from '../features/work-graph/WorkGraphStage';
 import { InstrumentDock } from '../features/work-graph/InstrumentDock';
 import { InstrumentStage } from '../features/work-graph/InstrumentStage';
-import { useInstrumentStore } from '../features/work-graph/instrument';
+import { openInstrument, useInstrumentStore } from '../features/work-graph/instrument';
+import { useWorkspaceDeckStore } from '../features/workspaces/store';
 import { EvidenceStrip } from '../features/work-graph/EvidenceStrip';
 import { FlightLog } from '../features/work-graph/FlightLog';
 import { CommandPalette } from '../features/commands/CommandPalette';
@@ -257,19 +258,26 @@ export function Shell() {
         }
       }
 
-      // App tab shortcuts: Ctrl/Cmd+T new tab, +N new editor, +W close active.
-      // Inside a text field they keep native text editing.
+      // App tab shortcuts: Ctrl/Cmd+T new web instrument, +N new editor, +W close
+      // active. Inside a text field they keep native text editing. In Mission
+      // Control the only tab-rendering surface is the InstrumentStage, so these
+      // must summon their surface as the full-area instrument (mirroring the ⌘K
+      // palette) rather than create a never-hosted orphan tab.
       if (!mod) return;
       const key = e.key.toLowerCase();
       if (key !== 't' && key !== 'w' && key !== 'n') return;
       if (inEditable) return;
+      const workspaceId = useWorkspaceDeckStore.getState().activeWorkspaceId ?? undefined;
       if (key === 't') {
+        // No "new home tab" exists in Mission Control; a blank runtime-aware web
+        // surface is the natural Ctrl+T (matches the ⌘K "New Web Tab" command).
         e.preventDefault();
-        void tabsState.newTab();
+        void openInstrument('web');
       } else if (key === 'n') {
-        // New untitled editor (VSCode-style); Ctrl+S triggers Save As.
+        // New untitled editor (VSCode-style); Ctrl+S triggers Save As. Opened AS
+        // the visible instrument (mirrors the ⌘K "New Editor" command).
         e.preventDefault();
-        void tabsState.newTab('editor');
+        void openInstrument('editor', { workspaceId });
       } else if (key === 'w') {
         const active = tabsState.activeTabId;
         if (active) {

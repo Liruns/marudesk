@@ -66,13 +66,16 @@ test('workspace switcher deletes a non-active workspace', async () => {
       (wid) => window.marudesk.invoke('workspaces:set-active', { workspaceId: wid }),
       idKeep,
     );
-    // The delete path is gated behind window.confirm — auto-accept it.
-    page.on('dialog', (d) => void d.accept());
-
     const trigger = page.getByRole('button', { name: 'Workspace: Keep' });
     await expect(trigger).toBeVisible();
     await trigger.click();
     await page.getByRole('menuitem', { name: 'Delete "Drop"' }).click();
+
+    // The delete path now opens an in-app tokenized confirm (replacing the old
+    // native window.confirm) — drive it through to the destructive action.
+    const confirm = page.getByRole('dialog', { name: 'Delete workspace "Drop"?' });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole('button', { name: 'Delete' }).click();
 
     // The UI action drove the workspaces:delete IPC — Drop is gone from the registry.
     await expect

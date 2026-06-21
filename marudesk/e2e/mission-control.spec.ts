@@ -137,3 +137,23 @@ test('mission control: the ⌘K palette runs an action verb (Toggle Flight Log)'
     await app.close();
   }
 });
+
+test('mission control: Ctrl+N opens a visible editor instrument (no orphan tab)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await seedGraph(page);
+
+    // The Task graph is the home; nothing is hosted yet.
+    await expect(page.locator('[data-stage="workgraph"]')).toBeVisible();
+    await expect(page.getByTestId('instrument-kind')).toHaveCount(0);
+
+    // Ctrl+N must summon a NEW editor AS the full-area instrument — not create an
+    // invisible, never-hosted tab. Focus the graph stage first so the shortcut
+    // isn't swallowed by an editable field.
+    await page.locator('[data-stage="workgraph"]').click();
+    await page.keyboard.press('Control+KeyN');
+    await expect(page.getByTestId('instrument-kind')).toHaveText('Editor');
+  } finally {
+    await app.close();
+  }
+});

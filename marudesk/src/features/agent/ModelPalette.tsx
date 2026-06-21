@@ -9,6 +9,7 @@ import {
 import { useProvidersStore } from '../providers/store';
 import { useI18n } from '../../i18n/useI18n';
 import { Hint, PaletteHints, PaletteOverlay } from '../commands/PaletteOverlay';
+import { usePaletteListbox } from '../commands/usePaletteListbox';
 import { ModelRow, SectionHeader } from './ModelPaletteRow';
 
 /**
@@ -134,6 +135,7 @@ export function ModelPalette({
   // effect needed; the arrow keys already clamp when moving and a query change
   // resets it to the top.
   const activeIndex = flat.length === 0 ? 0 : Math.min(active, flat.length - 1);
+  const { inputProps, listboxProps, optionProps } = usePaletteListbox(activeIndex, flat.length);
 
   // Scroll the highlighted row into view (DOM sync only — no setState).
   useEffect(() => {
@@ -189,12 +191,13 @@ export function ModelPalette({
             placeholder={t('agent.modelPalette.searchPlaceholder')}
             spellCheck={false}
             autoComplete="off"
+            {...inputProps}
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
           />
         </div>
 
         {/* list */}
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div {...listboxProps} className="min-h-0 flex-1 overflow-y-auto py-1">
           {sections.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
               {query.trim()
@@ -222,6 +225,7 @@ export function ModelPalette({
                       key={`${s.id}:${m.key}`}
                       model={m}
                       index={idx}
+                      optionProps={optionProps(idx)}
                       rowRef={idx === activeIndex ? activeRef : undefined}
                       active={idx === activeIndex}
                       selected={m.key === (selectedKey ?? selectedModelKey)}

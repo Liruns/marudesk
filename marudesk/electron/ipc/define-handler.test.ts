@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isTrustedSenderFrame } from './define-handler';
+import { isAuthorizedSender, isTrustedSenderFrame } from './define-handler';
 
 describe('isTrustedSenderFrame', () => {
   const entry = 'file:///C:/app/dist/index.html';
@@ -59,5 +59,38 @@ describe('isTrustedSenderFrame', () => {
     expect(isTrustedSenderFrame('http://localhost:5173/#/devtools/x', devEntry)).toBe(true);
     expect(isTrustedSenderFrame('http://localhost:5173/embedded.html', devEntry)).toBe(false);
     expect(isTrustedSenderFrame('http://evil.localhost:5173/', devEntry)).toBe(false);
+  });
+});
+
+describe('isAuthorizedSender', () => {
+  const entry = 'file:///C:/app/dist/index.html';
+
+  it('accepts the trusted host frame once the entry is wired', () => {
+    expect(isAuthorizedSender(entry, entry)).toBe(true);
+    expect(isAuthorizedSender(`${entry}#/devtools/tab-7`, entry)).toBe(true);
+  });
+
+  it('rejects a foreign frame once the entry is wired', () => {
+    expect(isAuthorizedSender('https://attacker.test/index.html', entry)).toBe(false);
+  });
+
+  it('rejects an empty sender url once the entry is wired (fail closed)', () => {
+    expect(isAuthorizedSender('', entry)).toBe(false);
+  });
+
+  it('rejects an absent sender url once the entry is wired (fail closed)', () => {
+    expect(isAuthorizedSender(undefined, entry)).toBe(false);
+  });
+
+  it('accepts an empty sender url before the entry is wired (pre-wire fail open)', () => {
+    expect(isAuthorizedSender('', null)).toBe(true);
+  });
+
+  it('accepts an absent sender url before the entry is wired (pre-wire fail open)', () => {
+    expect(isAuthorizedSender(undefined, null)).toBe(true);
+  });
+
+  it('accepts any sender before the entry is wired (pre-wire fail open)', () => {
+    expect(isAuthorizedSender('https://attacker.test/', null)).toBe(true);
   });
 });

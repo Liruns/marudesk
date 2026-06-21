@@ -67,6 +67,32 @@ export function isTrustedSenderFrame(senderUrl: string, entryUrl: string): boole
   return sender.origin === entry.origin && sender.pathname === entry.pathname;
 }
 
+/**
+ * The full sender-authorization decision for a privileged `invoke`, factored out
+ * as a pure + total predicate so the empty-url contract is testable.
+ *
+ * Contract:
+ *   - `entryUrl === null` (pre-wire window): fail OPEN — accept any sender,
+ *     including an empty/absent one. This only spans the gap between handler
+ *     registration and {@link setTrustedEntryUrl}; by the time a renderer can
+ *     reach a handler the entry is set (verified by boot ordering), so no real
+ *     IPC depends on this branch — it just guarantees boot can never regress.
+ *   - `entryUrl !== null` (window loaded): a legitimate privileged call ALWAYS
+ *     carries a non-empty sender URL (the host top frame loaded `entryUrl`).
+ *     So an empty/absent `senderUrl` is treated as untrusted and REJECTED
+ *     (fail CLOSED), as is any non-empty URL that is not the trusted frame. This
+ *     closes the opaque-origin / `data:` / `about:blank` empty-url hole where a
+ *     frame reports no URL.
+ */
+export function isAuthorizedSender(
+  senderUrl: string | undefined,
+  entryUrl: string | null,
+): boolean {
+  if (entryUrl === null) return true;
+  if (typeof senderUrl !== 'string' || senderUrl.length === 0) return false;
+  return isTrustedSenderFrame(senderUrl, entryUrl);
+}
+
 /** Resolve the open workspace or throw the one canonical "no workspace" error. */
 export function requireWorkspace(): { ws: WorkspaceSummary; root: string } {
   const ws = getWorkspace?.() ?? null;
@@ -86,21 +112,17 @@ export function defineHandler<C extends InvokeChannel>(
     // host frame (the BrowserWindow top frame that loaded the app entry). The
     // embedded browser tabs run as separate WebContents without the privileged
     // preload, so this is defense-in-depth — but it closes the door entirely if
-    // any embedded frame ever obtained a reference to the bridge. We REJECT only
-    // when we can prove the sender is foreign: the trusted entry is known AND the
-    // sender frame reports a URL that is a different document. We fail OPEN when
-    // the entry is not yet wired (pre-load gap) or the sender frame is gone
-    // (disposed mid-call), so legitimate IPC is never regressed.
+    // any embedded frame ever obtained a reference to the bridge. See
+    // {@link isAuthorizedSender} for the contract: once the trusted entry is
+    // wired we fail CLOSED, rejecting any sender that is foreign OR reports an
+    // empty/absent URL (an opaque-origin / `data:` / `about:blank` frame, or a
+    // disposed frame). We fail OPEN only while the entry is not yet wired
+    // (pre-load gap), so legitimate IPC is never regressed at boot.
     const entryUrl = trustedEntryUrl;
     const senderUrl = event.senderFrame?.url;
-    if (
-      entryUrl !== null &&
-      typeof senderUrl === 'string' &&
-      senderUrl.length > 0 &&
-      !isTrustedSenderFrame(senderUrl, entryUrl)
-    ) {
+    if (!isAuthorizedSender(senderUrl, entryUrl)) {
       const reason = `${channel}: rejected privileged IPC from an untrusted sender frame`;
-      console.error(`[ipc] ${reason} (sender: ${senderUrl})`);
+      console.error(`[ipc] ${reason} (sender: ${senderUrl ?? '<none>'})`);
       throw new Error(reason);
     }
     try {

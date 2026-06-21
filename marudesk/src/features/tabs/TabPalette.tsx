@@ -17,6 +17,7 @@ import type { TabState } from '../../../shared/browser';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
 import { Hint, PaletteHints, PaletteOverlay } from '../commands/PaletteOverlay';
+import { usePaletteListbox } from '../commands/usePaletteListbox';
 
 /**
  * Tab switcher palette (Ctrl/Cmd+Shift+A). A keyboard-first overlay that
@@ -68,6 +69,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
   }, [tabs, query, t]);
 
   const activeIndex = results.length === 0 ? 0 : Math.min(active, results.length - 1);
+  const { inputProps, listboxProps, optionProps } = usePaletteListbox(activeIndex, results.length);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: 'nearest' });
@@ -121,11 +123,12 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
             placeholder={t('tabPalette.placeholder')}
             spellCheck={false}
             autoComplete="off"
+            {...inputProps}
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div {...listboxProps} className="min-h-0 flex-1 overflow-y-auto py-1">
           {results.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
               {formatTabPaletteNoMatch(query)}
@@ -141,6 +144,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
                   type="button"
                   onClick={() => choose(tab)}
                   onMouseEnter={() => setActive(idx)}
+                  {...optionProps(idx)}
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',
                     isActive ? 'bg-surface-2 text-fg-primary' : 'text-fg-secondary',

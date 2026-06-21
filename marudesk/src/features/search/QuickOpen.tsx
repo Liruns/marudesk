@@ -14,6 +14,7 @@ import { fuzzyScore } from './fuzzy';
 import { baseName, dirName } from '../git/statusMeta';
 import { useI18n } from '../../i18n/useI18n';
 import { Hint, PaletteHints, PaletteOverlay } from '../commands/PaletteOverlay';
+import { usePaletteListbox } from '../commands/usePaletteListbox';
 
 /**
  * Command-palette quick-open (Ctrl+P). A centered, keyboard-first overlay that
@@ -55,6 +56,7 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
   }, [summary, query]);
 
   const activeIndex = results.length === 0 ? 0 : Math.min(active, results.length - 1);
+  const { inputProps, listboxProps, optionProps } = usePaletteListbox(activeIndex, results.length);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: 'nearest' });
@@ -102,11 +104,12 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
             spellCheck={false}
             autoComplete="off"
             disabled={!summary}
+            {...inputProps}
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none disabled:cursor-not-allowed"
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div {...listboxProps} className="min-h-0 flex-1 overflow-y-auto py-1">
           {!summary ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
               {t('quickOpen.noWorkspace')}
@@ -126,6 +129,7 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
                   type="button"
                   onClick={() => choose(r.path)}
                   onMouseEnter={() => setActive(idx)}
+                  {...optionProps(idx)}
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',
                     isActive ? 'bg-surface-2 text-fg-primary' : 'text-fg-secondary',

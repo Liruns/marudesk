@@ -17,6 +17,8 @@ import {
 } from '../../../shared/work-os';
 import { useCanvasStore } from '../canvas/store';
 import { useGitStore } from '../git/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
+import { taskThreadWorkspaceId } from './taskThreads';
 
 /**
  * The AI Work OS task graph rendered as nodes on the canvas (docs/
@@ -701,7 +703,22 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       // (agent diff → review → commit handoff). refresh() self-guards: it probes
       // git availability and handles a non-repo / no-git workspace as a no-op,
       // catching its own errors, so this never affects applyPatch's contract.
-      if (res.ok) void useGitStore.getState().refresh();
+      //
+      // Cross-workspace guard: git:* (and `workos:apply-patch`) are scoped to the
+      // ACTIVE workspace in main — there's no per-call workspaceId. A task can be
+      // bound to a *different* workspace than the focused SCM instrument; refreshing
+      // then would reflect (and risk a commit against) the wrong repo. We only know a
+      // task's workspace via its conversation thread. When the task is bound to a
+      // workspace that differs from the active one, skip the refresh rather than
+      // refresh the wrong repo. A task with no bound workspace targets the active
+      // workspace by definition (same fallback `getCurrentWorkspace` the apply used),
+      // so the refresh stays consistent and proceeds.
+      if (res.ok) {
+        const taskWorkspaceId = taskThreadWorkspaceId(id);
+        const activeWorkspaceId = useWorkspaceDeckStore.getState().activeWorkspaceId;
+        const sameWorkspace = taskWorkspaceId === undefined || taskWorkspaceId === activeWorkspaceId;
+        if (sameWorkspace) void useGitStore.getState().refresh();
+      }
     } catch {
       set({ applyingPatchTaskId: null, runNote: 'Applying the patch failed.' });
     }
