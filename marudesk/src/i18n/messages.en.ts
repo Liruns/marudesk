@@ -761,6 +761,10 @@ export const EN_MESSAGES = {
   'editor.wrap.label': 'Wrap',
   'editor.wrap.off': 'Word wrap off',
   'editor.wrap.on': 'Word wrap on',
+  'errorBoundary.body':
+    'This part of the app hit an unexpected error and stopped. Reloading usually clears it.',
+  'errorBoundary.reload': 'Reload',
+  'errorBoundary.title': 'Something went wrong',
   'settings.appearance.theme.hint': 'Follow the OS, or force light/dark.',
   'settings.appearance.theme.label': 'Theme',
   'settings.appearance.uiFont.hint':

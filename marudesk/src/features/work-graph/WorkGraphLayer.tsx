@@ -42,8 +42,13 @@ const STATUS_LABEL_KEY: Record<TaskStatus, TranslationKey> = {
 type Props = {
   /** Screen px → canvas coords (CanvasStage owns the transform). */
   toCanvas: (clientX: number, clientY: number) => { x: number; y: number };
-  /** Current canvas zoom (drag deltas are screen px → divide by scale). */
-  scale: number;
+  /**
+   * Live canvas zoom as a stable getter (drag deltas are screen px → divide by
+   * scale). Passed as a getter rather than a `scale` value so a zoom change does
+   * not re-render every memoized TaskNodeCard, and so node callback identity
+   * stays stable across pan/zoom.
+   */
+  getScale: () => number;
 };
 
 /**
@@ -53,7 +58,7 @@ type Props = {
  * tab id. Pointer handlers stop propagation so node drags don't pan/marquee the
  * canvas.
  */
-export function WorkGraphNodes({ toCanvas, scale }: Props) {
+export function WorkGraphNodes({ toCanvas, getScale }: Props) {
   const graph = useWorkGraphStore((s) => s.graph);
   const graphId = useWorkGraphStore((s) => s.graph?.id);
   const pos = useWorkGraphStore((s) => s.pos);
@@ -110,7 +115,7 @@ export function WorkGraphNodes({ toCanvas, scale }: Props) {
             task={task}
             x={p.x}
             y={p.y}
-            scale={scale}
+            getScale={getScale}
             selected={selectedTaskId === task.id}
             taskId={task.id}
             onStartConnect={startConnect}
@@ -181,7 +186,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
   task,
   x,
   y,
-  scale,
+  getScale,
   selected,
   taskId,
   onStartConnect,
@@ -190,7 +195,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
   task: Task;
   x: number;
   y: number;
-  scale: number;
+  getScale: () => number;
   selected: boolean;
   taskId: string;
   onStartConnect: (fromId: string, clientX: number, clientY: number) => void;
@@ -214,6 +219,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
     const d = dragRef.current;
     if (!d || d.pointerId !== e.pointerId) return;
     e.stopPropagation();
+    const scale = getScale();
     useWorkGraphStore.getState().setPos(task.id, d.ox + (e.clientX - d.sx) / scale, d.oy + (e.clientY - d.sy) / scale);
   };
   const onHeaderUp = (e: ReactPointerEvent<HTMLDivElement>) => {

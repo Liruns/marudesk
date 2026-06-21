@@ -5,6 +5,7 @@ import {
   type BrowserWindow,
 } from 'electron';
 import { defineHandler } from '../ipc/define-handler';
+import { captureWithRetry } from './capture-retry.ts';
 import { parseNativeMenuItem, parseTabSpec, toBounds } from './handler-parse.ts';
 import { arrayOf, bool, num, obj, str } from '../ipc/validate';
 import { toMessage } from '../../shared/to-message';
@@ -252,8 +253,12 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:capture-page', async () => {
     const active = getActive();
     if (!active || !active.view) return false;
-    const image = await active.view.webContents.capturePage();
-    if (image.isEmpty()) return false;
+    const view = active.view;
+    const image = await captureWithRetry({
+      capture: () => view.webContents.capturePage(),
+      isEmpty: (img) => img.isEmpty(),
+    });
+    if (!image) return false;
     clipboard.writeImage(image);
     return true;
   });
@@ -261,8 +266,12 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:capture-page-data', async () => {
     const active = getActive();
     if (!active || !active.view) return null;
-    const image = await active.view.webContents.capturePage();
-    if (image.isEmpty()) return null;
+    const view = active.view;
+    const image = await captureWithRetry({
+      capture: () => view.webContents.capturePage(),
+      isEmpty: (img) => img.isEmpty(),
+    });
+    if (!image) return null;
     return { dataUrl: image.toDataURL() };
   });
 

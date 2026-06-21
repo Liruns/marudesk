@@ -759,6 +759,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'editor.wrap.label': '줄바꿈',
   'editor.wrap.off': '자동 줄바꿈 꺼짐',
   'editor.wrap.on': '자동 줄바꿈 켜짐',
+  'errorBoundary.body':
+    '앱의 이 부분에서 예기치 않은 오류가 발생하여 중단되었습니다. 새로 고치면 보통 해결됩니다.',
+  'errorBoundary.reload': '새로 고침',
+  'errorBoundary.title': '문제가 발생했습니다',
   'settings.appearance.theme.hint':
     'OS를 따르거나 밝게/어둡게를 고정합니다.',
   'settings.appearance.theme.label': '테마',

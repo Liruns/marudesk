@@ -9,6 +9,7 @@ import 'katex/dist/katex.min.css'
 // right; the settings store re-applies it on every theme change.
 import { applyHljsTheme } from './lib/hljsTheme'
 import App from './App.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { I18nProvider } from './i18n/I18nProvider'
 
 applyHljsTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
@@ -29,7 +30,9 @@ createRoot(rootElement).render(
         strokeWidth still overrides this default where a heavier weight is wanted. */}
     <LucideProvider strokeWidth={1.5}>
       <I18nProvider>
-        <App />
+        <ErrorBoundary label="app">
+          <App />
+        </ErrorBoundary>
       </I18nProvider>
     </LucideProvider>
   </StrictMode>,

@@ -50,12 +50,22 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
   }, [x, y]);
 
   useEffect(() => {
+    // Snapshot the trigger so keyboard/SR users land back where they started
+    // when the menu closes (Esc or item select), instead of dropping to <body>.
+    // Mirrors useFocusTrap: capture on mount, restore once on unmount.
+    const trigger =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const first = ref.current?.querySelector<HTMLButtonElement>(
       'button[data-mi]:not([disabled])',
     );
     // Focus without scrolling: a scroll-into-view here would trip the
     // close-on-scroll guard below (the menu would dismiss itself on open).
     first?.focus({ preventScroll: true });
+    return () => {
+      trigger?.focus({ preventScroll: true });
+    };
   }, []);
 
   // A WebContentsView composites ABOVE the React DOM, so a menu over a web view

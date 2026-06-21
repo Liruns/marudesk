@@ -760,23 +760,71 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     }),
 }));
 
-/* persist (debounced via microtask) — graph + node positions only. */
-let saveQueued = false;
-useWorkGraphStore.subscribe(() => {
-  if (typeof localStorage === 'undefined' || saveQueued) return;
-  saveQueued = true;
-  queueMicrotask(() => {
-    saveQueued = false;
-    try {
-      const { graph, pos } = useWorkGraphStore.getState();
-      // Evidence (result text + diff) is run-session only and not restored on load;
-      // strip it so file contents never sit in localStorage (and to avoid bloat).
-      localStorage.setItem(PERSIST_KEY, JSON.stringify({ graph: graph ? withoutEvidence(graph) : null, pos }));
-    } catch {
-      // best-effort
+/*
+ * persist — graph + node positions only, debounced.
+ *
+ * Dragging a node fires `setPos` per pointer move (each touching only `pos`),
+ * so the writer must be cheap on the hot path:
+ *  - trailing debounce coalesces a continuous drag into ONE write on settle;
+ *  - the stripped-graph JSON fragment is cached by graph identity, so a
+ *    pos-only change reuses the cached string and never re-runs withoutEvidence.
+ * The persisted shape stays exactly `{ graph, pos }` under PERSIST_KEY.
+ */
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let lastGraph: WorkGraph | null = null;
+// Serialized `withoutEvidence(graph)` (or "null") for the cached `lastGraph`.
+let cachedGraphJson = 'null';
+export const WORKGRAPH_PERSIST_DEBOUNCE_MS = 300;
+
+/**
+ * Number of times the graph has actually been stripped + re-serialized for
+ * persistence. Exposed (with `__flushWorkGraphPersist`) only so tests can prove
+ * a pos-only change reuses the cached graph string instead of re-running
+ * `withoutEvidence`. Not part of the public store API.
+ */
+export const __workGraphPersistStats = { graphSerializations: 0 };
+
+export function __flushWorkGraphPersist(): void {
+  writePersisted();
+}
+
+function writePersisted(): void {
+  try {
+    const { graph, pos } = useWorkGraphStore.getState();
+    if (graph !== lastGraph) {
+      __workGraphPersistStats.graphSerializations += 1;
+      // Evidence (result text + diff) is run-session only and not restored on
+      // load; strip it so file contents never sit in localStorage (and to avoid
+      // bloat). Only re-strip + re-serialize when the graph object changes.
+      cachedGraphJson = graph ? JSON.stringify(withoutEvidence(graph)) : 'null';
+      lastGraph = graph;
     }
-  });
+    localStorage.setItem(PERSIST_KEY, `{"graph":${cachedGraphJson},"pos":${JSON.stringify(pos)}}`);
+  } catch {
+    // best-effort
+  }
+}
+
+useWorkGraphStore.subscribe(() => {
+  if (typeof localStorage === 'undefined') return;
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    writePersisted();
+  }, WORKGRAPH_PERSIST_DEBOUNCE_MS);
 });
+
+// The debounce coalesces a continuous drag into one write, but a change in the
+// last ~300ms before the window closes would otherwise be lost. Flush any
+// pending write synchronously on unload so the final position / graph edit lands.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (saveTimer === null) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    writePersisted();
+  });
+}
 
 /**
  * A deterministic sample graph for a goal — used when no AI provider is

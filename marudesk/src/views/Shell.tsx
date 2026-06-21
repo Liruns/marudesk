@@ -25,6 +25,7 @@ import { TabPalette } from '../features/tabs/TabPalette';
 import { confirmCloseTab } from '../features/editor/store';
 import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { toast } from '../lib/toast';
 import { useI18n } from '../i18n/useI18n';
 import { Tour } from '../features/tour/Tour';
@@ -383,9 +384,13 @@ export function Shell() {
         {/* The Task graph is the home; a selected node opens the Instrument Dock,
             and a summoned tool replaces the graph in the main area. */}
         <main data-stage-region className="flex-1 min-w-0 flex">
-          {instrumentTabId ? <InstrumentStage /> : <WorkGraphStage docked />}
+          <ErrorBoundary label="stage">
+            {instrumentTabId ? <InstrumentStage /> : <WorkGraphStage docked />}
+          </ErrorBoundary>
         </main>
-        <InstrumentDock />
+        <ErrorBoundary label="dock">
+          <InstrumentDock />
+        </ErrorBoundary>
       </div>
       <EvidenceStrip />
       <ToastHost />

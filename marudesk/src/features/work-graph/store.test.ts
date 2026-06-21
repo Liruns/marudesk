@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { freeTaskSlot } from './store';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __flushWorkGraphPersist,
+  __workGraphPersistStats,
+  freeTaskSlot,
+  sampleGraph,
+  useWorkGraphStore,
+  WORKGRAPH_PERSIST_DEBOUNCE_MS,
+} from './store';
 
 const NODE = { w: 208, h: 118 };
 
@@ -28,5 +35,63 @@ describe('freeTaskSlot', () => {
     const slot = freeTaskSlot({ x: 500, y: 80 }, occupied);
     expect(slot.x).toBe(500);
     expect(occupied.every((o) => !overlaps(slot, o))).toBe(true);
+  });
+});
+
+describe('work-graph persistence', () => {
+  it('does not re-strip the graph when only a node position changes', () => {
+    const graph = sampleGraph('persist test');
+    useWorkGraphStore.getState().setGraph(graph);
+    // Prime the cache for the current graph identity.
+    __flushWorkGraphPersist();
+    const baseline = __workGraphPersistStats.graphSerializations;
+
+    const id = useWorkGraphStore.getState().graph?.tasks[0]?.id;
+    expect(id).toBeTruthy();
+    if (!id) return;
+
+    // A continuous "drag": pos-only mutations, graph identity unchanged.
+    for (let i = 0; i < 5; i += 1) {
+      useWorkGraphStore.getState().setPos(id, 100 + i, 200 + i);
+      __flushWorkGraphPersist();
+    }
+
+    // withoutEvidence must not have re-run for any pos-only change.
+    expect(__workGraphPersistStats.graphSerializations).toBe(baseline);
+    // But the position must still be persisted.
+    expect(useWorkGraphStore.getState().pos[id]).toEqual({ x: 104, y: 204 });
+  });
+
+  describe('debounced write', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    });
+
+    it('writes once after a burst of rapid changes', () => {
+      const graph = sampleGraph('debounce test');
+      useWorkGraphStore.getState().setGraph(graph);
+      const id = useWorkGraphStore.getState().graph?.tasks[0]?.id;
+      expect(id).toBeTruthy();
+      if (!id) return;
+
+      const setItem = vi.spyOn(Storage.prototype, 'setItem');
+
+      // Rapid changes, each well within the debounce window.
+      for (let i = 0; i < 6; i += 1) {
+        useWorkGraphStore.getState().setPos(id, i, i);
+        vi.advanceTimersByTime(WORKGRAPH_PERSIST_DEBOUNCE_MS - 50);
+      }
+      expect(setItem).not.toHaveBeenCalled();
+
+      // Settle: the trailing edge fires exactly one write.
+      vi.advanceTimersByTime(WORKGRAPH_PERSIST_DEBOUNCE_MS);
+      expect(setItem).toHaveBeenCalledTimes(1);
+
+      setItem.mockRestore();
+    });
   });
 });

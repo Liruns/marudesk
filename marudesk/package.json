@@ -24,6 +24,7 @@
     "typecheck": "tsc -b",
     "e2e": "playwright test",
     "test:e2e": "npm run build && playwright test",
+    "screens": "node scripts/run-screens.mjs",
     "chat": "node --experimental-strip-types --import ./electron/cli-bridge/harness-register.mjs cli/main.ts",
     "harness:all": "node scripts/run-harnesses.mjs",
     "harness:cli": "node --experimental-strip-types --import ./electron/cli-bridge/harness-register.mjs electron/cli-bridge/cli-harness.ts",
