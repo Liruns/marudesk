@@ -1,12 +1,34 @@
+import { createServer } from 'node:http';
 import { test, expect, type ElectronApplication } from '@playwright/test';
 import { launchApp } from './helpers/app';
+import { openInstrumentFromTask, seedGraph } from './helpers/mission-control';
+
+/**
+ * Browser menu + browser-view sizing, reached through Mission Control. The classic
+ * tab strip is gone: a web surface now opens as a full-area **instrument** summoned
+ * from a Task's `url` resource. So each test seeds a one-task graph whose output is
+ * a clickable `page` chip, opens it via the dock inspector, and then exercises the
+ * live web instrument's toolbar menu / stage resize. Opening the instrument also
+ * makes its WebContentsView the visible/active one, so `browser:navigate` and the
+ * stage ResizeObserver act on it. The native popup itself is stubbed at the IPC
+ * boundary (no OS menu in CI).
+ */
+
+function taskWithPage(url: string) {
+  return {
+    id: 't1',
+    title: 'Open the page',
+    outputs: [{ id: 'r1', kind: 'url' as const, uri: url, label: 'page' }],
+  };
+}
 
 test('browser menu: native popup selection navigates to a history item', async () => {
+  const server = await startBlankServer();
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: 'about:blank' }),
-    );
+    await seedGraph(page, { tasks: [taskWithPage(server.url)] });
+    await openInstrumentFromTask(page, 't1', 'page');
+
     const menuButton = page.getByRole('button', { name: 'Browser menu' });
     await expect(menuButton).toBeVisible();
 
@@ -20,15 +42,16 @@ test('browser menu: native popup selection navigates to a history item', async (
     });
   } finally {
     await app.close();
+    await server.close();
   }
 });
 
 test('browser view: resizes with the browser stage', async () => {
+  const server = await startBlankServer();
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: 'about:blank' }),
-    );
+    await seedGraph(page, { tasks: [taskWithPage(server.url)] });
+    await openInstrumentFromTask(page, 't1', 'page');
 
     const stage = page.getByLabel('Browser stage');
     await expect(stage).toBeVisible();
@@ -59,8 +82,23 @@ test('browser view: resizes with the browser stage', async () => {
       .not.toBe(`${beforeView.width}x${beforeView.height}`);
   } finally {
     await app.close();
+    await server.close();
   }
 });
+
+async function startBlankServer(): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><meta charset="utf-8"><body><h1>page</h1></body>');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const addr = server.address();
+  if (!addr || typeof addr === 'string') throw new Error('blank server did not bind a port');
+  return {
+    url: `http://127.0.0.1:${addr.port}/`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
 
 async function installBrowserMenuIpcStubs(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain }) => {

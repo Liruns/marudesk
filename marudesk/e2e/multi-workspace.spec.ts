@@ -4,187 +4,63 @@ import os from 'node:os';
 import path from 'node:path';
 import { launchApp } from './helpers/app';
 
-type ProjectFixture = {
-  readonly base: string;
-  readonly alphaFe: string;
-  readonly alphaBe: string;
-  readonly betaFe: string;
-  readonly betaBe: string;
-};
+/**
+ * Multi-workspace deck.
+ *
+ * The Mission Control redesign made the Task graph the only home and removed the
+ * workspace-deck split, the "Workspace rail", the per-pane tab strips, and the
+ * Explorer panel. The three UI flows this file used to cover —
+ *   - "split panes can show different workspaces"
+ *   - "Explorer opens files with the selected root identity"
+ *   - "panes remember active tabs per workspace"
+ * all drove that removed chrome, so they were deleted.
+ *
+ * The `workspaces:create` IPC handler survives (electron/workspace-registry.ts),
+ * so this keeps a single logic-level round-trip that confirms a multi-root
+ * workspace is created and given stable identities — no removed UI involved.
+ */
 
 function mkdirProject(root: string, name: string): string {
   const dir = path.join(root, name);
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'App.tsx'), `export const name = "${name}";\n`);
-  fs.writeFileSync(path.join(dir, 'src', `${name}.tsx`), `export const project = "${name}";\n`);
   return dir;
 }
 
-function createProjects(): ProjectFixture {
+test('multi-workspace: workspaces:create round-trips a multi-root workspace', async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-workspace-ui-'));
-  return {
-    base,
-    alphaFe: mkdirProject(base, 'alpha-fe'),
-    alphaBe: mkdirProject(base, 'alpha-be'),
-    betaFe: mkdirProject(base, 'beta-fe'),
-    betaBe: mkdirProject(base, 'beta-be'),
-  };
-}
-
-test('multi-workspace deck: split panes can show different workspaces', async () => {
-  const fixture = createProjects();
-  const { app, page } = await launchApp();
-  try {
-    await page.evaluate(
-      async ({ alphaFe, alphaBe, betaFe, betaBe }) => {
-        await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Alpha',
-          roots: [
-            { name: 'FE', path: alphaFe },
-            { name: 'BE', path: alphaBe },
-          ],
-        });
-        await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Beta',
-          roots: [
-            { name: 'FE', path: betaFe },
-            { name: 'BE', path: betaBe },
-          ],
-        });
-      },
-      fixture,
-    );
-
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('navigation', { name: 'Workspace rail' })).toBeVisible();
-    await expect(page.getByText('Project Beta', { exact: true })).toBeVisible();
-    const explorer = page.getByRole('complementary', { name: 'Explorer' });
-    await expect(explorer.getByText('No folder open')).not.toBeVisible();
-    await expect(explorer.getByRole('button', { name: 'Use root FE' })).toBeVisible();
-    await expect(explorer.getByRole('button', { name: 'Use root BE' })).toBeVisible();
-
-    await explorer.getByRole('button', { name: 'Use root BE' }).click();
-    await expect(explorer.getByText('Project Beta / BE')).toBeVisible();
-
-    await page.getByRole('button', { name: 'Split workspace' }).first().click();
-    await page.getByRole('button', { name: 'Split right: Project Alpha' }).click();
-
-    await expect(page.getByText('Project Alpha', { exact: true })).toBeVisible();
-    await expect(page.getByText('Project Beta', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Peek Explorer' })).toHaveCount(2);
-  } finally {
-    await app.close();
-    fs.rmSync(fixture.base, { recursive: true, force: true });
-  }
-});
-
-test('multi-workspace deck: Explorer opens files with the selected root identity', async () => {
-  const fixture = createProjects();
+  const fe = mkdirProject(base, 'alpha-fe');
+  const be = mkdirProject(base, 'alpha-be');
   const { app, page } = await launchApp();
   try {
     const record = await page.evaluate(
-      ({ alphaFe, alphaBe }) =>
+      (roots) =>
         window.marudesk.invoke('workspaces:create', {
           name: 'Project Alpha',
           roots: [
-            { name: 'FE', path: alphaFe },
-            { name: 'BE', path: alphaBe },
+            { name: 'FE', path: roots.fe },
+            { name: 'BE', path: roots.be },
           ],
         }),
-      fixture,
+      { fe, be },
     );
+
+    expect(record).toBeTruthy();
+    if (!record) return;
+    expect(record.name).toBe('Project Alpha');
+    expect(typeof record.id).toBe('string');
+    expect(record.id.length).toBeGreaterThan(0);
+
+    // Each named root keeps its label and gets its own stable id.
+    const feRoot = record.roots.find((root) => root.name === 'FE');
     const beRoot = record.roots.find((root) => root.name === 'BE');
+    expect(feRoot).toBeTruthy();
     expect(beRoot).toBeTruthy();
-    if (!beRoot) return;
-
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    const explorer = page.getByRole('complementary', { name: 'Explorer' });
-    await explorer.getByRole('button', { name: 'Use root BE' }).click();
-    await expect(explorer.getByText('Project Alpha / BE')).toBeVisible();
-
-    // The file tree renders via @pierre/trees as a <file-tree-container> custom
-    // element; rows are buttons keyed by data-item-path (folders carry a
-    // trailing slash). Expand "src", then open the file from it.
-    const tree = explorer.locator('file-tree-container');
-    await tree.locator('button[data-item-path="src/"]').click();
-    await tree.locator('button[data-item-path="src/App.tsx"]').click();
-
-    const snapshot = await page.evaluate(() => window.marudesk.invoke('browser:tabs-snapshot'));
-    const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
-
-    expect(active?.kind).toBe('editor');
-    expect(active?.workspaceId).toBe(record.id);
-    expect(active?.editorFile?.rootId).toBe(beRoot.id);
-    expect(active?.editorFile?.path).toBe('src/App.tsx');
+    expect(feRoot?.id).toBeTruthy();
+    expect(beRoot?.id).toBeTruthy();
+    expect(feRoot?.id).not.toBe(beRoot?.id);
   } finally {
     await app.close();
-    fs.rmSync(fixture.base, { recursive: true, force: true });
-  }
-});
-
-test('multi-workspace deck: panes remember active tabs per workspace', async () => {
-  const fixture = createProjects();
-  const { app, page } = await launchApp();
-  try {
-    await page.evaluate(
-      async ({ alphaFe, alphaBe, betaFe, betaBe }) => {
-        const alpha = await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Alpha',
-          roots: [
-            { name: 'FE', path: alphaFe },
-            { name: 'BE', path: alphaBe },
-          ],
-        });
-        const beta = await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Beta',
-          roots: [
-            { name: 'FE', path: betaFe },
-            { name: 'BE', path: betaBe },
-          ],
-        });
-        const alphaRoot = alpha.roots[0];
-        const betaRoot = beta.roots[0];
-        if (!alphaRoot || !betaRoot) throw new Error('missing fixture roots');
-        await window.marudesk.invoke('browser:tabs-new', {
-          kind: 'editor',
-          workspaceId: alpha.id,
-          file: { workspaceId: alpha.id, rootId: alphaRoot.id, path: 'src/App.tsx' },
-        });
-        await window.marudesk.invoke('browser:tabs-new', {
-          kind: 'editor',
-          workspaceId: alpha.id,
-          file: { workspaceId: alpha.id, rootId: alphaRoot.id, path: 'src/alpha-fe.tsx' },
-        });
-        await window.marudesk.invoke('browser:tabs-new', {
-          kind: 'editor',
-          workspaceId: beta.id,
-          file: { workspaceId: beta.id, rootId: betaRoot.id, path: 'src/App.tsx' },
-        });
-        await window.marudesk.invoke('browser:tabs-new', {
-          kind: 'editor',
-          workspaceId: beta.id,
-          file: { workspaceId: beta.id, rootId: betaRoot.id, path: 'src/beta-fe.tsx' },
-        });
-      },
-      fixture,
-    );
-
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Split workspace' }).first().click();
-    await page.getByRole('button', { name: 'Split right: Project Alpha' }).click();
-
-    const alphaPane = page.getByRole('region', { name: 'Project Alpha' });
-    const betaPane = page.getByRole('region', { name: 'Project Beta' });
-    const alphaApp = alphaPane.getByRole('tab', { name: 'App.tsx' });
-    const betaApp = betaPane.getByRole('tab', { name: 'App.tsx' });
-
-    await alphaApp.click();
-    await betaApp.click();
-
-    await expect(alphaApp).toHaveAttribute('aria-selected', 'true');
-    await expect(betaApp).toHaveAttribute('aria-selected', 'true');
-  } finally {
-    await app.close();
-    fs.rmSync(fixture.base, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true });
   }
 });

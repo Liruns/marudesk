@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { test, expect } from '@playwright/test';
 import { launchApp } from './helpers/app';
+import { openInstrumentFromTask, seedGraph } from './helpers/mission-control';
 
 /**
  * Session-receipt running-app snapshot (docs/runtime-agent-absorption-2026-06.md
@@ -9,25 +10,37 @@ import { launchApp } from './helpers/app';
  * base64 bloat. The embedded web view isn't reachable from the React page, so we
  * verify the capture IPC end-to-end (returns a PNG data URL for a painted web
  * tab, null when there's no web view).
+ *
+ * Mission Control has no tab strip: a web view only gets bounds + paints once it
+ * is the active full-area instrument. So we seed a task carrying a url resource and
+ * summon it as a web instrument (which activates + shows the live WebContentsView),
+ * which is what makes capturePage return a frame. A tab created via IPC alone stays
+ * hidden, so capture is null until the instrument is on screen.
  */
 test('receipt: capture-page-data returns a PNG data URL for a web tab', async () => {
   const fixture = await startPageFixture();
   const { app, page } = await launchApp();
   try {
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: 't1',
+          title: 'Capture the live page',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Captured page' }],
+        },
+      ],
+    });
+
     // No web view yet → null.
     const before = await page.evaluate(() =>
       window.marudesk.invoke('browser:capture-page-data'),
     );
     expect(before).toBeNull();
 
-    // Open a web tab and load a painted page (capturePage is empty until the
-    // view has bounds + a frame).
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
-    );
-    await expect(
-      page.getByRole('button', { name: 'Toggle DevTools (F12)' }),
-    ).toBeVisible();
+    // Summon the task's url resource as a full-area web instrument: this creates,
+    // activates, and SHOWS the live WebContentsView (capturePage is empty until the
+    // view has bounds + a painted frame).
+    await openInstrumentFromTask(page, 't1', 'Captured page');
     await page.evaluate((url) => window.marudesk.invoke('browser:navigate', url), fixture.url);
 
     // capturePage can be empty for a frame or two after layout; poll briefly.

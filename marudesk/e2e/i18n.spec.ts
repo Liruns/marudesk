@@ -1,33 +1,58 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { launchApp, makeTempUserDataDir } from './helpers/app';
+import { runCommand } from './helpers/mission-control';
 
-test('switches chrome labels to Korean from the appearance popover', async () => {
+/**
+ * Localization (English ↔ Korean). The locale switch lives in Settings →
+ * Appearance now: Mission Control removed the activity-bar gear + its Appearance
+ * popover, so the language radiogroup in the Settings "Appearance" category is the
+ * single switch. Settings itself is summoned as a full-area instrument from the
+ * ⌘K command palette (there is no tab strip / activity bar to open it from).
+ *
+ * Each spec switches to Korean and asserts that a real surface re-localizes —
+ * the title-bar chrome, the Settings shell, and the per-category settings panels
+ * (MCP, providers, agent, data) — plus the keyboard palettes (Quick Open / tab
+ * search) that survive the redesign. No AI provider or workspace is needed.
+ */
+
+/**
+ * Open Settings as an instrument and flip the locale to Korean from the
+ * Appearance category's language radiogroup. Settings is opened in English (the
+ * palette command labels are not localized), the Appearance nav chip + the
+ * "한국어" radio are clicked, then the whole UI re-renders in Korean with Settings
+ * left open on the (now "테마") Appearance category.
+ */
+async function openSettingsInKorean(page: Page): Promise<void> {
+  await runCommand(page, 'Open Settings');
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  // The Appearance category hosts the language radiogroup (Segmented control).
+  await page.getByRole('button', { name: 'Appearance' }).click();
+  await expect(page.getByRole('radio', { name: '한국어' })).toBeVisible();
+  await page.getByRole('radio', { name: '한국어' }).click();
+  // The switch re-localizes the shell live; the Settings title proves it landed.
+  await expect(page.getByRole('heading', { name: '설정' })).toBeVisible();
+}
+
+test('switches chrome labels to Korean from Settings', async () => {
   const { app, page } = await launchApp();
   try {
     // Given: the shell starts in the default English locale.
-    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.getByRole('banner', { name: 'Window chrome' })).toBeVisible();
 
-    // When: the user opens Appearance and selects Korean.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByRole('menuitem', { name: 'Appearance…' })).toBeVisible();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await expect(page.getByRole('radio', { name: '한국어' })).toBeVisible({
-      timeout: 1_000,
-    });
-    await page.getByRole('radio', { name: '한국어' }).click();
+    // When: the user switches the app locale to Korean from Settings.
+    await openSettingsInKorean(page);
 
-    // Then: always-visible chrome labels update without a reload.
+    // Then: always-visible title-bar chrome updates without a reload.
     await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
     await expect(page.getByRole('banner', { name: '창 프레임' })).toBeVisible();
     await expect(page.getByRole('group', { name: '창 제어' })).toBeVisible();
     await expect(page.getByRole('button', { name: '최소화' })).toBeVisible();
-    await expect(page.getByRole('button', { name: '설정' })).toBeVisible();
-    await expect(
-      page.getByRole('navigation', { name: '활동 표시줄' }),
-    ).toBeVisible();
+
+    // And: switching back to English restores the chrome labels live.
     await page.getByRole('radio', { name: 'English' }).click();
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+    await expect(page.getByRole('banner', { name: 'Window chrome' })).toBeVisible();
   } finally {
     await app.close();
   }
@@ -39,10 +64,8 @@ test('persists the selected locale across launches', async () => {
   const first = await launchApp({ userDataDir });
   try {
     // Given: the user chooses Korean in the first app session.
-    await first.page.getByRole('button', { name: 'Settings' }).click();
-    await first.page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await first.page.getByRole('radio', { name: '한국어' }).click();
-    await expect(first.page.getByRole('button', { name: '설정' })).toBeVisible();
+    await openSettingsInKorean(first.page);
+    await expect(first.page.locator('html')).toHaveAttribute('lang', 'ko');
   } finally {
     await first.app.close();
   }
@@ -53,78 +76,21 @@ test('persists the selected locale across launches', async () => {
     await expect(second.page.locator('html')).toHaveAttribute('lang', 'ko');
 
     // Then: the persisted locale drives visible chrome labels.
-    await expect(second.page.getByRole('button', { name: '설정' })).toBeVisible();
+    await expect(
+      second.page.getByRole('banner', { name: '창 프레임' }),
+    ).toBeVisible();
   } finally {
     await second.app.close();
-  }
-});
-
-test('localizes the home launcher after switching to Korean', async () => {
-  const { app, page } = await launchApp();
-  try {
-    // Given: the default home surface is visible in English.
-    await expect(page.getByPlaceholder('Search or enter a URL')).toBeVisible();
-
-    // When: the user switches the app locale to Korean.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
-
-    // Then: the home launcher updates without recreating the tab.
-    await expect(page.getByPlaceholder('검색하거나 URL 입력')).toBeVisible();
-    await expect(page.getByRole('button', { name: /AI 채팅/ })).toBeVisible();
-    await expect(page.getByText('실행 중인 앱을 보는 에이전트')).toBeVisible();
-    await expect(page.getByText('새 탭 열기')).toBeVisible();
-  } finally {
-    await app.close();
-  }
-});
-
-test('localizes tab strip controls after switching to Korean', async () => {
-  const { app, page } = await launchApp();
-  try {
-    // Given: the tab strip starts with English chrome.
-    await expect(page.getByRole('tablist', { name: 'Open tabs' })).toBeVisible();
-
-    // When: the user switches the app locale to Korean.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
-
-    // Then: tab-strip controls and context menu labels use Korean.
-    await expect(page.getByRole('tablist', { name: '열린 탭' })).toBeVisible();
-    await page.getByRole('button', { name: '새 탭' }).click();
-    await expect(page.getByRole('tab')).toHaveCount(2);
-    await page.getByRole('tab').first().click({ button: 'right' });
-    await expect(page.getByRole('menuitem', { name: '탭 고정' })).toBeVisible();
-    await expect(
-      page.getByRole('menuitem', { name: '닫기', exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: '다른 탭 닫기' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: '오른쪽 탭 닫기' })).toBeVisible();
-  } finally {
-    await app.close();
   }
 });
 
 test('localizes the settings shell after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: the app starts with English chrome.
-    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
-
-    // When: the user switches to Korean and opens the Settings tab.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
-    await page.getByRole('button', { name: '설정' }).click();
-    await page.getByRole('menuitem', { name: '설정' }).click();
+    // Given/When: Korean is selected and Settings is open on Appearance ("테마").
+    await openSettingsInKorean(page);
 
     // Then: the settings navigation and current category labels use Korean.
-    await expect(page.getByRole('heading', { name: '설정' })).toBeVisible();
     await expect(page.getByRole('navigation', { name: '설정 카테고리' })).toBeVisible();
     await expect(page.getByPlaceholder('설정 검색')).toBeVisible();
     await expect(page.getByRole('button', { name: '테마' })).toBeVisible();
@@ -147,13 +113,8 @@ test('localizes the settings shell after switching to Korean', async () => {
 test('localizes settings MCP panels after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: Korean is selected and the Settings tab is open.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
-    await page.getByRole('button', { name: '설정' }).click();
-    await page.getByRole('menuitem', { name: '설정' }).click();
+    // Given: Korean is selected and the Settings instrument is open.
+    await openSettingsInKorean(page);
 
     // When: the user opens the MCP Servers category.
     await page.getByRole('button', { name: 'MCP 서버' }).click();
@@ -172,13 +133,8 @@ test('localizes settings MCP panels after switching to Korean', async () => {
 test('localizes AI provider settings after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: Korean is selected and the Settings tab is open.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
-    await page.getByRole('button', { name: '설정' }).click();
-    await page.getByRole('menuitem', { name: '설정' }).click();
+    // Given: Korean is selected and the Settings instrument is open.
+    await openSettingsInKorean(page);
 
     // When: the user opens the AI Providers category.
     await page.getByRole('button', { name: 'AI 제공자' }).click();
@@ -210,13 +166,8 @@ test('localizes AI provider settings after switching to Korean', async () => {
 test('localizes AI agent settings after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: Korean is selected and the Settings tab is open.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
-    await page.getByRole('button', { name: '설정' }).click();
-    await page.getByRole('menuitem', { name: '설정' }).click();
+    // Given: Korean is selected and the Settings instrument is open.
+    await openSettingsInKorean(page);
 
     // When: the user opens the AI Agent category.
     await page.getByRole('button', { name: 'AI 에이전트' }).click();
@@ -253,13 +204,8 @@ test('localizes AI agent settings after switching to Korean', async () => {
 test('localizes data settings after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: Korean is selected and the Settings tab is open.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
-    await page.getByRole('button', { name: '설정' }).click();
-    await page.getByRole('menuitem', { name: '설정' }).click();
+    // Given: Korean is selected and the Settings instrument is open.
+    await openSettingsInKorean(page);
 
     // When: the user opens Data & Storage.
     await page.getByRole('button', { name: '데이터 및 저장소' }).click();
@@ -281,11 +227,9 @@ test('localizes data settings after switching to Korean', async () => {
 test('localizes keyboard palettes after switching to Korean', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: Korean is selected for the current app session.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Appearance…' }).click();
-    await page.getByRole('radio', { name: '한국어' }).click();
-    await page.mouse.click(5, 5);
+    // Given: Korean is selected for the current app session. Settings stays open
+    // as an instrument tab, so the tab switcher below has a "current" tab to mark.
+    await openSettingsInKorean(page);
 
     // When: Quick Open is opened from the keyboard.
     await page.keyboard.press('Control+P');
@@ -294,7 +238,7 @@ test('localizes keyboard palettes after switching to Korean', async () => {
     await expect(page.getByRole('dialog', { name: '파일로 이동' })).toBeVisible();
     await expect(page.getByText('워크스페이스가 열려 있지 않습니다.')).toBeVisible();
 
-    await page.mouse.click(5, 5);
+    await page.keyboard.press('Escape');
 
     // When: the tab switcher palette is opened from the keyboard.
     await page.keyboard.press('Control+Shift+A');

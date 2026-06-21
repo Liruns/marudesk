@@ -1,21 +1,40 @@
 import { createServer, type Server } from 'node:http';
 import { test, expect } from '@playwright/test';
 import { launchApp } from './helpers/app';
+import { openInstrumentFromTask, seedGraph } from './helpers/mission-control';
 
 /**
  * Runtime evidence timeline (docs/runtime-agent-absorption-2026-06.md §3.3). The
  * Timeline panel merges console errors + failed/4xx-5xx network requests from the
- * live page (real CDP) and offers the Fix/Triage actions inline. The embedded web
- * view isn't reachable from the React page, so we drive real evidence through a
- * fixture page (console.error + a 500 fetch) and assert the panel renders it.
+ * live page (real CDP) and offers the Fix/Triage actions inline.
+ *
+ * Mission Control has no tab strip: a web view is reached by summoning a task's
+ * url resource as a full-area instrument (openInstrumentFromTask), which makes the
+ * WebContentsView the visible/active tab so browser:navigate drives it. We seed a
+ * url-resource task, open the instrument, open the DevTools dock + Timeline panel,
+ * then navigate to a fixture page (console.error + a 500 fetch) and assert the
+ * panel renders that real evidence with its actions.
  */
 test('timeline: surfaces a console error + a failed request with actions', async () => {
   const fixture = await startTimelineFixture();
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
-    );
+    // Seed a task whose only output is a url resource; its chip summons a web
+    // instrument (a real, visible WebContentsView) — the surface the Timeline
+    // panel observes. The resource points at the fixture's blank landing page so
+    // the deferred error doesn't fire before the Timeline panel mounts; we
+    // navigate to /go (which fires it) below.
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: 't1',
+          title: 'Inspect the running page',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Live page' }],
+        },
+      ],
+    });
+    await openInstrumentFromTask(page, 't1', 'Live page');
+
     const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
     await expect(wrench).toBeVisible();
     await wrench.click();
@@ -28,8 +47,9 @@ test('timeline: surfaces a console error + a failed request with actions', async
     await dock.getByRole('button', { name: 'Timeline', exact: true }).click();
     await expect(dock.getByText('Runtime evidence', { exact: true })).toBeVisible();
 
-    // Navigate to a page that logs an error and fires a request that 500s.
-    await page.evaluate((url) => window.marudesk.invoke('browser:navigate', url), fixture.url);
+    // Navigate the active instrument to the page that logs an error and fires a
+    // request that 500s (deferred, so the Timeline is mounted first).
+    await page.evaluate((url) => window.marudesk.invoke('browser:navigate', url), `${fixture.url}go`);
 
     // Console error row + its Fix action.
     await expect(dock.getByText('marudesk-e2e-timeline')).toBeVisible();
@@ -59,8 +79,9 @@ async function startTimelineFixture(): Promise<{ url: string; close: () => Promi
       res.end(JSON.stringify({ error: 'boom' }));
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(`<!doctype html>
+    if (req.url === '/go') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!doctype html>
       <meta charset="utf-8">
       <script>
         setTimeout(() => {
@@ -68,6 +89,12 @@ async function startTimelineFixture(): Promise<{ url: string; close: () => Promi
           fetch('/api/boom').catch(() => {});
         }, 300);
       </script>`);
+      return;
+    }
+    // Blank landing page so the instrument can open WITHOUT firing the deferred
+    // error before the Timeline panel mounts; the test navigates to /go after.
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><meta charset="utf-8"><body></body>');
   });
   await listen(server);
   const address = server.address();

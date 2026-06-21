@@ -1,141 +1,195 @@
 import { createServer, type Server } from 'node:http';
 import { test, expect } from '@playwright/test';
 import { launchApp } from './helpers/app';
+import { dock, openInstrumentFromTask, seedGraph } from './helpers/mission-control';
 
 /**
  * DevTools dock smoke. The embedded web view (and its CDP session) is a separate
  * WebContentsView not reachable through the React page under test, so the full
  * Elements/Console/Network flow is a manual GUI check (see the design's §12).
- * This guards the wiring that IS renderer-side: the F12 toggle must no-op on a
- * non-web tab (DevTools attaches to a page) without throwing or mounting a dock.
+ * This guards the wiring that IS renderer-side: the F12 toggle must no-op when
+ * there's no web instrument to inspect, and the wrench/Elements/Console/Network
+ * panels behave once a web instrument is summoned.
+ *
+ * Mission Control: there is no tab strip — a web view is summoned as a full-area
+ * instrument from a task's `url` resource. `openInstrumentFromTask` makes that web
+ * view the visible/active instrument (required before navigate/capture act on it)
+ * and, because it selects the owning task, the per-task dock chat (the composer
+ * that DevTools captures feed) stays mounted beside it. The DevTools dock itself
+ * lives inside that web instrument (BrowserCanvas), reached via the wrench.
  */
-test('devtools: F12 on a non-web tab does not open the dock', async () => {
+
+const WEB_TASK = 't_web';
+
+test('devtools: F12 with no web instrument open does not open the dock', async () => {
   const { app, page } = await launchApp();
   try {
-    // The app opens on a home (feature) tab — no web page to inspect.
-    await expect(page.getByRole('tab').first()).toBeVisible();
-    const dock = page.getByLabel('DevTools', { exact: true });
-    await expect(dock).toHaveCount(0);
+    // The home is the Task graph — there is no web page (no instrument) to inspect.
+    await seedGraph(page, { tasks: [{ id: 't1', title: 'Plan the work' }] });
+    await expect(page.locator('[data-stage="workgraph"]')).toBeVisible();
+    const devtools = page.getByLabel('DevTools', { exact: true });
+    await expect(devtools).toHaveCount(0);
 
     await page.keyboard.press('F12');
 
-    // Toggle no-ops on a non-web tab: still no dock, and the shell is alive.
-    await expect(dock).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+    // Toggle no-ops with no web instrument: still no dock, and the graph home
+    // stage is still alive.
+    await expect(devtools).toHaveCount(0);
+    await expect(page.locator('[data-stage="workgraph"]')).toBeVisible();
   } finally {
     await app.close();
   }
 });
 
-test('devtools: opening the dock on a web tab renders the live DOM tree', async () => {
+test('devtools: opening the dock on a web instrument renders the live DOM tree', async () => {
+  const fixture = await startBlankFixture();
   const { app, page } = await launchApp();
   try {
-    // Create + activate a web tab (loads about:blank — enough for a real DOM).
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
-    );
+    // Summon a web instrument from a task's url resource (loads a real DOM).
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: WEB_TASK,
+          title: 'Inspect the page',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Open page' }],
+        },
+      ],
+    });
+    await openInstrumentFromTask(page, WEB_TASK, 'Open page');
 
-    // The web toolbar (with the DevTools wrench) appears for a web tab.
+    // The web toolbar (with the DevTools wrench) appears for a web instrument.
     const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
     await expect(wrench).toBeVisible();
     await wrench.click();
 
     // The dock mounts and, once the CDP session attaches and DOM.getDocument
     // resolves, the Elements tree renders real nodes (html/head/body).
-    const dock = page.getByLabel('DevTools', { exact: true });
-    await expect(dock).toBeVisible();
-    await expect(dock.getByRole('treeitem').first()).toBeVisible();
+    const devtools = page.getByLabel('DevTools', { exact: true });
+    await expect(devtools).toBeVisible();
+    await expect(devtools.getByRole('treeitem').first()).toBeVisible();
 
-    // The Console lives in the bottom drawer by default (Chrome-style); Esc
-    // opens the drawer (when DevTools has focus), revealing the REPL input.
-    await dock.getByRole('button', { name: 'Console', exact: true }).click();
-    await expect(dock.getByPlaceholder('Evaluate JavaScript')).toBeVisible();
+    // The Console lives in the bottom drawer by default (Chrome-style); clicking
+    // the Console tab reveals the REPL input.
+    await devtools.getByRole('button', { name: 'Console', exact: true }).click();
+    await expect(devtools.getByPlaceholder('Evaluate JavaScript')).toBeVisible();
   } finally {
+    await fixture.close();
     await app.close();
   }
 });
 
-test('devtools: "Add to context" sends the selected node to the composer (hook A)', async () => {
+test('devtools: "Add to context" sends the selected node to the dock composer (hook A)', async () => {
+  const fixture = await startBlankFixture();
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
-    );
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: WEB_TASK,
+          title: 'Capture an element',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Open page' }],
+        },
+      ],
+    });
+    await openInstrumentFromTask(page, WEB_TASK, 'Open page');
     const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
     await expect(wrench).toBeVisible();
     await wrench.click();
 
-    const dock = page.getByLabel('DevTools', { exact: true });
-    await expect(dock).toBeVisible();
+    const devtools = page.getByLabel('DevTools', { exact: true });
+    await expect(devtools).toBeVisible();
 
     // "Add to context" is disabled until an element is selected.
     const addBtn = page.getByRole('button', { name: 'Add to AI context' });
     await expect(addBtn).toBeDisabled();
 
     // Select <body> (always an element) → enables the capture button.
-    const bodyNode = dock.getByRole('treeitem').filter({ hasText: 'body' }).first();
+    const bodyNode = devtools.getByRole('treeitem').filter({ hasText: 'body' }).first();
     await expect(bodyNode).toBeVisible();
     await bodyNode.click();
     await expect(addBtn).toBeEnabled();
 
-    // Clicking it builds a Capture over real CDP (outerHTML + box model) and
-    // adds it to the composer context — confirmed by the success toast.
+    // Clicking it builds a Capture over real CDP (outerHTML + box model) and adds
+    // it to the selected task's dock chat context — confirmed by the success
+    // toast and the capture badge on the dock composer.
     await addBtn.click();
     await expect(page.getByText('Added to context')).toBeVisible();
+    await expect(dock(page).getByLabel('Agent prompt')).toBeVisible();
+    await expect(dock(page).getByLabel('1 capture selected')).toBeVisible();
   } finally {
+    await fixture.close();
     await app.close();
   }
 });
 
-test('devtools: "Fix this" on a console error sends it to the composer (P0)', async () => {
+test('devtools: "Fix this" on a console error sends it to the dock composer (P0)', async () => {
+  const fixture = await startBlankFixture();
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
-    );
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: WEB_TASK,
+          title: 'Triage a console error',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Open page' }],
+        },
+      ],
+    });
+    await openInstrumentFromTask(page, WEB_TASK, 'Open page');
     const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
     await expect(wrench).toBeVisible();
     await wrench.click();
 
-    const dock = page.getByLabel('DevTools', { exact: true });
-    await expect(dock).toBeVisible();
-    // Console lives in the bottom drawer by default; Esc opens it.
-    await dock.getByRole('button', { name: 'Console', exact: true }).click();
+    const devtools = page.getByLabel('DevTools', { exact: true });
+    await expect(devtools).toBeVisible();
+    await devtools.getByRole('button', { name: 'Console', exact: true }).click();
 
     // Drive a real console error through CDP via the REPL: console.error fires
     // Runtime.consoleAPICalled(type:'error'), which the relay surfaces as an
     // error row carrying the "Fix this" action.
-    const repl = dock.getByPlaceholder('Evaluate JavaScript');
+    const repl = devtools.getByPlaceholder('Evaluate JavaScript');
     await expect(repl).toBeVisible();
     await repl.fill("console.error('marudesk-e2e-boom')");
     await repl.press('Enter');
 
-    const fixBtn = dock.getByRole('button', { name: 'Fix this' }).first();
+    const fixBtn = devtools.getByRole('button', { name: 'Fix this' }).first();
     await expect(fixBtn).toBeVisible();
     await fixBtn.click();
 
-    // The error becomes a console-error Capture in the composer context.
+    // The error becomes a console-error Capture in the selected task's dock chat
+    // context — the toast confirms it, and the dock composer shows the badge.
     await expect(page.getByText('Added to context')).toBeVisible();
+    await expect(dock(page).getByLabel('Agent prompt')).toBeVisible();
+    await expect(dock(page).getByLabel('1 capture selected')).toBeVisible();
   } finally {
+    await fixture.close();
     await app.close();
   }
 });
 
 test('devtools: Console starts visible and can move to the bottom drawer', async () => {
+  const fixture = await startBlankFixture();
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
-    );
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: WEB_TASK,
+          title: 'Use the console',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Open page' }],
+        },
+      ],
+    });
+    await openInstrumentFromTask(page, WEB_TASK, 'Open page');
     const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
     await expect(wrench).toBeVisible();
     await wrench.click();
 
-    const dock = page.getByLabel('DevTools', { exact: true });
-    await expect(dock).toBeVisible();
+    const devtools = page.getByLabel('DevTools', { exact: true });
+    await expect(devtools).toBeVisible();
 
-    const repl = dock.getByPlaceholder('Evaluate JavaScript');
-    const consoleTab = dock.getByRole('button', { name: 'Console', exact: true });
+    const repl = devtools.getByPlaceholder('Evaluate JavaScript');
+    const consoleTab = devtools.getByRole('button', { name: 'Console', exact: true });
     await expect(consoleTab).toBeVisible();
     await consoleTab.click();
     await expect(repl).toBeVisible();
@@ -152,6 +206,7 @@ test('devtools: Console starts visible and can move to the bottom drawer', async
     // mounted as the active main panel.
     await expect(repl).toBeVisible();
   } finally {
+    await fixture.close();
     await app.close();
   }
 });
@@ -160,36 +215,65 @@ test('devtools: Network separates request payload and pretty JSON response', asy
   const fixture = await startNetworkFixture();
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-new', { kind: 'web' }),
-    );
+    // Open the fixture as a web instrument (it becomes the visible/active
+    // instrument, so browser:navigate acts on it).
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: WEB_TASK,
+          title: 'Inspect a request',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Open page' }],
+        },
+      ],
+    });
+    await openInstrumentFromTask(page, WEB_TASK, 'Open page');
     const wrench = page.getByRole('button', { name: 'Toggle DevTools (F12)' });
     await expect(wrench).toBeVisible();
     await wrench.click();
 
-    const dock = page.getByLabel('DevTools', { exact: true });
-    await expect(dock).toBeVisible();
-    await dock.getByRole('button', { name: 'Network', exact: true }).click();
+    const devtools = page.getByLabel('DevTools', { exact: true });
+    await expect(devtools).toBeVisible();
+    await devtools.getByRole('button', { name: 'Network', exact: true }).click();
 
-    await page.evaluate((url) => window.marudesk.invoke('browser:navigate', url), fixture.url);
+    // Re-navigate (cache-busting path) so the page reloads and re-fires its
+    // delayed fetch while the Network panel is recording.
+    await page.evaluate(
+      (url) => window.marudesk.invoke('browser:navigate', url),
+      `${fixture.url}go`,
+    );
 
-    await expect(dock.getByText('users')).toBeVisible();
-    await dock.getByText('users').click();
+    await expect(devtools.getByText('users')).toBeVisible();
+    await devtools.getByText('users').click();
     // The detail pane is tabbed (Headers / Response / Timing / …); the request
     // payload renders as a section of the default Headers tab.
-    await expect(dock.getByText('Request payload')).toBeVisible();
-    await expect(dock.getByText('"name": "Ada"')).toBeVisible();
-    await expect(dock.getByText('sk-123456789012345678901234')).toHaveCount(0);
+    await expect(devtools.getByText('Request payload')).toBeVisible();
+    await expect(devtools.getByText('"name": "Ada"')).toBeVisible();
+    await expect(devtools.getByText('sk-123456789012345678901234')).toHaveCount(0);
 
-    await dock.getByRole('button', { name: 'Response', exact: true }).click();
-    await dock.getByRole('button', { name: 'Load response body' }).click();
-    await expect(dock.getByText('"ok": true')).toBeVisible();
-    await expect(dock.getByText('"id": 42')).toBeVisible();
+    await devtools.getByRole('button', { name: 'Response', exact: true }).click();
+    await devtools.getByRole('button', { name: 'Load response body' }).click();
+    await expect(devtools.getByText('"ok": true')).toBeVisible();
+    await expect(devtools.getByText('"id": 42')).toBeVisible();
   } finally {
     await fixture.close();
     await app.close();
   }
 });
+
+/** A minimal real-DOM page (html/head/body) served over http for the dock tests. */
+async function startBlankFixture(): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+  });
+  await listen(server);
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Fixture server did not bind a TCP port');
+  return {
+    url: `http://127.0.0.1:${address.port}/`,
+    close: () => closeServer(server),
+  };
+}
 
 async function startNetworkFixture(): Promise<{ url: string; close: () => Promise<void> }> {
   const server = createServer((req, res) => {
