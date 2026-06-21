@@ -109,11 +109,11 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
     });
   }, [setVpAnimated]);
 
-  // Stop any in-flight run when this stage unmounts (Shell conditionally renders
-  // WorkGraphStage, so the module-level store would keep mutating otherwise).
-  useEffect(() => () => {
-    if (useWorkGraphStore.getState().running) useWorkGraphStore.getState().stopRun();
-  }, []);
+  // NOTE: a run is owned by the module-level store (guarded by runToken), not by
+  // this component — so opening an instrument (which unmounts the stage) must NOT
+  // cancel it. The run keeps progressing and is reflected again when the graph
+  // remounts. (Previously an unmount handler called stopRun(), which aborted a
+  // run whenever a tool was summoned mid-flight.)
 
   // Auto-fit when a fresh graph appears (generate / first paint). Deferred to the
   // next frame (not a synchronous setState in the effect) and reads the latest

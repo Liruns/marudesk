@@ -30,17 +30,21 @@ export function InstrumentDock() {
       )}
       style={{ width: open ? 360 : 0, maxWidth: 'calc(100vw - 3rem)' }}
     >
-      {/* Fixed inner width so the open/close width animation doesn't reflow content. */}
-      <div className="h-full flex flex-col" style={{ width: 360 }}>
-        <div className="h-[44%] shrink-0 overflow-hidden border-b border-subtle">
-          <WorkGraphInspectorContent />
+      {/* Only mount the content (incl. focusable chat) while open — keeps the
+          collapsed, aria-hidden dock free of tab-reachable controls. Fixed inner
+          width so the width animation doesn't reflow content. */}
+      {open ? (
+        <div className="h-full flex flex-col" style={{ width: 360 }}>
+          <div className="h-[44%] shrink-0 overflow-hidden border-b border-subtle">
+            <WorkGraphInspectorContent />
+          </div>
+          <div className="min-h-0 flex-1 flex flex-col">
+            <AgentScopeProvider workspaceId={activeWorkspaceId ?? undefined}>
+              <AgentChat />
+            </AgentScopeProvider>
+          </div>
         </div>
-        <div className="min-h-0 flex-1 flex flex-col">
-          <AgentScopeProvider workspaceId={activeWorkspaceId ?? undefined}>
-            <AgentChat />
-          </AgentScopeProvider>
-        </div>
-      </div>
+      ) : null}
     </aside>
   );
 }
