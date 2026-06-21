@@ -29,7 +29,7 @@ export async function acquireCardThread(
   const p = (async () => {
     try {
       const threads = await window.marudesk.invoke('agent:new-thread', { workspaceId });
-      const active = (threads as { id: string; active: boolean }[]).find((t) => t.active);
+      const active = threads.find((t) => t.active);
       const id = active?.id ?? null;
       if (id) byTab.set(tabId, { threadId: id, workspaceId });
       return id;

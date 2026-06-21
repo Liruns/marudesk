@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { Code2, Command, CornerUpLeft, FolderTree, GitBranch, Globe, MessagesSquare, RotateCcw, Search, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
+import { Code2, Command, Compass, CornerUpLeft, FolderTree, GitBranch, Globe, MessagesSquare, RotateCcw, Search, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import { openInstrument, useInstrumentStore } from '../work-graph/instrument';
@@ -7,6 +7,7 @@ import { openSettingsTab } from '../settings/store';
 import { useFlightLogStore } from '../work-graph/flight-log-store';
 import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { useTourStore } from '../tour/tourStore';
 import { useCommandPaletteStore } from './command-palette-store';
 import { Hint, PaletteHints, PaletteOverlay } from './PaletteOverlay';
 
@@ -123,6 +124,14 @@ const COMMANDS: Cmd[] = [
     icon: MessagesSquare,
     group: 'action',
     run: () => useFlightLogStore.getState().toggle(),
+  },
+  {
+    id: 'take-a-tour',
+    label: 'Take a Tour',
+    hint: 'Walk through Mission Control',
+    icon: Compass,
+    group: 'action',
+    run: () => useTourStore.getState().start(),
   },
   {
     id: 'return-to-graph',

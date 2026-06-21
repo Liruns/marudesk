@@ -32,11 +32,22 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
   open: (tabId, kind) => {
     const prev = get().tabId;
     if (prev && prev !== tabId) {
-      // Close the previous instrument tab so its native view is torn down. Honor
-      // the dirty-editor prompt; if the user keeps it, leave it open (its buffer
-      // is preserved — no silent data loss) and still switch to the new one.
+      // Switching away from the previous instrument must tear down its native
+      // view, so we close that tab first. Honor the dirty-editor prompt the same
+      // way close() does: if the user CANCELS (keeps the dirty editor), abort the
+      // switch entirely — staying on the instrument. Proceeding would leave the
+      // previous tab's live WebContentsView orphaned (untracked by the store, so
+      // it can no longer be torn down and keeps painting over the new instrument).
       const tab = useTabsStore.getState().tabs.find((t) => t.id === prev);
-      if (confirmCloseTab(tab)) void useTabsStore.getState().closeTab(prev);
+      if (!confirmCloseTab(tab)) {
+        // Cancelled: stay on the previous instrument. The caller already
+        // created/activated `tabId` in main before calling open(), so re-activate
+        // `prev` to keep the live view in sync with the (unchanged) instrument
+        // store — otherwise main would paint the abandoned tab over the kept one.
+        void useTabsStore.getState().activateTab(prev);
+        return;
+      }
+      void useTabsStore.getState().closeTab(prev);
     }
     set({ tabId, kind });
   },

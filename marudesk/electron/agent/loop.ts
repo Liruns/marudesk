@@ -36,6 +36,7 @@ import {
   recordFailureWindow,
   windowedFailureCount,
   recoveryHint,
+  pickStepNudge,
   type LoopDetectorState,
 } from './loop-detector.ts';
 import {
@@ -666,6 +667,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
         toolFailures.clear();
         failureWindow.length = 0;
         S.persistentNudge = null;
+        // Reset the stateful loop signals too: the same-input loop detector's ring
+        // buffer / lastSignature / count and the delegation reminder's direct-read
+        // run are pre-failover signals that must NOT carry across the provider swap
+        // (else stale counts could immediately trip on the fresh provider).
+        loopDetector = emptyLoopDetectorState();
+        delegationReminder = emptyDelegationReminderState();
         emit();
         return true;
       };
@@ -935,10 +942,22 @@ async function runLoop(opts: RunOpts): Promise<void> {
       return null;
     };
 
-    // Dispatch a CLEARED call through the bounded executor and fold its result
-    // (recovery hints, nested-instruction reminders). Safe to run concurrently
-    // for foreground subagents — each call streams onto its own card.
-    const dispatchCleared = async (call: ToolCall): Promise<ToolResultPartLite> => {
+    // The side-effect-free product of dispatching one cleared call: its bounded
+    // model-facing text plus the raw signals the SERIAL bookkeeping pass needs.
+    // Carries no order-sensitive state itself, so several of these can be produced
+    // concurrently (a parallel `shared` run) and reconciled in call order after.
+    type DispatchedCall = {
+      cappedText: string;
+      isError: boolean;
+      touchedPaths: readonly string[] | undefined;
+      image: { data: string; mediaType: string } | undefined;
+    };
+
+    // Dispatch a CLEARED call through the bounded executor and produce its bounded
+    // result + raw signals. Safe to run concurrently (foreground subagents stream
+    // onto their own card; a `shared` run dispatches in parallel) — all
+    // order-sensitive bookkeeping is deferred to {@link applyBookkeeping}.
+    const dispatchCleared = async (call: ToolCall): Promise<DispatchedCall> => {
       call.state = 'running';
       if (call.name === SPAWN_SUBAGENT || call.name === SPAWN_BACKGROUND_AGENT) {
         call.summary = describeToolInput(call.name, call.input);
@@ -1001,9 +1020,6 @@ async function runLoop(opts: RunOpts): Promise<void> {
       if (out.isError) call.error = out.text;
       recordEdits(S, opts.turnId, out.edits);
       emit();
-      // Lazily inject not-yet-seen per-directory instruction files for any path
-      // this tool entered (§B2 on-demand). Appended to the MODEL-facing result
-      // only — the UI card (call.resultText) stays focused on the tool output.
       // Per-tool output cap (item 7): bound the MODEL-facing text of high-volume
       // search/fetch tools to a context-window-aware char budget so one large
       // result can't silently force a compaction. The UI card (call.resultText,
@@ -1016,21 +1032,46 @@ async function runLoop(opts: RunOpts): Promise<void> {
       const capped = out.isError
         ? { text: out.text, truncated: false }
         : capToolOutput(call.name, out.text, currentContextWindow);
-      let modelText = capped.text;
-      // The strongest persistent nudge fired this step — recovery (failure-driven)
-      // or loop-detector. Carried onto the container as a compaction-PROTECTED
-      // note so a mid-turn preemptive compaction can't summarize it away before
-      // the model acts. Refreshed below; null clears it once behavior recovers.
+      // Return only the side-effect-free pieces. The ORDER-SENSITIVE bookkeeping
+      // (failure window / toolFailures / loop detector / delegation reminder /
+      // nested-instruction claims) and the nudge text it produces are applied
+      // SERIALLY in the model's original call order by the caller — running them
+      // here would let a concurrently-dispatched `shared` run apply them in
+      // nondeterministic completion order (regression A).
+      return {
+        cappedText: capped.text,
+        isError: out.isError ?? false,
+        touchedPaths: out.touchedPaths,
+        image: out.image,
+      };
+    };
+
+    // Apply the order-sensitive bookkeeping for ONE call and assemble its final
+    // model-facing tool result. Runs SERIALLY in the model's original call order
+    // (never concurrently) so the failure window, per-tool failure counts, loop
+    // detector, and delegation reminder advance deterministically regardless of
+    // how a parallel `shared` dispatch settled. Returns the result part plus this
+    // call's protected nudge (recovery > loop-detector precedence), which the
+    // caller folds into the step's strongest nudge.
+    const applyBookkeeping = async (
+      call: ToolCall,
+      d: DispatchedCall,
+    ): Promise<{ part: ToolResultPartLite; nudge: string | null }> => {
+      let modelText = d.cappedText;
+      // The strongest persistent nudge for THIS call — recovery (failure-driven)
+      // or loop-detector. Returned to the caller, which carries the step's
+      // strongest one onto the container as a compaction-PROTECTED note so a
+      // mid-turn preemptive compaction can't summarize it away before the model acts.
       let persistentNudge: string | null = null;
       // Windowed failure signal (slides as every call settles): the rolling count
       // of failures within the last WINDOW calls. Drives recovery escalation for
       // ALTERNATING failing tools that the consecutive-same-tool counter misses.
-      recordFailureWindow(failureWindow, out.isError ?? false);
+      recordFailureWindow(failureWindow, d.isError);
       // Recovery hint (§G4): nudge the agent out of a retry loop when EITHER the
       // same tool keeps failing in a row OR the turn is failing broadly across
       // tools (windowed). Appended to the model-facing text AND carried as the
       // protected nudge so it survives a compaction boundary.
-      if (out.isError) {
+      if (d.isError) {
         const n = (toolFailures.get(call.name) ?? 0) + 1;
         toolFailures.set(call.name, n);
         const windowed = windowedFailureCount(failureWindow);
@@ -1057,11 +1098,6 @@ async function runLoop(opts: RunOpts): Promise<void> {
           if (!persistentNudge) persistentNudge = loopNudge;
         }
       }
-      // Carry/refresh the protected nudge for THIS step. Setting it every step a
-      // nudge fires (rather than only on change) keeps it live until the model
-      // changes behavior; a clean step (no nudge) clears it so it isn't re-stamped
-      // onto a future compaction after the model has already recovered.
-      S.persistentNudge = persistentNudge;
       // Task-delegation reminder (item: agent-usage-reminder): a delegation
       // (spawn_subagent) suppresses it; a long run of direct survey reads with no
       // delegation trips a once-per-turn nudge. Appended to the model-facing text.
@@ -1072,9 +1108,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
           modelText = `${modelText}\n\n${delegationReminderNudge(dr.state.directCount)}`;
         }
       }
-      if (!out.isError && opts.ws && out.touchedPaths?.length) {
+      // Lazily inject not-yet-seen per-directory instruction files for any path
+      // this tool entered (§B2 on-demand). Appended to the MODEL-facing result
+      // only — the UI card (call.resultText) stays focused on the tool output. The
+      // claim set is conversation-scoped + mutated here, so it too must run in
+      // call order (which call first claims a shared file is deterministic).
+      if (!d.isError && opts.ws && d.touchedPaths?.length) {
         const reminders: string[] = [];
-        for (const rel of out.touchedPaths) {
+        for (const rel of d.touchedPaths) {
           const block = await claimNestedInstructions(opts.ws.root, rel);
           if (block) reminders.push(block);
         }
@@ -1085,7 +1126,8 @@ async function runLoop(opts: RunOpts): Promise<void> {
       }
       // An inline image (screenshot tool) rides into the transcript as a
       // multipart tool result so a vision-capable model can SEE the page.
-      return toolResult(call.id, call.name, modelText, out.isError, out.image);
+      const part = toolResult(call.id, call.name, modelText, d.isError, d.image);
+      return { part, nudge: persistentNudge };
     };
 
     // Walk the calls in order. A run of CONSECUTIVE spawn_subagent calls is a
@@ -1118,6 +1160,33 @@ async function runLoop(opts: RunOpts): Promise<void> {
       return def ? isSharedTool(def) : false;
     };
     const toolResultParts: ToolResultPartLite[] = [];
+    // The step's STRONGEST protected nudge, accumulated across ALL of this step's
+    // calls in their original order and assigned to S.persistentNudge ONCE after
+    // the step settles (below). pickStepNudge keeps the LATEST nudge and never
+    // lets a later CLEAN call clear it (regression A) — so in a mixed
+    // [failing, clean] shared run the failing call's nudge survives.
+    let stepNudge: string | null = null;
+    // Reconcile a settled run in the model's ORIGINAL call order: dispatched
+    // calls get their order-sensitive bookkeeping applied here (serially, never
+    // concurrently), terminal parts (invalid JSON / blocked) pass straight
+    // through. Folds each call's nudge into the step nudge as it goes.
+    const reconcileRun = async (
+      run: readonly ToolCall[],
+      settled: ReadonlyMap<string, DispatchedCall | ToolResultPartLite>,
+    ): Promise<void> => {
+      for (const call of run) {
+        const entry = settled.get(call.id);
+        if (!entry) continue; // unreachable — every call settles below
+        if ('type' in entry) {
+          // A terminal part (invalid JSON or blocked): no tool ran, no bookkeeping.
+          toolResultParts.push(entry);
+          continue;
+        }
+        const { part, nudge } = await applyBookkeeping(call, entry);
+        stepNudge = pickStepNudge(stepNudge, nudge);
+        toolResultParts.push(part);
+      }
+    };
     for (let ci = 0; ci < calls.length; ) {
       if (calls[ci].name !== SPAWN_SUBAGENT) {
         // A run of consecutive `shared` (read-only) calls: preflight each one in
@@ -1133,7 +1202,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
             run.push(calls[ci]);
             ci += 1;
           }
-          const settled = new Map<string, ToolResultPartLite>();
+          const settled = new Map<string, DispatchedCall | ToolResultPartLite>();
           const cleared: ToolCall[] = [];
           for (const call of run) {
             const invalid = interceptInvalidJson(call);
@@ -1150,7 +1219,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
             const outs = await Promise.all(chunk.map((call) => dispatchCleared(call)));
             chunk.forEach((call, k) => settled.set(call.id, outs[k]));
           }
-          for (const call of run) toolResultParts.push(settled.get(call.id)!);
+          // Bookkeeping is applied SERIALLY here in run order regardless of the
+          // concurrent completion order above (regression A).
+          await reconcileRun(run, settled);
           continue;
         }
         const call = calls[ci];
@@ -1161,7 +1232,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
           continue;
         }
         const blocked = await preflight(call);
-        toolResultParts.push(blocked ?? (await dispatchCleared(call)));
+        if (blocked) {
+          toolResultParts.push(blocked);
+          continue;
+        }
+        const dispatched = await dispatchCleared(call);
+        const { part, nudge } = await applyBookkeeping(call, dispatched);
+        stepNudge = pickStepNudge(stepNudge, nudge);
+        toolResultParts.push(part);
         continue;
       }
       const run: ToolCall[] = [];
@@ -1169,7 +1247,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         run.push(calls[ci]);
         ci += 1;
       }
-      const settled = new Map<string, ToolResultPartLite>();
+      const settled = new Map<string, DispatchedCall | ToolResultPartLite>();
       const cleared: ToolCall[] = [];
       for (const call of run) {
         const invalid = interceptInvalidJson(call);
@@ -1186,8 +1264,15 @@ async function runLoop(opts: RunOpts): Promise<void> {
         const outs = await Promise.all(chunk.map((call) => dispatchCleared(call)));
         chunk.forEach((call, k) => settled.set(call.id, outs[k]));
       }
-      for (const call of run) toolResultParts.push(settled.get(call.id)!);
+      await reconcileRun(run, settled);
     }
+    // Assign the step's strongest protected nudge ONCE, after every call settled.
+    // Setting it per step a nudge fires (rather than only on change) keeps it live
+    // until the model changes behavior; a step with NO nudge clears it so a stale
+    // one isn't re-stamped onto a future compaction after the model has recovered
+    // — but a CLEAN call within an otherwise-nudging step can no longer clear it
+    // (pickStepNudge preserves the latest), which was regression A.
+    S.persistentNudge = stepNudge;
 
     // Near the step budget, ride a wind-down note on the last tool result so
     // the model wraps up on its own before the hard cutoff above.

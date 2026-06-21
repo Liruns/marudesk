@@ -259,3 +259,34 @@ export function recoveryHint(
   }
   return null;
 }
+
+/* ── Step-scoped persistent-nudge reducer (parallel-dispatch safe) ─────────── */
+
+/**
+ * Fold one call's protected nudge into the step's running strongest nudge.
+ *
+ * A single model step may issue several tool calls — and a CONSECUTIVE run of
+ * read-only `shared` calls is dispatched concurrently — so naively assigning the
+ * protected (compaction-survived) nudge per call lets a later CLEAN call clear an
+ * earlier failing call's nudge, and concurrent completion order makes which call
+ * "wins" nondeterministic. This reducer keeps the step's strongest nudge:
+ *
+ *  - A clean call (`callNudge === null`) NEVER clears the accumulated nudge:
+ *    `callNudge ?? prevStepNudge` preserves it.
+ *  - The LATEST nudge of the step wins (a later failing call overwrites an
+ *    earlier nudge), matching the pre-refactor behavior where the last call's
+ *    nudge survived into S.persistentNudge — so a recovery hint raised late in a
+ *    step is protected rather than being shadowed by an earlier loop nudge. The
+ *    per-call recovery > loop-detector precedence (recovery wins on a failing
+ *    call; loop-detector only fills in when no recovery fired) is unchanged.
+ *
+ * Pure + dependency-free so it harnesses standalone. The CALLER feeds calls in
+ * the model's ORIGINAL order (not completion order) so the result is
+ * deterministic regardless of how the parallel dispatch settled.
+ */
+export function pickStepNudge(
+  prevStepNudge: string | null,
+  callNudge: string | null,
+): string | null {
+  return callNudge ?? prevStepNudge;
+}

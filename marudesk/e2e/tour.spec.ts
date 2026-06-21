@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { launchApp, dismissHomeGuide } from './helpers/app';
+import { runCommand } from './helpers/mission-control';
 
 /**
  * Onboarding tour anchors (src/features/tour). After the Mission Control redesign
@@ -61,6 +62,22 @@ test('tour: every step anchors to a real Mission Control element', async () => {
     await expect(page.locator('[data-tour="goal"]')).toBeVisible();
     await expect(page.locator('[data-tour="workspace"]')).toBeVisible();
     await expect(page.locator('[data-tour="flight-log"]')).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test('tour: the ⌘K "Take a Tour" command launches the tour', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await seedGraph(page);
+
+    // The tour is opt-in and only reachable from Mission Control via the command
+    // palette — running the action verb must flip the spotlight on. The first step
+    // is the centered welcome dialog (no anchor), which carries the step title as
+    // its accessible name.
+    await runCommand(page, 'Take a Tour');
+    await expect(page.getByRole('dialog', { name: 'Welcome to Maru' })).toBeVisible();
   } finally {
     await app.close();
   }

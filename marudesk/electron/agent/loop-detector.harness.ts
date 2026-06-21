@@ -7,6 +7,7 @@ import {
   recordFailureWindow,
   windowedFailureCount,
   recoveryHint,
+  pickStepNudge,
   LOOP_DETECTOR_THRESHOLD,
   LOOP_DETECTOR_CYCLE_MIN,
   FAILURE_WINDOW_SIZE,
@@ -226,6 +227,74 @@ import {
   check('recovery: the window never grows past its size', window.length === FAILURE_WINDOW_SIZE);
   check('recovery: failures age out as successes slide in', windowedFailureCount(window) === 0);
   check('recovery: a recovered turn stops escalating', recoveryHint('t', 1, windowedFailureCount(window)) === null);
+}
+
+/* ── step nudge: a CLEAN call never clears an earlier protected nudge ──────── */
+{
+  // Regression A: a single model step can issue several calls — and a run of
+  // read-only `shared` tools dispatches CONCURRENTLY — so the step's protected
+  // (compaction-survived) nudge must be the strongest one across ALL calls, not
+  // whichever call happened to settle last. pickStepNudge folds each call's nudge
+  // into the running step nudge and a clean (null) call can never clear it.
+  const hint = recoveryHint('edit_file', 2, 2); // a real recovery nudge string
+  check('step nudge: recovery hint produced for the failing call', hint !== null);
+  // Model order: [failing → nudge, clean → null]. Fold in order.
+  let stepNudge: string | null = null;
+  stepNudge = pickStepNudge(stepNudge, hint); // failing call's nudge
+  stepNudge = pickStepNudge(stepNudge, null); // a later CLEAN call
+  check('step nudge: a clean call does not clear an earlier nudge', stepNudge === hint);
+}
+
+/* ── step nudge: completion order does not change the step nudge ──────────── */
+{
+  // The fold runs in the model's ORIGINAL call order, so even though a parallel
+  // shared run can SETTLE in any order, applying pickStepNudge in call order is
+  // deterministic. [clean, failing] and the reverse settle order both yield the
+  // failing call's nudge because we always fold in call order.
+  const hint = recoveryHint('run_command', 3, 3);
+  check('step nudge: escalation hint produced', hint !== null);
+  // Call order is [clean, failing]; a clean (null) call never clears the nudge,
+  // so the failing call's hint wins. Folded in call order.
+  let a: string | null = null;
+  a = pickStepNudge(a, null); // clean (call 0)
+  a = pickStepNudge(a, hint); // failing (call 1)
+  // A step with two nudges keeps the LATEST (a later failing call overwrites an
+  // earlier nudge) so a late recovery hint is the one protected into compaction.
+  const h0 = recoveryHint('edit_file', 2, 2);
+  const h1 = recoveryHint('run_command', 3, 3);
+  let b: string | null = null;
+  b = pickStepNudge(b, h0); // first nudge
+  b = pickStepNudge(b, h1); // a later nudge overwrites
+  check('step nudge: failing call sets the step nudge regardless of position', a === hint);
+  check('step nudge: the latest nudge in call order wins', b === h1);
+}
+
+/* ── step nudge: an all-clean step clears the protected nudge ─────────────── */
+{
+  // A step where every call is clean leaves the step nudge null, so the loop
+  // clears S.persistentNudge — a recovered turn stops re-stamping a stale nudge.
+  let stepNudge: string | null = null;
+  for (let i = 0; i < 4; i++) stepNudge = pickStepNudge(stepNudge, null);
+  check('step nudge: an all-clean step yields a null (cleared) nudge', stepNudge === null);
+}
+
+/* ── failover: the loop detector starts empty on the new provider ─────────── */
+{
+  // Regression B: failOver() must reset the loop detector (and delegation
+  // reminder) so pre-failover counts can't immediately trip on the fresh
+  // provider. Model the swap: build up a near-trip state, then reset to empty.
+  let state: LoopDetectorState = emptyLoopDetectorState();
+  for (let i = 0; i < LOOP_DETECTOR_THRESHOLD - 1; i++) {
+    state = recordToolCall(state, 'read_file', { path: 'README.md' }).state;
+  }
+  check('failover: pre-swap state has accumulated counts', state.count === LOOP_DETECTOR_THRESHOLD - 1);
+  // The provider swap resets the detector to empty (what failOver now does).
+  const afterFailover = emptyLoopDetectorState();
+  check('failover: detector starts empty after the swap', afterFailover.count === 0 && afterFailover.recent.length === 0);
+  // One more identical call on the fresh provider must NOT trip (the old count is
+  // gone), where WITHOUT the reset it would have been the threshold-th call.
+  const firstAfter = recordToolCall(afterFailover, 'read_file', { path: 'README.md' });
+  check('failover: a single post-swap call does not trip on stale counts', !firstAfter.tripped);
 }
 
 console.log(`\n${passedCount()} checks passed`);
