@@ -369,6 +369,46 @@ function withoutEvidence(graph: WorkGraph): WorkGraph {
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Max child agents (provider streams) a single ready layer launches at once. A
+ * wide layer (10+ ready tasks) would otherwise fan out unbounded via `Promise.all`,
+ * spawning that many concurrent model streams — risking provider rate-limit
+ * failures and a frozen, unstoppable run. The pool throttles launches to this many
+ * in flight; results are identical to the unbounded version for any graph (only the
+ * order of completion may differ, never the final state).
+ */
+export const WORKGRAPH_RUN_CONCURRENCY = 4;
+
+/**
+ * Run `worker` over `items` with at most `limit` in flight at once, returning the
+ * results in INPUT order (not completion order). A typed, dependency-free bounded
+ * worker pool: each slot pulls the next item as it frees up, so a layer of N tasks
+ * with a cap of 4 never has more than 4 `worker` calls outstanding. `shouldStop`
+ * is polled before pulling each new item so a stop halts further launches promptly
+ * (already-launched workers still settle). Pure → unit-tested in store.test.ts.
+ */
+export async function runWithConcurrency<I, O>(
+  items: readonly I[],
+  limit: number,
+  worker: (item: I, index: number) => Promise<O>,
+  shouldStop?: () => boolean,
+): Promise<O[]> {
+  const results = new Array<O>(items.length);
+  const cap = Math.max(1, Math.min(limit, items.length));
+  let next = 0;
+  const pull = async (): Promise<void> => {
+    for (;;) {
+      if (shouldStop?.()) return;
+      const i = next;
+      next += 1;
+      if (i >= items.length) return;
+      results[i] = await worker(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: cap }, () => pull()));
+  return results;
+}
+
 export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set, get) => ({
   graph: persisted.graph,
   pos: persisted.pos,
@@ -603,8 +643,17 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) } : {}));
 
         if (live) {
-          const outcomes = await Promise.all(
-            ready.map(async (t) => ({ t, res: await invokeRunTask(t, goal) })),
+          // Bounded fan-out: at most WORKGRAPH_RUN_CONCURRENCY child agents (provider
+          // streams) in flight at once, so a wide ready layer can't launch unbounded
+          // concurrent streams (rate-limit / frozen-UI risk). The collected outcomes
+          // are in INPUT order and identical to the unbounded Promise.all — only the
+          // order tasks complete in differs, never the final graph state. owns() is
+          // polled before launching each task so a stop halts further launches promptly.
+          const outcomes = await runWithConcurrency(
+            ready,
+            WORKGRAPH_RUN_CONCURRENCY,
+            async (t) => ({ t, res: await invokeRunTask(t, goal) }),
+            () => !owns(),
           );
           if (!owns()) break;
           if (outcomes.every((o) => !o.res.ok)) {

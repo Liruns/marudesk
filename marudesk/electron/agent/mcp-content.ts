@@ -1,5 +1,6 @@
 import { scrubText } from '../../shared/scrub';
 import { clipText } from '../../shared/text-clip';
+import { wrapUntrustedToolContent } from './tools/fetch-url';
 import type { ToolResult } from './tools';
 import type { McpCallToolResult } from './mcp-external';
 
@@ -130,9 +131,11 @@ export function toToolResult(name: string, res: McpCallToolResult): ToolResult {
     }
   }
   const text = parts.join('\n').trim() || '(no content)';
+  // Frame the third-party payload as untrusted DATA (prompt-injection boundary),
+  // applied AFTER scrub+clip so the closing sentinel always survives the cap.
   return {
     summary: name,
-    text: scrubText(clipText(text, MAX_TOOL_TEXT)),
+    text: wrapUntrustedToolContent(`MCP server ${name}`, scrubText(clipText(text, MAX_TOOL_TEXT))),
     isError: res.isError === true,
   };
 }
@@ -179,7 +182,10 @@ export function promptToToolResult(name: string, res: McpGetPromptResult): ToolR
     parts.push(`[${role}]\n${rendered}`.trimEnd());
   }
   const text = parts.join('\n\n').trim() || '(no content)';
-  return { summary: name, text: scrubText(clipText(text, MAX_TOOL_TEXT)) };
+  return {
+    summary: name,
+    text: wrapUntrustedToolContent(`MCP server ${name}`, scrubText(clipText(text, MAX_TOOL_TEXT))),
+  };
 }
 
 /** Shape of a `client.readResource` result (only the fields we map). */
@@ -213,5 +219,8 @@ export function resourceToToolResult(name: string, res: McpReadResourceResult): 
     parts.push(`[resource ${uri}${mime ? ` (${mime})` : ''}${size ? `, ${humanBytes(size)}` : ''}]`);
   }
   const text = parts.join('\n').trim() || '(no content)';
-  return { summary: name, text: scrubText(clipText(text, MAX_TOOL_TEXT)) };
+  return {
+    summary: name,
+    text: wrapUntrustedToolContent(`MCP server ${name}`, scrubText(clipText(text, MAX_TOOL_TEXT))),
+  };
 }

@@ -191,6 +191,10 @@ async function main(): Promise<void> {
     const csContrib = await csHost.load(CMDSTATUS_DIR, 'index.js', [...grants]);
     const csServer = buildPluginServer('cmdstatus', csHost, csContrib);
     const runTool = csServer.tools.find((t) => t.name === 'plugin:cmdstatus__run_and_count')!;
+    // Plugin tool output is now wrapped in untrusted-tool-output sentinels (the
+    // prompt-injection boundary); extract the JSON object (the sentinels carry no
+    // braces) before parsing so this still validates the result shape.
+    const toolJson = (s: string): string => s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1);
 
     // Lifecycle: a session-start before the call, so the tool sees a non-zero count.
     csHost.notifySession('session-start', 'sess-A');
@@ -200,7 +204,7 @@ async function main(): Promise<void> {
       csCtx,
     );
     check('ctx.exec routes a CLI through the host and returns its output', !ran.isError && /EXEC-OK/.test(ran.text));
-    const parsed = JSON.parse(ran.text) as { exitCode: number | null; output: string; sessions: number };
+    const parsed = JSON.parse(toolJson(ran.text)) as { exitCode: number | null; output: string; sessions: number };
     check('ctx.exec reports exitCode 0 for a successful command', parsed.exitCode === 0);
     check('onSessionStart was delivered (lifecycle log has 1 session)', parsed.sessions === 1);
     check('ctx.setStatus pushes a keyed status update to the host', statuses.some((s) => s.statusKey === 'progress' && /running/.test(s.text)));
@@ -210,7 +214,7 @@ async function main(): Promise<void> {
     csHost.notifySession('session-end', 'sess-A');
     csHost.notifySession('session-start', 'sess-B');
     const ranAgain = await runTool.exec({ command: 'node -e "process.stdout.write(\'OK\')"' }, csCtx);
-    const parsedAgain = JSON.parse(ranAgain.text) as { sessions: number };
+    const parsedAgain = JSON.parse(toolJson(ranAgain.text)) as { sessions: number };
     check('onSessionEnd reset per-conversation state (count back to 1, not 2)', parsedAgain.sessions === 1);
     csHost.dispose();
   }

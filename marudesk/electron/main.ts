@@ -438,19 +438,57 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return win;
 }
 
-// Open Chromium's remote-debugging endpoint (loopback only) so chrome-devtools-mcp
-// can attach to marudesk's embedded browser tabs instead of launching a separate
-// local Chrome. Boot-only (the switch has no runtime API) and gated on the
-// browser-control preset being enabled — see electron/agent/embedded-browser.ts.
-maybeOpenEmbeddedDebugPort();
+// Single-instance lock: two processes on the SAME per-profile userData would be
+// two SQLite/WAL writers and two loopback CLI companions on the same cli-bridge
+// port — a corruption hazard made realistic by the NSIS installer and the
+// auto-update relaunch. The first process holds the lock; any later launch fails
+// requestSingleInstanceLock(), hands its argv to the running process via the
+// `second-instance` event (below), and quits immediately.
+//
+// E2E SAFETY: Playwright launches the app with MARUDESK_DISABLE_TRAY=1 (see
+// e2e/helpers/app.ts) and a distinct/throwaway --user-data-dir per launch. The
+// lock is keyed on userData, so distinct dirs never collide; but the persistence
+// spec reuses one userData across SEQUENTIAL launches, and to keep parallel runs
+// bulletproof we simply skip the lock under that existing test gate — the same
+// flag main.ts already uses to opt out of close-to-tray. Production (no flag)
+// always takes the lock.
+//
+// Decide whether THIS process owns the per-profile userData before doing any
+// boot work: hold it when the test flag is set OR when the lock is acquired. A
+// losing second instance does NO setup (no scheme registration, no whenReady)
+// and quits, redirecting its launch to the running process via `second-instance`.
+const ownsInstance = process.env.MARUDESK_DISABLE_TRAY
+  ? true
+  : app.requestSingleInstanceLock();
+if (!ownsInstance) {
+  // A first instance is already running on this userData. Quit cleanly; the
+  // running process gets a `second-instance` event and focuses its window.
+  app.quit();
+} else {
+  if (!process.env.MARUDESK_DISABLE_TRAY) {
+    app.on('second-instance', () => {
+      // A second launch was redirected here — surface the existing window via
+      // the same restore/show path the tray uses instead of spawning anew.
+      trayHost.showMainWindow();
+    });
+  }
+  startApp();
+}
 
-// Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
-// sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
-registerPluginScheme();
-// Mark the maru:// internal-page scheme privileged too (new-tab + error pages).
-registerInternalPagesScheme();
+function startApp(): void {
+  // Open Chromium's remote-debugging endpoint (loopback only) so chrome-devtools-mcp
+  // can attach to marudesk's embedded browser tabs instead of launching a separate
+  // local Chrome. Boot-only (the switch has no runtime API) and gated on the
+  // browser-control preset being enabled — see electron/agent/embedded-browser.ts.
+  maybeOpenEmbeddedDebugPort();
 
-void app.whenReady().then(() => {
+  // Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
+  // sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
+  registerPluginScheme();
+  // Mark the maru:// internal-page scheme privileged too (new-tab + error pages).
+  registerInternalPagesScheme();
+
+  void app.whenReady().then(() => {
   // Drop Electron's DEFAULT application menu on Windows/Linux. The window is
   // frameless (no visible menu bar) but the default menu's accelerators stay
   // live — most damagingly its Close Window (Ctrl+W), which closes the whole
@@ -545,7 +583,8 @@ void app.whenReady().then(() => {
       void createMainWindow();
     }
   });
-});
+  });
+}
 
 app.on('window-all-closed', () => {
   disposeAllTerminals();

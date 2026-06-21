@@ -4,9 +4,11 @@ import {
   __flushWorkGraphPersist,
   __workGraphPersistStats,
   freeTaskSlot,
+  runWithConcurrency,
   sampleGraph,
   useWorkGraphStore,
   WORKGRAPH_PERSIST_DEBOUNCE_MS,
+  WORKGRAPH_RUN_CONCURRENCY,
 } from './store';
 
 const NODE = { w: 208, h: 118 };
@@ -189,6 +191,172 @@ describe('runOne', () => {
     expect(invokedTaskIds).toEqual([]);
     expect(useWorkGraphStore.getState().running).toBe(true);
     useWorkGraphStore.setState({ running: false });
+  });
+});
+
+describe('runWithConcurrency', () => {
+  it('runs every item but never exceeds the limit in flight, and preserves input order', async () => {
+    const items = Array.from({ length: 10 }, (_, i) => i);
+    let inFlight = 0;
+    let peak = 0;
+    const limit = 4;
+
+    const results = await runWithConcurrency(items, limit, async (n) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      // Yield so other slots have a chance to start before this one resolves.
+      await new Promise<void>((r) => setTimeout(r, 1));
+      inFlight -= 1;
+      return n * 2;
+    });
+
+    // All items processed, results in INPUT order (not completion order).
+    expect(results).toEqual(items.map((n) => n * 2));
+    // Cap respected at every instant.
+    expect(peak).toBeLessThanOrEqual(limit);
+    // With more items than the cap, the pool actually saturates.
+    expect(peak).toBe(limit);
+  });
+
+  it('caps at the item count when there are fewer items than the limit', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    await runWithConcurrency([1, 2], 4, async (n) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>((r) => setTimeout(r, 1));
+      inFlight -= 1;
+      return n;
+    });
+    expect(peak).toBeLessThanOrEqual(2);
+  });
+
+  it('stops pulling new items once shouldStop flips, but settles launched ones', async () => {
+    const items = Array.from({ length: 12 }, (_, i) => i);
+    const started: number[] = [];
+    let stop = false;
+
+    await runWithConcurrency(
+      items,
+      2,
+      async (n) => {
+        started.push(n);
+        await new Promise<void>((r) => setTimeout(r, 1));
+        // Flip stop after the first couple have started.
+        if (started.length >= 2) stop = true;
+        return n;
+      },
+      () => stop,
+    );
+
+    // Far fewer than all 12 were ever started — the stop halted further launches.
+    expect(started.length).toBeLessThan(items.length);
+    expect(started.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('run() bounded fan-out', () => {
+  let inFlight: number;
+  let peak: number;
+  let invokedTaskIds: string[];
+  let releasers: Array<() => void>;
+
+  beforeEach(() => {
+    inFlight = 0;
+    peak = 0;
+    invokedTaskIds = [];
+    releasers = [];
+    (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
+      invoke: async (channel: string, payload?: unknown) => {
+        if (channel === 'workos:run-task') {
+          invokedTaskIds.push((payload as { taskId: string }).taskId);
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          // Hold the invoke open until released, so several can pile up at once and we
+          // can measure the true concurrent peak across a wide ready layer.
+          await new Promise<void>((resolve) => {
+            releasers.push(() => {
+              inFlight -= 1;
+              resolve();
+            });
+          });
+          return { ok: true, status: 'done', result: 'verified', outputs: [] };
+        }
+        return undefined;
+      },
+      on: () => () => {},
+    };
+  });
+
+  /** Resolve every pending invoke (e.g. between scheduler layers). */
+  function releaseAll(): void {
+    const pending = releasers;
+    releasers = [];
+    for (const r of pending) r();
+  }
+
+  /** A flat graph: one layer of `n` mutually-independent ready tasks. */
+  function wideGraph(n: number): ReturnType<typeof sampleGraph> {
+    const base = sampleGraph('wide');
+    const tasks = Array.from({ length: n }, (_, i) => ({
+      id: `t${i}`,
+      title: `task ${i}`,
+      intent: 'do',
+      kind: 'work' as const,
+      status: 'planned' as const,
+      executor: { type: 'agent' as const, ref: 'agent' },
+      inputs: [],
+      outputs: [],
+      acceptance: [],
+    }));
+    return { ...base, tasks, edges: [] };
+  }
+
+  it('runs every task in a layer wider than the cap without exceeding the cap', async () => {
+    const wide = WORKGRAPH_RUN_CONCURRENCY + 6;
+    useWorkGraphStore.getState().setGraph(wideGraph(wide));
+
+    const done = useWorkGraphStore.getState().run();
+    // Drain until the run settles, releasing invokes in waves so the pool keeps
+    // refilling its slots from the same single ready layer.
+    for (let guard = 0; guard < 100 && invokedTaskIds.length < wide; guard += 1) {
+      await new Promise<void>((r) => setTimeout(r, 0));
+      releaseAll();
+    }
+    releaseAll();
+    await done;
+
+    // ALL tasks were invoked (none dropped), exactly once each.
+    expect(new Set(invokedTaskIds).size).toBe(wide);
+    expect(invokedTaskIds.length).toBe(wide);
+    // The cap was never exceeded at any instant.
+    expect(peak).toBeLessThanOrEqual(WORKGRAPH_RUN_CONCURRENCY);
+    // The pool actually saturated (proves the throttle, not just a small layer).
+    expect(peak).toBe(WORKGRAPH_RUN_CONCURRENCY);
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+
+  it('halts further launches when stopped mid-run', async () => {
+    const wide = WORKGRAPH_RUN_CONCURRENCY + 8;
+    useWorkGraphStore.getState().setGraph(wideGraph(wide));
+
+    const done = useWorkGraphStore.getState().run();
+    // Let the first wave of (capped) invokes start.
+    await new Promise<void>((r) => setTimeout(r, 0));
+    const launchedBeforeStop = invokedTaskIds.length;
+    expect(launchedBeforeStop).toBeLessThanOrEqual(WORKGRAPH_RUN_CONCURRENCY);
+
+    // Stop, then release the in-flight invokes so the pool can observe the stop.
+    useWorkGraphStore.getState().stopRun();
+    for (let guard = 0; guard < 20; guard += 1) {
+      releaseAll();
+      await new Promise<void>((r) => setTimeout(r, 0));
+    }
+    await done;
+
+    // No new tasks were launched after the stop beyond the already-in-flight wave.
+    expect(invokedTaskIds.length).toBeLessThan(wide);
+    expect(useWorkGraphStore.getState().running).toBe(false);
   });
 });
 

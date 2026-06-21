@@ -68,7 +68,9 @@ import type { McpCallToolResult } from './mcp-external.ts';
   for (const empty of [{}, { content: 'not-an-array' }] as unknown[]) {
     try {
       const out = toToolResult('ext__tool', empty as McpCallToolResult);
-      if (out.isError === true || out.text !== '(no content)') graceOk = false;
+      // Third-party text is wrapped in untrusted-tool-output sentinels, so the
+      // "(no content)" placeholder is contained, not byte-equal.
+      if (out.isError === true || !out.text.includes('(no content)')) graceOk = false;
     } catch {
       graceThrew = true;
     }
@@ -80,7 +82,7 @@ import type { McpCallToolResult } from './mcp-external.ts';
 /* ── conformant results still map normally (no regression) ───────────────── */
 {
   const ok = toToolResult('ext__echo', { content: [{ type: 'text', text: 'hello world' }] });
-  check('text content maps through', ok.text === 'hello world');
+  check('text content maps through', ok.text.includes('hello world'));
   check('non-error text result is not isError', ok.isError !== true);
 
   const err = toToolResult('ext__fail', { content: [{ type: 'text', text: 'boom' }], isError: true });

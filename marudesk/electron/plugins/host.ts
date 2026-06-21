@@ -1,5 +1,6 @@
 import { scrubText } from '../../shared/scrub';
 import { clipText } from '../../shared/text-clip';
+import { wrapUntrustedToolContent } from '../agent/tools/fetch-url';
 import {
   PLUGIN_CALL_TIMEOUT_MS,
   PLUGIN_LOAD_TIMEOUT_MS,
@@ -150,9 +151,11 @@ export class PluginHost implements PluginHostLike {
     this.inflight.set(callId, entry);
     try {
       const text = clipText(await this.callWorker(name, callId, input ?? {}), PLUGIN_MAX_TOOL_TEXT);
+      // Frame the third-party plugin payload as untrusted DATA (prompt-injection
+      // boundary), applied AFTER scrub+clip so the closing sentinel survives the cap.
       return {
         summary: name,
-        text: scrubText(text) || '(no content)',
+        text: wrapUntrustedToolContent(`plugin ${this.pluginId}`, scrubText(text) || '(no content)'),
         ...(entry.edits.length > 0 ? { edits: entry.edits } : {}),
       };
     } catch (err) {
