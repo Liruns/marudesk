@@ -269,11 +269,11 @@ function ThinkingBlock({
         ) : (
           <Brain size={12} className="text-ai-thinking/60 shrink-0" />
         )}
-        <span className="text-fg-secondary flex-1 font-medium text-[0.75rem]">
+        <span className="text-fg-secondary flex-1 font-medium text-caption">
           {streaming ? t('agent.chat.thinking') : t('agent.chat.thought')}
         </span>
         {streaming && thinkingElapsed > 0 ? (
-          <span className="text-ai-thinking/70 tabular-nums text-[10px] font-medium">
+          <span className="text-ai-thinking/70 tabular-nums text-kbd font-medium">
             {formatElapsed(thinkingElapsed)}
           </span>
         ) : null}
@@ -377,7 +377,7 @@ const ToolCardView = memo(function ToolCardView({
         ) : (
           <ToolStateIcon state={call.state} />
         )}
-        <span className="text-fg-secondary truncate flex-1 text-[0.75rem]">{call.summary ?? label}</span>
+        <span className="text-fg-secondary truncate flex-1 text-caption">{call.summary ?? label}</span>
         {badge ? <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge> : null}
         {hasBody ? (
           <ChevronRight size={11} className={cn('text-fg-tertiary/40 shrink-0 transition-transform duration-fast', open && 'rotate-90')} />

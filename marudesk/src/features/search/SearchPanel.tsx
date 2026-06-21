@@ -21,6 +21,7 @@ import { cn } from '../../lib/cn';
 import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import { useSearchStore } from './store';
 import { openFileInstrument } from '../work-graph/instrument';
+import { useWorkGraphStore } from '../work-graph/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import type { WorkspaceFileRef, WorkspaceId } from '../../../shared/workspace';
 import { FileGroup, Toggle } from './SearchPanel.parts';
@@ -104,6 +105,19 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
         ? { workspaceId: boundWorkspace.id, rootId, path: filePath }
         : filePath;
     void openFileInstrument(target, line, col);
+  };
+
+  // Promote a match to a tracked task on the work graph. Reuses the same store
+  // method the agent + workos:create-task IPC use; it materializes the node in
+  // free space, returns its id, and selects it (opening the dock on it).
+  const createTaskFromMatch = (filePath: string, line: number, preview: string): void => {
+    const snippet = preview.trim().slice(0, 80);
+    const { addTaskFromAgent, selectTask } = useWorkGraphStore.getState();
+    const id = addTaskFromAgent({
+      title: `Fix: ${snippet}`,
+      intent: `Found in ${filePath}:${line} for query "${query}"`,
+    });
+    selectTask(id);
   };
 
   const [width, setWidth] = useState(readWidth);
@@ -353,6 +367,7 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
                   })
                 }
                 onOpenAt={(line, col) => openMatch(file.path, line, col)}
+                onCreateTask={(line, preview) => createTaskFromMatch(file.path, line, preview)}
                 t={t}
               />
             ))

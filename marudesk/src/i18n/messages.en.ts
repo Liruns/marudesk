@@ -1201,6 +1201,7 @@ export const EN_MESSAGES = {
   'search.clear': 'Clear search',
   'search.collapse': 'Collapse',
   'search.collapseAll': 'Collapse all',
+  'search.createTask': 'Create task from match',
   'search.empty': 'Type to search file contents.',
   'search.exclude.label': 'files to exclude',
   'search.exclude.placeholder': 'e.g. *.test.ts, dist',

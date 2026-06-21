@@ -101,7 +101,7 @@ export function Section({
         <span className="text-caption font-medium uppercase tracking-wide text-fg-tertiary">
           {title}
         </span>
-        <span className="rounded-pill bg-surface-2 px-1.5 text-[0.6875rem] font-medium tabular-nums text-fg-secondary">
+        <span className="rounded-pill bg-surface-2 px-1.5 text-micro font-medium tabular-nums text-fg-secondary">
           {count}
         </span>
         <span className="flex-1" aria-hidden />

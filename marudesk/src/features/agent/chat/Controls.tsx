@@ -81,7 +81,7 @@ export function ContextButton({
             'pointer-events-none absolute -top-1.5 -right-1.5',
             'flex items-center justify-center',
             'min-w-[16px] h-4 rounded-pill px-1',
-            'bg-accent text-white text-[10px] font-medium tabular-nums leading-none',
+            'bg-accent text-white text-kbd font-medium tabular-nums leading-none',
           )}
         >
           {selectedCount}

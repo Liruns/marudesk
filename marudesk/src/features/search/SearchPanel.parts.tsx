@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, ListPlus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { SearchFileResult, SearchMatchRange } from '../../../shared/search';
 import { baseName, dirName } from '../git/statusMeta';
@@ -10,6 +10,7 @@ export function FileGroup({
   formatSearchMatchLineTitle,
   onToggle,
   onOpenAt,
+  onCreateTask,
   t,
 }: {
   file: SearchFileResult;
@@ -17,7 +18,8 @@ export function FileGroup({
   formatSearchMatchLineTitle: (line: number) => string;
   onToggle: () => void;
   onOpenAt: (line: number, col: number) => void;
-  t: (key: 'search.expand' | 'search.collapse') => string;
+  onCreateTask: (line: number, preview: string) => void;
+  t: (key: 'search.expand' | 'search.collapse' | 'search.createTask') => string;
 }) {
   const dir = dirName(file.path);
   const first = file.matches[0];
@@ -60,20 +62,36 @@ export function FileGroup({
             className="pointer-events-none absolute bottom-1 left-[1.15rem] top-0 w-px bg-subtle"
           />
           {file.matches.map((m, i) => (
-            <button
+            <div
               key={`${m.line}:${m.col}:${i}`}
-              type="button"
-              onClick={() => onOpenAt(m.line, m.col)}
-              title={formatSearchMatchLineTitle(m.line)}
-              className="group/match flex w-full items-baseline gap-2.5 rounded-sm py-[3px] pl-7 pr-2 text-left transition-colors duration-fast hover:bg-accent-subtle/40"
+              className="group/match relative flex items-stretch rounded-sm transition-colors duration-fast hover:bg-accent-subtle/40"
             >
-              <span className="w-9 shrink-0 text-right text-caption tabular-nums text-fg-tertiary/70 group-hover/match:text-fg-secondary">
-                {m.line}
-              </span>
-              <span className="truncate font-mono text-caption leading-relaxed text-fg-secondary group-hover/match:text-fg-primary">
-                <Highlight text={m.preview} ranges={m.ranges} />
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => onOpenAt(m.line, m.col)}
+                title={formatSearchMatchLineTitle(m.line)}
+                className="flex min-w-0 flex-1 items-baseline gap-2.5 py-[3px] pl-7 pr-7 text-left"
+              >
+                <span className="w-9 shrink-0 text-right text-caption tabular-nums text-fg-tertiary/70 group-hover/match:text-fg-secondary">
+                  {m.line}
+                </span>
+                <span className="truncate font-mono text-caption leading-relaxed text-fg-secondary group-hover/match:text-fg-primary">
+                  <Highlight text={m.preview} ranges={m.ranges} />
+                </span>
+              </button>
+              {/* Secondary action: promote the match to a tracked task. Sits on top
+                  of the row, surfacing on hover/focus; never intercepts the row's
+                  primary open-file click. */}
+              <button
+                type="button"
+                onClick={() => onCreateTask(m.line, m.preview)}
+                aria-label={t('search.createTask')}
+                title={t('search.createTask')}
+                className="absolute right-1 top-1/2 size-5 -translate-y-1/2 items-center justify-center rounded text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-surface-3 hover:text-fg-primary focus-visible:opacity-100 group-hover/match:opacity-100 flex"
+              >
+                <ListPlus size={13} />
+              </button>
+            </div>
           ))}
         </div>
       ) : null}

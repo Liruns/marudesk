@@ -70,7 +70,7 @@ export function FallbackChain({ order, onChange }: FallbackChainProps) {
                 {!connected ? (
                   <span
                     title={t('settings.agent.fallback.notConnectedTitle')}
-                    className="shrink-0 rounded-pill bg-warning-subtle px-1.5 py-px text-[10px] font-medium text-warning"
+                    className="shrink-0 rounded-pill bg-warning-subtle px-1.5 py-px text-kbd font-medium text-warning"
                   >
                     {t('settings.agent.fallback.notConnected')}
                   </span>

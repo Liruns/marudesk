@@ -1494,6 +1494,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'search.clear': '검색 지우기',
   'search.collapse': '접기',
   'search.collapseAll': '모두 접기',
+  'search.createTask': '검색 결과로 작업 만들기',
   'search.empty': '파일 내용을 검색하려면 입력하세요.',
   'search.exclude.label': '제외할 파일',
   'search.exclude.placeholder': '예: *.test.ts, dist',

@@ -1,4 +1,4 @@
-import { Check, ExternalLink, Hammer, X } from 'lucide-react';
+import { Check, ExternalLink, FileText, Hammer, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
@@ -11,7 +11,9 @@ import { taskThreadWorkspaceId } from './taskThreads';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useWorkGraphStore } from './store';
 import { toast } from '../../lib/toast';
-import { parseUnifiedDiff } from '../git/parseDiff';
+import { changedFilePaths, parseUnifiedDiff } from '../git/parseDiff';
+import { openFileInstrument } from './instrument';
+import type { WorkspaceFileRef } from '../../../shared/workspace';
 import { DiffBlock, Spinner, Badge } from '../../components/ui';
 
 /**
@@ -117,6 +119,21 @@ export function WorkGraphInspectorContent() {
     taskThreadWorkspaceId(taskId) ?? useWorkspaceDeckStore.getState().activeWorkspaceId ?? undefined;
   // parseUnifiedDiff is bounded (caps at 600 lines); compute inline — no hook needed.
   const diffLines = patch ? parseUnifiedDiff(patch) : [];
+  // Each changed file in the diff is openable as the editor instrument so a
+  // reviewer can jump from "see diff" to the real workspace file (the CURRENT,
+  // pre-apply version — a before/after reference), reusing Search/SCM's hop.
+  const changedFiles = patch ? changedFilePaths(patch) : [];
+  // Resolve a changed path to its bound workspace + root (mirrors SearchPanel);
+  // fall back to the bare path so main resolves it against the active workspace.
+  const boundWorkspace = resourceWorkspaceId
+    ? useWorkspaceDeckStore.getState().workspaces.find((w) => w.id === resourceWorkspaceId) ?? null
+    : null;
+  const openChangedFile = (path: string): void => {
+    const rootId = boundWorkspace?.activeRootId ?? boundWorkspace?.roots[0]?.id ?? null;
+    const target: WorkspaceFileRef | string =
+      boundWorkspace && rootId ? { workspaceId: boundWorkspace.id, rootId, path } : path;
+    void openFileInstrument(target);
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-3">
@@ -188,6 +205,22 @@ export function WorkGraphInspectorContent() {
         {patch ? (
           <div>
             <p className="mb-2 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
+            {changedFiles.length > 0 ? (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {changedFiles.map((path) => (
+                  <button
+                    key={path}
+                    type="button"
+                    onClick={() => openChangedFile(path)}
+                    title={`Open ${path} (current workspace version)`}
+                    className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+                  >
+                    <FileText size={11} />
+                    <span className="max-w-[12rem] truncate">{path}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-[min(256px,40vh)] overflow-auto" />
             <p className="mt-1 text-caption text-fg-tertiary">
               Produced in a throwaway worktree — your files are unchanged. Review before applying.
