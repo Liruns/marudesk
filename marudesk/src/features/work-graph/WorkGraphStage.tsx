@@ -31,14 +31,17 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 type Viewport = { panX: number; panY: number; scale: number };
 
-export function WorkGraphStage() {
+export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [vp, setVp] = useState<Viewport>({ panX: 0, panY: 0, scale: 1 });
   const [animCam, setAnimCam] = useState(false);
   const graph = useWorkGraphStore((s) => s.graph);
-  // The inspector overlay (w-80 at right-4) covers the lower-right — shift the
-  // viewport controls left while a task is selected so they're never hidden.
-  const inspectorOpen = useWorkGraphStore((s) => s.selectedTaskId !== null);
+  // The floating inspector overlay (w-80 at right-4) covers the lower-right — shift
+  // the viewport controls left while a task is selected so they're never hidden.
+  // In Mission Control (`docked`) the inspector lives in the Instrument Dock (a
+  // layout sibling), so the floating overlay and the control shift are suppressed.
+  const selectedOpen = useWorkGraphStore((s) => s.selectedTaskId !== null);
+  const inspectorOpen = !docked && selectedOpen;
 
   const setVpAnimated = useCallback((next: Viewport) => {
     setAnimCam(true);
@@ -190,13 +193,13 @@ export function WorkGraphStage() {
       {/* Goal input + run/add/reset controls (always present on this surface). */}
       <WorkGraphPanel />
 
-      {/* Selected-task supervision panel: intent, acceptance, evidence result. */}
-      <WorkGraphInspector />
+      {/* Selected-task supervision panel (floating; Mission Control docks it instead). */}
+      {docked ? null : <WorkGraphInspector />}
 
       {/* Empty state — points at the panel to generate a first graph. */}
       {!graph ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <div className="flex max-w-xs flex-col items-center gap-3 text-center animate-fade-rise">
+          <div className="flex max-w-xs flex-col items-center gap-2 text-center animate-fade-rise">
             <Workflow size={24} className="text-fg-tertiary" />
             <p className="text-body font-medium text-fg-primary">Describe a goal to generate a task graph.</p>
             <p className="text-caption text-fg-tertiary">

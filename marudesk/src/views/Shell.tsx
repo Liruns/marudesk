@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityBar } from '../components/ActivityBar';
-import { StatusBar } from '../components/StatusBar';
 import { TitleBar } from '../components/TitleBar';
 import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
-import { WorkspaceStage } from '../features/workspaces/WorkspaceStage';
-import { CanvasStage } from '../features/canvas/CanvasStage';
 import { WorkGraphStage } from '../features/work-graph/WorkGraphStage';
-import { useSurfaceStore } from '../features/canvas/surface';
+import { InstrumentDock } from '../features/work-graph/InstrumentDock';
+import { InstrumentStage } from '../features/work-graph/InstrumentStage';
+import { useInstrumentStore } from '../features/work-graph/instrument';
+import { EvidenceStrip } from '../features/work-graph/EvidenceStrip';
 import { useWorkGraphStore } from '../features/work-graph/store';
 import { useWebPageStore } from '../features/browser/store';
 import { useBookmarksStore } from '../features/browser/bookmarks';
@@ -15,15 +14,9 @@ import { useTabEvents } from '../features/tabs/useTabEvents';
 import { useDiagnosticsEvents } from '../features/diagnostics/useDiagnosticsEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
 import { useDevtoolsEvents } from '../features/devtools/useDevtoolsEvents';
-import { ExplorerPanel } from '../features/workspace/ExplorerPanel';
-import { SourceControlPanel } from '../features/git/SourceControlPanel';
-import { SearchPanel } from '../features/search/SearchPanel';
 import { QuickOpen } from '../features/search/QuickOpen';
 import { TabPalette } from '../features/tabs/TabPalette';
-import { useSearchStore } from '../features/search/store';
 import { confirmCloseTab } from '../features/editor/store';
-import { ContextDrawer } from '../features/context/ContextDrawer';
-import { useComposerStore } from '../features/composer/store';
 import { useContextSync } from '../features/agent/context-sync';
 import { ToastHost } from '../components/ToastHost';
 import { toast } from '../lib/toast';
@@ -32,9 +25,6 @@ import { Tour } from '../features/tour/Tour';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
 import type { EventPayload } from '../../shared/ipc';
-
-/** The single active left-rail panel, or null when the rail is collapsed. */
-type LeftPanel = 'explorer' | 'search' | 'sourceControl' | null;
 
 /**
  * Step the persisted whole-UI zoom (the Settings "Interface zoom") by ±10%, or
@@ -96,13 +86,13 @@ function runShortcut(p: EventPayload<'app:tab-shortcut'>): void {
 }
 
 /**
- * IDE-style shell. Top to bottom:
- *   TitleBar  — drag region with brand mark, Chrome-style tabs, window controls
- *   Work row  — ActivityBar (left rail) + ExplorerPanel (files) + Stage (tabs) + ContextDrawer (collapsible)
- *   StatusBar — workspace, inspect mode, model
+ * Mission Control shell. Top to bottom:
+ *   TitleBar      — brand mark, flight status, window controls
+ *   Main row      — the Task graph (or a summoned instrument) + the Instrument Dock
+ *   EvidenceStrip — the selected task's runtime acceptance verdicts
  *
- * The browser is the canvas; everything else is chrome around it. Cursor and
- * VSCode use exactly this skeleton.
+ * The Task graph is the home; tools are instruments a task summons, never
+ * persistent windows (docs/mission-control-redesign.md).
  */
 export function Shell() {
   useTabEvents();
@@ -113,35 +103,11 @@ export function Shell() {
   useContextSync();
   const { t } = useI18n();
   const prevAgentStatusRef = useRef<string>('idle');
-  // The left rail shows one panel at a time (VSCode-style): toggling a view
-  // button opens that view or collapses the rail if it's already active.
-  const [leftPanel, setLeftPanel] = useState<LeftPanel>('explorer');
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [tabPalette, setTabPalette] = useState(false);
-  // The stage centre: Maru's infinite canvas (default) or the classic tab grid.
-  const surfaceMode = useSurfaceStore((s) => s.mode);
-
-  // Toggle a left-rail view: clicking the active view collapses the rail.
-  const toggleLeft = (panel: Exclude<LeftPanel, null>) =>
-    setLeftPanel((cur) => (cur === panel ? null : panel));
-
-  // Open the chat drawer when a stage element pick / askAgent asks for it (the
-  // composer store bumps a nonce). A store SUBSCRIPTION (not an effect on the
-  // selected value) so the setState happens in an external-event callback; the
-  // ref means a repeat pick re-opens a drawer the user closed, and nothing
-  // fires on mount. The "AI Chat (CLI)" terminal tab is a separate, always-
-  // available surface (Home launcher / `marudesk` command), not a routing mode.
-  const drawerNonceSeen = useRef(useComposerStore.getState().drawerOpenNonce);
-  useEffect(
-    () =>
-      useComposerStore.subscribe((s) => {
-        if (s.drawerOpenNonce === drawerNonceSeen.current) return;
-        drawerNonceSeen.current = s.drawerOpenNonce;
-        setDrawerOpen(true);
-      }),
-    [],
-  );
+  // A Task can summon an instrument (browser/editor/terminal) into the main area;
+  // while one is open it replaces the graph, then "← Graph" closes it.
+  const instrumentTabId = useInstrumentStore((s) => s.tabId);
 
   // Keyboard shortcuts while the React chrome has focus. The mirror case — the
   // embedded web page having focus — is handled in the main process'
@@ -167,17 +133,10 @@ export function Shell() {
 
       // App-wide navigation, independent of the active tab kind and allowed even
       // from a text field (these aren't native text-editing keys):
-      //   Ctrl/Cmd+P        — quick-open (go to file)
-      //   Ctrl/Cmd+Shift+F  — open + focus the content-search panel
+      //   Ctrl/Cmd+P — quick-open (go to file)
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setQuickOpen(true);
-        return;
-      }
-      if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setLeftPanel('search');
-        useSearchStore.getState().requestFocus();
         return;
       }
       // Open (or focus) the Settings tab — Ctrl/Cmd+, (VSCode/Chrome parity).
@@ -287,17 +246,12 @@ export function Shell() {
         }
       }
 
-      // App tab shortcuts: Ctrl/Cmd+T new tab, +N new editor, +W close active,
-      // +B toggle explorer. Inside a text field they keep native text editing.
+      // App tab shortcuts: Ctrl/Cmd+T new tab, +N new editor, +W close active.
+      // Inside a text field they keep native text editing.
       if (!mod) return;
       const key = e.key.toLowerCase();
-      if (key !== 't' && key !== 'w' && key !== 'b' && key !== 'n') return;
+      if (key !== 't' && key !== 'w' && key !== 'n') return;
       if (inEditable) return;
-      if (key === 'b') {
-        e.preventDefault();
-        toggleLeft('explorer');
-        return;
-      }
       if (key === 't') {
         e.preventDefault();
         void tabsState.newTab();
@@ -347,7 +301,7 @@ export function Shell() {
       if (!wasBusy || (status !== 'completed' && status !== 'waiting_for_user')) return;
       const tabs = useTabsStore.getState();
       const active = tabs.tabs.find((tab) => tab.id === tabs.activeTabId);
-      if (drawerOpen || active?.kind === 'agent') return;
+      if (active?.kind === 'agent') return;
       toast({
         title: t(status === 'completed' ? 'agent.notify.completed' : 'agent.notify.question'),
         variant: status === 'completed' ? 'success' : 'warning',
@@ -356,11 +310,10 @@ export function Shell() {
     const off1 = window.marudesk.on('agent:event', (s) => handle(s.status));
     const off2 = window.marudesk.on('agent:workspace-event', (e) => handle(e.state.status));
     return () => { off1(); off2(); };
-  }, [drawerOpen, t]);
+  }, [t]);
 
   // The agent's `create_task` MCP tool: draw the task node it asked for on the
-  // canvas Work-OS graph (placed in free space). Mounted at the Shell so tasks
-  // land whether the user is on the canvas or the classic surface.
+  // Mission Control graph (placed in free space).
   useEffect(() => {
     return window.marudesk.on('workos:create-task', (spec) => {
       useWorkGraphStore.getState().addTaskFromAgent(spec);
@@ -371,40 +324,14 @@ export function Shell() {
     <div className="h-screen w-screen flex flex-col bg-surface-page text-fg-primary overflow-hidden">
       <TitleBar />
       <div className="flex-1 min-h-0 flex">
-        <ActivityBar
-          explorerOpen={leftPanel === 'explorer'}
-          onToggleExplorer={() => toggleLeft('explorer')}
-          searchOpen={leftPanel === 'search'}
-          onToggleSearch={() => toggleLeft('search')}
-          sourceControlOpen={leftPanel === 'sourceControl'}
-          onToggleSourceControl={() => toggleLeft('sourceControl')}
-          drawerOpen={drawerOpen}
-          onToggleDrawer={() => setDrawerOpen((v) => !v)}
-        />
-        <ExplorerPanel
-          open={leftPanel === 'explorer'}
-          onRequestClose={() => setLeftPanel(null)}
-        />
-        <SearchPanel
-          open={leftPanel === 'search'}
-          onRequestClose={() => setLeftPanel(null)}
-        />
-        <SourceControlPanel
-          open={leftPanel === 'sourceControl'}
-          onRequestClose={() => setLeftPanel(null)}
-        />
+        {/* The Task graph is the home; a selected node opens the Instrument Dock,
+            and a summoned tool replaces the graph in the main area. */}
         <main data-stage-region className="flex-1 min-w-0 flex">
-          {surfaceMode === 'canvas' ? (
-            <CanvasStage />
-          ) : surfaceMode === 'workgraph' ? (
-            <WorkGraphStage />
-          ) : (
-            <WorkspaceStage />
-          )}
+          {instrumentTabId ? <InstrumentStage /> : <WorkGraphStage docked />}
         </main>
-        <ContextDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
+        <InstrumentDock />
       </div>
-      <StatusBar />
+      <EvidenceStrip />
       <ToastHost />
       <Tour />
       {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}

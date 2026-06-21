@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/useI18n';
 import { cn } from '../lib/cn';
 import { WindowControls } from './WindowControls';
 import { ProfileSwitcher } from '../features/workspaces/ProfileSwitcher';
+import { FlightStatus } from '../features/work-graph/FlightStatus';
 import { useUpdateStatus } from '../hooks/useUpdateStatus';
 import logoUrl from '../assets/logo-mark.png';
 
@@ -96,7 +97,7 @@ export function TitleBar() {
 
   return (
     <div
-      className="drag-region h-10 shrink-0 flex items-stretch bg-surface-1 border-b border-subtle"
+      className="drag-region h-9 shrink-0 flex items-stretch bg-surface-1 border-b border-subtle"
       role="banner"
       aria-label={t('titleBar.windowChrome')}
       onDoubleClick={onDoubleClick}
@@ -117,7 +118,9 @@ export function TitleBar() {
         <ProfileSwitcher />
         <UpdateIndicator />
       </div>
-      <div className="drag-region flex-1 min-w-0" aria-hidden />
+      <div className="drag-region flex-1 min-w-0 flex items-center justify-center px-3">
+        <FlightStatus />
+      </div>
       <WindowControls />
     </div>
   );
