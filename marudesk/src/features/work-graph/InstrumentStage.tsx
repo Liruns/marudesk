@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { tabKinds } from '../tabs/registry';
+import { useTabsStore } from '../tabs/store';
 import { useInstrumentStore } from './instrument';
 
 /**
@@ -13,6 +14,9 @@ export function InstrumentStage() {
   const tabId = useInstrumentStore((s) => s.tabId);
   const kind = useInstrumentStore((s) => s.kind);
   const close = useInstrumentStore((s) => s.close);
+  // Resolve the tab so kind renderers that need it (agent → workspaceId, devtools
+  // → target tab) get it, matching the grid/strip dispatch.
+  const tab = useTabsStore((s) => s.tabs.find((t) => t.id === tabId));
   if (!tabId || !kind) return null;
 
   return (
@@ -28,7 +32,7 @@ export function InstrumentStage() {
         </button>
         <span className="text-caption text-fg-tertiary">Instrument · {kind}</span>
       </div>
-      <div className="flex-1 min-h-0 flex">{tabKinds[kind].render(tabId)}</div>
+      <div className="flex-1 min-h-0 flex">{tabKinds[kind].render(tabId, tab)}</div>
     </div>
   );
 }

@@ -7,6 +7,9 @@ import { InstrumentDock } from '../features/work-graph/InstrumentDock';
 import { InstrumentStage } from '../features/work-graph/InstrumentStage';
 import { useInstrumentStore } from '../features/work-graph/instrument';
 import { EvidenceStrip } from '../features/work-graph/EvidenceStrip';
+import { FlightLog } from '../features/work-graph/FlightLog';
+import { CommandPalette } from '../features/commands/CommandPalette';
+import { useCommandPaletteStore } from '../features/commands/command-palette-store';
 import { useWorkGraphStore } from '../features/work-graph/store';
 import { useWebPageStore } from '../features/browser/store';
 import { useBookmarksStore } from '../features/browser/bookmarks';
@@ -143,6 +146,14 @@ export function Shell() {
       if (mod && !e.shiftKey && e.key === ',') {
         e.preventDefault();
         void openSettingsTab();
+        return;
+      }
+      // Command palette — Ctrl/Cmd+K. The "summon anything" entry for Mission
+      // Control surfaces (Settings, AI Chat, editor, terminal) that have no tab
+      // strip to open them from.
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        useCommandPaletteStore.getState().toggle();
         return;
       }
       // Tab switcher palette (Ctrl/Cmd+Shift+A) and reopen-closed-tab
@@ -334,6 +345,8 @@ export function Shell() {
       <EvidenceStrip />
       <ToastHost />
       <Tour />
+      <FlightLog />
+      <CommandPalette />
       {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}
       {tabPalette ? <TabPalette onClose={() => setTabPalette(false)} /> : null}
     </div>

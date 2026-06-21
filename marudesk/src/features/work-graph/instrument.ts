@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { TabKind } from '../../../shared/browser';
+import type { WorkspaceId } from '../../../shared/workspace';
 import { confirmCloseTab } from '../editor/store';
 import { useTabsStore } from '../tabs/store';
 
@@ -60,3 +61,28 @@ useTabsStore.subscribe((s) => {
     useInstrumentStore.setState({ tabId: null, kind: null });
   }
 });
+
+/**
+ * Open a tool surface as Mission Control's full-area instrument: create the tab,
+ * activate it (so a native web/terminal view paints), and host it in the dock.
+ * This is the entry point for surfaces that have no task Resource — Settings, a
+ * fresh AI Chat / CLI chat, a new editor, a blank web tab — summoned from the ⌘K
+ * command palette (the redesign's Phase 4). Mirrors the Resource path in
+ * WorkGraphInspector.openResource, which is the other caller of {@link useInstrumentStore}.
+ */
+export async function openInstrument(
+  kind: TabKind,
+  opts?: { url?: string; workspaceId?: WorkspaceId; terminalProfile?: 'agent-cli' },
+): Promise<void> {
+  const id = await useTabsStore
+    .getState()
+    .newTab(
+      kind,
+      opts?.url,
+      opts?.workspaceId,
+      opts?.terminalProfile ? { terminalProfile: opts.terminalProfile } : undefined,
+    );
+  if (!id) return;
+  await useTabsStore.getState().activateTab(id);
+  useInstrumentStore.getState().open(id, kind);
+}

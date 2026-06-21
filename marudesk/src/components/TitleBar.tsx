@@ -5,6 +5,8 @@ import { cn } from '../lib/cn';
 import { WindowControls } from './WindowControls';
 import { ProfileSwitcher } from '../features/workspaces/ProfileSwitcher';
 import { FlightStatus } from '../features/work-graph/FlightStatus';
+import { FlightLogButton } from '../features/work-graph/FlightLog';
+import { CommandPaletteButton } from '../features/commands/CommandPalette';
 import { useUpdateStatus } from '../hooks/useUpdateStatus';
 import logoUrl from '../assets/logo-mark.png';
 
@@ -116,10 +118,12 @@ export function TitleBar() {
       )}
       <div className="flex items-center gap-1.5 pl-2">
         <ProfileSwitcher />
+        <CommandPaletteButton />
         <UpdateIndicator />
       </div>
-      <div className="drag-region flex-1 min-w-0 flex items-center justify-center px-3">
+      <div className="drag-region flex-1 min-w-0 flex items-center justify-center gap-2 px-3">
         <FlightStatus />
+        <FlightLogButton />
       </div>
       <WindowControls />
     </div>

@@ -8,9 +8,7 @@ import {
 } from '../../../shared/settings';
 import { fontStack } from '../../../shared/fonts';
 import { applyHljsTheme } from '../../lib/hljsTheme';
-import { useTabsStore } from '../tabs/store';
-import { useWorkspaceDeckStore } from '../workspaces/store';
-import { workspaceLeaves } from '../workspaces/layout';
+import { openInstrument } from '../work-graph/instrument';
 
 export type { SettingsPatch };
 
@@ -176,31 +174,16 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
   }),
 );
 
-/** Open (or focus) the singleton Settings tab, optionally on a given category. */
+/**
+ * Open Settings, optionally on a given category. Mission Control is the only
+ * surface now, so Settings opens as a full-area instrument (the dock hosts it)
+ * rather than a tab in a strip that no longer exists.
+ */
 export async function openSettingsTab(
   category?: SettingsCategory,
 ): Promise<void> {
   if (category) useSettingsStore.getState().setCategory(category);
-  const tabsState = useTabsStore.getState();
-  const deckState = useWorkspaceDeckStore.getState();
-  const focusedWs =
-    deckState.layout && deckState.focusedPaneId
-      ? workspaceLeaves(deckState.layout).find(
-          (l) => l.id === deckState.focusedPaneId,
-        )?.workspaceId
-      : null;
-  const activeWorkspaceId =
-    focusedWs ??
-    deckState.activeWorkspaceId ??
-    tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.workspaceId;
-  const wsId = activeWorkspaceId ?? undefined;
-  const existing = tabsState.tabs.find(
-    (t) =>
-      t.kind === 'settings' &&
-      (wsId === undefined || t.workspaceId === wsId),
-  );
-  if (existing) await tabsState.activateTab(existing.id);
-  else await tabsState.newTab('settings', undefined, wsId);
+  await openInstrument('settings');
 }
 
 /**
