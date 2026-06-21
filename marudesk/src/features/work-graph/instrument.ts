@@ -22,7 +22,15 @@ import { useTabsStore } from '../tabs/store';
 type InstrumentState = {
   tabId: string | null;
   kind: TabKind | null;
-  open: (tabId: string, kind: TabKind) => void;
+  /**
+   * Adopt `tabId` as the active instrument. Returns `true` when adopted (or when
+   * switching to the same tab / from no instrument), and `false` when the switch
+   * was cancelled at the dirty-editor prompt (prev is kept). Callers that created
+   * `tabId` in main BEFORE calling open() MUST close it on a `false` return —
+   * otherwise the just-created tab leaks as a hidden orphan whose live
+   * WebContentsView can never be torn down.
+   */
+  open: (tabId: string, kind: TabKind) => boolean;
   close: () => void;
 };
 
@@ -44,12 +52,16 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
         // created/activated `tabId` in main before calling open(), so re-activate
         // `prev` to keep the live view in sync with the (unchanged) instrument
         // store — otherwise main would paint the abandoned tab over the kept one.
+        // Returning `false` lets the caller tear down its freshly-created tab so
+        // it doesn't survive as an orphan (close() lives in the CREATE callers,
+        // not here: open() must not close a pre-existing tab like TabPalette's).
         void useTabsStore.getState().activateTab(prev);
-        return;
+        return false;
       }
       void useTabsStore.getState().closeTab(prev);
     }
     set({ tabId, kind });
+    return true;
   },
   close: () => {
     const prev = get().tabId;
@@ -95,7 +107,32 @@ export async function openInstrument(
     );
   if (!id) return;
   await useTabsStore.getState().activateTab(id);
-  useInstrumentStore.getState().open(id, kind);
+  // If the dirty-editor prompt is cancelled, open() keeps the previous instrument
+  // and rejects `id` — close the tab we just created so it doesn't leak as a
+  // hidden orphan (live WebContentsView that can never be torn down).
+  if (!useInstrumentStore.getState().open(id, kind)) {
+    await useTabsStore.getState().closeTab(id);
+  }
+}
+
+/**
+ * Reopen the most recently closed tab (Ctrl/Cmd+Shift+T, the ⌘K "Reopen Closed
+ * Tab" command) and host it as Mission Control's full-area instrument. Main
+ * reopens + activates the tab and hands back its { id, kind }; without hosting it
+ * here a reopened web tab paints a native view over the graph with no chrome and a
+ * reopened editor is invisible (InstrumentStage is MC's only tab surface, gated on
+ * useInstrumentStore.tabId). No-op when the closed-tab stack is empty. Mirrors
+ * {@link openInstrument} — including closing the just-reopened tab if the
+ * dirty-editor prompt cancels the switch (open() returns false), so it doesn't
+ * leak as a hidden orphan. Lives here (not in tabs/store) so the base tab registry
+ * never imports the instrument store back (cycle-free).
+ */
+export async function reopenTabInstrument(): Promise<void> {
+  const reopened = await useTabsStore.getState().reopenClosedTab();
+  if (!reopened) return;
+  if (!useInstrumentStore.getState().open(reopened.id, reopened.kind)) {
+    await useTabsStore.getState().closeTab(reopened.id);
+  }
 }
 
 /**
@@ -113,5 +150,9 @@ export async function openFileInstrument(
     line !== undefined && col !== undefined
       ? await useEditorStore.getState().openFileAt(file, line, col)
       : await useEditorStore.getState().openFile(file);
-  if (id) useInstrumentStore.getState().open(id, 'editor');
+  if (id && !useInstrumentStore.getState().open(id, 'editor')) {
+    // Cancelled prompt kept the previous instrument: tear down the editor tab we
+    // just created so it doesn't survive as an orphan.
+    await useTabsStore.getState().closeTab(id);
+  }
 }

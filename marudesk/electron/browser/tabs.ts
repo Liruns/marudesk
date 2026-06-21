@@ -569,19 +569,24 @@ function activateFallbackAfterClosing(closed: TabRecord): void {
   pushState();
 }
 
-/** Reopen the most recently closed tab (web page / saved editor file). */
-export function reopenClosedTab(): boolean {
+/**
+ * Reopen the most recently closed tab (web page / saved editor file). Returns the
+ * reopened tab's { id, kind } so a Mission Control caller can host it as the
+ * full-area instrument (mirroring createAndActivateTab's return id elsewhere);
+ * null when nothing was on the closed-tab stack.
+ */
+export function reopenClosedTab(): { id: string; kind: TabKind } | null {
   const spec = closedTabs.pop();
-  if (!spec) return false;
+  if (!spec) return null;
   if (spec.kind === 'web') {
-    createAndActivateTab('web', spec.url, { workspaceId: spec.workspaceId });
-    return true;
+    const rec = createAndActivateTab('web', spec.url, { workspaceId: spec.workspaceId });
+    return { id: rec.id, kind: rec.kind };
   }
-  createAndActivateTab('editor', spec.editorFile?.path ?? spec.filePath, {
+  const rec = createAndActivateTab('editor', spec.editorFile?.path ?? spec.filePath, {
     workspaceId: spec.workspaceId,
     editorFile: spec.editorFile,
   });
-  return true;
+  return { id: rec.id, kind: rec.kind };
 }
 
 /** Stable partition keeping pinned tabs first; preserves order within each group. */

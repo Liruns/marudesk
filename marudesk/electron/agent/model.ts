@@ -28,7 +28,6 @@ import {
 } from '../auth/gitlab-duo';
 import type { ToolSchema } from './tools';
 import { normalizeToolSchema } from './tools/normalize-schema';
-import { classifyStreamError, backoffDelayMs } from './stream-error.ts';
 
 /**
  * How a turn authenticates to the provider: a stored API key, or an OAuth
@@ -543,50 +542,4 @@ function withCacheBreakpoint<T extends ModelMessage>(message: T): T {
  */
 export function cacheReadTokensOf(usage: LanguageModelUsage): number {
   return usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
-}
-
-/* ── Streaming error recovery ──────────────────────────────────────────── */
-
-const MAX_STREAM_RETRIES = 2;
-
-/**
- * Whether a failed stream call should be retried on the SAME provider. Delegates
- * to the shared classifier ({@link classifyStreamError}) so this and the agent
- * loop agree on what "transient" means — a `retry` action (429 rate-limit /
- * overload / 5xx / network) is retryable; quota-exhaustion, overflow, auth, and
- * bad-request are not (the loop routes those to failover / compaction / surface).
- */
-export function isRetryableStreamError(err: unknown): boolean {
-  return classifyStreamError(err).action === 'retry';
-}
-
-/**
- * Retry a streaming call on transient errors with exponential backoff, honoring a
- * server-supplied `Retry-After` when present (item 1). Used by the non-loop stream
- * paths (subagent / media generation); the main loop drives its own classifier-
- * based retry/compact/failover routing inline so it can do more than retry-in-place.
- */
-export async function withStreamRetry<T>(
-  fn: () => Promise<T>,
-  provider: ProviderId,
-  modelId: string,
-): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= MAX_STREAM_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const klass = classifyStreamError(err);
-      if (klass.action !== 'retry' || attempt === MAX_STREAM_RETRIES) break;
-      const delay = klass.retryAfterMs ?? backoffDelayMs(attempt);
-      console.warn(
-        `[agent] ${provider}/${modelId} stream error (attempt ${attempt + 1}/${
-          MAX_STREAM_RETRIES + 1
-        }), retrying in ${delay}ms`,
-      );
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
 }

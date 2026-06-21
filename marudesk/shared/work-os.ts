@@ -184,7 +184,18 @@ export type ImplementTaskResult =
   | { ok: false; reason: string };
 
 /** Input to apply a task's reviewed worktree diff to the LIVE workspace. */
-export type ApplyPatchInput = { taskId: TaskId; patch: string };
+/**
+ * `workspaceId` (a `WorkspaceId` from shared/workspace.ts, kept as a plain string
+ * here to preserve this module's zero-imports invariant) is the OPTIONAL
+ * authoritative target a patch belongs to. The renderer resolves it from the
+ * task's conversation thread and passes it so main can REJECT the apply when the
+ * focused (active) workspace differs — a task bound to workspace B must never be
+ * written into workspace A's repo (`git apply --check` only catches context drift,
+ * not new-file / coincident-context hunks landing in the wrong repo). Omitted = an
+ * unbound task, which targets the active workspace by definition, so the legacy
+ * active-workspace behavior is preserved unchanged.
+ */
+export type ApplyPatchInput = { taskId: TaskId; patch: string; workspaceId?: string };
 
 /**
  * Result of applying a task's patch to the live workspace. `ok:false` carries a

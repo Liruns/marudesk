@@ -14,7 +14,7 @@ import type {
   RunTaskResult,
 } from '../../shared/work-os';
 import type { WorkspaceSummary } from '../../shared/workspace';
-import { getCurrentWorkspace } from '../workspace';
+import { getActiveWorkspaceId, getCurrentWorkspace } from '../workspace';
 import { getSettingsSync } from '../settings';
 import { runGit } from '../git';
 import { runDiagnostics } from '../diagnostics/runner';
@@ -387,7 +387,11 @@ function parseApplyPatchInput(raw: unknown): ApplyPatchInput | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.taskId !== 'string' || typeof r.patch !== 'string') return null;
-  return { taskId: r.taskId, patch: r.patch };
+  // workspaceId is optional; when present it must be a string (the authoritative
+  // target the renderer resolved from the task's thread). A non-string value is
+  // dropped to undefined → legacy active-workspace behavior, never a silent error.
+  const workspaceId = typeof r.workspaceId === 'string' ? r.workspaceId : undefined;
+  return { taskId: r.taskId, patch: r.patch, workspaceId };
 }
 
 const normalizeRel = (p: string): string => p.replace(/\\/g, '/').replace(/^\.\//, '').trim();
@@ -434,6 +438,20 @@ export async function applyTaskPatch(raw: unknown): Promise<ApplyPatchResult> {
   if (!input.patch.trim()) return { ok: false, reason: 'There is no diff to apply.' };
   if (input.patch.length > MAX_APPLY_PATCH_CHARS) {
     return { ok: false, reason: 'The diff is too large to apply.' };
+  }
+
+  // Authoritative cross-workspace guard (DATA INTEGRITY): the write below resolves
+  // the repo from the ACTIVE workspace, so a task bound to a *different* workspace
+  // would land its diff in the wrong repo. When the caller supplied the task's
+  // target workspaceId and it doesn't match the active workspace, REJECT before
+  // writing anything. A CLI/bridge caller can't rely on the renderer's pre-check,
+  // so this lives in main. Omitted workspaceId = unbound task (targets active) →
+  // current behavior preserved, nothing regresses.
+  if (input.workspaceId !== undefined && input.workspaceId !== getActiveWorkspaceId()) {
+    return {
+      ok: false,
+      reason: "Switch to the task's workspace before applying this patch.",
+    };
   }
 
   const ws = getCurrentWorkspace();

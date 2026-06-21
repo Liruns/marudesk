@@ -11,12 +11,20 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const confirmCloseTab = vi.fn<(tab: unknown) => boolean>();
 const closeTab = vi.fn<(id: string) => Promise<void>>(async () => {});
 const activateTab = vi.fn<(id: string) => Promise<void>>(async () => {});
+const newTab = vi.fn<() => Promise<string | null>>(async () => 'next');
+const openFile = vi.fn<() => Promise<string | null>>(async () => 'next');
+const reopenClosedTab = vi.fn<
+  () => Promise<{ id: string; kind: string } | null>
+>(async () => ({ id: 'next', kind: 'web' }));
 
 vi.mock('../editor/store', () => ({
   confirmCloseTab: (tab: unknown) => confirmCloseTab(tab),
-  // openInstrument/openFileInstrument aren't exercised here; the store module
-  // only needs these symbols to exist for its imports.
-  useEditorStore: { getState: () => ({}) },
+  useEditorStore: {
+    getState: () => ({
+      openFile: () => openFile(),
+      openFileAt: () => openFile(),
+    }),
+  },
 }));
 
 vi.mock('../tabs/store', () => ({
@@ -28,6 +36,8 @@ vi.mock('../tabs/store', () => ({
       ],
       closeTab: (id: string) => closeTab(id),
       activateTab: (id: string) => activateTab(id),
+      newTab: () => newTab(),
+      reopenClosedTab: () => reopenClosedTab(),
     }),
     // The module subscribes for the dangling-tab cleanup; a no-op unsubscribe is
     // enough for these store-level assertions.
@@ -35,7 +45,8 @@ vi.mock('../tabs/store', () => ({
   },
 }));
 
-const { useInstrumentStore } = await import('./instrument');
+const { useInstrumentStore, openInstrument, openFileInstrument, reopenTabInstrument } =
+  await import('./instrument');
 
 describe('useInstrumentStore.open dirty-prompt symmetry', () => {
   beforeEach(() => {
@@ -50,8 +61,10 @@ describe('useInstrumentStore.open dirty-prompt symmetry', () => {
   it('aborts the switch and keeps prev when the dirty prompt is CANCELLED', () => {
     confirmCloseTab.mockReturnValue(false);
 
-    useInstrumentStore.getState().open('next', 'web');
+    const adopted = useInstrumentStore.getState().open('next', 'web');
 
+    // Returns false so the CREATE caller can tear down its just-created tab.
+    expect(adopted).toBe(false);
     expect(useInstrumentStore.getState().tabId).toBe('prev');
     expect(useInstrumentStore.getState().kind).toBe('editor');
     expect(closeTab).not.toHaveBeenCalled();
@@ -63,16 +76,18 @@ describe('useInstrumentStore.open dirty-prompt symmetry', () => {
   it('closes prev and sets new when the prompt is HONORED', () => {
     confirmCloseTab.mockReturnValue(true);
 
-    useInstrumentStore.getState().open('next', 'web');
+    const adopted = useInstrumentStore.getState().open('next', 'web');
 
+    expect(adopted).toBe(true);
     expect(closeTab).toHaveBeenCalledWith('prev');
     expect(useInstrumentStore.getState().tabId).toBe('next');
     expect(useInstrumentStore.getState().kind).toBe('web');
   });
 
   it('does not prompt or close when switching to the same tab', () => {
-    useInstrumentStore.getState().open('prev', 'editor');
+    const adopted = useInstrumentStore.getState().open('prev', 'editor');
 
+    expect(adopted).toBe(true);
     expect(confirmCloseTab).not.toHaveBeenCalled();
     expect(closeTab).not.toHaveBeenCalled();
     expect(useInstrumentStore.getState().tabId).toBe('prev');
@@ -81,11 +96,123 @@ describe('useInstrumentStore.open dirty-prompt symmetry', () => {
   it('sets the new tab without prompting when there is no previous instrument', () => {
     useInstrumentStore.setState({ tabId: null, kind: null });
 
-    useInstrumentStore.getState().open('next', 'web');
+    const adopted = useInstrumentStore.getState().open('next', 'web');
 
+    expect(adopted).toBe(true);
     expect(confirmCloseTab).not.toHaveBeenCalled();
     expect(closeTab).not.toHaveBeenCalled();
     expect(useInstrumentStore.getState().tabId).toBe('next');
     expect(useInstrumentStore.getState().kind).toBe('web');
+  });
+});
+
+describe('CREATE callers close the just-created tab on a cancelled prompt', () => {
+  beforeEach(() => {
+    confirmCloseTab.mockReset();
+    closeTab.mockReset();
+    closeTab.mockResolvedValue(undefined);
+    activateTab.mockReset();
+    activateTab.mockResolvedValue(undefined);
+    newTab.mockReset();
+    newTab.mockResolvedValue('next');
+    openFile.mockReset();
+    openFile.mockResolvedValue('next');
+    // A dirty previous instrument is what triggers the discard prompt on switch.
+    useInstrumentStore.setState({ tabId: 'prev', kind: 'editor' });
+  });
+
+  it('openInstrument closes the new tab when the dirty prompt is CANCELLED', async () => {
+    confirmCloseTab.mockReturnValue(false);
+
+    await openInstrument('web');
+
+    // Switch aborted: prev kept, and the freshly-created tab is torn down so no
+    // hidden WebContentsView orphan survives.
+    expect(useInstrumentStore.getState().tabId).toBe('prev');
+    expect(closeTab).toHaveBeenCalledWith('next');
+  });
+
+  it('openInstrument does NOT close the new tab when the prompt is HONORED', async () => {
+    confirmCloseTab.mockReturnValue(true);
+
+    await openInstrument('web');
+
+    // Adopted: only the previous tab is closed, never the just-adopted one.
+    expect(useInstrumentStore.getState().tabId).toBe('next');
+    expect(closeTab).toHaveBeenCalledWith('prev');
+    expect(closeTab).not.toHaveBeenCalledWith('next');
+  });
+
+  it('openFileInstrument closes the new editor tab when the prompt is CANCELLED', async () => {
+    confirmCloseTab.mockReturnValue(false);
+
+    await openFileInstrument('/tmp/a.ts');
+
+    expect(useInstrumentStore.getState().tabId).toBe('prev');
+    expect(closeTab).toHaveBeenCalledWith('next');
+  });
+
+  it('openFileInstrument does NOT close the new editor tab when the prompt is HONORED', async () => {
+    confirmCloseTab.mockReturnValue(true);
+
+    await openFileInstrument('/tmp/a.ts');
+
+    expect(useInstrumentStore.getState().tabId).toBe('next');
+    expect(closeTab).toHaveBeenCalledWith('prev');
+    expect(closeTab).not.toHaveBeenCalledWith('next');
+  });
+});
+
+/**
+ * Reopening a closed tab (Ctrl/Cmd+Shift+T, the ⌘K "Reopen Closed Tab" command)
+ * must host the reopened tab as the full-area instrument — otherwise a reopened
+ * web tab paints a native view over the graph with no chrome and a reopened editor
+ * is invisible (InstrumentStage is MC's only tab surface). It is also a CREATE
+ * caller, so it inherits the same orphan-teardown contract: a cancelled discard
+ * prompt on the previous instrument tears the just-reopened tab down.
+ */
+describe('reopenTabInstrument hosts the reopened tab', () => {
+  beforeEach(() => {
+    confirmCloseTab.mockReset();
+    closeTab.mockReset();
+    closeTab.mockResolvedValue(undefined);
+    activateTab.mockReset();
+    activateTab.mockResolvedValue(undefined);
+    reopenClosedTab.mockReset();
+    reopenClosedTab.mockResolvedValue({ id: 'next', kind: 'web' });
+  });
+
+  it('hosts the reopened tab as the instrument (from the graph, no previous)', async () => {
+    useInstrumentStore.setState({ tabId: null, kind: null });
+
+    await reopenTabInstrument();
+
+    expect(useInstrumentStore.getState().tabId).toBe('next');
+    expect(useInstrumentStore.getState().kind).toBe('web');
+    // Nothing to discard when reopening from the bare graph.
+    expect(closeTab).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the closed-tab stack is empty (null)', async () => {
+    useInstrumentStore.setState({ tabId: null, kind: null });
+    reopenClosedTab.mockResolvedValue(null);
+
+    await reopenTabInstrument();
+
+    expect(useInstrumentStore.getState().tabId).toBeNull();
+    expect(closeTab).not.toHaveBeenCalled();
+  });
+
+  it('tears the just-reopened tab down when the dirty prompt is CANCELLED', async () => {
+    // A dirty previous instrument triggers the discard prompt on the switch.
+    useInstrumentStore.setState({ tabId: 'prev', kind: 'editor' });
+    confirmCloseTab.mockReturnValue(false);
+
+    await reopenTabInstrument();
+
+    // Switch aborted: prev kept, and the freshly-reopened tab is torn down so no
+    // hidden WebContentsView orphan survives.
+    expect(useInstrumentStore.getState().tabId).toBe('prev');
+    expect(closeTab).toHaveBeenCalledWith('next');
   });
 });

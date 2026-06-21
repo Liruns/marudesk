@@ -38,6 +38,7 @@ import {
   windowedFailureCount,
   recoveryHint,
   pickStepNudge,
+  recordTerminalCall,
   type LoopDetectorState,
 } from './loop-detector.ts';
 import {
@@ -1177,10 +1178,28 @@ async function runLoop(opts: RunOpts): Promise<void> {
     // lets a later CLEAN call clear it (regression A) — so in a mixed
     // [failing, clean] shared run the failing call's nudge survives.
     let stepNudge: string | null = null;
+    // A terminal call did NOT run a tool — it was malformed (invalid JSON) or
+    // blocked (deny-list / read-only). The happy-path bookkeeping never sees it,
+    // so without advancing the progress trackers here a model spamming the SAME
+    // malformed/blocked call would never trip the loop detector / failure window
+    // (only the hard step budget would). Advance the failure window + same-input
+    // loop detector (NOT the edit-recording / nested-instruction-claim work,
+    // which needs a tool to have actually run), fold the loop nudge into the step
+    // nudge, and push the terminal part. The meta-tool exclusion mirrors the
+    // happy-path guard (ask_user / spawn_* are legitimately repeatable).
+    const recordTerminal = (call: ToolCall, part: ToolResultPartLite): void => {
+      const excluded =
+        call.name === ASK_USER || call.name === SPAWN_SUBAGENT || call.name === SPAWN_BACKGROUND_AGENT;
+      const r = recordTerminalCall(loopDetector, failureWindow, call.name, call.input, excluded);
+      loopDetector = r.loopDetector;
+      stepNudge = pickStepNudge(stepNudge, r.nudge);
+      toolResultParts.push(part);
+    };
     // Reconcile a settled run in the model's ORIGINAL call order: dispatched
     // calls get their order-sensitive bookkeeping applied here (serially, never
-    // concurrently), terminal parts (invalid JSON / blocked) pass straight
-    // through. Folds each call's nudge into the step nudge as it goes.
+    // concurrently); terminal parts (invalid JSON / blocked) advance the
+    // progress-tracking bookkeeping via {@link recordTerminal}. Folds each call's
+    // nudge into the step nudge as it goes.
     const reconcileRun = async (
       run: readonly ToolCall[],
       settled: ReadonlyMap<string, DispatchedCall | ToolResultPartLite>,
@@ -1189,8 +1208,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
         const entry = settled.get(call.id);
         if (!entry) continue; // unreachable — every call settles below
         if ('type' in entry) {
-          // A terminal part (invalid JSON or blocked): no tool ran, no bookkeeping.
-          toolResultParts.push(entry);
+          // A terminal part (invalid JSON or blocked): no tool ran, but the
+          // progress trackers must still advance so a repeated spam escalates.
+          recordTerminal(call, entry);
           continue;
         }
         const { part, nudge } = await applyBookkeeping(call, entry);
@@ -1239,12 +1259,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
         ci += 1;
         const invalid = interceptInvalidJson(call);
         if (invalid) {
-          toolResultParts.push(invalid);
+          recordTerminal(call, invalid);
           continue;
         }
         const blocked = await preflight(call);
         if (blocked) {
-          toolResultParts.push(blocked);
+          recordTerminal(call, blocked);
           continue;
         }
         const dispatched = await dispatchCleared(call);

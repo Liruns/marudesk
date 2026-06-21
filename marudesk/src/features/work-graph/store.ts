@@ -669,9 +669,30 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     const task = s0.graph?.tasks.find((t) => t.id === id);
     const patch = task?.evidence?.patch;
     if (!task || !patch || !patch.trim()) return;
+    // Cross-workspace guard (DATA INTEGRITY): the apply writes against the ACTIVE
+    // workspace in main. If this task is bound to a *different* workspace, applying
+    // now would write its diff into the wrong repo (git apply --check only rejects
+    // on context drift, so new-file/coincident-context hunks would land silently).
+    // Bail BEFORE invoking. An unbound task (workspaceId undefined) targets the
+    // active workspace by definition, so it proceeds. We still pass the resolved
+    // workspaceId so main can authoritatively re-validate a bridge/CLI caller.
+    const taskWorkspaceId = taskThreadWorkspaceId(id);
+    const activeWorkspaceId = useWorkspaceDeckStore.getState().activeWorkspaceId;
+    if (
+      taskWorkspaceId !== undefined &&
+      activeWorkspaceId !== null &&
+      taskWorkspaceId !== activeWorkspaceId
+    ) {
+      set({ runNote: "Switch to the task's workspace before applying this patch." });
+      return;
+    }
     set({ applyingPatchTaskId: id, runNote: null });
     try {
-      const res = await window.marudesk.invoke('workos:apply-patch', { taskId: id, patch });
+      const res = await window.marudesk.invoke('workos:apply-patch', {
+        taskId: id,
+        patch,
+        workspaceId: taskWorkspaceId,
+      });
       set((s) => {
         if (!res.ok) return { applyingPatchTaskId: null, runNote: res.reason };
         const verdict = res.verdict;
@@ -714,9 +735,11 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       // workspace by definition (same fallback `getCurrentWorkspace` the apply used),
       // so the refresh stays consistent and proceeds.
       if (res.ok) {
-        const taskWorkspaceId = taskThreadWorkspaceId(id);
-        const activeWorkspaceId = useWorkspaceDeckStore.getState().activeWorkspaceId;
-        const sameWorkspace = taskWorkspaceId === undefined || taskWorkspaceId === activeWorkspaceId;
+        // We already bailed above on a task↔active workspace mismatch, so reaching
+        // here means the apply targeted the active workspace — refresh that repo's
+        // Source Control. (taskWorkspaceId/activeWorkspaceId resolved before invoke.)
+        const sameWorkspace =
+          taskWorkspaceId === undefined || taskWorkspaceId === activeWorkspaceId;
         if (sameWorkspace) void useGitStore.getState().refresh();
       }
     } catch {

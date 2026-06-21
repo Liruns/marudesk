@@ -55,13 +55,20 @@ function graphWithPatch(taskId: string, patch: string): WorkGraph {
 }
 
 let applyResult: ApplyPatchResult;
+// Records every workos:apply-patch invocation so a test can assert it fired (and
+// with which payload) — or, for the cross-workspace bail, that it never fired.
+let applyPatchCalls: { taskId: string; patch: string; workspaceId?: WorkspaceId }[];
 
 beforeEach(() => {
+  applyPatchCalls = [];
   // The store modules expect a window.marudesk bridge; route apply-patch to the
   // per-test `applyResult` and stub the rest of the surface refresh() touches.
   (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
-    invoke: async (channel: string) => {
-      if (channel === 'workos:apply-patch') return applyResult;
+    invoke: async (channel: string, payload?: unknown) => {
+      if (channel === 'workos:apply-patch') {
+        applyPatchCalls.push(payload as { taskId: string; patch: string; workspaceId?: WorkspaceId });
+        return applyResult;
+      }
       if (channel === 'git:available') return { installed: false };
       return undefined;
     },
@@ -132,5 +139,58 @@ describe('useWorkGraphStore.applyPatch', () => {
     await useWorkGraphStore.getState().applyPatch('t4');
 
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('does NOT invoke apply-patch when the task workspace differs from the active one (data-integrity bail)', async () => {
+    applyResult = { ok: true, changedFiles: ['src/a.ts'], verdict: 'pass' };
+    useGitStore.setState({ refresh: vi.fn(async () => {}) });
+    taskWorkspace = 'ws-A' as WorkspaceId;
+    useWorkspaceDeckStore.setState({ activeWorkspaceId: 'ws-B' as WorkspaceId });
+    useWorkGraphStore.setState({
+      graph: graphWithPatch('t5', 'diff --git a b\n'),
+      applyingPatchTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().applyPatch('t5');
+
+    // The write never fired against the wrong (active) repo, and the user is told.
+    expect(applyPatchCalls).toHaveLength(0);
+    expect(useWorkGraphStore.getState().runNote).toBe(
+      "Switch to the task's workspace before applying this patch.",
+    );
+  });
+
+  it('invokes apply-patch with the task workspaceId when it matches the active one', async () => {
+    applyResult = { ok: true, changedFiles: ['src/a.ts'], verdict: 'pass' };
+    useGitStore.setState({ refresh: vi.fn(async () => {}) });
+    const ws = 'ws-A' as WorkspaceId;
+    taskWorkspace = ws;
+    useWorkspaceDeckStore.setState({ activeWorkspaceId: ws });
+    useWorkGraphStore.setState({
+      graph: graphWithPatch('t6', 'diff --git a b\n'),
+      applyingPatchTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().applyPatch('t6');
+
+    expect(applyPatchCalls).toHaveLength(1);
+    expect(applyPatchCalls[0].taskId).toBe('t6');
+    expect(applyPatchCalls[0].workspaceId).toBe(ws);
+  });
+
+  it('invokes apply-patch with an undefined workspaceId for an unbound task', async () => {
+    applyResult = { ok: true, changedFiles: ['src/a.ts'], verdict: 'pass' };
+    useGitStore.setState({ refresh: vi.fn(async () => {}) });
+    taskWorkspace = undefined; // unbound → targets the active workspace
+    useWorkspaceDeckStore.setState({ activeWorkspaceId: 'ws-B' as WorkspaceId });
+    useWorkGraphStore.setState({
+      graph: graphWithPatch('t7', 'diff --git a b\n'),
+      applyingPatchTaskId: null,
+    });
+
+    await useWorkGraphStore.getState().applyPatch('t7');
+
+    expect(applyPatchCalls).toHaveLength(1);
+    expect(applyPatchCalls[0].workspaceId).toBeUndefined();
   });
 });

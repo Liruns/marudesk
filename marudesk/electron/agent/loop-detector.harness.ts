@@ -8,6 +8,7 @@ import {
   windowedFailureCount,
   recoveryHint,
   pickStepNudge,
+  recordTerminalCall,
   LOOP_DETECTOR_THRESHOLD,
   LOOP_DETECTOR_CYCLE_MIN,
   FAILURE_WINDOW_SIZE,
@@ -295,6 +296,68 @@ import {
   // gone), where WITHOUT the reset it would have been the threshold-th call.
   const firstAfter = recordToolCall(afterFailover, 'read_file', { path: 'README.md' });
   check('failover: a single post-swap call does not trip on stale counts', !firstAfter.tripped);
+}
+
+/* ── terminal calls (no tool ran): repeated blocked/malformed spam escalates ── */
+{
+  // Regression (R8 dispatch split): invalid-JSON and deny-list/read-only-blocked
+  // tool calls bypassed the loop detector + failure window, so a model spamming
+  // the SAME malformed/blocked call never tripped the circuit breaker — only the
+  // 80-step turn limit caught the spin. recordTerminalCall advances BOTH trackers
+  // for a no-tool-ran call so identical terminal signatures escalate.
+  let state: LoopDetectorState = emptyLoopDetectorState();
+  const window: number[] = [];
+  const trips: number[] = [];
+  // N identical BLOCKED calls (same name + args each time) feed the detector.
+  for (let i = 1; i <= LOOP_DETECTOR_THRESHOLD + 1; i++) {
+    const r = recordTerminalCall(state, window, 'edit_file', { path: 'locked.ts' }, false);
+    state = r.loopDetector;
+    if (r.nudge !== null) trips.push(i);
+  }
+  check('terminal: repeated blocked calls trip the loop detector exactly once', trips.length === 1);
+  check('terminal: repeated blocked calls trip at the threshold', trips[0] === LOOP_DETECTOR_THRESHOLD);
+  // Every terminal call is a failure, so the window fills with failures (capped).
+  check(
+    'terminal: each blocked call counts as a failure in the window',
+    windowedFailureCount(window) === Math.min(LOOP_DETECTOR_THRESHOLD + 1, FAILURE_WINDOW_SIZE),
+  );
+}
+
+/* ── terminal calls: the failure window escalates recovery for malformed spam ── */
+{
+  // A repeated malformed call also drives the windowed recovery signal: once
+  // enough of the window is failing, recoveryHint escalates even though no tool
+  // ran. This proves the failure-window bookkeeping is wired, not just the loop
+  // detector. (The loop detector is exercised above.)
+  let state: LoopDetectorState = emptyLoopDetectorState();
+  const window: number[] = [];
+  let escalatedAt = -1;
+  for (let i = 0; i < WINDOWED_FAILURE_THRESHOLD; i++) {
+    state = recordTerminalCall(state, window, 'run_command', { cmd: '{bad json' }, false).loopDetector;
+    if (recoveryHint('run_command', 1, windowedFailureCount(window)) !== null && escalatedAt === -1) {
+      escalatedAt = i;
+    }
+  }
+  check('terminal: malformed spam escalates the windowed recovery signal', escalatedAt !== -1);
+  check('terminal: windowed recovery escalates at the failure threshold', escalatedAt === WINDOWED_FAILURE_THRESHOLD - 1);
+}
+
+/* ── terminal calls: meta-tools (ask_user / spawn_*) are excluded from looping ── */
+{
+  // ask_user / spawn_* are legitimately repeatable, so even a blocked one must NOT
+  // feed the loop detector (mirroring the happy-path guard). It still counts as a
+  // failure in the window (something was blocked) but never trips the detector.
+  let state: LoopDetectorState = emptyLoopDetectorState();
+  const window: number[] = [];
+  let everTripped = false;
+  for (let i = 0; i < LOOP_DETECTOR_THRESHOLD + 3; i++) {
+    const r = recordTerminalCall(state, window, 'ask_user', { question: 'same?' }, true);
+    state = r.loopDetector;
+    everTripped = everTripped || r.nudge !== null;
+  }
+  check('terminal: an excluded meta-tool never trips the loop detector', !everTripped);
+  check('terminal: the detector state is untouched for an excluded call', state.count === 0 && state.lastSignature === '');
+  check('terminal: an excluded call still records failures in the window', windowedFailureCount(window) === FAILURE_WINDOW_SIZE);
 }
 
 console.log(`\n${passedCount()} checks passed`);

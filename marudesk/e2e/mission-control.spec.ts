@@ -147,6 +147,47 @@ test('mission control: the ⌘K palette runs an action verb (Toggle Flight Log)'
   }
 });
 
+test('mission control: reopening a closed tab hosts it as a visible instrument', async () => {
+  const { app, page } = await launchApp();
+  try {
+    // Seed a web tab straight through the tabs IPC (NOT the instrument store), then
+    // host it via the tab switcher — the proven path in tab-palette.spec. about:blank
+    // is recorded on close (only maru://newtab is skipped), so it becomes reopenable.
+    const id = await page.evaluate(() =>
+      window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: 'about:blank' }),
+    );
+    expect(typeof id).toBe('string');
+
+    // Host the seeded tab as the full-area instrument by picking it in the tab
+    // switcher (Ctrl/Cmd+Shift+A). Typing also waits out the browser:tabs-new
+    // coalesced push, so the matching row is present before Enter (no empty-results
+    // race where Enter would be a no-op).
+    await page.keyboard.press('Control+Shift+A');
+    const switcher = page.getByRole('dialog', { name: 'Search tabs' });
+    await expect(switcher).toBeVisible();
+    await page.keyboard.type('blank');
+    await expect(switcher.getByText('about:blank').first()).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('instrument-kind')).toHaveText('Web');
+
+    // "Graph" closes the hosted tab (recording it on the closed-tab stack) and
+    // returns to the work graph — no instrument is hosted now.
+    await page.getByRole('button', { name: 'Graph' }).click();
+    await expect(page.locator('[data-stage="workgraph"]')).toBeVisible();
+    await expect(page.getByTestId('instrument-kind')).toHaveCount(0);
+
+    // The ⌘K "Reopen Closed Tab" command must REOPEN the web tab AND host it as the
+    // full-area instrument (before the fix it reopened in main but was never hosted,
+    // so a native view painted over the graph with no chrome). The "Graph" back
+    // affordance confirms the instrument chrome is present.
+    await runCommand(page, 'Reopen Closed Tab');
+    await expect(page.getByTestId('instrument-kind')).toHaveText('Web');
+    await expect(page.getByRole('button', { name: 'Graph' })).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
 test('mission control: Ctrl+N opens a visible editor instrument (no orphan tab)', async () => {
   const { app, page } = await launchApp();
   try {

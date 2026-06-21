@@ -232,7 +232,11 @@ export interface IpcMap {
     result: string | null;
   };
   'browser:tabs-close': { args: [id: string]; result: boolean };
-  'browser:tabs-reopen': { args: []; result: boolean };
+  // Reopen the most recently closed tab. Returns the reopened tab's id + kind so
+  // a Mission Control caller can host it as the full-area instrument (the reopened
+  // tab is otherwise unhosted — a web view paints over the graph with no chrome,
+  // an editor is invisible). null when the closed-tab stack is empty.
+  'browser:tabs-reopen': { args: []; result: { id: string; kind: TabKind } | null };
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };

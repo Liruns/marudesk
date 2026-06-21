@@ -56,7 +56,25 @@ async function main(): Promise<void> {
     check('fixture: captured a non-empty diff', diff.includes('TWO'));
     check('fixture: working tree reverted to clean before apply', readFileSync(path.join(repo, 'app.txt'), 'utf8') === 'one\ntwo\nthree\n');
 
-    /* ── 1. a clean diff applies to the live workspace ────────────────────── */
+    /* ── 0. a workspaceId that differs from the active workspace is REJECTED ─
+       DATA-INTEGRITY guard: a task bound to a different workspace must never
+       have its diff written into the active repo. The harness fixture sets
+       `currentWorkspace` but no active record, so getActiveWorkspaceId() is the
+       SYSTEM fallback ('system'); any other workspaceId is therefore a mismatch.
+       The apply must bail BEFORE touching the file. */
+    const mismatch = await applyTaskPatch({ taskId: 't1', patch: diff, workspaceId: 'other-workspace' });
+    check('mismatched workspaceId → ok:false (apply rejected)', mismatch.ok === false);
+    check('mismatched workspaceId left the live file untouched', readFileSync(path.join(repo, 'app.txt'), 'utf8') === 'one\ntwo\nthree\n');
+
+    /* A workspaceId that MATCHES the active workspace ('system' fallback here)
+       applies exactly as before — the guard only rejects a true mismatch. Revert
+       afterwards so the omitted-workspaceId case below starts from a clean tree. */
+    const matched = await applyTaskPatch({ taskId: 't1', patch: diff, workspaceId: 'system' });
+    check('matching workspaceId applies (ok:true)', matched.ok === true);
+    check('matching workspaceId landed the edit', readFileSync(path.join(repo, 'app.txt'), 'utf8') === 'one\nTWO\nthree\n');
+    await git(repo, ['checkout', '--', 'app.txt']);
+
+    /* ── 1. a clean diff applies to the live workspace (workspaceId omitted) ─ */
     const res = await applyTaskPatch({ taskId: 't1', patch: diff });
     check('apply: ok', res.ok === true);
     check('apply: changedFiles names app.txt', res.ok === true && res.changedFiles.includes('app.txt'));

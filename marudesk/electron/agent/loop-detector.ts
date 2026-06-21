@@ -290,3 +290,49 @@ export function pickStepNudge(
 ): string | null {
   return callNudge ?? prevStepNudge;
 }
+
+/* ── Terminal-call (no-tool-ran) progress bookkeeping ──────────────────────── */
+
+/** The advanced detector state + the loop nudge (if it tripped) for a terminal call. */
+export type TerminalCallResult = {
+  /** The advanced loop-detector state (caller assigns it back). */
+  loopDetector: LoopDetectorState;
+  /** The loop-detector nudge when the repeated terminal call tripped, else null. */
+  nudge: string | null;
+};
+
+/**
+ * Advance the progress-tracking bookkeeping for a TERMINAL tool call — one that
+ * did NOT run a tool because it was malformed (invalid JSON) or blocked
+ * (deny-list / read-only). The happy path ({@link recordFailureWindow} +
+ * {@link recordToolCall}) only sees calls that actually dispatched, so without
+ * this a model spamming the SAME malformed/blocked call never advances the
+ * failure window or the same-input loop detector and never trips the circuit
+ * breaker until the hard step-budget cutoff.
+ *
+ * A terminal call is always a failure (nothing succeeded), so it always pushes
+ * `1` onto the sliding failure window. Its signature feeds the same-input loop
+ * detector exactly as a real call would (identical signatures escalate), unless
+ * `excluded` is set — meta-tools (ask_user / spawn_*) are legitimately repeatable
+ * and excluded from the detector, mirroring the happy-path guard. The resulting
+ * loop nudge is returned for the caller to fold into the step nudge.
+ *
+ * Pure + dependency-free (mutates only the passed window array); harnesses
+ * standalone. Mirrors the failure-window + loop-detector half of the dispatched
+ * call's bookkeeping while SKIPPING the parts that need a tool to have actually
+ * run (edit recording, nested-instruction claims) — nothing ran here.
+ */
+export function recordTerminalCall(
+  loopDetector: LoopDetectorState,
+  failureWindow: number[],
+  name: string,
+  input: unknown,
+  excluded: boolean,
+): TerminalCallResult {
+  // A terminal call failed (no tool ran), so it always counts against the window.
+  recordFailureWindow(failureWindow, true);
+  if (excluded) return { loopDetector, nudge: null };
+  const ld = recordToolCall(loopDetector, name, input);
+  const nudge = ld.tripped && ld.toolName ? loopDetectorNudge(ld.toolName, ld.repeatedCount, ld.kind) : null;
+  return { loopDetector: ld.state, nudge };
+}

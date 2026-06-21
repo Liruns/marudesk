@@ -9,6 +9,8 @@ import type {
 import type { Task } from '../../../shared/work-os';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { Badge, Spinner } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { cn } from '../../lib/cn';
 import { PaletteOverlay } from '../commands/PaletteOverlay';
 import { isBusy } from '../agent/chat/format';
@@ -34,13 +36,13 @@ const STATUS_BADGE: Record<Task['status'], 'neutral' | 'accent' | 'success' | 'w
   failed: 'error',
 };
 
-const STATUS_LABEL: Record<Task['status'], string> = {
-  planned: 'Planned',
-  running: 'Running',
-  done: 'Done',
-  blocked: 'Blocked',
-  needs_review: 'Review',
-  failed: 'Failed',
+const STATUS_LABEL_KEY: Record<Task['status'], TranslationKey> = {
+  planned: 'flightLog.status.planned',
+  running: 'flightLog.status.running',
+  done: 'flightLog.status.done',
+  blocked: 'flightLog.status.blocked',
+  needs_review: 'flightLog.status.needsReview',
+  failed: 'flightLog.status.failed',
 };
 
 /** Cap a single message preview so one long answer can't dominate the log. */
@@ -58,6 +60,7 @@ function messageText(m: AgentMessage): string {
 
 /** Title-bar trigger; only present once a flight (graph) exists. */
 export function FlightLogButton() {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const open = useFlightLogStore((s) => s.open);
   const toggle = useFlightLogStore((s) => s.toggle);
@@ -67,9 +70,9 @@ export function FlightLogButton() {
       type="button"
       data-tour="flight-log"
       onClick={toggle}
-      aria-label="Flight log"
+      aria-label={t('flightLog.title')}
       aria-pressed={open}
-      title="Flight log — every task's conversation"
+      title={t('command.toggleFlightLog.hint')}
       className={cn(
         'no-drag inline-flex h-6 items-center justify-center rounded-md px-1.5',
         'text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-secondary',
@@ -91,6 +94,7 @@ export function FlightLog() {
 }
 
 function FlightLogBody({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -150,16 +154,19 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <PaletteOverlay ariaLabel="Flight log" onClose={onClose} className="max-w-2xl">
+    <PaletteOverlay ariaLabel={t('flightLog.title')} onClose={onClose} className="max-w-2xl">
         <header className="flex items-center gap-2 border-b border-subtle px-4 py-3">
           <MessagesSquare size={15} className="text-accent" />
-          <h2 className="text-body-sm font-medium text-fg-primary">Flight log</h2>
+          <h2 className="text-body-sm font-medium text-fg-primary">{t('flightLog.title')}</h2>
           <span className="text-caption text-fg-tertiary">
-            {convos.length} {convos.length === 1 ? 'conversation' : 'conversations'}
+            {t(convos.length === 1 ? 'flightLog.count.one' : 'flightLog.count.other').replace(
+              '{n}',
+              String(convos.length),
+            )}
           </span>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t('flightLog.close')}
             onClick={onClose}
             className="ml-auto grid h-6 w-6 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
           >
@@ -174,7 +181,7 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
             </div>
           ) : convos.length === 0 ? (
             <p className="px-3 py-10 text-center text-caption text-fg-tertiary">
-              No task conversations yet. Select a task and start talking to it.
+              {t('flightLog.empty')}
             </p>
           ) : (
             <ul className="flex flex-col gap-1">
@@ -191,7 +198,7 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
                         aria-expanded={isOpen}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                       >
-                        <Badge variant={STATUS_BADGE[c.task.status]}>{STATUS_LABEL[c.task.status]}</Badge>
+                        <Badge variant={STATUS_BADGE[c.task.status]}>{t(STATUS_LABEL_KEY[c.task.status])}</Badge>
                         <span className="truncate text-body-sm text-fg-primary">{c.task.title}</span>
                         <span className="shrink-0 text-caption tabular-nums text-fg-tertiary">{messages.length} msg</span>
                         {state && isBusy(state.status) ? <Spinner size={11} /> : null}
@@ -209,7 +216,7 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
                     {isOpen ? (
                       <div className="space-y-2 border-t border-subtle px-3 py-2">
                         {messages.length === 0 ? (
-                          <p className="text-caption text-fg-tertiary">No messages yet.</p>
+                          <p className="text-caption text-fg-tertiary">{t('flightLog.noMessages')}</p>
                         ) : (
                           messages.map((m) => {
                             const text = messageText(m);
@@ -223,7 +230,7 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
                                     m.role === 'user' ? 'text-accent' : 'text-fg-secondary',
                                   )}
                                 >
-                                  {m.role === 'user' ? 'You' : 'Agent'}
+                                  {m.role === 'user' ? t('flightLog.role.you') : t('flightLog.role.agent')}
                                 </span>
                                 <span className="whitespace-pre-wrap break-words text-fg-secondary">{clipped}</span>
                               </p>

@@ -75,7 +75,12 @@ async function openResource(r: Resource, workspaceId?: WorkspaceId): Promise<voi
   }
   if (kind && id) {
     await useTabsStore.getState().activateTab(id);
-    useInstrumentStore.getState().open(id, kind);
+    // A cancelled dirty-editor prompt keeps the previous instrument and rejects
+    // this id — close the resource tab we just created so it doesn't leak as a
+    // hidden orphan (live WebContentsView that can never be torn down).
+    if (!useInstrumentStore.getState().open(id, kind)) {
+      await useTabsStore.getState().closeTab(id);
+    }
   } else {
     toast({ title: 'No opener for this resource type', variant: 'warning' });
   }

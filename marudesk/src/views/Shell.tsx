@@ -5,7 +5,7 @@ import { useGridStore } from '../features/tabs/grid';
 import { WorkGraphStage } from '../features/work-graph/WorkGraphStage';
 import { InstrumentDock } from '../features/work-graph/InstrumentDock';
 import { InstrumentStage } from '../features/work-graph/InstrumentStage';
-import { openInstrument, useInstrumentStore } from '../features/work-graph/instrument';
+import { openInstrument, reopenTabInstrument, useInstrumentStore } from '../features/work-graph/instrument';
 import { useWorkspaceDeckStore } from '../features/workspaces/store';
 import { EvidenceStrip } from '../features/work-graph/EvidenceStrip';
 import { FlightLog } from '../features/work-graph/FlightLog';
@@ -172,7 +172,7 @@ export function Shell() {
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 't') {
         e.preventDefault();
-        void useTabsStore.getState().reopenClosedTab();
+        void reopenTabInstrument();
         return;
       }
       // Library panel (Bookmarks | History) — Ctrl/Cmd+Shift+O (Chrome's

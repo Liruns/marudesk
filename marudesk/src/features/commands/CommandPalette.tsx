@@ -3,11 +3,10 @@ import { Code2, Command, Compass, CornerUpLeft, FolderTree, GitBranch, Globe, Me
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
-import { openInstrument, useInstrumentStore } from '../work-graph/instrument';
+import { openInstrument, reopenTabInstrument, useInstrumentStore } from '../work-graph/instrument';
 import { openSettingsTab } from '../settings/store';
 import { useFlightLogStore } from '../work-graph/flight-log-store';
 import { useWorkGraphStore } from '../work-graph/store';
-import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useTourStore } from '../tour/tourStore';
 import { useCommandPaletteStore } from './command-palette-store';
@@ -138,7 +137,7 @@ const COMMANDS: Cmd[] = [
     hintKey: 'command.reopenTab.hint',
     icon: RotateCcw,
     group: 'action',
-    run: () => useTabsStore.getState().reopenClosedTab(),
+    run: () => reopenTabInstrument(),
   },
   {
     id: 'toggle-flight-log',
