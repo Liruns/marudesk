@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -71,5 +72,57 @@ test('Files instrument reflects the active workspace and opening a file hosts th
   } finally {
     await app.close();
     await fs.rm(base, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Source Control's create-branch flow is driven entirely in-app (the native
+ * window.prompt it used to raise can't be driven by Playwright). Opening the
+ * branch switcher → "Create branch…" reveals a tokenized inline prompt; filling
+ * it and submitting creates + checks out the branch, which the switcher reflects.
+ */
+test('Source Control creates a branch via the in-app prompt (no native dialog)', async () => {
+  const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-sc-branch-'));
+  const git = (args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 't@t']);
+  git(['config', 'user.name', 't']);
+  git(['config', 'commit.gpgsign', 'false']);
+  git(['commit', '--allow-empty', '-m', 'init']);
+
+  const { app, page } = await launchApp();
+  try {
+    await page.evaluate(async (root) => {
+      const rec = await window.marudesk.invoke('workspaces:create', {
+        name: 'RepoWS',
+        roots: [{ name: 'Root', path: root }],
+      });
+      await window.marudesk.invoke('workspaces:set-active', { workspaceId: rec.id });
+    }, repo);
+
+    await runCommand(page, 'Source Control');
+    const panel = page.getByRole('complementary', { name: 'Source Control' });
+    await expect(panel).toBeVisible();
+    const switcher = panel.getByTestId('git-branch-switcher');
+    // Current branch is shown before we switch.
+    await expect(switcher).toContainText('main');
+
+    // Open the branch switcher and pick "Create branch…".
+    await switcher.click();
+    await page.getByRole('menuitem', { name: 'Create branch…' }).click();
+
+    // The in-app prompt (not a native dialog) accepts the new name and submits.
+    const prompt = page.getByTestId('git-branch-prompt');
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole('textbox').fill('feature/in-app');
+    await prompt.getByRole('button', { name: 'Create' }).click();
+
+    // The switcher now reflects the freshly created + checked-out branch, and the
+    // prompt has dismissed itself.
+    await expect(switcher).toContainText('feature/in-app');
+    await expect(prompt).toBeHidden();
+  } finally {
+    await app.close();
+    await fs.rm(repo, { recursive: true, force: true });
   }
 });

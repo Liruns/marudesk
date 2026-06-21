@@ -74,6 +74,14 @@ function readWidth(): number {
 type DiffTarget = { path: string; staged: boolean };
 
 /**
+ * A pending destructive action awaiting in-app confirmation. `message` is the
+ * already-localized body copy; `run` fires when the user confirms. Replaces the
+ * native window.confirm calls so the prompt stays inside the tokenized panel
+ * (and becomes driveable in tests).
+ */
+type ConfirmRequest = { message: string; run: () => void };
+
+/**
  * Left-hand Source Control sidebar — a VSCode-style git panel for the open
  * workspace. Header carries the branch name + fetch/sync; below it a commit
  * box, then Staged / Changes / Untracked sections (each row has stage/unstage/
@@ -129,6 +137,10 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
   const [stashMessage, setStashMessage] = useState('');
   const [diff, setDiff] = useState<DiffTarget | null>(null);
   const [branchMenu, setBranchMenu] = useState<{ x: number; y: number } | null>(null);
+  // In-app overlays replacing native window.prompt / window.confirm.
+  const [branchPromptOpen, setBranchPromptOpen] = useState(false);
+  const [branchName, setBranchName] = useState('');
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
 
   // Refresh status whenever the panel transitions to open (VSCode refreshes the
   // SCM view on focus) OR the active workspace root changes under it (profile /
@@ -197,27 +209,34 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
     }
   };
 
+  const onCreateBranch = async () => {
+    const name = branchName.trim();
+    if (!name) return;
+    await createBranch(name);
+    setBranchName('');
+    setBranchPromptOpen(false);
+  };
+
   const onStashDrop = (ref: string) => {
-    if (window.confirm(t('git.stash.dropConfirm'))) void stashDrop(ref);
+    setConfirmRequest({ message: t('git.stash.dropConfirm'), run: () => void stashDrop(ref) });
   };
 
   const onConflictAbort = () => {
-    if (window.confirm(t('git.conflict.abortConfirm'))) void conflictAbort();
+    setConfirmRequest({ message: t('git.conflict.abortConfirm'), run: () => void conflictAbort() });
   };
 
   const onDiscard = (paths: string[], label: string) => {
     if (paths.length === 0) return;
-    const ok = window.confirm(
+    const message =
       paths.length === 1
         ? `${t('git.confirm.discardOneBefore')}"${label}"${t('git.confirm.discardOneAfter')}`
-        : `${t('git.confirm.discardManyBefore')}${paths.length}${t('git.confirm.discardManyAfter')}`,
-    );
-    if (ok) void discard(paths);
+        : `${t('git.confirm.discardManyBefore')}${paths.length}${t('git.confirm.discardManyAfter')}`;
+    setConfirmRequest({ message, run: () => void discard(paths) });
   };
 
-  const onCreateBranch = () => {
-    const name = window.prompt(t('git.branch.newPrompt'))?.trim();
-    if (name) void createBranch(name);
+  const onRequestCreateBranch = () => {
+    setBranchName('');
+    setBranchPromptOpen(true);
   };
 
   // The branch switcher: every local branch (current marked), then "Create
@@ -231,7 +250,7 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
     }));
     items.push(
       { type: 'separator' },
-      { label: t('git.branch.create'), icon: <Plus size={14} />, onSelect: onCreateBranch },
+      { label: t('git.branch.create'), icon: <Plus size={14} />, onSelect: onRequestCreateBranch },
     );
     return items;
   };
@@ -307,6 +326,7 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
             <div className="shrink-0 flex items-center gap-1.5 px-3 h-8 border-b border-subtle">
               <button
                 type="button"
+                data-testid="git-branch-switcher"
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   setBranchMenu({ x: r.left, y: r.bottom + 4 });
@@ -470,6 +490,50 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
                   )}
                 >
                   <Archive size={13} /> {t('git.stash.save')}
+                </button>
+              </div>
+            ) : null}
+
+            {/* inline create-branch prompt — mirrors the stash prompt above so the
+                flow stays inside the tokenized panel instead of a native dialog. */}
+            {branchPromptOpen ? (
+              <div
+                data-testid="git-branch-prompt"
+                className="shrink-0 flex items-center gap-1.5 p-2 border-b border-subtle"
+              >
+                <input
+                  value={branchName}
+                  onChange={(e) => setBranchName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void onCreateBranch();
+                    } else if (e.key === 'Escape') {
+                      setBranchPromptOpen(false);
+                    }
+                  }}
+                  placeholder={t('git.branch.newPlaceholder')}
+                  spellCheck={false}
+                  autoFocus
+                  className={cn(
+                    'min-w-0 flex-1 h-7 rounded border border-subtle bg-surface-2 px-2',
+                    'text-body-sm text-fg-primary placeholder:text-fg-tertiary',
+                    'focus:outline-none focus:border-accent',
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={() => void onCreateBranch()}
+                  disabled={busy || branchName.trim().length === 0}
+                  className={cn(
+                    'shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-body-sm font-medium',
+                    'transition-colors duration-fast',
+                    !busy && branchName.trim().length > 0
+                      ? 'bg-accent text-white hover:bg-accent-hover'
+                      : 'bg-surface-2 text-fg-tertiary cursor-not-allowed',
+                  )}
+                >
+                  <GitBranch size={13} /> {t('git.branch.createSubmit')}
                 </button>
               </div>
             ) : null}
@@ -769,6 +833,52 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
           items={branchMenuItems()}
           onClose={() => setBranchMenu(null)}
         />
+      ) : null}
+
+      {/* Tokenized confirm overlay — replaces native window.confirm for the
+          destructive flows (discard / stash drop / conflict abort). */}
+      {confirmRequest ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={confirmRequest.message}
+          data-testid="git-confirm"
+          className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-3"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setConfirmRequest(null);
+          }}
+        >
+          <div className="w-full max-w-xs rounded-lg border border-default bg-surface-1 p-3 shadow-lifted">
+            <p className="text-body-sm text-fg-primary">{confirmRequest.message}</p>
+            <div className="mt-3 flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setConfirmRequest(null)}
+                className={cn(
+                  'h-7 px-2.5 rounded text-body-sm font-medium transition-colors duration-fast',
+                  'bg-surface-3 text-fg-secondary hover:bg-surface-1',
+                )}
+              >
+                {t('git.common.cancel')}
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  const { run } = confirmRequest;
+                  setConfirmRequest(null);
+                  run();
+                }}
+                className={cn(
+                  'h-7 px-2.5 rounded text-body-sm font-medium transition-colors duration-fast',
+                  'bg-error text-white hover:bg-error/90',
+                )}
+              >
+                {t('git.common.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </aside>
   );

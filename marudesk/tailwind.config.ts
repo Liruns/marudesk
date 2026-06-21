@@ -101,6 +101,7 @@ const config: Config = {
       // store) scales the whole type ramp. Values equal the prior px at the
       // 16px baseline, so 100% zoom is pixel-identical to before.
       fontSize: {
+        kbd: ['0.625rem', { lineHeight: '1.5' }],
         caption: ['0.75rem', { lineHeight: '1.40', letterSpacing: '0.2px' }],
         'body-sm': ['0.8125rem', { lineHeight: '1.45', letterSpacing: '0.1px' }],
         body: ['0.875rem', { lineHeight: '1.55' }],

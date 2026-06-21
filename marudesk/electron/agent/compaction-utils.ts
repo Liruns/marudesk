@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai';
+import { toolCallSignature } from './loop-detector.ts';
 
 /**
  * Pure transcript helpers for `/compact` (claude-code / codex parity), split out
@@ -141,10 +142,43 @@ const PRUNE_MIN_SAVINGS_CHARS = 4000;
 /** Outputs already this short are never worth pruning. */
 const PRUNE_DIGEST_CHARS = 120;
 
-/** Tool results whose textual output is eligible for pruning when superseded. */
-const PRUNABLE_TOOL_NAMES: ReadonlySet<string> = new Set(['read_file', 'grep', 'run_diagnostics']);
+/**
+ * Built-in tool results whose textual output is eligible for pruning when
+ * superseded. Beyond the original three (read_file / grep / run_diagnostics),
+ * this now covers the repeatable read/web tools that {@link toolTargetKey} gives
+ * a stable target key — a later fetch of the same url, search of the same query,
+ * or read of the same network scope supersedes the earlier bulky payload. External
+ * MCP/plugin tools are not listed here (their names are dynamic); they are gated
+ * by {@link isExternalToolName} instead — see {@link isPrunableToolName}.
+ */
+const PRUNABLE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'read_file',
+  'grep',
+  'run_diagnostics',
+  'fetch_url',
+  'web_search',
+  'read_network',
+  'read_network_body',
+]);
 /** Tools whose calls mark a file as edited (invalidating earlier reads of it). */
 const EDIT_TOOL_NAMES: ReadonlySet<string> = new Set(['edit_file', 'multi_edit']);
+
+/**
+ * Whether a tool name is an external MCP / plugin tool. Both namespacing schemes
+ * embed a `__` separator — MCP servers expose `${serverId}__${tool}` and plugins
+ * `plugin:${pluginId}__${tool}` (shared/plugin.ts `pluginToolName`) — and no
+ * built-in tool name contains `__`, so the substring is a reliable marker. These
+ * tools are treated as repeatable lookups: an identical call (same name + input)
+ * supersedes earlier ones via {@link toolTargetKey}.
+ */
+function isExternalToolName(toolName: string): boolean {
+  return toolName.includes('__');
+}
+
+/** Whether a tool result is prunable-when-superseded: a known builtin or an external tool. */
+function isPrunableToolName(toolName: string): boolean {
+  return PRUNABLE_TOOL_NAMES.has(toolName) || isExternalToolName(toolName);
+}
 
 /** Minimal structural views of the AI SDK content parts we read here. */
 type ToolCallPart = { type: 'tool-call'; toolCallId: string; toolName: string; input?: unknown };
@@ -216,11 +250,17 @@ function prunedNotice(toolName: string, value: string, chars: number): string {
 
 /**
  * Stable identity for "the same logical lookup" so a later result supersedes
- * earlier ones: `read_file` keys on its path, `grep` on its pattern. Canonical
- * JSON tuples so user text can't collide via delimiter ambiguity. Returns
- * undefined for tools we don't supersede by target.
+ * earlier ones: `read_file` keys on its path, `grep` on its pattern, the
+ * repeatable web/read tools on their natural target (url / query / network
+ * scope / requestId), and any external MCP/plugin tool on its name + canonical
+ * input. Canonical JSON tuples so user text can't collide via delimiter
+ * ambiguity. Returns undefined for tools we don't supersede by target.
  */
 function toolTargetKey(toolName: string, input: unknown): string | undefined {
+  // External MCP/plugin tools: a repeat of the SAME call (same name + same
+  // input, key-order-insensitive) is a redundant lookup. Reuse loop-detector's
+  // canonical signature (`name::<sorted-json>`) so `{a,b}` and `{b,a}` collide.
+  if (isExternalToolName(toolName)) return toolCallSignature(toolName, input);
   if (!isRecord(input)) return undefined;
   if (toolName === 'read_file') {
     const path = input.path;
@@ -240,6 +280,33 @@ function toolTargetKey(toolName: string, input: unknown): string | undefined {
     const path = input.path;
     const scope = typeof path === 'string' && path.length > 0 ? path : '';
     return JSON.stringify(['run_diagnostics', 'path', scope]);
+  }
+  if (toolName === 'fetch_url') {
+    const url = input.url;
+    return typeof url === 'string' && url.length > 0
+      ? JSON.stringify(['fetch_url', 'url', url])
+      : undefined;
+  }
+  if (toolName === 'web_search') {
+    const query = input.query;
+    return typeof query === 'string' && query.length > 0
+      ? JSON.stringify(['web_search', 'query', query])
+      : undefined;
+  }
+  if (toolName === 'read_network') {
+    // A network listing keyed on its filter scope: a later read of the same
+    // `urlFilter` supersedes the earlier snapshot. '' is the canonical "no
+    // filter" (whole-capture) scope.
+    const urlFilter = input.urlFilter;
+    const scope = typeof urlFilter === 'string' && urlFilter.length > 0 ? urlFilter : '';
+    return JSON.stringify(['read_network', 'urlFilter', scope]);
+  }
+  if (toolName === 'read_network_body') {
+    // Keyed on the requestId it fetches: re-fetching the same body supersedes.
+    const requestId = input.requestId;
+    return typeof requestId === 'string' && requestId.length > 0
+      ? JSON.stringify(['read_network_body', 'requestId', requestId])
+      : undefined;
   }
   return undefined;
 }
@@ -361,8 +428,9 @@ export function pruneStaleToolOutputsInHead(
   // UNLESS it is stale — so the latest read of each file (never stale) is always
   // kept, while a superseded/edit-invalidated read is prunable even inside the
   // recency protect window. The window itself only skips NON-stale results; for
-  // our prunable set (read_file/grep/run_diagnostics) tool-immunity already
-  // covers the non-stale case, so in practice only stale outputs are pruned.
+  // our prunable set (read_file/grep/run_diagnostics/fetch_url/web_search/
+  // read_network*/external MCP+plugin tools) tool-immunity already covers the
+  // non-stale case, so in practice only stale outputs are pruned.
   type Candidate = { ref: ResultRef; savings: number; notice: string };
   const candidates: Candidate[] = [];
   let accChars = 0;
@@ -373,7 +441,7 @@ export function pruneStaleToolOutputsInHead(
     const insideProtectWindow = accChars < PRUNE_PROTECT_CHARS;
     accChars += chars;
 
-    if (!PRUNABLE_TOOL_NAMES.has(r.toolName)) continue;
+    if (!isPrunableToolName(r.toolName)) continue;
     if (chars <= PRUNE_DIGEST_CHARS) continue;
     // Tool-immunity: a prunable tool is protected unless it is stale (the latest
     // result per target stays protected). Plus the recency window for non-stale.

@@ -16,7 +16,7 @@ import {
   resetWorkspaceRegistryForProfile,
   restoreWorkspaces,
 } from './workspace';
-import { setWorkspaceProvider } from './ipc/define-handler';
+import { setTrustedEntryUrl, setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
 import { registerGitHandlers } from './git';
@@ -287,6 +287,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
   // entry matches what Chromium reports for `will-navigate`.
   const prodEntryFile = path.join(__dirname, '../dist/index.html');
   const entryUrl = rendererDevUrl ?? pathToFileURL(prodEntryFile).href;
+
+  // Authenticate every privileged `invoke` against this exact entry: only the
+  // host renderer's top frame (which loads `entryUrl`) may reach defineHandler's
+  // handlers. Set before the window loads, so the sender check is armed by the
+  // time any renderer can call IPC. Same value the `will-navigate` guard pins to.
+  setTrustedEntryUrl(entryUrl);
 
   // Push maximize/unmaximize state so the renderer can swap the icon.
   const pushMaximizeState = (): void => {
