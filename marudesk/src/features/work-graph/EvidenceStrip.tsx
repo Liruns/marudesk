@@ -42,11 +42,11 @@ export function EvidenceStrip() {
               </span>
             </span>
           ) : (
-            <span className="shrink-0 text-fg-tertiary/70">no acceptance criteria</span>
+            <span className="shrink-0 text-fg-quaternary">no acceptance criteria</span>
           )}
         </span>
       ) : (
-        <span className="text-fg-tertiary/70">Select a task to see its runtime evidence.</span>
+        <span className="text-fg-quaternary">Select a task to see its runtime evidence.</span>
       )}
       <span className="flex-1" aria-hidden />
       {runNote ? <span className="truncate max-w-[40%] text-warning">{runNote}</span> : null}

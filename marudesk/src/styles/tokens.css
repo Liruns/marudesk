@@ -16,11 +16,16 @@
   --surface-3:    #2C2B29;        /* input, hover */
 
   /* Text — warm off-white, the same warm-neutral world as the surfaces.
-     primary ~16:1 on page, secondary ~8.5:1, tertiary ~4.2:1. */
-  --text-primary:   #F4F3F0;
-  --text-secondary: #B0AEA8;
-  --text-tertiary:  #7E7C75;
-  --text-disabled:  #56544E;
+     primary ~16:1 on page, secondary ~8.5:1, tertiary ~4.2:1, quaternary ~3:1.
+     quaternary is the lowest READABLE tier (the ~3:1 floor for large/UI text) —
+     reach for it for genuinely low-emphasis functional copy instead of stacking
+     an opacity modifier on tertiary. --text-disabled sits below it and is for
+     disabled controls only, never readable copy. */
+  --text-primary:    #F4F3F0;
+  --text-secondary:  #B0AEA8;
+  --text-tertiary:   #7E7C75;
+  --text-quaternary: #6A6862;
+  --text-disabled:   #56544E;
 
   /* Border */
   --border-subtle:  rgba(255, 255, 255, 0.06);
@@ -151,10 +156,11 @@
   --surface-2:    #E9E7E1;
   --surface-3:    #DEDCD4;
 
-  --text-primary:   #1C1B18;
-  --text-secondary: #54524C;
-  --text-tertiary:  #827F77;
-  --text-disabled:  #ABA8A0;
+  --text-primary:    #1C1B18;
+  --text-secondary:  #54524C;
+  --text-tertiary:   #827F77;
+  --text-quaternary: #97948C;
+  --text-disabled:   #ABA8A0;
 
   --border-subtle:  rgba(0, 0, 0, 0.07);
   --border-default: rgba(0, 0, 0, 0.12);
@@ -206,20 +212,22 @@
   --surface-1:    #1A1B1F;
   --surface-2:    #23252B;
   --surface-3:    #2D2F36;
-  --text-primary:   #F7F8F8;
-  --text-secondary: #8A8F98;
-  --text-tertiary:  #62666D;
-  --text-disabled:  #4A4D54;
+  --text-primary:    #F7F8F8;
+  --text-secondary:  #8A8F98;
+  --text-tertiary:   #62666D;
+  --text-quaternary: #54585F;
+  --text-disabled:   #4A4D54;
 }
 :root[data-theme='light'][data-palette='graphite'] {
   --surface-page: #FFFFFF;
   --surface-1:    #F7F8FA;
   --surface-2:    #EEF0F3;
   --surface-3:    #E2E5EA;
-  --text-primary:   #1C1D21;
-  --text-secondary: #585C64;
-  --text-tertiary:  #80858E;
-  --text-disabled:  #A9ADB5;
+  --text-primary:    #1C1D21;
+  --text-secondary:  #585C64;
+  --text-tertiary:   #80858E;
+  --text-quaternary: #9599A1;
+  --text-disabled:   #A9ADB5;
 }
 
 /* Midnight — deep blue-black; cool slate text. */
@@ -228,20 +236,22 @@
   --surface-1:    #131A2B;
   --surface-2:    #1B2336;
   --surface-3:    #242E45;
-  --text-primary:   #EDF1FA;
-  --text-secondary: #97A1B8;
-  --text-tertiary:  #6B7590;
-  --text-disabled:  #4D5570;
+  --text-primary:    #EDF1FA;
+  --text-secondary:  #97A1B8;
+  --text-tertiary:   #6B7590;
+  --text-quaternary: #5C657F;
+  --text-disabled:   #4D5570;
 }
 :root[data-theme='light'][data-palette='midnight'] {
   --surface-page: #F8FAFE;
   --surface-1:    #EFF3FA;
   --surface-2:    #E5EBF5;
   --surface-3:    #D8E0EE;
-  --text-primary:   #16203A;
-  --text-secondary: #4D5A78;
-  --text-tertiary:  #76829E;
-  --text-disabled:  #A4AEC4;
+  --text-primary:    #16203A;
+  --text-secondary:  #4D5A78;
+  --text-tertiary:   #76829E;
+  --text-quaternary: #8D98B1;
+  --text-disabled:   #A4AEC4;
 }
 
 /* Espresso — warm brown-black; cream light half. */
@@ -250,20 +260,22 @@
   --surface-1:    #1E1715;
   --surface-2:    #281F1C;
   --surface-3:    #332823;
-  --text-primary:   #F5EFEA;
-  --text-secondary: #A39588;
-  --text-tertiary:  #7A6E63;
-  --text-disabled:  #57504A;
+  --text-primary:    #F5EFEA;
+  --text-secondary:  #A39588;
+  --text-tertiary:   #7A6E63;
+  --text-quaternary: #685E55;
+  --text-disabled:   #57504A;
 }
 :root[data-theme='light'][data-palette='espresso'] {
   --surface-page: #FBF7F2;
   --surface-1:    #F3ECE3;
   --surface-2:    #EAE0D3;
   --surface-3:    #DFD2C0;
-  --text-primary:   #2A211B;
-  --text-secondary: #6A5C50;
-  --text-tertiary:  #8F8275;
-  --text-disabled:  #B3A99D;
+  --text-primary:    #2A211B;
+  --text-secondary:  #6A5C50;
+  --text-tertiary:   #8F8275;
+  --text-quaternary: #A1968B;
+  --text-disabled:   #B3A99D;
 }
 
 /* Fjord — nordic slate with a teal undertone. */
@@ -272,20 +284,22 @@
   --surface-1:    #162024;
   --surface-2:    #1E2A30;
   --surface-3:    #28363D;
-  --text-primary:   #ECF2F4;
-  --text-secondary: #8FA4AC;
-  --text-tertiary:  #64787F;
-  --text-disabled:  #485A60;
+  --text-primary:    #ECF2F4;
+  --text-secondary:  #8FA4AC;
+  --text-tertiary:   #64787F;
+  --text-quaternary: #56696F;
+  --text-disabled:   #485A60;
 }
 :root[data-theme='light'][data-palette='fjord'] {
   --surface-page: #F6FAFB;
   --surface-1:    #EAF1F3;
   --surface-2:    #DDE7EA;
   --surface-3:    #CCDADF;
-  --text-primary:   #15262C;
-  --text-secondary: #46606A;
-  --text-tertiary:  #71868E;
-  --text-disabled:  #9FB0B6;
+  --text-primary:    #15262C;
+  --text-secondary:  #46606A;
+  --text-tertiary:   #71868E;
+  --text-quaternary: #879BA2;
+  --text-disabled:   #9FB0B6;
 }
 
 /* Paper — warm parchment light half; soft graphite dark half. */
@@ -294,20 +308,22 @@
   --surface-1:    #1B1B1E;
   --surface-2:    #242428;
   --surface-3:    #2E2E33;
-  --text-primary:   #F4F4F2;
-  --text-secondary: #9C9C97;
-  --text-tertiary:  #6F6F6A;
-  --text-disabled:  #4F4F4B;
+  --text-primary:    #F4F4F2;
+  --text-secondary:  #9C9C97;
+  --text-tertiary:   #6F6F6A;
+  --text-quaternary: #5E5E59;
+  --text-disabled:   #4F4F4B;
 }
 :root[data-theme='light'][data-palette='paper'] {
   --surface-page: #FCFBF8;
   --surface-1:    #F4F2EC;
   --surface-2:    #ECE8DF;
   --surface-3:    #E0DBCF;
-  --text-primary:   #221F1A;
-  --text-secondary: #5A564D;
-  --text-tertiary:  #837E72;
-  --text-disabled:  #ABA69A;
+  --text-primary:    #221F1A;
+  --text-secondary:  #5A564D;
+  --text-tertiary:   #837E72;
+  --text-quaternary: #989384;
+  --text-disabled:   #ABA69A;
 }
 
 /* Pane — Apple-inspired near-black graphite, ported from the `pane` browser's
@@ -322,20 +338,22 @@
   --surface-1:    #1D1D1F;
   --surface-2:    #272729;
   --surface-3:    #2A2A2D;
-  --text-primary:   #F5F5F7;
-  --text-secondary: #98989D;
-  --text-tertiary:  #6C6C70;
-  --text-disabled:  #48484A;
+  --text-primary:    #F5F5F7;
+  --text-secondary:  #98989D;
+  --text-tertiary:   #6C6C70;
+  --text-quaternary: #5B5B5F;
+  --text-disabled:   #48484A;
 }
 :root[data-theme='light'][data-palette='pane'] {
   --surface-page: #FFFFFF;
   --surface-1:    #F5F5F7;
   --surface-2:    #ECECEF;
   --surface-3:    #E1E1E6;
-  --text-primary:   #1D1D1F;
-  --text-secondary: #6E6E73;
-  --text-tertiary:  #8E8E93;
-  --text-disabled:  #B4B4B9;
+  --text-primary:    #1D1D1F;
+  --text-secondary:  #6E6E73;
+  --text-tertiary:   #8E8E93;
+  --text-quaternary: #A0A0A5;
+  --text-disabled:   #B4B4B9;
 }
 
 /* Accent presets — reskin the single accent app-wide via a [data-accent]

@@ -35,6 +35,7 @@ const config: Config = {
           primary: token('--text-primary'),
           secondary: token('--text-secondary'),
           tertiary: token('--text-tertiary'),
+          quaternary: token('--text-quaternary'),
           disabled: token('--text-disabled'),
         },
         accent: {

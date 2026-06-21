@@ -9,6 +9,7 @@ import type {
   AgentAnswers,
   AgentChatState,
   AgentEditActionResult,
+  AgentNewThreadInput,
   AgentSendInput,
   AgentSendResult,
   AgentToolInfo,
@@ -813,7 +814,7 @@ export interface IpcMap {
   'agent:delete-session': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: boolean };
   // threads (Stage 12-B-2 — concurrent conversation switching)
   'agent:list-threads': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
-  'agent:new-thread': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
+  'agent:new-thread': { args: [payload?: AgentNewThreadInput]; result: ThreadSummary[] };
   'agent:switch-thread': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
   'agent:close-thread': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
 

@@ -24,6 +24,7 @@ import {
   buildModel,
   aiTools,
   cachedSystem,
+  SYSTEM_SECTION_SEPARATOR,
   withMessagePrefixCache,
   cacheReadTokensOf,
   humanizeModelError,
@@ -330,7 +331,15 @@ type ActiveTurnModel = {
   provider: AgentSendInput['provider'];
   modelId: string;
   model: ReturnType<typeof buildModel>;
+  /** The fully-joined system string (stable head + volatile env tail), for the
+   * codex `instructions` field and buildProviderOptions. */
   system: string;
+  /** The turn-invariant head of the system prompt — what carries the Anthropic
+   * prompt-cache breakpoint, so working-tree churn no longer busts it. */
+  stableSystem: string;
+  /** The per-turn-volatile `<environment>` grounding, delivered OUTSIDE the
+   * cached prefix (empty when there's nothing to ground). */
+  volatileSystem: string;
   codexBackend: boolean;
   providerOptions: ReturnType<typeof buildProviderOptions>;
   maxOutputTokens: number | undefined;
@@ -443,10 +452,18 @@ async function runLoop(opts: RunOpts): Promise<void> {
       customInstructions.trim()
     );
     const trustFooter = hasFoldedInstructions ? SAFETY_FOOTER : null;
-    const system = [
+    // CACHE-1 regression fix: split the assembled system into a STABLE head and a
+    // VOLATILE tail so the Anthropic prompt cache can cover the (large, static)
+    // head WITHOUT being busted every turn by the `<environment>` block, which is
+    // rebuilt each turn and changes the moment the agent edits/commits (git dirty
+    // count + HEAD subject + date). The model still receives BOTH segments — the
+    // stable head followed by the env grounding — so the only thing that moves is
+    // the cache boundary, never the information the model sees. `modeContext` is
+    // invariant within a session for a given approval mode (it does not change on
+    // a working-tree edit), so it stays in the cached head.
+    const stableSystem = [
       baseSystem,
       modelGuidance(a.provider, a.modelId, a.modelReasoning),
-      envContext,
       modeContext,
       wsInstructions,
       globalUserInstructions,
@@ -461,7 +478,19 @@ async function runLoop(opts: RunOpts): Promise<void> {
       trustFooter,
     ]
       .filter((s): s is string => !!s && !!s.trim())
-      .join('\n\n---\n\n');
+      .join(SYSTEM_SECTION_SEPARATOR);
+    // The per-turn-volatile runtime grounding. Delivered as its own (uncached)
+    // system block after the stable head — same content, same order relative to
+    // the rest, just outside the cached prefix. May be empty in the (rare) case
+    // buildEnvironmentContext returns nothing.
+    const volatileSystem = envContext.trim();
+    // The fully-joined system string is what the codex backend (instructions
+    // field) and buildProviderOptions consume; keep it byte-identical to the old
+    // single-string assembly EXCEPT that the env block now sits AFTER the stable
+    // sections instead of in position 3. The model-facing content is unchanged.
+    const system = volatileSystem
+      ? `${stableSystem}${SYSTEM_SECTION_SEPARATOR}${volatileSystem}`
+      : stableSystem;
     const codexBackend = a.provider === 'openai-codex';
     // Per-model output cap (item 1): resolve the catalog entry tolerating
     // slightly-varied ids (item 2) so a dotted/prefixed id still lifts the cap
@@ -472,6 +501,8 @@ async function runLoop(opts: RunOpts): Promise<void> {
       modelId: a.modelId,
       model: buildModel(a.provider, a.modelId, a.auth, a.baseUrl),
       system,
+      stableSystem,
+      volatileSystem,
       codexBackend,
       providerOptions: buildProviderOptions(a.provider, system, a.modelReasoning, opts.reasoningEffort),
       maxOutputTokens: codexBackend
@@ -595,7 +626,9 @@ async function runLoop(opts: RunOpts): Promise<void> {
         model: current.model,
         // codex carries the system prompt in providerOptions.openai.instructions
         // (see above), so don't also pass it here or it lands twice.
-        system: current.codexBackend ? undefined : cachedSystem(current.system, cacheable),
+        system: current.codexBackend
+          ? undefined
+          : cachedSystem(current.stableSystem, current.volatileSystem, cacheable),
         messages: withMessagePrefixCache(S.transcript, cacheable),
         tools,
         maxOutputTokens: current.maxOutputTokens,

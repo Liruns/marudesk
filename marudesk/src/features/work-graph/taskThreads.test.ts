@@ -6,6 +6,7 @@ import {
   acquireTaskThread,
   dockRenderedThreadId,
   setDockRenderedThread,
+  taskContextPreamble,
   taskThreadEntries,
   taskThreadId,
 } from './taskThreads';
@@ -149,5 +150,93 @@ describe('taskThreads registry', () => {
       expect.anything(),
     );
     expect(taskThreadId('a')).toBe('thread-1');
+  });
+
+  it('seeds a NEW task thread with the task-context preamble, once', async () => {
+    const grounded: Task = {
+      ...task('a'),
+      title: 'Wire the dock chat',
+      intent: 'The agent should know the task',
+      acceptance: [
+        { id: 'c1', text: 'preamble carries the title', verdict: 'unknown' },
+        { id: 'c2', text: 'preamble carries the intent', verdict: 'unknown' },
+      ],
+    };
+    useWorkGraphStore.getState().setGraph({
+      id: 'wg_test',
+      goal: 'test',
+      tasks: [grounded],
+      edges: [],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    await acquireTaskThread('a');
+    // First acquire mints a thread WITH the seedContext derived from the live task.
+    const firstCall = marudesk.invoke.mock.calls.find(([ch]) => ch === 'agent:new-thread');
+    expect(firstCall).toBeDefined();
+    const payload = firstCall?.[1] as { workspaceId?: string; seedContext?: string } | undefined;
+    expect(payload?.seedContext).toContain('Wire the dock chat');
+    expect(payload?.seedContext).toContain('The agent should know the task');
+    expect(payload?.seedContext).toContain('preamble carries the title');
+
+    // Re-acquire returns the SAME thread and never mints (so never re-seeds).
+    marudesk.invoke.mockClear();
+    const again = await acquireTaskThread('a');
+    expect(again).toBe('thread-1');
+    expect(marudesk.invoke).not.toHaveBeenCalledWith('agent:new-thread', expect.anything());
+  });
+
+  it('mints a blank thread (no seedContext) when the task is not in the graph', async () => {
+    // No graph set ⇒ liveTask is null ⇒ the contract's optional field is omitted.
+    await acquireTaskThread('ghost');
+    const call = marudesk.invoke.mock.calls.find(([ch]) => ch === 'agent:new-thread');
+    const payload = call?.[1] as { seedContext?: string } | undefined;
+    expect(payload?.seedContext).toBeUndefined();
+  });
+});
+
+describe('taskContextPreamble', () => {
+  it('grounds the preamble in title, intent, acceptance, and latest result', () => {
+    const t: Task = {
+      ...task('a'),
+      title: 'Refactor the parser',
+      intent: 'Split the monolith parser into small helpers',
+      acceptance: [
+        { id: 'c1', text: 'all existing tests pass', verdict: 'unknown' },
+        { id: 'c2', text: 'no public API changes', verdict: 'unknown' },
+      ],
+      evidence: {
+        trajectory: [],
+        result: 'Extracted tokenizer + 3 helpers; suite green.',
+      },
+    };
+    const preamble = taskContextPreamble(t);
+    expect(preamble).toContain('Refactor the parser');
+    expect(preamble).toContain('Split the monolith parser into small helpers');
+    expect(preamble).toContain('- all existing tests pass');
+    expect(preamble).toContain('- no public API changes');
+    expect(preamble).toContain('Extracted tokenizer + 3 helpers; suite green.');
+  });
+
+  it('handles a planned task with no acceptance, no intent, and no evidence', () => {
+    const t: Task = { ...task('a'), title: 'Bare task', intent: '', acceptance: [] };
+    const preamble = taskContextPreamble(t);
+    expect(preamble).toContain('Bare task');
+    // No acceptance section and no result/intent lines when those fields are empty.
+    expect(preamble).not.toContain('Acceptance criteria:');
+    expect(preamble).not.toContain('Latest result:');
+    expect(preamble).not.toContain('Intent:');
+  });
+
+  it('clips an overlong latest result so the preamble stays compact', () => {
+    const t: Task = {
+      ...task('a'),
+      evidence: { trajectory: [], result: 'x'.repeat(2000) },
+    };
+    const preamble = taskContextPreamble(t);
+    expect(preamble).toContain('…');
+    // Far shorter than the raw 2000-char result.
+    expect(preamble.length).toBeLessThan(900);
   });
 });

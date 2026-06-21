@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { Code2, Command, Compass, CornerUpLeft, FolderTree, GitBranch, Globe, MessagesSquare, RotateCcw, Search, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
+import { Code2, Command, Compass, CornerUpLeft, FileDiff, FolderTree, GitBranch, Globe, MessagesSquare, Play, RefreshCw, RotateCcw, Search, Sparkles, SlidersHorizontal, Square, SquareTerminal, Terminal, Wrench } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
@@ -32,6 +32,12 @@ type GateContext = {
   hasGraph: boolean;
   /** An instrument is currently hosted full-area (a tab is open). */
   instrumentOpen: boolean;
+  /** A run is in flight (drives the graph verbs the same way the panel buttons do). */
+  running: boolean;
+  /** The currently selected task, or null. */
+  selectedTaskId: string | null;
+  /** The selected task has an applicable (non-empty) patch ready to apply. */
+  selectedTaskHasPatch: boolean;
 };
 
 /**
@@ -150,6 +156,58 @@ const COMMANDS: Cmd[] = [
     run: () => reopenTabInstrument(),
   },
   {
+    id: 'run-flight',
+    labelKey: 'command.runFlight.label',
+    hintKey: 'command.runFlight.hint',
+    icon: Play,
+    group: 'action',
+    // Mirror the graph panel's Run button: needs a graph and no run in flight.
+    gate: (ctx) => ctx.hasGraph && !ctx.running,
+    run: () => void useWorkGraphStore.getState().run(),
+  },
+  {
+    id: 'stop-run',
+    labelKey: 'command.stopRun.label',
+    hintKey: 'command.stopRun.hint',
+    icon: Square,
+    group: 'action',
+    gate: (ctx) => ctx.running,
+    run: () => useWorkGraphStore.getState().stopRun(),
+  },
+  {
+    id: 'reset-statuses',
+    labelKey: 'command.resetStatuses.label',
+    hintKey: 'command.resetStatuses.hint',
+    icon: RefreshCw,
+    group: 'action',
+    gate: (ctx) => ctx.hasGraph && !ctx.running,
+    run: () => useWorkGraphStore.getState().resetRun(),
+  },
+  {
+    id: 'implement-task',
+    labelKey: 'command.implementTask.label',
+    hintKey: 'command.implementTask.hint',
+    icon: Wrench,
+    group: 'action',
+    gate: (ctx) => ctx.selectedTaskId !== null && !ctx.running,
+    run: () => {
+      const id = useWorkGraphStore.getState().selectedTaskId;
+      if (id) void useWorkGraphStore.getState().implementTask(id);
+    },
+  },
+  {
+    id: 'apply-task-diff',
+    labelKey: 'command.applyTaskDiff.label',
+    hintKey: 'command.applyTaskDiff.hint',
+    icon: FileDiff,
+    group: 'action',
+    gate: (ctx) => ctx.selectedTaskHasPatch && !ctx.running,
+    run: () => {
+      const id = useWorkGraphStore.getState().selectedTaskId;
+      if (id) void useWorkGraphStore.getState().applyPatch(id);
+    },
+  },
+  {
     id: 'toggle-flight-log',
     labelKey: 'command.toggleFlightLog.label',
     hintKey: 'command.toggleFlightLog.hint',
@@ -225,6 +283,8 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
   // Subscribe so the gate (and thus the rendered list) recomputes when a flight
   // graph appears or clears, or when an instrument is hosted/closed.
   const graph = useWorkGraphStore((s) => s.graph);
+  const running = useWorkGraphStore((s) => s.running);
+  const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const instrumentOpen = useInstrumentStore((s) => s.tabId !== null);
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -233,7 +293,19 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
   // Resolve each command's label/hint in the active locale (so both render and
   // filter are translated) and drop any command whose gate is currently closed.
   const resolved = useMemo<ResolvedCmd[]>(() => {
-    const ctx: GateContext = { hasGraph: graph !== null, instrumentOpen };
+    // A selected task has an applicable patch when it carries a non-empty diff —
+    // the same precondition applyPatch() itself guards on (task.evidence.patch).
+    const selectedTask = selectedTaskId
+      ? (graph?.tasks.find((task) => task.id === selectedTaskId) ?? null)
+      : null;
+    const selectedTaskHasPatch = (selectedTask?.evidence?.patch?.trim().length ?? 0) > 0;
+    const ctx: GateContext = {
+      hasGraph: graph !== null,
+      instrumentOpen,
+      running,
+      selectedTaskId,
+      selectedTaskHasPatch,
+    };
     return COMMANDS.filter((c) => c.gate?.(ctx) ?? true).map((c) => ({
       id: c.id,
       label: t(c.labelKey),
@@ -242,7 +314,7 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
       group: c.group,
       run: c.run,
     }));
-  }, [t, graph, instrumentOpen]);
+  }, [t, graph, instrumentOpen, running, selectedTaskId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

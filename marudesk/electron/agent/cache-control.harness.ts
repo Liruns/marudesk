@@ -1,5 +1,5 @@
 import { check, passedCount } from '../harness-kit.ts';
-import { aiTools, cachedSystem, withMessagePrefixCache, cacheReadTokensOf } from './model.ts';
+import { aiTools, cachedSystem, SYSTEM_SECTION_SEPARATOR, withMessagePrefixCache, cacheReadTokensOf } from './model.ts';
 import { emptyAgentChatState } from '../../shared/agent.ts';
 import type { ToolSchema } from './tools/types.ts';
 import type { LanguageModelUsage, ModelMessage } from 'ai';
@@ -120,20 +120,76 @@ function msgCacheControlOf(value: { providerOptions?: unknown }): unknown {
 }
 
 {
-  const out = cachedSystem('SYS', true);
-  check('cachedSystem(true): returns a SystemModelMessage (not a string)', typeof out !== 'string');
-  if (typeof out !== 'string') {
-    check('cachedSystem(true): role is system', out.role === 'system');
-    check('cachedSystem(true): content is preserved verbatim', out.content === 'SYS');
-    check('cachedSystem(true): carries the ephemeral system breakpoint', eq(msgCacheControlOf(out), EPHEMERAL));
+  // No volatile tail → a single cached SystemModelMessage (back-compat shape).
+  const out = cachedSystem('SYS', '', true);
+  check('cachedSystem(true,no-tail): returns a SystemModelMessage (not a string/array)', typeof out !== 'string' && !Array.isArray(out));
+  if (typeof out !== 'string' && !Array.isArray(out)) {
+    check('cachedSystem(true,no-tail): role is system', out.role === 'system');
+    check('cachedSystem(true,no-tail): content is preserved verbatim', out.content === 'SYS');
+    check('cachedSystem(true,no-tail): carries the ephemeral system breakpoint', eq(msgCacheControlOf(out), EPHEMERAL));
   }
 }
 
 /* ── (7) cachedSystem: not cacheable → plain string, byte-identical ────────── */
 
 {
-  const out = cachedSystem('SYS', false);
-  check('cachedSystem(false): returns the plain string unchanged', out === 'SYS');
+  const out = cachedSystem('SYS', '', false);
+  check('cachedSystem(false,no-tail): returns the plain string unchanged', out === 'SYS');
+  // With a volatile tail, the non-cacheable string re-joins head + tail with the
+  // shared section separator so non-Anthropic providers see identical content.
+  const joined = cachedSystem('SYS', 'ENV', false);
+  check(
+    'cachedSystem(false,+tail): re-joins head + tail with the section separator',
+    joined === `SYS${SYSTEM_SECTION_SEPARATOR}ENV`,
+  );
+}
+
+/* ── (6b) cachedSystem: cacheable + volatile tail → two system blocks, head cached only ── */
+
+{
+  const out = cachedSystem('SYS', 'ENV', true);
+  check('cachedSystem(true,+tail): returns an ARRAY of system messages', Array.isArray(out));
+  if (Array.isArray(out)) {
+    check('cachedSystem(true,+tail): exactly two system blocks', out.length === 2);
+    check('cachedSystem(true,+tail): both blocks are role:system', out.every((m) => m.role === 'system'));
+    check('cachedSystem(true,+tail): head holds the stable content', out[0].content === 'SYS');
+    check('cachedSystem(true,+tail): tail holds the volatile grounding', out[1].content === 'ENV');
+    check('cachedSystem(true,+tail): ONLY the stable head carries the breakpoint', eq(msgCacheControlOf(out[0]), EPHEMERAL));
+    check('cachedSystem(true,+tail): the volatile tail carries NO breakpoint', msgCacheControlOf(out[1]) === undefined);
+  }
+}
+
+/* ── (6c) CROSS-TURN STABILITY: the cached head is byte-identical across two ──
+ * turns whose only difference is the volatile env grounding (git dirty count /
+ * HEAD subject / date). This is the CACHE-1 regression the fix targets: a
+ * working-tree edit must NOT change the cached system segment, while the env
+ * facts still reach the model in the (uncached) tail block. */
+
+{
+  // Same stable head; two DIFFERENT volatile env blocks (turn A clean, turn B
+  // dirty with a new HEAD) — exactly what changes when the agent edits/commits.
+  const head = 'BASE RULES + MODEL GUIDANCE + INSTRUCTIONS + FOOTER';
+  const envTurnA = '<environment>\nToday: 2026-06-21\nGit: branch main, clean, HEAD a1b2c3 first\n</environment>';
+  const envTurnB = '<environment>\nToday: 2026-06-22\nGit: branch main, 3 uncommitted changes, HEAD d4e5f6 second\n</environment>';
+
+  const turnA = cachedSystem(head, envTurnA, true);
+  const turnB = cachedSystem(head, envTurnB, true);
+  check('cross-turn: both turns produce a two-block array', Array.isArray(turnA) && Array.isArray(turnB));
+  if (Array.isArray(turnA) && Array.isArray(turnB)) {
+    // THE key assertion: the cached head block is byte-identical across turns.
+    check('cross-turn: cached head CONTENT is byte-identical across turns', turnA[0].content === turnB[0].content);
+    check(
+      'cross-turn: cached head PROVIDER-OPTIONS are byte-identical across turns',
+      JSON.stringify(turnA[0].providerOptions) === JSON.stringify(turnB[0].providerOptions),
+    );
+    check('cross-turn: cached head still carries the ephemeral breakpoint', eq(msgCacheControlOf(turnA[0]), EPHEMERAL));
+    // …while the volatile grounding still REACHES the model, and differs per turn.
+    check('cross-turn: env grounding still reaches the model (turn A tail = env A)', turnA[1].content === envTurnA);
+    check('cross-turn: env grounding still reaches the model (turn B tail = env B)', turnB[1].content === envTurnB);
+    check('cross-turn: the volatile tail DOES differ across turns (proves grounding is live)', turnA[1].content !== turnB[1].content);
+    // Neither volatile tail carries a breakpoint (so it can never be a cache prefix).
+    check('cross-turn: neither volatile tail carries a breakpoint', msgCacheControlOf(turnA[1]) === undefined && msgCacheControlOf(turnB[1]) === undefined);
+  }
 }
 
 /* ── (8) withMessagePrefixCache: cacheable → breakpoint on the 2nd-to-last ──── */
@@ -176,7 +232,9 @@ function msgCacheControlOf(value: { providerOptions?: unknown }): unknown {
     string,
     { providerOptions?: unknown }
   >;
-  const system = cachedSystem('SYS', true);
+  // A realistic system split: a stable head + a volatile env tail → two system
+  // blocks, but still only ONE system breakpoint (on the head).
+  const system = cachedSystem('SYS', 'ENV', true);
   const transcript: ModelMessage[] = [
     { role: 'user', content: 'q1' },
     { role: 'assistant', content: 'a1' },
@@ -184,13 +242,14 @@ function msgCacheControlOf(value: { providerOptions?: unknown }): unknown {
   ];
   const messages = withMessagePrefixCache(transcript, true);
 
+  const systemBlocks = typeof system === 'string' ? [] : Array.isArray(system) ? system : [system];
   const toolBreakpoints = Object.values(tools).filter((t) => msgCacheControlOf(t) !== undefined).length;
-  const systemBreakpoints = typeof system === 'string' ? 0 : msgCacheControlOf(system) !== undefined ? 1 : 0;
+  const systemBreakpoints = systemBlocks.filter((m) => msgCacheControlOf(m) !== undefined).length;
   const messageBreakpoints = messages.filter((m) => msgCacheControlOf(m) !== undefined).length;
   const total = toolBreakpoints + systemBreakpoints + messageBreakpoints;
 
   check('full request: exactly one tool breakpoint', toolBreakpoints === 1);
-  check('full request: exactly one system breakpoint', systemBreakpoints === 1);
+  check('full request: exactly one system breakpoint (on the stable head only)', systemBreakpoints === 1);
   check('full request: exactly one message-prefix breakpoint', messageBreakpoints === 1);
   check('full request: total breakpoints <= 4 (Anthropic limit)', total <= 4);
   check('full request: tools breakpoint still on the LAST tool (t2)', eq(cacheControlOf(tools, 't2'), EPHEMERAL));

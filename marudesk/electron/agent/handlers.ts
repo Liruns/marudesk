@@ -49,6 +49,20 @@ function uiWorkspaceFilterOf(payload: unknown): WorkspaceId | null {
 }
 
 /**
+ * The optional `seedContext` carried by `agent:new-thread` (see
+ * `AgentNewThreadInput` in shared/agent.ts). Defensively read as a non-empty string off an
+ * untrusted payload that may be absent entirely; whitespace-only is treated as
+ * unset so an empty preamble never seeds a useless system message.
+ */
+function seedContextOf(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const value = (payload as Record<string, unknown>).seedContext;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
  * The conversation a per-tab/per-card AI Chat addresses. When the renderer pins
  * a `threadId` (every full-surface AI Chat tab now owns its own thread, so chats
  * stay isolated across tabs), route to that thread's container; otherwise fall
@@ -206,6 +220,17 @@ export function registerAgentHandlers(): void {
   defineHandler('agent:new-thread', ([payload]) => {
     const workspaceId = workspaceIdOf(payload);
     const id = newThread(workspaceId);
+    // Optional, strictly-additive grounding preamble (per-task dock chat): seed
+    // the FRESH thread's model-facing transcript with a system message so the
+    // agent knows which task it's talking about from the first turn. It lands in
+    // `container.transcript` (what the model sees) and NOT in `state.messages`
+    // (what the user reads), so it never pollutes the visible chat. Absent ⇒
+    // every existing caller keeps minting a blank thread, unchanged.
+    const seedContext = seedContextOf(payload);
+    if (seedContext) {
+      const container = containerForThread(id);
+      if (container) container.transcript.push({ role: 'system', content: seedContext });
+    }
     switchThread(id, workspaceId);
     return listThreads(workspaceId);
   });

@@ -481,11 +481,57 @@ const ANTHROPIC_CACHE_BREAKPOINT = { anthropic: { cacheControl: { type: 'ephemer
  * caches only tools — without this, the system prompt is re-billed at full input
  * price every step. When `cacheable` is false (non-Anthropic providers) the plain
  * string is returned unchanged, so those request paths are byte-identical.
+ *
+ * CACHE-1 regression fix (cross-turn cache stability): the system prompt is NOT
+ * uniformly stable. Its STABLE head (base rules + model guidance + instruction
+ * files + mode + footer) is turn-invariant, but the `<environment>` grounding
+ * (date + git dirty count + HEAD subject) is rebuilt every turn and changes the
+ * moment the agent edits or commits. Placing one breakpoint on the WHOLE
+ * concatenated system therefore busts the prefix cache for the entire system —
+ * including the ~4 KB static base prompt and the folded instruction files —
+ * every time the working tree changes. So callers pass the stable head and the
+ * volatile tail SEPARATELY: when cacheable, we emit them as two CONSECUTIVE
+ * system text blocks (the AI SDK / `@ai-sdk/anthropic` group consecutive system
+ * messages into a single top-level `system` array, NOT a mid-conversation system
+ * message — verified against the installed 3.0.x) and place the cache breakpoint
+ * on the stable head ONLY. The model still receives the exact same content, in
+ * the same order; only the cache boundary moves so the stable head keeps hitting
+ * the prompt cache across turns regardless of working-tree churn. An empty
+ * volatile tail collapses to the single stable block. When not cacheable the
+ * caller's full system string (head + tail already joined) is returned unchanged.
  */
-export function cachedSystem(system: string, cacheable: boolean): string | SystemModelMessage {
-  if (!cacheable) return system;
-  return { role: 'system', content: system, providerOptions: ANTHROPIC_CACHE_BREAKPOINT };
+export function cachedSystem(
+  stableSystem: string,
+  volatileSystem: string,
+  cacheable: boolean,
+): string | SystemModelMessage | SystemModelMessage[] {
+  if (!cacheable) {
+    // Non-Anthropic providers get the plain, fully-joined string (byte-identical
+    // to the prior single-string behavior): re-join the two halves with the same
+    // separator the loop uses between system sections.
+    return volatileSystem.trim()
+      ? `${stableSystem}${SYSTEM_SECTION_SEPARATOR}${volatileSystem}`
+      : stableSystem;
+  }
+  const head: SystemModelMessage = {
+    role: 'system',
+    content: stableSystem,
+    providerOptions: ANTHROPIC_CACHE_BREAKPOINT,
+  };
+  if (!volatileSystem.trim()) return head;
+  // Two consecutive system messages → one grouped system block with two text
+  // parts; only the head carries `cache_control`, so the volatile tail can change
+  // every turn without busting the cached stable prefix.
+  const tail: SystemModelMessage = { role: 'system', content: volatileSystem };
+  return [head, tail];
 }
+
+/**
+ * The separator the agent loop uses between system-prompt sections. Kept here so
+ * {@link cachedSystem}'s non-cacheable path can re-join the stable head and the
+ * volatile tail into the exact byte sequence the model would otherwise receive.
+ */
+export const SYSTEM_SECTION_SEPARATOR = '\n\n---\n\n';
 
 /**
  * CACHE-1 (docs/agent-port-plan.md): cache the GROWING message-history prefix.

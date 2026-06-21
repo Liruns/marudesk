@@ -24,6 +24,7 @@ import {
 } from './sessions-store';
 import { deleteMemory, listMemory, readMemory, writeMemory } from './memory-store';
 import type { ToolContext, ToolResult } from './tools';
+import { wrapUntrustedWebContent } from './tools/fetch-url';
 import { ago, formatTabLine, resolveWebTab, tabUrl } from './context-helpers.ts';
 
 /**
@@ -300,7 +301,15 @@ export async function readPage(input: { tabId?: unknown }, ctx: ToolContext): Pr
   const text = typeof res?.result?.value === 'string' ? res.result.value : '';
   const url = tabUrl(rec);
   if (!text.trim()) return { summary: `read_page @ ${url}`, text: 'The page has no visible text yet (still loading or empty).' };
-  return { summary: `read_page @ ${scrubText(url)}`, text: clip(scrubText(text)) };
+  const safeUrl = scrubText(url);
+  const body = clip(scrubText(text));
+  // Wrap the externally-controllable page text so the model treats it as untrusted
+  // DATA, never instructions — keyed on the page URL. Sentinels are applied AFTER
+  // scrub+clip so the closing marker always survives the cap.
+  return {
+    summary: `read_page @ ${safeUrl}`,
+    text: wrapUntrustedWebContent(safeUrl, body),
+  };
 }
 
 /* ── devtools console (all levels — M2) ─────────────────────────────────── */

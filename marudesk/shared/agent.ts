@@ -436,6 +436,25 @@ export type AgentSendResult =
   | { ok: true; turnId: string }
   | { ok: false; reason: string };
 
+/**
+ * Input to `agent:new-thread`. Every field is OPTIONAL so existing callers (the
+ * thread switcher, the per-tab card registry) keep minting blank threads
+ * unchanged.
+ *
+ * `seedContext`, when present, is injected ONCE as the new thread's INITIAL
+ * model-facing system preamble (not a visible user/assistant message — it never
+ * appears in the transcript the user reads). The per-task dock chat
+ * (features/work-graph/taskThreads.ts) uses it to ground a fresh task thread in
+ * the selected task's title / intent / acceptance / latest evidence, so the agent
+ * talks about *that task* from the first turn instead of a generic workspace bot.
+ * Treated as trusted grounding (it is derived from the user's own task data), but
+ * kept compact so it doesn't crowd the system block.
+ */
+export type AgentNewThreadInput = {
+  workspaceId?: WorkspaceId;
+  seedContext?: string;
+};
+
 export type AgentWorkspaceEvent = {
   workspaceId: WorkspaceId;
   state: AgentChatState;

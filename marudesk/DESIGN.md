@@ -50,7 +50,8 @@ The product has three foreground voices it must keep separate:
 | `--text-primary` | `#F4F3F0` | Body, headings, anything the user reads first (~16:1 on page). |
 | `--text-secondary` | `#B0AEA8` | Descriptions, metadata, secondary labels (~8.5:1). |
 | `--text-tertiary` | `#7E7C75` | Placeholders, helper text, low-emphasis (~4.2:1). |
-| `--text-disabled` | `#56544E` | Disabled controls only. |
+| `--text-quaternary` | `#6A6862` | The lowest *readable* tier — genuinely low-emphasis functional copy (empty-state hints, "no acceptance criteria"), at the ~3:1 floor for large/UI text. Reach for this token instead of stacking an opacity modifier (`/70`, `/60`) on `--text-tertiary`, which pushes copy below the AA boundary. |
+| `--text-disabled` | `#56544E` | Disabled controls only — sits below quaternary and is **not** for readable copy. |
 
 ### Border
 | Token | Value | Use |

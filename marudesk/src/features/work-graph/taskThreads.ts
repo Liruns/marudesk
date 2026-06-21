@@ -1,5 +1,53 @@
+import type { Task } from '../../../shared/work-os';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useWorkGraphStore } from './store';
+
+/**
+ * A COMPACT, model-facing grounding preamble for a task's conversation thread,
+ * built from the LIVE task. Seeded ONCE as the thread's initial system context
+ * (see {@link acquireTaskThread}) so the per-task dock agent talks about *this*
+ * task — its title, why it exists, what it's judged against, and the latest
+ * result — instead of a generic workspace bot that has to be re-told the task on
+ * every thread.
+ *
+ * Pure + read-only: it never mutates the task and derives only from fields the
+ * inspector already shows (title / intent / acceptance / evidence.result), so it
+ * can never drift from what the user sees. Acceptance criteria and the latest
+ * evidence summary are optional — a freshly-planned task with neither yields a
+ * minimal title/intent preamble. Kept short (criteria are one line each, the
+ * result is clipped) so it doesn't crowd the system block.
+ */
+export function taskContextPreamble(task: Task): string {
+  const lines: string[] = [
+    'You are working on a single task from the Maru work graph. Stay focused on it.',
+    '',
+    `Task: ${task.title}`,
+  ];
+  const intent = task.intent.trim();
+  if (intent) lines.push(`Intent: ${intent}`);
+
+  const criteria = task.acceptance
+    .map((c) => c.text.trim())
+    .filter((text) => text.length > 0);
+  if (criteria.length > 0) {
+    lines.push('Acceptance criteria:');
+    for (const text of criteria) lines.push(`- ${text}`);
+  }
+
+  const result = task.evidence?.result.trim();
+  if (result) {
+    const MAX_RESULT = 600;
+    const clipped = result.length > MAX_RESULT ? `${result.slice(0, MAX_RESULT)}…` : result;
+    lines.push(`Latest result: ${clipped}`);
+  }
+
+  return lines.join('\n');
+}
+
+/** Read the live task by id from the work-graph store (sync), or null if it's gone. */
+function liveTask(taskId: string): Task | null {
+  return useWorkGraphStore.getState().graph?.tasks.find((t) => t.id === taskId) ?? null;
+}
 
 /**
  * Per-Task agent thread registry (Mission Control Phase 2b). Each Task node on the
@@ -30,9 +78,19 @@ export async function acquireTaskThread(
   if (existing) return existing.threadId;
   const inFlight = pending.get(taskId);
   if (inFlight) return inFlight;
+  // Build the grounding preamble ONCE, here at mint time, from the live task —
+  // this branch runs only when no thread exists yet, so a re-selection (which
+  // returns the existing thread above) never re-seeds and the reuse contract
+  // holds. `seedContext` is optional in the contract, so a missing task (gone
+  // from the graph) simply mints a blank thread.
+  const task = liveTask(taskId);
+  const seedContext = task ? taskContextPreamble(task) : undefined;
   const p = (async () => {
     try {
-      const threads = await window.marudesk.invoke('agent:new-thread', { workspaceId });
+      const threads = await window.marudesk.invoke('agent:new-thread', {
+        workspaceId,
+        ...(seedContext ? { seedContext } : {}),
+      });
       const active = threads.find((t) => t.active);
       const id = active?.id ?? null;
       if (id) byTask.set(taskId, { threadId: id, workspaceId });

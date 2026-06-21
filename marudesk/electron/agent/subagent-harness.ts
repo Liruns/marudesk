@@ -21,6 +21,23 @@ check(
 // feeds a free-text report back into the parent transcript — so it must carry
 // the same precedence / data-not-commands pin the parent does (SAFETY_FOOTER).
 check('child system prompt carries the precedence/data-not-commands pin', SUBAGENT_SYSTEM.includes(SAFETY_FOOTER));
+// The prompt must NAME the web-research capability the runtime actually grants
+// (CHILD_WEB_RESEARCH_TOOLS), so a research child doesn't punt back to the parent.
+check('child system prompt names web_search', SUBAGENT_SYSTEM.includes('web_search'));
+check('child system prompt names fetch_url', SUBAGENT_SYSTEM.includes('fetch_url'));
+// Drift guard: the prompt must not DENY a tool that listChildToolDefs actually
+// exposes to a default child. We only check the web-research tools the prompt
+// claims, since those are the gated ones the wording could plausibly disclaim.
+{
+  const exposed = new Set(listChildToolDefs().map((tool) => tool.name));
+  for (const name of ['web_search', 'fetch_url']) {
+    const claimed = SUBAGENT_SYSTEM.includes(name);
+    check(
+      `prompt capability for ${name} matches listChildToolDefs (no false denial)`,
+      !exposed.has(name) || claimed,
+    );
+  }
+}
 
 const childToolNames = new Set(listChildToolDefs().map((tool) => tool.name));
 check('child toolset excludes ask_user', !childToolNames.has('ask_user'));
