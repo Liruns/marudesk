@@ -1,31 +1,88 @@
-import { test } from '@playwright/test';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test, expect, type Page } from '@playwright/test';
+import { launchApp } from './helpers/app';
 
 /**
- * Workspace management UI — REMOVED in the Mission Control redesign.
- *
- * The Task graph is now the only home (docs/mission-control-redesign.md). The
- * surfaces this spec used to drive are gone:
- *   - the "Workspace rail" navigation (which exposed the per-workspace
- *     rename/delete context menu), and
- *   - the "Peek Explorer" button + the "Explorer" complementary panel (which
- *     exposed the per-root "remove folder from workspace" controls).
- *
- * The workspace store still carries `renameWorkspace` / `deleteWorkspace` /
- * `removeRoot` actions (src/features/workspaces/store.ts) and the matching
- * `workspaces:*` IPC, but Mission Control renders no UI that invokes them: the
- * title bar's ProfileSwitcher manages *profiles* (isolated userData), not
- * *workspaces*, and there is no rail / explorer surface anywhere in the Shell.
- *
- * There is therefore no Mission Control entry point to reach these flows, so the
- * three former tests (rail rename/delete, Peek Explorer root removal, explorer
- * root context-menu removal) have no surviving surface to exercise. They are
- * deleted; this annotated placeholder records why and keeps the file from being
- * an empty suite. Restore real coverage if/when a workspace-management surface
- * returns to the home.
+ * Workspace management, re-homed to the title-bar WorkspaceSwitcher after the
+ * redesign removed the Workspace rail. The switcher lists workspaces and exposes
+ * rename / delete through the surviving workspaces:* IPC. (Create pops a native
+ * folder picker, so these seed workspaces over IPC with explicit roots, then
+ * drive the switcher UI.)
  */
-test.skip('workspace management UI removed in Mission Control redesign', () => {
-  // No-op: the Workspace rail and Peek Explorer / Explorer panels no longer
-  // exist, so workspace rename/delete and folder-root removal have no UI to
-  // drive. The underlying workspaces:* IPC is covered by the main-process
-  // harnesses, not by an e2e UI flow.
+
+async function createWorkspace(page: Page, name: string, root: string): Promise<string> {
+  return page.evaluate(
+    async ({ name, root }) => {
+      const rec = await window.marudesk.invoke('workspaces:create', {
+        name,
+        roots: [{ name: 'Root', path: root }],
+      });
+      return rec.id as string;
+    },
+    { name, root },
+  );
+}
+
+test('workspace switcher renames the active workspace', async () => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-ws-rename-'));
+  const { app, page } = await launchApp();
+  try {
+    const id = await createWorkspace(page, 'Alpha', base);
+    await page.evaluate(
+      (wid) => window.marudesk.invoke('workspaces:set-active', { workspaceId: wid }),
+      id,
+    );
+
+    const trigger = page.getByRole('button', { name: 'Workspace: Alpha' });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await page.getByRole('menuitem', { name: /Rename workspace/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Rename workspace' });
+    await dialog.getByRole('textbox').fill('Renamed');
+    await page.getByRole('button', { name: 'Rename' }).click();
+
+    await expect(page.getByRole('button', { name: 'Workspace: Renamed' })).toBeVisible();
+  } finally {
+    await app.close();
+    await fs.rm(base, { recursive: true, force: true });
+  }
+});
+
+test('workspace switcher deletes a non-active workspace', async () => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-ws-delete-'));
+  const rootA = path.join(base, 'a');
+  const rootB = path.join(base, 'b');
+  await fs.mkdir(rootA, { recursive: true });
+  await fs.mkdir(rootB, { recursive: true });
+  const { app, page } = await launchApp();
+  try {
+    const idKeep = await createWorkspace(page, 'Keep', rootA);
+    await createWorkspace(page, 'Drop', rootB);
+    // Make Keep active so Drop is the deletable (non-active) one.
+    await page.evaluate(
+      (wid) => window.marudesk.invoke('workspaces:set-active', { workspaceId: wid }),
+      idKeep,
+    );
+    // The delete path is gated behind window.confirm — auto-accept it.
+    page.on('dialog', (d) => void d.accept());
+
+    const trigger = page.getByRole('button', { name: 'Workspace: Keep' });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await page.getByRole('menuitem', { name: 'Delete "Drop"' }).click();
+
+    // The UI action drove the workspaces:delete IPC — Drop is gone from the registry.
+    await expect
+      .poll(async () => {
+        const snap = await page.evaluate(() => window.marudesk.invoke('workspaces:list'));
+        return snap.workspaces.map((w) => w.name);
+      })
+      .not.toContain('Drop');
+  } finally {
+    await app.close();
+    await fs.rm(base, { recursive: true, force: true });
+  }
 });
