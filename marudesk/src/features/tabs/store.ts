@@ -74,8 +74,14 @@ type TabsActions = {
     workspaceId?: WorkspaceId,
   ) => Promise<string | null>;
   closeTab: (id: string) => Promise<void>;
-  /** Reopen the most recently closed tab (Ctrl/Cmd+Shift+T). No-op if none. */
-  reopenClosedTab: () => Promise<void>;
+  /**
+   * Reopen the most recently closed tab (Ctrl/Cmd+Shift+T). Resolves with the
+   * reopened tab's { id, kind } so a caller can host it as Mission Control's
+   * full-area instrument (a reopened web/editor tab is otherwise unhosted — the
+   * native view paints over the graph with no chrome). null when nothing was on
+   * the closed-tab stack. See reopenTabInstrument in work-graph/instrument.ts.
+   */
+  reopenClosedTab: () => Promise<{ id: string; kind: TabKind } | null>;
   activateTab: (id: string) => Promise<void>;
   refreshTabsSnapshot: () => Promise<void>;
   reorderTabs: (orderedIds: string[]) => void;
@@ -195,7 +201,7 @@ export const useTabsStore = create<TabsState & TabsActions>((set, get) => ({
   },
 
   reopenClosedTab: async () => {
-    await window.marudesk.invoke('browser:tabs-reopen');
+    return await window.marudesk.invoke('browser:tabs-reopen');
   },
 
   activateTab: async (id) => {

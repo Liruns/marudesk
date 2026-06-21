@@ -47,8 +47,8 @@ const paths = [
   'src/lib/utils.ts',
   'src/components/Button.tsx',
   'src/styles/tokens.css',
-  'src/features/workspace/FileTree.tsx',
-  'src/features/workspace/tree.ts',
+  'src/features/workspace/FileTreePierreSpike.tsx',
+  'src/features/workspace/ExplorerPanel.tsx',
 ];
 
 // Page chrome to mimic the Explorer sidebar on the deep page canvas.

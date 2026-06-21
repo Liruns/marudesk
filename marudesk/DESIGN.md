@@ -50,7 +50,8 @@ The product has three foreground voices it must keep separate:
 | `--text-primary` | `#F4F3F0` | Body, headings, anything the user reads first (~16:1 on page). |
 | `--text-secondary` | `#B0AEA8` | Descriptions, metadata, secondary labels (~8.5:1). |
 | `--text-tertiary` | `#7E7C75` | Placeholders, helper text, low-emphasis (~4.2:1). |
-| `--text-disabled` | `#56544E` | Disabled controls only. |
+| `--text-quaternary` | `#6A6862` | The lowest *readable* tier — genuinely low-emphasis functional copy (empty-state hints, "no acceptance criteria"), at the ~3:1 floor for large/UI text. Reach for this token instead of stacking an opacity modifier (`/70`, `/60`) on `--text-tertiary`, which pushes copy below the AA boundary. |
+| `--text-disabled` | `#56544E` | Disabled controls only — sits below quaternary and is **not** for readable copy. |
 
 ### Border
 | Token | Value | Use |
@@ -202,9 +203,12 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 - Sub-8px spacing (2, 3, 5, 6) is fair game for component-internal padding and tight rows here, not just icon-text alignment.
 
 ### Grid
-- The browser stage is the dominant zone. It occupies all remaining horizontal space when the right drawer is collapsed.
-- Right drawer: 380px when open. Toggle is sticky on the drawer's outer edge.
-- Top bar: 40px tall. Bottom status (optional): 28px tall.
+Mission Control is a three-band vertical stack (`Shell.tsx`): a slim title/flight bar, the main row, and the Evidence strip. The main row is the dominant zone — it is full-bleed and carries the visual weight.
+
+- **Title/Flight bar (top): 36px tall** (`h-9`, `TitleBar.tsx`). Brand mark, flight status, window controls; `min-w-0` so the center content truncates rather than pushing the window controls. Not a 40px bar.
+- **Main row (`flex-1`):** the home is the **Task graph**, rendered full-area via `WorkGraphStage`. When a task summons a tool, an `InstrumentStage` replaces the graph in the same full-area slot (tools are instruments a task summons, never persistent windows). The stage owns all horizontal space the dock does not.
+- **Instrument Dock (right of the main row): 22.5rem when open, 0 when closed** (`InstrumentDock.tsx`). It is the per-task inspector + chat, opening only when a task node is selected; it animates its width on the motion-standard token. Width is clamped to `calc(100vw - 3rem)` so it never eats the whole row on a narrow window. It is hairline-bordered on the edge facing the stage. There is **no** right drawer and no agent-chat drawer — the former `ContextDrawer` was retired and agent chat moved into this dock.
+- **Evidence strip (bottom): 24px tall** (`h-6`, `EvidenceStrip.tsx`). This is the selected task's runtime acceptance verdicts (verdict dots + title), not a generic status bar.
 - No fixed max width — marudesk fills the application window.
 
 ### Whitespace
@@ -251,13 +255,15 @@ The leaf values (`--highlight-top`, `--highlight-top-strong`, the gradient and v
 
 ## 8. Responsive Behavior
 
-marudesk is a desktop application; the responsive surface is narrow.
+marudesk is a desktop application; the responsive surface is narrow. There is no breakpoint-driven layout switch — the chrome holds its shape and degrades by clamping and truncation rather than collapsing panels.
 
-| Width | Behavior |
+| Surface | Behavior under width pressure |
 |---|---|
-| <1024px | Below minimum window size; not supported. |
-| 1024–1279px | Drawer collapses on toggle; stage takes full width when collapsed. |
-| ≥1280px | Drawer is open by default; stage and drawer coexist. |
+| Title/Flight bar | The center content is `min-w-0` and truncates; the brand mark and window controls stay fixed, so the bar never wraps. |
+| Instrument Dock | Fixed at 22.5rem when a task is selected, but clamped to `maxWidth: calc(100vw - 3rem)` — on a narrow window it yields to the clamp so the main row always keeps ≥3rem. Closed (no task selected) it is 0-width and the stage takes the whole row. |
+| Main row (stage) | Always `flex-1 min-w-0`; absorbs whatever the dock leaves. The Task graph pans/zooms within it rather than reflowing. |
+| Evidence strip | Single 24px row; the task title truncates and the verdict dots cap at 12 with an overflow count. |
+| Transcripts (dock chat / instruments) | Long histories window rather than growing the layout. |
 
 The renderer is sized by Electron; we do not target browser-tab embedding.
 

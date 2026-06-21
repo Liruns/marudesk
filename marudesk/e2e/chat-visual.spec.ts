@@ -1,16 +1,25 @@
-import { test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { launchApp, type LaunchedApp } from './helpers/app';
+import {
+  dock,
+  dockThreadId,
+  emitToThread,
+  openTaskDockChat,
+  seedGraph,
+} from './helpers/mission-control';
 import { emptyAgentChatState, type AgentChatState } from '../shared/agent';
 
 /**
- * Not a real test — a screenshot harness for the AI Chat surface. Launches the
- * built app, opens the full agent tab, and pushes synthetic `agent:event`
- * snapshots straight from the main process so every chat state (empty, rich
- * transcript, streaming, plan, approval, questions, error) can be eyeballed
- * without a provider key or a live model.
+ * Not a real test — a screenshot harness for the AI Chat surface. Mission Control
+ * made the Task graph the only home, so the chat now lives in the per-task
+ * Instrument Dock (Phase 2b). This seeds a one-task graph, selects the node to open
+ * its dock chat, then pushes synthetic `agent:thread-event` snapshots straight from
+ * the main process to the dock chat's bound thread so every chat state (empty, rich
+ * transcript, streaming, plan, approval, questions, error) can be eyeballed without
+ * a provider key or a live model. Screenshots are scoped to the dock aside.
  *
  * Run: npx playwright test chat-visual   (after npm run build)
  * Output: marudesk/.screens/chat/*.png
@@ -194,18 +203,10 @@ function errorState(): AgentChatState {
   return s;
 }
 
-async function seed(launched: LaunchedApp, state: AgentChatState): Promise<void> {
-  await launched.app.evaluate(({ BrowserWindow }, payload) => {
-    const win = BrowserWindow.getAllWindows().find((w) => !w.webContents.getURL().includes('splash'));
-    if (!win) throw new Error('main window not found');
-    win.webContents.send('agent:event', payload);
-  }, state);
-  await launched.page.waitForTimeout(450);
-}
-
-async function shot(page: LaunchedApp['page'], name: string): Promise<void> {
+async function shot(launched: LaunchedApp, name: string): Promise<void> {
   try {
-    await page.screenshot({ path: path.join(OUT, `${name}.png`) });
+    // Scope to the dock aside — the chat is no longer a full-window surface.
+    await dock(launched.page).screenshot({ path: path.join(OUT, `${name}.png`) });
     console.log(`[chat-visual] ${name}.png`);
   } catch (err) {
     console.log(`[chat-visual] FAILED ${name}: ${(err as Error).message}`);
@@ -217,40 +218,47 @@ test('capture AI chat states', async () => {
   let launched: LaunchedApp | null = null;
   try {
     launched = await launchApp();
-    const { page } = launched;
-    await page.waitForTimeout(1000);
+    const { app, page } = launched;
 
-    await page.evaluate(() => window.marudesk.invoke('browser:tabs-new', { kind: 'agent' }));
-    await page.waitForTimeout(900);
+    // The chat lives in the per-task Instrument Dock: seed a one-task graph, select
+    // the node to open the dock chat, and resolve the thread it's bound to so the
+    // synthetic snapshots land on the right conversation.
+    await seedGraph(page, { tasks: [{ id: 't1', title: 'Trace the post-login 401' }] });
+    const d = await openTaskDockChat(page, 't1');
+    const threadId = await dockThreadId(page);
 
-    await shot(page, '01-empty');
+    await shot(launched, '01-empty');
 
-    await seed(launched, richState());
-    await shot(page, '02-transcript');
+    await emitToThread(app, threadId, richState());
+    await expect(d.getByText('useSession', { exact: true })).toBeVisible();
+    await shot(launched, '02-transcript');
 
     // Scroll the transcript to the bottom so the answer + receipt are visible.
-    await page.mouse.wheel(0, 4000);
+    const transcript = d.locator('.overflow-y-auto').first();
+    await transcript.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
     await page.waitForTimeout(400);
-    await shot(page, '03-transcript-bottom');
+    await shot(launched, '03-transcript-bottom');
 
-    await seed(launched, streamingState());
-    await shot(page, '04-streaming-plan');
+    await emitToThread(app, threadId, streamingState());
+    await shot(launched, '04-streaming-plan');
 
-    await seed(launched, approvalState());
-    await shot(page, '05-approval');
+    await emitToThread(app, threadId, approvalState());
+    await shot(launched, '05-approval');
 
-    await seed(launched, questionsState());
-    await shot(page, '06-questions');
+    await emitToThread(app, threadId, questionsState());
+    await shot(launched, '06-questions');
 
-    await seed(launched, errorState());
-    await shot(page, '07-error');
+    await emitToThread(app, threadId, errorState());
+    await shot(launched, '07-error');
 
     // Slash menu over the composer.
-    await seed(launched, baseState());
-    await page.locator('textarea').first().click();
+    await emitToThread(app, threadId, baseState());
+    await d.getByLabel('Agent prompt').click();
     await page.keyboard.type('/');
     await page.waitForTimeout(400);
-    await shot(page, '08-slash-menu');
+    await shot(launched, '08-slash-menu');
     await page.keyboard.press('Escape');
   } finally {
     if (launched) await launched.app.close();

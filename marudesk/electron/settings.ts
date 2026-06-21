@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import path from 'node:path';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import { atomicWriteFile } from './fs-safe';
 import { defineHandler } from './ipc/define-handler';
 import {
@@ -90,6 +90,25 @@ export function getSettingsSync(): AppSettings {
   // Clone the fallback so a sync caller can never mutate the shared constant
   // (matches load()/reset()), even though today's only caller just reads.
   return cache ?? structuredClone(DEFAULT_SETTINGS);
+}
+
+/**
+ * Read settings straight off disk, synchronously — for the rare boot path that
+ * runs BEFORE the first async {@link load} populates the cache (where
+ * {@link getSettingsSync} would otherwise return bare defaults). The embedded-
+ * browser debug-port gate (electron/agent/embedded-browser.ts) needs this: it
+ * decides at module top-level, before `app.whenReady()`, whether to open an
+ * unauthenticated CDP port, so it must see the user's actual persisted opt-in —
+ * not the default. Goes through `sanitizeSettings`; falls back to defaults if the
+ * file is missing or corrupt. Mirrors readMcpConfigSync.
+ */
+export function readSettingsSync(): AppSettings {
+  if (cache) return cache;
+  try {
+    return sanitizeSettings(JSON.parse(readFileSync(settingsFile(), 'utf8')));
+  } catch {
+    return structuredClone(DEFAULT_SETTINGS);
+  }
 }
 
 /** Broadcast captured at handler registration so main-side writers can notify renderers. */

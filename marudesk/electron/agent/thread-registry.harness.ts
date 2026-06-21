@@ -5,6 +5,7 @@ import {
   activeThreadId,
   busy,
   closeThread,
+  containerForThread,
   containerForWorkspace,
   emit,
   listThreads,
@@ -102,6 +103,33 @@ async function main(): Promise<void> {
   // emit() must be safe with no renderer host.
   emit();
   check('emit() is a no-op without a host (no throw)', true);
+
+  // ── per-task seedContext (Mission Control dock chat) ────────────────────
+  // The agent:new-thread handler, when given an optional seedContext, injects it
+  // as the fresh thread's INITIAL system preamble in the model-facing transcript
+  // — never as a visible user/assistant message. Exercise that exact path against
+  // the real container so the contract is locked: model sees it, the user doesn't.
+  __resetThreadsForTests();
+  const seededId = newThread();
+  const seeded = containerForThread(seededId);
+  const preamble = 'Task: Refactor the parser\nIntent: split the monolith';
+  // Mirror the handler's injection.
+  seeded?.transcript.push({ role: 'system', content: preamble });
+  check(
+    'seedContext lands in the model-facing transcript as a system message',
+    seeded?.transcript.length === 1 &&
+      seeded.transcript[0]?.role === 'system' &&
+      seeded.transcript[0]?.content === preamble,
+  );
+  check(
+    'seedContext does NOT pollute the user-visible transcript',
+    seeded?.state.messages.length === 0,
+  );
+
+  // A blank thread (no seedContext) starts with an empty transcript — every
+  // existing caller of agent:new-thread keeps minting blank threads unchanged.
+  const blankId = newThread();
+  check('a thread minted without seedContext has an empty transcript', containerForThread(blankId)?.transcript.length === 0);
 
   // ── concurrent turn-control routing (Stage 12-B-2) ──────────────────────
   __resetThreadsForTests();

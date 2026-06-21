@@ -11,6 +11,7 @@ import {
   writeMcpConfig,
 } from './mcp-config';
 import { registerMcpHandlers, shutdownExternalMcp } from './mcp-handlers';
+import { shouldOpenDebugPort } from './embedded-browser';
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -196,9 +197,17 @@ try {
   });
   const embedded = await invoke('mcp:embedded-browser-status');
   assert.ok(embedded && typeof embedded === 'object' && !Array.isArray(embedded), 'embedded status is an object');
-  const embeddedStatus = embedded as { portOpen?: unknown; required?: unknown };
+  const embeddedStatus = embedded as { portOpen?: unknown; required?: unknown; allowed?: unknown };
   check('embedded-browser-status reports required=true for the browser preset', embeddedStatus.required === true);
   check('embedded-browser-status returns a boolean portOpen flag', typeof embeddedStatus.portOpen === 'boolean');
+  check('embedded-browser-status returns a boolean allowed (opt-in) flag', typeof embeddedStatus.allowed === 'boolean');
+
+  // SECURITY GATE: the unauthenticated CDP debug port opens only when BOTH the MCP arg
+  // condition AND the explicit user opt-in are true — neither alone is sufficient.
+  check('debug port stays closed when only the MCP arg condition is met (opt-in off)', shouldOpenDebugPort(true, false) === false);
+  check('debug port stays closed when only the opt-in is on (no browser-control server)', shouldOpenDebugPort(false, true) === false);
+  check('debug port stays closed when neither condition is met', shouldOpenDebugPort(false, false) === false);
+  check('debug port opens only when the arg condition AND the opt-in both hold', shouldOpenDebugPort(true, true) === true);
 
   await writeMcpConfig({
     servers: [

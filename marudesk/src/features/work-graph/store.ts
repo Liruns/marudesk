@@ -1,7 +1,8 @@
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import { randomId } from '../../../shared/id';
 import {
   blockedTaskIds,
+  criterionVerifiableByChecker,
   edgeId,
   hasCycle,
   parallelLayers,
@@ -16,6 +17,9 @@ import {
   type WorkGraph,
 } from '../../../shared/work-os';
 import { useCanvasStore } from '../canvas/store';
+import { useGitStore } from '../git/store';
+import { useWorkspaceDeckStore } from '../workspaces/store';
+import { taskThreadWorkspaceId } from './taskThreads';
 
 /**
  * The AI Work OS task graph rendered as nodes on the canvas (docs/
@@ -190,6 +194,14 @@ type WorkGraphState = {
   runNote: string | null;
   /** The task whose patch is being applied to the live workspace, or null. */
   applyingPatchTaskId: TaskId | null;
+  /**
+   * The task whose patch was just successfully applied to the live workspace, or
+   * null. Gates the inspector's "Commit this task" affordance — it proves an apply
+   * landed (the diff is now staged) WITHOUT trusting `task.evidence.patch` alone
+   * (which survives a re-select / reload). Cleared on selecting another task and on
+   * any new run/implement/reset so the commit button never leaks past its apply.
+   */
+  lastAppliedTaskId: TaskId | null;
 };
 
 type WorkGraphActions = {
@@ -220,6 +232,8 @@ type WorkGraphActions = {
   removeEdge: (edgeId: string) => void;
   /** Add an acceptance criterion to a task. */
   addCriterion: (id: TaskId, text: string) => void;
+  /** Remove one acceptance criterion from a task (immutable; other tasks untouched). */
+  removeCriterion: (id: TaskId, criterionId: string) => void;
   setCriterionVerdict: (id: TaskId, criterionId: string, verdict: Criterion['verdict']) => void;
   /** Reset every task to `planned` (and clear verdicts/evidence) — re-arm a run. */
   resetRun: () => void;
@@ -233,17 +247,44 @@ type WorkGraphActions = {
    */
   run: () => Promise<void>;
   /**
+   * Run ONLY one task via `workos:run-task` (verify/evidence — NOT the worktree
+   * write path) and store its outcome as that task's evidence/status. Lets the
+   * inspector re-attempt a single failed/blocked task without re-running the whole
+   * graph. Gated like {@link run} (no-op while running / no graph / unknown id) and
+   * shares the same run-token bookkeeping so it can't race a full run.
+   */
+  runOne: (id: TaskId) => Promise<void>;
+  /**
    * Implement ONE task write-capably in an isolated git worktree (`workos:implement-task`)
    * and store the captured diff as `Task.evidence.patch` for review. The live
    * workspace is never modified. No-op while a run is in flight.
    */
   implementTask: (id: TaskId) => Promise<void>;
   /**
+   * Implement every CURRENTLY ready task (deps satisfied, not done/running) in ONE
+   * parallel batch — each in its own isolated git worktree (`workos:implement-task`),
+   * bounded by {@link WORKGRAPH_RUN_CONCURRENCY}. Each task's captured diff is stored
+   * as its `Task.evidence.patch` and left STAGED for individual review/apply; nothing
+   * is auto-applied (so the human review gate is preserved). Does NOT walk dependency
+   * layers — only the current ready set — because unblocking the next layer would
+   * require applying between layers. Gated like {@link run} (no-op while running / no
+   * graph / no ready tasks); shares the run-token bookkeeping so a concurrent run/stop
+   * can't race it and {@link stopRun} halts further launches.
+   */
+  implementReady: () => Promise<void>;
+  /**
    * Apply a task's reviewed worktree diff (`Task.evidence.patch`) to the LIVE
    * workspace via `workos:apply-patch`. Rejected (not forced) when the live tree
    * drifted since Implement ran. No-op without a patch or while already applying.
    */
   applyPatch: (id: TaskId) => Promise<void>;
+  /**
+   * Commit the just-applied task's staged changes through the EXISTING git store
+   * (`git:commit`) with a sensible default message derived from the task title.
+   * Gated on a fresh successful apply ({@link lastAppliedTaskId}) and not running.
+   * Surfaces the outcome as a runNote (git's own commit() also toasts).
+   */
+  commitTask: (id: TaskId) => Promise<void>;
   /** Stop the active run/implement: invalidate its token + return running tasks to planned. */
   stopRun: () => void;
 };
@@ -257,15 +298,35 @@ function setStatus(graph: WorkGraph, id: TaskId, status: TaskStatus): WorkGraph 
   });
 }
 
+/** Optional advisory worktree-verification signals folded into a task's evidence. */
+type WorktreeVerify = { worktreeVerified?: boolean; verifyNote?: string };
+
 /** Attach (or update) a task's evidence result (+ optional diff), keeping any trajectory. */
-function setEvidence(graph: WorkGraph, id: TaskId, result: string, patch?: string): WorkGraph {
+function setEvidence(
+  graph: WorkGraph,
+  id: TaskId,
+  result: string,
+  patch?: string,
+  verify?: WorktreeVerify,
+): WorkGraph {
   return touch({
     ...graph,
     tasks: graph.tasks.map((t) =>
       t.id === id
         ? {
             ...t,
-            evidence: { trajectory: t.evidence?.trajectory ?? [], result, ...(patch ? { patch } : {}) },
+            evidence: {
+              trajectory: t.evidence?.trajectory ?? [],
+              result,
+              ...(patch ? { patch } : {}),
+              // Preserve the honest tri-state: stamp `worktreeVerified` only when
+              // the result actually carried a boolean (undefined = no checker ran,
+              // which must stay unverified — never read as a green badge).
+              ...(verify && verify.worktreeVerified !== undefined
+                ? { worktreeVerified: verify.worktreeVerified }
+                : {}),
+              ...(verify && verify.verifyNote ? { verifyNote: verify.verifyNote } : {}),
+            },
           }
         : t,
     ),
@@ -301,6 +362,108 @@ function markDry(graph: WorkGraph, tasks: readonly Task[]): WorkGraph {
 }
 
 /**
+ * Invoke `workos:run-task` for ONE task and fold its outcome into `graph`
+ * (status + evidence + outputs on success; a recoverable `blocked` + reason when
+ * it could not be reached). Shared by {@link run}'s parallel layer walk and the
+ * single-task {@link runOne} so both apply an outcome identically. Fail-closed: a
+ * rejected invoke becomes an ok:false result, never an unhandled rejection.
+ */
+async function invokeRunTask(task: Task, goal: string) {
+  const res = await window.marudesk
+    .invoke('workos:run-task', {
+      taskId: task.id,
+      title: task.title,
+      intent: task.intent,
+      goal,
+      acceptance: task.acceptance.map((c) => c.text),
+    })
+    .catch(() => ({ ok: false as const, reason: 'The task agent could not be reached.' }));
+  return res;
+}
+
+/** Apply one `workos:run-task` outcome to `graph` (status/evidence/outputs). */
+function applyRunOutcome(
+  graph: WorkGraph,
+  task: Task,
+  res: Awaited<ReturnType<typeof invokeRunTask>>,
+): WorkGraph {
+  if (res.ok) {
+    let g = setStatus(graph, task.id, res.status);
+    g = setEvidence(g, task.id, res.result);
+    g = setOutputs(g, task.id, res.outputs);
+    return g;
+  }
+  // Not attempted (no provider / timeout) — recoverable `blocked`, not a real fail.
+  return setEvidence(setStatus(graph, task.id, 'blocked'), task.id, res.reason);
+}
+
+/** The store's own zustand set/get, so {@link implementOne} writes exactly like the actions. */
+type Store = StoreApi<WorkGraphState & WorkGraphActions>;
+type StoreSet = Store['setState'];
+type StoreGet = Store['getState'];
+
+/**
+ * Implement ONE task in an isolated git worktree (`workos:implement-task`) and
+ * fold its captured diff into the task's evidence for review — NEVER applied to the
+ * live workspace. Shared by the single-task {@link WorkGraphActions.implementTask}
+ * and the parallel {@link WorkGraphActions.implementReady} batch so both store an
+ * outcome identically.
+ *
+ * The caller MUST have already set `running`/`runToken` (= `token`) and marked the
+ * task(s) `running` — this body does NOT grab the global token itself, so a batch
+ * never double-owns it. After its await it re-checks the token and bails without
+ * clobbering when a stop/new run superseded the turn. `clearRunningOnSettle` makes
+ * the single-task caller flip `running` off as part of the outcome write (the batch
+ * passes false and clears the flag once, after all tasks settle).
+ */
+async function implementOne(
+  task: Task,
+  goal: string,
+  token: number,
+  get: StoreGet,
+  set: StoreSet,
+  opts: { clearRunningOnSettle: boolean },
+): Promise<void> {
+  const clear = opts.clearRunningOnSettle ? { running: false } : {};
+  try {
+    const res = await window.marudesk.invoke('workos:implement-task', {
+      taskId: task.id,
+      title: task.title,
+      intent: task.intent,
+      goal,
+      acceptance: task.acceptance.map((c) => c.text),
+    });
+    if (get().runToken !== token) return; // stopped / superseded — don't clobber
+    set((s) => {
+      if (!s.graph) return clear;
+      if (res.ok) {
+        let g = setStatus(s.graph, task.id, res.status);
+        g = setEvidence(g, task.id, res.result, res.patch, {
+          worktreeVerified: res.worktreeVerified,
+          verifyNote: res.verifyNote,
+        });
+        return {
+          ...clear,
+          graph: g,
+          runNote: res.changedFiles.length
+            ? `${res.changedFiles.length} file(s) changed in an isolated worktree — review the diff before applying.`
+            : 'No changes were produced.',
+        };
+      }
+      // A precondition (no provider / not a git repo) — restore the task to planned.
+      return { ...clear, graph: setStatus(s.graph, task.id, 'planned'), runNote: res.reason };
+    });
+  } catch {
+    if (get().runToken !== token) return;
+    set((s) => ({
+      ...clear,
+      graph: s.graph ? setStatus(s.graph, task.id, 'planned') : s.graph,
+      runNote: 'Implement failed.',
+    }));
+  }
+}
+
+/**
  * A copy of the graph with per-task `evidence` dropped. Evidence (the agent's
  * result text + up-to-20k diff, possibly containing file contents) is run-session
  * state: `parseWorkGraph` never restores it, so persisting it is pure bloat AND a
@@ -320,6 +483,46 @@ function withoutEvidence(graph: WorkGraph): WorkGraph {
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Max child agents (provider streams) a single ready layer launches at once. A
+ * wide layer (10+ ready tasks) would otherwise fan out unbounded via `Promise.all`,
+ * spawning that many concurrent model streams — risking provider rate-limit
+ * failures and a frozen, unstoppable run. The pool throttles launches to this many
+ * in flight; results are identical to the unbounded version for any graph (only the
+ * order of completion may differ, never the final state).
+ */
+export const WORKGRAPH_RUN_CONCURRENCY = 4;
+
+/**
+ * Run `worker` over `items` with at most `limit` in flight at once, returning the
+ * results in INPUT order (not completion order). A typed, dependency-free bounded
+ * worker pool: each slot pulls the next item as it frees up, so a layer of N tasks
+ * with a cap of 4 never has more than 4 `worker` calls outstanding. `shouldStop`
+ * is polled before pulling each new item so a stop halts further launches promptly
+ * (already-launched workers still settle). Pure → unit-tested in store.test.ts.
+ */
+export async function runWithConcurrency<I, O>(
+  items: readonly I[],
+  limit: number,
+  worker: (item: I, index: number) => Promise<O>,
+  shouldStop?: () => boolean,
+): Promise<O[]> {
+  const results = new Array<O>(items.length);
+  const cap = Math.max(1, Math.min(limit, items.length));
+  let next = 0;
+  const pull = async (): Promise<void> => {
+    for (;;) {
+      if (shouldStop?.()) return;
+      const i = next;
+      next += 1;
+      if (i >= items.length) return;
+      results[i] = await worker(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: cap }, () => pull()));
+  return results;
+}
+
 export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set, get) => ({
   graph: persisted.graph,
   pos: persisted.pos,
@@ -328,6 +531,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   runToken: 0,
   runNote: null,
   applyingPatchTaskId: null,
+  lastAppliedTaskId: null,
 
   setGraph: (graph) =>
     set((s) => ({
@@ -337,6 +541,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       running: false,
       runToken: s.runToken + 1, // invalidate any in-flight run/implement
       runNote: null,
+      lastAppliedTaskId: null,
     })),
 
   clearGraph: () =>
@@ -347,6 +552,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       running: false,
       runToken: s.runToken + 1,
       runNote: null,
+      lastAppliedTaskId: null,
     })),
 
   addTask: (at) => {
@@ -446,7 +652,13 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
   setPos: (id, x, y) => set((s) => ({ pos: { ...s.pos, [id]: { x, y } } })),
 
-  selectTask: (id) => set({ selectedTaskId: id }),
+  selectTask: (id) =>
+    set((s) => ({
+      selectedTaskId: id,
+      // Selecting a DIFFERENT task drops the just-applied gate (the commit
+      // affordance belongs to the task that was applied, not the new selection).
+      lastAppliedTaskId: id === s.lastAppliedTaskId ? s.lastAppliedTaskId : null,
+    })),
 
   connect: (from, to) => {
     if (from === to) return { ok: false, reason: 'self' };
@@ -472,6 +684,19 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         graph: touch({
           ...s.graph,
           tasks: s.graph.tasks.map((t) => (t.id === id ? { ...t, acceptance: [...t.acceptance, crit] } : t)),
+        }),
+      };
+    }),
+
+  removeCriterion: (id, criterionId) =>
+    set((s) => {
+      if (!s.graph) return {};
+      return {
+        graph: touch({
+          ...s.graph,
+          tasks: s.graph.tasks.map((t) =>
+            t.id === id ? { ...t, acceptance: t.acceptance.filter((c) => c.id !== criterionId) } : t,
+          ),
         }),
       };
     }),
@@ -502,6 +727,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       return {
         running: false,
         runNote: null,
+        lastAppliedTaskId: null,
         graph: touch({
           ...s.graph,
           tasks: s.graph.tasks.map((t): Task => {
@@ -541,21 +767,17 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) } : {}));
 
         if (live) {
-          const outcomes = await Promise.all(
-            ready.map(async (t) => ({
-              t,
-              // Fail-closed: a rejected invoke (child threw) becomes an ok:false
-              // result, not an unhandled rejection that strands the layer.
-              res: await window.marudesk
-                .invoke('workos:run-task', {
-                  taskId: t.id,
-                  title: t.title,
-                  intent: t.intent,
-                  goal,
-                  acceptance: t.acceptance.map((c) => c.text),
-                })
-                .catch(() => ({ ok: false as const, reason: 'The task agent could not be reached.' })),
-            })),
+          // Bounded fan-out: at most WORKGRAPH_RUN_CONCURRENCY child agents (provider
+          // streams) in flight at once, so a wide ready layer can't launch unbounded
+          // concurrent streams (rate-limit / frozen-UI risk). The collected outcomes
+          // are in INPUT order and identical to the unbounded Promise.all — only the
+          // order tasks complete in differs, never the final graph state. owns() is
+          // polled before launching each task so a stop halts further launches promptly.
+          const outcomes = await runWithConcurrency(
+            ready,
+            WORKGRAPH_RUN_CONCURRENCY,
+            async (t) => ({ t, res: await invokeRunTask(t, goal) }),
+            () => !owns(),
           );
           if (!owns()) break;
           if (outcomes.every((o) => !o.res.ok)) {
@@ -584,19 +806,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
           set((s) => {
             if (!s.graph) return {};
             let g = s.graph;
-            for (const { t, res } of outcomes) {
-              if (res.ok) {
-                g = setStatus(g, t.id, res.status);
-                g = setEvidence(g, t.id, res.result);
-                g = setOutputs(g, t.id, res.outputs);
-              } else {
-                // Not attempted (no provider / timeout for THIS task) — `blocked`,
-                // not a real `failed`: non-terminal, recoverable, and it won't
-                // cascade-fail dependents the way a genuine failure does.
-                g = setStatus(g, t.id, 'blocked');
-                g = setEvidence(g, t.id, res.reason);
-              }
-            }
+            for (const { t, res } of outcomes) g = applyRunOutcome(g, t, res);
             // A failed task blocks its dependents — mark them so they don't sit planned.
             return { graph: markBlocked(g) };
           });
@@ -606,6 +816,37 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
           set((s) => (s.graph ? { graph: markDry(s.graph, ready) } : {}));
         }
       }
+    } finally {
+      // Only the owning turn clears `running` (a newer run/stop owns it otherwise).
+      if (get().runToken === token) set({ running: false });
+    }
+  },
+
+  runOne: async (id) => {
+    const s0 = get();
+    if (s0.running || !s0.graph) return;
+    const task = s0.graph.tasks.find((t) => t.id === id);
+    if (!task) return;
+    const goal = s0.graph.goal;
+    const token = s0.runToken + 1;
+    set((s) => ({
+      running: true,
+      runToken: token,
+      runNote: null,
+      lastAppliedTaskId: null,
+      graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph,
+    }));
+    // This turn owns the run only while its token is current; a stopRun() / new run
+    // bumps it, so we bail after the await instead of clobbering the newer turn.
+    const owns = () => get().running && get().runToken === token;
+    try {
+      const res = await invokeRunTask(task, goal);
+      if (!owns()) return;
+      set((s) => {
+        if (!s.graph) return { running: false };
+        // A failed task blocks its dependents — mark them so they don't sit planned.
+        return { graph: markBlocked(applyRunOutcome(s.graph, task, res)), running: false };
+      });
     } finally {
       // Only the owning turn clears `running` (a newer run/stop owns it otherwise).
       if (get().runToken === token) set({ running: false });
@@ -623,40 +864,57 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       running: true,
       runToken: token,
       runNote: null,
+      lastAppliedTaskId: null,
       graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph,
     }));
     try {
-      const res = await window.marudesk.invoke('workos:implement-task', {
-        taskId: task.id,
-        title: task.title,
-        intent: task.intent,
-        goal,
-        acceptance: task.acceptance.map((c) => c.text),
-      });
-      if (get().runToken !== token) return; // stopped / superseded — don't clobber
-      set((s) => {
-        if (!s.graph) return { running: false };
-        if (res.ok) {
-          let g = setStatus(s.graph, id, res.status);
-          g = setEvidence(g, id, res.result, res.patch);
-          return {
-            graph: g,
-            running: false,
-            runNote: res.changedFiles.length
-              ? `${res.changedFiles.length} file(s) changed in an isolated worktree — review the diff before applying.`
-              : 'No changes were produced.',
-          };
-        }
-        // A precondition (no provider / not a git repo) — restore the task to planned.
-        return { graph: setStatus(s.graph, id, 'planned'), running: false, runNote: res.reason };
-      });
-    } catch {
-      if (get().runToken !== token) return;
-      set((s) => ({
-        graph: s.graph ? setStatus(s.graph, id, 'planned') : s.graph,
-        running: false,
-        runNote: 'Implement failed.',
-      }));
+      // Single task: this turn owns the global running flag/token, so clear it once
+      // the one implement settles (only if still ours — a stop/new run may own it).
+      await implementOne(task, goal, token, get, set, { clearRunningOnSettle: true });
+    } finally {
+      if (get().runToken === token) set({ running: false });
+    }
+  },
+
+  implementReady: async () => {
+    const s0 = get();
+    if (s0.running || !s0.graph) return;
+    // The CURRENT ready set only — tasks whose deps are satisfied and that aren't
+    // done/running. First slice: implement just this layer in ONE parallel batch;
+    // we deliberately do NOT walk dependency layers, because unblocking the next
+    // layer would require applying a diff between layers (auto-apply), which would
+    // bypass the human review gate. Each diff is left staged for individual review.
+    const ready = readyTasks(s0.graph);
+    if (ready.length === 0) return;
+    const goal = s0.graph.goal;
+    const token = s0.runToken + 1;
+    // Mark the whole ready set running (visualizes the parallel batch) and take the
+    // batch running flag/token so the batch is atomic w.r.t. a concurrent stop/run.
+    set((s) => ({
+      running: true,
+      runToken: token,
+      runNote: null,
+      lastAppliedTaskId: null,
+      graph: s.graph ? ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) : s.graph,
+    }));
+    // This batch owns the run only while its token is current; a stopRun()/new run
+    // bumps it. owns() halts further launches (runWithConcurrency polls it) and
+    // each per-task implementOne re-checks the token after its await before writing.
+    const owns = () => get().running && get().runToken === token;
+    try {
+      // Bounded fan-out: at most WORKGRAPH_RUN_CONCURRENCY isolated-worktree implements
+      // in flight at once. Each task gets its own crypto-random worktree (run-task.ts),
+      // so parallel implements can't collide; each stores its own captured diff as
+      // evidence, leaving every diff STAGED for individual review/apply — NEVER applied.
+      await runWithConcurrency(
+        ready,
+        WORKGRAPH_RUN_CONCURRENCY,
+        (t) => implementOne(t, goal, token, get, set, { clearRunningOnSettle: false }),
+        () => !owns(),
+      );
+    } finally {
+      // Only the owning batch clears `running` (a newer run/stop owns it otherwise).
+      if (get().runToken === token) set({ running: false });
     }
   },
 
@@ -666,15 +924,39 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     const task = s0.graph?.tasks.find((t) => t.id === id);
     const patch = task?.evidence?.patch;
     if (!task || !patch || !patch.trim()) return;
+    // Cross-workspace guard (DATA INTEGRITY): the apply writes against the ACTIVE
+    // workspace in main. If this task is bound to a *different* workspace, applying
+    // now would write its diff into the wrong repo (git apply --check only rejects
+    // on context drift, so new-file/coincident-context hunks would land silently).
+    // Bail BEFORE invoking. An unbound task (workspaceId undefined) targets the
+    // active workspace by definition, so it proceeds. We still pass the resolved
+    // workspaceId so main can authoritatively re-validate a bridge/CLI caller.
+    const taskWorkspaceId = taskThreadWorkspaceId(id);
+    const activeWorkspaceId = useWorkspaceDeckStore.getState().activeWorkspaceId;
+    if (
+      taskWorkspaceId !== undefined &&
+      activeWorkspaceId !== null &&
+      taskWorkspaceId !== activeWorkspaceId
+    ) {
+      set({ runNote: "Switch to the task's workspace before applying this patch." });
+      return;
+    }
     set({ applyingPatchTaskId: id, runNote: null });
     try {
-      const res = await window.marudesk.invoke('workos:apply-patch', { taskId: id, patch });
+      const res = await window.marudesk.invoke('workos:apply-patch', {
+        taskId: id,
+        patch,
+        workspaceId: taskWorkspaceId,
+      });
       set((s) => {
         if (!res.ok) return { applyingPatchTaskId: null, runNote: res.reason };
         const verdict = res.verdict;
         const files = `Applied ${res.changedFiles.length} file(s) to the workspace`;
-        // Roadmap §7-4: the single workspace-verify result fills the task's
-        // acceptance verdicts — a real pass/fail from the checker, not a claim.
+        // Roadmap §4 (verdict integrity): the apply-time checker only proves a
+        // tsc/eslint/build pass-or-fail over the CHANGED FILES — it cannot speak
+        // to behavioral criteria ("returns 200", "no console errors"). So stamp
+        // ONLY criteria whose text names the checker's domain; leave every other
+        // criterion at its existing verdict (honestly unverified, not fabricated).
         const at = Date.now();
         const graph =
           s.graph && verdict
@@ -682,22 +964,94 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
                 ...s.graph,
                 tasks: s.graph.tasks.map((t) =>
                   t.id === id
-                    ? { ...t, acceptance: t.acceptance.map((c) => ({ ...c, verdict, checkedAt: at })) }
+                    ? {
+                        ...t,
+                        acceptance: t.acceptance.map((c) =>
+                          criterionVerifiableByChecker(c.text)
+                            ? { ...c, verdict, checkedAt: at }
+                            : c,
+                        ),
+                      }
                     : t,
                 ),
               })
             : s.graph;
         const note =
           verdict === 'pass'
-            ? `${files} — workspace verify passed; acceptance marked pass.`
+            ? `${files} — checker passed; checker-verifiable acceptance marked pass.`
             : verdict === 'fail'
-              ? `${files} — workspace verify found errors; acceptance marked fail.`
+              ? `${files} — checker found errors; checker-verifiable acceptance marked fail.`
               : `${files}.`;
-        return { applyingPatchTaskId: null, runNote: note, graph };
+        // Record the just-applied task so the inspector can offer to COMMIT the
+        // now-staged changes (the agent diff → review → apply → commit loop). Only
+        // a successful apply reaches here (the !res.ok branch returned above).
+        return { applyingPatchTaskId: null, runNote: note, graph, lastAppliedTaskId: id };
       });
+      // The patch wrote real workspace files — refresh Source Control so an
+      // already-open SCM instrument reflects the change without a manual reload
+      // (agent diff → review → commit handoff). refresh() self-guards: it probes
+      // git availability and handles a non-repo / no-git workspace as a no-op,
+      // catching its own errors, so this never affects applyPatch's contract.
+      //
+      // Cross-workspace guard: git:* (and `workos:apply-patch`) are scoped to the
+      // ACTIVE workspace in main — there's no per-call workspaceId. A task can be
+      // bound to a *different* workspace than the focused SCM instrument; refreshing
+      // then would reflect (and risk a commit against) the wrong repo. We only know a
+      // task's workspace via its conversation thread. When the task is bound to a
+      // workspace that differs from the active one, skip the refresh rather than
+      // refresh the wrong repo. A task with no bound workspace targets the active
+      // workspace by definition (same fallback `getCurrentWorkspace` the apply used),
+      // so the refresh stays consistent and proceeds.
+      if (res.ok) {
+        // We already bailed above on a task↔active workspace mismatch, so reaching
+        // here means the apply targeted the active workspace — refresh that repo's
+        // Source Control. (taskWorkspaceId/activeWorkspaceId resolved before invoke.)
+        const sameWorkspace =
+          taskWorkspaceId === undefined || taskWorkspaceId === activeWorkspaceId;
+        if (sameWorkspace) {
+          void useGitStore.getState().refresh();
+          // Complete the agent diff → review → commit handoff in the UI: a user
+          // with no SCM instrument open otherwise has no way to reach the commit
+          // box after a successful apply (only the ⌘K palette opens it). Land them
+          // on the staged changes by summoning Source Control as the full-area
+          // instrument. Deferred dynamic import so the work-graph store never takes
+          // a top-level dependency on the instrument module (which imports tab/
+          // editor stores) — avoids an init cycle. The apply targeted the active
+          // workspace (mismatch already bailed above), so pass that workspaceId.
+          const scmWorkspaceId = taskWorkspaceId ?? activeWorkspaceId ?? undefined;
+          void import('./instrument').then((m) =>
+            m.openInstrument('sourceControl', { workspaceId: scmWorkspaceId }),
+          );
+        }
+      }
     } catch {
       set({ applyingPatchTaskId: null, runNote: 'Applying the patch failed.' });
     }
+  },
+
+  commitTask: async (id) => {
+    const s0 = get();
+    // Gate on the SAME condition that proves apply happened: a fresh successful
+    // apply for this exact task. Never run mid-flight (a run/implement/apply could
+    // be mutating the tree). The diff is already staged by `workos:apply-patch`.
+    if (s0.running || s0.applyingPatchTaskId !== null) return;
+    if (s0.lastAppliedTaskId !== id) return;
+    const task = s0.graph?.tasks.find((t) => t.id === id);
+    if (!task) return;
+    // Sensible default: the task title as the commit subject. An empty title can't
+    // be a commit message — fall back so git:commit never gets a blank subject.
+    const message = task.title.trim() || `Apply task ${id}`;
+    // Route through the EXISTING git store commit() (git:commit IPC); it stages
+    // nothing new but commits the apply's staged changes, toasts on success, and
+    // surfaces failures via its own error toast. We mirror the outcome as a runNote
+    // and clear the gate on success so the button doesn't re-offer a done commit.
+    const ok = await useGitStore.getState().commit(message);
+    set((s) => ({
+      runNote: ok
+        ? `Committed “${message}”.`
+        : 'Commit failed — see Source Control for details.',
+      lastAppliedTaskId: ok ? null : s.lastAppliedTaskId,
+    }));
   },
 
   stopRun: () =>
@@ -713,23 +1067,71 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     }),
 }));
 
-/* persist (debounced via microtask) — graph + node positions only. */
-let saveQueued = false;
-useWorkGraphStore.subscribe(() => {
-  if (typeof localStorage === 'undefined' || saveQueued) return;
-  saveQueued = true;
-  queueMicrotask(() => {
-    saveQueued = false;
-    try {
-      const { graph, pos } = useWorkGraphStore.getState();
-      // Evidence (result text + diff) is run-session only and not restored on load;
-      // strip it so file contents never sit in localStorage (and to avoid bloat).
-      localStorage.setItem(PERSIST_KEY, JSON.stringify({ graph: graph ? withoutEvidence(graph) : null, pos }));
-    } catch {
-      // best-effort
+/*
+ * persist — graph + node positions only, debounced.
+ *
+ * Dragging a node fires `setPos` per pointer move (each touching only `pos`),
+ * so the writer must be cheap on the hot path:
+ *  - trailing debounce coalesces a continuous drag into ONE write on settle;
+ *  - the stripped-graph JSON fragment is cached by graph identity, so a
+ *    pos-only change reuses the cached string and never re-runs withoutEvidence.
+ * The persisted shape stays exactly `{ graph, pos }` under PERSIST_KEY.
+ */
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let lastGraph: WorkGraph | null = null;
+// Serialized `withoutEvidence(graph)` (or "null") for the cached `lastGraph`.
+let cachedGraphJson = 'null';
+export const WORKGRAPH_PERSIST_DEBOUNCE_MS = 300;
+
+/**
+ * Number of times the graph has actually been stripped + re-serialized for
+ * persistence. Exposed (with `__flushWorkGraphPersist`) only so tests can prove
+ * a pos-only change reuses the cached graph string instead of re-running
+ * `withoutEvidence`. Not part of the public store API.
+ */
+export const __workGraphPersistStats = { graphSerializations: 0 };
+
+export function __flushWorkGraphPersist(): void {
+  writePersisted();
+}
+
+function writePersisted(): void {
+  try {
+    const { graph, pos } = useWorkGraphStore.getState();
+    if (graph !== lastGraph) {
+      __workGraphPersistStats.graphSerializations += 1;
+      // Evidence (result text + diff) is run-session only and not restored on
+      // load; strip it so file contents never sit in localStorage (and to avoid
+      // bloat). Only re-strip + re-serialize when the graph object changes.
+      cachedGraphJson = graph ? JSON.stringify(withoutEvidence(graph)) : 'null';
+      lastGraph = graph;
     }
-  });
+    localStorage.setItem(PERSIST_KEY, `{"graph":${cachedGraphJson},"pos":${JSON.stringify(pos)}}`);
+  } catch {
+    // best-effort
+  }
+}
+
+useWorkGraphStore.subscribe(() => {
+  if (typeof localStorage === 'undefined') return;
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    writePersisted();
+  }, WORKGRAPH_PERSIST_DEBOUNCE_MS);
 });
+
+// The debounce coalesces a continuous drag into one write, but a change in the
+// last ~300ms before the window closes would otherwise be lost. Flush any
+// pending write synchronously on unload so the final position / graph edit lands.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (saveTimer === null) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    writePersisted();
+  });
+}
 
 /**
  * A deterministic sample graph for a goal — used when no AI provider is

@@ -13,6 +13,7 @@ import { isSshRootKey } from '../shared/ssh';
 import { isInsideRoot } from './fs-safe';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { bool, obj, str } from './ipc/validate';
+import { getWorkspaceSummary } from './workspace-registry';
 import { IGNORE_DIRS } from './workspace-config';
 import {
   buildPreview,
@@ -20,6 +21,7 @@ import {
   compilePathFilter,
   makeLineMatcher,
   parseGlobs,
+  resolveSearchRoot,
 } from './search-core';
 
 /**
@@ -260,6 +262,9 @@ function parseOptions(value: unknown): SearchOptions {
     regex: o.regex === undefined ? false : bool(o.regex, 'regex'),
     includes: o.includes === undefined ? '' : str(o.includes, 'includes'),
     excludes: o.excludes === undefined ? '' : str(o.excludes, 'excludes'),
+    ...(o.workspaceId === undefined
+      ? {}
+      : { workspaceId: str(o.workspaceId, 'workspaceId') }),
   };
 }
 
@@ -268,6 +273,15 @@ export function registerSearchHandlers(): void {
     const p = obj(payload);
     const query = str(p.query, 'query');
     const opts = parseOptions(p.opts);
-    return searchContent(requireWorkspace().root, query, opts);
+    // Scope to the bound workspace's active root when threaded (Search
+    // instrument on a non-active workspace), else the global active root — the
+    // pure resolver keeps the active path identical to the prior
+    // `requireWorkspace().root`.
+    const root = resolveSearchRoot(
+      opts.workspaceId,
+      () => requireWorkspace().root,
+      (id) => getWorkspaceSummary(id)?.root ?? null,
+    );
+    return searchContent(root, query, opts);
   });
 }

@@ -12,9 +12,12 @@ import { useTabsStore } from './store';
 import { tabKinds } from './registry';
 import { useCanvasStore } from '../canvas/store';
 import { useSurfaceStore } from '../canvas/surface';
+import { useInstrumentStore } from '../work-graph/instrument';
 import type { TabState } from '../../../shared/browser';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
+import { Hint, PaletteHints, PaletteOverlay } from '../commands/PaletteOverlay';
+import { usePaletteListbox } from '../commands/usePaletteListbox';
 
 /**
  * Tab switcher palette (Ctrl/Cmd+Shift+A). A keyboard-first overlay that
@@ -66,17 +69,24 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
   }, [tabs, query, t]);
 
   const activeIndex = results.length === 0 ? 0 : Math.min(active, results.length - 1);
+  const { inputProps, listboxProps, optionProps } = usePaletteListbox(activeIndex, results.length);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex]);
 
-  const choose = (id: string) => {
-    void activateTab(id);
-    // On the infinite canvas, also pan/zoom to the picked card — otherwise
-    // activating a tab off-screen leaves you staring at empty canvas.
+  const choose = (tab: TabState) => {
+    void activateTab(tab.id);
     if (useSurfaceStore.getState().mode === 'canvas') {
-      useCanvasStore.getState().revealTab(id);
+      // On the infinite canvas, also pan/zoom to the picked card — otherwise
+      // activating a tab off-screen leaves you staring at empty canvas.
+      useCanvasStore.getState().revealTab(tab.id);
+    } else {
+      // In Mission Control there is no canvas: activating in main alone leaves
+      // the Shell rendering the work graph while a web/terminal view paints over
+      // it (or a feature tab shows nothing). Host the picked tab as the full-area
+      // instrument, mirroring openInstrument / openFileInstrument.
+      useInstrumentStore.getState().open(tab.id, tab.kind);
     }
     onClose();
   };
@@ -91,7 +101,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const r = results[activeIndex];
-      if (r) choose(r.tab.id);
+      if (r) choose(r.tab);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
@@ -99,20 +109,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('tabPalette.dialogLabel')}
-    >
-      <button
-        type="button"
-        aria-hidden
-        tabIndex={-1}
-        className="absolute inset-0 cursor-default bg-black/30"
-        onClick={onClose}
-      />
-      <div className="relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lifted animate-scale-in">
+    <PaletteOverlay ariaLabel={t('tabPalette.dialogLabel')} onClose={onClose}>
         <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-11">
           <Search size={15} className="shrink-0 text-fg-tertiary" />
           <input
@@ -126,11 +123,12 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
             placeholder={t('tabPalette.placeholder')}
             spellCheck={false}
             autoComplete="off"
+            {...inputProps}
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div {...listboxProps} className="min-h-0 flex-1 overflow-y-auto py-1">
           {results.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
               {formatTabPaletteNoMatch(query)}
@@ -144,8 +142,9 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
                   key={tab.id}
                   ref={isActive ? activeRef : undefined}
                   type="button"
-                  onClick={() => choose(tab.id)}
+                  onClick={() => choose(tab)}
                   onMouseEnter={() => setActive(idx)}
+                  {...optionProps(idx)}
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',
                     isActive ? 'bg-surface-2 text-fg-primary' : 'text-fg-secondary',
@@ -173,23 +172,11 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
+        <PaletteHints>
           <Hint k="↑↓" label={t('palette.hint.move')} />
           <Hint k="↵" label={t('tabPalette.hint.switch')} />
           <Hint k="esc" label={t('palette.hint.close')} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Hint({ k, label }: { k: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1">
-      <kbd className="rounded bg-surface-3 px-1 text-[10px] font-medium leading-[1.5] text-fg-secondary">
-        {k}
-      </kbd>
-      <span>{label}</span>
-    </span>
+        </PaletteHints>
+    </PaletteOverlay>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { cn } from '../../lib/cn';
 
 /**
@@ -11,6 +12,7 @@ import { cn } from '../../lib/cn';
 export function NameDialog({
   title,
   confirmLabel,
+  cancelLabel = 'Cancel',
   initialValue = '',
   placeholder,
   allowEmpty = false,
@@ -19,6 +21,8 @@ export function NameDialog({
 }: {
   title: string;
   confirmLabel: string;
+  /** Localized dismiss label; defaults to the English 'Cancel' for callers that don't pass it. */
+  cancelLabel?: string;
   initialValue?: string;
   placeholder?: string;
   /** When set, an empty value is allowed (e.g. create defaults to the folder name). */
@@ -28,6 +32,9 @@ export function NameDialog({
 }) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Trap Tab/Shift+Tab inside the card so focus can't escape to the chrome
+  // behind the backdrop (the same hook PaletteOverlay uses).
+  const cardRef = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -56,16 +63,21 @@ export function NameDialog({
     onClose();
   };
 
+  // z-[80]: above the palette scrim (z-[60]) and toast (z-[70]) so this modal
+  // sits on top of the R10 z-ladder; still below the Tour (z-[100]).
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40"
       onMouseDown={onClose}
     >
       <div
+        ref={cardRef}
         role="dialog"
+        aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
-        className="w-[360px] rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2"
+        className="w-[360px] rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2 animate-scale-in"
       >
         <h2 className="text-body font-semibold text-fg-primary">{title}</h2>
         <input
@@ -91,7 +103,7 @@ export function NameDialog({
             onClick={onClose}
             className="h-8 px-3 rounded-md text-body-sm text-fg-secondary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             type="button"

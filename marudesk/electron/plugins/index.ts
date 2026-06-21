@@ -75,6 +75,11 @@ export function listPluginStatuses(): PluginStatus[] {
   return manager ? manager.list() : [];
 }
 
+/** Recent (scrubbed) log lines + errors for one live plugin (in-app debug view). */
+export function listPluginLogs(id: string): readonly string[] {
+  return manager ? manager.logs(id) : [];
+}
+
 /** Enable/disable one plugin (Settings toggle); re-reconciles and returns statuses. */
 export async function setPluginEnabled(id: string, enabled: boolean): Promise<PluginStatus[]> {
   return manager ? manager.setEnabled(id, enabled) : [];

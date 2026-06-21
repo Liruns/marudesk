@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Resource } from '../../shared/work-os';
+import type { Diagnostic, DiagnosticsRun } from '../../shared/diagnostics';
 import { check, passedCount } from '../harness-kit';
 import {
   parseInput,
@@ -11,6 +12,10 @@ import {
   stripJsonFences,
   firstJsonObject,
   runTask,
+  probeChangedFiles,
+  runVerifyFixLoop,
+  verifyNoteFor,
+  implementPrompt,
 } from './run-task';
 
 /**
@@ -187,6 +192,259 @@ async function testRunTaskEarlyReturns(): Promise<void> {
   check('runTask: no title or intent → ok:false (before any provider resolution)', empty.ok === false);
 }
 
+function testImplementPrompt(): void {
+  const input = parseInput({
+    taskId: 't1',
+    title: 'Add the orders endpoint',
+    intent: 'expose orders over HTTP',
+    goal: 'ship orders',
+    acceptance: ['endpoint returns 200'],
+  });
+  check('implementPrompt: fixture payload parses', input !== null);
+  if (!input) return;
+
+  // With folded workspace instructions, the child's seed carries the repo's own
+  // conventions (the FIX: the implement child should see AGENTS.md like the parent).
+  const folded = implementPrompt(
+    input,
+    "The user's repository ships instruction file(s). (AGENTS.md)\nTypeScript stays strict. No any.",
+  );
+  check('implementPrompt: the task title is present', folded.includes('Add the orders endpoint'));
+  check('implementPrompt: the acceptance criterion is present', folded.includes('endpoint returns 200'));
+  check(
+    'implementPrompt: the folded workspace conventions are included',
+    folded.includes('TypeScript stays strict. No any.'),
+  );
+
+  // Empty instructions ('' — no AGENTS.md present) must not add a dangling block.
+  const bare = implementPrompt(input, '');
+  check('implementPrompt: empty instructions adds no conventions block', !bare.includes('repository ships'));
+  check('implementPrompt: bare prompt still carries the task', bare.includes('Add the orders endpoint'));
+}
+
+/** Build a stub diagnostics run that errors on `errorFiles` (empty = clean pass). */
+function diagRun(errorFiles: string[], exitCode: number | null = errorFiles.length ? 1 : 0): DiagnosticsRun {
+  const diagnostics: Diagnostic[] = errorFiles.map((file) => ({
+    file,
+    line: 1,
+    column: 1,
+    severity: 'error' as const,
+    message: `Type error in ${file}`,
+    source: 'tsc',
+  }));
+  return { checkerId: 'tsc', command: 'tsc --noEmit', exitCode, durationMs: 1, diagnostics, truncated: false };
+}
+
+async function testProbeChangedFiles(): Promise<void> {
+  // No checker applied (exitCode null) → null (honestly unverified).
+  check(
+    'probeChangedFiles: no checker applied → null',
+    (await probeChangedFiles(async () => ({ lastRun: diagRun([], null) }), '/wt', ['a.ts'])) === null,
+  );
+  // A clean pass → empty errors list (not null).
+  const clean = await probeChangedFiles(async () => ({ lastRun: diagRun([]) }), '/wt', ['a.ts']);
+  check('probeChangedFiles: clean pass → zero errors', !!clean && clean.errors.length === 0);
+  // An error on a CHANGED file is reported.
+  const onChanged = await probeChangedFiles(async () => ({ lastRun: diagRun(['a.ts']) }), '/wt', ['a.ts']);
+  check('probeChangedFiles: error on a changed file is reported', !!onChanged && onChanged.errors.length === 1);
+  // An error on an UNCHANGED file is ignored (pre-existing repo error, not ours).
+  const onOther = await probeChangedFiles(async () => ({ lastRun: diagRun(['other.ts']) }), '/wt', ['a.ts']);
+  check('probeChangedFiles: error on an unchanged file is ignored', !!onOther && onOther.errors.length === 0);
+  // Backslash paths normalize to POSIX before comparison.
+  const win = await probeChangedFiles(async () => ({ lastRun: diagRun(['src/a.ts']) }), '/wt', ['src\\a.ts']);
+  check('probeChangedFiles: changed-file paths normalize across slash styles', !!win && win.errors.length === 1);
+}
+
+function testVerifyNoteFor(): void {
+  check('verifyNoteFor: undefined → unverified note', verifyNoteFor(undefined, 0) === 'no checker applied — left unverified');
+  check('verifyNoteFor: true → clean note', verifyNoteFor(true, 0) === 'verified: no errors on changed files');
+  check('verifyNoteFor: false singular', verifyNoteFor(false, 1) === '1 error remain on changed files');
+  check('verifyNoteFor: false plural', verifyNoteFor(false, 3) === '3 errors remain on changed files');
+}
+
+async function testVerifyFixLoop(): Promise<void> {
+  // ── clean first pass → no fix turn, verified true ───────────────────────────
+  let fixTurns = 0;
+  const cleanOutcome = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => ({ lastRun: diagRun([]) }),
+    restage: async () => ['a.ts'],
+    runFixTurn: async () => {
+      fixTurns += 1;
+    },
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: a clean first pass runs NO fix turn', fixTurns === 0);
+  check('verifyFixLoop: a clean first pass is verified:true', cleanOutcome.verified === true);
+
+  // ── error, then a fix turn CLEARS it → exactly one fix turn, verified true ───
+  fixTurns = 0;
+  let seededWith = '';
+  const probes = [diagRun(['a.ts']), diagRun([])]; // 1st probe: error; after fix: clean
+  let probeIdx = 0;
+  const fixedOutcome = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => {
+      const run = probes[Math.min(probeIdx, probes.length - 1)];
+      probeIdx += 1;
+      return { lastRun: run };
+    },
+    restage: async () => ['a.ts'],
+    runFixTurn: async (seed) => {
+      fixTurns += 1;
+      seededWith = seed;
+    },
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: an error triggers exactly one fix turn', fixTurns === 1);
+  check('verifyFixLoop: the fix turn is seeded with the exact diagnostic', seededWith.includes('Type error in a.ts'));
+  check('verifyFixLoop: a cleared error ends verified:true', fixedOutcome.verified === true);
+  check('verifyFixLoop: no remaining errors when cleared', fixedOutcome.remainingErrors.length === 0);
+
+  // ── error that PERSISTS past the cap → verified false, honest remaining count ─
+  fixTurns = 0;
+  const persistOutcome = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => ({ lastRun: diagRun(['a.ts']) }), // never clears
+    restage: async () => ['a.ts'],
+    runFixTurn: async () => {
+      fixTurns += 1;
+    },
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: a persistent error is capped at MAX_VERIFY_FIX (1) fix turn', fixTurns === 1);
+  check('verifyFixLoop: a persistent error ends verified:false (never faked green)', persistOutcome.verified === false);
+  check('verifyFixLoop: verified:false reports the honest remaining count', persistOutcome.remainingErrors.length === 1);
+
+  // ── budget guard: no time left → no fix turn even with an error ──────────────
+  fixTurns = 0;
+  const budgetOutcome = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => ({ lastRun: diagRun(['a.ts']) }),
+    restage: async () => ['a.ts'],
+    runFixTurn: async () => {
+      fixTurns += 1;
+    },
+    remainingMs: () => 1_000, // below VERIFY_FIX_MIN_REMAINING_MS
+  });
+  check('verifyFixLoop: a near-exhausted budget skips the fix turn', fixTurns === 0);
+  check('verifyFixLoop: budget-skipped error still ends verified:false', budgetOutcome.verified === false);
+
+  // ── no checker applies → honestly unverified, no fix turn ────────────────────
+  fixTurns = 0;
+  const unverified = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => ({ lastRun: diagRun([], null) }),
+    restage: async () => ['a.ts'],
+    runFixTurn: async () => {
+      fixTurns += 1;
+    },
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: no applicable checker → verified undefined', unverified.verified === undefined);
+  check('verifyFixLoop: no applicable checker → no fix turn', fixTurns === 0);
+
+  // ── the loop RETURNS its final changedFiles (caller need not re-stage) ────────
+  let restageCalls = 0;
+  const returnsFiles = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => ({ lastRun: diagRun([]) }), // clean first pass → no fix turn
+    restage: async () => {
+      restageCalls += 1;
+      return ['fix.ts'];
+    },
+    runFixTurn: async () => undefined,
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: a clean first pass returns its initial changedFiles', returnsFiles.changedFiles.length === 1 && returnsFiles.changedFiles[0] === 'a.ts');
+  // A clean first pass must NOT re-stage at all — the implement turn already staged.
+  check('verifyFixLoop: a clean first pass does NOT re-stage (no double round-trip)', restageCalls === 0);
+
+  // The error→fix path returns the RE-STAGED list (post-fix), exactly once.
+  restageCalls = 0;
+  const probeSeq = [diagRun(['a.ts']), diagRun([])];
+  let pIdx = 0;
+  const refreshed = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => {
+      const run = probeSeq[Math.min(pIdx, probeSeq.length - 1)];
+      pIdx += 1;
+      return { lastRun: run };
+    },
+    restage: async () => {
+      restageCalls += 1;
+      return ['a.ts', 'b.ts'];
+    },
+    runFixTurn: async () => undefined,
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: a fix turn returns the RE-STAGED changedFiles', refreshed.changedFiles.length === 2 && refreshed.changedFiles.includes('b.ts'));
+  check('verifyFixLoop: exactly one re-stage after the single fix turn', restageCalls === 1);
+
+  // ── staging FAILURE before the loop → verified UNDEFINED, never true ──────────
+  fixTurns = 0;
+  const stageFailedFirst = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: null, // initial stage threw → restage returned null
+    runDiag: async () => ({ lastRun: diagRun([]) }),
+    restage: async () => null,
+    runFixTurn: async () => {
+      fixTurns += 1;
+    },
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: an initial staging failure is verified:undefined (NOT true)', stageFailedFirst.verified === undefined);
+  check('verifyFixLoop: an initial staging failure runs no fix turn', fixTurns === 0);
+  check('verifyFixLoop: an initial staging failure reports no changedFiles', stageFailedFirst.changedFiles.length === 0);
+
+  // ── staging FAILURE mid-loop (after the fix turn) → verified UNDEFINED ────────
+  fixTurns = 0;
+  const stageFailedMid = await runVerifyFixLoop({
+    root: '/wt',
+    changedFiles: ['a.ts'],
+    runDiag: async () => ({ lastRun: diagRun(['a.ts']) }), // error triggers a fix turn
+    restage: async () => null, // re-stage after the fix turn throws
+    runFixTurn: async () => {
+      fixTurns += 1;
+    },
+    remainingMs: () => 120_000,
+  });
+  check('verifyFixLoop: a mid-loop staging failure is verified:undefined (never faked green)', stageFailedMid.verified === undefined);
+  check('verifyFixLoop: a mid-loop staging failure still ran the fix turn', fixTurns === 1);
+}
+
+/**
+ * The worktree probe must respect the run deadline: runDiagnostics aborts before
+ * the next checker when the injected signal is already aborted. probeChangedFiles
+ * delegates to runDiag, so an aborted-signal probe yields a no-applicable-checker
+ * result (exitCode stays null) rather than self-bounding for the full TIMEOUT_MS.
+ */
+async function testProbeRespectsAbort(): Promise<void> {
+  const ac = new AbortController();
+  ac.abort();
+  // Stub runDiag the way implementTask wires it: it forwards the aborted signal to
+  // the checker, which bails immediately with exitCode null.
+  let checkerSpawned = false;
+  const runDiag = async (): Promise<{ lastRun: DiagnosticsRun }> => {
+    if (ac.signal.aborted) {
+      // mirrors runDiagnostics: aborted → no checker leg runs → exitCode null
+      return { lastRun: diagRun([], null) };
+    }
+    checkerSpawned = true;
+    return { lastRun: diagRun(['a.ts']) };
+  };
+  const probe = await probeChangedFiles(runDiag, '/wt', ['a.ts']);
+  check('probe(abort): an aborted signal makes the probe bail (no checker spawned)', checkerSpawned === false);
+  check('probe(abort): an aborted-signal probe is honestly unverified (null)', probe === null);
+}
+
 async function main(): Promise<void> {
   // workspace is a child dir so a "../escaped.txt" fixture can live OUTSIDE it.
   const base = mkdtempSync(path.join(tmpdir(), 'run-task-harness-'));
@@ -198,7 +456,12 @@ async function main(): Promise<void> {
     testExtractArtifacts();
     testResolveOutputs(workspace);
     testStripJsonFences();
+    testImplementPrompt();
     await testRunTaskEarlyReturns();
+    await testProbeChangedFiles();
+    testVerifyNoteFor();
+    await testVerifyFixLoop();
+    await testProbeRespectsAbort();
 
     console.log(`\nrun-task harness: ${passedCount()} assertions passed`);
   } finally {

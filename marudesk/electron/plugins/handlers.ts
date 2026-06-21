@@ -6,6 +6,7 @@ import {
   getUserPluginsDir,
   installPluginFolder,
   listPluginCommands,
+  listPluginLogs,
   listPluginStatuses,
   removePlugin,
   reloadPlugins,
@@ -49,6 +50,13 @@ export function registerPluginHandlers(): void {
 
   // Snapshot of slash commands contributed by active plugins, for the composer.
   defineHandler('plugins:commands', () => listPluginCommands());
+
+  // Recent (scrubbed) log lines + errors for one live plugin — the Settings card's
+  // collapsible "Logs" view, so a misbehaving plugin is debuggable in-app.
+  defineHandler('plugins:logs', ([payload]) => {
+    const o = obj(payload);
+    return [...listPluginLogs(pluginId(o.id))];
+  });
 
   // Open the user plugin install folder so "drop a folder here, then Reload" is
   // an actual UI action instead of an instruction with no affordance.

@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai';
+import { toolCallSignature, isEmptyArgsExternalCall } from './loop-detector.ts';
 
 /**
  * Pure transcript helpers for `/compact` (claude-code / codex parity), split out
@@ -14,6 +15,37 @@ import type { ModelMessage } from 'ai';
  * just the tool's name. Small enough that a long tool-heavy head stays bounded.
  */
 const TOOL_RESULT_EXCERPT_CHARS = 300;
+
+/**
+ * A larger budget reserved for `error-text` results, kept as a head+tail window
+ * (not head-only) so both the START and END of a stack trace / tsc chain / test
+ * diff survive. The compaction instruction promises to keep "error signatures
+ * verbatim", and an error's signature often lives at the tail (the final
+ * `Error: …` line, the failing assertion), which a 300-char head-only clip drops.
+ */
+const TOOL_RESULT_ERROR_EXCERPT_CHARS = 1500;
+
+/** Clip `text` to `budget` chars, keeping the head only with a trailing ellipsis. */
+function clipHead(text: string, budget: number): string {
+  return text.length <= budget ? text : `${text.slice(0, budget)}…`;
+}
+
+/**
+ * Clip `text` to `budget` chars as a head+tail window with a middle elision
+ * marker, so the start AND end of an error trace both survive. Splits the budget
+ * evenly between the two ends. Falls back to a head-only clip when the budget is
+ * too small to carry a meaningful tail.
+ */
+function clipHeadAndTail(text: string, budget: number): string {
+  if (text.length <= budget) return text;
+  const half = Math.floor(budget / 2);
+  if (half <= 0) return clipHead(text, budget);
+  const head = text.slice(0, half);
+  const tail = text.slice(text.length - half);
+  const elided = text.length - head.length - tail.length;
+  const unit = elided === 1 ? 'char' : 'chars';
+  return `${head}… [${elided} ${unit} elided] …${tail}`;
+}
 
 /** A clipped, whitespace-collapsed slice of one tool result's textual output. */
 function toolResultExcerpt(output: unknown): string {
@@ -35,9 +67,12 @@ function toolResultExcerpt(output: unknown): string {
   }
   text = text.replace(/\s+/g, ' ').trim();
   if (!text) return '';
-  const clipped =
-    text.length <= TOOL_RESULT_EXCERPT_CHARS ? text : `${text.slice(0, TOOL_RESULT_EXCERPT_CHARS)}…`;
-  return o.type === 'error-text' ? `ERROR: ${clipped}` : clipped;
+  // Error results get a larger head+tail budget so the signature (often at the
+  // tail) survives; ordinary results stay at the small head-only budget.
+  if (o.type === 'error-text') {
+    return `ERROR: ${clipHeadAndTail(text, TOOL_RESULT_ERROR_EXCERPT_CHARS)}`;
+  }
+  return clipHead(text, TOOL_RESULT_EXCERPT_CHARS);
 }
 
 /** Flatten the running transcript to plain text for the summarization prompt. */
@@ -109,12 +144,55 @@ export function emergencyCompactionReason(
 export function messageChars(m: ModelMessage): number {
   if (typeof m.content === 'string') return m.content.length;
   let n = 0;
-  for (const p of m.content as ReadonlyArray<{ text?: string; output?: { value?: string }; input?: unknown }>) {
+  for (const p of m.content as ReadonlyArray<{
+    text?: string;
+    output?: { value?: unknown };
+    input?: unknown;
+  }>) {
     if (typeof p.text === 'string') n += p.text.length;
-    if (typeof p.output?.value === 'string') n += p.output.value.length;
+    const value = p.output?.value;
+    if (typeof value === 'string') {
+      n += value.length;
+    } else if (Array.isArray(value)) {
+      // Multipart ('content') tool result: a string `value` is the common case,
+      // but a screenshot result carries an ARRAY of { type, text?, data? } items
+      // (loop-helpers.ts ToolResultPartLite 'content'). Without this branch the
+      // whole result — text part AND hundreds of KB of inline base64 image data —
+      // weighs 0, so vision turns undercount and dodge the emergency/overflow
+      // floors. Sum each item's textual weight; inline base64 occupies real
+      // provider tokens, so its length is a fair proxy.
+      for (const item of value as ReadonlyArray<
+        { text?: unknown; data?: unknown } | null | undefined
+      >) {
+        // Optional-chain the item: messageChars runs in the compaction hot path,
+        // so a malformed (null/primitive) element must weigh 0, not throw.
+        if (typeof item?.text === 'string') n += item.text.length;
+        if (typeof item?.data === 'string') n += item.data.length;
+      }
+    }
     if (p.input !== undefined) n += JSON.stringify(p.input).length;
   }
   return n;
+}
+
+/** Total character weight of a transcript (sum of {@link messageChars}). Pure. */
+export function transcriptChars(msgs: ModelMessage[]): number {
+  return msgs.reduce((n, m) => n + messageChars(m), 0);
+}
+
+/**
+ * Character weight of the single largest message in a transcript (0 for empty).
+ * The overflow handler uses this to detect a tail that compaction can't shrink:
+ * when ONE verbatim tail message already exceeds the model window, compacting the
+ * head frees nothing usable and the retry overflows again (rank 15). Pure.
+ */
+export function largestMessageChars(msgs: ModelMessage[]): number {
+  let max = 0;
+  for (const m of msgs) {
+    const n = messageChars(m);
+    if (n > max) max = n;
+  }
+  return max;
 }
 
 /**
@@ -141,10 +219,43 @@ const PRUNE_MIN_SAVINGS_CHARS = 4000;
 /** Outputs already this short are never worth pruning. */
 const PRUNE_DIGEST_CHARS = 120;
 
-/** Tool results whose textual output is eligible for pruning when superseded. */
-const PRUNABLE_TOOL_NAMES: ReadonlySet<string> = new Set(['read_file', 'grep', 'run_diagnostics']);
+/**
+ * Built-in tool results whose textual output is eligible for pruning when
+ * superseded. Beyond the original three (read_file / grep / run_diagnostics),
+ * this now covers the repeatable read/web tools that {@link toolTargetKey} gives
+ * a stable target key — a later fetch of the same url, search of the same query,
+ * or read of the same network scope supersedes the earlier bulky payload. External
+ * MCP/plugin tools are not listed here (their names are dynamic); they are gated
+ * by {@link isExternalToolName} instead — see {@link isPrunableToolName}.
+ */
+const PRUNABLE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'read_file',
+  'grep',
+  'run_diagnostics',
+  'fetch_url',
+  'web_search',
+  'read_network',
+  'read_network_body',
+]);
 /** Tools whose calls mark a file as edited (invalidating earlier reads of it). */
 const EDIT_TOOL_NAMES: ReadonlySet<string> = new Set(['edit_file', 'multi_edit']);
+
+/**
+ * Whether a tool name is an external MCP / plugin tool. Both namespacing schemes
+ * embed a `__` separator — MCP servers expose `${serverId}__${tool}` and plugins
+ * `plugin:${pluginId}__${tool}` (shared/plugin.ts `pluginToolName`) — and no
+ * built-in tool name contains `__`, so the substring is a reliable marker. These
+ * tools are treated as repeatable lookups: an identical call (same name + input)
+ * supersedes earlier ones via {@link toolTargetKey}.
+ */
+function isExternalToolName(toolName: string): boolean {
+  return toolName.includes('__');
+}
+
+/** Whether a tool result is prunable-when-superseded: a known builtin or an external tool. */
+function isPrunableToolName(toolName: string): boolean {
+  return PRUNABLE_TOOL_NAMES.has(toolName) || isExternalToolName(toolName);
+}
 
 /** Minimal structural views of the AI SDK content parts we read here. */
 type ToolCallPart = { type: 'tool-call'; toolCallId: string; toolName: string; input?: unknown };
@@ -216,11 +327,24 @@ function prunedNotice(toolName: string, value: string, chars: number): string {
 
 /**
  * Stable identity for "the same logical lookup" so a later result supersedes
- * earlier ones: `read_file` keys on its path, `grep` on its pattern. Canonical
- * JSON tuples so user text can't collide via delimiter ambiguity. Returns
- * undefined for tools we don't supersede by target.
+ * earlier ones: `read_file` keys on its path, `grep` on its pattern, the
+ * repeatable web/read tools on their natural target (url / query / network
+ * scope / requestId), and any external MCP/plugin tool on its name + canonical
+ * input. Canonical JSON tuples so user text can't collide via delimiter
+ * ambiguity. Returns undefined for tools we don't supersede by target.
  */
 function toolTargetKey(toolName: string, input: unknown): string | undefined {
+  // External MCP/plugin tools: a repeat of the SAME call (same name + same
+  // input, key-order-insensitive) is a redundant lookup. Reuse loop-detector's
+  // canonical signature (`name::<sorted-json>`) so `{a,b}` and `{b,a}` collide.
+  // Empty-args external calls are EXEMPT: a no-arg list_*/status poller would
+  // collide on the bare-name signature, so distinct snapshots from repeated polls
+  // must NOT supersede each other (each is a fresh observation, not a stale dup).
+  if (isExternalToolName(toolName)) {
+    return isEmptyArgsExternalCall(toolName, input)
+      ? undefined
+      : toolCallSignature(toolName, input);
+  }
   if (!isRecord(input)) return undefined;
   if (toolName === 'read_file') {
     const path = input.path;
@@ -240,6 +364,33 @@ function toolTargetKey(toolName: string, input: unknown): string | undefined {
     const path = input.path;
     const scope = typeof path === 'string' && path.length > 0 ? path : '';
     return JSON.stringify(['run_diagnostics', 'path', scope]);
+  }
+  if (toolName === 'fetch_url') {
+    const url = input.url;
+    return typeof url === 'string' && url.length > 0
+      ? JSON.stringify(['fetch_url', 'url', url])
+      : undefined;
+  }
+  if (toolName === 'web_search') {
+    const query = input.query;
+    return typeof query === 'string' && query.length > 0
+      ? JSON.stringify(['web_search', 'query', query])
+      : undefined;
+  }
+  if (toolName === 'read_network') {
+    // A network listing keyed on its filter scope: a later read of the same
+    // `urlFilter` supersedes the earlier snapshot. '' is the canonical "no
+    // filter" (whole-capture) scope.
+    const urlFilter = input.urlFilter;
+    const scope = typeof urlFilter === 'string' && urlFilter.length > 0 ? urlFilter : '';
+    return JSON.stringify(['read_network', 'urlFilter', scope]);
+  }
+  if (toolName === 'read_network_body') {
+    // Keyed on the requestId it fetches: re-fetching the same body supersedes.
+    const requestId = input.requestId;
+    return typeof requestId === 'string' && requestId.length > 0
+      ? JSON.stringify(['read_network_body', 'requestId', requestId])
+      : undefined;
   }
   return undefined;
 }
@@ -361,8 +512,9 @@ export function pruneStaleToolOutputsInHead(
   // UNLESS it is stale — so the latest read of each file (never stale) is always
   // kept, while a superseded/edit-invalidated read is prunable even inside the
   // recency protect window. The window itself only skips NON-stale results; for
-  // our prunable set (read_file/grep/run_diagnostics) tool-immunity already
-  // covers the non-stale case, so in practice only stale outputs are pruned.
+  // our prunable set (read_file/grep/run_diagnostics/fetch_url/web_search/
+  // read_network*/external MCP+plugin tools) tool-immunity already covers the
+  // non-stale case, so in practice only stale outputs are pruned.
   type Candidate = { ref: ResultRef; savings: number; notice: string };
   const candidates: Candidate[] = [];
   let accChars = 0;
@@ -373,7 +525,7 @@ export function pruneStaleToolOutputsInHead(
     const insideProtectWindow = accChars < PRUNE_PROTECT_CHARS;
     accChars += chars;
 
-    if (!PRUNABLE_TOOL_NAMES.has(r.toolName)) continue;
+    if (!isPrunableToolName(r.toolName)) continue;
     if (chars <= PRUNE_DIGEST_CHARS) continue;
     // Tool-immunity: a prunable tool is protected unless it is stale (the latest
     // result per target stays protected). Plus the recency window for non-stale.
@@ -506,21 +658,39 @@ export function formatFileManifest(manifest: FileManifest): string {
 /* ── Per-tool output cap (item 7 / omo tool-output-truncator) ─────────────── */
 
 /**
- * Tools whose textual result is capped post-execution (item 7). High-volume
- * search/fetch/command output can silently eat tens of thousands of tokens and
- * force a needless compaction. `read_file` is deliberately ABSENT: its output is
- * anchor-bearing and the model edits against it, so it must reach the model
- * intact (the read-tracker keeps the authoritative snapshot regardless).
+ * Tools whose textual result is NEVER capped (item 7). The policy is
+ * default-cap: ANY tool result is bounded by {@link capToolOutput} *unless* its
+ * name is exempted here, so a high-volume MCP / plugin / `read_*` result can no
+ * longer silently eat tens of thousands of tokens and force a needless
+ * compaction. Two exemption classes:
+ *
+ *  - `read_file`: its output is anchor-bearing and the model edits against it,
+ *    so it must reach the model intact (the read-tracker keeps the
+ *    authoritative snapshot regardless).
+ *  - Control tools (`ask_user` / `update_plan` / `spawn_*`): they return tiny
+ *    control payloads, not bulk content, so capping them is pointless and risks
+ *    clipping a structured signal the loop depends on.
  */
-export const TRUNCATABLE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'grep',
-  'list_files',
-  'run_command',
-  'read_network',
-  'read_network_body',
-  'fetch_url',
-  'web_search',
-  'query_dom',
+export const UNCAPPED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'read_file',
+  'ask_user',
+  'update_plan',
+  'spawn_background_agent',
+  'spawn_subagent',
+]);
+
+/**
+ * Control tools whose tiny structured payloads stay exempt EVEN in the emergency
+ * overflow path — capping them is pointless and risks clipping a signal the loop
+ * depends on. Only the anchor-bearing `read_file` exemption is dropped under
+ * `emergency` (rank 15), so an oversized read on the verbatim tail degrades
+ * gracefully instead of re-overflowing the retry.
+ */
+const EMERGENCY_STILL_UNCAPPED: ReadonlySet<string> = new Set([
+  'ask_user',
+  'update_plan',
+  'spawn_background_agent',
+  'spawn_subagent',
 ]);
 
 /** ~4 chars/token; the default cap (~50k tokens) and a tighter cap for web fetches. */
@@ -538,14 +708,26 @@ const TIGHT_CAP_TOOLS: ReadonlySet<string> = new Set(['fetch_url', 'web_search']
  * caller applies it to the model-facing result string only. `contextWindow` is
  * the active model's window (0/undefined ⇒ use the default budget). The per-tool
  * cap is the smaller of the tool's ceiling and ~⅓ of the window, so one result
- * can't dominate the context.
+ * can't dominate the context. Default-cap: applies to ANY tool except the
+ * {@link UNCAPPED_TOOL_NAMES} exemptions (anchor-bearing reads + tiny control
+ * payloads).
  */
 export function capToolOutput(
   toolName: string,
   text: string,
   contextWindow: number | undefined,
+  opts: { emergency?: boolean } = {},
 ): { text: string; truncated: boolean } {
-  if (!TRUNCATABLE_TOOL_NAMES.has(toolName)) return { text, truncated: false };
+  // Default-cap exempts anchor-bearing reads + tiny control payloads. The
+  // `emergency` flag drops the read_file exemption for the OVERFLOW last-resort
+  // only (rank 15): when a single read_file tool-result on the verbatim tail
+  // exceeds the model window, leaving it intact re-overflows the retry, so we
+  // cap it to degrade gracefully rather than hard-fail. Control payloads stay
+  // exempt either way (capping them risks clipping a structured signal).
+  const exempt = opts.emergency
+    ? EMERGENCY_STILL_UNCAPPED.has(toolName)
+    : UNCAPPED_TOOL_NAMES.has(toolName);
+  if (exempt) return { text, truncated: false };
   const toolCeilingTokens = TIGHT_CAP_TOOLS.has(toolName)
     ? FETCH_MAX_OUTPUT_TOKENS
     : DEFAULT_MAX_OUTPUT_TOKENS;
@@ -554,9 +736,85 @@ export function capToolOutput(
   const maxTokens = Math.min(toolCeilingTokens, windowTokens);
   const maxChars = maxTokens * CHARS_PER_TOKEN;
   if (text.length <= maxChars) return { text, truncated: false };
-  const droppedChars = text.length - maxChars;
-  const footer = `\n\n[output truncated — ${droppedChars} of ${text.length} chars elided to bound context; narrow your query (e.g. a more specific pattern/path) to see more]`;
-  return { text: `${text.slice(0, maxChars)}${footer}`, truncated: true };
+  const kept = clipToWholeLines(text, maxChars);
+  const droppedChars = text.length - kept.length;
+  // Both numbers must use ONE unit: UTF-16 code units (`.length`), matching the
+  // `maxChars` budget arithmetic that produced the cut. (Array.from counts code
+  // POINTS, so for astral content droppedChars could exceed a code-point total.)
+  const totalChars = text.length;
+  const footer = `\n\n[output truncated — ${droppedChars} of ${totalChars} chars elided to bound context; narrow your query (e.g. a more specific pattern/path) to see more]`;
+  return { text: `${kept}${footer}`, truncated: true };
+}
+
+/**
+ * Overflow last-resort (rank 15): hard-cap every oversized `tool-result` text
+ * payload in `msgs` IN PLACE, dropping the {@link capToolOutput} `read_file`
+ * exemption for this emergency only. Used when a compaction pass freed nothing
+ * and a single verbatim-tail tool-result still exceeds the model window, so the
+ * retry would re-overflow forever. Only the result `output.value` text is
+ * rewritten — never a message or pair removed — so tool-call ↔ tool-result
+ * pairing stays intact. Returns `{ cappedCount, charsSaved }`. Pure (no fs /
+ * Electron). `contextWindow` is the active model's window; control payloads stay
+ * exempt ({@link EMERGENCY_STILL_UNCAPPED}).
+ */
+export function emergencyCapToolResultsInPlace(
+  msgs: ModelMessage[],
+  contextWindow: number | undefined,
+): { cappedCount: number; charsSaved: number } {
+  let cappedCount = 0;
+  let charsSaved = 0;
+  for (const m of msgs) {
+    if (m.role !== 'tool' || typeof m.content === 'string') continue;
+    for (const raw of m.content as ReadonlyArray<{ type: string }>) {
+      if (raw.type !== 'tool-result') continue;
+      const part = raw as ToolResultPart;
+      if (typeof part.output.value !== 'string') continue;
+      const before = part.output.value;
+      const capped = capToolOutput(part.toolName, before, contextWindow, { emergency: true });
+      if (!capped.truncated) continue;
+      part.output = { type: 'text', value: capped.text };
+      cappedCount += 1;
+      charsSaved += before.length - capped.text.length;
+    }
+  }
+  return { cappedCount, charsSaved };
+}
+
+/**
+ * Clip `text` to at most `maxChars` chars but land the cut on a NEWLINE boundary
+ * so the model never sees a half-line at the truncation point (a partial last
+ * line of grep / run_command / MCP output it might act on). Keeps a head window
+ * snapped back to the last newline at/before the budget, plus a small tail
+ * (also newline-snapped) so the model sees how the output ended; the head/tail
+ * total stays within `maxChars`. Falls back to a hard `slice(0, maxChars)` when
+ * there is no newline in range (e.g. one very long line). Pure.
+ */
+function clipToWholeLines(text: string, maxChars: number): string {
+  // The in-band elision marker that separates the kept head from the kept tail.
+  // Its length is reserved out of `maxChars` so the WHOLE returned string
+  // (head + marker + tail) stays within the budget — only WHERE the cut lands
+  // changes, never the budget itself.
+  const ELISION_MARKER = '\n… [elided] …\n';
+  // Reserve ~⅛ of the (post-marker) budget for a tail window so the head still
+  // dominates; the head absorbs the marker reservation so the total fits.
+  const contentBudget = Math.max(0, maxChars - ELISION_MARKER.length);
+  const tailBudget = Math.floor(contentBudget / 8);
+  const headBudget = contentBudget - tailBudget;
+  // Head: snap back to the last newline at/before the head budget so the kept
+  // head never ends mid-line. With no newline in range, hard-cut at the budget.
+  const headCut = text.lastIndexOf('\n', headBudget);
+  const head = headCut > 0 ? text.slice(0, headCut) : text.slice(0, headBudget);
+  if (tailBudget <= 0) return head;
+  // Tail: take the last `tailBudget` chars, then snap forward to start after a
+  // newline so the tail begins on a whole line. Only keep a tail that sits
+  // strictly past the head cut (otherwise the head already covers it).
+  const tailStartRaw = text.length - tailBudget;
+  if (tailStartRaw <= head.length) return head;
+  const nlInTail = text.indexOf('\n', tailStartRaw);
+  if (nlInTail === -1 || nlInTail + 1 >= text.length) return head;
+  const tail = text.slice(nlInTail + 1);
+  if (tail.length === 0) return head;
+  return `${head}${ELISION_MARKER}${tail}`;
 }
 
 /* ── Post-compaction degradation monitor (item 3 / omo) ───────────────────── */
@@ -699,4 +957,63 @@ export function repairToolPairs(
   }
 
   return { messages: out, injectedResults, droppedResults };
+}
+
+/* ── Compaction-protected persistent nudge ────────────────────────────────── */
+
+/**
+ * Sentinel markers around a persistent nudge stamped onto the leading summary
+ * message of a rebuilt transcript. The block is appended AFTER summarization
+ * (never fed to the summarizer) and stripped before a merge pass re-derives, so
+ * a not-yet-acted-on recovery/loop nudge survives a compaction boundary verbatim
+ * instead of being summarized away inside a prunable tool-result.
+ */
+const NUDGE_OPEN = '<persistent-nudge>';
+const NUDGE_CLOSE = '</persistent-nudge>';
+
+/** Whether a message can carry the protected nudge block (the leading summary user message). */
+function isStringUserMessage(m: ModelMessage | undefined): m is ModelMessage & { content: string } {
+  return !!m && m.role === 'user' && typeof m.content === 'string';
+}
+
+/**
+ * Strip any `<persistent-nudge>` block a previous compaction stamped onto the
+ * leading summary message, so a merge pass doesn't re-summarize a stale nudge as
+ * prose (the caller re-applies the live nudge, if any, after summarizing). Pure.
+ */
+export function stripPersistentNudge(text: string): string {
+  // Anchor to the LAST open marker: applyPersistentNudge always appends our block
+  // at the tail, so the real block is the last occurrence. Using lastIndexOf keeps
+  // the strip robust if the summarized prose itself echoes the sentinel earlier
+  // in the text (a first-match indexOf would delete everything between that prose
+  // false-positive and our real block's close).
+  const open = text.lastIndexOf(NUDGE_OPEN);
+  if (open === -1) return text;
+  const close = text.indexOf(NUDGE_CLOSE, open);
+  if (close === -1) return text.slice(0, open).trimEnd();
+  return (text.slice(0, open) + text.slice(close + NUDGE_CLOSE.length)).trimEnd();
+}
+
+/**
+ * Stamp a compaction-protected persistent nudge onto the leading summary message
+ * of a rebuilt transcript so a not-yet-acted-on recovery/loop nudge survives the
+ * compaction boundary verbatim. Returns a NEW array (input untouched); a null /
+ * blank nudge is a no-op that still strips any prior block. The block lands on
+ * the first `string`-content `user` message (the `${SUMMARY_PREFIX}…` summary the
+ * compaction rebuild puts at the head); if none exists the transcript is returned
+ * unchanged. Pure — no Electron/fs.
+ */
+export function applyPersistentNudge(
+  msgs: ModelMessage[],
+  nudge: string | null,
+): ModelMessage[] {
+  const target = msgs.find(isStringUserMessage);
+  if (!target) return msgs;
+  const base = stripPersistentNudge(target.content);
+  const trimmed = nudge?.trim();
+  const content = trimmed ? `${base}\n\n${NUDGE_OPEN}\n${trimmed}\n${NUDGE_CLOSE}` : base;
+  if (content === target.content) return msgs;
+  const out = [...msgs];
+  out[msgs.indexOf(target)] = { role: 'user', content };
+  return out;
 }

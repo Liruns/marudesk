@@ -1,9 +1,10 @@
 import { createServer } from 'node:http';
-import fs from 'node:fs';
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { launchApp } from './helpers/app';
+import { openInstrumentFromTask, seedGraph } from './helpers/mission-control';
 
 /**
  * Cached browser workflows (docs/runtime-agent-absorption-2026-06.md §3.10/§3.12):
@@ -12,32 +13,59 @@ import { launchApp } from './helpers/app';
  * fill+click workflow, then run it against a fixture form and observe the
  * server-side side effect the click produces (proving the actions really
  * replayed in the live page).
+ *
+ * Mission Control: workflows have no home surface of their own — the save/run/
+ * delete loop is driven entirely through IPC. The only UI dependency is a VISIBLE
+ * web instrument: `workflows:save` reads the active web view's URL as the replay
+ * start point, and `browser:capture-page-data` only returns once that view is
+ * actually painting. So we seed a task whose url Resource points at the fixture
+ * and summon it as a full-area instrument (which creates + navigates + shows the
+ * web view), rather than the (removed) classic tab strip.
  */
 test('workflows: save then replay fill+click against the live page', async () => {
-  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-wf-'));
   const fixture = await startFormFixture();
+  const wsRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-workflows-'));
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(
-      (root) =>
-        window.marudesk.invoke('workspaces:create', {
-          name: 'WF',
-          roots: [{ name: 'Root', path: root }],
-        }),
-      ws,
-    );
+    // workflows:save records the active workspace, so open one first (the removed
+    // tab strip used to carry one implicitly).
+    await page.evaluate(async (root) => {
+      const ws = await window.marudesk.invoke('workspaces:create', {
+        name: 'Workflows',
+        roots: [{ name: 'Root', path: root }],
+      });
+      await window.marudesk.invoke('workspaces:set-active', { workspaceId: ws.id });
+    }, wsRoot);
 
-    // Open a web tab on the form so save captures it as the replay start URL.
-    await page.evaluate(() => window.marudesk.invoke('browser:tabs-new', { kind: 'web' }));
-    await expect(page.getByRole('button', { name: 'Toggle DevTools (F12)' })).toBeVisible();
-    await page.evaluate((url) => window.marudesk.invoke('browser:navigate', url), fixture.url);
-    // Wait for the page to actually commit/paint (navigate resolves before the URL
-    // settles on a fresh tab) so save captures the fixture as the start URL.
+    // Seed a task whose Resource is the fixture URL, then summon it as the
+    // visible web instrument. openResource creates the web tab WITH that url,
+    // activates it, and hosts it as the full-area instrument — so the live view
+    // paints (capture is non-null) and is the active tab `workflows:save` reads.
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: 't1',
+          title: 'Submit the fixture form',
+          outputs: [{ id: 'r1', kind: 'url', uri: fixture.url, label: 'Form' }],
+        },
+      ],
+    });
+    await openInstrumentFromTask(page, 't1', 'Form');
+
+    // Wait for the active web instrument's URL to settle on the fixture (the tab
+    // navigates as it opens, and navigate resolves before the URL commits) so
+    // `workflows:save` captures the fixture as the start URL. A URL-settle gate is
+    // used instead of capture-page-data — the latter depends on a GPU paint that
+    // can transiently error late in a run, and save needs the committed URL anyway.
     await expect
-      .poll(() => page.evaluate(() => window.marudesk.invoke('browser:capture-page-data')), {
-        timeout: 10_000,
-      })
-      .not.toBeNull();
+      .poll(
+        async () => {
+          const snap = await page.evaluate(() => window.marudesk.invoke('browser:tabs-snapshot'));
+          return snap.tabs.find((t) => t.id === snap.activeTabId)?.url ?? '';
+        },
+        { timeout: 10_000 },
+      )
+      .toContain('127.0.0.1');
 
     // Save a workflow: fill the name field, then click submit.
     const saved = await page.evaluate(() =>
@@ -70,7 +98,7 @@ test('workflows: save then replay fill+click against the live page', async () =>
   } finally {
     await fixture.close();
     await app.close();
-    fs.rmSync(ws, { recursive: true, force: true });
+    await fs.rm(wsRoot, { recursive: true, force: true });
   }
 });
 

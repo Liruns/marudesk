@@ -178,6 +178,11 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     labelKey: 'settings.category.mcp.label',
     keywords: 'mcp server stdio http remote url tools context 서버 도구 컨텍스트',
   },
+  {
+    categoryId: 'mcp',
+    labelKey: 'settings.mcp.debugPort.label',
+    keywords: 'browser debug port cdp remote debugging chrome devtools security 디버그 포트 보안 원격 디버깅',
+  },
 
   // Data & Storage
   {

@@ -9,7 +9,7 @@ import { isSafePanelPath } from '../../shared/plugin';
 import { pluginSlashCommand, resolveSlash } from '../../shared/slash-commands';
 import type { ToolContext, ToolResult } from '../agent/tools';
 import { satisfiesEngine } from './engine-compat';
-import { buildPluginServer, PluginHost } from './host';
+import { buildPluginServer, PluginHost, PLUGIN_LOG_BUFFER_MAX } from './host';
 import { installUserPluginFolder, removeUserPluginFolder } from './lifecycle';
 import { guardedExec, guardedFetch } from './permissions';
 import type { PluginStatusUpdate } from './host';
@@ -39,11 +39,30 @@ const WORKER_ENTRY = path.join(__dirname, 'worker.ts');
 const HELLO_DIR = path.resolve(__dirname, '../../examples/plugins/hello-world');
 const EVIL_DIR = path.join(__dirname, '__fixtures__/evil');
 const CMDSTATUS_DIR = path.join(__dirname, '__fixtures__/cmdstatus');
+const PROTOCOL_SRC = path.join(__dirname, 'protocol.ts');
 
 /** A minimal ToolContext pointing at a throwaway workspace root. */
 function toolContext(root: string): ToolContext {
   const ws: WorkspaceSummary = { root, name: 'tmp', files: [], source: 'walk', truncated: false };
   return { ws, signal: new AbortController().signal };
+}
+
+/**
+ * Pull the `PANEL_CSP` directive list out of protocol.ts source and index it by
+ * directive name (plus a `__raw` field of the whole policy). protocol.ts can't be
+ * imported here (it's Electron-coupled), so the source is the served-CSP contract.
+ */
+function parsePanelCsp(src: string): Record<string, string> {
+  const block = /const PANEL_CSP = \[([\s\S]*?)\]\.join/.exec(src)?.[1];
+  if (!block) throw new Error('PANEL_CSP array not found in protocol.ts');
+  const directives = [...block.matchAll(/(["'])((?:(?!\1).)*)\1/g)].map((m) => m[2].trim());
+  const map: Record<string, string> = { __raw: directives.join('; ') };
+  for (const directive of directives) {
+    const space = directive.indexOf(' ');
+    if (space === -1) map[directive] = '';
+    else map[directive.slice(0, space)] = directive.slice(space + 1).trim();
+  }
+  return map;
 }
 
 async function main(): Promise<void> {
@@ -88,6 +107,15 @@ async function main(): Promise<void> {
   // fs without a workspace: the same tool with a null-ws context must be refused.
   const noWsRes = await readTool.exec({ path: 'NOTES.md' }, { ws: null, signal: new AbortController().signal });
   check('fs:read refuses when no workspace is open', noWsRes.isError === true);
+
+  // A failed tool call is recorded in the host's per-plugin log ring (the in-app
+  // debug view), tagged as an error so an author can see WHY a call failed.
+  // (Worker log levels map info→plain, warn→'[warn] ', error→'[error] ' in
+  // appendLog; warn keeps its own tag so a warning isn't shown as an error.)
+  check(
+    'a tool-call failure is buffered in the host log ring as an [error] line',
+    host.getLogs().some((l) => l.startsWith('[error] tool read_file failed')),
+  );
 
   // ── fs:write → AppliedChange surfaced as ToolResult.edits (P3) ────────────────
   const writeTool = server.tools.find((t) => t.name === 'plugin:hello-world__write_note')!;
@@ -172,6 +200,10 @@ async function main(): Promise<void> {
     const csContrib = await csHost.load(CMDSTATUS_DIR, 'index.js', [...grants]);
     const csServer = buildPluginServer('cmdstatus', csHost, csContrib);
     const runTool = csServer.tools.find((t) => t.name === 'plugin:cmdstatus__run_and_count')!;
+    // Plugin tool output is now wrapped in untrusted-tool-output sentinels (the
+    // prompt-injection boundary); extract the JSON object (the sentinels carry no
+    // braces) before parsing so this still validates the result shape.
+    const toolJson = (s: string): string => s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1);
 
     // Lifecycle: a session-start before the call, so the tool sees a non-zero count.
     csHost.notifySession('session-start', 'sess-A');
@@ -181,7 +213,7 @@ async function main(): Promise<void> {
       csCtx,
     );
     check('ctx.exec routes a CLI through the host and returns its output', !ran.isError && /EXEC-OK/.test(ran.text));
-    const parsed = JSON.parse(ran.text) as { exitCode: number | null; output: string; sessions: number };
+    const parsed = JSON.parse(toolJson(ran.text)) as { exitCode: number | null; output: string; sessions: number };
     check('ctx.exec reports exitCode 0 for a successful command', parsed.exitCode === 0);
     check('onSessionStart was delivered (lifecycle log has 1 session)', parsed.sessions === 1);
     check('ctx.setStatus pushes a keyed status update to the host', statuses.some((s) => s.statusKey === 'progress' && /running/.test(s.text)));
@@ -191,8 +223,29 @@ async function main(): Promise<void> {
     csHost.notifySession('session-end', 'sess-A');
     csHost.notifySession('session-start', 'sess-B');
     const ranAgain = await runTool.exec({ command: 'node -e "process.stdout.write(\'OK\')"' }, csCtx);
-    const parsedAgain = JSON.parse(ranAgain.text) as { sessions: number };
+    const parsedAgain = JSON.parse(toolJson(ranAgain.text)) as { sessions: number };
     check('onSessionEnd reset per-conversation state (count back to 1, not 2)', parsedAgain.sessions === 1);
+
+    // ── per-plugin log ring: ctx.log lines are buffered + retrievable, bounded ──
+    const logTool = csServer.tools.find((t) => t.name === 'plugin:cmdstatus__log_many')!;
+    await logTool.exec({ count: 3 }, csCtx);
+    const fewLogs = csHost.getLogs();
+    check(
+      'ctx.log lines are buffered + retrievable via the host log ring',
+      fewLogs.includes('line-0') && fewLogs.includes('line-2'),
+    );
+
+    // Overflow the ring: emit more than the cap; the oldest must be dropped and the
+    // total never exceeds PLUGIN_LOG_BUFFER_MAX.
+    const overflow = PLUGIN_LOG_BUFFER_MAX + 50;
+    await logTool.exec({ count: overflow }, csCtx);
+    const cappedLogs = csHost.getLogs();
+    check('log ring is bounded to PLUGIN_LOG_BUFFER_MAX (oldest dropped)', cappedLogs.length === PLUGIN_LOG_BUFFER_MAX);
+    check(
+      'log ring keeps the newest lines after overflow',
+      cappedLogs[cappedLogs.length - 1] === `line-${overflow - 1}` && !cappedLogs.includes('line-0'),
+    );
+
     csHost.dispose();
   }
 
@@ -236,6 +289,30 @@ async function main(): Promise<void> {
       !isSafePanelPath('http://x') &&
       !isSafePanelPath('a\0b') &&
       !isSafePanelPath(''),
+  );
+
+  // ── v2: panel CSP contract (electron/plugins/protocol.ts PANEL_CSP) ───────────
+  // protocol.ts is Electron-coupled (imports `electron` via ./index), so it can't
+  // be imported into this Electron-free harness; assert the served CSP directives
+  // from its source of truth instead. This locks the security-critical shape so a
+  // regression that grants network egress or widens script/style origins is caught.
+  const panelCsp = parsePanelCsp(readFileSync(PROTOCOL_SRC, 'utf8'));
+  check('panel CSP starts from a deny-all default', panelCsp['default-src'] === "'none'");
+  check('panel CSP keeps panels off the network (no exfiltration)', panelCsp['connect-src'] === "'none'");
+  check('panel CSP forbids base-uri + form-action escapes', panelCsp['base-uri'] === "'none'" && panelCsp['form-action'] === "'none'");
+  // Inline script/style stay (static, build-less, opaque-origin panels; see the
+  // rationale comment in protocol.ts) — but ONLY from the panel's own plugin: origin.
+  check(
+    'panel CSP scopes scripts to plugin: only — never a wildcard or remote origin',
+    panelCsp['script-src'] === "'unsafe-inline' plugin:",
+  );
+  check(
+    'panel CSP scopes styles to plugin: only — never a wildcard or remote origin',
+    panelCsp['style-src'] === "'unsafe-inline' plugin:",
+  );
+  check(
+    'panel CSP never broadens script-src to * / https: / http: / data:',
+    !/script-src[^;]*(\*|https:|http:|data:)/.test(panelCsp.__raw),
   );
 
   // ── Settings → Plugins: "Open plugins folder" handler core ───────────────

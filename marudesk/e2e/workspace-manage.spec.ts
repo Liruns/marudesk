@@ -1,131 +1,91 @@
-import { expect, test } from '@playwright/test';
-import fs from 'node:fs';
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { test, expect, type Page } from '@playwright/test';
 import { launchApp } from './helpers/app';
 
-function mkProject(root: string, name: string): string {
-  const dir = path.join(root, name);
-  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'src', 'App.tsx'), `export const name = "${name}";\n`);
-  return dir;
+/**
+ * Workspace management, re-homed to the title-bar WorkspaceSwitcher after the
+ * redesign removed the Workspace rail. The switcher lists workspaces and exposes
+ * rename / delete through the surviving workspaces:* IPC. (Create pops a native
+ * folder picker, so these seed workspaces over IPC with explicit roots, then
+ * drive the switcher UI.)
+ */
+
+async function createWorkspace(page: Page, name: string, root: string): Promise<string> {
+  return page.evaluate(
+    async ({ name, root }) => {
+      const rec = await window.marudesk.invoke('workspaces:create', {
+        name,
+        roots: [{ name: 'Root', path: root }],
+      });
+      return rec.id as string;
+    },
+    { name, root },
+  );
 }
 
-test('workspace deck: rename and delete workspaces from the rail', async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-ws-manage-'));
-  const alphaFe = mkProject(base, 'alpha-fe');
-  const betaFe = mkProject(base, 'beta-fe');
+test('workspace switcher renames the active workspace', async () => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-ws-rename-'));
   const { app, page } = await launchApp();
   try {
+    const id = await createWorkspace(page, 'Alpha', base);
     await page.evaluate(
-      async ({ alphaFe, betaFe }) => {
-        await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Alpha',
-          roots: [{ name: 'FE', path: alphaFe }],
-        });
-        await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Beta',
-          roots: [{ name: 'FE', path: betaFe }],
-        });
-      },
-      { alphaFe, betaFe },
+      (wid) => window.marudesk.invoke('workspaces:set-active', { workspaceId: wid }),
+      id,
     );
-    await page.reload({ waitUntil: 'domcontentloaded' });
 
-    const rail = page.getByRole('navigation', { name: 'Workspace rail' });
-    await expect(rail).toBeVisible();
+    const trigger = page.getByRole('button', { name: 'Workspace: Alpha' });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await page.getByRole('menuitem', { name: /Rename workspace/ }).click();
 
-    // Rename Project Beta -> Project Gamma via the rail context menu + dialog.
-    await rail.getByRole('button', { name: 'Workspace Project Beta' }).click({ button: 'right' });
-    await page.getByRole('menu').getByRole('menuitem', { name: 'Rename workspace' }).click();
-    const renameDialog = page.getByRole('dialog', { name: 'Rename workspace' });
-    await renameDialog.getByRole('textbox').fill('Project Gamma');
-    await renameDialog.getByRole('button', { name: 'Rename' }).click();
-    await expect(rail.getByRole('button', { name: 'Workspace Project Gamma' })).toBeVisible();
-    await expect(rail.getByRole('button', { name: 'Workspace Project Beta' })).toHaveCount(0);
+    const dialog = page.getByRole('dialog', { name: 'Rename workspace' });
+    await dialog.getByRole('textbox').fill('Renamed');
+    await page.getByRole('button', { name: 'Rename' }).click();
 
-    // Delete Project Alpha (auto-accept the confirm() prompt).
-    page.on('dialog', (dialog) => void dialog.accept());
-    await rail.getByRole('button', { name: 'Workspace Project Alpha' }).click({ button: 'right' });
-    await page.getByRole('menu').getByRole('menuitem', { name: 'Delete workspace' }).click();
-    await expect(rail.getByRole('button', { name: 'Workspace Project Alpha' })).toHaveCount(0);
-    await expect(rail.getByRole('button', { name: 'Workspace Project Gamma' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Workspace: Renamed' })).toBeVisible();
   } finally {
     await app.close();
-    fs.rmSync(base, { recursive: true, force: true });
+    await fs.rm(base, { recursive: true, force: true });
   }
 });
 
-test('workspace deck: remove a folder root from Peek Explorer', async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-ws-root-'));
-  const fe = mkProject(base, 'alpha-fe');
-  const be = mkProject(base, 'alpha-be');
+test('workspace switcher deletes a non-active workspace', async () => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'marudesk-ws-delete-'));
+  const rootA = path.join(base, 'a');
+  const rootB = path.join(base, 'b');
+  await fs.mkdir(rootA, { recursive: true });
+  await fs.mkdir(rootB, { recursive: true });
   const { app, page } = await launchApp();
   try {
+    const idKeep = await createWorkspace(page, 'Keep', rootA);
+    await createWorkspace(page, 'Drop', rootB);
+    // Make Keep active so Drop is the deletable (non-active) one.
     await page.evaluate(
-      async ({ fe, be }) => {
-        await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Alpha',
-          roots: [{ name: 'FE', path: fe }, { name: 'BE', path: be }],
-        });
-      },
-      { fe, be },
+      (wid) => window.marudesk.invoke('workspaces:set-active', { workspaceId: wid }),
+      idKeep,
     );
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    const trigger = page.getByRole('button', { name: 'Workspace: Keep' });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await page.getByRole('menuitem', { name: 'Delete "Drop"' }).click();
 
-    page.on('dialog', (dialog) => void dialog.accept());
-    await page.getByRole('button', { name: 'Peek Explorer' }).first().click();
+    // The delete path now opens an in-app tokenized confirm (replacing the old
+    // native window.confirm) — drive it through to the destructive action.
+    const confirm = page.getByRole('dialog', { name: 'Delete workspace "Drop"?' });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole('button', { name: 'Delete' }).click();
 
-    // Two roots → both expose a remove control. Drop BE.
-    await expect(page.getByRole('button', { name: 'Remove root FE' })).toBeVisible();
-    await page.getByRole('button', { name: 'Remove root BE' }).click();
-
-    // One root left → the remove control disappears for the survivor.
-    await expect(page.getByRole('button', { name: 'Remove root BE' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Remove root FE' })).toHaveCount(0);
-
-    const snapshot = await page.evaluate(() => window.marudesk.invoke('workspaces:list'));
-    const alpha = snapshot.workspaces.find((workspace) => workspace.name === 'Project Alpha');
-    expect(alpha?.roots.map((root) => root.name)).toEqual(['FE']);
+    // The UI action drove the workspaces:delete IPC — Drop is gone from the registry.
+    await expect
+      .poll(async () => {
+        const snap = await page.evaluate(() => window.marudesk.invoke('workspaces:list'));
+        return snap.workspaces.map((w) => w.name);
+      })
+      .not.toContain('Drop');
   } finally {
     await app.close();
-    fs.rmSync(base, { recursive: true, force: true });
-  }
-});
-
-test('workspace explorer: remove a folder root from the root context menu', async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-ws-root-menu-'));
-  const fe = mkProject(base, 'alpha-fe');
-  const be = mkProject(base, 'alpha-be');
-  const { app, page } = await launchApp();
-  try {
-    await page.evaluate(
-      async ({ fe, be }) => {
-        await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Alpha',
-          roots: [{ name: 'FE', path: fe }, { name: 'BE', path: be }],
-        });
-      },
-      { fe, be },
-    );
-    await page.reload({ waitUntil: 'domcontentloaded' });
-
-    const explorer = page.getByRole('complementary', { name: 'Explorer' });
-    await expect(explorer.getByRole('button', { name: 'Use root FE' })).toBeVisible();
-    await expect(explorer.getByRole('button', { name: 'Use root BE' })).toBeVisible();
-
-    page.on('dialog', (dialog) => void dialog.accept());
-    await explorer.getByRole('button', { name: 'Use root BE' }).click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Remove folder from workspace' }).click();
-
-    await expect(explorer.getByRole('button', { name: 'Use root BE' })).toHaveCount(0);
-    await expect(explorer.getByRole('button', { name: 'Use root FE' })).toBeVisible();
-
-    const snapshot = await page.evaluate(() => window.marudesk.invoke('workspaces:list'));
-    const alpha = snapshot.workspaces.find((workspace) => workspace.name === 'Project Alpha');
-    expect(alpha?.roots.map((root) => root.name)).toEqual(['FE']);
-  } finally {
-    await app.close();
-    fs.rmSync(base, { recursive: true, force: true });
+    await fs.rm(base, { recursive: true, force: true });
   }
 });

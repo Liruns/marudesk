@@ -231,8 +231,18 @@ export type AgentChatState = {
    * conversation (billing-style, shown in the usage tooltip). `contextTokens` is
    * the most recent model call's input size — i.e. how full the context window
    * currently is — which drives the usage gauge and the auto-compaction trigger.
+   * `cachedInputTokens` is the most recent call's Anthropic prompt-cache READ
+   * count (the slice of `contextTokens` served from cache rather than re-billed at
+   * full input price), so a degraded cache hit rate is observable; absent/0 on
+   * providers that don't report cache reads. Optional so existing usage literals
+   * keep compiling — the loop populates it additively each step.
    */
-  usage: { inputTokens: number; outputTokens: number; contextTokens: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    contextTokens: number;
+    cachedInputTokens?: number;
+  };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
   /**
@@ -425,6 +435,25 @@ export type AgentConnection = {
 export type AgentSendResult =
   | { ok: true; turnId: string }
   | { ok: false; reason: string };
+
+/**
+ * Input to `agent:new-thread`. Every field is OPTIONAL so existing callers (the
+ * thread switcher, the per-tab card registry) keep minting blank threads
+ * unchanged.
+ *
+ * `seedContext`, when present, is injected ONCE as the new thread's INITIAL
+ * model-facing system preamble (not a visible user/assistant message — it never
+ * appears in the transcript the user reads). The per-task dock chat
+ * (features/work-graph/taskThreads.ts) uses it to ground a fresh task thread in
+ * the selected task's title / intent / acceptance / latest evidence, so the agent
+ * talks about *that task* from the first turn instead of a generic workspace bot.
+ * Treated as trusted grounding (it is derived from the user's own task data), but
+ * kept compact so it doesn't crowd the system block.
+ */
+export type AgentNewThreadInput = {
+  workspaceId?: WorkspaceId;
+  seedContext?: string;
+};
 
 export type AgentWorkspaceEvent = {
   workspaceId: WorkspaceId;

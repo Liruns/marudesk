@@ -18,7 +18,10 @@ import {
 } from '../../../shared/providers';
 import type { CheckpointRestore } from '../../../shared/worktree';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
+import { currentLocale } from '../../i18n/locale-storage';
+import { getMessage } from '../../i18n/messages';
 import { toMessage } from '../../lib/toMessage';
+import { toast } from '../../lib/toast';
 import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
 import { useGitStore } from '../git/store';
@@ -756,8 +759,12 @@ function createAgentStore(
         }
         await get().hydrate();
       }
-    } catch {
-      // ignore — the next agent:event reflects the real state
+    } catch (err) {
+      toast({
+        title: getMessage(currentLocale(), 'agent.session.resumeFailed'),
+        description: toMessage(err),
+        variant: 'error',
+      });
     }
   },
 
@@ -765,8 +772,12 @@ function createAgentStore(
     try {
       await window.marudesk.invoke('agent:delete-session', { ...scopedPayload(workspaceId), id });
       await get().loadSessions();
-    } catch {
-      // ignore
+    } catch (err) {
+      toast({
+        title: getMessage(currentLocale(), 'agent.session.deleteFailed'),
+        description: toMessage(err),
+        variant: 'error',
+      });
     }
   },
   }));

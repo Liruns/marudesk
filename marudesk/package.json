@@ -2,7 +2,7 @@
   "name": "marudesk",
   "private": true,
   "version": "0.9.0",
-  "description": "Maru — an infinite canvas where AI sees your running app.",
+  "description": "Maru — mission control for AI development: a Task graph where the agent proves it fixed your running app.",
   "author": "Liruns",
   "homepage": "https://github.com/Liruns/marudesk",
   "type": "module",
@@ -24,6 +24,7 @@
     "typecheck": "tsc -b",
     "e2e": "playwright test",
     "test:e2e": "npm run build && playwright test",
+    "screens": "node scripts/run-screens.mjs",
     "chat": "node --experimental-strip-types --import ./electron/cli-bridge/harness-register.mjs cli/main.ts",
     "harness:all": "node scripts/run-harnesses.mjs",
     "harness:cli": "node --experimental-strip-types --import ./electron/cli-bridge/harness-register.mjs electron/cli-bridge/cli-harness.ts",
@@ -159,7 +160,7 @@
         }
       ],
       "category": "Development",
-      "synopsis": "An infinite canvas where AI sees your running app.",
+      "synopsis": "Mission control for AI development: a Task graph where the agent proves it fixed your running app.",
       "maintainer": "Liruns <duct1235@gmail.com>"
     }
   },

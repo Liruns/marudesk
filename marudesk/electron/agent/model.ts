@@ -9,7 +9,9 @@ import {
   jsonSchema,
   type JSONSchema7,
   type LanguageModel,
+  type LanguageModelUsage,
   type ModelMessage,
+  type SystemModelMessage,
   type ToolSet,
 } from 'ai';
 import type { ProviderId } from '../../shared/providers';
@@ -26,7 +28,6 @@ import {
 } from '../auth/gitlab-duo';
 import type { ToolSchema } from './tools';
 import { normalizeToolSchema } from './tools/normalize-schema';
-import { classifyStreamError, backoffDelayMs } from './stream-error.ts';
 
 /**
  * How a turn authenticates to the provider: a stored API key, or an OAuth
@@ -466,48 +467,125 @@ export function aiTools(schemas: ToolSchema[], opts?: { cacheable?: boolean; pro
   ) as ToolSet;
 }
 
-/* ── Streaming error recovery ──────────────────────────────────────────── */
-
-const MAX_STREAM_RETRIES = 2;
+/** The Anthropic ephemeral prompt-cache breakpoint we attach to a cacheable prefix. */
+const ANTHROPIC_CACHE_BREAKPOINT = { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
 
 /**
- * Whether a failed stream call should be retried on the SAME provider. Delegates
- * to the shared classifier ({@link classifyStreamError}) so this and the agent
- * loop agree on what "transient" means — a `retry` action (429 rate-limit /
- * overload / 5xx / network) is retryable; quota-exhaustion, overflow, auth, and
- * bad-request are not (the loop routes those to failover / compaction / surface).
+ * CACHE-1 (docs/agent-port-plan.md): cache the LARGE, STABLE system prompt.
+ *
+ * `aiTools` already caches the tools block; this caches the system block. The AI
+ * SDK's `system` accepts a {@link SystemModelMessage} (not just a string) whose
+ * `providerOptions.anthropic.cacheControl` `@ai-sdk/anthropic` reads and emits as
+ * `cache_control` on the system text block (verified against the installed 3.0.x).
+ * Tools precede system+messages in request order, so the tools breakpoint alone
+ * caches only tools — without this, the system prompt is re-billed at full input
+ * price every step. When `cacheable` is false (non-Anthropic providers) the plain
+ * string is returned unchanged, so those request paths are byte-identical.
+ *
+ * CACHE-1 regression fix (cross-turn cache stability): the system prompt is NOT
+ * uniformly stable. Its STABLE head (base rules + model guidance + instruction
+ * files + mode + footer) is turn-invariant, but the `<environment>` grounding
+ * (date + git dirty count + HEAD subject) is rebuilt every turn and changes the
+ * moment the agent edits or commits. Placing one breakpoint on the WHOLE
+ * concatenated system therefore busts the prefix cache for the entire system —
+ * including the ~4 KB static base prompt and the folded instruction files —
+ * every time the working tree changes. So callers pass the stable head and the
+ * volatile tail SEPARATELY: when cacheable, we emit them as two CONSECUTIVE
+ * system text blocks (the AI SDK / `@ai-sdk/anthropic` group consecutive system
+ * messages into a single top-level `system` array, NOT a mid-conversation system
+ * message — verified against the installed 3.0.x) and place the cache breakpoint
+ * on the stable head ONLY. The model still receives the exact same content, in
+ * the same order; only the cache boundary moves so the stable head keeps hitting
+ * the prompt cache across turns regardless of working-tree churn. An empty
+ * volatile tail collapses to the single stable block. When not cacheable the
+ * caller's full system string (head + tail already joined) is returned unchanged.
  */
-export function isRetryableStreamError(err: unknown): boolean {
-  return classifyStreamError(err).action === 'retry';
+export function cachedSystem(
+  stableSystem: string,
+  volatileSystem: string,
+  cacheable: boolean,
+): string | SystemModelMessage | SystemModelMessage[] {
+  if (!cacheable) {
+    // Non-Anthropic providers get the plain, fully-joined string (byte-identical
+    // to the prior single-string behavior): re-join the two halves with the same
+    // separator the loop uses between system sections.
+    return volatileSystem.trim()
+      ? `${stableSystem}${SYSTEM_SECTION_SEPARATOR}${volatileSystem}`
+      : stableSystem;
+  }
+  const head: SystemModelMessage = {
+    role: 'system',
+    content: stableSystem,
+    providerOptions: ANTHROPIC_CACHE_BREAKPOINT,
+  };
+  if (!volatileSystem.trim()) return head;
+  // Two consecutive system messages → one grouped system block with two text
+  // parts; only the head carries `cache_control`, so the volatile tail can change
+  // every turn without busting the cached stable prefix.
+  const tail: SystemModelMessage = { role: 'system', content: volatileSystem };
+  return [head, tail];
 }
 
 /**
- * Retry a streaming call on transient errors with exponential backoff, honoring a
- * server-supplied `Retry-After` when present (item 1). Used by the non-loop stream
- * paths (subagent / media generation); the main loop drives its own classifier-
- * based retry/compact/failover routing inline so it can do more than retry-in-place.
+ * The separator the agent loop uses between system-prompt sections. Kept here so
+ * {@link cachedSystem}'s non-cacheable path can re-join the stable head and the
+ * volatile tail into the exact byte sequence the model would otherwise receive.
  */
-export async function withStreamRetry<T>(
-  fn: () => Promise<T>,
-  provider: ProviderId,
-  modelId: string,
-): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= MAX_STREAM_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const klass = classifyStreamError(err);
-      if (klass.action !== 'retry' || attempt === MAX_STREAM_RETRIES) break;
-      const delay = klass.retryAfterMs ?? backoffDelayMs(attempt);
-      console.warn(
-        `[agent] ${provider}/${modelId} stream error (attempt ${attempt + 1}/${
-          MAX_STREAM_RETRIES + 1
-        }), retrying in ${delay}ms`,
-      );
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
+export const SYSTEM_SECTION_SEPARATOR = '\n\n---\n\n';
+
+/**
+ * CACHE-1 (docs/agent-port-plan.md): cache the GROWING message-history prefix.
+ *
+ * The whole transcript is re-sent every step, so without a breakpoint the message
+ * history is re-billed at full input price each turn. Anthropic caches the prefix
+ * up to (and including) a `cache_control` breakpoint, so we attach one to the LAST
+ * message BEFORE the volatile tail — the second-to-last message. Placing it on the
+ * very last message would move the breakpoint every step (the tail is what just
+ * changed), defeating the cache; the second-to-last is a prefix boundary that was
+ * already stable last step, so the prefix up to it hits the cache. Combined with
+ * the tools + system breakpoints this is 3 breakpoints total — within Anthropic's
+ * limit of 4. Returns a shallow copy with the chosen message's `providerOptions`
+ * merged (never mutating the caller's transcript); fewer than two messages, or a
+ * non-cacheable provider, returns the original array untouched.
+ */
+export function withMessagePrefixCache(
+  messages: ModelMessage[],
+  cacheable: boolean,
+): ModelMessage[] {
+  if (!cacheable || messages.length < 2) return messages;
+  const idx = messages.length - 2;
+  const next = messages.slice();
+  next[idx] = withCacheBreakpoint(next[idx]);
+  return next;
+}
+
+/**
+ * Return a shallow copy of one message with the Anthropic cache breakpoint merged
+ * into its `providerOptions`. Generic over the concrete message variant so the
+ * `role`/`content` discriminant correlation is preserved (spreading the bare
+ * {@link ModelMessage} union would widen both and break strict assignability).
+ */
+function withCacheBreakpoint<T extends ModelMessage>(message: T): T {
+  return {
+    ...message,
+    providerOptions: { ...message.providerOptions, ...ANTHROPIC_CACHE_BREAKPOINT },
+  };
+}
+
+/**
+ * Cache observability: the Anthropic prompt-cache READ count for a settled model
+ * call — how many of the re-sent input tokens were served from cache instead of
+ * being re-billed at full input price. The loop surfaces this ALONGSIDE
+ * `contextTokens` (which is the SDK's `.inputTokens`/total and already INCLUDES
+ * cache reads), so a degraded hit rate — e.g. an extended-thinking turn whose
+ * response-side thinking block keeps the message-prefix cache from hitting —
+ * becomes visible instead of hiding inside the total.
+ *
+ * Prefers the structured `inputTokenDetails.cacheReadTokens`; falls back to the
+ * SDK's deprecated `cachedInputTokens` alias; 0 when the provider reports neither
+ * (non-Anthropic, or a turn with no cache hit). Pure + SDK-typed so the harness
+ * can assert the precedence without a network call.
+ */
+export function cacheReadTokensOf(usage: LanguageModelUsage): number {
+  return usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
 }

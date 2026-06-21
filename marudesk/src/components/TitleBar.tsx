@@ -1,10 +1,14 @@
-import type { MouseEvent } from 'react';
-import { ArrowDownCircle, Download } from 'lucide-react';
+import { useEffect, useState, type MouseEvent } from 'react';
+import { Download, Bug } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
 import { cn } from '../lib/cn';
+import { Spinner } from './ui';
 import { WindowControls } from './WindowControls';
 import { ProfileSwitcher } from '../features/workspaces/ProfileSwitcher';
+import { WorkspaceSwitcher } from '../features/workspaces/WorkspaceSwitcher';
 import { FlightStatus } from '../features/work-graph/FlightStatus';
+import { FlightLogButton } from '../features/work-graph/FlightLog';
+import { CommandPaletteButton } from '../features/commands/CommandPalette';
 import { useUpdateStatus } from '../hooks/useUpdateStatus';
 import logoUrl from '../assets/logo-mark.png';
 
@@ -24,10 +28,10 @@ function UpdateIndicator() {
   if (status.kind === 'downloading') {
     return (
       <div
-        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary animate-pulse"
+        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary"
         title={t('titleBar.update.downloading')}
       >
-        <ArrowDownCircle size={14} className="text-accent" />
+        <Spinner size={14} label={t('titleBar.update.downloading')} />
         <span>{status.percent}%</span>
       </div>
     );
@@ -36,10 +40,13 @@ function UpdateIndicator() {
   if (status.kind === 'available') {
     return (
       <div
-        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary animate-pulse"
+        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary"
         title={t('titleBar.update.downloading')}
       >
-        <ArrowDownCircle size={14} className="text-accent" />
+        <span
+          className="size-2 rounded-full bg-accent shrink-0"
+          aria-hidden
+        />
       </div>
     );
   }
@@ -65,6 +72,45 @@ function UpdateIndicator() {
       <Download size={12} />
       <span>{status.version}</span>
     </button>
+  );
+}
+
+/**
+ * Quiet, persistent security badge shown whenever the embedded browser's
+ * unauthenticated CDP remote-debugging port is actually OPEN this launch (the
+ * user opted in AND a browser-control MCP server is enabled). `portOpen` is
+ * boot-fixed, so a single fetch on mount is sufficient — it cannot change while
+ * the window lives. The badge exists so the user is never unknowingly exposed.
+ */
+function DebugPortIndicator() {
+  const { t } = useI18n();
+  const [portOpen, setPortOpen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void window.marudesk
+      .invoke('mcp:embedded-browser-status')
+      .then((status) => {
+        if (alive) setPortOpen(status.portOpen);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!portOpen) return null;
+
+  return (
+    <div
+      className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-warning"
+      title={t('titleBar.debugPort.open')}
+      data-testid="debug-port-indicator"
+      role="status"
+      aria-label={t('titleBar.debugPort.open')}
+    >
+      <Bug size={13} aria-hidden />
+    </div>
   );
 }
 
@@ -114,12 +160,16 @@ export function TitleBar() {
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}
-      <div className="flex items-center gap-1.5 pl-2">
+      <div className="flex items-center gap-1.5 pl-2 min-w-0">
         <ProfileSwitcher />
+        <WorkspaceSwitcher />
+        <CommandPaletteButton />
         <UpdateIndicator />
+        <DebugPortIndicator />
       </div>
-      <div className="drag-region flex-1 min-w-0 flex items-center justify-center px-3">
+      <div className="drag-region flex-1 min-w-0 flex items-center justify-center gap-2 px-3">
         <FlightStatus />
+        <FlightLogButton />
       </div>
       <WindowControls />
     </div>

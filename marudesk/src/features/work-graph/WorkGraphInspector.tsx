@@ -1,13 +1,22 @@
-import { Check, ExternalLink, Hammer, X } from 'lucide-react';
+import { useState } from 'react';
+import { Check, ExternalLink, FileText, GitCommit, Hammer, Play, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
+import type { WorkspaceId } from '../../../shared/workspace';
+import { useI18n } from '../../i18n/useI18n';
 import { useTabsStore } from '../tabs/store';
 import { useInstrumentStore } from './instrument';
+import { taskThreadWorkspaceId } from './taskThreads';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useWorkGraphStore } from './store';
 import { toast } from '../../lib/toast';
-import { parseUnifiedDiff } from '../git/parseDiff';
+import { changedFilePaths, parseUnifiedDiff } from '../git/parseDiff';
+import { openFileInstrument } from './instrument';
+import type { WorkspaceFileRef } from '../../../shared/workspace';
+import { resolveActiveRootId } from '../../../shared/workspace';
 import { DiffBlock, Spinner, Badge } from '../../components/ui';
+import { STATUS_BADGE, STATUS_LABEL_KEY } from './status';
 
 /**
  * The Work OS supervision panel: the selected Task's intent, acceptance criteria
@@ -22,37 +31,19 @@ const VERDICT_DOT: Record<Criterion['verdict'], string> = {
   fail: 'bg-error',
 };
 
-const STATUS_BADGE: Record<Task['status'], 'neutral' | 'accent' | 'success' | 'warning' | 'error'> = {
-  planned: 'neutral',
-  running: 'accent',
-  done: 'success',
-  blocked: 'warning',
-  needs_review: 'warning',
-  failed: 'error',
-};
-
-const STATUS_LABEL: Record<Task['status'], string> = {
-  planned: 'Planned',
-  running: 'Running',
-  done: 'Done',
-  blocked: 'Blocked',
-  needs_review: 'Review',
-  failed: 'Failed',
-};
-
 /**
  * Open a Resource as a live instrument that fills Mission Control's main area
  * (the runtime-aware browser gets full real estate), keyed by its uri scheme.
  * The tab is created + activated so its surface/native view shows, then pinned
  * as the active instrument; "← Graph" closes it back to the Task graph.
  */
-async function openResource(r: Resource): Promise<void> {
+async function openResource(r: Resource, noOpenerMessage: string, workspaceId?: WorkspaceId): Promise<void> {
   const uri = r.uri;
   let kind: TabKind | null = null;
   let id: string | null = null;
   if (/^https?:\/\//.test(uri)) {
     kind = 'web';
-    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: uri });
+    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: uri, workspaceId });
   } else if (uri.startsWith('file://')) {
     const raw = uri.replace(/^file:\/\/\/?/, '').replace(/#.*$/, '');
     // A malformed percent-escape makes decodeURI throw — fall back to the raw path.
@@ -64,17 +55,22 @@ async function openResource(r: Resource): Promise<void> {
     }
     if (path) {
       kind = 'editor';
-      id = await window.marudesk.invoke('browser:tabs-new', { kind: 'editor', path });
+      id = await window.marudesk.invoke('browser:tabs-new', { kind: 'editor', path, workspaceId });
     }
   } else if (uri.startsWith('term://')) {
     kind = 'terminal';
-    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'terminal' });
+    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'terminal', workspaceId });
   }
   if (kind && id) {
     await useTabsStore.getState().activateTab(id);
-    useInstrumentStore.getState().open(id, kind);
+    // A cancelled dirty-editor prompt keeps the previous instrument and rejects
+    // this id — close the resource tab we just created so it doesn't leak as a
+    // hidden orphan (live WebContentsView that can never be torn down).
+    if (!useInstrumentStore.getState().open(id, kind)) {
+      await useTabsStore.getState().closeTab(id);
+    }
   } else {
-    toast({ title: 'No opener for this resource type', variant: 'warning' });
+    toast({ title: noOpenerMessage, variant: 'warning' });
   }
 }
 
@@ -84,18 +80,83 @@ async function openResource(r: Resource): Promise<void> {
  * canvas surface) and the Mission Control Instrument Dock.
  */
 export function WorkGraphInspectorContent() {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const running = useWorkGraphStore((s) => s.running);
   const applyingPatchTaskId = useWorkGraphStore((s) => s.applyingPatchTaskId);
+  const lastAppliedTaskId = useWorkGraphStore((s) => s.lastAppliedTaskId);
   const task: Task | undefined = graph?.tasks.find((t) => t.id === selectedTaskId);
+
+  // Local edit buffers (hooks must run unconditionally, before the early return):
+  // the intent textarea commits onBlur / Enter; the new-criterion input clears
+  // after a commit. `intentDraft` re-syncs to the selected task's intent so
+  // switching tasks (or an external update) never shows a stale buffer.
+  const [intentDraft, setIntentDraft] = useState(task?.intent ?? '');
+  const [newCriterion, setNewCriterion] = useState('');
+  const taskIntent = task?.intent ?? '';
+  // Reset the local edit buffers when the SELECTED TASK changes, done DURING
+  // render (React's "adjust state when a prop changes" pattern) — not in an
+  // effect, which would cascade renders (react-hooks/set-state-in-effect). The
+  // prev-id guard makes it run once per switch (no loop) and never clobbers a
+  // live edit on the same task (intentDraft holds the in-progress value).
+  const [bufferTaskId, setBufferTaskId] = useState(selectedTaskId);
+  if (bufferTaskId !== selectedTaskId) {
+    setBufferTaskId(selectedTaskId);
+    setIntentDraft(taskIntent);
+    setNewCriterion('');
+  }
+
   if (!task) return null;
 
   const result = task.evidence?.result;
   const patch = task.evidence?.patch;
+  // Advisory in-worktree pre-flight (round-34). Honest tri-state: show a green
+  // "verified in worktree" affordance ONLY when true; false → a caution note
+  // (errors remained); undefined → an "unverified" note. verifyNote is rendered
+  // as DATA (it comes from the agent/run-task), never trusted as a verdict.
+  const worktreeVerified = task.evidence?.worktreeVerified;
+  const verifyNote = task.evidence?.verifyNote;
   const taskId = task.id;
+  // A failed/blocked task frames its primary action as RETRY (the call is the same
+  // implementTask); a normal task keeps the exact "Implement" label e2e asserts.
+  const needsRetry = task.status === 'failed' || task.status === 'blocked';
+  // Resources open in the task's own workspace (via its bound conversation thread),
+  // mirroring the ⌘K openInstrument path. Fall back to the active workspace when the
+  // task isn't bound yet so nothing regresses.
+  const resourceWorkspaceId =
+    taskThreadWorkspaceId(taskId) ?? useWorkspaceDeckStore.getState().activeWorkspaceId ?? undefined;
   // parseUnifiedDiff is bounded (caps at 600 lines); compute inline — no hook needed.
   const diffLines = patch ? parseUnifiedDiff(patch) : [];
+  // Each changed file in the diff is openable as the editor instrument so a
+  // reviewer can jump from "see diff" to the real workspace file (the CURRENT,
+  // pre-apply version — a before/after reference), reusing Search/SCM's hop.
+  const changedFiles = patch ? changedFilePaths(patch) : [];
+  // Resolve a changed path to its bound workspace + root (mirrors SearchPanel);
+  // fall back to the bare path so main resolves it against the active workspace.
+  const boundWorkspace = resourceWorkspaceId
+    ? useWorkspaceDeckStore.getState().workspaces.find((w) => w.id === resourceWorkspaceId) ?? null
+    : null;
+  const openChangedFile = (path: string): void => {
+    const rootId = resolveActiveRootId(boundWorkspace);
+    const target: WorkspaceFileRef | string =
+      boundWorkspace && rootId ? { workspaceId: boundWorkspace.id, rootId, path } : path;
+    void openFileInstrument(target);
+  };
+
+  // Edits are disabled while a run is in flight so a task is never mutated
+  // mid-run (acceptance criteria are the system's pass/fail contract).
+  const commitIntent = (): void => {
+    const next = intentDraft.trim();
+    if (next === task.intent) return;
+    useWorkGraphStore.getState().updateTask(taskId, { intent: next });
+  };
+  const commitNewCriterion = (): void => {
+    const text = newCriterion.trim();
+    if (!text) return;
+    useWorkGraphStore.getState().addCriterion(taskId, text);
+    setNewCriterion('');
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-3">
@@ -103,13 +164,13 @@ export function WorkGraphInspectorContent() {
         <div className="min-w-0">
           <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
           <div className="mt-0.5 flex items-center gap-1.5">
-            <Badge variant={STATUS_BADGE[task.status]}>{STATUS_LABEL[task.status]}</Badge>
-            <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : 'human'}{task.kind === 'decision' ? ' · decision' : ''}</p>
+            <Badge variant={STATUS_BADGE[task.status]}>{t(STATUS_LABEL_KEY[task.status])}</Badge>
+            <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}{task.kind === 'decision' ? t('workGraph.inspector.decisionSuffix') : ''}</p>
           </div>
         </div>
         <button
           type="button"
-          aria-label="Close inspector"
+          aria-label={t('workGraph.inspector.closeInspector')}
           onClick={() => useWorkGraphStore.getState().selectTask(null)}
           className="ml-auto grid h-5 w-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
@@ -117,48 +178,118 @@ export function WorkGraphInspectorContent() {
         </button>
       </div>
 
-      <button
-        type="button"
-        disabled={running}
-        onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
-        title="Run this task in an isolated worktree. Changes are captured as a diff — your workspace files are not modified."
-        className="mb-2 inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
-      >
-        {running ? <Spinner size={13} label="Implementing" /> : <Hammer size={12} />}
-        Implement
-      </button>
+      {/* A failed/blocked task gets retry framing on the primary (write) action,
+          while a normal task keeps the exact "Implement" label e2e asserts. */}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={running}
+          onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
+          title={needsRetry ? t('workGraph.inspector.retryTitle') : t('workGraph.inspector.implementTitle')}
+          className="inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+        >
+          {running ? <Spinner size={13} label={t('workGraph.inspector.implementing')} /> : <Hammer size={12} />}
+          {needsRetry ? t('workGraph.inspector.retry') : t('workGraph.inspector.implement')}
+        </button>
+        <button
+          type="button"
+          disabled={running}
+          onClick={() => void useWorkGraphStore.getState().runOne(taskId)}
+          title={t('workGraph.inspector.runTaskTitle')}
+          className="inline-flex items-center gap-1.5 self-start rounded bg-surface-2 border border-default px-2.5 py-1 text-caption font-medium text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+        >
+          <Play size={12} />
+          {t('workGraph.inspector.runTask')}
+        </button>
+      </div>
       {task.status === 'planned' && !result ? (
-        <p className="mt-0.5 text-caption text-fg-tertiary">Isolated from your workspace. Review diff before applying.</p>
+        <p className="mt-0.5 text-caption text-fg-tertiary">{t('workGraph.inspector.isolatedHint')}</p>
       ) : null}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 pb-4">
-        {task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null}
+        {running ? (
+          task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null
+        ) : (
+          <textarea
+            value={intentDraft}
+            onChange={(e) => setIntentDraft(e.target.value)}
+            onBlur={commitIntent}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                commitIntent();
+                e.currentTarget.blur();
+              }
+            }}
+            aria-label={t('workGraph.inspector.editIntentLabel')}
+            placeholder={t('workGraph.inspector.editIntentPlaceholder')}
+            rows={2}
+            className="w-full resize-y rounded bg-surface-2 border border-subtle px-2 py-1 text-caption text-fg-secondary placeholder:text-fg-tertiary hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+          />
+        )}
 
-        {task.acceptance.length > 0 ? (
+        {task.acceptance.length > 0 || !running ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Acceptance</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.acceptance')}</p>
             <ul className="space-y-1">
               {task.acceptance.map((c) => (
-                <li key={c.id} className="flex items-start gap-1.5 text-caption text-fg-tertiary">
+                <li key={c.id} className="group flex items-start gap-1.5 text-caption text-fg-tertiary">
                   <span className={cn('pt-[3px] h-2 w-2 shrink-0 rounded-pill', VERDICT_DOT[c.verdict])} aria-hidden />
-                  <span>{c.text}</span>
+                  <span className="min-w-0 flex-1 break-words">{c.text}</span>
+                  {running ? null : (
+                    <button
+                      type="button"
+                      aria-label={t('workGraph.inspector.removeCriterion')}
+                      onClick={() => useWorkGraphStore.getState().removeCriterion(taskId, c.id)}
+                      className="ml-auto grid h-4 w-4 shrink-0 place-items-center rounded text-fg-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-surface-3 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
+            {running ? null : (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={newCriterion}
+                  onChange={(e) => setNewCriterion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitNewCriterion();
+                    }
+                  }}
+                  aria-label={t('workGraph.inspector.addCriterion')}
+                  placeholder={t('workGraph.inspector.addCriterionPlaceholder')}
+                  className="min-w-0 flex-1 rounded bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary placeholder:text-fg-tertiary hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+                />
+                <button
+                  type="button"
+                  aria-label={t('workGraph.inspector.addCriterion')}
+                  disabled={!newCriterion.trim()}
+                  onClick={commitNewCriterion}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+                >
+                  <Plus size={12} />
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
 
         {(result || running) ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Result</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.result')}</p>
             {result ? (
               <pre className="whitespace-pre-wrap break-words rounded bg-surface-3 shadow-inset-soft p-2 font-mono text-caption text-fg-secondary">
                 {result}
               </pre>
             ) : (
               <div className="flex items-center gap-1.5 text-caption text-fg-tertiary">
-                <Spinner size={12} label="Running" />
-                Running…
+                <Spinner size={12} label={t('workGraph.inspector.runningLabel')} />
+                {t('workGraph.inspector.running')}
               </div>
             )}
           </div>
@@ -166,33 +297,85 @@ export function WorkGraphInspectorContent() {
 
         {patch ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.proposedChanges')}</p>
+            {changedFiles.length > 0 ? (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {changedFiles.map((path) => (
+                  <button
+                    key={path}
+                    type="button"
+                    onClick={() => openChangedFile(path)}
+                    title={t('workGraph.inspector.openFileTitle').replace('{path}', path)}
+                    className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+                  >
+                    <FileText size={11} />
+                    <span className="max-w-[12rem] truncate">{path}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-[min(256px,40vh)] overflow-auto" />
             <p className="mt-1 text-caption text-fg-tertiary">
-              Produced in a throwaway worktree — your files are unchanged. Review before applying.
+              {t('workGraph.inspector.throwawayNote')}
             </p>
+            {/* Worktree pre-flight (advisory). Green "verified" ONLY for true;
+                false/undefined never read as verified — false is a caution, an
+                undefined is an honest "unverified" note. verifyNote is data. */}
+            {worktreeVerified === true ? (
+              <p className="mt-1 flex items-center gap-1 text-caption text-success">
+                <Check size={11} aria-hidden />
+                <span>{t('workGraph.inspector.worktreeVerified')}{verifyNote ? ` — ${verifyNote}` : ''}</span>
+              </p>
+            ) : worktreeVerified === false ? (
+              <p className="mt-1 text-caption text-warning">
+                {t('workGraph.inspector.worktreeVerifyFailed')}{verifyNote ? ` — ${verifyNote}` : ''}
+              </p>
+            ) : (
+              <p className="mt-1 text-caption text-fg-tertiary">
+                {t('workGraph.inspector.worktreeUnverified')}{verifyNote ? ` — ${verifyNote}` : ''}
+              </p>
+            )}
             <button
               type="button"
               disabled={running || applyingPatchTaskId !== null}
               onClick={() => void useWorkGraphStore.getState().applyPatch(taskId)}
-              title="Apply this diff to your workspace files. Rejected if the workspace changed since this task ran."
+              title={t('workGraph.inspector.applyTitle')}
               className="mt-2 inline-flex items-center gap-1.5 self-start rounded bg-surface-2 border border-default px-2.5 py-1 text-caption font-medium text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
             >
-              {applyingPatchTaskId === taskId ? <Spinner size={13} label="Applying" /> : <Check size={12} />}
-              Apply to workspace
+              {applyingPatchTaskId === taskId ? <Spinner size={13} label={t('workGraph.inspector.applyingLabel')} /> : <Check size={12} />}
+              {t('workGraph.inspector.applyToWorkspace')}
             </button>
+            {/* Finish the agent diff → review → apply → COMMIT loop: once this exact
+                task's patch landed (lastAppliedTaskId === taskId), offer a one-click
+                commit of the now-staged changes with the task title as the default
+                subject. Routes through the existing git:commit IPC; gated on !running. */}
+            {lastAppliedTaskId === taskId ? (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  disabled={running || applyingPatchTaskId !== null}
+                  onClick={() => void useWorkGraphStore.getState().commitTask(taskId)}
+                  title={t('workGraph.inspector.commitTaskTitle').replace('{title}', task.title.trim())}
+                  className="inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+                >
+                  <GitCommit size={12} />
+                  {t('workGraph.inspector.commitTask')}
+                </button>
+                <p className="mt-1 text-caption text-fg-tertiary">{t('workGraph.inspector.commitTaskHint')}</p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
         {task.outputs.length > 0 ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Resources</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.resources')}</p>
             <div className="flex flex-wrap gap-1.5">
               {task.outputs.map((r) => (
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => void openResource(r)}
+                  onClick={() => void openResource(r, t('workGraph.inspector.noOpener'), resourceWorkspaceId)}
                   title={r.uri}
                   className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
                 >

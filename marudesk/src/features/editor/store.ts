@@ -20,7 +20,7 @@ function isUntitledKey(key: string): boolean {
 }
 export type { ErrorFileBuf, FileBuf } from './buffer';
 
-type EditorFileInput = string | WorkspaceFileRef;
+export type EditorFileInput = string | WorkspaceFileRef;
 
 function isWorkspaceFileRef(value: EditorFileInput): value is WorkspaceFileRef {
   return typeof value !== 'string';
@@ -56,8 +56,9 @@ type EditorState = {
 };
 
 type EditorActions = {
-  openFile: (file: EditorFileInput) => Promise<void>;
-  openFileAt: (file: EditorFileInput, line: number, col: number) => Promise<void>;
+  /** Opens (or focuses) the file's editor tab; resolves with that tab's id. */
+  openFile: (file: EditorFileInput) => Promise<string | null>;
+  openFileAt: (file: EditorFileInput, line: number, col: number) => Promise<string | null>;
   ensureLoaded: (file: EditorFileInput) => Promise<void>;
   setContent: (path: string, content: string) => void;
   save: (path: string) => Promise<void>;
@@ -85,27 +86,32 @@ export const useEditorStore = create<EditorState & EditorActions>(
       const existing = tabsState.tabs.find(
         (t) => t.kind === 'editor' && editorDocKeyForTab(t) === key,
       );
+      // Return the authoritative tab id (the created/focused one), not a guess
+      // from the post-await store snapshot — the tabs-state push is coalesced to
+      // the next tick, so reading activeTabId back here would be stale.
+      let id: string | null;
       if (existing) {
         await tabsState.activateTab(existing.id);
+        id = existing.id;
       } else {
-        if (isWorkspaceFileRef(file)) {
-          await window.marudesk.invoke('browser:tabs-new', {
-            kind: 'editor',
-            file,
-            workspaceId: file.workspaceId,
-          });
-        } else {
-          await window.marudesk.invoke('browser:tabs-new', {
-            kind: 'editor',
-            path: file,
-          });
-        }
+        const created = isWorkspaceFileRef(file)
+          ? await window.marudesk.invoke('browser:tabs-new', {
+              kind: 'editor',
+              file,
+              workspaceId: file.workspaceId,
+            })
+          : await window.marudesk.invoke('browser:tabs-new', {
+              kind: 'editor',
+              path: file,
+            });
+        id = typeof created === 'string' ? created : null;
       }
       await get().ensureLoaded(file);
+      return id;
     },
 
     openFileAt: async (file, line, col) => {
-      await get().openFile(file);
+      const id = await get().openFile(file);
       // EditorView only mounts MonacoView once the buffer is ready, so the
       // request is in place before the editor binds the model and can apply it.
       set((s) => ({
@@ -116,6 +122,7 @@ export const useEditorStore = create<EditorState & EditorActions>(
           nonce: (s.revealRequest?.nonce ?? 0) + 1,
         },
       }));
+      return id;
     },
 
     ensureLoaded: async (file) => {

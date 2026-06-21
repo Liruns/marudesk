@@ -25,6 +25,7 @@ import {
   ProviderKeyNudge,
   StatusPill,
   UsageMeter,
+  type EmptyStateOverride,
 } from './chat/Controls';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
 import { AttachmentPreview } from './chat/AttachmentPreview';
@@ -57,7 +58,19 @@ function loadMissionOpen(): boolean {
   }
 }
 
-export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' } = {}) {
+export function AgentChat({
+  variant = 'drawer',
+  emptyState,
+}: {
+  variant?: 'drawer' | 'full';
+  /**
+   * Per-surface override of the empty-state subtitle + first-move suggestions.
+   * Supplied by the per-task Instrument Dock so a task chat reads as briefed on
+   * THAT task; omitted by the global drawer/full surface, which keeps the default
+   * workspace copy + browser-debug suggestions unchanged.
+   */
+  emptyState?: EmptyStateOverride;
+} = {}) {
   const { t } = useI18n();
   const chat = useAgentStore((s) => s.chat);
   const draft = useAgentStore((s) => s.draft);
@@ -234,7 +247,7 @@ export function AgentChat({ variant = 'drawer' }: { variant?: 'drawer' | 'full' 
           style={chatZoom !== 100 ? { zoom: chatZoom / 100 } : undefined}
         >
           {empty ? (
-            <EmptyState hasWorkspace={!!summary} onPick={handlePickSuggestion} />
+            <EmptyState hasWorkspace={!!summary} onPick={handlePickSuggestion} override={emptyState} />
           ) : (
             <Transcript
               messages={chat.messages}

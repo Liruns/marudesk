@@ -1,5 +1,6 @@
 import { scrubText } from '../../shared/scrub';
 import { clipText } from '../../shared/text-clip';
+import { wrapUntrustedToolContent } from '../agent/tools/fetch-url';
 import {
   PLUGIN_CALL_TIMEOUT_MS,
   PLUGIN_LOAD_TIMEOUT_MS,
@@ -26,6 +27,13 @@ export type PluginStatusUpdate = {
   /** Empty string clears the key. */
   text: string;
 };
+
+/**
+ * How many log lines the host keeps per plugin (the in-app debug view). Bounded
+ * so a chatty plugin can't grow the buffer without limit — the oldest line is
+ * dropped once the cap is reached.
+ */
+export const PLUGIN_LOG_BUFFER_MAX = 200;
 
 /**
  * PluginHost — drives one worker (one plugin) over a {@link HostChannel}
@@ -71,6 +79,13 @@ export class PluginHost implements PluginHostLike {
   private netAllow: string[] = [];
   /** Where ctx.setStatus updates go (the manager forwards to the renderer). */
   private readonly onStatus?: (update: PluginStatusUpdate) => void;
+  /**
+   * Bounded ring of the plugin's recent ctx.log lines + handler/lifecycle errors
+   * (already scrubbed), surfaced in-app via the plugins:logs IPC so a misbehaving
+   * plugin is debuggable without launching from a terminal. Oldest is dropped past
+   * {@link PLUGIN_LOG_BUFFER_MAX}.
+   */
+  private readonly logs: string[] = [];
 
   constructor(
     channel: HostChannel,
@@ -130,6 +145,24 @@ export class PluginHost implements PluginHostLike {
     });
   }
 
+  /**
+   * Append one already-scrubbed line to the bounded log ring (drops the oldest
+   * past the cap). A `kind` prefix tags warnings/errors so the in-app view
+   * distinguishes a plugin's own ctx.log from a host-recorded warning/failure.
+   */
+  private appendLog(kind: 'log' | 'warn' | 'error', line: string): void {
+    const prefix = kind === 'log' ? '' : `[${kind}] `;
+    this.logs.push(`${prefix}${line}`);
+    if (this.logs.length > PLUGIN_LOG_BUFFER_MAX) {
+      this.logs.splice(0, this.logs.length - PLUGIN_LOG_BUFFER_MAX);
+    }
+  }
+
+  /** Snapshot of the plugin's recent (scrubbed) log lines + errors, oldest first. */
+  getLogs(): readonly string[] {
+    return [...this.logs];
+  }
+
   /** Route one tool call to the worker; map result/timeout into a string. */
   private callWorker(name: string, callId: string, input: unknown): Promise<string> {
     const id = this.nextId();
@@ -150,15 +183,19 @@ export class PluginHost implements PluginHostLike {
     this.inflight.set(callId, entry);
     try {
       const text = clipText(await this.callWorker(name, callId, input ?? {}), PLUGIN_MAX_TOOL_TEXT);
+      // Frame the third-party plugin payload as untrusted DATA (prompt-injection
+      // boundary), applied AFTER scrub+clip so the closing sentinel survives the cap.
       return {
         summary: name,
-        text: scrubText(text) || '(no content)',
+        text: wrapUntrustedToolContent(`plugin ${this.pluginId}`, scrubText(text) || '(no content)'),
         ...(entry.edits.length > 0 ? { edits: entry.edits } : {}),
       };
     } catch (err) {
+      const reason = scrubText((err as Error).message);
+      this.appendLog('error', `tool ${name} failed — ${reason}`);
       return {
         summary: `${name} error`,
-        text: `${name} failed — ${scrubText((err as Error).message)}`,
+        text: `${name} failed — ${reason}`,
         isError: true,
       };
     } finally {
@@ -185,9 +222,12 @@ export class PluginHost implements PluginHostLike {
         else p.reject(new Error(msg.error));
         break;
       }
-      case 'log':
-        console.log(`[plugin:${this.pluginId}] ${scrubText(msg.message)}`);
+      case 'log': {
+        const scrubbed = scrubText(msg.message);
+        console.log(`[plugin:${this.pluginId}] ${scrubbed}`);
+        this.appendLog(msg.level === 'info' ? 'log' : msg.level, scrubbed);
         break;
+      }
       case 'status':
         // Only honor a status for an active call (same guard as perm RPCs), so a
         // stale/forged status can't surface after the call settled.

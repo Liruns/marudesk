@@ -22,6 +22,9 @@ export type ToastItem = {
   variant: ToastVariant;
   /** Resolved auto-dismiss budget in ms (0 = sticky). Kept for the resume math. */
   durationMs: number;
+  /** True while the toast plays its exit animation, just before removal. The
+   *  host applies `animate-toast-out` and drops interactivity when set. */
+  leaving?: boolean;
 };
 
 type ToastInput = {
@@ -57,6 +60,11 @@ function defaultDuration(variant: ToastVariant): number {
   return variant === 'error' ? 10000 : 4500;
 }
 
+// Matches the `--motion-fast` token driving `animate-toast-out` in
+// tailwind.config.ts, so the store removes the toast exactly as the exit
+// animation finishes.
+const EXIT_MS = 120;
+
 export const useToastStore = create<ToastStore>((set, get) => {
   const arm = (id: number, ms: number) => {
     if (ms <= 0) return;
@@ -78,20 +86,34 @@ export const useToastStore = create<ToastStore>((set, get) => {
       return id;
     },
     dismiss: (id) => {
+      // Already leaving? The exit timer is running — leave it untouched so a
+      // double-dismiss can't cancel the pending removal.
+      if (get().toasts.find((x) => x.id === id)?.leaving) return;
       const t = timers.get(id);
       if (t) {
         clearTimeout(t.handle);
         timers.delete(id);
       }
-      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+      // Phase 1: flag the toast so the host plays the exit animation in place.
+      set((s) => ({ toasts: s.toasts.map((x) => (x.id === id ? { ...x, leaving: true } : x)) }));
+      // Phase 2: drop it from the queue once the exit animation completes. The
+      // handle rides the same `timers` map so a stray pause/resume is a no-op.
+      const handle = setTimeout(() => {
+        timers.delete(id);
+        set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) }));
+      }, EXIT_MS);
+      timers.set(id, { handle, deadline: Date.now() + EXIT_MS, remaining: EXIT_MS });
     },
     pause: (id) => {
+      // A leaving toast owns the exit timer — never freeze that.
+      if (get().toasts.find((x) => x.id === id)?.leaving) return;
       const t = timers.get(id);
       if (!t) return;
       clearTimeout(t.handle);
       timers.set(id, { ...t, remaining: Math.max(0, t.deadline - Date.now()) });
     },
     resume: (id) => {
+      if (get().toasts.find((x) => x.id === id)?.leaving) return;
       const t = timers.get(id);
       if (!t) return;
       arm(id, t.remaining);

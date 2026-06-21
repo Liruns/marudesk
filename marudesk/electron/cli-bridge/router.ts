@@ -12,6 +12,7 @@ import {
   type RemoteEvent,
 } from '../../shared/remote';
 import { dispatchAgentCommand, type AgentApi } from './dispatch';
+import { isAllowedCompanionHost } from './host-allowlist';
 import { verifyToken } from './token';
 
 /**
@@ -418,6 +419,16 @@ export async function handleRequest(
     return;
   }
   const method = req.method ?? 'GET';
+
+  // ── DNS-rebinding guard ─────────────────────────────────────────────────────
+  // The companion binds 127.0.0.1, so a rebinding page can re-resolve an attacker
+  // domain to the loopback port and ride the victim's same-origin requests. Reject
+  // any Host header that isn't a loopback literal (on the bound port) before the
+  // bearer check — the bearer alone would otherwise be the only barrier.
+  if (!isAllowedCompanionHost(req.headers.host, req.socket.localPort ?? 0)) {
+    sendError(res, 403, 'forbidden');
+    return;
+  }
 
   // ── bearer path (loopback companion / tests) ────────────────────────────────
   const presented = bearerFrom(req);

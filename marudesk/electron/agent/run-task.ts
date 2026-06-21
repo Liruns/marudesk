@@ -1,10 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { clipText } from '../../shared/text-clip';
 import { randomId } from '../../shared/id';
-import { resolveWorkspacePath } from '../fs-safe';
+import { atomicWriteFile, resolveWorkspacePath } from '../fs-safe';
 import type {
   ApplyPatchInput,
   ApplyPatchResult,
@@ -14,7 +15,7 @@ import type {
   RunTaskResult,
 } from '../../shared/work-os';
 import type { WorkspaceSummary } from '../../shared/workspace';
-import { getCurrentWorkspace } from '../workspace';
+import { getActiveWorkspaceId, getCurrentWorkspace } from '../workspace';
 import { getSettingsSync } from '../settings';
 import { runGit } from '../git';
 import { runDiagnostics } from '../diagnostics/runner';
@@ -28,7 +29,18 @@ import {
 import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
 import { runChildAgent } from './subagent-runtime';
+import { loadWorkspaceInstructions } from './instructions';
 import type { ToolContext } from './tools/types';
+
+/**
+ * Mint an unpredictable single-segment name for a Work-OS temp directory under
+ * `os.tmpdir()`. Uses crypto randomness (not {@link randomId}'s Math.random) so a
+ * local attacker sharing the tmpdir can't pre-create / symlink the path we're
+ * about to write into.
+ */
+function tmpSegment(prefix: string): string {
+  return `${prefix}-${randomBytes(12).toString('hex')}`;
+}
 
 /**
  * Run ONE Work-OS task as a real agent (docs/ai-work-os-roadmap.md §5 — the
@@ -261,16 +273,24 @@ export async function runTask(raw: unknown): Promise<RunTaskResult> {
   };
 }
 
-function implementPrompt(input: RunTaskInput): string {
+/**
+ * The implement child's seed prompt. `instructions` is the workspace's folded
+ * AGENTS.md/CLAUDE.md conventions ('' when none) — the same repo conventions the
+ * PARENT chat loop folds in, so the child making the real edits respects "TS
+ * strict / colors via tokens.css / no any / …" instead of being blind to them.
+ * Already framed + bounded by {@link loadWorkspaceInstructions}, so it appends as-is.
+ */
+export function implementPrompt(input: RunTaskInput, instructions: string): string {
   const goal = input.goal.trim() ? `\n\nOverall goal: ${input.goal.trim()}` : '';
   const criteria =
     input.acceptance.length > 0
       ? `\n\nAcceptance criteria — satisfy each:\n${input.acceptance.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
       : '';
-  return `You are implementing ONE task in a larger plan. You are working in an ISOLATED git worktree (a throwaway copy of the repo) — make the real edits this task needs with edit_file / multi_edit. Nothing you change touches the user's live files: the diff is captured for the user to review and apply deliberately. Read a file before you edit it; keep the change minimal and focused on THIS task only. When done, briefly summarize what you changed and why.
+  const conventions = instructions.trim() ? `\n\n${instructions.trim()}` : '';
+  return `You are implementing ONE task in a larger plan. You are working in an ISOLATED git worktree (a throwaway copy of the repo) — make the real edits this task needs with edit_file / multi_edit. Nothing you change touches the user's live files: the diff is captured for the user to review and apply deliberately. Read a file before you edit it; keep the change minimal and focused on THIS task only. Your changes WILL be type-checked in this worktree after you finish — make sure the files you touch still compile/lint cleanly before you stop. When done, briefly summarize what you changed and why.
 
 Task: ${input.title.trim() || '(untitled)'}
-Intent: ${input.intent.trim() || '(none given)'}${goal}${criteria}`;
+Intent: ${input.intent.trim() || '(none given)'}${goal}${criteria}${conventions}`;
 }
 
 /**
@@ -302,7 +322,7 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
   const branch = agentBranchName();
   // A fresh, unique parent per run so two concurrent implements never collide on
   // the worktree directory (the branch name is timestamp-based, also unique).
-  const worktreePath = path.join(os.tmpdir(), 'marudesk-workos', `${randomId('wt')}`, 'tree');
+  const worktreePath = path.join(os.tmpdir(), 'marudesk-workos', tmpSegment('wt'), 'tree');
   try {
     await createWorktree(ws.root, worktreePath, branch);
   } catch (err) {
@@ -326,12 +346,16 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
       model: target.model,
       denyGlobs: getSettingsSync().agent.denyGlobs,
     };
+    const deadline = Date.now() + RUN_TIMEOUT_MS;
     const timer = setTimeout(() => ac.abort(), RUN_TIMEOUT_MS);
-    let out: Awaited<ReturnType<typeof runChildAgent>>;
-    try {
-      out = await runChildAgent(
+    // One implement turn against the worktree. The verify→fix turn re-runs against
+    // the SAME worktree — the child's prior edits are already on disk there, so a
+    // fresh turn reads the (already-edited) files and fixes the remaining errors;
+    // no transcript-resume plumbing is needed for correctness.
+    const runImplementTurn = (task: string): Promise<Awaited<ReturnType<typeof runChildAgent>>> =>
+      runChildAgent(
         {
-          task: implementPrompt(input),
+          task,
           label: input.title.trim() || 'Task',
           provider: target.provider,
           model: target.model,
@@ -344,18 +368,60 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
         undefined,
         { write: true },
       );
+    // Re-stage the worktree and return the current changed-file list. Returns
+    // `null` when staging itself FAILED (a transient `git add -A`/`git status`
+    // throw) — distinct from a successful pass that found zero changes ([]). The
+    // verify loop must never read a staging failure as "nothing changed → clean",
+    // which would falsely report worktreeVerified:true (audit: honesty).
+    const restage = async (): Promise<string[] | null> => {
+      try {
+        await runGit(worktreePath, ['add', '-A']);
+        return (await worktreeChanges(worktreePath)).files;
+      } catch {
+        return null;
+      }
+    };
+
+    // Fold the repo's own conventions (AGENTS.md/CLAUDE.md) into the implement
+    // seed so the child's edits respect them — the parent chat loop already does
+    // this; the child making the real edits should too. Read from the WORKTREE
+    // root (a faithful copy of the repo, so the instruction files are present
+    // there) and best-effort: a missing/unreadable file just yields ''.
+    const instructions = await loadWorkspaceInstructions({ root: worktreePath }).catch(() => '');
+
+    let out: Awaited<ReturnType<typeof runChildAgent>>;
+    let worktreeVerified: boolean | undefined;
+    let verifyNote: string | undefined;
+    let changedFiles: string[] = [];
+    try {
+      out = await runImplementTurn(implementPrompt(input, instructions));
+      const staged = await restage();
+
+      // In-worktree pre-flight (audit #1): type-check the changed files in the
+      // throwaway worktree and, if errors remain on them, run one bounded fix turn
+      // seeded with the exact diagnostics — so a type error no longer ships into
+      // the diff unverified. The apply-time verifyChangedFiles stays the binding
+      // gate; this is the earlier, advisory signal. The probe legs carry the run's
+      // ac.signal so they abort at the run deadline instead of self-bounding past
+      // it. The loop returns its final changedFiles, so we don't re-stage again.
+      const outcome = await runVerifyFixLoop({
+        root: worktreePath,
+        changedFiles: staged,
+        runDiag: (r) => runDiagnostics(r, ac.signal),
+        restage,
+        runFixTurn: async (seed) => {
+          await runImplementTurn(seed);
+        },
+        remainingMs: () => deadline - Date.now(),
+      });
+      changedFiles = outcome.changedFiles;
+      worktreeVerified = outcome.verified;
+      verifyNote = outcome.verifyNote;
     } finally {
       clearTimeout(timer);
     }
 
     let patch = '';
-    let changedFiles: string[] = [];
-    try {
-      await runGit(worktreePath, ['add', '-A']);
-      changedFiles = (await worktreeChanges(worktreePath)).files;
-    } catch {
-      // staging/status failed — leave changedFiles empty
-    }
     if (changedFiles.length > 0) {
       try {
         patch = (await runGit(worktreePath, ['diff', '--cached'])).stdout;
@@ -370,6 +436,8 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
       result: clipText(out.text, MAX_RESULT_CHARS),
       patch: clipText(patch, MAX_PATCH_CHARS),
       changedFiles,
+      ...(worktreeVerified !== undefined ? { worktreeVerified } : {}),
+      ...(verifyNote ? { verifyNote } : {}),
     };
   } finally {
     // Always discard — the live workspace stays untouched whatever happened.
@@ -387,7 +455,18 @@ function parseApplyPatchInput(raw: unknown): ApplyPatchInput | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.taskId !== 'string' || typeof r.patch !== 'string') return null;
-  return { taskId: r.taskId, patch: r.patch };
+  // workspaceId is optional. An OMITTED key = unbound task → undefined → legacy
+  // active-workspace behavior. But when the key is PRESENT it must be a string
+  // (the authoritative target the renderer resolved from the task's thread): a
+  // present-but-malformed value (number/null/object) is a caller error, NOT an
+  // unbound task, so reject it rather than silently coercing to undefined — that
+  // coercion would bypass the cross-workspace DATA-INTEGRITY guard below.
+  let workspaceId: string | undefined;
+  if ('workspaceId' in r) {
+    if (typeof r.workspaceId !== 'string') return null;
+    workspaceId = r.workspaceId;
+  }
+  return { taskId: r.taskId, patch: r.patch, workspaceId };
 }
 
 const normalizeRel = (p: string): string => p.replace(/\\/g, '/').replace(/^\.\//, '').trim();
@@ -406,19 +485,134 @@ async function verifyChangedFiles(
   changedFiles: string[],
 ): Promise<'pass' | 'fail' | null> {
   if (changedFiles.length === 0) return null;
+  const probe = await probeChangedFiles((r) => runDiagnostics(r), root, changedFiles);
+  if (probe === null) return null;
+  return probe.errors.length > 0 ? 'fail' : 'pass';
+}
+
+/**
+ * The error diagnostics landing on `changedFiles` after running the workspace's
+ * own checker over `root`, or `null` when no applicable checker ran (so we can't
+ * honestly judge). Shared by {@link verifyChangedFiles} (apply-time verdict) and
+ * the in-worktree verify→fix loop ({@link runVerifyFixLoop}), so the two never
+ * drift on what counts as an error on a changed file. `runDiag` is injected so a
+ * harness can stub the checker without a real provider/toolchain.
+ */
+export async function probeChangedFiles(
+  runDiag: (root: string) => Promise<Pick<Awaited<ReturnType<typeof runDiagnostics>>, 'lastRun'>>,
+  root: string,
+  changedFiles: string[],
+): Promise<{ errors: { file: string; message: string }[] } | null> {
   let lastRun: Awaited<ReturnType<typeof runDiagnostics>>['lastRun'];
   try {
-    ({ lastRun } = await runDiagnostics(root));
+    ({ lastRun } = await runDiag(root));
   } catch {
     return null;
   }
   // No applicable checker ran (exitCode stays null) → we can't honestly judge.
   if (!lastRun || lastRun.exitCode === null) return null;
   const changed = new Set(changedFiles.map(normalizeRel));
-  const errored = lastRun.diagnostics.some(
-    (d) => d.severity === 'error' && changed.has(normalizeRel(d.file)),
-  );
-  return errored ? 'fail' : 'pass';
+  const errors = lastRun.diagnostics
+    .filter((d) => d.severity === 'error' && changed.has(normalizeRel(d.file)))
+    .map((d) => ({ file: normalizeRel(d.file), message: d.message }));
+  return { errors };
+}
+
+/** Hard cap on in-worktree fix turns after the first implement pass (audit #1). */
+const MAX_VERIFY_FIX = 1;
+/** Don't start another fix turn unless this much of the run budget remains. */
+const VERIFY_FIX_MIN_REMAINING_MS = 30_000;
+
+/** A short, deterministic note describing the in-worktree verification outcome. */
+export function verifyNoteFor(verified: boolean | undefined, errorCount: number): string {
+  if (verified === undefined) return 'no checker applied — left unverified';
+  if (verified) return 'verified: no errors on changed files';
+  return `${errorCount} error${errorCount === 1 ? '' : 's'} remain on changed files`;
+}
+
+export type VerifyFixOutcome = {
+  /** undefined = no checker applied OR staging failed; true = clean; false = errors remain. */
+  verified: boolean | undefined;
+  verifyNote: string;
+  /** Errors still present after the loop (empty when verified true / undefined). */
+  remainingErrors: { file: string; message: string }[];
+  /**
+   * The final staged changed-file list after the loop (so the caller need not
+   * re-stage). Empty when staging failed or nothing changed — pair with
+   * `verified` to tell the two apart (a staging failure is verified:undefined).
+   */
+  changedFiles: string[];
+};
+
+/**
+ * After the first implement pass, type-check the worktree over the changed files
+ * and — if errors remain on them — run up to {@link MAX_VERIFY_FIX} bounded extra
+ * implement turns seeded with the EXACT diagnostics, re-staging + re-probing
+ * between turns. Honest: never fakes green — when errors survive the cap it
+ * returns `verified:false` with the remaining count (the apply-time
+ * {@link verifyChangedFiles} stays the binding gate). All collaborators are
+ * injected so the harness can drive the loop without a provider:
+ *  - `runDiag` runs the checker (stub: a scripted diagnostics sequence),
+ *  - `restage` re-stages and returns the current changed-file list, or `null` when
+ *    staging itself failed (which we map to verified:undefined, NEVER true),
+ *  - `runFixTurn` runs one more implement turn given the seed text,
+ *  - `remainingMs` reports the run-budget time left (so we don't blow the timeout).
+ *
+ * `changedFiles` is the initial staged list (or `null` when the first stage after
+ * the implement turn failed). The outcome carries the FINAL staged list so the
+ * caller reuses it instead of re-staging again.
+ */
+export async function runVerifyFixLoop(deps: {
+  root: string;
+  changedFiles: string[] | null;
+  runDiag: (root: string) => Promise<Pick<Awaited<ReturnType<typeof runDiagnostics>>, 'lastRun'>>;
+  restage: () => Promise<string[] | null>;
+  runFixTurn: (seed: string) => Promise<void>;
+  remainingMs: () => number;
+}): Promise<VerifyFixOutcome> {
+  // Staging FAILED before the loop even started — we can't tell what changed, so
+  // we can't honestly verify. NEVER report this as clean (audit: honesty).
+  if (deps.changedFiles === null) {
+    return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [], changedFiles: [] };
+  }
+  let changedFiles = deps.changedFiles;
+  let probe = await probeChangedFiles(deps.runDiag, deps.root, changedFiles);
+  // No checker applies (or nothing changed) → honestly unverified, no fix turns.
+  if (probe === null || changedFiles.length === 0) {
+    return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [], changedFiles };
+  }
+  for (let attempt = 0; attempt < MAX_VERIFY_FIX && probe.errors.length > 0; attempt += 1) {
+    if (deps.remainingMs() < VERIFY_FIX_MIN_REMAINING_MS) break; // respect RUN_TIMEOUT_MS
+    const seed = `Your changes still have type/lint errors in the worktree — fix them before finishing. These errors remain on files you changed:\n${probe.errors
+      .map((e) => `- ${e.file}: ${e.message}`)
+      .join('\n')}`;
+    await deps.runFixTurn(seed);
+    const restaged = await deps.restage();
+    if (restaged === null) {
+      // Re-staging failed mid-loop — we can no longer trust the change set, so we
+      // can't honestly verify. Stop unverified (never faked green).
+      return {
+        verified: undefined,
+        verifyNote: verifyNoteFor(undefined, 0),
+        remainingErrors: [],
+        changedFiles,
+      };
+    }
+    changedFiles = restaged;
+    const next = await probeChangedFiles(deps.runDiag, deps.root, changedFiles);
+    if (next === null) {
+      // The checker stopped applying mid-loop (unexpected) — stop honestly unverified.
+      return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [], changedFiles };
+    }
+    probe = next;
+  }
+  const verified = probe.errors.length === 0;
+  return {
+    verified,
+    verifyNote: verifyNoteFor(verified, probe.errors.length),
+    remainingErrors: probe.errors,
+    changedFiles,
+  };
 }
 
 /**
@@ -436,6 +630,20 @@ export async function applyTaskPatch(raw: unknown): Promise<ApplyPatchResult> {
     return { ok: false, reason: 'The diff is too large to apply.' };
   }
 
+  // Authoritative cross-workspace guard (DATA INTEGRITY): the write below resolves
+  // the repo from the ACTIVE workspace, so a task bound to a *different* workspace
+  // would land its diff in the wrong repo. When the caller supplied the task's
+  // target workspaceId and it doesn't match the active workspace, REJECT before
+  // writing anything. A CLI/bridge caller can't rely on the renderer's pre-check,
+  // so this lives in main. Omitted workspaceId = unbound task (targets active) →
+  // current behavior preserved, nothing regresses.
+  if (input.workspaceId !== undefined && input.workspaceId !== getActiveWorkspaceId()) {
+    return {
+      ok: false,
+      reason: "Switch to the task's workspace before applying this patch.",
+    };
+  }
+
   const ws = getCurrentWorkspace();
   if (!ws) return { ok: false, reason: 'Open a workspace folder first.' };
   if (!(await isGitRepo(ws.root))) {
@@ -444,13 +652,14 @@ export async function applyTaskPatch(raw: unknown): Promise<ApplyPatchResult> {
 
   // `git apply` reads the diff from a file; it wants a trailing newline on the
   // final hunk line or it reports a corrupt patch.
-  const dir = path.join(os.tmpdir(), 'marudesk-workos', randomId('apply'));
+  const dir = path.join(os.tmpdir(), 'marudesk-workos', tmpSegment('apply'));
   const patchFile = path.join(dir, 'task.diff');
   await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.writeFile(
+  // Exclusive-create write so a pre-planted symlink at the (now crypto-random,
+  // but still defended-in-depth) patch path can't redirect this write.
+  await atomicWriteFile(
     patchFile,
     input.patch.endsWith('\n') ? input.patch : `${input.patch}\n`,
-    'utf8',
   );
   try {
     // Dry-run first: if the live tree drifted since Implement ran the patch won't

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
 import type { AgentMessage } from '../../../../shared/agent';
 import { textOf } from './format';
+import { ensureTranscriptMessageMounted } from './useStickyTranscriptScroll';
 
 /**
  * Floating transcript navigator (Ctrl/Cmd+F or the composer's search toggle).
@@ -21,6 +22,9 @@ export function TranscriptSearch({
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
+  // The input stays instant; this debounced copy drives the (potentially heavy)
+  // match scan so typing on a long transcript doesn't re-scan on every keystroke.
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   // -1 = "no jump yet": the first step lands on the most recent match.
   const [active, setActive] = useState(-1);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -30,13 +34,25 @@ export function TranscriptSearch({
     return () => cancelAnimationFrame(id);
   }, []);
 
+  useEffect(() => {
+    const id: ReturnType<typeof setTimeout> = setTimeout(() => setDebouncedQuery(query), 120);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  // Cache each message's lowercased text so a keystroke runs includes() over
+  // precomputed strings instead of re-deriving textOf for the whole transcript.
+  const textIndex = useMemo(
+    () => messages.map((m) => ({ id: m.id, role: m.role, text: textOf(m).toLowerCase() })),
+    [messages],
+  );
+
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     if (!q) {
-      return messages.filter((m) => m.role === 'user' && textOf(m).trim()).map((m) => m.id);
+      return textIndex.filter((m) => m.role === 'user' && m.text.trim()).map((m) => m.id);
     }
-    return messages.filter((m) => textOf(m).toLowerCase().includes(q)).map((m) => m.id);
-  }, [messages, query]);
+    return textIndex.filter((m) => m.text.includes(q)).map((m) => m.id);
+  }, [textIndex, debouncedQuery]);
 
   const index =
     matches.length === 0 ? -1 : active < 0 ? matches.length - 1 : Math.min(active, matches.length - 1);
@@ -45,14 +61,20 @@ export function TranscriptSearch({
     const id = matches[i];
     if (id === undefined) return;
     setActive(i);
-    const el = document.getElementById(`agent-msg-${id}`);
-    if (!el) return;
-    el.scrollIntoView({ block: 'center' });
-    // Restart the flash even when re-jumping to the same message.
-    el.classList.remove('msg-flash');
-    void el.offsetWidth;
-    el.classList.add('msg-flash');
-    window.setTimeout(() => el.classList.remove('msg-flash'), 1300);
+    // The transcript only mounts a trailing window of rows (bounded scrollback),
+    // so a target older than the cap may not be in the DOM yet. Ask Transcript to
+    // reveal it first; the callback re-renders the wider window and runs us back
+    // on the next frame, after which getElementById is guaranteed to resolve.
+    ensureTranscriptMessageMounted(id, () => {
+      const el = document.getElementById(`agent-msg-${id}`);
+      if (!el) return;
+      el.scrollIntoView({ block: 'center' });
+      // Restart the flash even when re-jumping to the same message.
+      el.classList.remove('msg-flash');
+      void el.offsetWidth;
+      el.classList.add('msg-flash');
+      window.setTimeout(() => el.classList.remove('msg-flash'), 1300);
+    });
   };
 
   const older = () => jump(active < 0 ? matches.length - 1 : Math.max(0, index - 1));

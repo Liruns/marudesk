@@ -1,4 +1,5 @@
 import { MODELS, type ProviderId } from '../../../shared/providers';
+import { captureWithRetry } from '../../browser/capture-retry.ts';
 import { getActiveTabId, getTab, type TabRecord } from '../../browser/state';
 import type { ToolContext, ToolResult } from './types';
 
@@ -60,8 +61,15 @@ export async function screenshot(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   const rec = resolveCaptureTab(input.tabId, ctx);
-  const image = await rec.view!.webContents.capturePage();
-  if (image.isEmpty()) {
+  const view = rec.view;
+  if (!view) {
+    throw new Error('tab has no live view (use list_tabs to see web tabs)');
+  }
+  const image = await captureWithRetry({
+    capture: () => view.webContents.capturePage(),
+    isEmpty: (img) => img.isEmpty(),
+  });
+  if (!image) {
     return {
       summary: 'screenshot failed',
       text: 'capture produced an empty image — the tab may be hidden or still loading; activate it (activate_tab) and retry',

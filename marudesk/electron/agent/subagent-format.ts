@@ -1,20 +1,24 @@
 import { scrubText } from '../../shared/scrub';
 import type { ToolContext, ToolResult } from './tools/types';
+import { SAFETY_FOOTER } from './prompts';
 import { MAX_CHILD_RESULT_CHARS, type SubagentRunRequest } from './subagent-types';
 
 export const SUBAGENT_SYSTEM = `You are a marudesk child agent spawned by the parent AI Chat agent.
 
 Work only on the delegated task. Be concise, evidence-driven, and return a final report the parent can use.
 
-You may inspect the workspace and live app with read-only tools. You cannot edit files, run gated browser/PC actions, ask the user, or spawn another subagent. If the task requires those actions, explain exactly what the parent should do next.`;
+You may inspect the workspace and live app with read-only tools, and research the public web with web_search and fetch_url. You cannot edit files, control the page or the user's computer, ask the user, or spawn another subagent. If the task requires those actions, explain exactly what the parent should do next.
+
+${SAFETY_FOOTER}`;
 
 export function childPrompt(request: SubagentRunRequest, ctx: ToolContext): string {
   const workspace = ctx.ws
     ? `Workspace: ${ctx.ws.name} (${ctx.ws.files.length} indexed files).`
     : 'Workspace: none open; file tools are unavailable.';
   const tab = ctx.tabId ? `Active web tab id: ${ctx.tabId}.` : 'Active web tab: none.';
+  const web = 'Web research: available via web_search and fetch_url.';
   const role = request.agent ? `Role: ${request.agent.name} — ${request.agent.description}\n` : '';
-  return `${workspace}\n${tab}\n${role}\nDelegated task:\n${request.task}\n\nReturn a compact final report for the parent agent.`;
+  return `${workspace}\n${tab}\n${web}\n${role}\nDelegated task:\n${request.task}\n\nReturn a compact final report for the parent agent.`;
 }
 
 export function subagentSuccess(

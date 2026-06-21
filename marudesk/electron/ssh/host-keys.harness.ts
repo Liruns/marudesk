@@ -45,6 +45,41 @@ async function main(): Promise<void> {
     check('fingerprint is OpenSSH-style SHA256:base64', /^SHA256:[A-Za-z0-9+/]+$/.test(fpA));
     check('host key id is host:port', hostKeyId(host, port) === 'devbox.example.com:2222');
 
+    // ── id normalization: one host can never be pinned under two spellings ──
+    check(
+      'host case is normalized (Example.com ≡ example.com)',
+      hostKeyId('Example.com', 22) === hostKeyId('example.com', 22),
+    );
+    check('normalized host id lowercases', hostKeyId('Example.COM', 22) === 'example.com:22');
+    check(
+      'bracketed vs unbracketed IPv6 collapse to one id',
+      hostKeyId('[::1]', 22) === hostKeyId('::1', 22),
+    );
+    check(
+      'bracketed and unbracketed forms of the same IPv6 expansion collapse to one id',
+      hostKeyId('[0:0:0:0:0:0:0:1]', 22) === hostKeyId('0:0:0:0:0:0:0:1', 22),
+    );
+    check('IPv6 case is normalized', hostKeyId('[FE80::1]', 22) === hostKeyId('fe80::1', 22));
+    check('IPv6 id keeps the bracket form', hostKeyId('::1', 22) === '[::1]:22');
+    check('distinct hosts stay distinct', hostKeyId('a.example.com', 22) !== hostKeyId('b.example.com', 22));
+    check('distinct ports stay distinct', hostKeyId('example.com', 22) !== hostKeyId('example.com', 2222));
+    check('distinct IPv6 addresses stay distinct', hostKeyId('::1', 22) !== hostKeyId('::2', 22));
+
+    // ── a pin written under one spelling is found under another ──────────────
+    await pinHostKey(file, {
+      host: '[2001:DB8::1]',
+      port: 22,
+      algorithm: 'ssh-ed25519',
+      fingerprintSha256: sha256Fingerprint(keyA),
+      pinnedAt: 1_750_000_000_001,
+    });
+    const aliasLookup = await getPinnedHostKey(file, '2001:db8::1', 22);
+    check(
+      'pin written under one spelling is found under an alternate spelling',
+      aliasLookup?.fingerprintSha256 === sha256Fingerprint(keyA),
+    );
+    check('cleanup the alias pin', (await clearPinnedHostKey(file, '[2001:db8::1]', 22)) === true);
+
     // ── first sight: nothing pinned → accept + signal pin ───────────────
     const first = evaluateHostKey(undefined, host, port, keyA);
     check('first sight is accepted', first.ok);

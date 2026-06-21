@@ -34,7 +34,7 @@ export function WindowControls() {
 
   return (
     <div
-      className="flex items-stretch h-full no-drag"
+      className="flex items-stretch h-full no-drag shrink-0"
       role="group"
       aria-label={t('windowControls.group')}
     >

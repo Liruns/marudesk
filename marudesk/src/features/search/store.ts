@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SearchOptions, SearchResult } from '../../../shared/search';
+import type { WorkspaceId } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
 
 /**
@@ -30,7 +31,12 @@ type SearchActions = {
   setQuery: (q: string) => void;
   toggleOption: (key: SearchToggleKey) => void;
   setFilter: (key: SearchFilterKey, value: string) => void;
-  run: (query: string) => Promise<void>;
+  /**
+   * Run the search. A bound `workspaceId` scopes both this result list AND
+   * (via SearchPanel's WorkspaceFileRef) the opened files to that workspace's
+   * active root; omitted searches the global active workspace, unchanged.
+   */
+  run: (query: string, workspaceId?: WorkspaceId) => Promise<void>;
   clear: () => void;
   requestFocus: () => void;
 };
@@ -60,7 +66,7 @@ export const useSearchStore = create<SearchState & SearchActions>((set, get) => 
   setFilter: (key, value) =>
     set((s) => ({ options: { ...s.options, [key]: value } })),
 
-  run: async (query) => {
+  run: async (query, workspaceId) => {
     const q = query.trim();
     if (q === '') {
       set({ result: null, loading: false, error: null });
@@ -71,7 +77,11 @@ export const useSearchStore = create<SearchState & SearchActions>((set, get) => 
     try {
       const result = await window.marudesk.invoke('search:content', {
         query: q,
-        opts: get().options,
+        // Thread the bound workspace (when given) so main scopes results to its
+        // root; omitting it leaves the active-workspace opts byte-for-byte.
+        opts: workspaceId === undefined
+          ? get().options
+          : { ...get().options, workspaceId },
       });
       // Drop a stale response (a newer search started while this awaited).
       if (get().runId !== runId) return;

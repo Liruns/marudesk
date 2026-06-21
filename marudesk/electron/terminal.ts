@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getSettings } from './settings';
+import { stripSensitiveEnv } from './proc-env';
 import { defineHandler } from './ipc/define-handler';
 import { getCompanionConnection, startCompanion } from './cli-bridge/companion';
 import { toMessage } from '../shared/to-message';
@@ -78,12 +79,13 @@ const MAX_ERRORS_PER_TERMINAL = 10;
 // the LAST thing a command printed still fires without waiting for more output.
 const ERROR_FLUSH_QUIET_MS = 300;
 
-// Strip secret-shaped vars so a user command (`env`, `Get-ChildItem Env:`) and
-// any subprocess can't read them. The shell still inherits PATH/HOME/etc. — a
-// real terminal needs those — so this is inherit-minus-secrets, not an empty
-// env. (Provider keys live in the OS keychain via safeStorage, not process.env;
-// this is defense-in-depth in case that ever changes.)
-const SENSITIVE_ENV = /(_API_KEY|_TOKEN|_SECRET|_PASSWORD|^ANTHROPIC_)/i;
+// Secret-shaped env stripping (SENSITIVE_ENV / stripSensitiveEnv) is the shared
+// posture in electron/proc-env.ts — imported above so the integrated terminal,
+// the agent's run_command, and the diagnostics runner all strip the same names.
+// The shell still inherits PATH/HOME/etc. — a real terminal needs those — so
+// this is inherit-minus-secrets, not an empty env. (Provider keys live in the OS
+// keychain via safeStorage, not process.env; this is defense-in-depth in case
+// that ever changes.)
 
 function clampDim(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
@@ -251,11 +253,7 @@ function resolveCwd(root: string | null): string {
 }
 
 export function inheritedEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === 'string' && !SENSITIVE_ENV.test(k)) env[k] = v;
-  }
-  return env;
+  return stripSensitiveEnv();
 }
 
 /**

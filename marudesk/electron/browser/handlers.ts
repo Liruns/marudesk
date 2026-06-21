@@ -5,6 +5,7 @@ import {
   type BrowserWindow,
 } from 'electron';
 import { defineHandler } from '../ipc/define-handler';
+import { captureWithRetry } from './capture-retry.ts';
 import { parseNativeMenuItem, parseTabSpec, toBounds } from './handler-parse.ts';
 import { arrayOf, bool, num, obj, str } from '../ipc/validate';
 import { toMessage } from '../../shared/to-message';
@@ -12,6 +13,7 @@ import {
   findTabByWebContentsId,
   getActive,
   getErrors,
+  getPaneBounds,
   getTab,
   pushState,
   setOccluderRect,
@@ -41,6 +43,7 @@ import { registerBookmarkHandlers } from './bookmarks';
 import { goBackTab, goForwardTab, navigateActive, navigateTab, reloadTab } from './navigation';
 import { popupNativeMenu } from './native-menu';
 import type { DownloadAction } from '../../shared/downloads';
+import { coerceElementCapture } from '../../shared/capture';
 import {
   activateTab,
   closeTab,
@@ -69,6 +72,18 @@ import { isTabGroupColor, type TabGroupColor } from '../../shared/browser';
  * fire-and-forget renderer→main messages from the inspect-preload, so they stay
  * raw `ipcMain.on` listeners.
  */
+
+/**
+ * Host-side capture id source. The `inspect:capture` payload comes from a fully
+ * untrusted page, so we never trust its `id` — we stamp a fresh one from this
+ * monotonic counter (no Date.now()/Math.random() needed; uniqueness within a
+ * session is all addCapture requires).
+ */
+let captureSeq = 0;
+function nextCaptureId(): string {
+  captureSeq += 1;
+  return `cap-${captureSeq}`;
+}
 
 /** Validate an untrusted pixel rect (rejects non-finite values). */
 export function registerBrowserHandlers(deps: {
@@ -238,8 +253,12 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:capture-page', async () => {
     const active = getActive();
     if (!active || !active.view) return false;
-    const image = await active.view.webContents.capturePage();
-    if (image.isEmpty()) return false;
+    const view = active.view;
+    const image = await captureWithRetry({
+      capture: () => view.webContents.capturePage(),
+      isEmpty: (img) => img.isEmpty(),
+    });
+    if (!image) return false;
     clipboard.writeImage(image);
     return true;
   });
@@ -247,8 +266,12 @@ export function registerBrowserHandlers(deps: {
   defineHandler('browser:capture-page-data', async () => {
     const active = getActive();
     if (!active || !active.view) return null;
-    const image = await active.view.webContents.capturePage();
-    if (image.isEmpty()) return null;
+    const view = active.view;
+    const image = await captureWithRetry({
+      capture: () => view.webContents.capturePage(),
+      isEmpty: (img) => img.isEmpty(),
+    });
+    if (!image) return null;
     return { dataUrl: image.toDataURL() };
   });
 
@@ -498,8 +521,15 @@ export function registerBrowserHandlers(deps: {
 
   ipcMain.on('inspect:capture', (event, payload: unknown) => {
     const rec = findTabByWebContentsId(event.sender.id);
-    if (!rec) return;
-    deps.getMainWindow()?.webContents.send('browser:capture', payload);
+    // Only a tab the user actively put into inspect mode may report a capture —
+    // a background page must not be able to inject forged agent context.
+    if (!rec || !rec.inspectOn) return;
+    // The page payload is fully untrusted: validate + normalize to a typed
+    // ElementCapture (bounded fields, fresh host-minted id) and drop anything
+    // that isn't well-formed, rather than forwarding the raw blob verbatim.
+    const capture = coerceElementCapture(payload, nextCaptureId);
+    if (!capture) return;
+    deps.getMainWindow()?.webContents.send('browser:capture', capture);
   });
 
   // A Ctrl/Cmd+wheel a canvas web card's preload captured (it alone sees the wheel
@@ -508,7 +538,12 @@ export function registerBrowserHandlers(deps: {
   // view, so it never fires for the classic shell.
   ipcMain.on('canvas:web-wheel', (event, payload: unknown) => {
     const rec = findTabByWebContentsId(event.sender.id);
-    if (!rec) return;
+    // Only honor a wheel delta while the canvas actually owns this tab's view
+    // (pane mode → the tab is a member of the pane-bounds map). Outside pane
+    // mode (e.g. Mission Control / the classic shell) a page can't spoof a
+    // canvas-zoom delta. The preload only sends this in pane mode anyway, so
+    // this is a defense-in-depth gate on otherwise-dead-in-MC input.
+    if (!rec || !getPaneBounds()?.has(rec.id)) return;
     const deltaY = (payload as { deltaY?: unknown })?.deltaY;
     deps.getMainWindow()?.webContents.send('canvas:wheel', {
       tabId: rec.id,
@@ -524,9 +559,11 @@ export function registerBrowserHandlers(deps: {
   });
 
   // Floating stage toolbar (§3.2) asked to start the picker from in-page.
+  // Gate on the sender being the ACTIVE tab so a background page can't flip the
+  // active tab into element-pick mode (setInspectMode always targets getActive).
   ipcMain.on('inspect:start', (event) => {
     const rec = findTabByWebContentsId(event.sender.id);
-    if (!rec || !rec.view) return;
+    if (!rec || !rec.view || rec !== getActive()) return;
     void setInspectMode(true);
   });
 }

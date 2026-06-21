@@ -277,6 +277,7 @@ export const CHANNELS = {
     'plugins:set-enabled',
     'plugins:install-folder',
     'plugins:commands',
+    'plugins:logs',
     'plugins:open-folder',
     'plugins:remove',
   ],

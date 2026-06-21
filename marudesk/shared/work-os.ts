@@ -103,6 +103,19 @@ export type TaskEvidence = {
    * applying. Present only after an "implement" run.
    */
   patch?: string;
+  /**
+   * Advisory in-worktree pre-flight result (round-34): mirrors
+   * {@link ImplementTaskResult.worktreeVerified}. `true` = the worktree's own
+   * checker ran over the changed files and found NO errors; `false` = error(s)
+   * remained after the bounded fix loop; `undefined` = no applicable checker so
+   * it stays HONESTLY unverified. Surfaced ONLY as an advisory note — a green
+   * "verified in worktree" affordance shows ONLY for `true`; `undefined`/`false`
+   * must never read as verified (the binding gate is still the apply-time
+   * {@link ApplyPatchResult.verdict}). Session state — never persisted.
+   */
+  worktreeVerified?: boolean;
+  /** Short human note describing the worktree verification outcome (data, not derived). */
+  verifyNote?: string;
 };
 
 export type Task = {
@@ -180,11 +193,34 @@ export type ImplementTaskResult =
       patch: string;
       /** Paths the agent changed in the worktree. */
       changedFiles: string[];
+      /**
+       * Whether the worktree's own checker (run_diagnostics / typecheck) ran over
+       * the changed files and found NO errors — an in-worktree pre-flight done
+       * BEFORE the diff is surfaced, so a type error no longer ships into the diff
+       * unverified. `true` = clean, `false` = error(s) remain (after the bounded
+       * fix loop), `undefined` = no applicable checker so it stays honestly
+       * unverified. Additive/optional: the binding gate is still the apply-time
+       * {@link ApplyPatchResult.verdict}; this is the earlier, advisory signal.
+       */
+      worktreeVerified?: boolean;
+      /** Short human note describing the worktree verification outcome. */
+      verifyNote?: string;
     }
   | { ok: false; reason: string };
 
 /** Input to apply a task's reviewed worktree diff to the LIVE workspace. */
-export type ApplyPatchInput = { taskId: TaskId; patch: string };
+/**
+ * `workspaceId` (a `WorkspaceId` from shared/workspace.ts, kept as a plain string
+ * here to preserve this module's zero-imports invariant) is the OPTIONAL
+ * authoritative target a patch belongs to. The renderer resolves it from the
+ * task's conversation thread and passes it so main can REJECT the apply when the
+ * focused (active) workspace differs — a task bound to workspace B must never be
+ * written into workspace A's repo (`git apply --check` only catches context drift,
+ * not new-file / coincident-context hunks landing in the wrong repo). Omitted = an
+ * unbound task, which targets the active workspace by definition, so the legacy
+ * active-workspace behavior is preserved unchanged.
+ */
+export type ApplyPatchInput = { taskId: TaskId; patch: string; workspaceId?: string };
 
 /**
  * Result of applying a task's patch to the live workspace. `ok:false` carries a
@@ -219,6 +255,58 @@ export function isEdgeType(v: unknown): v is EdgeType {
 /** A status the scheduler treats as "finished" (won't run / re-run). */
 export function isTerminalStatus(s: TaskStatus): boolean {
   return s === 'done' || s === 'failed';
+}
+
+/**
+ * Keywords the apply-time STATIC checker (run_diagnostics / typecheck / lint /
+ * build over the changed files) can actually speak to. Kept deliberately
+ * conservative — only terms that unambiguously name the checker's own domain.
+ * Single source of truth for {@link criterionVerifiableByChecker}.
+ */
+const CHECKER_VERIFIABLE_KEYWORDS: readonly string[] = [
+  'typecheck',
+  'type-check',
+  'type check',
+  'tsc',
+  'type error',
+  'type errors',
+  'lint',
+  'eslint',
+  'build',
+  'builds',
+  'compile',
+  'compiles',
+  'compilation',
+];
+
+/**
+ * Word-boundary matchers for {@link CHECKER_VERIFIABLE_KEYWORDS}. Boundaries
+ * (not raw substring) so 'building'/'rebuild'/'flint' don't match 'build'/'lint'.
+ * NOTE: a bare 'no errors' keyword is deliberately NOT included — it's ambiguous
+ * (runtime/UI "no errors" vs checker "no errors"), so a criterion must NAME the
+ * checker's domain (typecheck/lint/build/compile) to be stamped; "no type errors"
+ * still matches via 'type errors'.
+ */
+const CHECKER_VERIFIABLE_PATTERNS: readonly RegExp[] = CHECKER_VERIFIABLE_KEYWORDS.map(
+  (kw) => new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`),
+);
+
+/**
+ * Whether an acceptance criterion's text clearly refers to the apply-time STATIC
+ * checker's domain (typecheck / lint / build / compile) — the ONLY signal the
+ * checker (verifyChangedFiles in run-task.ts) actually proves. The checker runs
+ * tsc/eslint over the changed files; it cannot observe behavioral outcomes like
+ * "endpoint returns 200" or "no console errors at runtime", so those criteria
+ * must NOT be stamped from its verdict.
+ *
+ * False-negative-biased ON PURPOSE: when the text doesn't obviously name the
+ * checker's domain, this returns `false`, so the criterion stays its existing
+ * verdict ('unknown' by default) — honestly unverified beats a fabricated pass.
+ * Pure + total so the same predicate gates both store stamping and tests.
+ */
+export function criterionVerifiableByChecker(text: string): boolean {
+  const lower = text.toLowerCase();
+  return CHECKER_VERIFIABLE_PATTERNS.some((re) => re.test(lower));
 }
 
 /* ── pure scheduler (dependency order + parallelism) ────────────────────────

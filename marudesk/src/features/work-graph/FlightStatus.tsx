@@ -1,4 +1,5 @@
 import { Spinner } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
 import { useWorkGraphStore } from './store';
 
 /**
@@ -7,6 +8,7 @@ import { useWorkGraphStore } from './store';
  * nothing until a graph exists, so legacy surfaces keep a clean drag region.
  */
 export function FlightStatus() {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const running = useWorkGraphStore((s) => s.running);
   if (!graph) return null;
@@ -17,13 +19,15 @@ export function FlightStatus() {
     <div className="flex min-w-0 items-center gap-2 text-caption tabular-nums text-fg-tertiary">
       <span aria-hidden className="size-1.5 shrink-0 rounded-pill bg-accent" />
       <span className="truncate max-w-[min(48vw,420px)] text-fg-secondary" title={graph.goal}>
-        {graph.goal || 'Untitled flight'}
+        {graph.goal || t('flightStatus.untitled')}
       </span>
-      {running ? <Spinner size={11} label="Running" /> : null}
+      {running ? <Spinner size={11} label={t('flightStatus.running')} /> : null}
       <span className="shrink-0">
-        {done}/{total} done
+        {t('flightStatus.progress').replace('{done}', String(done)).replace('{total}', String(total))}
       </span>
-      {failed > 0 ? <span className="shrink-0 text-error">{failed} failed</span> : null}
+      {failed > 0 ? (
+        <span className="shrink-0 text-error">{t('flightStatus.failed').replace('{failed}', String(failed))}</span>
+      ) : null}
     </div>
   );
 }

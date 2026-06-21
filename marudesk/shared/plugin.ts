@@ -238,3 +238,118 @@ export function isSafePanelPath(rel: unknown): rel is string {
     !rel.split('/').includes('..')
   );
 }
+
+/* ── Author-facing API (plugin DX) ──────────────────────────────────────────── *
+ *
+ * The types below are what a PLUGIN AUTHOR codes against — the `ctx` object their
+ * `activate(ctx)` receives, plus the tool/command shapes they register. They are
+ * NOT consumed by the runtime (the worker builds `ctx` dynamically and validates at
+ * call time); they exist purely so an author gets autocomplete + typecheck. They are
+ * DERIVED FROM the transport contracts above (PluginToolContribution /
+ * PluginSlashContribution / PluginExecResult / PluginPermission) so the author
+ * surface can't drift from what the host/worker actually accept.
+ *
+ * Each member mirrors the real `ctx` built by `electron/plugins/worker.ts`
+ * (`makeContext`); the host-side guards live in `electron/plugins/permissions.ts`.
+ * Permissions in parentheses are the manifest grant a member requires.
+ *
+ * Usage from a CommonJS plugin (no build step needed):
+ *
+ *   /** @type {import('marudesk/shared/plugin').PluginModule} *\/
+ *   module.exports = {
+ *     activate(ctx) { ctx.registerTool({ ... }); },
+ *   };
+ */
+
+/** What a tool handler returns: a plain string, or `{ text }`. The host clips, */
+/** scrubs, and frames it as untrusted data before the model sees it. */
+export type PluginToolHandlerResult = string | { text: string };
+
+/**
+ * A tool an author registers via `ctx.registerTool`. Extends the transport-safe
+ * {@link PluginToolContribution} (name/description/inputSchema — what the host
+ * advertises to the model) with the `handler` that runs in the worker on each call.
+ * `input` arrives as the model's JSON arguments (validate it yourself — it is
+ * `unknown`, matching the worker's runtime check). Requires the `tools` permission.
+ */
+export type PluginTool = PluginToolContribution & {
+  handler(input: unknown): PluginToolHandlerResult | Promise<PluginToolHandlerResult>;
+};
+
+/**
+ * A slash command an author registers via `ctx.registerSlashCommand`. This is
+ * exactly the transport-safe {@link PluginSlashContribution} — a prompt TEMPLATE,
+ * never a closure (the renderer substitutes `$ARGUMENTS` with the trailing text).
+ * `description` is required on the contribution but the worker defaults a missing
+ * one to `''`, so authors may omit it. Requires the `commands` permission.
+ */
+export type PluginSlashCommand = Omit<PluginSlashContribution, 'description'> & {
+  description?: string;
+};
+
+/**
+ * The capability bridge `ctx` exposes to plugin code, mirroring `makeContext` in
+ * `electron/plugins/worker.ts`. Calls a permission gates throw if the grant is
+ * absent; the `fs`/`http`/`exec`/`setStatus` members are additionally only callable
+ * from inside a running tool handler (they need the originating call's workspace).
+ * Every signature here matches the real worker bridge — keep them in sync if the
+ * worker changes.
+ */
+export type PluginContext = {
+  /** Register an agent tool. Activate-time only. Requires `tools`. */
+  registerTool(def: PluginTool): void;
+  /** Register a slash command (prompt template). Activate-time only. Requires `commands`. */
+  registerSlashCommand(def: PluginSlashCommand): void;
+  /** Guarded, workspace-scoped filesystem access (host re-checks every path). */
+  fs: {
+    /** Read a workspace-relative text file as UTF-8 (capped). Requires `fs:read`. */
+    read(relPath: string): Promise<string>;
+    /** List a workspace-relative directory; dir entries end in `/`. Requires `fs:read`. */
+    list(relPath: string): Promise<string[]>;
+    /**
+     * Write/overwrite a workspace-relative text file through the agent's atomic
+     * patch apply, so the change appears in the chat diff/revert history (and an
+     * identical write is a no-op). Honors the agent's never-edit globs.
+     * Requires `fs:write`.
+     */
+    write(relPath: string, data: string): Promise<void>;
+  };
+  http: {
+    /**
+     * Host-mediated outbound GET. Only http(s), only hosts in the manifest's
+     * `net.allow`, SSRF/DNS-rebinding guarded, redirects NOT followed, body capped.
+     * Returns the status and (truncated) text. Requires `net`.
+     */
+    fetch(url: string): Promise<{ status: number; text: string }>;
+  };
+  /**
+   * Run a workspace CLI (linter/formatter/build) through the host — the same
+   * guarded spawn as the built-in run_command tool (workspace cwd, secret-shaped
+   * env stripped, output bounded, time-boxed). The worker can never spawn a process
+   * itself. `timeoutMs` is clamped to [1s, 600s] (default 120s). Requires `cmd`.
+   */
+  exec(command: string, opts?: { timeoutMs?: number }): Promise<PluginExecResult>;
+  /**
+   * Push a keyed status/progress line for a long-running op (display only, no grant
+   * required, handler-scoped). An empty `text` clears the key.
+   */
+  setStatus(statusKey: string, text: string): void;
+  /** Append a line to the plugin's in-app debug log (info level). No grant required. */
+  log(...args: unknown[]): void;
+};
+
+/** Info passed to the optional conversation-lifecycle handlers. */
+export type PluginSessionInfo = { sessionId: string };
+
+/**
+ * The shape of a plugin's entry module (CommonJS `module.exports`). Only
+ * `activate(ctx)` is required; the rest are optional lifecycle hooks. `activate`
+ * runs once at load — register tools/commands there. The optional
+ * `onSessionStart`/`onSessionEnd` let a stateful plugin reset per-conversation
+ * state WITHOUT being torn down (distinct from process shutdown).
+ */
+export type PluginModule = {
+  activate(ctx: PluginContext): void | Promise<void>;
+  onSessionStart?(info: PluginSessionInfo): void | Promise<void>;
+  onSessionEnd?(info: PluginSessionInfo): void | Promise<void>;
+};

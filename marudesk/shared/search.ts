@@ -5,6 +5,8 @@
  * sanitized shapes that cross IPC.
  */
 
+import type { WorkspaceId } from './workspace';
+
 /** Search options from the Search panel toggles + glob filters. */
 export type SearchOptions = {
   /** Case-sensitive match (default false → case-insensitive). */
@@ -22,6 +24,14 @@ export type SearchOptions = {
   includes: string;
   /** Comma/newline separated globs to exclude (VSCode "files to exclude"). */
   excludes: string;
+  /**
+   * Scope the search to THIS workspace's active root instead of the global
+   * active workspace. Set by a Search instrument bound to a non-active
+   * workspace so the listed results and the opened file refs resolve against
+   * the same root. Omitted (the legacy rail / coincident active case) searches
+   * the active workspace, unchanged.
+   */
+  workspaceId?: WorkspaceId;
 };
 
 /** A match span within a preview line, as 0-based char offsets [start, end). */

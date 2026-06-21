@@ -145,13 +145,13 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span
                         className={cn(
-                          'truncate text-[0.8125rem] leading-snug',
+                          'truncate text-body-sm leading-snug',
                           isActive ? 'text-fg-primary font-medium' : 'text-fg-secondary',
                         )}
                       >
                         {s.title || t('agent.sessions.untitled')}
                       </span>
-                      <span className="truncate text-[0.6875rem] leading-none text-fg-tertiary/70 tabular-nums">
+                      <span className="truncate text-micro leading-none text-fg-tertiary/70 tabular-nums">
                         {relativeTime(s.updatedAt, t)}
                         <span className="mx-1 opacity-50">·</span>
                         {s.messageCount}
@@ -160,7 +160,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                           : t('agent.sessions.messagePlural')}
                       </span>
                       {s.snippet ? (
-                        <span className="line-clamp-2 text-[0.6875rem] leading-snug text-fg-tertiary">
+                        <span className="line-clamp-2 text-micro leading-snug text-fg-tertiary">
                           <Snippet text={s.snippet} />
                         </span>
                       ) : null}

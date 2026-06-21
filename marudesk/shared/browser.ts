@@ -46,7 +46,7 @@ export type NavState = {
  * (`isTabKind`) / title table (`FEATURE_TITLES`) all derive from this single
  * list and can't drift: add a kind here and it widens everywhere at once.
  */
-export const FEATURE_KINDS = ['home', 'terminal', 'editor', 'settings', 'agent', 'plugin', 'devtools'] as const;
+export const FEATURE_KINDS = ['home', 'terminal', 'editor', 'settings', 'agent', 'plugin', 'devtools', 'files', 'search', 'sourceControl'] as const;
 
 /** A non-web tab kind (one of {@link FEATURE_KINDS}). */
 export type FeatureKind = (typeof FEATURE_KINDS)[number];

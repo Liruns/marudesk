@@ -3,6 +3,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { launchApp } from './helpers/app';
+import { openInstrumentFromTask, runCommand, seedGraph } from './helpers/mission-control';
+
+/**
+ * The Monaco editor survives the Mission Control redesign as a full-area
+ * instrument: a fresh untitled buffer is summoned from the ⌘K command palette
+ * ("New Editor"), and a file resource is summoned from a task's Resource chip in
+ * the Instrument Dock. The (removed) Home launcher "Code editor" card / tab strip
+ * are gone, so these reach the same EditorView surface through the new entry
+ * points. "← Graph" returns home.
+ */
 
 const PNG_1X1 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
@@ -10,9 +20,14 @@ const PNG_1X1 =
 test('editor: new untitled file opens dirty in Monaco', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: 'Code editor' }).click();
-    // Untitled tab is titled Untitled-1 and reads dirty from creation.
-    await expect(page.getByRole('tab', { name: /Untitled-1/ })).toBeVisible();
+    // "New Editor" summons an untitled Monaco buffer as the full-area instrument.
+    await runCommand(page, 'New Editor');
+    // The instrument's editor header reads the untitled name (Untitled-1) and the
+    // buffer is dirty from creation (no saved baseline → "Unsaved").
+    await expect(page.getByRole('button', { name: 'Graph' })).toBeVisible();
+    // `exact` so this targets the editor's own filename header, not the new
+    // InstrumentStage identity span ("· Untitled-1") which also contains the name.
+    await expect(page.getByText('Untitled-1', { exact: true })).toBeVisible();
     await expect(page.locator('.monaco-editor')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Unsaved')).toBeVisible();
   } finally {
@@ -27,17 +42,27 @@ test('editor: image files open as a preview', async () => {
 
   const { app, page } = await launchApp();
   try {
-    await page.evaluate(
-      async ({ root, rel }) => {
-        const summary = await window.marudesk.invoke('workspace:list', root);
-        if (!summary) throw new Error('workspace did not open');
-        await window.marudesk.invoke('browser:tabs-new', {
-          kind: 'editor',
-          path: rel,
-        });
-      },
-      { root, rel },
+    // Seed a task whose only output is the image, exposed as a Resource chip.
+    await seedGraph(page, {
+      tasks: [
+        {
+          id: 't1',
+          title: 'Render a pixel',
+          outputs: [{ id: 'r1', kind: 'code', uri: `file:///${rel}`, label: 'image' }],
+        },
+      ],
+    });
+    // Make `root` the active workspace so the editor read resolves `pixel.png`
+    // against it (the Resource opener strips file:/// to the relative path).
+    const summary = await page.evaluate(
+      (r) => window.marudesk.invoke('workspace:list', r),
+      root,
     );
+    if (!summary) throw new Error('workspace did not open');
+
+    // Summoning the image Resource opens it as an editor instrument that renders
+    // the image preview (not Monaco). The preview's alt is the bound file path.
+    await openInstrumentFromTask(page, 't1', 'image');
 
     const preview = page.getByRole('img', { name: rel });
     await expect(preview).toBeVisible();

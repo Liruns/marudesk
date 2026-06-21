@@ -9,6 +9,7 @@ import type {
   AgentAnswers,
   AgentChatState,
   AgentEditActionResult,
+  AgentNewThreadInput,
   AgentSendInput,
   AgentSendResult,
   AgentToolInfo,
@@ -232,7 +233,11 @@ export interface IpcMap {
     result: string | null;
   };
   'browser:tabs-close': { args: [id: string]; result: boolean };
-  'browser:tabs-reopen': { args: []; result: boolean };
+  // Reopen the most recently closed tab. Returns the reopened tab's id + kind so
+  // a Mission Control caller can host it as the full-area instrument (the reopened
+  // tab is otherwise unhosted — a web view paints over the graph with no chrome,
+  // an editor is invisible). null when the closed-tab stack is empty.
+  'browser:tabs-reopen': { args: []; result: { id: string; kind: TabKind } | null };
   'browser:tabs-activate': { args: [id: string]; result: boolean };
   'browser:tabs-snapshot': { args: []; result: TabsSnapshot };
   'browser:tabs-reorder': { args: [ids: string[]]; result: boolean };
@@ -809,7 +814,7 @@ export interface IpcMap {
   'agent:delete-session': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: boolean };
   // threads (Stage 12-B-2 — concurrent conversation switching)
   'agent:list-threads': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
-  'agent:new-thread': { args: [payload?: { workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
+  'agent:new-thread': { args: [payload?: AgentNewThreadInput]; result: ThreadSummary[] };
   'agent:switch-thread': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
   'agent:close-thread': { args: [payload: { id: string; workspaceId?: WorkspaceId }]; result: ThreadSummary[] };
 
@@ -874,12 +879,14 @@ export interface IpcMap {
   };
   'mcp:open-config': { args: []; result: { path: string } };
   // Whether the chrome-devtools (browser-control) preset is wired to marudesk's
-  // embedded Chromium, and whether the remote-debugging port we attach to was opened
-  // this launch. `required && !portOpen` → the user just enabled it and must restart
-  // for it to drive the embedded browser (see electron/agent/embedded-browser.ts).
+  // embedded Chromium (`required`), whether the user opted into opening the
+  // unauthenticated CDP port (`allowed`, default OFF), and whether that remote-debugging
+  // port was actually opened this launch (`portOpen`). The port opens only when BOTH
+  // required && allowed held at boot; `required && allowed && !portOpen` → just enabled,
+  // must restart (see electron/agent/embedded-browser.ts).
   'mcp:embedded-browser-status': {
     args: [];
-    result: { portOpen: boolean; required: boolean };
+    result: { portOpen: boolean; required: boolean; allowed: boolean };
   };
 
   // plugins — Settings → Plugins + composer slash commands. set-enabled returns
@@ -892,6 +899,9 @@ export interface IpcMap {
   };
   'plugins:install-folder': { args: []; result: PluginStatus[] };
   'plugins:commands': { args: []; result: PluginCommandSnapshot[] };
+  // Recent (scrubbed) log lines + errors for one plugin — the Settings card's
+  // collapsible "Logs" view (bounded ring kept in the host).
+  'plugins:logs': { args: [payload: { id: string }]; result: readonly string[] };
   'plugins:open-folder': { args: []; result: { path: string } };
   'plugins:remove': {
     args: [payload: { id: string }];

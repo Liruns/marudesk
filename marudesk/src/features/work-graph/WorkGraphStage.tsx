@@ -11,6 +11,7 @@ import { WorkGraphNodes, WorkGraphPanel, NODE_H, NODE_W } from './WorkGraphLayer
 import { WorkGraphInspector } from './WorkGraphInspector';
 import { useWorkGraphStore } from './store';
 import { ZoomSlider } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 
 /**
@@ -32,8 +33,16 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 type Viewport = { panX: number; panY: number; scale: number };
 
 export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement | null>(null);
   const [vp, setVp] = useState<Viewport>({ panX: 0, panY: 0, scale: 1 });
+  // Latest viewport mirrored into a ref so the per-node callbacks (`toCanvas`,
+  // `getScale`) can read the live pan/zoom WITHOUT closing over `vp` — keeping
+  // their identity stable across a pan frame. The transform itself still reads
+  // `vp` from state, so the STAGE re-renders to move the plane while the
+  // memoized TaskNodeCards do not. (`vpRef` is updated synchronously in every
+  // setVp call below so a reader never sees a stale frame.)
+  const vpRef = useRef<Viewport>(vp);
   const [animCam, setAnimCam] = useState(false);
   const graph = useWorkGraphStore((s) => s.graph);
   // The floating inspector overlay (w-80 at right-4) covers the lower-right — shift
@@ -43,46 +52,71 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
   const selectedOpen = useWorkGraphStore((s) => s.selectedTaskId !== null);
   const inspectorOpen = !docked && selectedOpen;
 
-  const setVpAnimated = useCallback((next: Viewport) => {
-    setAnimCam(true);
-    setVp(next);
-    requestAnimationFrame(() => setTimeout(() => setAnimCam(false), 220));
+  // Single entry point for viewport changes: mirror into `vpRef` (so the stable
+  // callbacks read the live value) and into React state (so the plane re-renders).
+  // Accepts either a Viewport or a functional updater, matching setVp's contract.
+  const commitVp = useCallback((next: Viewport | ((v: Viewport) => Viewport)) => {
+    setVp((v) => {
+      const resolved = typeof next === 'function' ? next(v) : next;
+      vpRef.current = resolved;
+      return resolved;
+    });
   }, []);
 
-  // Screen px → graph coords (inverse of the plane's translate+scale).
-  const toCanvas = useCallback(
-    (clientX: number, clientY: number) => {
-      const r = ref.current?.getBoundingClientRect();
-      const left = r?.left ?? 0;
-      const top = r?.top ?? 0;
-      return { x: (clientX - left - vp.panX) / vp.scale, y: (clientY - top - vp.panY) / vp.scale };
+  const setVpAnimated = useCallback(
+    (next: Viewport) => {
+      setAnimCam(true);
+      commitVp(next);
+      requestAnimationFrame(() => setTimeout(() => setAnimCam(false), 220));
     },
-    [vp.panX, vp.panY, vp.scale],
+    [commitVp],
   );
 
-  // Zoom by `factor`, keeping the container-relative point (cx,cy) fixed.
-  const zoomAt = useCallback((factor: number, cx: number, cy: number) => {
-    setVp((v) => {
-      const scale = clamp(v.scale * factor, SCALE_MIN, SCALE_MAX);
-      const k = scale / v.scale;
-      return { scale, panX: cx - (cx - v.panX) * k, panY: cy - (cy - v.panY) * k };
-    });
+  // Screen px → graph coords (inverse of the plane's translate+scale). Reads the
+  // live viewport from `vpRef` so the callback identity is STABLE across pans —
+  // it no longer closes over `vp.panX/panY/scale`, so TaskNodeCard's memo holds.
+  const toCanvas = useCallback((clientX: number, clientY: number) => {
+    const r = ref.current?.getBoundingClientRect();
+    const left = r?.left ?? 0;
+    const top = r?.top ?? 0;
+    const v = vpRef.current;
+    return { x: (clientX - left - v.panX) / v.scale, y: (clientY - top - v.panY) / v.scale };
   }, []);
 
-  const zoomFromCenter = useCallback((factor: number) => {
-    const r = ref.current?.getBoundingClientRect();
-    const cx = (r?.width ?? 0) / 2;
-    const cy = (r?.height ?? 0) / 2;
-    // Functional update reads the latest viewport (no stale closure, no ref-in-render),
-    // with the camera-transition flag for a smooth move.
-    setAnimCam(true);
-    setVp((v) => {
-      const scale = clamp(v.scale * factor, SCALE_MIN, SCALE_MAX);
-      const k = scale / v.scale;
-      return { scale, panX: cx - (cx - v.panX) * k, panY: cy - (cy - v.panY) * k };
-    });
-    requestAnimationFrame(() => setTimeout(() => setAnimCam(false), 220));
-  }, []);
+  // Stable getter for the live zoom — passed to nodes instead of a `scale` prop
+  // so node drag math (onHeaderMove) reads the current scale without re-rendering
+  // every node on zoom. Identity never changes.
+  const getScale = useCallback(() => vpRef.current.scale, []);
+
+  // Zoom by `factor`, keeping the container-relative point (cx,cy) fixed.
+  const zoomAt = useCallback(
+    (factor: number, cx: number, cy: number) => {
+      commitVp((v) => {
+        const scale = clamp(v.scale * factor, SCALE_MIN, SCALE_MAX);
+        const k = scale / v.scale;
+        return { scale, panX: cx - (cx - v.panX) * k, panY: cy - (cy - v.panY) * k };
+      });
+    },
+    [commitVp],
+  );
+
+  const zoomFromCenter = useCallback(
+    (factor: number) => {
+      const r = ref.current?.getBoundingClientRect();
+      const cx = (r?.width ?? 0) / 2;
+      const cy = (r?.height ?? 0) / 2;
+      // Functional update reads the latest viewport (no stale closure, no ref-in-render),
+      // with the camera-transition flag for a smooth move.
+      setAnimCam(true);
+      commitVp((v) => {
+        const scale = clamp(v.scale * factor, SCALE_MIN, SCALE_MAX);
+        const k = scale / v.scale;
+        return { scale, panX: cx - (cx - v.panX) * k, panY: cy - (cy - v.panY) * k };
+      });
+      requestAnimationFrame(() => setTimeout(() => setAnimCam(false), 220));
+    },
+    [commitVp],
+  );
 
   // Fit every node within the viewport, with padding.
   const fit = useCallback(() => {
@@ -136,12 +170,12 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
         const r = el.getBoundingClientRect();
         zoomAt(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top);
       } else {
-        setVp((v) => ({ ...v, panX: v.panX - e.deltaX, panY: v.panY - e.deltaY }));
+        commitVp((v) => ({ ...v, panX: v.panX - e.deltaX, panY: v.panY - e.deltaY }));
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [zoomAt]);
+  }, [zoomAt, commitVp]);
 
   // Drag the empty background to pan (nodes stopPropagation, so this only fires
   // on the canvas itself).
@@ -150,13 +184,13 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
     if (e.button !== 0) return;
     useWorkGraphStore.getState().selectTask(null);
     e.currentTarget.setPointerCapture(e.pointerId);
-    panRef.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, px: vp.panX, py: vp.panY };
+    panRef.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, px: vpRef.current.panX, py: vpRef.current.panY };
     if (ref.current) ref.current.dataset.panning = '';
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const p = panRef.current;
     if (!p || p.id !== e.pointerId) return;
-    setVp((v) => ({ ...v, panX: p.px + (e.clientX - p.sx), panY: p.py + (e.clientY - p.sy) }));
+    commitVp((v) => ({ ...v, panX: p.px + (e.clientX - p.sx), panY: p.py + (e.clientY - p.sy) }));
   };
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (panRef.current?.id === e.pointerId) {
@@ -169,7 +203,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
     <div
       ref={ref}
       data-stage="workgraph"
-      aria-label="Work OS task graph"
+      aria-label={t('workGraph.stage.ariaLabel')}
       tabIndex={-1}
       className="relative h-full w-full flex-1 min-w-0 overflow-clip bg-surface-page cursor-grab data-[panning]:cursor-grabbing"
       style={{
@@ -187,7 +221,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
         className={cn('absolute inset-0 origin-top-left', animCam && 'motion-safe:transition-transform motion-safe:duration-standard')}
         style={{ transform: `translate(${vp.panX}px, ${vp.panY}px) scale(${vp.scale})` }}
       >
-        <WorkGraphNodes toCanvas={toCanvas} scale={vp.scale} />
+        <WorkGraphNodes toCanvas={toCanvas} getScale={getScale} />
       </div>
 
       {/* Goal input + run/add/reset controls (always present on this surface). */}
@@ -201,11 +235,11 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center animate-fade-rise">
             <Workflow size={24} className="text-fg-tertiary" />
-            <p className="text-body font-medium text-fg-primary">Describe a goal to generate a task graph.</p>
+            <p className="text-body font-medium text-fg-primary">{t('workGraph.stage.emptyTitle')}</p>
             <p className="text-caption text-fg-tertiary">
-              Each node runs an agent and checks its own acceptance criteria.
+              {t('workGraph.stage.emptyBody')}
             </p>
-            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">Drag the dot at the bottom of a node to link tasks.</p>
+            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">{t('workGraph.stage.linkHint')}</p>
           </div>
         </div>
       ) : null}
@@ -217,7 +251,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
           inspectorOpen ? 'right-[344px]' : 'right-4',
         )}
       >
-        <CtrlButton label="Zoom out" onClick={() => zoomFromCenter(1 / 1.2)}>
+        <CtrlButton label={t('canvas.control.zoomOut')} onClick={() => zoomFromCenter(1 / 1.2)}>
           <Minus size={14} />
         </CtrlButton>
         {/* Zoom slider — drags the scale directly; zooms about the viewport center
@@ -232,7 +266,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
             const r = ref.current?.getBoundingClientRect();
             const cx = (r?.width ?? 0) / 2;
             const cy = (r?.height ?? 0) / 2;
-            setVp((v) => {
+            commitVp((v) => {
               const k = next / v.scale;
               return { scale: next, panX: cx - (cx - v.panX) * k, panY: cy - (cy - v.panY) * k };
             });
@@ -242,19 +276,19 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
         <button
           type="button"
           className="h-7 min-w-[3.25rem] px-1 text-center text-caption tabular-nums text-fg-secondary hover:text-fg-primary transition-colors duration-fast active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
-          onClick={() => setVpAnimated({ ...vp, scale: 1 })}
-          title="Reset zoom to 100%"
+          onClick={() => setVpAnimated({ ...vpRef.current, scale: 1 })}
+          title={t('canvas.control.resetZoom')}
         >
           {Math.round(vp.scale * 100)}%
         </button>
-        <CtrlButton label="Zoom in" onClick={() => zoomFromCenter(1.2)}>
+        <CtrlButton label={t('canvas.control.zoomIn')} onClick={() => zoomFromCenter(1.2)}>
           <Plus size={14} />
         </CtrlButton>
         <div className="mx-1 w-px self-stretch border-l border-default" />
-        <CtrlButton label="Fit to content" onClick={fit}>
+        <CtrlButton label={t('canvas.control.fit')} onClick={fit}>
           <Maximize2 size={14} />
         </CtrlButton>
-        <CtrlButton label="Reset view" onClick={() => setVpAnimated({ panX: 0, panY: 0, scale: 1 })}>
+        <CtrlButton label={t('canvas.control.resetView')} onClick={() => setVpAnimated({ panX: 0, panY: 0, scale: 1 })}>
           <RotateCcw size={14} />
         </CtrlButton>
       </div>

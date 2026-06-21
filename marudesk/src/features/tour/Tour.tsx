@@ -107,7 +107,7 @@ export function Tour() {
           <div className="absolute bg-black/55" style={{ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height }} />
           <div className="absolute bg-black/55" style={{ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height }} />
           <div
-            className="absolute rounded-md ring-2 ring-accent pointer-events-none"
+            className="absolute rounded-md ring-2 ring-accent pointer-events-none transition-all duration-150"
             style={{ top: hole.top, left: hole.left, width: hole.width, height: hole.height }}
           />
         </>
@@ -118,7 +118,7 @@ export function Tour() {
       <div
         role="dialog"
         aria-label={t(step.title)}
-        className="absolute flex flex-col gap-3 rounded-lg border border-default bg-surface-1 p-3 shadow-lifted"
+        className="absolute flex flex-col gap-3 rounded-lg border border-default bg-surface-1 p-3 shadow-lifted animate-scale-in transition-all duration-150"
         style={{ width: TIP_W, ...tipPosition(hole) }}
       >
         <div className="flex flex-col gap-1">

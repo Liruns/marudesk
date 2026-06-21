@@ -1,16 +1,18 @@
 import { test, expect, type Page } from '@playwright/test';
 import { launchApp } from './helpers/app';
+import { runCommand } from './helpers/mission-control';
 
 /**
  * Settings → AI Providers UX: the "Get a key" deep links (catalog `apiKeyUrl`)
  * and the custom-endpoint quick-setup presets. External links open via the main
  * window's window-open handler (target="_blank" → safe-open), so here we assert
- * the href/target are wired — not that a browser actually launches.
+ * the href/target are wired — not that a browser actually launches. Settings is
+ * summoned as an instrument from the ⌘K command palette (Mission Control has no
+ * tab strip / activity bar).
  */
 
 async function openProviders(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await runCommand(page, 'Open Settings');
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await page.getByRole('button', { name: 'AI Providers' }).click();
   await expect(page.getByRole('heading', { name: 'AI Providers' })).toBeVisible();

@@ -67,6 +67,12 @@ export type ThreadContainer = {
   // the monitor is inert once it reaches 0 so normal long tool-only stretches in
   // a healthy session never trip it. See the degradation monitor in loop.ts.
   postCompactionMonitorRemaining: number;
+  // The active recovery/loop nudge the model has not yet acted on, carried as a
+  // compaction-PROTECTED note so a mid-turn preemptive compaction can't summarize
+  // it away inside a prunable tool-result before the model sees it. Refreshed by
+  // the loop as the failure/loop signal changes; cleared the moment behavior
+  // recovers. compactConversation re-stamps it onto the rebuilt transcript.
+  persistentNudge: string | null;
 };
 
 function makeThreadContainer(workspaceId: WorkspaceId | null = null): ThreadContainer {
@@ -89,6 +95,7 @@ function makeThreadContainer(workspaceId: WorkspaceId | null = null): ThreadCont
     lastCompactionAt: 0,
     postCompactionEmptyStreak: 0,
     postCompactionMonitorRemaining: 0,
+    persistentNudge: null,
   };
 }
 

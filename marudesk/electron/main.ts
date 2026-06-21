@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, session } from 'electron';
 // Redirect userData to the active profile BEFORE any persistence module loads.
 import './profile-init';
 import { persistActiveProfile, profileDir, registerProfileHandlers } from './profile-store';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { maybeOpenEmbeddedDebugPort } from './agent/embedded-browser';
 import {
@@ -16,7 +16,7 @@ import {
   resetWorkspaceRegistryForProfile,
   restoreWorkspaces,
 } from './workspace';
-import { setWorkspaceProvider } from './ipc/define-handler';
+import { setTrustedEntryUrl, setWorkspaceProvider } from './ipc/define-handler';
 import { registerWorkspaceMutateHandlers } from './workspace-mutate';
 import { registerSshHandlers } from './ssh/handlers';
 import { registerGitHandlers } from './git';
@@ -71,6 +71,7 @@ import { closeSplash, showSplash } from './splash';
 import { registerUiLayoutHandlers } from './ui-layout';
 import { registerWorkOsHandlers } from './agent/decompose';
 import { openExternalUrl } from './safe-open';
+import { isAllowedHostNavigation } from './host-navigation';
 import { startCompanion, stopCompanion } from './cli-bridge/companion';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -278,6 +279,21 @@ async function createMainWindow(): Promise<BrowserWindow> {
     },
   });
 
+  // The EXACT URL this window loads — the single trusted host document. In dev
+  // it's the Vite server URL; in prod it's the packaged index.html resolved to a
+  // `file://` URL. `will-navigate` pins to this exact entry (not the bare
+  // `file://` scheme), so the privileged renderer can't navigate to arbitrary
+  // local HTML on disk. `pathToFileURL` normalizes separators/encoding so the
+  // entry matches what Chromium reports for `will-navigate`.
+  const prodEntryFile = path.join(__dirname, '../dist/index.html');
+  const entryUrl = rendererDevUrl ?? pathToFileURL(prodEntryFile).href;
+
+  // Authenticate every privileged `invoke` against this exact entry: only the
+  // host renderer's top frame (which loads `entryUrl`) may reach defineHandler's
+  // handlers. Set before the window loads, so the sender check is armed by the
+  // time any renderer can call IPC. Same value the `will-navigate` guard pins to.
+  setTrustedEntryUrl(entryUrl);
+
   // Push maximize/unmaximize state so the renderer can swap the icon.
   const pushMaximizeState = (): void => {
     if (win.isDestroyed()) return;
@@ -329,8 +345,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   win.webContents.on('will-navigate', (event, url) => {
-    const localPrefix = rendererDevUrl ?? 'file://';
-    if (!url.startsWith(localPrefix)) {
+    // Allow ONLY navigations that stay on the exact entry document (same
+    // origin + pathname; hash/query may differ for client-side routing).
+    // Anything else — a different local file, an http(s) URL, a custom scheme
+    // — is blocked and handed to the external-URL opener (which itself only
+    // accepts safe schemes), so the privileged host renderer can't escape its
+    // single-document boundary.
+    if (!isAllowedHostNavigation(url, entryUrl)) {
       event.preventDefault();
       void openExternalUrl(url);
     }
@@ -382,7 +403,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       await win.loadURL(rendererDevUrl);
       win.webContents.openDevTools({ mode: 'detach' });
     } else {
-      await win.loadFile(path.join(__dirname, '../dist/index.html'));
+      await win.loadFile(prodEntryFile);
     }
   } catch (err) {
     // A failed load must still surface a window (blank beats invisible) — the
@@ -417,19 +438,57 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return win;
 }
 
-// Open Chromium's remote-debugging endpoint (loopback only) so chrome-devtools-mcp
-// can attach to marudesk's embedded browser tabs instead of launching a separate
-// local Chrome. Boot-only (the switch has no runtime API) and gated on the
-// browser-control preset being enabled — see electron/agent/embedded-browser.ts.
-maybeOpenEmbeddedDebugPort();
+// Single-instance lock: two processes on the SAME per-profile userData would be
+// two SQLite/WAL writers and two loopback CLI companions on the same cli-bridge
+// port — a corruption hazard made realistic by the NSIS installer and the
+// auto-update relaunch. The first process holds the lock; any later launch fails
+// requestSingleInstanceLock(), hands its argv to the running process via the
+// `second-instance` event (below), and quits immediately.
+//
+// E2E SAFETY: Playwright launches the app with MARUDESK_DISABLE_TRAY=1 (see
+// e2e/helpers/app.ts) and a distinct/throwaway --user-data-dir per launch. The
+// lock is keyed on userData, so distinct dirs never collide; but the persistence
+// spec reuses one userData across SEQUENTIAL launches, and to keep parallel runs
+// bulletproof we simply skip the lock under that existing test gate — the same
+// flag main.ts already uses to opt out of close-to-tray. Production (no flag)
+// always takes the lock.
+//
+// Decide whether THIS process owns the per-profile userData before doing any
+// boot work: hold it when the test flag is set OR when the lock is acquired. A
+// losing second instance does NO setup (no scheme registration, no whenReady)
+// and quits, redirecting its launch to the running process via `second-instance`.
+const ownsInstance = process.env.MARUDESK_DISABLE_TRAY
+  ? true
+  : app.requestSingleInstanceLock();
+if (!ownsInstance) {
+  // A first instance is already running on this userData. Quit cleanly; the
+  // running process gets a `second-instance` event and focuses its window.
+  app.quit();
+} else {
+  if (!process.env.MARUDESK_DISABLE_TRAY) {
+    app.on('second-instance', () => {
+      // A second launch was redirected here — surface the existing window via
+      // the same restore/show path the tray uses instead of spawning anew.
+      trayHost.showMainWindow();
+    });
+  }
+  startApp();
+}
 
-// Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
-// sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
-registerPluginScheme();
-// Mark the maru:// internal-page scheme privileged too (new-tab + error pages).
-registerInternalPagesScheme();
+function startApp(): void {
+  // Open Chromium's remote-debugging endpoint (loopback only) so chrome-devtools-mcp
+  // can attach to marudesk's embedded browser tabs instead of launching a separate
+  // local Chrome. Boot-only (the switch has no runtime API) and gated on the
+  // browser-control preset being enabled — see electron/agent/embedded-browser.ts.
+  maybeOpenEmbeddedDebugPort();
 
-void app.whenReady().then(() => {
+  // Mark the plugin:// scheme privileged (standard + secure) before app-ready so a
+  // sandboxed panel <iframe> can load it as its own origin (docs/plugin-runtime §8.5).
+  registerPluginScheme();
+  // Mark the maru:// internal-page scheme privileged too (new-tab + error pages).
+  registerInternalPagesScheme();
+
+  void app.whenReady().then(() => {
   // Drop Electron's DEFAULT application menu on Windows/Linux. The window is
   // frameless (no visible menu bar) but the default menu's accelerators stay
   // live — most damagingly its Close Window (Ctrl+W), which closes the whole
@@ -524,7 +583,8 @@ void app.whenReady().then(() => {
       void createMainWindow();
     }
   });
-});
+  });
+}
 
 app.on('window-all-closed', () => {
   disposeAllTerminals();

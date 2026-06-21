@@ -8,7 +8,8 @@ import { pruneStaleToolOutputsInHead } from './compaction-utils.ts';
  * (요약 전)").
  *
  * Pure + dependency-free: `compaction-utils.ts` imports only `type ModelMessage`
- * (stripped at runtime), so this runs standalone via
+ * (stripped at runtime) plus the pure value `toolCallSignature` from
+ * `./loop-detector.ts`, so this runs standalone via
  * `npm run harness:compaction-prune` under bare
  * `node --experimental-strip-types` — no Electron stub needed.
  *
@@ -330,6 +331,134 @@ function pairsIntact(msgs: ModelMessage[]): boolean {
   pruneStaleToolOutputsInHead(head);
   check('user message in head untouched', head[0] === before && head[0].content === 'please read a.ts twice');
   check('head-only run keeps pairs intact', pairsIntact(head));
+}
+
+/* ── Case 11: fetch_url superseded by a later fetch of the SAME url ───────── */
+{
+  const head: ModelMessage[] = [
+    assistantCall('f1', 'fetch_url', { url: 'https://example.com/a' }),
+    toolResult('f1', 'fetch_url', txt(BIG)), // superseded → pruned
+    assistantCall('f2', 'fetch_url', { url: 'https://example.com/a' }),
+    toolResult('f2', 'fetch_url', txt(BIG)), // latest fetch of same url → kept
+    assistantCall('f3', 'fetch_url', { url: 'https://example.com/z' }),
+    toolResult('f3', 'fetch_url', txt(HUGE)), // different url → kept, clears window
+  ];
+  const r = pruneStaleToolOutputsInHead(head);
+  const outs = resultOutputs(head);
+  check('fetch_url same url superseded → prunedCount 1', r.prunedCount === 1);
+  check('earlier fetch_url (same url) pruned', isPruned(outs[0]));
+  check('latest fetch_url (same url) kept', !isPruned(outs[1]));
+}
+
+/* ── Case 11b: two fetch_url to DIFFERENT urls are both kept ──────────────── */
+{
+  // Neither supersedes the other (distinct urls); add a filler to clear the
+  // protect window so any spurious prune would surface as a non-zero count.
+  const head: ModelMessage[] = [
+    assistantCall('f1', 'fetch_url', { url: 'https://example.com/a' }),
+    toolResult('f1', 'fetch_url', txt(BIG)),
+    assistantCall('f2', 'fetch_url', { url: 'https://example.com/b' }),
+    toolResult('f2', 'fetch_url', txt(BIG)),
+    assistantCall('c1', 'read_file', { path: 'z.ts' }),
+    toolResult('c1', 'read_file', txt(HUGE)), // filler clears window
+  ];
+  const r = pruneStaleToolOutputsInHead(head);
+  const outs = resultOutputs(head);
+  check('fetch_url different urls → prunedCount 0', r.prunedCount === 0);
+  check('fetch_url /a kept (distinct url)', !isPruned(outs[0]));
+  check('fetch_url /b kept (distinct url)', !isPruned(outs[1]));
+}
+
+/* ── Case 12: web_search superseded by a later search of the same query ───── */
+{
+  const head: ModelMessage[] = [
+    assistantCall('s1', 'web_search', { query: 'rust async' }),
+    toolResult('s1', 'web_search', txt(BIG)), // superseded → pruned
+    assistantCall('s2', 'web_search', { query: 'rust async' }),
+    toolResult('s2', 'web_search', txt(BIG)), // latest same query → kept
+    assistantCall('s3', 'web_search', { query: 'go channels' }),
+    toolResult('s3', 'web_search', txt(HUGE)), // different query → kept, clears window
+  ];
+  const r = pruneStaleToolOutputsInHead(head);
+  const outs = resultOutputs(head);
+  check('web_search same query superseded → prunedCount 1', r.prunedCount === 1);
+  check('earlier web_search (same query) pruned', isPruned(outs[0]));
+  check('latest web_search (same query) kept', !isPruned(outs[1]));
+  check('different-query web_search kept', !isPruned(outs[2]));
+}
+
+/* ── Case 12b: read_network_body superseded by a later read of same id ────── */
+{
+  const head: ModelMessage[] = [
+    assistantCall('b1', 'read_network_body', { requestId: 'req-7' }),
+    toolResult('b1', 'read_network_body', txt(BIG)), // superseded → pruned
+    assistantCall('b2', 'read_network_body', { requestId: 'req-7' }),
+    toolResult('b2', 'read_network_body', txt(BIG)), // latest same id → kept
+    assistantCall('b3', 'read_network_body', { requestId: 'req-9' }),
+    toolResult('b3', 'read_network_body', txt(HUGE)), // different id → kept, clears window
+  ];
+  const r = pruneStaleToolOutputsInHead(head);
+  const outs = resultOutputs(head);
+  check('read_network_body same id superseded → prunedCount 1', r.prunedCount === 1);
+  check('earlier read_network_body (same id) pruned', isPruned(outs[0]));
+  check('latest read_network_body (same id) kept', !isPruned(outs[1]));
+  check('different-id read_network_body kept', !isPruned(outs[2]));
+}
+
+/* ── Case 13: an MCP tool repeated with identical input supersedes ────────── */
+{
+  // MCP tools are namespaced `${serverId}__${tool}`; an identical repeat is a
+  // redundant lookup, so the earlier bulky payload is superseded.
+  const head: ModelMessage[] = [
+    assistantCall('x1', 'notion__query', { db: 'tasks', limit: 10 }),
+    toolResult('x1', 'notion__query', txt(BIG)), // superseded → pruned
+    assistantCall('x2', 'notion__query', { db: 'tasks', limit: 10 }),
+    toolResult('x2', 'notion__query', txt(BIG)), // latest identical call → kept
+    assistantCall('x3', 'notion__query', { db: 'notes', limit: 10 }),
+    toolResult('x3', 'notion__query', txt(HUGE)), // different input → kept, clears window
+  ];
+  const r = pruneStaleToolOutputsInHead(head);
+  const outs = resultOutputs(head);
+  check('MCP identical input superseded → prunedCount 1', r.prunedCount === 1);
+  check('earlier MCP call (identical input) pruned', isPruned(outs[0]));
+  check('latest MCP call (identical input) kept', !isPruned(outs[1]));
+  check('different-input MCP call kept', !isPruned(outs[2]));
+}
+
+/* ── Case 13b: MCP identical input with different KEY ORDER still supersedes ─ */
+{
+  // Canonical-JSON: `{db,limit}` and `{limit,db}` must hash to the same target
+  // key so a key-reordered repeat still supersedes the earlier payload.
+  const head: ModelMessage[] = [
+    assistantCall('y1', 'plugin:acme__fetch', { db: 'tasks', limit: 10 }),
+    toolResult('y1', 'plugin:acme__fetch', txt(BIG)), // superseded → pruned
+    assistantCall('y2', 'plugin:acme__fetch', { limit: 10, db: 'tasks' }),
+    toolResult('y2', 'plugin:acme__fetch', txt(BIG)), // same call, keys reordered → kept
+    assistantCall('c1', 'read_file', { path: 'z.ts' }),
+    toolResult('c1', 'read_file', txt(HUGE)), // filler clears window
+  ];
+  const r = pruneStaleToolOutputsInHead(head);
+  const outs = resultOutputs(head);
+  check('plugin reordered-key input superseded → prunedCount 1', r.prunedCount === 1);
+  check('earlier plugin call (key-reordered repeat) pruned', isPruned(outs[0]));
+  check('latest plugin call (key-reordered repeat) kept', !isPruned(outs[1]));
+}
+
+/* ── Case 13c: distinct MCP tools (different names) are both kept ─────────── */
+{
+  const head: ModelMessage[] = [
+    assistantCall('z1', 'serverA__list', { q: 'x' }),
+    toolResult('z1', 'serverA__list', txt(BIG)),
+    assistantCall('z2', 'serverB__list', { q: 'x' }),
+    toolResult('z2', 'serverB__list', txt(BIG)),
+    assistantCall('c1', 'read_file', { path: 'z.ts' }),
+    toolResult('c1', 'read_file', txt(HUGE)), // filler clears window
+  ];
+  const r = pruneStaleToolOutputsInHead(head);
+  const outs = resultOutputs(head);
+  check('distinct MCP tool names → prunedCount 0', r.prunedCount === 0);
+  check('serverA call kept (distinct tool)', !isPruned(outs[0]));
+  check('serverB call kept (distinct tool)', !isPruned(outs[1]));
 }
 
 console.log(`\n${passedCount()} checks passed`);

@@ -2,6 +2,14 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { launchApp, makeTempUserDataDir } from './helpers/app';
+import { runCommand } from './helpers/mission-control';
+
+/**
+ * Terminal surface (electron/terminal + features/terminal). Mission Control has no
+ * tab strip, so the terminal is summoned as a full-area instrument from the ⌘K
+ * command palette ("New Terminal"); the surface itself (xterm container, the
+ * right-click menu, the find bar) is unchanged, so the assertions are preserved.
+ */
 
 // The key node-pty verification: launch a terminal, type a command, and assert
 // the output round-trips back through xterm. If node-pty failed to load, the
@@ -10,7 +18,7 @@ import { launchApp, makeTempUserDataDir } from './helpers/app';
 test('terminal: shell starts and echoes input (node-pty round-trip)', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: 'Shell in a tab' }).click();
+    await runCommand(page, 'New Terminal');
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('.xterm-screen').click();
@@ -38,7 +46,7 @@ test('terminal: an invalid configured shell falls back instead of failing', asyn
   );
   const { app, page } = await launchApp({ userDataDir: dir });
   try {
-    await page.getByRole('button', { name: 'Shell in a tab' }).click();
+    await runCommand(page, 'New Terminal');
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('.xterm-screen').click();
@@ -58,7 +66,7 @@ test('terminal: an invalid configured shell falls back instead of failing', asyn
 test('terminal: context menu copy/paste round-trips through the OS clipboard', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: 'Shell in a tab' }).click();
+    await runCommand(page, 'New Terminal');
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
     const screen = page.locator('.xterm-screen');
 
@@ -93,7 +101,7 @@ test('terminal: context menu copy/paste round-trips through the OS clipboard', a
 test('terminal: find bar opens via the menu and Ctrl/Cmd+F, closes on Esc', async () => {
   const { app, page } = await launchApp();
   try {
-    await page.getByRole('button', { name: 'Shell in a tab' }).click();
+    await runCommand(page, 'New Terminal');
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
     const screen = page.locator('.xterm-screen');
     const find = page.getByPlaceholder('Find');

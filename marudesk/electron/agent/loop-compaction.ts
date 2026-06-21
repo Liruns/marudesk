@@ -9,10 +9,13 @@ import {
   splitForTailPreservation,
   pruneStaleToolOutputsInHead,
   messageChars,
+  transcriptChars,
   extractFileManifest,
   formatFileManifest,
   stripFileManifest,
   repairToolPairs,
+  applyPersistentNudge,
+  stripPersistentNudge,
   POST_COMPACTION_MONITOR_COUNT,
 } from './compaction-utils.ts';
 import {
@@ -42,7 +45,10 @@ const COMPACTION_TAIL_FRACTION = 0.3;
 function priorSummaryText(m: ModelMessage | undefined): string | undefined {
   if (!m || m.role !== 'user' || typeof m.content !== 'string') return undefined;
   if (!m.content.startsWith(SUMMARY_PREFIX)) return undefined;
-  const body = m.content.slice(SUMMARY_PREFIX.length).trim();
+  // Drop any compaction-protected persistent-nudge block first: it's a live
+  // operational note (a not-yet-acted-on recovery/loop nudge), not history, so it
+  // must not be fed back into the summarizer as prose on a merge pass.
+  const body = stripPersistentNudge(m.content.slice(SUMMARY_PREFIX.length).trim()).trim();
   return body.length > 0 ? body : undefined;
 }
 
@@ -50,7 +56,7 @@ export async function compactConversation(
   focus?: string,
   S: ThreadContainer = activeContainer(),
   opts: { allowDuringTurn?: boolean } = {},
-): Promise<{ ok: boolean; reason?: string }> {
+): Promise<{ ok: boolean; reason?: string; freedChars?: number }> {
   // Guard the TARGET container (the active one for /compact, or a just-finished
   // turn's container for auto-compact) — both busy + the per-container starting flag.
   // Preemptive mid-turn compaction (item 2) sets allowDuringTurn: it runs INSIDE
@@ -67,6 +73,9 @@ export async function compactConversation(
   if (S.transcript.length < 2) return { ok: false, reason: 'conversation is too short to compact' };
   const provider = S.conversationProvider;
   const model = S.conversationModel;
+  // Snapshot the pre-rebuild transcript weight so the overflow handler can tell
+  // whether this pass actually shrank anything (rank 15 no-progress detection).
+  const charsBefore = transcriptChars(S.transcript);
   S.starting = true;
   try {
     const resolved = await resolveProviderAuth(provider);
@@ -147,7 +156,13 @@ export async function compactConversation(
         `[compaction] tool-pair repair: injected ${repaired.injectedResults} placeholder result(s), dropped ${repaired.droppedResults} orphan result(s)`,
       );
     }
-    S.transcript = repaired.messages;
+    // Carry a not-yet-acted-on recovery/loop nudge across the boundary as a
+    // compaction-PROTECTED note on the leading summary message, so a mid-turn
+    // preemptive compaction can't summarize it away before the model acts on it.
+    // A null nudge is a no-op (and still strips any stale block re-derivation
+    // could have re-introduced). Applied AFTER the summarizer ran, so the nudge
+    // text is never itself summarized.
+    S.transcript = applyPersistentNudge(repaired.messages, S.persistentNudge);
     // Keep the visible scrollback intact; just mark where the model's memory was
     // condensed. The divider holds the summary so the user can expand it to see
     // exactly what the model carried forward.
@@ -163,6 +178,10 @@ export async function compactConversation(
       inputTokens: 0,
       outputTokens: 0,
       contextTokens: before > 0 && freed ? Math.max(0, before - freed) : 0,
+      // Cache-read is genuinely 0 against the freshly-rebuilt prefix until the
+      // next call measures it; set it explicitly so the gauge doesn't show an
+      // undefined cache-read against the populated context estimate.
+      cachedInputTokens: 0,
     };
     S.state.error = null;
     S.state.endNote = null;
@@ -174,7 +193,10 @@ export async function compactConversation(
     S.postCompactionMonitorRemaining = POST_COMPACTION_MONITOR_COUNT;
     emitContainer(S);
     if (S.conversationId) void persistSession(S).then(() => emitContainer(S)).catch(() => {});
-    return { ok: true };
+    // Report the transcript-weight delta so a no-progress overflow compaction
+    // (an un-shrinkable verbatim tail) can short-circuit instead of looping +
+    // failing over with the same oversized prompt (rank 15).
+    return { ok: true, freedChars: Math.max(0, charsBefore - transcriptChars(S.transcript)) };
   } catch (err) {
     return { ok: false, reason: humanizeModelError(err, provider, model) };
   } finally {

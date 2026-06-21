@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>An infinite canvas where AI sees your <em>running</em> app — not just your source.</strong><br>
-  A desktop app that arranges a real web browser, a code editor and terminal, and a multi-provider AI agent as freeform cards on a pannable, zoomable canvas.
+  <strong>Mission control for AI development — where the agent proves it fixed your <em>running</em> app, not just your source.</strong><br>
+  A desktop app built around a <strong>Task graph</strong>: each node is an intent you hand the agent, and a real browser, code editor, terminal, and Source Control are <em>transient instruments</em> the task summons on demand. A task isn't done because the agent says so — it's done when the live app proves its acceptance criteria over the Chrome DevTools Protocol.
 </p>
 
 <p align="center">
@@ -16,10 +16,14 @@
 </p>
 
 <p align="center">
-  <img src="docs/home.png" alt="Maru — the new-tab shell with the activity bar, explorer, and surface cards" width="860">
+  <img src="docs/home.png" alt="Maru Mission Control — the Task graph home with the Flight bar, Evidence strip, and ⌘K palette" width="860">
 </p>
 
+> Screenshots are regenerated from the live app with `npm run screens` (in `marudesk/`, output under `marudesk/.screens/`); some images below predate the Mission Control redesign and are being refreshed.
+
 Maru is a desktop application (Electron) for building and debugging web software. Unlike source-only AI coding tools, it embeds a real Chromium browser and speaks the Chrome DevTools Protocol (CDP) in-process, so the agent can read the live DOM, console, and network of the app you are running and act on that runtime evidence — for example, turning a console error into a source fix and confirming the fix by reloading the page.
+
+**Mission Control is the only home.** Instead of juggling tabs and panes, you work a **Task graph**: each node is an *intent* the agent works on. Selecting a task opens its own **dock** — a per-task chat plus the task inspector — so you talk to the task, not a global bot. When a task needs a tool, it summons a **transient instrument** (browser, Monaco editor, terminal, Source Control, Settings) into the full area, then dismisses it with "← Graph". A **⌘K command palette** is the universal entry point for opening instruments and running actions; a slim **Flight bar** shows the goal and running/passed/failed counts; the **Evidence strip** turns acceptance criteria into real pass/fail verdicts proven via CDP (`0/2 → 2/2`), and a **Flight Log** keeps the cross-task transcript.
 
 > Status: in active development — built as a daily driver and portfolio project. See [Project status](#project-status).
 
@@ -42,19 +46,19 @@ Most AI coding assistants only see your source files. Maru co-locates the surfac
 
 - A console error in the embedded DevTools carries a one-click **Fix this**: the agent maps the stack frame back to your source file, edits it, reloads the page, and verifies the error is gone (`get_console_errors → edit → reload_and_verify`).
 - The agent can click, type, and scroll the live page, read network requests, and evaluate expressions — the same things you would do by hand in DevTools.
-- Because the agent shares the workspace, terminals, and open tabs through an in-process context server, it works from what is actually on screen instead of guessing.
+- Because the agent shares the workspace, terminals, and the open instruments through an in-process context server, it works from what is actually on screen instead of guessing.
 
 ## Screenshots
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/ai-chat.png" alt="Agentic AI chat surface"><br>
-      <sub>Agentic AI chat — model bar, session-history rail, reasoning-effort dial, and the agent composer.</sub>
+      <img src="docs/ai-chat.png" alt="Per-task agent chat"><br>
+      <sub>The per-task chat — model bar, reasoning-effort dial, and the agent composer, each task owning its own conversation in the dock.</sub>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/split-view.png" alt="Tabs tiled in a split-pane grid"><br>
-      <sub>Tabs-as-features on a split-pane grid — browser, editor, terminal, and agent side by side.</sub>
+      <img src="docs/split-view.png" alt="A summoned full-area instrument"><br>
+      <sub>A task summons an instrument into the full area — a real browser, editor, terminal, or Source Control — with "← Graph" to return home.</sub>
     </td>
   </tr>
 </table>
@@ -71,7 +75,7 @@ Most AI coding assistants only see your source files. Maru co-locates the surfac
 - **Compaction and verify.** `/compact` summarizes a long conversation to reclaim context; an optional post-edit verify command (e.g. `npm run typecheck`) runs after the agent edits and folds the PASS/FAIL back into the chat.
 - **Approvals that remember.** Approve a gated tool once, or "Allow always" to stop re-prompting for it for the rest of the conversation.
 - **Sessions and memory.** Resume past conversations from a history rail; keep durable cross-session notes.
-- **Chat from the terminal.** An OpenCode-style CLI (`npm run chat` in `marudesk/`) drives the same agent over a zero-config loopback bridge — a bordered header card, a full-width status bar (state · workspace · mode on the left, model · context · tokens on the right), streamed markdown and reasoning, a slash menu, model/session pickers, `/agents` and `/skills` catalogs, inline approvals, Esc to interrupt. In the app it lives alongside the chat panel as an "AI Chat (CLI)" terminal tab (Home launcher), and the app installs a `marudesk` command on PATH so any terminal can open it while the app runs (Settings → Terminal shows/repairs it).
+- **Chat from the terminal.** An OpenCode-style CLI (`npm run chat` in `marudesk/`) drives the same agent over a zero-config loopback bridge — a bordered header card, a full-width status bar (state · workspace · mode on the left, model · context · tokens on the right), streamed markdown and reasoning, a slash menu, model/session pickers, `/agents` and `/skills` catalogs, inline approvals, Esc to interrupt. In the app it opens as an "AI Chat (CLI)" instrument from the ⌘K palette, and the app installs a `marudesk` command on PATH so any terminal can open it while the app runs (Settings → Terminal shows/repairs it).
 - **Agent roles + skills.** Delegated subtasks run as named roles: built-in agents (`explore`, `researcher`, `reviewer`, `planner`, `general`) plus your own, defined as markdown files under `.marudesk/agents/` (project) or the app's `agents/` folder (user) — frontmatter picks the model (`fast`/`smart` tier or a concrete `provider/model`) and a tool subset, the body is the role's instructions. The subagent's model resolves automatically against the providers you actually connected, and fails over mid-run on rate limits the same way the main loop does. Reusable instruction **skills** (`SKILL.md` playbooks) load on demand via the `skill` tool.
 
 ### Runtime-aware tools (the differentiator)
@@ -85,7 +89,7 @@ Most AI coding assistants only see your source files. Maru co-locates the surfac
 - One-click **Fix this** on console errors — and on **terminal errors**: build/test failures detected in integrated terminal scrollback get a badge and the same one-click handoff to the agent.
 
 ### A real browser, not a preview
-Tabbed browsing on a split-pane grid, with favicons, history, **bookmarks** (star toggle + panel), **address-bar suggestions** (bookmarks and frecency-ranked history with a search-the-web row), **tab groups** (named, colored, collapsible, session-restored), downloads, find-in-page, zoom, configurable search engines, crash recovery, and per-site partitioning.
+The browser is a full-area instrument a task summons — a real Chromium `WebContentsView`, not a screenshot preview — with favicons, history, **bookmarks** (star toggle + panel), **address-bar suggestions** (bookmarks and frecency-ranked history with a search-the-web row), downloads, find-in-page, zoom, configurable search engines, crash recovery, and per-site partitioning. Because it is a live page, the runtime-aware tools above act on exactly what is on screen.
 
 ### Custom DevTools (CDP)
 A React-built DevTools dock with Console, Network, Elements, Application, and Rendering panels plus a REPL — dockable or popped out into its own window. Network requests open into full detail tabs (**Headers / Payload / Response / Timing / Initiator**) with parsed payloads and phase timing bars; **WebSocket/SSE connections get a live Frames viewer**; the Application panel can **edit local/session storage and delete cookies**; Elements adds a **Computed pane with the box-model diagram**. Chromium's own DevTools remain available as an escape hatch.
@@ -98,6 +102,9 @@ A built-in, in-process MCP server exposes tabs, the active page, terminals, edit
 
 ### Plugins
 Extend the agent with your own JavaScript. A plugin is a folder with a `manifest.json` and an `index.js` exporting `activate(ctx)`; it can contribute **agent tools** and **slash commands**. Plugins run in an **isolated worker** (Electron `utilityProcess` with the Node Permission Model + a module sandbox), never in the main process, and reach the filesystem/network only through a **capability-gated bridge** the user approves per plugin (`fs:read`, `fs:write`, `net`). Contributed tools flow through the same approval / read-only mediation as the built-in ones, and a plugin's file writes show up in the chat diff/revert history. Manage them in **Settings → Plugins**; see [`marudesk/docs/plugin-runtime-design.md`](marudesk/docs/plugin-runtime-design.md). Plugin folders are scanned from `<userData>/plugins/` (user) and `<workspace>/.marudesk/plugins/` (project); a runnable example lives in [`marudesk/examples/plugins/hello-world`](marudesk/examples/plugins/hello-world).
+
+#### Writing a plugin
+A plugin is a folder with a `manifest.json` (id, entry, declared permissions) and an `index.js` exporting `activate(ctx)`, where `ctx` is the capability bridge — `registerTool` / `registerSlashCommand` plus permission-gated `fs`, `http`, `exec`, `setStatus`, and `log`. The author guide documents the full `ctx` surface, the permission model, and how to install from the Plugins panel: [`marudesk/examples/plugins/README.md`](marudesk/examples/plugins/README.md). For editor autocomplete and typecheck, annotate your module with the author types in [`marudesk/shared/plugin.ts`](marudesk/shared/plugin.ts) (`PluginModule`, `PluginContext`); start from the [`hello-world`](marudesk/examples/plugins/hello-world) example.
 
 ## Repository layout
 

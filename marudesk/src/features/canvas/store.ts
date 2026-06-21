@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { isFiniteNumber, isRecord, isString } from '../../../shared/coerce';
+import { FEATURE_KINDS } from '../../../shared/browser';
 import type { TabGroupColor, TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
@@ -187,6 +189,9 @@ const CARD_SIZE: Record<TabKind, { def: CardSize; min: CardSize }> = {
   settings: { def: { w: 640, h: 520 }, min: { w: 420, h: 360 } },
   plugin: { def: { w: 520, h: 400 }, min: { w: 320, h: 240 } },
   devtools: { def: { w: 720, h: 480 }, min: { w: 420, h: 300 } },
+  files: { def: { w: 480, h: 520 }, min: { w: 300, h: 280 } },
+  search: { def: { w: 520, h: 520 }, min: { w: 320, h: 280 } },
+  sourceControl: { def: { w: 560, h: 520 }, min: { w: 360, h: 300 } },
 };
 
 /** Minimum card size for a tab kind (falls back to the generic floor). */
@@ -245,8 +250,6 @@ function canAnimate(): boolean {
     typeof performance !== 'undefined'
   );
 }
-const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const isStr = (v: unknown): v is string => typeof v === 'string';
 const isEdgeSide = (v: unknown): v is EdgeSide =>
   typeof v === 'string' && (EDGE_SIDES as readonly string[]).includes(v);
 const isEdgeStyle = (v: unknown): v is EdgeStyle => v === 'curve' || v === 'orthogonal';
@@ -323,27 +326,21 @@ function defaultBucket(): WorkspaceCanvases {
 /* ── Persistence (de)serialization ──────────────────────────────────────── */
 
 function parseRect(val: unknown): CardRect | null {
-  if (typeof val !== 'object' || val === null) return null;
-  const v = val as Record<string, unknown>;
-  if (!(isNum(v.x) && isNum(v.y) && isNum(v.w) && isNum(v.h))) return null;
+  if (!isRecord(val)) return null;
+  const v = val;
+  if (!(isFiniteNumber(v.x) && isFiniteNumber(v.y) && isFiniteNumber(v.w) && isFiniteNumber(v.h))) return null;
   const pm = v.preMax;
   const preMax =
-    pm && typeof pm === 'object' && isNum((pm as Record<string, unknown>).x) &&
-    isNum((pm as Record<string, unknown>).y) && isNum((pm as Record<string, unknown>).w) &&
-    isNum((pm as Record<string, unknown>).h)
-      ? {
-          x: (pm as Record<string, number>).x,
-          y: (pm as Record<string, number>).y,
-          w: (pm as Record<string, number>).w,
-          h: (pm as Record<string, number>).h,
-        }
+    isRecord(pm) && isFiniteNumber(pm.x) && isFiniteNumber(pm.y) &&
+    isFiniteNumber(pm.w) && isFiniteNumber(pm.h)
+      ? { x: pm.x, y: pm.y, w: pm.w, h: pm.h }
       : undefined;
   return {
     x: v.x,
     y: v.y,
     w: v.w,
     h: v.h,
-    z: isNum(v.z) ? v.z : 1,
+    z: isFiniteNumber(v.z) ? v.z : 1,
     ...(v.locked === true ? { locked: true } : {}),
     ...(preMax ? { preMax } : {}),
   };
@@ -351,8 +348,8 @@ function parseRect(val: unknown): CardRect | null {
 
 function parsePlacements(raw: unknown): Record<string, CardRect> {
   const out: Record<string, CardRect> = {};
-  if (typeof raw === 'object' && raw !== null) {
-    for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
+  if (isRecord(raw)) {
+    for (const [id, val] of Object.entries(raw)) {
       const rect = parseRect(val);
       if (rect) out[id] = rect;
     }
@@ -361,9 +358,9 @@ function parsePlacements(raw: unknown): Record<string, CardRect> {
 }
 
 function parseViewport(raw: unknown): Viewport {
-  if (typeof raw === 'object' && raw !== null) {
-    const v = raw as Record<string, unknown>;
-    if (isNum(v.panX) && isNum(v.panY) && isNum(v.scale)) {
+  if (isRecord(raw)) {
+    const v = raw;
+    if (isFiniteNumber(v.panX) && isFiniteNumber(v.panY) && isFiniteNumber(v.scale)) {
       return { panX: v.panX, panY: v.panY, scale: clamp(v.scale, SCALE_MIN, SCALE_MAX) };
     }
   }
@@ -385,6 +382,9 @@ export type PanelDescriptor =
   | { kind: 'agent' }
   | { kind: 'home' }
   | { kind: 'settings' }
+  | { kind: 'files' }
+  | { kind: 'search' }
+  | { kind: 'sourceControl' }
   | { kind: 'plugin'; pluginId?: string; entry?: string }
   | { kind: 'devtools'; targetTabId?: string };
 
@@ -430,29 +430,30 @@ function descriptorKey(d: PanelDescriptor): string {
 }
 
 function parseDescriptor(raw: unknown): PanelDescriptor | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return null;
+  const r = raw;
   switch (r.kind) {
     case 'web':
-      return { kind: 'web', ...(isStr(r.url) ? { url: r.url } : {}) };
+      return { kind: 'web', ...(isString(r.url) ? { url: r.url } : {}) };
     case 'editor':
-      return { kind: 'editor', ...(isStr(r.filePath) ? { filePath: r.filePath } : {}) };
+      return { kind: 'editor', ...(isString(r.filePath) ? { filePath: r.filePath } : {}) };
     case 'terminal':
       return { kind: 'terminal', ...(r.terminalProfile === 'agent-cli' ? { terminalProfile: 'agent-cli' as const } : {}) };
     case 'plugin':
       return {
         kind: 'plugin',
-        ...(isStr(r.pluginId) ? { pluginId: r.pluginId } : {}),
-        ...(isStr(r.entry) ? { entry: r.entry } : {}),
+        ...(isString(r.pluginId) ? { pluginId: r.pluginId } : {}),
+        ...(isString(r.entry) ? { entry: r.entry } : {}),
       };
     case 'devtools':
-      return { kind: 'devtools', ...(isStr(r.targetTabId) ? { targetTabId: r.targetTabId } : {}) };
-    case 'agent':
-    case 'home':
-    case 'settings':
-      return { kind: r.kind };
+      return { kind: 'devtools', ...(isString(r.targetTabId) ? { targetTabId: r.targetTabId } : {}) };
     default:
-      return null;
+      // Every payload-less feature kind (agent/home/settings/files/search/
+      // sourceControl) round-trips as a bare { kind }; mirror descriptorOf so a
+      // new kind can't be silently dropped on restore.
+      return typeof r.kind === 'string' && (FEATURE_KINDS as readonly string[]).includes(r.kind)
+        ? ({ kind: r.kind } as PanelDescriptor)
+        : null;
   }
 }
 
@@ -536,22 +537,22 @@ function serializeCanvas(doc: CanvasDoc, tabsById: Map<string, TabState>): Canva
 }
 
 function parseNode(raw: unknown): NodeSnapshot | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return null;
+  const r = raw;
   const rect = parseRect(r.rect);
   if (!rect) return null;
   const members = Array.isArray(r.members)
     ? r.members.map(parseDescriptor).filter((d): d is PanelDescriptor => !!d)
     : [];
   if (members.length === 0) return null;
-  const active = isNum(r.active) && r.active >= 0 && r.active < members.length ? r.active : 0;
+  const active = isFiniteNumber(r.active) && r.active >= 0 && r.active < members.length ? r.active : 0;
   return { rect, members, active };
 }
 
 function parseIndexPair(raw: unknown, nodeCount: number): [number, number] | null {
   if (!Array.isArray(raw) || raw.length !== 2) return null;
-  const [a, b] = raw as unknown[];
-  if (!isNum(a) || !isNum(b) || a < 0 || a >= nodeCount || b < 0) return null;
+  const [a, b] = raw;
+  if (!isFiniteNumber(a) || !isFiniteNumber(b) || a < 0 || a >= nodeCount || b < 0) return null;
   return [a, b];
 }
 
@@ -562,12 +563,12 @@ function parseSections(raw: unknown): CardSection[] {
   if (!Array.isArray(raw)) return [];
   const out: CardSection[] = [];
   for (const val of raw) {
-    if (typeof val !== 'object' || val === null) continue;
-    const s = val as Record<string, unknown>;
-    if (!(isStr(s.id) && isNum(s.x) && isNum(s.y) && isNum(s.w) && isNum(s.h))) continue;
+    if (!isRecord(val)) continue;
+    const s = val;
+    if (!(isString(s.id) && isFiniteNumber(s.x) && isFiniteNumber(s.y) && isFiniteNumber(s.w) && isFiniteNumber(s.h))) continue;
     out.push({
       id: s.id,
-      title: isStr(s.title) ? s.title : 'Section',
+      title: isString(s.title) ? s.title : 'Section',
       color: isSectionColor(s.color) ? s.color : 'violet',
       x: s.x,
       y: s.y,
@@ -582,12 +583,12 @@ function parseNotes(raw: unknown): CanvasNote[] {
   if (!Array.isArray(raw)) return [];
   const out: CanvasNote[] = [];
   for (const val of raw) {
-    if (typeof val !== 'object' || val === null) continue;
-    const n = val as Record<string, unknown>;
-    if (!(isStr(n.id) && isNum(n.x) && isNum(n.y) && isNum(n.w) && isNum(n.h))) continue;
+    if (!isRecord(val)) continue;
+    const n = val;
+    if (!(isString(n.id) && isFiniteNumber(n.x) && isFiniteNumber(n.y) && isFiniteNumber(n.w) && isFiniteNumber(n.h))) continue;
     out.push({
       id: n.id,
-      text: isStr(n.text) ? n.text : '',
+      text: isString(n.text) ? n.text : '',
       color: isSectionColor(n.color) ? n.color : 'amber',
       x: n.x,
       y: n.y,
@@ -602,12 +603,12 @@ function parseBookmarks(raw: unknown): CanvasBookmark[] {
   if (!Array.isArray(raw)) return [];
   const out: CanvasBookmark[] = [];
   for (const val of raw) {
-    if (typeof val !== 'object' || val === null) continue;
-    const b = val as Record<string, unknown>;
-    if (!isStr(b.id)) continue;
+    if (!isRecord(val)) continue;
+    const b = val;
+    if (!isString(b.id)) continue;
     out.push({
       id: b.id,
-      name: isStr(b.name) ? b.name : 'View',
+      name: isString(b.name) ? b.name : 'View',
       viewport: parseViewport(b.viewport),
     });
   }
@@ -615,17 +616,17 @@ function parseBookmarks(raw: unknown): CanvasBookmark[] {
 }
 
 function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as Record<string, unknown>;
-  if (!isStr(r.id)) return null;
+  if (!isRecord(raw)) return null;
+  const r = raw;
+  if (!isString(r.id)) return null;
   const nodes = Array.isArray(r.nodes)
     ? r.nodes.map(parseNode).filter((n): n is NodeSnapshot => !!n)
     : [];
   const edges: EdgeSnapshot[] = [];
   if (Array.isArray(r.edges)) {
     for (const val of r.edges) {
-      if (typeof val !== 'object' || val === null) continue;
-      const e = val as Record<string, unknown>;
+      if (!isRecord(val)) continue;
+      const e = val;
       const from = parseIndexPair(e.from, nodes.length);
       const to = parseIndexPair(e.to, nodes.length);
       if (from && to) {
@@ -640,8 +641,8 @@ function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
   }
   return {
     id: r.id,
-    name: isStr(r.name) ? r.name : 'Canvas',
-    createdAt: isNum(r.createdAt) ? r.createdAt : Date.now(),
+    name: isString(r.name) ? r.name : 'Canvas',
+    createdAt: isFiniteNumber(r.createdAt) ? r.createdAt : Date.now(),
     viewport: parseViewport(r.viewport),
     edgeStyle: isEdgeStyle(r.edgeStyle) ? r.edgeStyle : 'curve',
     nodes,
@@ -653,13 +654,13 @@ function parseCanvasSnapshot(raw: unknown): CanvasSnapshot | null {
 }
 
 function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return null;
+  const r = raw;
   const canvases = Array.isArray(r.canvases)
     ? r.canvases.map(parseCanvasSnapshot).filter((c): c is CanvasSnapshot => !!c)
     : [];
   if (canvases.length === 0) return null;
-  const activeId = isStr(r.activeId) && canvases.some((c) => c.id === r.activeId) ? r.activeId : canvases[0].id;
+  const activeId = isString(r.activeId) && canvases.some((c) => c.id === r.activeId) ? r.activeId : canvases[0].id;
   return { activeId, canvases };
 }
 
@@ -788,9 +789,9 @@ function loadPersisted(): {
       const data: unknown = JSON.parse(rawV2);
       const byWorkspace: Record<string, WorkspaceCanvases> = {};
       const pending: Record<string, CanvasSnapshot[]> = {};
-      const rec = typeof data === 'object' && data !== null ? (data as Record<string, unknown>).byWorkspace : null;
-      if (typeof rec === 'object' && rec !== null) {
-        for (const [ws, val] of Object.entries(rec as Record<string, unknown>)) {
+      const rec = isRecord(data) ? data.byWorkspace : null;
+      if (isRecord(rec)) {
+        for (const [ws, val] of Object.entries(rec)) {
           const wsSnap = parseWorkspaceSnapshot(val);
           if (!wsSnap) continue;
           const canvases: Record<string, CanvasDoc> = {};
@@ -804,8 +805,8 @@ function loadPersisted(): {
     const rawV1 = localStorage.getItem(LEGACY_KEY);
     if (rawV1) {
       const data: unknown = JSON.parse(rawV1);
-      if (typeof data === 'object' && data !== null) {
-        return { byWorkspace: {}, pending: {}, legacy: parsePlacements((data as Record<string, unknown>).placements) };
+      if (isRecord(data)) {
+        return { byWorkspace: {}, pending: {}, legacy: parsePlacements(data.placements) };
       }
     }
     return { byWorkspace: {}, pending: {}, legacy: null };

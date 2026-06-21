@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
-type Variant = 'neutral' | 'accent' | 'success' | 'warning' | 'error';
+/** Badge color variants. Exported so status maps can stay in lockstep with this list. */
+export type BadgeVariant = 'neutral' | 'accent' | 'success' | 'warning' | 'error';
 
 export type BadgeProps = {
-  variant?: Variant;
+  variant?: BadgeVariant;
   children: ReactNode;
   className?: string;
 };
 
-const VARIANT_CLASSES: Record<Variant, string> = {
+const VARIANT_CLASSES: Record<BadgeVariant, string> = {
   neutral: 'bg-surface-3 text-fg-secondary',
   accent: 'bg-accent-subtle text-accent',
   success: 'bg-success-subtle text-success',

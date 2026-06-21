@@ -1,22 +1,20 @@
 import { test, expect } from '@playwright/test';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { launchApp } from './helpers/app';
+import { runCommand } from './helpers/mission-control';
 
-function mkWorkspaceRoot(base: string, name: string): string {
-  const dir = path.join(base, name);
-  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'src', 'App.tsx'), `export const name = "${name}";\n`);
-  return dir;
-}
+/**
+ * Settings. Mission Control is the only home, so Settings is summoned as a
+ * full-area instrument from the ⌘K command palette ('Open Settings') — there is
+ * no tab strip / activity bar / gear menu to open it from. Once open it is the
+ * same SettingsView, so the theme/palette/zoom, cross-category search, Plugins,
+ * and About assertions are unchanged; only the entry point moved.
+ */
 
-test('settings: opens as a tab; theme + zoom apply live', async () => {
+test('settings: opens as an instrument; theme + zoom apply live', async () => {
   const { app, page } = await launchApp();
   try {
-    // Gear → context menu → Settings tab.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    // ⌘K → Open Settings opens the Settings instrument.
+    await runCommand(page, 'Open Settings');
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 
     // Theme flips the documentElement data-theme.
@@ -61,9 +59,8 @@ test('settings: opens as a tab; theme + zoom apply live', async () => {
 test('settings: search jumps to an individual setting in another category', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: the Settings tab is open on its default (Appearance) category.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    // Given: the Settings instrument is open on its default (Appearance) category.
+    await runCommand(page, 'Open Settings');
     await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible();
 
     // When: the user searches for a control that lives in another category.
@@ -90,81 +87,19 @@ test('settings: search jumps to an individual setting in another category', asyn
   }
 });
 
-test('settings: Ctrl/Cmd+, opens the Settings tab', async () => {
+test('settings: Ctrl/Cmd+, opens the Settings instrument', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: the app is focused on the default shell (no editor open).
-    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+    // Given: the app is at its Mission Control home (no instrument open).
+    await expect(page.getByRole('button', { name: 'Command palette' })).toBeVisible();
 
     // When: the user presses the open-settings accelerator.
     await page.keyboard.press('Control+Comma');
 
-    // Then: the Settings tab opens.
+    // Then: the Settings instrument opens.
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   } finally {
     await app.close();
-  }
-});
-
-test('settings: opens in the active workspace instead of reusing another workspace tab', async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'marudesk-settings-ws-'));
-  const alphaRoot = mkWorkspaceRoot(base, 'alpha');
-  const betaRoot = mkWorkspaceRoot(base, 'beta');
-  const { app, page } = await launchApp();
-  try {
-    const records = await page.evaluate(
-      async ({ alphaRoot, betaRoot }) => {
-        const alpha = await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Alpha',
-          roots: [{ name: 'Alpha', path: alphaRoot }],
-        });
-        const beta = await window.marudesk.invoke('workspaces:create', {
-          name: 'Project Beta',
-          roots: [{ name: 'Beta', path: betaRoot }],
-        });
-        return { alphaId: alpha.id, betaId: beta.id };
-      },
-      { alphaRoot, betaRoot },
-    );
-
-    await page.reload({ waitUntil: 'domcontentloaded' });
-
-    const rail = page.getByRole('navigation', { name: 'Workspace rail' });
-    await expect(rail.getByRole('button', { name: 'Workspace Project Alpha' })).toBeVisible();
-    await expect(rail.getByRole('button', { name: 'Workspace Project Beta' })).toBeVisible();
-
-    await rail.getByRole('button', { name: 'Workspace Project Alpha' }).click();
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Settings' }).click();
-
-    await expect
-      .poll(async () => {
-        const snapshot = await page.evaluate(() =>
-          window.marudesk.invoke('browser:tabs-snapshot'),
-        );
-        return snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId)?.workspaceId;
-      })
-      .toBe(records.alphaId);
-
-    await rail.getByRole('button', { name: 'Workspace Project Beta' }).click();
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Settings' }).click();
-
-    const snapshot = await page.evaluate(() =>
-      window.marudesk.invoke('browser:tabs-snapshot'),
-    );
-    const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
-    const settingsWorkspaces = snapshot.tabs
-      .filter((tab) => tab.kind === 'settings')
-      .map((tab) => tab.workspaceId)
-      .sort();
-
-    expect(active?.kind).toBe('settings');
-    expect(active?.workspaceId).toBe(records.betaId);
-    expect(settingsWorkspaces).toEqual([records.alphaId, records.betaId].sort());
-  } finally {
-    await app.close();
-    fs.rmSync(base, { recursive: true, force: true });
   }
 });
 
@@ -181,8 +116,7 @@ test('settings: Plugins open-folder button invokes the install-folder handler', 
       });
     });
 
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    await runCommand(page, 'Open Settings');
     await page.getByRole('button', { name: 'Plugins' }).click();
     await expect(page.getByRole('heading', { name: 'Plugins' })).toBeVisible();
     await page.getByRole('button', { name: 'Open plugins folder' }).click();
@@ -201,9 +135,8 @@ test('settings: Plugins open-folder button invokes the install-folder handler', 
 test('settings: about exposes GitHub and update controls', async () => {
   const { app, page } = await launchApp();
   try {
-    // Given: the Settings tab is open.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    // Given: the Settings instrument is open.
+    await runCommand(page, 'Open Settings');
 
     // When: the user opens About.
     await page.getByRole('button', { name: 'About' }).click();

@@ -150,6 +150,42 @@ export function hasNpmScript(root: string, name: string): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+/** Whether any of `markers` exists at `root` (best-effort; a stat error = absent). */
+function anyMarkerExists(root: string, markers: readonly string[]): boolean {
+  return markers.some((marker) => {
+    try {
+      return fs.existsSync(path.join(root, marker));
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Compact, AI-groundable facts about a workspace root: the human stack labels and
+ * the REAL check command(s) the diagnostics runner would invoke there. Derived
+ * from the same recipe set ({@link getActiveCheckers}, injected so this stays a
+ * pure function) the runner uses, so a planner's acceptance criteria reference
+ * commands that actually exist for THIS repo instead of guessing `npm run
+ * typecheck` on, say, a Go project. Empty arrays mean no built-in/user checker
+ * applies (e.g. a language we don't have a recipe for) — the caller then tells
+ * the model there is no known check command rather than inventing one.
+ */
+export function detectRepoCheckFacts(
+  root: string,
+  checkers: readonly CheckerRecipe[],
+): { stacks: string[]; checkCommands: string[] } {
+  const stacks: string[] = [];
+  const checkCommands: string[] = [];
+  for (const checker of checkers) {
+    if (!anyMarkerExists(root, checker.appliesWhen)) continue;
+    if (!stacks.includes(checker.label)) stacks.push(checker.label);
+    const command = checker.resolveCommand(root);
+    if (command && !checkCommands.includes(command)) checkCommands.push(command);
+  }
+  return { stacks, checkCommands };
+}
+
 /* ── built-in recipes ────────────────────────────────────────────────────── */
 
 export const CHECKERS: readonly CheckerRecipe[] = [

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   blockedTaskIds,
+  criterionVerifiableByChecker,
   dependenciesOf,
   dependentsOf,
   hasCycle,
@@ -41,6 +42,43 @@ function graph(tasks: Task[], deps: [string, string][]): WorkGraph {
     updatedAt: 0,
   };
 }
+
+describe('criterionVerifiableByChecker', () => {
+  it('is true for criteria that name the static checker domain', () => {
+    for (const text of [
+      'typecheck passes',
+      'tsc reports no type errors',
+      'Type check is clean',
+      'eslint passes with no warnings',
+      'lint is clean',
+      'the project builds',
+      'it compiles without errors',
+      'no type errors remain',
+    ]) {
+      expect(criterionVerifiableByChecker(text)).toBe(true);
+    }
+  });
+
+  it('is false (honestly unverified) for behavioral criteria the checker cannot prove', () => {
+    for (const text of [
+      'endpoint returns 200',
+      'no console errors at runtime',
+      'the button navigates to the settings page',
+      'the user can log in',
+      'response time is under 100ms',
+      'the modal closes on Escape',
+      // Word-boundary + dropped-ambiguous-keyword guards (round-35 review): these
+      // contain a keyword as a SUBSTRING but are behavioral, and a bare "no errors"
+      // is ambiguous — all must stay unverified, not be stamped from a tsc pass.
+      'no errors in the UI',
+      'the building list renders',
+      'the user can rebuild the index',
+      'the flint tool works',
+    ]) {
+      expect(criterionVerifiableByChecker(text)).toBe(false);
+    }
+  });
+});
 
 describe('guards', () => {
   it('isTaskStatus / isEdgeType', () => {

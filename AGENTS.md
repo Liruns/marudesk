@@ -62,7 +62,13 @@ npm run dev
 npm run typecheck
 npm run build
 npm run e2e
+npm run screens
 ```
+
+`npm run e2e` runs the Playwright gate (retries: 1 locally, 2 in CI) and excludes
+the assertion-free screenshot harness (`e2e/screens.spec.ts`). `npm run screens`
+regenerates the UI screenshots; it sets `RUN_SCREENS=1` to opt `screens.spec.ts`
+back into the run.
 
 Use `npm run harness:*` scripts for targeted Electron/main-process coverage,
 or `npm run harness:all` to run the whole headless-harness suite with one

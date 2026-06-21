@@ -8,7 +8,8 @@ import {
 } from '../../../shared/providers';
 import { useProvidersStore } from '../providers/store';
 import { useI18n } from '../../i18n/useI18n';
-import { Hint } from './ModelPaletteParts';
+import { Hint, PaletteHints, PaletteOverlay } from '../commands/PaletteOverlay';
+import { usePaletteListbox } from '../commands/usePaletteListbox';
 import { ModelRow, SectionHeader } from './ModelPaletteRow';
 
 /**
@@ -134,6 +135,7 @@ export function ModelPalette({
   // effect needed; the arrow keys already clamp when moving and a query change
   // resets it to the top.
   const activeIndex = flat.length === 0 ? 0 : Math.min(active, flat.length - 1);
+  const { inputProps, listboxProps, optionProps } = usePaletteListbox(activeIndex, flat.length);
 
   // Scroll the highlighted row into view (DOM sync only — no setState).
   useEffect(() => {
@@ -174,15 +176,7 @@ export function ModelPalette({
   let globalIndex = -1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-hidden
-        tabIndex={-1}
-        className="absolute inset-0 cursor-default bg-black/30"
-        onClick={onClose}
-      />
-      <div className="relative mx-4 mt-[12vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-default bg-surface-1 shadow-lifted animate-scale-in">
+    <PaletteOverlay ariaLabel={t('agent.modelPalette.searchPlaceholder')} onClose={onClose}>
         {/* search */}
         <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 h-10">
           <Search size={15} className="shrink-0 text-fg-tertiary" />
@@ -197,12 +191,13 @@ export function ModelPalette({
             placeholder={t('agent.modelPalette.searchPlaceholder')}
             spellCheck={false}
             autoComplete="off"
+            {...inputProps}
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"
           />
         </div>
 
         {/* list */}
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div {...listboxProps} className="min-h-0 flex-1 overflow-y-auto py-1">
           {sections.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
               {query.trim()
@@ -230,6 +225,7 @@ export function ModelPalette({
                       key={`${s.id}:${m.key}`}
                       model={m}
                       index={idx}
+                      optionProps={optionProps(idx)}
                       rowRef={idx === activeIndex ? activeRef : undefined}
                       active={idx === activeIndex}
                       selected={m.key === (selectedKey ?? selectedModelKey)}
@@ -251,14 +247,13 @@ export function ModelPalette({
         </div>
 
         {/* footer hint bar */}
-        <div className="flex shrink-0 items-center gap-2 border-t border-subtle px-3 py-1.5 text-caption text-fg-tertiary">
+        <PaletteHints>
           <Hint k="↑↓" label={t('palette.hint.move')} />
           <Hint k="↵" label={t('agent.modelPalette.select')} />
           <Hint k="1–9" label={t('agent.modelPalette.quick')} />
           <Hint k="esc" label={t('palette.hint.close')} />
-        </div>
-      </div>
-    </div>
+        </PaletteHints>
+    </PaletteOverlay>
   );
 }
 

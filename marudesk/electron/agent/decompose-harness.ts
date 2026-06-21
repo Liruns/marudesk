@@ -1,6 +1,16 @@
+import { APICallError } from 'ai';
 import { check, passedCount } from '../harness-kit';
-import { extractJsonObject, decomposeGoal } from './decompose';
+import {
+  extractJsonObject,
+  decomposeGoal,
+  generateGraphWithFailover,
+  buildRepoFactsBlock,
+  buildDecomposePrompt,
+} from './decompose';
+import { buildModel } from './model';
 import { parseWorkGraph } from '../../shared/work-os';
+import type { SubagentTarget } from './subagent-resolve';
+import type { ProviderId } from '../../shared/providers';
 
 /**
  * Headless harness for the decompose surface that `shared/work-os.test.ts` does
@@ -137,6 +147,197 @@ async function main(): Promise<void> {
       graph !== null && JSON.stringify(graph.tasks.map((t) => t.id)) === '["a","b"]',
     );
     check('integration: exactly one edge survives the gate', graph !== null && graph.edges.length === 1);
+  }
+
+  /* ── repo-facts grounding: the planner prompt carries the real check command ─ */
+
+  {
+    const block = buildRepoFactsBlock({
+      workspaceName: 'marudesk',
+      stacks: ['TypeScript', 'ESLint'],
+      checkCommands: ['npm run typecheck --silent', 'npx --no-install eslint . --format json'],
+    });
+    check('repo-facts: the workspace name is grounded', block.includes('Workspace: marudesk'));
+    check('repo-facts: the detected stack is grounded', block.includes('TypeScript, ESLint'));
+    check(
+      'repo-facts: the REAL check command is grounded (not a guessed one)',
+      block.includes('npm run typecheck --silent'),
+    );
+  }
+
+  {
+    // No checker detected → the model is told NOT to invent one, the failure mode
+    // the FIX targets (a Python/Go repo getting "npm run typecheck passes").
+    const block = buildRepoFactsBlock({ workspaceName: 'pyproj', stacks: [], checkCommands: [] });
+    check(
+      'repo-facts: no detected checker tells the model not to invent one',
+      block.includes('do NOT invent one') && !block.includes('typecheck --silent'),
+    );
+  }
+
+  {
+    const prompt = buildDecomposePrompt('ship the thing', {
+      workspaceName: 'marudesk',
+      stacks: ['TypeScript'],
+      checkCommands: ['npm run typecheck --silent'],
+    });
+    check(
+      'decompose-prompt: facts precede the goal when present',
+      prompt.indexOf('REPO FACTS') < prompt.indexOf('GOAL:') && prompt.includes('ship the thing'),
+    );
+    check(
+      'decompose-prompt: the real check command rides in the assembled prompt',
+      prompt.includes('npm run typecheck --silent'),
+    );
+  }
+
+  {
+    // No facts → the prompt is the bare goal (back-compat with the prior behavior).
+    const prompt = buildDecomposePrompt('ship the thing', null);
+    check(
+      'decompose-prompt: null facts yields the bare GOAL prompt',
+      prompt === 'GOAL:\nship the thing',
+    );
+  }
+
+  /* ── generateGraphWithFailover: transient fail-over + offline-sample net ──── */
+
+  // A model reply the real extract → parseWorkGraph gate accepts, tagged with the
+  // provider that produced it so assertions can prove WHICH candidate answered.
+  const graphReply = (marker: string): string =>
+    JSON.stringify({
+      goal: 'ship the thing',
+      tasks: [
+        {
+          id: marker,
+          title: `Do ${marker}`,
+          intent: 'first task',
+          kind: 'work',
+          executor: { type: 'agent', ref: 'agent' },
+          acceptance: [{ id: `${marker}1`, text: 'npm run typecheck passes', verdict: 'unknown' }],
+        },
+      ],
+      edges: [],
+    });
+
+  const transient429 = (): APICallError =>
+    new APICallError({
+      message: 'rate limited',
+      url: 'https://provider.test/v1',
+      requestBodyValues: {},
+      statusCode: 429,
+    });
+
+  // A faithful stub of the injectable transport seam: `resolveAuth` reports each
+  // provider connected, `makeModel` builds a real (network-free) model handle, and
+  // `generate` is driven per-provider by the supplied script.
+  const makeDeps = (
+    script: Record<string, () => Promise<{ text: string }>>,
+    calls: ProviderId[],
+  ): Parameters<typeof generateGraphWithFailover>[3] => {
+    // `attemptGenerate` calls makeModel immediately before generate within the
+    // same attempt, so the provider captured here is the one `generate` runs.
+    let pending: ProviderId = 'anthropic';
+    return {
+      resolveAuth: async (provider) => ({
+        ok: true,
+        auth: { mode: 'api-key', apiKey: `${provider}-test` },
+      }),
+      makeModel: (provider, model, auth, baseUrl) => {
+        pending = provider;
+        return buildModel(provider, model, auth, baseUrl);
+      },
+      generate: async () => {
+        calls.push(pending);
+        const run = script[pending];
+        if (!run) throw new Error(`unscripted provider: ${pending}`);
+        return run();
+      },
+    };
+  };
+
+  {
+    // Primary (anthropic) throws a transient 429; the openai fallback then returns
+    // a real graph. Failover must reach the fallback and yield a NON-sample graph.
+    const target: SubagentTarget = {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      fallbacks: [{ provider: 'openai', model: 'gpt-5' }],
+    };
+    const calls: ProviderId[] = [];
+    const deps = makeDeps(
+      {
+        anthropic: async () => {
+          throw transient429();
+        },
+        openai: async () => ({ text: graphReply('b') }),
+      },
+      calls,
+    );
+    const res = await generateGraphWithFailover(target, 'ship the thing', null, deps);
+    check(
+      'failover: a transient 429 on the primary falls over to a connected fallback',
+      res.ok === true && res.graph.tasks.length === 1 && res.graph.tasks[0].id === 'b',
+    );
+    check(
+      'failover: BOTH the primary and the fallback were attempted, in order',
+      JSON.stringify(calls) === JSON.stringify(['anthropic', 'openai']),
+    );
+  }
+
+  {
+    // Every connected provider throws a transient error → no graph. The caller
+    // (decomposeGoal) then hands the renderer its offline sample, so this must be
+    // ok:false WITHOUT inventing a graph (no regression of the offline net).
+    const target: SubagentTarget = {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      fallbacks: [{ provider: 'openai', model: 'gpt-5' }],
+    };
+    const calls: ProviderId[] = [];
+    const deps = makeDeps(
+      {
+        anthropic: async () => {
+          throw transient429();
+        },
+        openai: async () => {
+          throw transient429();
+        },
+      },
+      calls,
+    );
+    const res = await generateGraphWithFailover(target, 'ship the thing', null, deps);
+    check(
+      'failover: all providers failing transiently returns ok:false (renderer → offline sample)',
+      res.ok === false,
+    );
+    check(
+      'failover: every candidate in the chain was tried before giving up',
+      JSON.stringify(calls) === JSON.stringify(['anthropic', 'openai']),
+    );
+  }
+
+  {
+    // A malformed model answer is NOT a transport failure: it must stop on the
+    // FIRST provider and not burn the fallback chain re-rolling junk.
+    const target: SubagentTarget = {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      fallbacks: [{ provider: 'openai', model: 'gpt-5' }],
+    };
+    const calls: ProviderId[] = [];
+    const deps = makeDeps(
+      {
+        anthropic: async () => ({ text: 'not json at all' }),
+        openai: async () => ({ text: graphReply('b') }),
+      },
+      calls,
+    );
+    const res = await generateGraphWithFailover(target, 'ship the thing', null, deps);
+    check(
+      'failover: a parse failure stops early and does NOT burn the fallback',
+      res.ok === false && JSON.stringify(calls) === JSON.stringify(['anthropic']),
+    );
   }
 
   console.log(`\ndecompose harness: ${passedCount()} assertions passed`);

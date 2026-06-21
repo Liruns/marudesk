@@ -1,9 +1,5 @@
 import { spawn } from 'node:child_process';
-import dns from 'node:dns/promises';
 import fs from 'node:fs/promises';
-import http from 'node:http';
-import https from 'node:https';
-import net from 'node:net';
 import type { AppliedChange } from '../../shared/patch';
 import type { PluginExecResult } from '../../shared/plugin';
 import { globToRegExp } from '../../shared/glob';
@@ -12,6 +8,7 @@ import { inheritSafeEnv } from '../proc-env';
 import type { ToolContext } from '../agent/tools';
 import { applyPatch } from '../patch';
 import { assertRealInsideRoot, resolveWorkspacePath } from '../fs-safe';
+import { guardedGet, BlockedHostError } from '../net-guard';
 
 /**
  * Host-side capability guards for plugin `ctx.fs` / `ctx.http` RPCs
@@ -168,39 +165,18 @@ export function guardedExec(
   });
 }
 
-/** Reject hostnames that resolve to a private / loopback / link-local address. */
-function isBlockedIp(ip: string): boolean {
-  const v = net.isIP(ip);
-  if (v === 4) {
-    const [a, b] = ip.split('.').map(Number);
-    if (a === 10 || a === 127 || a === 0) return true;
-    if (a === 169 && b === 254) return true; // link-local / cloud metadata
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-    return false;
-  }
-  if (v === 6) {
-    const low = ip.toLowerCase();
-    return (
-      low === '::1' ||
-      low === '::' ||
-      low.startsWith('fe80') || // link-local
-      low.startsWith('fc') ||
-      low.startsWith('fd') || // unique-local
-      low.startsWith('::ffff:') // IPv4-mapped — re-checked below by the caller
-    );
-  }
-  return false;
-}
+/** Per-request socket timeout for a plugin fetch. */
+const FETCH_TIMEOUT_MS = 15_000;
 
 /**
  * `ctx.http.fetch` — host-mediated outbound GET (design §4). Enforced host-side:
- * https/http only, host must be in the plugin's manifest allowlist, the resolved
- * IPs must be public (SSRF / DNS-rebinding / cloud-metadata guard), redirects are
- * NOT followed (a 3xx is returned as-is so a redirect can't bounce to a blocked
- * host), and the body is capped. The worker can't open raw sockets (the
- * Module._load shim + Permission Model), so this is the only network path.
+ * https/http only, host must be in the plugin's manifest allowlist, and the
+ * resolved IPs must be public (SSRF / DNS-rebinding / cloud-metadata guard, via
+ * the shared {@link guardedGet}: resolve → validate → pin-to-IP with hostname
+ * SNI). Redirects are NOT followed (a 3xx is returned as-is so a redirect can't
+ * bounce to a blocked host), and the body is capped. The worker can't open raw
+ * sockets (the Module._load shim + Permission Model), so this is the only network
+ * path.
  */
 export async function guardedFetch(
   url: string,
@@ -219,76 +195,33 @@ export async function guardedFetch(
   if (!allow.map((h) => h.toLowerCase()).includes(host)) {
     throw new Error(`plugin net: host "${host}" is not in the plugin's net allowlist`);
   }
-  // Resolve + validate every address the host maps to (DNS-rebinding guard).
-  let addrs: string[];
+  // The shared guard resolves + validates + pins the connection. maxRedirects: 0
+  // returns a 3xx as-is so a redirect can never bounce to a blocked host. The body
+  // is truncated (not rejected) at MAX_FETCH_BYTES.
+  let total = 0;
   try {
-    addrs = (await dns.lookup(host, { all: true })).map((a) => a.address);
-  } catch {
-    throw new Error(`plugin net: could not resolve "${host}"`);
-  }
-  if (addrs.length === 0 || addrs.some((ip) => isBlockedIp(ip.replace(/^::ffff:/i, '')))) {
-    throw new Error(`plugin net: "${host}" resolves to a non-public address`);
-  }
-  // Pin the connection to a validated IP (audit H9). Global fetch would re-resolve
-  // DNS independently of the lookup above, leaving a TOCTOU window where a hostile
-  // authoritative server returns a public IP to the check and a private/metadata
-  // IP to the actual connection. Connecting by IP closes that; for https we still
-  // pass the hostname as TLS servername so the certificate is verified against the
-  // real host (and as the Host header), so pinning can't be bypassed by rebinding.
-  const pinned = addrs[0].replace(/^::ffff:/i, '');
-  return pinnedGet(parsed, pinned, pinned.includes(':') ? 6 : 4);
-}
-
-/** GET against a pre-validated IP, keeping the hostname for Host header + TLS SNI. */
-function pinnedGet(
-  parsed: URL,
-  ip: string,
-  family: 4 | 6,
-): Promise<{ status: number; text: string }> {
-  const isHttps = parsed.protocol === 'https:';
-  const lib = isHttps ? https : http;
-  const port = parsed.port ? Number(parsed.port) : isHttps ? 443 : 80;
-  return new Promise((resolve, reject) => {
-    const req = lib.request(
-      {
-        host: ip,
-        family,
-        port,
-        path: `${parsed.pathname}${parsed.search}`,
-        method: 'GET',
-        headers: { Host: parsed.host, 'user-agent': 'marudesk-plugin' },
-        // TLS SNI + certificate validation target the real hostname, not the IP.
-        ...(isHttps ? { servername: parsed.hostname } : {}),
-        timeout: 15_000,
+    const res = await guardedGet(
+      parsed,
+      (chunk) => {
+        const room = MAX_FETCH_BYTES - total;
+        if (room <= 0) return false; // cap reached: stop, keep what we have
+        total += Math.min(chunk.length, room);
+        return true;
       },
-      (res) => {
-        const chunks: Buffer[] = [];
-        let total = 0;
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') });
-        };
-        res.on('data', (c: Buffer) => {
-          if (settled) return;
-          const room = MAX_FETCH_BYTES - total;
-          if (room <= 0) {
-            res.destroy();
-            finish();
-            return;
-          }
-          chunks.push(c.length > room ? c.subarray(0, room) : c);
-          total += Math.min(c.length, room);
-        });
-        res.on('end', finish);
-        res.on('error', (e) => {
-          if (!settled) reject(e);
-        });
+      {
+        headers: { 'user-agent': 'marudesk-plugin' },
+        timeoutMs: FETCH_TIMEOUT_MS,
+        maxRedirects: 0,
       },
     );
-    req.on('timeout', () => req.destroy(new Error('plugin net: request timed out')));
-    req.on('error', reject);
-    req.end();
-  });
+    // The onData cap may have admitted a final chunk that overshoots the limit;
+    // trim the concatenated body to the exact byte budget.
+    const body = res.body.length > MAX_FETCH_BYTES ? res.body.subarray(0, MAX_FETCH_BYTES) : res.body;
+    return { status: res.status, text: body.toString('utf8') };
+  } catch (err) {
+    if (err instanceof BlockedHostError) {
+      throw new Error(`plugin net: "${host}" resolves to a non-public address`, { cause: err });
+    }
+    throw err instanceof Error ? err : new Error('plugin net: request failed');
+  }
 }

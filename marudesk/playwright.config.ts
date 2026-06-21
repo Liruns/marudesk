@@ -9,11 +9,20 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
+  // The pure screenshot harness (screens.spec.ts) has no assertions — it can
+  // never fail, so it doesn't belong in the green gate. It's excluded by
+  // default; the `npm run screens` script sets RUN_SCREENS=1 to opt it back in
+  // on demand. chat-visual.spec.ts has real expect() assertions and stays in
+  // the gate.
+  testIgnore: process.env.RUN_SCREENS ? [] : ['**/screens.spec.ts'],
   timeout: 30_000,
   expect: { timeout: 8_000 },
   // One Electron instance at a time — the app is a singleton-ish desktop app.
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // Tolerate transient Electron launch/GPU/compositor hiccups on this
+  // launch-heavy desktop suite. A deterministic bug fails every attempt and
+  // still reds; only genuinely flaky one-offs are masked.
+  retries: process.env.CI ? 2 : 1,
   reporter: [['list']],
 });

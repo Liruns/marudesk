@@ -58,7 +58,7 @@ function activeRoot(record: WorkspaceRecord): WorkspaceRootSummary | null {
   return preferred ?? record.roots[0] ?? null;
 }
 
-function summaryFromWorkspaceRecord(record: WorkspaceRecord): WorkspaceSummary | null {
+export function summaryFromWorkspaceRecord(record: WorkspaceRecord): WorkspaceSummary | null {
   const root = activeRoot(record);
   if (!root) return null;
   return {
@@ -312,3 +312,17 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
       }),
   }),
 );
+
+// Mission Control has no WorkspaceStage to drive the Explorer summary, so mirror
+// the deck's active workspace into it here — once on load and on every deck
+// change. The summary is the source of truth for the Files instrument's tree and
+// the agent's read_explorer context, so without this the tree stays empty under a
+// real workspace and never refreshes when the active workspace switches. (This
+// replaces the effect WorkspaceStage.tsx owned before it was deleted.)
+function syncSummaryFromActiveWorkspace(): void {
+  const deck = useWorkspaceDeckStore.getState();
+  const record = deck.workspaces.find((w) => w.id === deck.activeWorkspaceId) ?? null;
+  useWorkspaceStore.getState().syncFromWorkspaceRecord(record);
+}
+useWorkspaceDeckStore.subscribe(syncSummaryFromActiveWorkspace);
+syncSummaryFromActiveWorkspace();

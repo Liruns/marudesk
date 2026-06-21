@@ -24,6 +24,19 @@ module.exports = {
         };
       },
     });
+    // Emits N ctx.log lines in one call so the host's bounded log ring can be
+    // exercised (the in-app plugin debug view). Each line is uniquely numbered so
+    // the harness can assert the oldest were dropped once the cap is exceeded.
+    ctx.registerTool({
+      name: 'log_many',
+      description: 'Emit N numbered ctx.log lines.',
+      inputSchema: { type: 'object', properties: { count: { type: 'number' } } },
+      async handler(input) {
+        const count = typeof input.count === 'number' ? input.count : 1;
+        for (let i = 0; i < count; i += 1) ctx.log(`line-${i}`);
+        return { text: JSON.stringify({ emitted: count }) };
+      },
+    });
   },
   onSessionStart(info) {
     sessionLog.push(info.sessionId);

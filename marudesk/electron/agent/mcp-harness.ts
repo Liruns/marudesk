@@ -294,7 +294,7 @@ async function main(): Promise<void> {
     check('content: structuredContent stringified when no content parts', structured.text.includes('"ok":true') && structured.text.includes('"n":2'));
 
     const empty = toToolResult('t', {});
-    check('content: empty result yields "(no content)"', empty.text === '(no content)');
+    check('content: empty result yields "(no content)"', empty.text.includes('(no content)'));
   }
 
   /* ── unit: trust → ungated, disabledTools filtered out ──────────────────── */

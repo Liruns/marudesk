@@ -88,7 +88,11 @@ export const MessageView = memo(function MessageView({
   if (message.role === 'user') {
     const images = message.parts.filter((p) => p.type === 'image');
     return (
-      <div id={`agent-msg-${message.id}`} className="self-end max-w-[88%]">
+      <div id={`agent-msg-${message.id}`} className="group/msg relative self-end max-w-[88%]">
+        {/* Copy the user's own prompt — appears on hover, mirroring the assistant. */}
+        <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">
+          <CopyButton text={textOf(message)} label={t('agent.chat.copyMessage')} />
+        </div>
         <div className="rounded-xl bg-surface-3 border border-strong/40 shadow-card px-3.5 py-2.5">
           <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
             {textOf(message)}
@@ -269,11 +273,11 @@ function ThinkingBlock({
         ) : (
           <Brain size={12} className="text-ai-thinking/60 shrink-0" />
         )}
-        <span className="text-fg-secondary flex-1 font-medium text-[0.75rem]">
+        <span className="text-fg-secondary flex-1 font-medium text-caption">
           {streaming ? t('agent.chat.thinking') : t('agent.chat.thought')}
         </span>
         {streaming && thinkingElapsed > 0 ? (
-          <span className="text-ai-thinking/70 tabular-nums text-[10px] font-medium">
+          <span className="text-ai-thinking/70 tabular-nums text-kbd font-medium">
             {formatElapsed(thinkingElapsed)}
           </span>
         ) : null}
@@ -377,7 +381,7 @@ const ToolCardView = memo(function ToolCardView({
         ) : (
           <ToolStateIcon state={call.state} />
         )}
-        <span className="text-fg-secondary truncate flex-1 text-[0.75rem]">{call.summary ?? label}</span>
+        <span className="text-fg-secondary truncate flex-1 text-caption">{call.summary ?? label}</span>
         {badge ? <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge> : null}
         {hasBody ? (
           <ChevronRight size={11} className={cn('text-fg-tertiary/40 shrink-0 transition-transform duration-fast', open && 'rotate-90')} />
