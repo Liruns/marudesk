@@ -287,15 +287,36 @@ const SUGGESTION_KEYS: TranslationKey[] = [
   'agent.chat.suggestion.layout',
 ];
 
+/**
+ * Optional per-surface override of the empty-state copy and first-move
+ * suggestions. The per-task Instrument Dock (work-graph/InstrumentDock) supplies
+ * this so a freshly-opened task chat reads as briefed on THAT task instead of the
+ * generic browser-debug bot. Omitted everywhere else (e.g. the global drawer /
+ * `agent` surface), which keeps the default workspace copy + suggestions exactly
+ * as before.
+ */
+export type EmptyStateOverride = {
+  /** A short line under the title, e.g. "Briefed on: {task}". */
+  subtitle: string;
+  /** First-move prompts; clicking one fills the composer (same path as default). */
+  suggestions: string[];
+};
+
 export function EmptyState({
   hasWorkspace,
   onPick,
+  override,
 }: {
   hasWorkspace: boolean;
   onPick: (text: string) => void;
+  override?: EmptyStateOverride;
 }) {
   const { t } = useI18n();
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
+  // A task-aware surface shows its task suggestions whenever it has any, even
+  // before a workspace is open (the dock follows the active workspace anyway);
+  // the default surface still gates its browser-debug suggestions on a workspace.
+  const suggestions = override ? override.suggestions : hasWorkspace ? SUGGESTION_KEYS.map((key) => t(key)) : [];
   return (
     <div className="flex flex-col items-center text-center gap-3 px-4 py-2">
       {/* Icon mark */}
@@ -306,19 +327,20 @@ export function EmptyState({
       <div className="flex flex-col items-center gap-1.5">
         <p className="text-body-sm font-medium text-fg-primary tracking-tight">{t('agent.chat.empty.title')}</p>
         <p className="text-caption text-fg-tertiary max-w-[90%] @[20rem]:max-w-[264px] leading-relaxed">
-          {hasWorkspace
-            ? t('agent.chat.empty.workspace')
-            : t('agent.chat.empty.noWorkspace')}
+          {override
+            ? override.subtitle
+            : hasWorkspace
+              ? t('agent.chat.empty.workspace')
+              : t('agent.chat.empty.noWorkspace')}
         </p>
       </div>
 
-      {hasWorkspace ? (
+      {suggestions.length > 0 ? (
         <div className="flex w-full max-w-[90%] @[20rem]:max-w-[288px] flex-col items-stretch gap-1.5">
-          {SUGGESTION_KEYS.map((key) => {
-            const suggestion = t(key);
+          {suggestions.map((suggestion, i) => {
             return (
             <button
-              key={key}
+              key={`${i}-${suggestion}`}
               type="button"
               onClick={() => onPick(suggestion)}
               className={cn(
@@ -335,7 +357,7 @@ export function EmptyState({
             );
           })}
         </div>
-      ) : (
+      ) : !override && !hasWorkspace ? (
         // No workspace yet: give the empty state a real next step instead of a
         // dead-end instruction (DESIGN.md §10 — empty states are a direct action).
         <Button
@@ -346,7 +368,7 @@ export function EmptyState({
         >
           {t('workspace.action.openFolder')}
         </Button>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { Spinner } from '../../components/ui';
+import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 import { AgentChat } from '../agent/AgentChat';
+import type { EmptyStateOverride } from '../agent/chat/Controls';
 import { AgentScopeProvider } from '../agent/store';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -18,9 +21,32 @@ import { acquireTaskThread, setDockRenderedThread, taskThreadId } from './taskTh
  * task id at the call site, so switching tasks remounts this with fresh state —
  * the reset is the remount, not a synchronous setState in an effect.
  */
+/** First-move suggestion keys for a task chat — task-relevant, not browser-debug. */
+const TASK_SUGGESTION_KEYS: TranslationKey[] = [
+  'workGraph.taskChat.suggestion.implement',
+  'workGraph.taskChat.suggestion.acceptance',
+  'workGraph.taskChat.suggestion.lastRun',
+];
+
 function TaskChat({ taskId, workspaceId }: { taskId: string; workspaceId?: WorkspaceId }) {
+  const { t } = useI18n();
   const [threadId, setThreadId] = useState<string | undefined>(() => taskThreadId(taskId) ?? undefined);
   const [resolved, setResolved] = useState<boolean>(() => taskThreadId(taskId) !== null);
+
+  // Task-aware empty state: the seeded thread is briefed on THIS task (see
+  // taskContextPreamble), so the dock's empty state says so and offers task-
+  // relevant first moves instead of the global bot's browser-debug suggestions.
+  // The title is read live from the store so it tracks a rename.
+  const taskTitle = useWorkGraphStore(
+    (s) => s.graph?.tasks.find((task) => task.id === taskId)?.title ?? '',
+  );
+  const emptyState = useMemo<EmptyStateOverride>(
+    () => ({
+      subtitle: t('workGraph.taskChat.briefedOn').replace('{task}', taskTitle),
+      suggestions: TASK_SUGGESTION_KEYS.map((key) => t(key)),
+    }),
+    [t, taskTitle],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +109,7 @@ function TaskChat({ taskId, workspaceId }: { taskId: string; workspaceId?: Works
   }
   return (
     <AgentScopeProvider workspaceId={workspaceId} threadId={threadId}>
-      <AgentChat />
+      <AgentChat emptyState={emptyState} />
     </AgentScopeProvider>
   );
 }

@@ -14,6 +14,7 @@ import {
 } from './store';
 import { useProvidersStore } from '../providers/store';
 import { useTabsStore } from '../tabs/store';
+import { useWorkspaceStore } from '../workspace/store';
 
 /**
  * Behavioral regression net for AgentChat — exercises the composer handlers
@@ -71,7 +72,10 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  useWorkspaceStore.setState({ summary: null });
+});
 
 function renderChat() {
   return render(createElement(I18nProvider, null, createElement(AgentChat)));
@@ -255,6 +259,43 @@ describe('AgentChat composer', () => {
       workspaceId: 'beta',
     });
     expect(marudesk.invoke).not.toHaveBeenCalledWith('browser:tabs-activate', 'alpha-agent');
+  });
+});
+
+describe('AgentChat empty state', () => {
+  it('global chat keeps the default title + browser-debug suggestions (no override)', () => {
+    // The default browser-debug suggestions are gated on an open workspace.
+    useWorkspaceStore.setState({
+      summary: { root: '/ws', name: 'ws', files: [], source: 'walk', truncated: false },
+    });
+    renderChat();
+    expect(screen.getByText('Agentic AI Chat')).toBeInTheDocument();
+    // Default browser-debug first move stays for the global bot.
+    expect(screen.getByText('Fix the console error on this page')).toBeInTheDocument();
+    // No task-aware subtitle leaks into the global path.
+    expect(screen.queryByText(/^Briefed on:/)).not.toBeInTheDocument();
+  });
+
+  it('task-aware override shows "Briefed on" + task suggestions and a click fills the draft', () => {
+    render(
+      <I18nProvider>
+        <AgentChat
+          emptyState={{
+            subtitle: 'Briefed on: Ship the login fix',
+            suggestions: ['Implement this task', 'Explain the acceptance criteria'],
+          }}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText('Briefed on: Ship the login fix')).toBeInTheDocument();
+    // The task suggestions replace the browser-debug ones.
+    expect(screen.getByText('Implement this task')).toBeInTheDocument();
+    expect(screen.queryByText('Fix the console error on this page')).not.toBeInTheDocument();
+
+    // Clicking a suggestion fills the composer the same way the default ones do.
+    fireEvent.click(screen.getByText('Implement this task'));
+    expect(useAgentStore.getState().draft).toBe('Implement this task');
   });
 });
 

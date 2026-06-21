@@ -64,12 +64,13 @@ test('mission control: selecting a task opens its dock chat and the flight log l
     const node = page.locator('[data-task-node="t1"]');
     await expect(node).toBeVisible();
 
-    // Selecting the node opens the Instrument Dock: the supervision inspector (the
-    // Implement button is unique to it) plus the per-task chat. The composer only
-    // mounts once the task's own thread is acquired, so its presence proves the
-    // Phase 2b binding fired.
+    // Selecting the node opens the Instrument Dock: the supervision inspector (its
+    // exact "Implement" button — matched with exact:true to disambiguate from the
+    // chat's "Implement this task" first-move suggestion) plus the per-task chat.
+    // The composer only mounts once the task's own thread is acquired, so its
+    // presence proves the Phase 2b binding fired.
     await node.locator('[data-task-header]').click();
-    await expect(page.getByRole('button', { name: 'Implement' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Implement', exact: true })).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Agent prompt' })).toBeVisible();
 
     // The Flight Log gathers the task's conversation in one place and can jump back
@@ -82,7 +83,7 @@ test('mission control: selecting a task opens its dock chat and the flight log l
     // "Open" jumps to the task and closes the log.
     await dialog.getByRole('button', { name: 'Open' }).click();
     await expect(dialog).toBeHidden();
-    await expect(page.getByRole('button', { name: 'Implement' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Implement', exact: true })).toBeVisible();
   } finally {
     await app.close();
   }
@@ -98,7 +99,7 @@ test('mission control: the flight log moves focus inside on open and restores it
     const node = page.locator('[data-task-node="t1"]');
     await expect(node).toBeVisible();
     await node.locator('[data-task-header]').click();
-    await expect(page.getByRole('button', { name: 'Implement' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Implement', exact: true })).toBeVisible();
 
     const trigger = page.getByRole('button', { name: 'Flight log' });
     await trigger.click();

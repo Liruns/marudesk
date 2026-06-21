@@ -4,6 +4,7 @@ import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import {
   type Task,
+  type TaskId,
   type TaskStatus,
   type WorkGraph,
 } from '../../../shared/work-os';
@@ -66,6 +67,36 @@ export function WorkGraphNodes({ toCanvas, getScale }: Props) {
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   // Live connection drag (from a node's output port), in canvas coords, or null.
   const [connect, setConnect] = useState<{ from: string; x: number; y: number } | null>(null);
+  // Keyboard connect: the armed source task awaiting a target (Enter on a second
+  // node completes the edge). Null when not arming. Distinct from `connect`, which
+  // is the pointer-drag loose end — a keyboard user never produces a loose end.
+  // The ref mirrors the state so the (stable) keyboard handlers can read the armed
+  // source synchronously, WITHOUT running store mutations inside a setState updater
+  // (that updater is double-invoked under StrictMode and would connect twice).
+  const [pendingConnectFrom, setPendingConnectFrom] = useState<TaskId | null>(null);
+  const pendingConnectFromRef = useRef<TaskId | null>(null);
+  const setPending = useCallback((next: TaskId | null) => {
+    pendingConnectFromRef.current = next;
+    setPendingConnectFrom(next);
+  }, []);
+
+  // Surface the same connect-failure toast for both pointer-drag and keyboard
+  // connects. Stable identity (depends only on `t`) so it never busts the
+  // round-23 TaskNodeCard memo.
+  const toastConnectFailure = useCallback(
+    (reason: 'self' | 'duplicate' | 'cycle') => {
+      toast({
+        title:
+          reason === 'cycle'
+            ? t('workGraph.connect.cycle')
+            : reason === 'duplicate'
+              ? t('workGraph.connect.duplicate')
+              : t('workGraph.connect.self'),
+        variant: 'warning',
+      });
+    },
+    [t],
+  );
 
   const startConnect = useCallback(
     (fromId: string, clientX: number, clientY: number) => {
@@ -86,17 +117,7 @@ export function WorkGraphNodes({ toCanvas, getScale }: Props) {
           if (id === fromId) continue;
           if (pt.x >= np.x && pt.x <= np.x + NODE_W && pt.y >= np.y && pt.y <= np.y + NODE_H) {
             const r = useWorkGraphStore.getState().connect(fromId, id);
-            if (!r.ok) {
-              toast({
-                title:
-                  r.reason === 'cycle'
-                    ? t('workGraph.connect.cycle')
-                    : r.reason === 'duplicate'
-                      ? t('workGraph.connect.duplicate')
-                      : t('workGraph.connect.self'),
-                variant: 'warning',
-              });
-            }
+            if (!r.ok) toastConnectFailure(r.reason);
             break;
           }
         }
@@ -104,8 +125,53 @@ export function WorkGraphNodes({ toCanvas, getScale }: Props) {
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
-    [toCanvas, t],
+    [toCanvas, toastConnectFailure],
   );
+
+  // Keyboard: arm a task's output port as the connect source (Enter/Space on the
+  // port). Stable identity — the per-node `isPendingSource` boolean is what each
+  // card consumes, so toggling the source does not re-render unrelated cards.
+  const armConnect = useCallback(
+    (fromId: TaskId) => {
+      setPending(fromId);
+    },
+    [setPending],
+  );
+
+  // Keyboard: complete a connect from a focused node. Enter on a DIFFERENT node
+  // than the armed source creates the edge (same failure toast as the drag path).
+  // Reads the armed source from the ref (no setState side-effect) and returns true
+  // when a source was armed so the node handler consumes the key; false lets Enter
+  // fall through to the title button.
+  const completeConnect = useCallback(
+    (toId: TaskId): boolean => {
+      const from = pendingConnectFromRef.current;
+      if (from === null) return false;
+      setPending(null);
+      if (from === toId) return true; // same node — just disarm
+      const r = useWorkGraphStore.getState().connect(from, toId);
+      if (!r.ok) toastConnectFailure(r.reason);
+      return true;
+    },
+    [setPending, toastConnectFailure],
+  );
+
+  const cancelConnect = useCallback(() => {
+    setPending(null);
+  }, [setPending]);
+
+  // Keyboard: remove a focused node's last incoming `depends_on` edge (the most
+  // recently added dependency) via the existing store action — the keyboard
+  // counterpart to deleting an edge. No-op when the node has no dependencies.
+  const removeIncomingEdge = useCallback((toId: TaskId): boolean => {
+    const g = useWorkGraphStore.getState().graph;
+    if (!g) return false;
+    const incoming = g.edges.filter((e) => e.type === 'depends_on' && e.to === toId);
+    const last = incoming[incoming.length - 1];
+    if (!last) return false;
+    useWorkGraphStore.getState().removeEdge(last.id);
+    return true;
+  }, []);
 
   if (!graph) return null;
 
@@ -125,6 +191,11 @@ export function WorkGraphNodes({ toCanvas, getScale }: Props) {
             selected={selectedTaskId === task.id}
             taskId={task.id}
             onStartConnect={startConnect}
+            isPendingSource={pendingConnectFrom === task.id}
+            onArmConnect={armConnect}
+            onCompleteConnect={completeConnect}
+            onCancelConnect={cancelConnect}
+            onRemoveIncomingEdge={removeIncomingEdge}
             entranceDelayMs={Math.min(index, 6) * 40}
           />
         );
@@ -196,6 +267,11 @@ const TaskNodeCard = memo(function TaskNodeCard({
   selected,
   taskId,
   onStartConnect,
+  isPendingSource,
+  onArmConnect,
+  onCompleteConnect,
+  onCancelConnect,
+  onRemoveIncomingEdge,
   entranceDelayMs,
 }: {
   task: Task;
@@ -203,8 +279,22 @@ const TaskNodeCard = memo(function TaskNodeCard({
   y: number;
   getScale: () => number;
   selected: boolean;
-  taskId: string;
+  taskId: TaskId;
   onStartConnect: (fromId: string, clientX: number, clientY: number) => void;
+  /** This node is the armed keyboard-connect source (awaiting a target). */
+  isPendingSource: boolean;
+  onArmConnect: (fromId: TaskId) => void;
+  /**
+   * Complete a keyboard-connect with this node as target. Returns true when a
+   * source was armed (so the key is consumed); false when nothing was armed (the
+   * caller lets Enter fall through). Cheap no-op when not armed, so every node can
+   * call it unconditionally — no global "is arming" flag has to be threaded
+   * through the memo, keeping unrelated cards from re-rendering on arm/disarm.
+   */
+  onCompleteConnect: (toId: TaskId) => boolean;
+  onCancelConnect: () => void;
+  /** Returns true when an incoming edge was removed (key consumed). */
+  onRemoveIncomingEdge: (toId: TaskId) => boolean;
   entranceDelayMs: number;
 }) {
   const { t } = useI18n();
@@ -241,9 +331,13 @@ const TaskNodeCard = memo(function TaskNodeCard({
       className={cn(
         'absolute rounded-lg border bg-surface-2 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:outline-none motion-safe:animate-fade-rise transition-colors transition-transform duration-fast active:scale-[0.99]',
         style.ring,
-        selected
-          ? 'border-accent shadow-[0_0_0_2px_var(--accent-subtle)]'
-          : 'hover:border-default focus-visible:shadow-[0_0_0_2px_var(--surface-page),0_0_0_4px_var(--accent)]',
+        // Armed keyboard-connect source: a token accent ring so the user sees
+        // which node Enter-on-another-node will connect from (no string needed).
+        isPendingSource
+          ? 'border-accent shadow-[0_0_0_2px_var(--accent)]'
+          : selected
+            ? 'border-accent shadow-[0_0_0_2px_var(--accent-subtle)]'
+            : 'hover:border-default focus-visible:shadow-[0_0_0_2px_var(--surface-page),0_0_0_4px_var(--accent)]',
       )}
       style={{ left: x, top: y, width: NODE_W, minHeight: NODE_H, animationDelay: `${entranceDelayMs}ms` }}
       onFocus={() => useWorkGraphStore.getState().selectTask(task.id)}
@@ -253,6 +347,21 @@ const TaskNodeCard = memo(function TaskNodeCard({
       }}
       onKeyDown={(e) => {
         const STEP = 8;
+        // Escape cancels any armed keyboard-connect (cheap no-op when none armed).
+        if (e.key === 'Escape') {
+          onCancelConnect();
+          return;
+        }
+        // Enter completes a keyboard-connect when a source is armed (this node
+        // becomes the target). onCompleteConnect returns false when nothing is
+        // armed, so Enter then falls through (the body title button owns Enter for
+        // status cycling, not the node group).
+        if (e.key === 'Enter') {
+          if (onCompleteConnect(task.id)) {
+            e.preventDefault();
+            return;
+          }
+        }
         switch (e.key) {
           case 'ArrowLeft':
             e.preventDefault();
@@ -272,7 +381,13 @@ const TaskNodeCard = memo(function TaskNodeCard({
             break;
           case 'Delete':
           case 'Backspace':
-            useWorkGraphStore.getState().deleteTask(task.id);
+            // Shift removes the node's last incoming dependency edge (keyboard
+            // counterpart to the pointer connect); plain deletes the task.
+            if (e.shiftKey) {
+              if (onRemoveIncomingEdge(task.id)) e.preventDefault();
+            } else {
+              useWorkGraphStore.getState().deleteTask(task.id);
+            }
             break;
         }
       }}
@@ -313,6 +428,12 @@ const TaskNodeCard = memo(function TaskNodeCard({
           type="button"
           title={t('workGraph.node.cycleStatusTitle')}
           onPointerDown={(e) => e.stopPropagation()}
+          // Keep Enter on the title as "cycle status": don't let it bubble to the
+          // node group's keydown, which would complete an armed keyboard-connect
+          // instead of cycling (the port button guards the same way).
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.stopPropagation();
+          }}
           onClick={() => useWorkGraphStore.getState().updateTask(task.id, { status: nextStatus(task.status) })}
           className="block w-full text-left text-body-sm font-medium text-fg-primary truncate rounded px-2 py-1 hover:bg-surface-3 hover:underline decoration-fg-tertiary decoration-dashed underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
         >
@@ -336,17 +457,35 @@ const TaskNodeCard = memo(function TaskNodeCard({
         </div>
       </div>
 
-      {/* Output port (drag to another node to add a depends_on edge) */}
+      {/* Output port: drag (pointer) OR Enter/Space (keyboard) to start a
+          depends_on edge; `aria-pressed` reflects the armed keyboard state with
+          no new string, and the existing connect label/title stay in locale. */}
       <button
         type="button"
         aria-label={t('workGraph.node.connectLabel')}
         title={t('workGraph.node.connectTitle')}
+        aria-pressed={isPendingSource}
         onPointerDown={(e) => {
           e.stopPropagation();
           e.preventDefault();
           onStartConnect(taskId, e.clientX, e.clientY);
         }}
-        className="absolute -bottom-2 left-1/2 -translate-x-1/2 grid h-4 w-4 place-items-center rounded-pill border border-default bg-surface-2 text-fg-tertiary hover:border-accent hover:text-accent group cursor-grab active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+        onKeyDown={(e) => {
+          // Enter/Space arms this node as the keyboard-connect source; the user
+          // then presses Enter on the target node. stopPropagation keeps the key
+          // off the node group's move/delete handler.
+          if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            e.stopPropagation();
+            onArmConnect(taskId);
+          }
+        }}
+        className={cn(
+          'absolute -bottom-2 left-1/2 -translate-x-1/2 grid h-4 w-4 place-items-center rounded-pill border bg-surface-2 group cursor-grab active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]',
+          isPendingSource
+            ? 'border-accent text-accent shadow-[0_0_0_2px_var(--accent-subtle)]'
+            : 'border-default text-fg-tertiary hover:border-accent hover:text-accent',
+        )}
       >
         <span className="block h-2 w-2 rounded-pill bg-current transition-transform duration-fast group-hover:scale-125" />
       </button>
