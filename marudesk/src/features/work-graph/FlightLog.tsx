@@ -10,6 +10,7 @@ import type { Task } from '../../../shared/work-os';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { Badge, Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { isBusy } from '../agent/chat/format';
 import { useWorkGraphStore } from './store';
 import { taskThreadEntries } from './taskThreads';
@@ -95,6 +96,9 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
   // Starts true and flips false in the fetch's .then — no synchronous setState in
   // the effect body (this body is freshly mounted each time the log opens).
   const [loading, setLoading] = useState(true);
+  // Move focus into the card on open, trap Tab within it, and restore focus to
+  // the trigger (FlightLogButton) on close — the dialog is aria-modal.
+  const cardRef = useFocusTrap<HTMLDivElement>();
 
   // Tasks that already own a conversation thread, joined to their graph node.
   const convos = useMemo<Convo[]>(() => {
@@ -163,7 +167,11 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
       aria-label="Flight log"
     >
       <button type="button" aria-label="Close flight log" className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 mt-8 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg chrome-panel shadow-lifted motion-safe:animate-scale-in">
+      <div
+        ref={cardRef}
+        tabIndex={-1}
+        className="relative z-10 mt-8 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg chrome-panel shadow-lifted motion-safe:animate-scale-in focus:outline-none"
+      >
         <header className="flex items-center gap-2 border-b border-subtle px-4 py-3">
           <MessagesSquare size={15} className="text-accent" />
           <h2 className="text-body-sm font-medium text-fg-primary">Flight log</h2>

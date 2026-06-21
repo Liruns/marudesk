@@ -86,3 +86,36 @@ test('mission control: selecting a task opens its dock chat and the flight log l
     await app.close();
   }
 });
+
+test('mission control: the flight log moves focus inside on open and restores it on close', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await seedGraph(page);
+
+    // Open a task so the flight log has a conversation to list (and a focusable
+    // control inside the card).
+    const node = page.locator('[data-task-node="t1"]');
+    await expect(node).toBeVisible();
+    await node.locator('[data-task-header]').click();
+    await expect(page.getByRole('button', { name: 'Implement' })).toBeVisible();
+
+    const trigger = page.getByRole('button', { name: 'Flight log' });
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Flight log' });
+    await expect(dialog).toBeVisible();
+
+    // aria-modal: focus is moved into the dialog on open (not left on the trigger
+    // behind the backdrop).
+    const focusInsideDialog = await dialog.evaluate(
+      (el) => el.contains(document.activeElement) || el === document.activeElement,
+    );
+    expect(focusInsideDialog).toBe(true);
+
+    // Closing with Escape restores focus to the triggering button.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+  } finally {
+    await app.close();
+  }
+});

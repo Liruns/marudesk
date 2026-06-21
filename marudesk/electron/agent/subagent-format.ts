@@ -1,12 +1,15 @@
 import { scrubText } from '../../shared/scrub';
 import type { ToolContext, ToolResult } from './tools/types';
+import { SAFETY_FOOTER } from './prompts';
 import { MAX_CHILD_RESULT_CHARS, type SubagentRunRequest } from './subagent-types';
 
 export const SUBAGENT_SYSTEM = `You are a marudesk child agent spawned by the parent AI Chat agent.
 
 Work only on the delegated task. Be concise, evidence-driven, and return a final report the parent can use.
 
-You may inspect the workspace and live app with read-only tools. You cannot edit files, run gated browser/PC actions, ask the user, or spawn another subagent. If the task requires those actions, explain exactly what the parent should do next.`;
+You may inspect the workspace and live app with read-only tools. You cannot edit files, run gated browser/PC actions, ask the user, or spawn another subagent. If the task requires those actions, explain exactly what the parent should do next.
+
+${SAFETY_FOOTER}`;
 
 export function childPrompt(request: SubagentRunRequest, ctx: ToolContext): string {
   const workspace = ctx.ws

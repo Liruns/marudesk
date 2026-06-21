@@ -12,6 +12,7 @@ import { useTabsStore } from './store';
 import { tabKinds } from './registry';
 import { useCanvasStore } from '../canvas/store';
 import { useSurfaceStore } from '../canvas/surface';
+import { useInstrumentStore } from '../work-graph/instrument';
 import type { TabState } from '../../../shared/browser';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
@@ -71,12 +72,18 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
     activeRef.current?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex]);
 
-  const choose = (id: string) => {
-    void activateTab(id);
-    // On the infinite canvas, also pan/zoom to the picked card — otherwise
-    // activating a tab off-screen leaves you staring at empty canvas.
+  const choose = (tab: TabState) => {
+    void activateTab(tab.id);
     if (useSurfaceStore.getState().mode === 'canvas') {
-      useCanvasStore.getState().revealTab(id);
+      // On the infinite canvas, also pan/zoom to the picked card — otherwise
+      // activating a tab off-screen leaves you staring at empty canvas.
+      useCanvasStore.getState().revealTab(tab.id);
+    } else {
+      // In Mission Control there is no canvas: activating in main alone leaves
+      // the Shell rendering the work graph while a web/terminal view paints over
+      // it (or a feature tab shows nothing). Host the picked tab as the full-area
+      // instrument, mirroring openInstrument / openFileInstrument.
+      useInstrumentStore.getState().open(tab.id, tab.kind);
     }
     onClose();
   };
@@ -91,7 +98,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const r = results[activeIndex];
-      if (r) choose(r.tab.id);
+      if (r) choose(r.tab);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
@@ -144,7 +151,7 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
                   key={tab.id}
                   ref={isActive ? activeRef : undefined}
                   type="button"
-                  onClick={() => choose(tab.id)}
+                  onClick={() => choose(tab)}
                   onMouseEnter={() => setActive(idx)}
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm transition-colors',

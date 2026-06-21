@@ -267,6 +267,18 @@ function resultOutputs(msgs: ModelMessage[]): Array<{ type: string; value: unkno
   // An unknown context window falls back to the default ceiling (no crash).
   const noWindow = capToolOutput('grep', txt(10_000), undefined);
   check('cap: undefined window uses default ceiling (no truncation under it)', !noWindow.truncated);
+  // Default-cap policy: an UNKNOWN / MCP / plugin tool name is now capped too,
+  // so one oversized result can't slip past the allowlist and eat the window.
+  const mcpCap = capToolOutput('mcp__foo__bar', big, 200_000);
+  check('cap: unknown MCP tool result is truncated', mcpCap.truncated);
+  check('cap: truncated MCP result carries the footer', mcpCap.text.includes('[output truncated'));
+  const readSession = capToolOutput('read_session', big, 200_000);
+  check('cap: read_session (formerly uncapped) is now truncated', readSession.truncated);
+  // Control tools stay exempt — they return tiny structured payloads, not bulk.
+  const askUser = capToolOutput('ask_user', big, 200_000);
+  check('cap: ask_user is exempt (never truncated)', !askUser.truncated && askUser.text === big);
+  const updatePlan = capToolOutput('update_plan', big, 200_000);
+  check('cap: update_plan is exempt (never truncated)', !updatePlan.truncated && updatePlan.text === big);
 }
 
 /* ── item 3: degradation monitor ─────────────────────────────────────────── */

@@ -83,7 +83,10 @@ export function applyIngestBatch(
             scriptsDirty = true;
           }
         };
-        const ensureNet = () => {
+        // Returns the populated request-id→index map so callers can use it
+        // without a non-null assertion. Lazily clones `network` + builds the
+        // index exactly once, then keeps reusing the same map.
+        const ensureNet = (): Map<string, number> => {
           if (!netDirty) {
             network = [...network];
             netIndex = new Map(network.map((e, i) => [e.requestId, i]));
@@ -91,6 +94,7 @@ export function applyIngestBatch(
           } else if (!netIndex) {
             netIndex = new Map(network.map((e, i) => [e.requestId, i]));
           }
+          return netIndex;
         };
         const pushConsole = (e: ConsoleEntry) => {
           if (!consoleDirty) {
@@ -109,8 +113,7 @@ export function applyIngestBatch(
         // Append one WS frame to its connection's row, dropping the oldest past
         // the per-connection cap (the Messages tab surfaces the dropped count).
         const pushWsFrame = (requestId: string, frame: WsFrame) => {
-          ensureNet();
-          const idx = netIndex!.get(requestId);
+          const idx = ensureNet().get(requestId);
           if (idx === undefined) return;
           const e = network[idx];
           const frames = [...(e.frames ?? []), frame];
@@ -353,7 +356,7 @@ export function applyIngestBatch(
 
             /* Network */
             case 'Network.requestWillBeSent': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
               const req = pAny.request as {
                 url: string;
@@ -379,9 +382,9 @@ export function applyIngestBatch(
               // First request of the document is the navigation baseline the
               // waterfall + DOMContentLoaded/Load offsets are measured against.
               if (navStart === null) navStart = entry.startTime;
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx === undefined) {
-                netIndex!.set(requestId, network.length);
+                net.set(requestId, network.length);
                 network.push(entry);
               } else {
                 network[idx] = { ...network[idx], ...entry };
@@ -412,7 +415,7 @@ export function applyIngestBatch(
               break;
             }
             case 'Network.responseReceived': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
               const resp = pAny.response as {
                 status: number;
@@ -423,7 +426,7 @@ export function applyIngestBatch(
                 remoteIPAddress?: string;
                 timing?: NetworkEntry['timing'];
               };
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx !== undefined) {
                 network[idx] = {
                   ...network[idx],
@@ -440,9 +443,9 @@ export function applyIngestBatch(
               break;
             }
             case 'Network.loadingFinished': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx !== undefined) {
                 network[idx] = {
                   ...network[idx],
@@ -453,9 +456,9 @@ export function applyIngestBatch(
               break;
             }
             case 'Network.loadingFailed': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx !== undefined) {
                 network[idx] = {
                   ...network[idx],
@@ -469,7 +472,7 @@ export function applyIngestBatch(
 
             /* Network: WebSockets + SSE */
             case 'Network.webSocketCreated': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
               const entry: NetworkEntry = {
                 requestId,
@@ -483,9 +486,9 @@ export function applyIngestBatch(
                 startTime: navStart ?? 0,
                 initiator: pAny.initiator as NetworkEntry['initiator'],
               };
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx === undefined) {
-                netIndex!.set(requestId, network.length);
+                net.set(requestId, network.length);
                 network.push(entry);
               } else {
                 network[idx] = { ...network[idx], ...entry };
@@ -493,9 +496,9 @@ export function applyIngestBatch(
               break;
             }
             case 'Network.webSocketWillSendHandshakeRequest': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx !== undefined) {
                 const req = pAny.request as { headers: Record<string, string> };
                 network[idx] = {
@@ -509,9 +512,9 @@ export function applyIngestBatch(
               break;
             }
             case 'Network.webSocketHandshakeResponseReceived': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx !== undefined) {
                 const resp = pAny.response as {
                   status: number;
@@ -569,18 +572,18 @@ export function applyIngestBatch(
               break;
             }
             case 'Network.webSocketClosed': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx !== undefined) {
                 network[idx] = { ...network[idx], endTime: pAny.timestamp as number };
               }
               break;
             }
             case 'Network.eventSourceMessageReceived': {
-              ensureNet();
+              const net = ensureNet();
               const requestId = pAny.requestId as string;
-              const idx = netIndex!.get(requestId);
+              const idx = net.get(requestId);
               if (idx === undefined) break;
               const e = network[idx];
               const bounded = boundedFramePayload((pAny.data as string) ?? '');

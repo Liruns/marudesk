@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, session } from 'electron';
 // Redirect userData to the active profile BEFORE any persistence module loads.
 import './profile-init';
 import { persistActiveProfile, profileDir, registerProfileHandlers } from './profile-store';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { maybeOpenEmbeddedDebugPort } from './agent/embedded-browser';
 import {
@@ -71,6 +71,7 @@ import { closeSplash, showSplash } from './splash';
 import { registerUiLayoutHandlers } from './ui-layout';
 import { registerWorkOsHandlers } from './agent/decompose';
 import { openExternalUrl } from './safe-open';
+import { isAllowedHostNavigation } from './host-navigation';
 import { startCompanion, stopCompanion } from './cli-bridge/companion';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -278,6 +279,15 @@ async function createMainWindow(): Promise<BrowserWindow> {
     },
   });
 
+  // The EXACT URL this window loads — the single trusted host document. In dev
+  // it's the Vite server URL; in prod it's the packaged index.html resolved to a
+  // `file://` URL. `will-navigate` pins to this exact entry (not the bare
+  // `file://` scheme), so the privileged renderer can't navigate to arbitrary
+  // local HTML on disk. `pathToFileURL` normalizes separators/encoding so the
+  // entry matches what Chromium reports for `will-navigate`.
+  const prodEntryFile = path.join(__dirname, '../dist/index.html');
+  const entryUrl = rendererDevUrl ?? pathToFileURL(prodEntryFile).href;
+
   // Push maximize/unmaximize state so the renderer can swap the icon.
   const pushMaximizeState = (): void => {
     if (win.isDestroyed()) return;
@@ -329,8 +339,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   win.webContents.on('will-navigate', (event, url) => {
-    const localPrefix = rendererDevUrl ?? 'file://';
-    if (!url.startsWith(localPrefix)) {
+    // Allow ONLY navigations that stay on the exact entry document (same
+    // origin + pathname; hash/query may differ for client-side routing).
+    // Anything else — a different local file, an http(s) URL, a custom scheme
+    // — is blocked and handed to the external-URL opener (which itself only
+    // accepts safe schemes), so the privileged host renderer can't escape its
+    // single-document boundary.
+    if (!isAllowedHostNavigation(url, entryUrl)) {
       event.preventDefault();
       void openExternalUrl(url);
     }
@@ -382,7 +397,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       await win.loadURL(rendererDevUrl);
       win.webContents.openDevTools({ mode: 'detach' });
     } else {
-      await win.loadFile(path.join(__dirname, '../dist/index.html'));
+      await win.loadFile(prodEntryFile);
     }
   } catch (err) {
     // A failed load must still surface a window (blank beats invisible) — the

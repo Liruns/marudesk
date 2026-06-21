@@ -506,21 +506,25 @@ export function formatFileManifest(manifest: FileManifest): string {
 /* ── Per-tool output cap (item 7 / omo tool-output-truncator) ─────────────── */
 
 /**
- * Tools whose textual result is capped post-execution (item 7). High-volume
- * search/fetch/command output can silently eat tens of thousands of tokens and
- * force a needless compaction. `read_file` is deliberately ABSENT: its output is
- * anchor-bearing and the model edits against it, so it must reach the model
- * intact (the read-tracker keeps the authoritative snapshot regardless).
+ * Tools whose textual result is NEVER capped (item 7). The policy is
+ * default-cap: ANY tool result is bounded by {@link capToolOutput} *unless* its
+ * name is exempted here, so a high-volume MCP / plugin / `read_*` result can no
+ * longer silently eat tens of thousands of tokens and force a needless
+ * compaction. Two exemption classes:
+ *
+ *  - `read_file`: its output is anchor-bearing and the model edits against it,
+ *    so it must reach the model intact (the read-tracker keeps the
+ *    authoritative snapshot regardless).
+ *  - Control tools (`ask_user` / `update_plan` / `spawn_*`): they return tiny
+ *    control payloads, not bulk content, so capping them is pointless and risks
+ *    clipping a structured signal the loop depends on.
  */
-export const TRUNCATABLE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'grep',
-  'list_files',
-  'run_command',
-  'read_network',
-  'read_network_body',
-  'fetch_url',
-  'web_search',
-  'query_dom',
+export const UNCAPPED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'read_file',
+  'ask_user',
+  'update_plan',
+  'spawn_background_agent',
+  'spawn_subagent',
 ]);
 
 /** ~4 chars/token; the default cap (~50k tokens) and a tighter cap for web fetches. */
@@ -538,14 +542,16 @@ const TIGHT_CAP_TOOLS: ReadonlySet<string> = new Set(['fetch_url', 'web_search']
  * caller applies it to the model-facing result string only. `contextWindow` is
  * the active model's window (0/undefined ⇒ use the default budget). The per-tool
  * cap is the smaller of the tool's ceiling and ~⅓ of the window, so one result
- * can't dominate the context.
+ * can't dominate the context. Default-cap: applies to ANY tool except the
+ * {@link UNCAPPED_TOOL_NAMES} exemptions (anchor-bearing reads + tiny control
+ * payloads).
  */
 export function capToolOutput(
   toolName: string,
   text: string,
   contextWindow: number | undefined,
 ): { text: string; truncated: boolean } {
-  if (!TRUNCATABLE_TOOL_NAMES.has(toolName)) return { text, truncated: false };
+  if (UNCAPPED_TOOL_NAMES.has(toolName)) return { text, truncated: false };
   const toolCeilingTokens = TIGHT_CAP_TOOLS.has(toolName)
     ? FETCH_MAX_OUTPUT_TOKENS
     : DEFAULT_MAX_OUTPUT_TOKENS;

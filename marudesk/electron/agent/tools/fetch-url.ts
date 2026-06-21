@@ -1,8 +1,7 @@
-import https from 'node:https';
-import http from 'node:http';
 import { scrubText } from '../../../shared/scrub';
 import { clampNumber } from '../../../shared/coerce';
 import { clipText } from '../../../shared/text-clip';
+import { guardedGet, isBlockedIp, BlockedHostError, type GuardedGetResult } from '../../net-guard';
 import type { McpTool, ToolResult } from './types';
 
 /**
@@ -14,9 +13,10 @@ import type { McpTool, ToolResult } from './types';
  *
  * Safety: it's `gated` (the user approves each call). As defense-in-depth against
  * SSRF — an agent reaching the user's own loopback/LAN services — we refuse non
- * http(s) URLs and any host that is a loopback / private / link-local address (and
- * re-check on every redirect hop). Output is scrubbed at egress and the response
- * size is capped before we ever decode it.
+ * http(s) URLs and resolve+validate+pin the host through the shared
+ * {@link guardedGet} guard (re-validating on every redirect hop, defeating DNS
+ * rebinding). Output is scrubbed at egress and the response size is capped before
+ * we ever decode it.
  */
 
 const MAX_CHARS = 20_000;
@@ -51,27 +51,16 @@ export function setFetchUrlTransportForTests(transport: FetchUrlTransport | null
 }
 
 /**
- * Whether a hostname is a loopback / private / link-local address we refuse to fetch
- * (SSRF guard). Literal hostnames only — we don't resolve DNS here; the per-call
- * approval gate is the primary control and this blocks the obvious internal targets.
+ * Synchronous literal-host pre-filter (SSRF defense-in-depth). Refuses `localhost`
+ * and any literal loopback / private / link-local IP BEFORE we spend a DNS lookup
+ * on it. The authoritative guard is {@link guardedGet}, which resolves + validates
+ * + pins EVERY host (including redirect hops) — a public hostname that resolves to
+ * an internal IP is caught there, not here.
  */
 export function isBlockedHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, ''); // strip IPv6 brackets
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  // IPv6 loopback / unique-local (fc00::/7) / link-local (fe80::/10).
-  if (host === '::1' || host === '::') return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true;
-  if (/^fe[89ab][0-9a-f]:/.test(host)) return true;
-  // IPv4 dotted-quad ranges.
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (m) {
-    const [a, b] = [Number(m[1]), Number(m[2])];
-    if (a === 127 || a === 0 || a === 10) return true; // loopback / "this" / private
-    if (a === 169 && b === 254) return true; // link-local
-    if (a === 192 && b === 168) return true; // private
-    if (a === 172 && b >= 16 && b <= 31) return true; // private
-  }
-  return false;
+  return isBlockedIp(host); // literal IP ranges (returns false for non-IP names)
 }
 
 /** Clamp a requested max-chars to a sane bound; default {@link MAX_CHARS}. */
@@ -188,71 +177,53 @@ async function fetchUrl(
   }
 }
 
-/** Real fetch over node http(s) with redirect following + a byte/time cap. */
-function httpGet(url: URL, signal: AbortSignal, redirectsLeft = MAX_REDIRECTS): Promise<FetchUrlResult> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const chunks: Buffer[] = [];
-    let total = 0;
-    const fail = (err: Error): void => {
-      if (settled) return;
-      settled = true;
-      reject(err);
-    };
-    const client = url.protocol === 'http:' ? http : https;
-    const req = client.get(
+/**
+ * Real fetch over the shared SSRF guard ({@link guardedGet}): resolve + validate +
+ * pin every host (including redirect hops), follow up to {@link MAX_REDIRECTS}
+ * redirects, and cap the body at {@link MAX_RESPONSE_BYTES}. Only 2xx responses
+ * succeed; anything else (or an oversize body) raises a {@link FetchUrlError}.
+ */
+async function httpGet(url: URL, signal: AbortSignal): Promise<FetchUrlResult> {
+  let total = 0;
+  let oversize = false;
+  let res: GuardedGetResult;
+  try {
+    res = await guardedGet(
       url,
-      { headers: { 'User-Agent': 'marudesk-agent/0.1', Accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8' }, signal },
-      (res) => {
-        const status = res.statusCode ?? 0;
-        // Follow redirects (re-checking the SSRF guard on each hop).
-        if (status >= 300 && status < 400 && res.headers.location) {
-          res.resume(); // drain
-          if (redirectsLeft <= 0) return fail(new FetchUrlError('Too many redirects.'));
-          let next: URL;
-          try {
-            next = new URL(res.headers.location, url);
-          } catch {
-            return fail(new FetchUrlError('Invalid redirect location.'));
-          }
-          if (next.protocol !== 'http:' && next.protocol !== 'https:') {
-            return fail(new FetchUrlError('Redirect to a non-http(s) URL.'));
-          }
-          if (isBlockedHost(next.hostname)) {
-            return fail(new FetchUrlError('Redirect to a blocked host.'));
-          }
-          if (settled) return;
-          settled = true;
-          httpGet(next, signal, redirectsLeft - 1).then(resolve, reject);
-          return;
+      (chunk) => {
+        total += chunk.length;
+        if (total > MAX_RESPONSE_BYTES) {
+          oversize = true;
+          return false; // stop reading
         }
-        if (status < 200 || status >= 300) {
-          res.resume();
-          return fail(new FetchUrlError(`Server returned HTTP ${status}.`));
-        }
-        const contentType = String(res.headers['content-type'] ?? '');
-        res.on('data', (chunk: Buffer) => {
-          total += chunk.length;
-          if (total > MAX_RESPONSE_BYTES) {
-            fail(new FetchUrlError('Response was too large.'));
-            req.destroy();
-            return;
-          }
-          chunks.push(chunk);
-        });
-        res.on('end', () => {
-          if (settled) return;
-          settled = true;
-          resolve({ status, contentType, body: Buffer.concat(chunks).toString('utf8'), finalUrl: url.href });
-        });
+        return true;
+      },
+      {
+        headers: {
+          'User-Agent': 'marudesk-agent/0.1',
+          Accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8',
+        },
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        maxRedirects: MAX_REDIRECTS,
+        signal,
       },
     );
-    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      fail(new FetchUrlError('Request timed out.'));
-      req.destroy();
-    });
-    req.on('error', () => fail(new FetchUrlError('Failed to fetch the URL.')));
-  });
+  } catch (err) {
+    if (err instanceof BlockedHostError) throw new FetchUrlError('Refused: that host is a non-public address.');
+    if (err instanceof Error && err.message === 'Too many redirects.') throw new FetchUrlError('Too many redirects.');
+    if (err instanceof Error && err.message === 'Request timed out.') throw new FetchUrlError('Request timed out.');
+    throw new FetchUrlError('Failed to fetch the URL.');
+  }
+  if (oversize) throw new FetchUrlError('Response was too large.');
+  if (res.status < 200 || res.status >= 300) {
+    throw new FetchUrlError(`Server returned HTTP ${res.status}.`);
+  }
+  return {
+    status: res.status,
+    contentType: String(res.headers['content-type'] ?? ''),
+    body: res.body.toString('utf8'),
+    finalUrl: res.finalUrl,
+  };
 }
 
 export const FETCH_URL_TOOL: McpTool = {
