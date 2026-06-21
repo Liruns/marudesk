@@ -33,9 +33,38 @@ type StoreShape = {
   hosts: Record<string, StoredEntry>;
 };
 
-/** Stable map key for a pinned host: `host:port`. */
+/**
+ * Normalize a host into a single canonical form so the SAME host can never be
+ * pinned (or looked up) under two different spellings — which would let a
+ * mismatched-key warning be dodged via an alternate spelling, weakening the
+ * trust-on-first-use pin.
+ *
+ *  - lowercases the host (hostnames are case-insensitive per DNS; IPv6 hex is
+ *    case-insensitive per RFC 5952), so `Example.com` ≡ `example.com`;
+ *  - unwraps any surrounding `[...]` brackets, then re-wraps IPv6 literals in a
+ *    single consistent `[addr]` form, so `[::1]` ≡ `::1` ≡ `[0:0:0:0:0:0:0:1]`
+ *    all collapse to the same bracketed literal.
+ *
+ * An IPv6 literal is detected structurally (contains a second `:` once the
+ * brackets are stripped) — names and IPv4 never contain `:`. The bracketed
+ * form is also what keeps `fromStored`'s `lastIndexOf(':')` split correct for
+ * IPv6 ids. Hostname and IPv4 ids keep the existing `host:port` shape, so
+ * already-pinned keys (the common case) stay compatible.
+ */
+function normalizeHost(host: string): string {
+  let bare = host.trim().toLowerCase();
+  // Unwrap any surrounding brackets to get the bare address.
+  while (bare.startsWith('[') && bare.endsWith(']')) {
+    bare = bare.slice(1, -1).trim();
+  }
+  // IPv6 literals are the only host form containing a colon; re-wrap them in a
+  // single canonical bracket so every spelling maps to one id.
+  return bare.includes(':') ? `[${bare}]` : bare;
+}
+
+/** Stable, normalized map key for a pinned host: `host:port` (`[ipv6]:port`). */
 export function hostKeyId(host: string, port: number): string {
-  return `${host}:${port}`;
+  return `${normalizeHost(host)}:${port}`;
 }
 
 /**

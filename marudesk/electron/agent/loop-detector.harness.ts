@@ -4,8 +4,13 @@ import {
   recordToolCall,
   toolCallSignature,
   loopDetectorNudge,
+  recordFailureWindow,
+  windowedFailureCount,
+  recoveryHint,
   LOOP_DETECTOR_THRESHOLD,
   LOOP_DETECTOR_CYCLE_MIN,
+  FAILURE_WINDOW_SIZE,
+  WINDOWED_FAILURE_THRESHOLD,
   type LoopDetectorState,
 } from './loop-detector.ts';
 
@@ -150,6 +155,77 @@ import {
   check('nudge names the tool', nudge.includes('read_file'));
   check('nudge names the count', nudge.includes('4'));
   check('nudge tells the model to stop/change', /change approach|ask_user/i.test(nudge));
+}
+
+/* ── windowed recovery: consecutive same-tool escalation ─────────────────── */
+{
+  // A single isolated failure does not nudge.
+  check('recovery: first failure is silent', recoveryHint('edit_file', 1, 1) === null);
+  // Two in a row → the "re-read / change approach" nudge.
+  const second = recoveryHint('edit_file', 2, 2);
+  check('recovery: 2 consecutive failures nudge', second !== null && /failed twice/.test(second));
+  // 3+ consecutive → the "stuck, solve differently / ask_user" escalation.
+  const third = recoveryHint('edit_file', 3, 3);
+  check('recovery: 3 consecutive failures escalate', third !== null && /ask_user/.test(third));
+}
+
+/* ── windowed recovery: ALTERNATING failing tools still escalate ──────────── */
+{
+  // The core gap the windowed signal closes: a model alternating two DISTINCT
+  // failing tools (A,B,A,B…) never reaches a consecutive-2 count for either tool,
+  // so the old consecutive-only recoveryHint stayed silent forever. The windowed
+  // total-failure signal escalates once enough of the recent window is failing.
+  const window: number[] = [];
+  // Simulate edit_file, run_command, edit_file, run_command … all failing. Each
+  // tool's consecutive count stays at 1 (it alternates), so only the WINDOW drives
+  // escalation. Names alternate; consecutive is pinned to 1 the whole time.
+  const tools = ['edit_file', 'run_command'];
+  let escalatedAt = -1;
+  for (let i = 0; i < FAILURE_WINDOW_SIZE; i++) {
+    recordFailureWindow(window, true); // every call fails
+    const windowed = windowedFailureCount(window);
+    const hint = recoveryHint(tools[i % 2], 1, windowed); // consecutive pinned at 1
+    if (hint !== null && escalatedAt === -1) escalatedAt = i;
+  }
+  check('recovery: alternating failing tools DO escalate via the window', escalatedAt !== -1);
+  check(
+    'recovery: window escalates exactly at the failure threshold',
+    escalatedAt === WINDOWED_FAILURE_THRESHOLD - 1,
+  );
+  // The windowed escalation cites the "keep failing this turn" wording, not the
+  // consecutive "failed twice" one (consecutive was pinned at 1 throughout).
+  const windowed = windowedFailureCount(window);
+  const hint = recoveryHint('edit_file', 1, windowed);
+  check('recovery: windowed nudge uses the tool-agnostic wording', hint !== null && /keep failing this turn/.test(hint));
+}
+
+/* ── windowed recovery: a mostly-successful turn does NOT escalate ─────────── */
+{
+  // A window with only sporadic failures (below the threshold) and no consecutive
+  // run stays silent — the signal must not fire on healthy work with a stray error.
+  const window: number[] = [];
+  // success, fail, success, success, fail, success → 2 failures over 6, under bar.
+  const outcomes = [false, true, false, false, true, false];
+  let everEscalated = false;
+  for (const isError of outcomes) {
+    recordFailureWindow(window, isError);
+    if (recoveryHint('grep', isError ? 1 : 0, windowedFailureCount(window)) !== null) everEscalated = true;
+  }
+  check('recovery: a mostly-successful turn never escalates', !everEscalated);
+}
+
+/* ── windowed recovery: the window slides (old failures age out) ──────────── */
+{
+  const window: number[] = [];
+  // Fill the window entirely with failures, then push successes; the count must
+  // fall back below the threshold as the old failures slide out of the window.
+  for (let i = 0; i < FAILURE_WINDOW_SIZE; i++) recordFailureWindow(window, true);
+  check('recovery: a full failing window is at capacity', window.length === FAILURE_WINDOW_SIZE);
+  check('recovery: a full failing window escalates', recoveryHint('t', 1, windowedFailureCount(window)) !== null);
+  for (let i = 0; i < FAILURE_WINDOW_SIZE; i++) recordFailureWindow(window, false);
+  check('recovery: the window never grows past its size', window.length === FAILURE_WINDOW_SIZE);
+  check('recovery: failures age out as successes slide in', windowedFailureCount(window) === 0);
+  check('recovery: a recovered turn stops escalating', recoveryHint('t', 1, windowedFailureCount(window)) === null);
 }
 
 console.log(`\n${passedCount()} checks passed`);

@@ -4,6 +4,8 @@ import {
   messageChars,
   serializeForCompaction,
   splitForTailPreservation,
+  applyPersistentNudge,
+  stripPersistentNudge,
 } from './compaction-utils';
 
 const user = (text: string): ModelMessage => ({ role: 'user', content: text });
@@ -143,5 +145,74 @@ describe('messageChars', () => {
   it('counts tool output and call input in structured content', () => {
     expect(messageChars(toolMsg('grep', { type: 'text', value: 'abcdef' }))).toBe(6);
     expect(messageChars(assistantCall('grep'))).toBeGreaterThan(0);
+  });
+});
+
+describe('persistent nudge (compaction-protected)', () => {
+  // The post-compaction transcript shape: a leading summary user message, an
+  // assistant ack, then the verbatim tail.
+  const rebuilt = (): ModelMessage[] => [
+    user('Summary of earlier conversation: did X, Y.'),
+    { role: 'assistant', content: 'Understood — continuing.' },
+    user('keep going'),
+  ];
+
+  it('stamps the nudge onto the leading summary message so it survives the boundary', () => {
+    const out = applyPersistentNudge(rebuilt(), '[recovery] edit_file failed twice — re-read the file.');
+    const head = out[0];
+    expect(typeof head.content === 'string' && head.content).toContain('<persistent-nudge>');
+    expect(typeof head.content === 'string' && head.content).toContain('[recovery] edit_file failed twice');
+    // The other turns are untouched.
+    expect(out[1]).toEqual(rebuilt()[1]);
+    expect(out[2]).toEqual(rebuilt()[2]);
+  });
+
+  it('is a no-op for a null nudge and returns the same reference', () => {
+    const msgs = rebuilt();
+    expect(applyPersistentNudge(msgs, null)).toBe(msgs);
+    expect(applyPersistentNudge(msgs, '   ')).toBe(msgs);
+  });
+
+  it('refreshes rather than stacks: a second nudge replaces the first', () => {
+    const once = applyPersistentNudge(rebuilt(), 'first nudge');
+    const twice = applyPersistentNudge(once, 'second nudge');
+    const head = twice[0];
+    const text = typeof head.content === 'string' ? head.content : '';
+    expect(text).toContain('second nudge');
+    expect(text).not.toContain('first nudge');
+    // Exactly one block survives.
+    expect(text.match(/<persistent-nudge>/g)?.length).toBe(1);
+  });
+
+  it('clears the block when the model recovers (null after a prior stamp)', () => {
+    const stamped = applyPersistentNudge(rebuilt(), 'nudge');
+    const cleared = applyPersistentNudge(stamped, null);
+    const head = cleared[0];
+    const text = typeof head.content === 'string' ? head.content : '';
+    expect(text).not.toContain('<persistent-nudge>');
+    // The summary prose itself is preserved intact.
+    expect(text).toBe('Summary of earlier conversation: did X, Y.');
+  });
+
+  it('strips a block from arbitrary text, leaving surrounding prose', () => {
+    const withBlock = 'prose before\n\n<persistent-nudge>\nnudge text\n</persistent-nudge>';
+    expect(stripPersistentNudge(withBlock)).toBe('prose before');
+    // Idempotent on text with no block.
+    expect(stripPersistentNudge('just prose')).toBe('just prose');
+  });
+
+  it('strips only the real (appended-last) block when prose echoes the open sentinel', () => {
+    // The summarized prose can echo the literal open marker. The real block is
+    // always appended at the tail, so the strip anchors to the LAST open marker:
+    // a first-match indexOf would delete from the prose marker THROUGH the real
+    // block's close, corrupting the summary between them.
+    const prose = 'summary head mentions <persistent-nudge> in passing';
+    const text = `${prose}\n\n<persistent-nudge>\nlive nudge\n</persistent-nudge>`;
+    expect(stripPersistentNudge(text)).toBe(prose);
+  });
+
+  it('leaves the transcript unchanged when there is no string user head', () => {
+    const noHead: ModelMessage[] = [assistantCall('grep'), toolMsg('grep', { type: 'text', value: 'x' })];
+    expect(applyPersistentNudge(noHead, 'nudge')).toBe(noHead);
   });
 });

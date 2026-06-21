@@ -43,7 +43,8 @@ function clipHeadAndTail(text: string, budget: number): string {
   const head = text.slice(0, half);
   const tail = text.slice(text.length - half);
   const elided = text.length - head.length - tail.length;
-  return `${head}… [${elided} chars elided] …${tail}`;
+  const unit = elided === 1 ? 'char' : 'chars';
+  return `${head}… [${elided} ${unit} elided] …${tail}`;
 }
 
 /** A clipped, whitespace-collapsed slice of one tool result's textual output. */
@@ -806,4 +807,65 @@ export function repairToolPairs(
   }
 
   return { messages: out, injectedResults, droppedResults };
+}
+
+/* ── Compaction-protected persistent nudge ────────────────────────────────── */
+
+/**
+ * Sentinel markers around a persistent nudge stamped onto the leading summary
+ * message of a rebuilt transcript. The block is appended AFTER summarization
+ * (never fed to the summarizer) and stripped before a merge pass re-derives, so
+ * a not-yet-acted-on recovery/loop nudge survives a compaction boundary verbatim
+ * instead of being summarized away inside a prunable tool-result.
+ */
+const NUDGE_OPEN = '<persistent-nudge>';
+const NUDGE_CLOSE = '</persistent-nudge>';
+
+/** Whether a message can carry the protected nudge block (the leading summary user message). */
+function isStringUserMessage(m: ModelMessage | undefined): m is ModelMessage & { content: string } {
+  return !!m && m.role === 'user' && typeof m.content === 'string';
+}
+
+/**
+ * Strip any `<persistent-nudge>` block a previous compaction stamped onto the
+ * leading summary message, so a merge pass doesn't re-summarize a stale nudge as
+ * prose (the caller re-applies the live nudge, if any, after summarizing). Pure.
+ */
+export function stripPersistentNudge(text: string): string {
+  // Anchor to the LAST open marker: applyPersistentNudge always appends our block
+  // at the tail, so the real block is the last occurrence. Using lastIndexOf keeps
+  // the strip robust if the summarized prose itself echoes the sentinel earlier
+  // in the text (a first-match indexOf would delete everything between that prose
+  // false-positive and our real block's close).
+  const open = text.lastIndexOf(NUDGE_OPEN);
+  if (open === -1) return text;
+  const close = text.indexOf(NUDGE_CLOSE, open);
+  if (close === -1) return text.slice(0, open).trimEnd();
+  return (text.slice(0, open) + text.slice(close + NUDGE_CLOSE.length)).trimEnd();
+}
+
+/**
+ * Stamp a compaction-protected persistent nudge onto the leading summary message
+ * of a rebuilt transcript so a not-yet-acted-on recovery/loop nudge survives the
+ * compaction boundary verbatim. Returns a NEW array (input untouched); a null /
+ * blank nudge is a no-op that still strips any prior block. The block lands on
+ * the first `string`-content `user` message (the `${SUMMARY_PREFIX}…` summary the
+ * compaction rebuild puts at the head); if none exists the transcript is returned
+ * unchanged. Pure — no Electron/fs.
+ */
+export function applyPersistentNudge(
+  msgs: ModelMessage[],
+  nudge: string | null,
+): ModelMessage[] {
+  const idx = msgs.findIndex((m) => isStringUserMessage(m));
+  if (idx === -1) return msgs;
+  const target = msgs[idx];
+  if (typeof target.content !== 'string') return msgs;
+  const base = stripPersistentNudge(target.content);
+  const trimmed = nudge?.trim();
+  const content = trimmed ? `${base}\n\n${NUDGE_OPEN}\n${trimmed}\n${NUDGE_CLOSE}` : base;
+  if (content === target.content) return msgs;
+  const out = [...msgs];
+  out[idx] = { role: 'user', content };
+  return out;
 }

@@ -13,6 +13,8 @@ import {
   formatFileManifest,
   stripFileManifest,
   repairToolPairs,
+  applyPersistentNudge,
+  stripPersistentNudge,
   POST_COMPACTION_MONITOR_COUNT,
 } from './compaction-utils.ts';
 import {
@@ -42,7 +44,10 @@ const COMPACTION_TAIL_FRACTION = 0.3;
 function priorSummaryText(m: ModelMessage | undefined): string | undefined {
   if (!m || m.role !== 'user' || typeof m.content !== 'string') return undefined;
   if (!m.content.startsWith(SUMMARY_PREFIX)) return undefined;
-  const body = m.content.slice(SUMMARY_PREFIX.length).trim();
+  // Drop any compaction-protected persistent-nudge block first: it's a live
+  // operational note (a not-yet-acted-on recovery/loop nudge), not history, so it
+  // must not be fed back into the summarizer as prose on a merge pass.
+  const body = stripPersistentNudge(m.content.slice(SUMMARY_PREFIX.length).trim()).trim();
   return body.length > 0 ? body : undefined;
 }
 
@@ -147,7 +152,13 @@ export async function compactConversation(
         `[compaction] tool-pair repair: injected ${repaired.injectedResults} placeholder result(s), dropped ${repaired.droppedResults} orphan result(s)`,
       );
     }
-    S.transcript = repaired.messages;
+    // Carry a not-yet-acted-on recovery/loop nudge across the boundary as a
+    // compaction-PROTECTED note on the leading summary message, so a mid-turn
+    // preemptive compaction can't summarize it away before the model acts on it.
+    // A null nudge is a no-op (and still strips any stale block re-derivation
+    // could have re-introduced). Applied AFTER the summarizer ran, so the nudge
+    // text is never itself summarized.
+    S.transcript = applyPersistentNudge(repaired.messages, S.persistentNudge);
     // Keep the visible scrollback intact; just mark where the model's memory was
     // condensed. The divider holds the summary so the user can expand it to see
     // exactly what the model carried forward.

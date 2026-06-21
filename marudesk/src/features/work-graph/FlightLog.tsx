@@ -65,6 +65,7 @@ export function FlightLogButton() {
   return (
     <button
       type="button"
+      data-tour="flight-log"
       onClick={toggle}
       aria-label="Flight log"
       aria-pressed={open}

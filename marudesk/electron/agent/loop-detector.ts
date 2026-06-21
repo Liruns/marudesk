@@ -198,3 +198,64 @@ export function loopDetectorNudge(
     `or if you are stuck, call ask_user to get the user's help instead of looping.`
   );
 }
+
+/* ── Windowed recovery nudge (failure-driven, tool-agnostic) ──────────────── */
+
+/** How many recent tool calls the windowed failure signal looks back over. */
+export const FAILURE_WINDOW_SIZE = 6;
+/**
+ * Failures within the window that escalate recovery even across DIFFERENT tools.
+ * The per-tool consecutive counter only escalates on the SAME tool failing in a
+ * row, so a model alternating two failing tools (A,B,A,B…) never tripped it; this
+ * windowed bar catches a turn that is mostly failing regardless of which tool.
+ */
+export const WINDOWED_FAILURE_THRESHOLD = 4;
+
+/**
+ * Record one tool call's outcome onto a sliding failure window (mutates in
+ * place): push `1` for a failure / `0` for success and drop the oldest entry once
+ * the window exceeds {@link FAILURE_WINDOW_SIZE}, so it always reflects the last
+ * N calls of this turn.
+ */
+export function recordFailureWindow(window: number[], isError: boolean): void {
+  window.push(isError ? 1 : 0);
+  if (window.length > FAILURE_WINDOW_SIZE) window.shift();
+}
+
+/** Total failures currently inside the sliding window. */
+export function windowedFailureCount(window: number[]): number {
+  return window.reduce((n, v) => n + v, 0);
+}
+
+/**
+ * Recovery nudge for a turn that keeps failing (§G4). Two escalation signals:
+ *  - `consecutiveFailures`: the SAME tool failing in a row (2 → re-read / change
+ *    approach; 3+ → this approach is stuck, solve it differently or ask_user).
+ *  - `windowedFailures`: total failures across the recent window REGARDLESS of
+ *    tool, so a model alternating two distinct failing tools (A,B,A,B…) — which
+ *    the consecutive counter never catches — still escalates once enough of the
+ *    window is failing.
+ * Returns null when neither signal warrants a nudge (a single isolated error).
+ */
+export function recoveryHint(
+  name: string,
+  consecutiveFailures: number,
+  windowedFailures: number,
+): string | null {
+  const stuck = consecutiveFailures >= 3 || windowedFailures >= WINDOWED_FAILURE_THRESHOLD;
+  if (stuck) {
+    return (
+      `[recovery] tool calls keep failing this turn (${name} just failed; ` +
+      `${windowedFailures} of the last ${FAILURE_WINDOW_SIZE} calls errored). ` +
+      `Stop retrying this approach: either solve the problem a fundamentally different way, ` +
+      `or call ask_user to get the user's help instead of guessing.`
+    );
+  }
+  if (consecutiveFailures === 2) {
+    return (
+      `[recovery] ${name} has now failed twice in a row. Do not repeat the same call — ` +
+      `re-read the relevant file/state (it may have changed) or take a different approach.`
+    );
+  }
+  return null;
+}

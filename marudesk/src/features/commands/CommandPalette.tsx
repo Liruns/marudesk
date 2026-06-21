@@ -148,6 +148,7 @@ export function CommandPaletteButton() {
   return (
     <button
       type="button"
+      data-tour="command-palette"
       onClick={toggle}
       aria-label="Command palette"
       aria-pressed={open}
@@ -273,9 +274,7 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
         </ul>
         <PaletteHints>
           <Hint k="↑↓" label={t('palette.hint.move')} />
-          {/* No palette.hint.run key exists yet and i18n is owned elsewhere this
-              round; the dialog label is already a literal, so this verb is too. */}
-          <Hint k="↵" label="run" />
+          <Hint k="↵" label={t('palette.hint.run')} />
           <Hint k="esc" label={t('palette.hint.close')} />
         </PaletteHints>
     </PaletteOverlay>

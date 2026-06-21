@@ -8,6 +8,8 @@ import {
   pruneStaleToolOutputsInHead,
   capToolOutput,
   advanceDegradationMonitor,
+  applyPersistentNudge,
+  stripPersistentNudge,
   POST_COMPACTION_NO_TEXT_THRESHOLD,
 } from './compaction-utils.ts';
 
@@ -311,6 +313,58 @@ function resultOutputs(msgs: ModelMessage[]): Array<{ type: string; value: unkno
   const adv = advanceDegradationMonitor({ monitorRemaining: 0, emptyStreak: 9 }, false);
   check('monitor: inert when window is closed', !adv.degraded);
   check('monitor: closed window state is unchanged', adv.state.monitorRemaining === 0 && adv.state.emptyStreak === 9);
+}
+
+/* ── persistent nudge survives the compaction boundary ───────────────────── */
+{
+  // Simulate the compaction rebuild: a leading summary user message, an assistant
+  // ack, then a verbatim tail. A not-yet-acted-on recovery nudge stamped here
+  // must survive verbatim — the whole point of the compaction-protected channel
+  // (a prunable tool-result nudge would be summarized away instead).
+  const nudge = '[recovery] tool calls keep failing this turn. Take a different approach.';
+  const rebuilt: ModelMessage[] = [
+    { role: 'user', content: 'Summary of earlier conversation: explored the repo.' },
+    { role: 'assistant', content: 'Understood — continuing.' },
+    { role: 'user', content: 'keep going' },
+    assistantCall('c1', 'grep', { pattern: 'foo' }),
+    toolResult('c1', 'grep', 'a match'),
+  ];
+  // The boundary repair runs first (pairs must stay intact), THEN the nudge is
+  // stamped — exactly the order compactConversation uses.
+  const repaired = repairToolPairs(rebuilt);
+  const withNudge = applyPersistentNudge(repaired.messages, nudge);
+  const head = withNudge[0];
+  const headText = typeof head.content === 'string' ? head.content : '';
+  check('persistent-nudge: survives the boundary verbatim', headText.includes(nudge));
+  check('persistent-nudge: stamped in a protected block', headText.includes('<persistent-nudge>'));
+  check('persistent-nudge: pairs stay intact after stamping', pairsIntact(withNudge));
+  check(
+    'persistent-nudge: the verbatim tail is untouched',
+    withNudge[withNudge.length - 1].role === 'tool',
+  );
+
+  // A null nudge (model has recovered) clears the block and is a no-op otherwise.
+  const cleared = applyPersistentNudge(withNudge, null);
+  const clearedText = typeof cleared[0].content === 'string' ? cleared[0].content : '';
+  check('persistent-nudge: a null nudge clears the protected block', !clearedText.includes('<persistent-nudge>'));
+  check(
+    'persistent-nudge: clearing preserves the summary prose',
+    clearedText === 'Summary of earlier conversation: explored the repo.',
+  );
+
+  // A merge pass must strip a stale block from the prior summary before feeding it
+  // to the summarizer, so a not-yet-acted nudge is never re-summarized as history.
+  check(
+    'persistent-nudge: strip removes the block from a prior summary body',
+    stripPersistentNudge(`prior summary text\n\n<persistent-nudge>\n${nudge}\n</persistent-nudge>`) ===
+      'prior summary text',
+  );
+
+  // Refresh (not stack): a second nudge replaces the first — only one block lives.
+  const refreshed = applyPersistentNudge(withNudge, 'a newer nudge');
+  const refreshedText = typeof refreshed[0].content === 'string' ? refreshed[0].content : '';
+  check('persistent-nudge: refresh replaces the prior nudge', refreshedText.includes('a newer nudge') && !refreshedText.includes(nudge));
+  check('persistent-nudge: exactly one block after refresh', (refreshedText.match(/<persistent-nudge>/g)?.length ?? 0) === 1);
 }
 
 console.log(`\n${passedCount()} checks passed`);

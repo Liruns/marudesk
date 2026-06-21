@@ -14,15 +14,24 @@ export type TourStep = {
 export const TOUR_STEPS: readonly TourStep[] = [
   { title: 'tour.step.welcome.title', body: 'tour.step.welcome.body' },
   {
-    target: '[data-tour="workspace-rail"]',
-    title: 'tour.step.workspaces.title',
-    body: 'tour.step.workspaces.body',
+    target: '[data-tour="command-palette"]',
+    title: 'tour.step.palette.title',
+    body: 'tour.step.palette.body',
   },
-  { target: '[data-tour="tabs"]', title: 'tour.step.tabs.title', body: 'tour.step.tabs.body' },
   {
-    target: '[data-tour="activity-bar"]',
-    title: 'tour.step.activity.title',
-    body: 'tour.step.activity.body',
+    target: '[data-tour="goal"]',
+    title: 'tour.step.goal.title',
+    body: 'tour.step.goal.body',
+  },
+  {
+    target: '[data-tour="workspace"]',
+    title: 'tour.step.workspace.title',
+    body: 'tour.step.workspace.body',
+  },
+  {
+    target: '[data-tour="flight-log"]',
+    title: 'tour.step.flightLog.title',
+    body: 'tour.step.flightLog.body',
   },
   { title: 'tour.step.done.title', body: 'tour.step.done.body' },
 ];

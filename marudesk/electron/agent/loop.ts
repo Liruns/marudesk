@@ -33,6 +33,9 @@ import {
   emptyLoopDetectorState,
   recordToolCall as recordLoopDetectorCall,
   loopDetectorNudge,
+  recordFailureWindow,
+  windowedFailureCount,
+  recoveryHint,
   type LoopDetectorState,
 } from './loop-detector.ts';
 import {
@@ -481,6 +484,14 @@ async function runLoop(opts: RunOpts): Promise<void> {
   // recovery hint to its model-facing result so the agent stops blindly repeating
   // the same call and instead re-reads state, changes approach, or asks the user.
   const toolFailures = new Map<string, number>();
+  // Windowed total-failure signal: a rolling count of tool failures within the
+  // last WINDOW tool calls of THIS turn, regardless of which tool failed. The
+  // per-tool `toolFailures` counter only escalates on CONSECUTIVE same-tool
+  // failures, so a model alternating two distinct failing tools (A,B,A,B…) never
+  // tripped recoveryHint. This windowed signal closes that gap: a turn that is
+  // mostly failing — even across different tools — still escalates. `1` marks a
+  // failure, `0` a success; the window slides as calls are recorded.
+  const failureWindow: number[] = [];
   // Same-input loop detector (SECOND-PASS item 4): tracks consecutive identical
   // (name + args) tool calls so a success-spin (re-reading the same file forever)
   // is caught and nudged, which `toolFailures` (failures only) misses.
@@ -649,8 +660,12 @@ async function runLoop(opts: RunOpts): Promise<void> {
         current = next;
         // Fresh provider: don't carry stale per-tool consecutive-failure counts
         // (else a tool that failed once before fail-over hits the recovery-hint
-        // threshold prematurely on the new provider).
+        // threshold prematurely on the new provider). The windowed signal resets
+        // for the same reason — pre-failover failures shouldn't escalate the new
+        // provider — and the protected nudge clears so a stale one isn't carried.
         toolFailures.clear();
+        failureWindow.length = 0;
+        S.persistentNudge = null;
         emit();
         return true;
       };
@@ -1002,13 +1017,28 @@ async function runLoop(opts: RunOpts): Promise<void> {
         ? { text: out.text, truncated: false }
         : capToolOutput(call.name, out.text, currentContextWindow);
       let modelText = capped.text;
-      // Recovery hint (§G4): track consecutive per-tool failures and nudge the
-      // agent out of a retry loop. Appended to the model-facing text only.
+      // The strongest persistent nudge fired this step — recovery (failure-driven)
+      // or loop-detector. Carried onto the container as a compaction-PROTECTED
+      // note so a mid-turn preemptive compaction can't summarize it away before
+      // the model acts. Refreshed below; null clears it once behavior recovers.
+      let persistentNudge: string | null = null;
+      // Windowed failure signal (slides as every call settles): the rolling count
+      // of failures within the last WINDOW calls. Drives recovery escalation for
+      // ALTERNATING failing tools that the consecutive-same-tool counter misses.
+      recordFailureWindow(failureWindow, out.isError ?? false);
+      // Recovery hint (§G4): nudge the agent out of a retry loop when EITHER the
+      // same tool keeps failing in a row OR the turn is failing broadly across
+      // tools (windowed). Appended to the model-facing text AND carried as the
+      // protected nudge so it survives a compaction boundary.
       if (out.isError) {
         const n = (toolFailures.get(call.name) ?? 0) + 1;
         toolFailures.set(call.name, n);
-        const hint = recoveryHint(call.name, n);
-        if (hint) modelText = `${modelText}\n\n${hint}`;
+        const windowed = windowedFailureCount(failureWindow);
+        const hint = recoveryHint(call.name, n, windowed);
+        if (hint) {
+          modelText = `${modelText}\n\n${hint}`;
+          persistentNudge = hint;
+        }
       } else {
         toolFailures.delete(call.name);
       }
@@ -1020,9 +1050,18 @@ async function runLoop(opts: RunOpts): Promise<void> {
         const ld = recordLoopDetectorCall(loopDetector, call.name, call.input);
         loopDetector = ld.state;
         if (ld.tripped && ld.toolName) {
-          modelText = `${modelText}\n\n${loopDetectorNudge(ld.toolName, ld.repeatedCount, ld.kind)}`;
+          const loopNudge = loopDetectorNudge(ld.toolName, ld.repeatedCount, ld.kind);
+          modelText = `${modelText}\n\n${loopNudge}`;
+          // A loop nudge on an OK call is still a not-yet-acted-on signal worth
+          // protecting; a recovery nudge (failure) takes precedence when both fire.
+          if (!persistentNudge) persistentNudge = loopNudge;
         }
       }
+      // Carry/refresh the protected nudge for THIS step. Setting it every step a
+      // nudge fires (rather than only on change) keeps it live until the model
+      // changes behavior; a clean step (no nudge) clears it so it isn't re-stamped
+      // onto a future compaction after the model has already recovered.
+      S.persistentNudge = persistentNudge;
       // Task-delegation reminder (item: agent-usage-reminder): a delegation
       // (spawn_subagent) suppresses it; a long run of direct survey reads with no
       // delegation trips a once-per-turn nudge. Appended to the model-facing text.
@@ -1246,20 +1285,6 @@ async function dispatchToolBounded(
 }
 
 /**
- * Recovery nudge for a tool that keeps failing in the same turn (§G4). Escalates:
- * a 2nd consecutive failure says "stop repeating, re-read / change approach"; a
- * 3rd+ says "this approach is stuck — solve it differently or ask the user".
- * Returns null on the first failure (a single error needs no nudge).
- */
-function recoveryHint(name: string, consecutiveFailures: number): string | null {
-  if (consecutiveFailures <= 1) return null;
-  if (consecutiveFailures === 2) {
-    return `[recovery] ${name} has now failed twice in a row. Do not repeat the same call — re-read the relevant file/state (it may have changed) or take a different approach.`;
-  }
-  return `[recovery] ${name} has failed ${consecutiveFailures} times in a row. Stop retrying this approach: either solve the problem a fundamentally different way, or call ask_user to get the user's help instead of guessing.`;
-}
-
-/**
  * The model-facing reminder injected as the tool_result for a call whose JSON
  * arguments couldn't be parsed (item 3 / omo json-error-recovery). Fires on the
  * FIRST malformed call — unlike the 2-strike {@link recoveryHint} — so the model
@@ -1338,6 +1363,10 @@ function finish(S: ThreadContainer, status: AgentChatState['status'], note?: str
   // LABEL, not a fake assistant message in the S.transcript (v3 polish).
   S.state.endNote = note ?? null;
   S.state.status = status;
+  // The persistent recovery/loop nudge is a turn-local signal — clear it at turn
+  // end so a not-yet-acted-on nudge never leaks into the NEXT turn (or the
+  // end-of-turn auto-compaction below, which would otherwise re-stamp it).
+  S.persistentNudge = null;
   // Scrub before it crosses to the renderer — provider/OAuth error bodies in the
   // message can carry tokens/keys/PII (scrubText is idempotent + already applied
   // to humanizeModelError at its other callers).

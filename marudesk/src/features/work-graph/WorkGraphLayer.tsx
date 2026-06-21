@@ -387,7 +387,7 @@ export function WorkGraphPanel() {
     : 'No graph yet';
 
   return (
-    <div className="absolute left-3 top-14 z-50 w-72 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in">
+    <div data-tour="goal" className="absolute left-3 top-14 z-50 w-72 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-caption font-medium text-fg-secondary">Goal</span>
       </div>

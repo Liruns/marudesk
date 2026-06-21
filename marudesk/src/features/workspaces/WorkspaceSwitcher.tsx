@@ -87,6 +87,7 @@ export function WorkspaceSwitcher() {
     <>
       <button
         type="button"
+        data-tour="workspace"
         aria-label={`Workspace: ${active?.name ?? 'None'}`}
         title={`Workspace: ${active?.name ?? 'None'} — switch or manage workspaces`}
         onClick={openMenu}
