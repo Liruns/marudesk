@@ -110,6 +110,12 @@ export function WorkGraphInspectorContent() {
 
   const result = task.evidence?.result;
   const patch = task.evidence?.patch;
+  // Advisory in-worktree pre-flight (round-34). Honest tri-state: show a green
+  // "verified in worktree" affordance ONLY when true; false → a caution note
+  // (errors remained); undefined → an "unverified" note. verifyNote is rendered
+  // as DATA (it comes from the agent/run-task), never trusted as a verdict.
+  const worktreeVerified = task.evidence?.worktreeVerified;
+  const verifyNote = task.evidence?.verifyNote;
   const taskId = task.id;
   // A failed/blocked task frames its primary action as RETRY (the call is the same
   // implementTask); a normal task keeps the exact "Implement" label e2e asserts.
@@ -311,6 +317,23 @@ export function WorkGraphInspectorContent() {
             <p className="mt-1 text-caption text-fg-tertiary">
               {t('workGraph.inspector.throwawayNote')}
             </p>
+            {/* Worktree pre-flight (advisory). Green "verified" ONLY for true;
+                false/undefined never read as verified — false is a caution, an
+                undefined is an honest "unverified" note. verifyNote is data. */}
+            {worktreeVerified === true ? (
+              <p className="mt-1 flex items-center gap-1 text-caption text-success">
+                <Check size={11} aria-hidden />
+                <span>{t('workGraph.inspector.worktreeVerified')}{verifyNote ? ` — ${verifyNote}` : ''}</span>
+              </p>
+            ) : worktreeVerified === false ? (
+              <p className="mt-1 text-caption text-warning">
+                {t('workGraph.inspector.worktreeVerifyFailed')}{verifyNote ? ` — ${verifyNote}` : ''}
+              </p>
+            ) : (
+              <p className="mt-1 text-caption text-fg-tertiary">
+                {t('workGraph.inspector.worktreeUnverified')}{verifyNote ? ` — ${verifyNote}` : ''}
+              </p>
+            )}
             <button
               type="button"
               disabled={running || applyingPatchTaskId !== null}

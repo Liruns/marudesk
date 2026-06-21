@@ -85,8 +85,13 @@ type CheckerOutput = { stdout: string; stderr: string; exitCode: number | null; 
  * there (tsc diagnostics, eslint --format json), and keeping stderr out of it
  * stops a config-warning line from corrupting JSON parsing.
  */
-function runOne(command: string, cwd: string): Promise<CheckerOutput> {
+function runOne(command: string, cwd: string, signal?: AbortSignal): Promise<CheckerOutput> {
   return new Promise((resolve) => {
+    // An already-aborted signal must not even spawn the checker.
+    if (signal?.aborted) {
+      resolve({ stdout: '', stderr: 'aborted', exitCode: null, truncated: false });
+      return;
+    }
     const child = spawn(command, { cwd, env: inheritSafeEnv(), shell: true });
     let stdout = '';
     let stderr = '';
@@ -110,12 +115,23 @@ function runOne(command: string, cwd: string): Promise<CheckerOutput> {
     child.stdout?.on('data', onOut);
     child.stderr?.on('data', onErr);
     const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
-    child.on('error', (err) => {
+    // Abort the checker early when the caller's run deadline fires, so a worktree
+    // pre-flight probe is bound to the run budget and never self-bounds at the
+    // full TIMEOUT_MS past it. `close` still resolves the promise afterward.
+    const onAbort = (): void => {
+      child.kill();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const finish = (): void => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    child.on('error', (err) => {
+      finish();
       resolve({ stdout: '', stderr: `failed to start: ${err.message}`, exitCode: null, truncated });
     });
     child.on('close', (code) => {
-      clearTimeout(timer);
+      finish();
       resolve({ stdout, stderr, exitCode: code, truncated });
     });
   });
@@ -138,8 +154,13 @@ function applicableCheckers(root: string): CheckerRecipe[] {
  * Run all applicable checkers for `root`, parse + merge their diagnostics, cache
  * the result, and notify the listener (start + finish). Never throws — a checker
  * that fails to start is reflected in the run's exitCode, not an exception.
+ *
+ * An optional `signal` binds the checker legs to a caller deadline (e.g. a Work-OS
+ * run budget): an aborted signal stops before the next checker and kills the
+ * in-flight child. Additive — callers without a deadline pass nothing and the
+ * pass self-bounds at {@link TIMEOUT_MS} per checker as before.
  */
-export async function runDiagnostics(root: string): Promise<DiagnosticsState> {
+export async function runDiagnostics(root: string, signal?: AbortSignal): Promise<DiagnosticsState> {
   const checkers = applicableCheckers(root);
   runningRoot = root;
   emit(root);
@@ -151,13 +172,14 @@ export async function runDiagnostics(root: string): Promise<DiagnosticsState> {
     let exitCode: number | null = null;
     let truncated = false;
     for (const checker of checkers) {
+      if (signal?.aborted) break; // run deadline fired — stop before the next checker
       const command = checker.resolveCommand(root);
       if (!command) continue; // recipe opted out for this root
       commands.push(command);
       ran.push(checker.id);
       // A checker that has run participates in the aggregate exit code (start at 0).
       if (exitCode === null) exitCode = 0;
-      const result = await runOne(command, root);
+      const result = await runOne(command, root, signal);
       if (result.truncated) truncated = true;
       diagnostics.push(...checker.parse(result.stdout, root));
       // Surface the first non-zero/failed exit (a clean pass leaves it at 0).

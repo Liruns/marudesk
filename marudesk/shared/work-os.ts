@@ -103,6 +103,19 @@ export type TaskEvidence = {
    * applying. Present only after an "implement" run.
    */
   patch?: string;
+  /**
+   * Advisory in-worktree pre-flight result (round-34): mirrors
+   * {@link ImplementTaskResult.worktreeVerified}. `true` = the worktree's own
+   * checker ran over the changed files and found NO errors; `false` = error(s)
+   * remained after the bounded fix loop; `undefined` = no applicable checker so
+   * it stays HONESTLY unverified. Surfaced ONLY as an advisory note — a green
+   * "verified in worktree" affordance shows ONLY for `true`; `undefined`/`false`
+   * must never read as verified (the binding gate is still the apply-time
+   * {@link ApplyPatchResult.verdict}). Session state — never persisted.
+   */
+  worktreeVerified?: boolean;
+  /** Short human note describing the worktree verification outcome (data, not derived). */
+  verifyNote?: string;
 };
 
 export type Task = {
@@ -242,6 +255,58 @@ export function isEdgeType(v: unknown): v is EdgeType {
 /** A status the scheduler treats as "finished" (won't run / re-run). */
 export function isTerminalStatus(s: TaskStatus): boolean {
   return s === 'done' || s === 'failed';
+}
+
+/**
+ * Keywords the apply-time STATIC checker (run_diagnostics / typecheck / lint /
+ * build over the changed files) can actually speak to. Kept deliberately
+ * conservative — only terms that unambiguously name the checker's own domain.
+ * Single source of truth for {@link criterionVerifiableByChecker}.
+ */
+const CHECKER_VERIFIABLE_KEYWORDS: readonly string[] = [
+  'typecheck',
+  'type-check',
+  'type check',
+  'tsc',
+  'type error',
+  'type errors',
+  'lint',
+  'eslint',
+  'build',
+  'builds',
+  'compile',
+  'compiles',
+  'compilation',
+];
+
+/**
+ * Word-boundary matchers for {@link CHECKER_VERIFIABLE_KEYWORDS}. Boundaries
+ * (not raw substring) so 'building'/'rebuild'/'flint' don't match 'build'/'lint'.
+ * NOTE: a bare 'no errors' keyword is deliberately NOT included — it's ambiguous
+ * (runtime/UI "no errors" vs checker "no errors"), so a criterion must NAME the
+ * checker's domain (typecheck/lint/build/compile) to be stamped; "no type errors"
+ * still matches via 'type errors'.
+ */
+const CHECKER_VERIFIABLE_PATTERNS: readonly RegExp[] = CHECKER_VERIFIABLE_KEYWORDS.map(
+  (kw) => new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`),
+);
+
+/**
+ * Whether an acceptance criterion's text clearly refers to the apply-time STATIC
+ * checker's domain (typecheck / lint / build / compile) — the ONLY signal the
+ * checker (verifyChangedFiles in run-task.ts) actually proves. The checker runs
+ * tsc/eslint over the changed files; it cannot observe behavioral outcomes like
+ * "endpoint returns 200" or "no console errors at runtime", so those criteria
+ * must NOT be stamped from its verdict.
+ *
+ * False-negative-biased ON PURPOSE: when the text doesn't obviously name the
+ * checker's domain, this returns `false`, so the criterion stays its existing
+ * verdict ('unknown' by default) — honestly unverified beats a fabricated pass.
+ * Pure + total so the same predicate gates both store stamping and tests.
+ */
+export function criterionVerifiableByChecker(text: string): boolean {
+  const lower = text.toLowerCase();
+  return CHECKER_VERIFIABLE_PATTERNS.some((re) => re.test(lower));
 }
 
 /* ── pure scheduler (dependency order + parallelism) ────────────────────────

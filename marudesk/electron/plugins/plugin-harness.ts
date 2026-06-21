@@ -110,6 +110,8 @@ async function main(): Promise<void> {
 
   // A failed tool call is recorded in the host's per-plugin log ring (the in-app
   // debug view), tagged as an error so an author can see WHY a call failed.
+  // (Worker log levels map info→plain, warn→'[warn] ', error→'[error] ' in
+  // appendLog; warn keeps its own tag so a warning isn't shown as an error.)
   check(
     'a tool-call failure is buffered in the host log ring as an [error] line',
     host.getLogs().some((l) => l.startsWith('[error] tool read_file failed')),

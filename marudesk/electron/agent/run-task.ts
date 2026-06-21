@@ -359,13 +359,17 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
         undefined,
         { write: true },
       );
-    // Re-stage the worktree and return the current changed-file list.
-    const restage = async (): Promise<string[]> => {
+    // Re-stage the worktree and return the current changed-file list. Returns
+    // `null` when staging itself FAILED (a transient `git add -A`/`git status`
+    // throw) — distinct from a successful pass that found zero changes ([]). The
+    // verify loop must never read a staging failure as "nothing changed → clean",
+    // which would falsely report worktreeVerified:true (audit: honesty).
+    const restage = async (): Promise<string[] | null> => {
       try {
         await runGit(worktreePath, ['add', '-A']);
         return (await worktreeChanges(worktreePath)).files;
       } catch {
-        return [];
+        return null;
       }
     };
 
@@ -375,24 +379,26 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
     let changedFiles: string[] = [];
     try {
       out = await runImplementTurn(implementPrompt(input));
-      changedFiles = await restage();
+      const staged = await restage();
 
       // In-worktree pre-flight (audit #1): type-check the changed files in the
       // throwaway worktree and, if errors remain on them, run one bounded fix turn
       // seeded with the exact diagnostics — so a type error no longer ships into
       // the diff unverified. The apply-time verifyChangedFiles stays the binding
-      // gate; this is the earlier, advisory signal.
+      // gate; this is the earlier, advisory signal. The probe legs carry the run's
+      // ac.signal so they abort at the run deadline instead of self-bounding past
+      // it. The loop returns its final changedFiles, so we don't re-stage again.
       const outcome = await runVerifyFixLoop({
         root: worktreePath,
-        changedFiles,
-        runDiag: (r) => runDiagnostics(r),
+        changedFiles: staged,
+        runDiag: (r) => runDiagnostics(r, ac.signal),
         restage,
         runFixTurn: async (seed) => {
           await runImplementTurn(seed);
         },
         remainingMs: () => deadline - Date.now(),
       });
-      changedFiles = await restage();
+      changedFiles = outcome.changedFiles;
       worktreeVerified = outcome.verified;
       verifyNote = outcome.verifyNote;
     } finally {
@@ -509,11 +515,17 @@ export function verifyNoteFor(verified: boolean | undefined, errorCount: number)
 }
 
 export type VerifyFixOutcome = {
-  /** undefined = no checker applied; true = clean; false = errors remain. */
+  /** undefined = no checker applied OR staging failed; true = clean; false = errors remain. */
   verified: boolean | undefined;
   verifyNote: string;
   /** Errors still present after the loop (empty when verified true / undefined). */
   remainingErrors: { file: string; message: string }[];
+  /**
+   * The final staged changed-file list after the loop (so the caller need not
+   * re-stage). Empty when staging failed or nothing changed — pair with
+   * `verified` to tell the two apart (a staging failure is verified:undefined).
+   */
+  changedFiles: string[];
 };
 
 /**
@@ -525,23 +537,33 @@ export type VerifyFixOutcome = {
  * {@link verifyChangedFiles} stays the binding gate). All collaborators are
  * injected so the harness can drive the loop without a provider:
  *  - `runDiag` runs the checker (stub: a scripted diagnostics sequence),
- *  - `restage` re-stages and returns the current changed-file list,
+ *  - `restage` re-stages and returns the current changed-file list, or `null` when
+ *    staging itself failed (which we map to verified:undefined, NEVER true),
  *  - `runFixTurn` runs one more implement turn given the seed text,
  *  - `remainingMs` reports the run-budget time left (so we don't blow the timeout).
+ *
+ * `changedFiles` is the initial staged list (or `null` when the first stage after
+ * the implement turn failed). The outcome carries the FINAL staged list so the
+ * caller reuses it instead of re-staging again.
  */
 export async function runVerifyFixLoop(deps: {
   root: string;
-  changedFiles: string[];
+  changedFiles: string[] | null;
   runDiag: (root: string) => Promise<Pick<Awaited<ReturnType<typeof runDiagnostics>>, 'lastRun'>>;
-  restage: () => Promise<string[]>;
+  restage: () => Promise<string[] | null>;
   runFixTurn: (seed: string) => Promise<void>;
   remainingMs: () => number;
 }): Promise<VerifyFixOutcome> {
+  // Staging FAILED before the loop even started — we can't tell what changed, so
+  // we can't honestly verify. NEVER report this as clean (audit: honesty).
+  if (deps.changedFiles === null) {
+    return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [], changedFiles: [] };
+  }
   let changedFiles = deps.changedFiles;
   let probe = await probeChangedFiles(deps.runDiag, deps.root, changedFiles);
   // No checker applies (or nothing changed) → honestly unverified, no fix turns.
   if (probe === null || changedFiles.length === 0) {
-    return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [] };
+    return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [], changedFiles };
   }
   for (let attempt = 0; attempt < MAX_VERIFY_FIX && probe.errors.length > 0; attempt += 1) {
     if (deps.remainingMs() < VERIFY_FIX_MIN_REMAINING_MS) break; // respect RUN_TIMEOUT_MS
@@ -549,11 +571,22 @@ export async function runVerifyFixLoop(deps: {
       .map((e) => `- ${e.file}: ${e.message}`)
       .join('\n')}`;
     await deps.runFixTurn(seed);
-    changedFiles = await deps.restage();
+    const restaged = await deps.restage();
+    if (restaged === null) {
+      // Re-staging failed mid-loop — we can no longer trust the change set, so we
+      // can't honestly verify. Stop unverified (never faked green).
+      return {
+        verified: undefined,
+        verifyNote: verifyNoteFor(undefined, 0),
+        remainingErrors: [],
+        changedFiles,
+      };
+    }
+    changedFiles = restaged;
     const next = await probeChangedFiles(deps.runDiag, deps.root, changedFiles);
     if (next === null) {
       // The checker stopped applying mid-loop (unexpected) — stop honestly unverified.
-      return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [] };
+      return { verified: undefined, verifyNote: verifyNoteFor(undefined, 0), remainingErrors: [], changedFiles };
     }
     probe = next;
   }
@@ -562,6 +595,7 @@ export async function runVerifyFixLoop(deps: {
     verified,
     verifyNote: verifyNoteFor(verified, probe.errors.length),
     remainingErrors: probe.errors,
+    changedFiles,
   };
 }
 

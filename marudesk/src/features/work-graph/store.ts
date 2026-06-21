@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { randomId } from '../../../shared/id';
 import {
   blockedTaskIds,
+  criterionVerifiableByChecker,
   edgeId,
   hasCycle,
   parallelLayers,
@@ -270,15 +271,35 @@ function setStatus(graph: WorkGraph, id: TaskId, status: TaskStatus): WorkGraph 
   });
 }
 
+/** Optional advisory worktree-verification signals folded into a task's evidence. */
+type WorktreeVerify = { worktreeVerified?: boolean; verifyNote?: string };
+
 /** Attach (or update) a task's evidence result (+ optional diff), keeping any trajectory. */
-function setEvidence(graph: WorkGraph, id: TaskId, result: string, patch?: string): WorkGraph {
+function setEvidence(
+  graph: WorkGraph,
+  id: TaskId,
+  result: string,
+  patch?: string,
+  verify?: WorktreeVerify,
+): WorkGraph {
   return touch({
     ...graph,
     tasks: graph.tasks.map((t) =>
       t.id === id
         ? {
             ...t,
-            evidence: { trajectory: t.evidence?.trajectory ?? [], result, ...(patch ? { patch } : {}) },
+            evidence: {
+              trajectory: t.evidence?.trajectory ?? [],
+              result,
+              ...(patch ? { patch } : {}),
+              // Preserve the honest tri-state: stamp `worktreeVerified` only when
+              // the result actually carried a boolean (undefined = no checker ran,
+              // which must stay unverified — never read as a green badge).
+              ...(verify && verify.worktreeVerified !== undefined
+                ? { worktreeVerified: verify.worktreeVerified }
+                : {}),
+              ...(verify && verify.verifyNote ? { verifyNote: verify.verifyNote } : {}),
+            },
           }
         : t,
     ),
@@ -754,7 +775,10 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         if (!s.graph) return { running: false };
         if (res.ok) {
           let g = setStatus(s.graph, id, res.status);
-          g = setEvidence(g, id, res.result, res.patch);
+          g = setEvidence(g, id, res.result, res.patch, {
+            worktreeVerified: res.worktreeVerified,
+            verifyNote: res.verifyNote,
+          });
           return {
             graph: g,
             running: false,
@@ -810,8 +834,11 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         if (!res.ok) return { applyingPatchTaskId: null, runNote: res.reason };
         const verdict = res.verdict;
         const files = `Applied ${res.changedFiles.length} file(s) to the workspace`;
-        // Roadmap §7-4: the single workspace-verify result fills the task's
-        // acceptance verdicts — a real pass/fail from the checker, not a claim.
+        // Roadmap §4 (verdict integrity): the apply-time checker only proves a
+        // tsc/eslint/build pass-or-fail over the CHANGED FILES — it cannot speak
+        // to behavioral criteria ("returns 200", "no console errors"). So stamp
+        // ONLY criteria whose text names the checker's domain; leave every other
+        // criterion at its existing verdict (honestly unverified, not fabricated).
         const at = Date.now();
         const graph =
           s.graph && verdict
@@ -819,16 +846,23 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
                 ...s.graph,
                 tasks: s.graph.tasks.map((t) =>
                   t.id === id
-                    ? { ...t, acceptance: t.acceptance.map((c) => ({ ...c, verdict, checkedAt: at })) }
+                    ? {
+                        ...t,
+                        acceptance: t.acceptance.map((c) =>
+                          criterionVerifiableByChecker(c.text)
+                            ? { ...c, verdict, checkedAt: at }
+                            : c,
+                        ),
+                      }
                     : t,
                 ),
               })
             : s.graph;
         const note =
           verdict === 'pass'
-            ? `${files} — workspace verify passed; acceptance marked pass.`
+            ? `${files} — checker passed; checker-verifiable acceptance marked pass.`
             : verdict === 'fail'
-              ? `${files} — workspace verify found errors; acceptance marked fail.`
+              ? `${files} — checker found errors; checker-verifiable acceptance marked fail.`
               : `${files}.`;
         return { applyingPatchTaskId: null, runNote: note, graph };
       });

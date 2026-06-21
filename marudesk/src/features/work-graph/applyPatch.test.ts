@@ -178,6 +178,40 @@ describe('useWorkGraphStore.applyPatch', () => {
     expect(applyPatchCalls[0].workspaceId).toBe(ws);
   });
 
+  it('stamps ONLY checker-verifiable criteria with the apply verdict, leaving behavioral ones unknown', async () => {
+    applyResult = { ok: true, changedFiles: ['src/a.ts'], verdict: 'pass' };
+    useGitStore.setState({ refresh: vi.fn(async () => {}) });
+    const withCriteria: WorkGraph = {
+      id: 'g',
+      goal: 'goal',
+      tasks: [
+        task('t8', {
+          evidence: { trajectory: [], result: 'done', patch: 'diff --git a b\n' },
+          acceptance: [
+            { id: 'c1', text: 'typecheck passes', verdict: 'unknown' },
+            { id: 'c2', text: 'endpoint returns 200', verdict: 'unknown' },
+          ],
+        }),
+      ],
+      edges: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    useWorkGraphStore.setState({ graph: withCriteria, applyingPatchTaskId: null });
+
+    await useWorkGraphStore.getState().applyPatch('t8');
+
+    const updated = useWorkGraphStore.getState().graph?.tasks.find((t) => t.id === 't8');
+    const c1 = updated?.acceptance.find((c) => c.id === 'c1');
+    const c2 = updated?.acceptance.find((c) => c.id === 'c2');
+    // The checker proved a tsc pass → the typecheck criterion is marked pass...
+    expect(c1?.verdict).toBe('pass');
+    expect(c1?.checkedAt).toBeTypeOf('number');
+    // ...but a behavioral criterion the checker never observed stays honest.
+    expect(c2?.verdict).toBe('unknown');
+    expect(c2?.checkedAt).toBeUndefined();
+  });
+
   it('invokes apply-patch with an undefined workspaceId for an unbound task', async () => {
     applyResult = { ok: true, changedFiles: ['src/a.ts'], verdict: 'pass' };
     useGitStore.setState({ refresh: vi.fn(async () => {}) });

@@ -147,11 +147,12 @@ export class PluginHost implements PluginHostLike {
 
   /**
    * Append one already-scrubbed line to the bounded log ring (drops the oldest
-   * past the cap). A `kind` prefix tags errors so the in-app view distinguishes
-   * a plugin's own ctx.log from a host-recorded failure.
+   * past the cap). A `kind` prefix tags warnings/errors so the in-app view
+   * distinguishes a plugin's own ctx.log from a host-recorded warning/failure.
    */
-  private appendLog(kind: 'log' | 'error', line: string): void {
-    this.logs.push(kind === 'error' ? `[error] ${line}` : line);
+  private appendLog(kind: 'log' | 'warn' | 'error', line: string): void {
+    const prefix = kind === 'log' ? '' : `[${kind}] `;
+    this.logs.push(`${prefix}${line}`);
     if (this.logs.length > PLUGIN_LOG_BUFFER_MAX) {
       this.logs.splice(0, this.logs.length - PLUGIN_LOG_BUFFER_MAX);
     }
@@ -224,7 +225,7 @@ export class PluginHost implements PluginHostLike {
       case 'log': {
         const scrubbed = scrubText(msg.message);
         console.log(`[plugin:${this.pluginId}] ${scrubbed}`);
-        this.appendLog(msg.level === 'info' ? 'log' : 'error', scrubbed);
+        this.appendLog(msg.level === 'info' ? 'log' : msg.level, scrubbed);
         break;
       }
       case 'status':
