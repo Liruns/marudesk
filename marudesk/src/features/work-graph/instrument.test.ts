@@ -27,13 +27,15 @@ vi.mock('../editor/store', () => ({
   },
 }));
 
+// The live tab registry. `prev` is the dirty previous instrument; tests that
+// exercise the "file already open" path push the pre-existing tab in here so the
+// snapshot in openFileInstrument can distinguish it from a freshly-created tab.
+let tabs: Array<{ id: string; kind: string }> = [{ id: 'prev', kind: 'editor' }];
+
 vi.mock('../tabs/store', () => ({
   useTabsStore: {
     getState: () => ({
-      tabs: [
-        { id: 'prev', kind: 'editor' },
-        { id: 'next', kind: 'web' },
-      ],
+      tabs,
       closeTab: (id: string) => closeTab(id),
       activateTab: (id: string) => activateTab(id),
       newTab: () => newTab(),
@@ -55,6 +57,7 @@ describe('useInstrumentStore.open dirty-prompt symmetry', () => {
     closeTab.mockResolvedValue(undefined);
     activateTab.mockReset();
     activateTab.mockResolvedValue(undefined);
+    tabs = [{ id: 'prev', kind: 'editor' }];
     useInstrumentStore.setState({ tabId: 'prev', kind: 'editor' });
   });
 
@@ -117,6 +120,7 @@ describe('CREATE callers close the just-created tab on a cancelled prompt', () =
     newTab.mockResolvedValue('next');
     openFile.mockReset();
     openFile.mockResolvedValue('next');
+    tabs = [{ id: 'prev', kind: 'editor' }];
     // A dirty previous instrument is what triggers the discard prompt on switch.
     useInstrumentStore.setState({ tabId: 'prev', kind: 'editor' });
   });
@@ -161,6 +165,29 @@ describe('CREATE callers close the just-created tab on a cancelled prompt', () =
     expect(closeTab).toHaveBeenCalledWith('prev');
     expect(closeTab).not.toHaveBeenCalledWith('next');
   });
+
+  it('openFileInstrument does NOT close a PRE-EXISTING editor tab when the prompt is CANCELLED', async () => {
+    // The file is ALREADY open: editorStore.openFile focuses + returns its
+    // EXISTING tab id ('prev'), not a fresh one. The current instrument is a
+    // DIFFERENT dirty editor ('other'), so open('prev', …) hits the dirty prompt
+    // and — cancelled — returns false. The close-on-cancel guard must leave the
+    // pre-existing 'prev' alone (only a tab CREATED in this action is torn down).
+    // (Current instrument MUST differ from the opened id, or open() returns true
+    // via the same-tab fast path and never reaches the guard.)
+    tabs = [
+      { id: 'prev', kind: 'editor' },
+      { id: 'other', kind: 'editor' },
+    ];
+    useInstrumentStore.setState({ tabId: 'other', kind: 'editor' });
+    confirmCloseTab.mockReturnValue(false);
+    openFile.mockResolvedValue('prev'); // already-open file → existing id
+
+    await openFileInstrument('/tmp/already-open.ts');
+
+    // Switch cancelled (stay on 'other'); the pre-existing 'prev' is preserved.
+    expect(useInstrumentStore.getState().tabId).toBe('other');
+    expect(closeTab).not.toHaveBeenCalledWith('prev');
+  });
 });
 
 /**
@@ -180,6 +207,7 @@ describe('reopenTabInstrument hosts the reopened tab', () => {
     activateTab.mockResolvedValue(undefined);
     reopenClosedTab.mockReset();
     reopenClosedTab.mockResolvedValue({ id: 'next', kind: 'web' });
+    tabs = [{ id: 'prev', kind: 'editor' }];
   });
 
   it('hosts the reopened tab as the instrument (from the graph, no previous)', async () => {

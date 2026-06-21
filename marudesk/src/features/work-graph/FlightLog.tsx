@@ -200,16 +200,16 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
                       >
                         <Badge variant={STATUS_BADGE[c.task.status]}>{t(STATUS_LABEL_KEY[c.task.status])}</Badge>
                         <span className="truncate text-body-sm text-fg-primary">{c.task.title}</span>
-                        <span className="shrink-0 text-caption tabular-nums text-fg-tertiary">{messages.length} msg</span>
+                        <span className="shrink-0 text-caption tabular-nums text-fg-tertiary">{t('flightLog.msg').replace('{n}', String(messages.length))}</span>
                         {state && isBusy(state.status) ? <Spinner size={11} /> : null}
                       </button>
                       <button
                         type="button"
                         onClick={() => goToTask(c.taskId)}
-                        title="Open this task in the dock"
+                        title={t('flightLog.openTitle')}
                         className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
                       >
-                        Open
+                        {t('flightLog.open')}
                         <ArrowRight size={12} />
                       </button>
                     </div>

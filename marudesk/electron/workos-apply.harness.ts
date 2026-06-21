@@ -74,6 +74,18 @@ async function main(): Promise<void> {
     check('matching workspaceId landed the edit', readFileSync(path.join(repo, 'app.txt'), 'utf8') === 'one\nTWO\nthree\n');
     await git(repo, ['checkout', '--', 'app.txt']);
 
+    /* A PRESENT-but-malformed workspaceId (number/null/object) is a caller error,
+       not an unbound task — it must be REJECTED as invalid input, never coerced to
+       undefined (which would bypass the cross-workspace guard above). The file must
+       stay clean for every malformed shape. */
+    const cleanFile = 'one\ntwo\nthree\n';
+    const malformed = [123, null, {}, []] as const;
+    for (const bad of malformed) {
+      const rejected = await applyTaskPatch({ taskId: 't1', patch: diff, workspaceId: bad });
+      check(`malformed workspaceId (${JSON.stringify(bad)}) → ok:false (invalid input)`, rejected.ok === false);
+      check(`malformed workspaceId (${JSON.stringify(bad)}) left the live file untouched`, readFileSync(path.join(repo, 'app.txt'), 'utf8') === cleanFile);
+    }
+
     /* ── 1. a clean diff applies to the live workspace (workspaceId omitted) ─ */
     const res = await applyTaskPatch({ taskId: 't1', patch: diff });
     check('apply: ok', res.ok === true);

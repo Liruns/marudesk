@@ -2,6 +2,7 @@ import type {
   SearchMatchRange,
   SearchOptions,
 } from '../shared/search';
+import type { WorkspaceId } from '../shared/workspace';
 
 /**
  * Pure, electron-free helpers behind the workspace content search. Kept in a
@@ -9,6 +10,28 @@ import type {
  * matcher, and preview/range builders can be unit-tested via the search harness
  * without booting Electron.
  */
+
+/**
+ * Pick the filesystem root a content search should run against, given the two
+ * registry lookups (injected so this stays electron-free + testable):
+ *   - `activeRoot()` — the global active workspace's root (throws "no workspace
+ *     is open" when none), used when no `workspaceId` is threaded.
+ *   - `rootFor(id)` — that workspace's active root, or null when it's gone.
+ *
+ * A Search instrument bound to a non-active workspace threads its `workspaceId`
+ * so the result list scopes to the SAME root its opened file refs resolve
+ * against; omitting it preserves the active-workspace path byte-for-byte.
+ */
+export function resolveSearchRoot(
+  workspaceId: WorkspaceId | undefined,
+  activeRoot: () => string,
+  rootFor: (id: WorkspaceId) => string | null,
+): string {
+  if (workspaceId === undefined) return activeRoot();
+  const root = rootFor(workspaceId);
+  if (root === null) throw new Error(`workspace not found: ${workspaceId}`);
+  return root;
+}
 
 /** Escape a string for literal use inside a RegExp (internal helper). */
 function escapeRegExp(s: string): string {

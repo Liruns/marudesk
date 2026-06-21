@@ -146,13 +146,20 @@ export async function openFileInstrument(
   line?: number,
   col?: number,
 ): Promise<void> {
+  // editorStore.openFile FOCUSES an already-open file (returning its existing
+  // tab id) rather than always minting a fresh one. Snapshot the live tab ids
+  // BEFORE opening so we can tell a brand-new tab from a pre-existing one and
+  // only tear down a tab we actually created on a cancelled prompt.
+  const preExisting = new Set(useTabsStore.getState().tabs.map((t) => t.id));
   const id =
     line !== undefined && col !== undefined
       ? await useEditorStore.getState().openFileAt(file, line, col)
       : await useEditorStore.getState().openFile(file);
-  if (id && !useInstrumentStore.getState().open(id, 'editor')) {
+  if (id && !useInstrumentStore.getState().open(id, 'editor') && !preExisting.has(id)) {
     // Cancelled prompt kept the previous instrument: tear down the editor tab we
-    // just created so it doesn't survive as an orphan.
+    // just created so it doesn't survive as an orphan. A pre-existing tab (the
+    // file was already open) is left alone — open() already re-activated prev,
+    // and closing it would drop a tab the user did not just create.
     await useTabsStore.getState().closeTab(id);
   }
 }

@@ -35,11 +35,13 @@ type Props = {
    */
   embedded?: boolean;
   /**
-   * The hosting instrument's bound workspace. When present, opening a match
-   * resolves the file against THAT workspace (a WorkspaceFileRef) instead of the
-   * bare path, which main resolves against its active workspace. Omitted for the
-   * legacy rail and the coincident active-workspace case, so file-open is
-   * unchanged there.
+   * The hosting instrument's bound workspace. When present, BOTH the result
+   * list (threaded into search:content's opts so main scopes the search to this
+   * workspace's active root) and opening a match (a WorkspaceFileRef against the
+   * same root, instead of the bare path) resolve against THAT workspace —
+   * keeping the listed paths and the opened files consistent. Omitted for the
+   * legacy rail and the coincident active-workspace case, so the search + open
+   * run against the active workspace, unchanged.
    */
   workspaceId?: WorkspaceId;
 };
@@ -118,9 +120,9 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
   // keyed on the query + options; cleared on each change so only the pause fires
   // the search (and toggles/filters re-run through the same single path).
   useEffect(() => {
-    const id = setTimeout(() => void run(query), DEBOUNCE_MS);
+    const id = setTimeout(() => void run(query, workspaceId), DEBOUNCE_MS);
     return () => clearTimeout(id);
-  }, [query, options, run]);
+  }, [query, options, run, workspaceId]);
 
   // Focus the input when the panel opens or Ctrl+Shift+F bumps the nonce.
   useEffect(() => {
@@ -214,7 +216,7 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  void run(query);
+                  void run(query, workspaceId);
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
                   clear();

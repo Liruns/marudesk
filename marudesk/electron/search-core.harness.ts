@@ -7,6 +7,7 @@ import {
   globToRegExp,
   makeLineMatcher,
   parseGlobs,
+  resolveSearchRoot,
 } from './search-core';
 
 /**
@@ -160,6 +161,51 @@ check('buildPreview: drops ranges entirely before the trim point', () => {
   const { ranges } = buildPreview('  ab', [{ start: 0, end: 1 }], 400);
   // The leading-space-only range disappears after trimming 2 spaces.
   assert.deepEqual(ranges, []);
+});
+
+check('resolveSearchRoot: omitted workspaceId uses the active root', () => {
+  let activeCalls = 0;
+  const root = resolveSearchRoot(
+    undefined,
+    () => {
+      activeCalls++;
+      return '/active/root';
+    },
+    () => {
+      throw new Error('rootFor must not be consulted when workspaceId omitted');
+    },
+  );
+  assert.equal(root, '/active/root');
+  assert.equal(activeCalls, 1);
+});
+
+check('resolveSearchRoot: provided workspaceId scopes to THAT workspace root', () => {
+  const roots: Record<string, string> = {
+    'ws-active': '/active/root',
+    'ws-bound': '/bound/root',
+  };
+  const root = resolveSearchRoot(
+    'ws-bound',
+    () => {
+      throw new Error('active root must not be consulted when workspaceId given');
+    },
+    (id) => roots[id] ?? null,
+  );
+  // The bound workspace's root, NOT the active one — so listed results scope to
+  // the same root the opened file refs resolve against (R14 regression).
+  assert.equal(root, '/bound/root');
+});
+
+check('resolveSearchRoot: unknown provided workspaceId throws', () => {
+  assert.throws(
+    () =>
+      resolveSearchRoot(
+        'ws-missing',
+        () => '/active/root',
+        () => null,
+      ),
+    /workspace not found: ws-missing/,
+  );
 });
 
 if (process.exitCode) {

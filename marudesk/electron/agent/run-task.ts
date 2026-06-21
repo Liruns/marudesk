@@ -387,10 +387,17 @@ function parseApplyPatchInput(raw: unknown): ApplyPatchInput | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.taskId !== 'string' || typeof r.patch !== 'string') return null;
-  // workspaceId is optional; when present it must be a string (the authoritative
-  // target the renderer resolved from the task's thread). A non-string value is
-  // dropped to undefined → legacy active-workspace behavior, never a silent error.
-  const workspaceId = typeof r.workspaceId === 'string' ? r.workspaceId : undefined;
+  // workspaceId is optional. An OMITTED key = unbound task → undefined → legacy
+  // active-workspace behavior. But when the key is PRESENT it must be a string
+  // (the authoritative target the renderer resolved from the task's thread): a
+  // present-but-malformed value (number/null/object) is a caller error, NOT an
+  // unbound task, so reject it rather than silently coercing to undefined — that
+  // coercion would bypass the cross-workspace DATA-INTEGRITY guard below.
+  let workspaceId: string | undefined;
+  if ('workspaceId' in r) {
+    if (typeof r.workspaceId !== 'string') return null;
+    workspaceId = r.workspaceId;
+  }
   return { taskId: r.taskId, patch: r.patch, workspaceId };
 }
 
