@@ -106,7 +106,7 @@ export function DiffViewer({
           USE_PIERRE_DIFF && diffStyle === 'split' ? 'max-w-5xl' : 'max-w-3xl',
         )}
       >
-        <header className="flex h-10 shrink-0 items-center gap-2 border-b border-subtle pl-3 pr-1.5">
+        <header className="flex h-9 shrink-0 items-center gap-2 border-b border-subtle pl-3 pr-1.5">
           {/* On the @pierre/diffs path, PatchDiff renders its own file header
               (icon + path + stats), so the overlay header carries only controls
               to avoid a duplicate path row. */}
@@ -169,12 +169,12 @@ export function DiffViewer({
           {error ? (
             <p className="p-3 text-body-sm text-error">{error}</p>
           ) : diff === null ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-fg-tertiary">
+            <div className="flex items-center justify-center gap-2 py-8 text-fg-tertiary">
               <Spinner size={16} /> {t('git.diff.loading')}
             </div>
           ) : USE_PIERRE_DIFF ? (
             diff.trim() === '' ? (
-              <p className="py-10 text-center text-body-sm text-fg-tertiary">
+              <p className="py-8 text-center text-body-sm text-fg-tertiary">
                 {t('git.diff.empty')}
               </p>
             ) : (

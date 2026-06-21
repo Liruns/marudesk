@@ -148,7 +148,7 @@ export function McpServersSettings() {
   const configuredIds = new Set((servers ?? []).map((s) => s.id));
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       <p className="text-caption text-fg-tertiary">
         {t('settings.mcp.description')}
       </p>
@@ -235,7 +235,7 @@ export function McpServersSettings() {
 
 function EmptyRow({ text }: { text: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 px-4 py-3 text-body-sm text-fg-tertiary">
+    <div className="flex items-center gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 px-4 py-2 text-body-sm text-fg-tertiary">
       <ServerCog size={15} className="shrink-0" />
       <span>{text}</span>
     </div>

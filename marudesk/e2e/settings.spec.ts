@@ -29,12 +29,16 @@ test('settings: opens as a tab; theme + zoom apply live', async () => {
       .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
       .toBe('dark');
 
-    // Theme palette flips the documentElement data-palette; Graphite (the
-    // default) clears the attribute back to the base tokens.
+    // Theme palette flips the documentElement data-palette; named palettes set
+    // the attribute, while Graphite (the default) clears it back to the base tokens.
     await page.getByRole('button', { name: 'Midnight' }).click();
     await expect
       .poll(() => page.evaluate(() => document.documentElement.dataset.palette))
       .toBe('midnight');
+    await page.getByRole('button', { name: 'Carbon' }).click();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.palette))
+      .toBe('graphite');
     await page.getByRole('button', { name: 'Graphite' }).click();
     await expect
       .poll(() => page.evaluate(() => document.documentElement.dataset.palette))

@@ -77,7 +77,7 @@ export function AutomationsSettings() {
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       <p className="text-caption text-fg-tertiary">{t('settings.automations.hint')}</p>
 
       <div className="flex flex-col gap-2">
@@ -89,7 +89,7 @@ export function AutomationsSettings() {
           items.map((a) => (
             <div
               key={a.id}
-              className="flex items-center gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-2.5"
+              className="flex items-center gap-2 rounded-lg border border-subtle bg-surface-1 px-4 py-2"
             >
               <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-body-sm font-medium text-fg-primary truncate">{a.name}</span>
@@ -191,7 +191,7 @@ export function AutomationsSettings() {
 
 function Row({ text }: { text: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 px-4 py-3 text-body-sm text-fg-tertiary">
+    <div className="flex items-center gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 px-4 py-2 text-body-sm text-fg-tertiary">
       <Clock size={15} className="shrink-0" />
       <span>{text}</span>
     </div>

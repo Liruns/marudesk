@@ -100,7 +100,7 @@ export function ProviderCard({
       </button>
 
       {expanded ? (
-        <div className="border-t border-subtle px-3 py-3 flex flex-col gap-3">
+        <div className="border-t border-subtle px-3 py-2 flex flex-col gap-2">
           {isAdcProvider ? (
             <div className="bg-surface-page/60 border border-subtle rounded-md">
               <button

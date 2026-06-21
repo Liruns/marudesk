@@ -108,10 +108,15 @@ const config: Config = {
         section: ['1.5rem', { lineHeight: '1.20', letterSpacing: '-0.2px' }],
         hero: ['2.5rem', { lineHeight: '1.12', letterSpacing: '-0.5px' }],
       },
+      // md/xl ride the token scale too (Tailwind's defaults are fixed px and
+      // would otherwise drift from `rounded`/`rounded-lg` once the tokens shrink),
+      // so every rounded-* utility across the app sharpens from tokens.css alone.
       borderRadius: {
         sm: 'var(--radius-sm)',
         DEFAULT: 'var(--radius)',
+        md: 'var(--radius)',
         lg: 'var(--radius-lg)',
+        xl: 'var(--radius-lg)',
         pill: 'var(--radius-pill)',
       },
       transitionDuration: {

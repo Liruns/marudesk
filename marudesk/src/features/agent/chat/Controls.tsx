@@ -297,7 +297,7 @@ export function EmptyState({
   const { t } = useI18n();
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
   return (
-    <div className="flex flex-col items-center text-center gap-4 px-4 py-2">
+    <div className="flex flex-col items-center text-center gap-3 px-4 py-2">
       {/* Icon mark */}
       <div className="flex size-12 items-center justify-center rounded-lg bg-accent-subtle/60 ring-1 ring-accent/25">
         <Sparkles size={20} className="text-accent" />

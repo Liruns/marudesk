@@ -65,7 +65,7 @@ export function NameDialog({
         role="dialog"
         aria-label={title}
         onMouseDown={(event) => event.stopPropagation()}
-        className="w-[360px] rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-3"
+        className="w-[360px] rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2"
       >
         <h2 className="text-body font-semibold text-fg-primary">{title}</h2>
         <input

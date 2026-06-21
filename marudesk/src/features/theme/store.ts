@@ -2,16 +2,16 @@ import { create } from 'zustand';
 import type { ThemePalette } from '../../../shared/settings';
 
 /**
- * App accent theme. marudesk's single violet accent token drives active states,
+ * App accent theme. marudesk's single minium accent token drives active states,
  * primary buttons, links, focus rings (--ring rides --accent) and the AI cues,
  * so swapping it via a `[data-accent]` attribute on <html> reskins the whole UI
  * at once — in both light and dark. The preset values live in styles/tokens.css;
  * this store just persists the choice and reflects it onto the document.
  */
-export type AccentName = 'violet' | 'blue' | 'teal' | 'green' | 'amber' | 'rose' | 'pane';
+export type AccentName = 'minium' | 'blue' | 'teal' | 'green' | 'amber' | 'rose' | 'pane';
 
 export const ACCENTS: { name: AccentName; label: string; swatch: string }[] = [
-  { name: 'violet', label: 'Violet', swatch: '#5E6AD2' },
+  { name: 'minium', label: 'Minium', swatch: '#C75A3B' },
   { name: 'blue', label: 'Blue', swatch: '#4C8DFF' },
   { name: 'teal', label: 'Teal', swatch: '#2DB8A8' },
   { name: 'green', label: 'Green', swatch: '#46B17F' },
@@ -28,7 +28,8 @@ export const ACCENTS: { name: AccentName; label: string; swatch: string }[] = [
  * the picker chips — the same pattern as ACCENTS.swatch above.
  */
 export const PALETTES: { name: ThemePalette; label: string; page: string; card: string }[] = [
-  { name: 'default', label: 'Graphite', page: '#08090A', card: '#23252B' },
+  { name: 'default', label: 'Graphite', page: '#121211', card: '#222220' },
+  { name: 'graphite', label: 'Carbon', page: '#08090A', card: '#23252B' },
   { name: 'midnight', label: 'Midnight', page: '#0A0E1A', card: '#1B2336' },
   { name: 'espresso', label: 'Espresso', page: '#120E0C', card: '#281F1C' },
   { name: 'fjord', label: 'Fjord', page: '#0E1417', card: '#1E2A30' },
@@ -49,14 +50,14 @@ function loadAccent(): AccentName {
   } catch {
     // ignore — fall back to the default below
   }
-  return 'violet';
+  return 'minium';
 }
 
-/** Reflect the accent onto <html>; the default violet uses no attribute. */
+/** Reflect the accent onto <html>; the default minium uses no attribute. */
 function applyAccent(accent: AccentName): void {
   try {
     const el = document.documentElement;
-    if (accent === 'violet') el.removeAttribute('data-accent');
+    if (accent === 'minium') el.removeAttribute('data-accent');
     else el.setAttribute('data-accent', accent);
   } catch {
     // ignore — non-DOM context (e.g. tests)

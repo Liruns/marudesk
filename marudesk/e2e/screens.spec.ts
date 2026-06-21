@@ -229,7 +229,7 @@ test('capture UX surfaces', async () => {
       await page.getByRole('button', { name: 'Teal' }).click({ timeout: 3000 });
       await page.waitForTimeout(400);
       await shot(page, '11-accent-teal');
-      await page.getByRole('button', { name: 'Violet' }).click({ timeout: 2000 });
+      await page.getByRole('button', { name: 'Minium' }).click({ timeout: 2000 });
       // Color mode (wired to the existing settings theme): flip to Light to
       // confirm the whole chrome re-themes via the popover.
       await page.getByRole('button', { name: 'Light' }).click({ timeout: 2000 });

@@ -22,7 +22,7 @@ export function HomeLauncherCard({
       type="button"
       onClick={onOpen}
       className={cn(
-        'chrome-panel group flex flex-col items-start gap-2.5 p-4 rounded-lg text-left',
+        'chrome-panel group flex flex-col items-start gap-2.5 p-3 rounded-lg text-left',
         'hover:border-accent/60 hover:bg-surface-2 hover:-translate-y-0.5 hover:shadow-card',
         'active:translate-y-0 active:scale-[0.99] active:shadow-highlight',
         'transition duration-fast',

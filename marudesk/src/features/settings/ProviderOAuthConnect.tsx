@@ -293,7 +293,7 @@ export function ProviderOAuthConnect({
             </div>
           ) : null}
           {userCode ? (
-            <div className="flex items-center gap-3 rounded-md bg-surface-raised border border-default px-4 py-3">
+            <div className="flex items-center gap-2 rounded-md bg-surface-raised border border-default px-4 py-2">
               <span className="text-caption text-fg-tertiary">{t('settings.providers.oauth.deviceCode.yourCode')}</span>
               <code className="text-heading-md font-mono font-bold text-fg-primary tracking-widest select-all">
                 {userCode}

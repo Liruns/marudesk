@@ -118,7 +118,7 @@ export function Tour() {
       <div
         role="dialog"
         aria-label={t(step.title)}
-        className="absolute flex flex-col gap-3 rounded-lg border border-default bg-surface-1 p-4 shadow-lifted"
+        className="absolute flex flex-col gap-3 rounded-lg border border-default bg-surface-1 p-3 shadow-lifted"
         style={{ width: TIP_W, ...tipPosition(hole) }}
       >
         <div className="flex flex-col gap-1">

@@ -14,10 +14,10 @@ import { layoutKind } from './elements-utils';
  */
 
 // Overlay paint colors: the rgba components of the UI accent token
-// (--accent #5E6AD2). These are CDP overlay params Chromium paints ON THE PAGE,
+// (--accent #C75A3B). These are CDP overlay params Chromium paints ON THE PAGE,
 // not component CSS — the design-token rule covers UI styles, so mirroring the
 // accent value by hand here is intentional (CDP params can't reference CSS vars).
-const accent = (a: number) => ({ r: 94, g: 106, b: 210, a });
+const accent = (a: number) => ({ r: 199, g: 90, b: 59, a });
 
 const GRID_HIGHLIGHT_CONFIG = {
   rowLineColor: accent(0.9),

@@ -170,7 +170,7 @@ function ProviderCard({ report }: { readonly report: UsageReport }) {
 
   return (
     <Section>
-      <div className="flex flex-col gap-4 px-4 py-3">
+      <div className="flex flex-col gap-3 px-4 py-3">
         {/* Header */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -243,7 +243,7 @@ export function UsageCategory() {
   }, [fetchUsage]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <h3 className="text-body font-medium text-fg-primary">

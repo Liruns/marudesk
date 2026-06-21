@@ -46,7 +46,7 @@ const VISION_DEFICIENCIES: { id: VisionDeficiency; labelKey: TranslationKey }[] 
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex items-center justify-between gap-3 px-3 py-1.5 text-body-sm text-fg-secondary cursor-pointer select-none">
+    <label className="flex items-center justify-between gap-3 px-3 py-1 text-body-sm text-fg-secondary cursor-pointer select-none">
       <span>{label}</span>
       {children}
     </label>

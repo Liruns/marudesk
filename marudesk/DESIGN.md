@@ -3,12 +3,12 @@ id: marudesk
 name: marudesk
 category: developer-tools
 homepage: ""
-primary_color: "#5E6AD2"
+primary_color: "#C75A3B"
 omd: "0.1"
 ds:
   name: Maru Design System
   type: brand
-  description: Dark-first design system for Maru, an infinite-canvas runtime-aware AI IDE. Linear primary, Raycast/Warp secondary, with Cursor AI Timeline 4-color accent.
+  description: Dark-first design system for Maru, a runtime-aware AI IDE. Graphite & Minium default (a warm-neutral matte graphite with a single disciplined minium accent, no decorative glow), Raycast/Warp secondary, with Cursor AI Timeline 4-color accent. The cooler classic near-black stays selectable as Carbon.
 ---
 
 # Maru Design System
@@ -17,9 +17,9 @@ ds:
 
 ## 1. Visual Theme & Atmosphere
 
-marudesk is a tool you live inside for 8 hours a day. The atmosphere is **dark-first, precise, and unhurried**, in the lineage of Linear and Raycast. The page canvas (`#08090A`) is intentionally deeper than the surrounding panel surfaces (`#1A1B1F`, `#23252B`) — light pools up out of the page, not down onto it. There is no warm cream, no print metaphor, no decorative gradient. The screen is calm so the user's work (their browser, their code, their AI conversation) can carry the visual weight.
+marudesk is a tool you live inside for 8 hours a day. The atmosphere is **dark-first, precise, and unhurried**, in the lineage of Linear and Raycast. The default theme is **Graphite & Minium**: the page canvas (`#121211`) is a warm-neutral matte near-black — paper-and-graphite with a faint warm-grey bias and *no* blue/purple chroma, so it reads hand-crafted rather than like a tinted "AI" canvas — sitting intentionally deeper than the surrounding panel surfaces (`#1A1A18`, `#222220`). Depth comes from the monotonic surface ramp and hairline borders alone: **there is no decorative glow, bloom, or halo anywhere** — those read as AI-generated. The cooler classic near-black stays one click away as the **Carbon** palette. The screen is calm so the user's work (their browser, their code, their AI conversation) can carry the visual weight.
 
-Typography is Inter for UI and JetBrains Mono for code. Inter Display takes over only at hero sizes. Numerals are always tabular — `3 files`, `12ms`, `line 47` should never re-flow as values change. The single brand accent is Linear violet (`#5E6AD2`); everything else is neutral. Crimson appears only as the error state, never as default chrome.
+Typography is Inter for UI and JetBrains Mono for code. Inter Display takes over only at hero sizes. Numerals are always tabular — `3 files`, `12ms`, `line 47` should never re-flow as values change. The single brand accent is **minium** (`#C75A3B`) — a desaturated lead-oxide orange-red used *sparingly* (active state, focus ring, cursor, one primary action); a designer's spot color that harmonizes with the warm graphite rather than "popping" like a brand gradient. Crimson appears only as the error state, never as default chrome.
 
 The product has three foreground voices it must keep separate:
 - **The user's browser stage** (the website being inspected) — chrome stays minimal so we don't visually fight a Stripe page or a Notion page.
@@ -28,8 +28,8 @@ The product has three foreground voices it must keep separate:
 
 **Key characteristics**
 
-- Surface scale of four steps from `#08090A` (page) to `#2D2F36` (input/hover). No surface change exceeds one step in a single layout.
-- 6px is the default border radius. 4px for small elements, 10px for large, full-pill (9999px) only for status badges and tags.
+- Surface scale of four steps from `#121211` (page) to `#2C2B29` (input/hover), each carrying the same faint warm-grey undertone so the lift reads as one material catching more light. No surface change exceeds one step in a single layout.
+- The form language is **crisp and dense** (IDE-tight): controls and surfaces pack close, corners read sharp. 4px is the default border radius. 3px for small elements, 6px for large, full-pill (9999px) only for status dots and true pills. Tailwind's `rounded-md`/`-xl` ride these tokens too, so the whole radius scale sharpens from `tokens.css` alone.
 - Borders are white at 6 / 10 / 16% alpha — they read as hairlines, not as enclosing shapes.
 - Motion is fast and short. 120ms for hover, 200ms for panels. Easing is a single cubic-bezier(0.2, 0, 0, 1).
 - No emojis. No decorative iconography. No exclamation marks in product copy.
@@ -39,18 +39,18 @@ The product has three foreground voices it must keep separate:
 ### Surface
 | Token | Value | Use |
 |---|---|---|
-| `--surface-page` | `#08090A` | Page background, deepest. The default canvas. |
-| `--surface-1` | `#1A1B1F` | Panels, drawers — one step lifted from page. |
-| `--surface-2` | `#23252B` | Cards, elevated containers. |
-| `--surface-3` | `#2D2F36` | Inputs, hover states, code blocks. |
+| `--surface-page` | `#121211` | Page background, deepest. The default canvas (warm-neutral matte graphite). |
+| `--surface-1` | `#1A1A18` | Panels, drawers — one step lifted from page. |
+| `--surface-2` | `#222220` | Cards, elevated containers. |
+| `--surface-3` | `#2C2B29` | Inputs, hover states, code blocks. |
 
 ### Text
 | Token | Value | Use |
 |---|---|---|
-| `--text-primary` | `#F7F8F8` | Body, headings, anything the user reads first. |
-| `--text-secondary` | `#8A8F98` | Descriptions, metadata, secondary labels. |
-| `--text-tertiary` | `#62666D` | Placeholders, helper text, low-emphasis. |
-| `--text-disabled` | `#4A4D54` | Disabled controls only. |
+| `--text-primary` | `#F4F3F0` | Body, headings, anything the user reads first (~16:1 on page). |
+| `--text-secondary` | `#B0AEA8` | Descriptions, metadata, secondary labels (~8.5:1). |
+| `--text-tertiary` | `#7E7C75` | Placeholders, helper text, low-emphasis (~4.2:1). |
+| `--text-disabled` | `#56544E` | Disabled controls only. |
 
 ### Border
 | Token | Value | Use |
@@ -62,9 +62,9 @@ The product has three foreground voices it must keep separate:
 ### Accent — single voice
 | Token | Value | Use |
 |---|---|---|
-| `--accent` | `#5E6AD2` | Primary CTA, active states, brand moments. |
-| `--accent-hover` | `#7176E0` | CTA hover. |
-| `--accent-subtle` | `rgba(94,106,210,0.12)` | Accent fill for badges, selection. |
+| `--accent` | `#C75A3B` | Active state, focus, cursor, one primary action (minium — used sparingly). |
+| `--accent-hover` | `#D86A49` | CTA / hover. |
+| `--accent-subtle` | `rgba(199,90,59,0.13)` | Accent fill for active rows, selection. |
 
 There is exactly one accent. Do not introduce a second hue for "secondary brand."
 
@@ -133,8 +133,9 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 ## 4. Component Stylings
 
 ### Button
-- Radius: 6px (`--radius`)
-- Padding: 6px 12px (compact), 8px 14px (default), 10px 16px (comfortable)
+- Radius: 4px (`--radius`)
+- Heights: 24px (sm), 28px (md/default), 32px (lg). Horizontal padding 10/12/14px — one step tighter than a comfortable control so toolbars pack more per row.
+- Icon/label gap: 6px.
 - Font: 13–14px Inter, weight 500
 - Primary: `bg-accent` + `text-white`, hover `bg-accent-hover`
 - Secondary: `bg-surface-2` + `text-fg-primary`, 1px `border-default`, hover `bg-surface-3`
@@ -146,7 +147,7 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 - Generic panel/container wrapper
 - Background: `--surface-1` default; `--surface-2` for elevated variant
 - Border: 1px `--border-subtle` default; `--border-default` for emphasis
-- Radius: 6px default; 10px for large featured surfaces
+- Radius: 4px default; 6px for large featured surfaces
 
 ### Drawer
 - Right or bottom anchored
@@ -171,8 +172,8 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 - When idle, hidden — never a placeholder shimmer
 
 ### Badge
-- Full-pill (9999px) radius
-- Padding: 2px 8px
+- Small-radius (3px, `--radius-sm`) rectangle — crisp/dense, not a full pill. (Pill-round is reserved for status *dots* and true tags.)
+- Padding: 0 6px
 - Font: 11–12px Inter, weight 500
 - Variants:
   - `neutral`: `--surface-3` bg, `--text-secondary` text
@@ -185,9 +186,9 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 - Bottom-right anchored, 16px from edges, 8px between stacked toasts
 - Background: `--surface-2`
 - Border: 1px `--border-default`
-- Radius: 6px
-- Padding: 12px 14px
-- Width: min(360px, 90vw)
+- Radius: 4px
+- Padding: 10px 12px
+- Width: min(340px, 90vw)
 - Enter: 200ms translate-y + opacity; Exit: 120ms opacity
 - Auto-dismiss: 4500ms default (10000ms for error), pause on hover
 - Title 13px weight 500, body 12px weight 400 `--text-secondary`
@@ -197,7 +198,8 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 ### Spacing
 - Base unit: 8px
 - Scale: 4, 8, 12, 16, 24, 32, 48 (px). Map directly to Tailwind's default 1/2/3/4/6/8/12.
-- Sub-8px spacing (2, 3, 5, 6) only for icon-text alignment, never for layout.
+- **Dense by default.** The form language is information-dense: control padding, row height, and gaps sit one step tighter than a comfortable layout (e.g. list rows at 6–8px vertical, card padding 10–12px, toolbar gaps 6px). Reach for the tighter rung first; spend the larger gaps (24–32px) only to separate *major* sections.
+- Sub-8px spacing (2, 3, 5, 6) is fair game for component-internal padding and tight rows here, not just icon-text alignment.
 
 ### Grid
 - The browser stage is the dominant zone. It occupies all remaining horizontal space when the right drawer is collapsed.
@@ -228,7 +230,7 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 | Token | Tailwind | Use |
 |---|---|---|
 | `--surface-gradient` | `bg-surface-gradient` | Featured cards/tiles — a ~2.5% top→bottom lift fading by ~64% |
-| `--page-vignette` | `bg-vignette` | Page canvas — a barely-there top-center lift so the page reads as a lit stage |
+| `--page-vignette` | `bg-vignette` | `none` — there is no decorative page bloom (a glow reads as AI-generated); depth comes from the surface ramp + hairline borders instead. |
 
 The leaf values (`--highlight-top`, `--highlight-top-strong`, the gradient and vignette stops) flip under `data-theme="light"` so depth reads correctly in both modes; the structural tokens above reference them.
 
@@ -313,6 +315,6 @@ Press feedback is a 1px settle, not a bounce: interactive tiles drop their hover
 
 ---
 
-**Verified:** 2026-05-28 (Phase 0 handoff)
+**Verified:** 2026-05-28 (Phase 0 handoff); default theme switched to **Graphite & Minium** 2026-06-21 (no decorative glow; the cooler classic near-black preserved as the Carbon palette).
 **Source of truth for values:** `src/styles/tokens.css`
 **Tailwind theme alias map:** `tailwind.config.ts`

@@ -42,7 +42,7 @@ export function AppearancePopover({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-label={t('appearance.dialogLabel')}
         onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-8 left-14 w-60 rounded-lg border border-subtle bg-surface-2 p-3 shadow-glow flex flex-col gap-3"
+        className="absolute bottom-8 left-14 w-60 rounded-lg border border-subtle bg-surface-2 p-3 shadow-glow flex flex-col gap-2"
       >
         <div className="flex flex-col gap-1.5">
           <span className="text-caption uppercase tracking-wider text-fg-tertiary">

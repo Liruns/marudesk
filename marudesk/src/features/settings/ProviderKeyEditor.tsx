@@ -43,7 +43,7 @@ export function ProviderKeyEditor({
   }, []);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       {provider.apiKeyUrl ? (
         <a
           href={provider.apiKeyUrl}

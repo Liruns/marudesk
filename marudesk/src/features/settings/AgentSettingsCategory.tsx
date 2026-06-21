@@ -108,7 +108,7 @@ export function AgentCategory() {
           onCommit={(denyGlobs) => void update({ agent: { denyGlobs } })}
         />
       </Field>
-      <div className="flex flex-col gap-1 px-4 py-3">
+      <div className="flex flex-col gap-1 px-4 py-2">
         <span className="text-body-sm text-fg-primary">{t('settings.agent.toolGroups.label')}</span>
         <span className="text-caption text-fg-tertiary">{t('settings.agent.toolGroups.hint')}</span>
       </div>
@@ -176,7 +176,7 @@ export function AgentCategory() {
         />
       </Field>
       {agent.fallback.enabled ? (
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <FallbackChain
             order={agent.fallback.order}
             onChange={(order) =>
