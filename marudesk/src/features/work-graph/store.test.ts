@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RunTaskResult } from '../../../shared/work-os';
 import {
   __flushWorkGraphPersist,
   __workGraphPersistStats,
@@ -114,6 +115,80 @@ describe('acceptance criteria editing', () => {
     useWorkGraphStore.getState().removeCriterion(target.id, 'does-not-exist');
     const after = useWorkGraphStore.getState().graph?.tasks.find((t) => t.id === target.id);
     expect(after?.acceptance.length).toBe(before);
+  });
+});
+
+describe('runOne', () => {
+  // Route workos:run-task to a per-test result; record which task ids were invoked
+  // so we can prove runOne touches ONLY the one task.
+  let result: RunTaskResult;
+  let invokedTaskIds: string[];
+
+  beforeEach(() => {
+    invokedTaskIds = [];
+    result = { ok: true, status: 'done', result: 'verified', outputs: [] };
+    (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
+      invoke: async (channel: string, payload?: unknown) => {
+        if (channel === 'workos:run-task') {
+          invokedTaskIds.push((payload as { taskId: string }).taskId);
+          return result;
+        }
+        return undefined;
+      },
+      on: () => () => {},
+    };
+  });
+
+  it('stores evidence + status for ONLY the targeted task', async () => {
+    const graph = sampleGraph('run one');
+    useWorkGraphStore.getState().setGraph(graph);
+    const tasks = useWorkGraphStore.getState().graph?.tasks ?? [];
+    const target = tasks[0];
+    const other = tasks[1];
+    expect(target && other).toBeTruthy();
+    if (!target || !other) return;
+
+    await useWorkGraphStore.getState().runOne(target.id);
+
+    // Exactly one invoke, for the target task.
+    expect(invokedTaskIds).toEqual([target.id]);
+
+    const after = useWorkGraphStore.getState().graph?.tasks ?? [];
+    const afterTarget = after.find((t) => t.id === target.id);
+    const afterOther = after.find((t) => t.id === other.id);
+    expect(afterTarget?.status).toBe('done');
+    expect(afterTarget?.evidence?.result).toBe('verified');
+    // The other task is untouched (no evidence, still planned).
+    expect(afterOther?.evidence).toBeUndefined();
+    expect(afterOther?.status).toBe('planned');
+    // The run flag is cleared once the single task settles.
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+
+  it('is a no-op for an unknown task id', async () => {
+    const graph = sampleGraph('run one unknown');
+    useWorkGraphStore.getState().setGraph(graph);
+
+    await useWorkGraphStore.getState().runOne('does-not-exist');
+
+    expect(invokedTaskIds).toEqual([]);
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+
+  it('is a no-op while a run is already in flight', async () => {
+    const graph = sampleGraph('run one busy');
+    useWorkGraphStore.getState().setGraph(graph);
+    const target = useWorkGraphStore.getState().graph?.tasks[0];
+    expect(target).toBeTruthy();
+    if (!target) return;
+
+    useWorkGraphStore.setState({ running: true });
+    await useWorkGraphStore.getState().runOne(target.id);
+
+    // Gated out: never invoked, and it must not clobber the in-flight run flag.
+    expect(invokedTaskIds).toEqual([]);
+    expect(useWorkGraphStore.getState().running).toBe(true);
+    useWorkGraphStore.setState({ running: false });
   });
 });
 

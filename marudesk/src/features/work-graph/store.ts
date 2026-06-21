@@ -238,6 +238,14 @@ type WorkGraphActions = {
    */
   run: () => Promise<void>;
   /**
+   * Run ONLY one task via `workos:run-task` (verify/evidence — NOT the worktree
+   * write path) and store its outcome as that task's evidence/status. Lets the
+   * inspector re-attempt a single failed/blocked task without re-running the whole
+   * graph. Gated like {@link run} (no-op while running / no graph / unknown id) and
+   * shares the same run-token bookkeeping so it can't race a full run.
+   */
+  runOne: (id: TaskId) => Promise<void>;
+  /**
    * Implement ONE task write-capably in an isolated git worktree (`workos:implement-task`)
    * and store the captured diff as `Task.evidence.patch` for review. The live
    * workspace is never modified. No-op while a run is in flight.
@@ -303,6 +311,42 @@ function markDry(graph: WorkGraph, tasks: readonly Task[]): WorkGraph {
     g = setEvidence(g, t.id, DRY_RUN_NOTE);
   }
   return g;
+}
+
+/**
+ * Invoke `workos:run-task` for ONE task and fold its outcome into `graph`
+ * (status + evidence + outputs on success; a recoverable `blocked` + reason when
+ * it could not be reached). Shared by {@link run}'s parallel layer walk and the
+ * single-task {@link runOne} so both apply an outcome identically. Fail-closed: a
+ * rejected invoke becomes an ok:false result, never an unhandled rejection.
+ */
+async function invokeRunTask(task: Task, goal: string) {
+  const res = await window.marudesk
+    .invoke('workos:run-task', {
+      taskId: task.id,
+      title: task.title,
+      intent: task.intent,
+      goal,
+      acceptance: task.acceptance.map((c) => c.text),
+    })
+    .catch(() => ({ ok: false as const, reason: 'The task agent could not be reached.' }));
+  return res;
+}
+
+/** Apply one `workos:run-task` outcome to `graph` (status/evidence/outputs). */
+function applyRunOutcome(
+  graph: WorkGraph,
+  task: Task,
+  res: Awaited<ReturnType<typeof invokeRunTask>>,
+): WorkGraph {
+  if (res.ok) {
+    let g = setStatus(graph, task.id, res.status);
+    g = setEvidence(g, task.id, res.result);
+    g = setOutputs(g, task.id, res.outputs);
+    return g;
+  }
+  // Not attempted (no provider / timeout) — recoverable `blocked`, not a real fail.
+  return setEvidence(setStatus(graph, task.id, 'blocked'), task.id, res.reason);
 }
 
 /**
@@ -560,20 +604,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
         if (live) {
           const outcomes = await Promise.all(
-            ready.map(async (t) => ({
-              t,
-              // Fail-closed: a rejected invoke (child threw) becomes an ok:false
-              // result, not an unhandled rejection that strands the layer.
-              res: await window.marudesk
-                .invoke('workos:run-task', {
-                  taskId: t.id,
-                  title: t.title,
-                  intent: t.intent,
-                  goal,
-                  acceptance: t.acceptance.map((c) => c.text),
-                })
-                .catch(() => ({ ok: false as const, reason: 'The task agent could not be reached.' })),
-            })),
+            ready.map(async (t) => ({ t, res: await invokeRunTask(t, goal) })),
           );
           if (!owns()) break;
           if (outcomes.every((o) => !o.res.ok)) {
@@ -602,19 +633,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
           set((s) => {
             if (!s.graph) return {};
             let g = s.graph;
-            for (const { t, res } of outcomes) {
-              if (res.ok) {
-                g = setStatus(g, t.id, res.status);
-                g = setEvidence(g, t.id, res.result);
-                g = setOutputs(g, t.id, res.outputs);
-              } else {
-                // Not attempted (no provider / timeout for THIS task) — `blocked`,
-                // not a real `failed`: non-terminal, recoverable, and it won't
-                // cascade-fail dependents the way a genuine failure does.
-                g = setStatus(g, t.id, 'blocked');
-                g = setEvidence(g, t.id, res.reason);
-              }
-            }
+            for (const { t, res } of outcomes) g = applyRunOutcome(g, t, res);
             // A failed task blocks its dependents — mark them so they don't sit planned.
             return { graph: markBlocked(g) };
           });
@@ -624,6 +643,36 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
           set((s) => (s.graph ? { graph: markDry(s.graph, ready) } : {}));
         }
       }
+    } finally {
+      // Only the owning turn clears `running` (a newer run/stop owns it otherwise).
+      if (get().runToken === token) set({ running: false });
+    }
+  },
+
+  runOne: async (id) => {
+    const s0 = get();
+    if (s0.running || !s0.graph) return;
+    const task = s0.graph.tasks.find((t) => t.id === id);
+    if (!task) return;
+    const goal = s0.graph.goal;
+    const token = s0.runToken + 1;
+    set((s) => ({
+      running: true,
+      runToken: token,
+      runNote: null,
+      graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph,
+    }));
+    // This turn owns the run only while its token is current; a stopRun() / new run
+    // bumps it, so we bail after the await instead of clobbering the newer turn.
+    const owns = () => get().running && get().runToken === token;
+    try {
+      const res = await invokeRunTask(task, goal);
+      if (!owns()) return;
+      set((s) => {
+        if (!s.graph) return { running: false };
+        // A failed task blocks its dependents — mark them so they don't sit planned.
+        return { graph: markBlocked(applyRunOutcome(s.graph, task, res)), running: false };
+      });
     } finally {
       // Only the owning turn clears `running` (a newer run/stop owns it otherwise).
       if (get().runToken === token) set({ running: false });

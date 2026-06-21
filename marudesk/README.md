@@ -58,6 +58,10 @@ npm run build
 npm run e2e
 ```
 
+`npm run e2e` is the Playwright gate; it excludes the assertion-free screenshot
+harness (`e2e/screens.spec.ts`). Run `npm run screens` to regenerate the UI
+screenshots (it sets `RUN_SCREENS=1` to opt that spec back in).
+
 ## Chat from the terminal
 
 The bundled chat CLI (docs/chat-cli-tui-design.md) is an OpenCode-style

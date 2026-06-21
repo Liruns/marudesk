@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ExternalLink, FileText, Hammer, Plus, X } from 'lucide-react';
+import { Check, ExternalLink, FileText, Hammer, Play, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
@@ -110,6 +110,9 @@ export function WorkGraphInspectorContent() {
   const result = task.evidence?.result;
   const patch = task.evidence?.patch;
   const taskId = task.id;
+  // A failed/blocked task frames its primary action as RETRY (the call is the same
+  // implementTask); a normal task keeps the exact "Implement" label e2e asserts.
+  const needsRetry = task.status === 'failed' || task.status === 'blocked';
   // Resources open in the task's own workspace (via its bound conversation thread),
   // mirroring the ⌘K openInstrument path. Fall back to the active workspace when the
   // task isn't bound yet so nothing regresses.
@@ -167,16 +170,30 @@ export function WorkGraphInspectorContent() {
         </button>
       </div>
 
-      <button
-        type="button"
-        disabled={running}
-        onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
-        title={t('workGraph.inspector.implementTitle')}
-        className="mb-2 inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
-      >
-        {running ? <Spinner size={13} label={t('workGraph.inspector.implementing')} /> : <Hammer size={12} />}
-        {t('workGraph.inspector.implement')}
-      </button>
+      {/* A failed/blocked task gets retry framing on the primary (write) action,
+          while a normal task keeps the exact "Implement" label e2e asserts. */}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={running}
+          onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
+          title={needsRetry ? t('workGraph.inspector.retryTitle') : t('workGraph.inspector.implementTitle')}
+          className="inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+        >
+          {running ? <Spinner size={13} label={t('workGraph.inspector.implementing')} /> : <Hammer size={12} />}
+          {needsRetry ? t('workGraph.inspector.retry') : t('workGraph.inspector.implement')}
+        </button>
+        <button
+          type="button"
+          disabled={running}
+          onClick={() => void useWorkGraphStore.getState().runOne(taskId)}
+          title={t('workGraph.inspector.runTaskTitle')}
+          className="inline-flex items-center gap-1.5 self-start rounded bg-surface-2 border border-default px-2.5 py-1 text-caption font-medium text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+        >
+          <Play size={12} />
+          {t('workGraph.inspector.runTask')}
+        </button>
+      </div>
       {task.status === 'planned' && !result ? (
         <p className="mt-0.5 text-caption text-fg-tertiary">{t('workGraph.inspector.isolatedHint')}</p>
       ) : null}

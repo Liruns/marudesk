@@ -1,4 +1,5 @@
 import type { TaskStatus } from '../../../shared/work-os';
+import type { BadgeVariant } from '../../components/ui/Badge';
 import type { TranslationKey } from '../../i18n/messages';
 
 /**
@@ -7,9 +8,6 @@ import type { TranslationKey } from '../../i18n/messages';
  * key or badge variant across surfaces. Both maps are `Record<TaskStatus, …>`, so
  * adding a status fails to typecheck in this ONE place until it is filled in.
  */
-
-/** Badge variant union — mirrors the (unexported) `Variant` in components/ui/Badge. */
-export type BadgeVariant = 'neutral' | 'accent' | 'success' | 'warning' | 'error';
 
 /** Human status labels resolve through the shared Flight Log i18n keys. */
 export const STATUS_LABEL_KEY: Record<TaskStatus, TranslationKey> = {

@@ -196,6 +196,19 @@ const COMMANDS: Cmd[] = [
     },
   },
   {
+    id: 'run-task',
+    labelKey: 'command.runTask.label',
+    hintKey: 'command.runTask.hint',
+    icon: Play,
+    group: 'action',
+    // Mirror the inspector's "Run this task": a task is selected and no run in flight.
+    gate: (ctx) => ctx.selectedTaskId !== null && !ctx.running,
+    run: () => {
+      const id = useWorkGraphStore.getState().selectedTaskId;
+      if (id) void useWorkGraphStore.getState().runOne(id);
+    },
+  },
+  {
     id: 'apply-task-diff',
     labelKey: 'command.applyTaskDiff.label',
     hintKey: 'command.applyTaskDiff.hint',
