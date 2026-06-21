@@ -123,6 +123,8 @@ import {
   emergencyCompactionReason,
   advanceDegradationMonitor,
   capToolOutput,
+  largestMessageChars,
+  emergencyCapToolResultsInPlace,
 } from './compaction-utils.ts';
 export {
   abortTurn,
@@ -194,6 +196,14 @@ const MAX_STREAM_RETRIES = 4;
  * surface instead of looping.
  */
 const MAX_OVERFLOW_COMPACTIONS = 2;
+
+/**
+ * Chars-per-token heuristic for the overflow no-progress check (rank 15): the
+ * model `contextWindow` is in tokens, so it's scaled by this to compare against a
+ * single message's char weight ({@link largestMessageChars}). Matches the
+ * `CHARS_PER_TOKEN` budget arithmetic in compaction-utils' `capToolOutput`.
+ */
+const OVERFLOW_CHARS_PER_TOKEN = 4;
 
 /**
  * Fraction of the conversation (by character weight) kept VERBATIM as the tail
@@ -717,7 +727,53 @@ async function runLoop(opts: RunOpts): Promise<void> {
         emit();
         // Synchronous, mid-turn compaction (allowDuringTurn) shrinks S.transcript
         // before the retry; best-effort — if it can't help, the retry will surface.
-        await compactConversation(undefined, S, { allowDuringTurn: true }).catch(() => {});
+        const compacted = await compactConversation(undefined, S, { allowDuringTurn: true }).catch(
+          () => ({ ok: false as const, freedChars: 0 }),
+        );
+        // No-progress detection (rank 15): compaction keeps a verbatim tail, so
+        // when ONE recent message already exceeds the model window it stays
+        // verbatim, compaction frees nothing, and the retry would overflow again
+        // — then fall through to a pointless failover (same oversized prompt) and
+        // a generic error. Short-circuit: prefer a graceful emergency hard-cap of
+        // the oversized tail tool-result; if even that can't fit, surface a
+        // SPECIFIC error instead of looping + failing over.
+        const window = resolveModelEntry(MODELS, current.provider, current.modelId)?.contextWindow;
+        const windowChars =
+          window && window > 0 ? window * OVERFLOW_CHARS_PER_TOKEN : undefined;
+        const freed = compacted.freedChars ?? 0;
+        // No-progress applies ONLY to a SUCCESSFUL compaction that freed nothing.
+        // A FAILED compaction (ok:false — a transient summarizer error or a turn
+        // already in progress) must retry/failover normally, NOT short-circuit.
+        if (
+          compacted.ok &&
+          freed === 0 &&
+          windowChars !== undefined &&
+          largestMessageChars(S.transcript) > windowChars
+        ) {
+          // (b) Last resort: hard-cap oversized tail tool-results (dropping the
+          // read_file exemption for THIS emergency only) so an oversized read
+          // degrades gracefully rather than re-overflowing the retry.
+          const capped = emergencyCapToolResultsInPlace(S.transcript, window);
+          if (capped.cappedCount > 0 && largestMessageChars(S.transcript) <= windowChars) {
+            step--; // the tail now fits — re-run the step against the capped transcript
+            continue;
+          }
+          // (a) Even a hard cap can't fit (the oversized message is user/assistant
+          // text, or a single result still over window). A SECOND compaction would
+          // free nothing either, so skip it — but a LARGER-context model might fit
+          // the oversized message, so try failover before giving up; only surface
+          // the specific error when there's no model left to fail over to.
+          if (await failOver()) {
+            step--; // re-run this step on the larger-context model
+            continue;
+          }
+          return finish(
+            S,
+            'failed',
+            undefined,
+            'A single message or tool result exceeds the model context window, so compaction cannot free enough space. Start a fresh turn or switch to a larger-context model.',
+          );
+        }
         step--; // re-run this step against the compacted transcript
         continue;
       }
@@ -1320,21 +1376,22 @@ async function runLoop(opts: RunOpts): Promise<void> {
     // the model wraps up on its own before the hard cutoff above.
     const limitNote = stepLimitNote(step + 1);
     if (limitNote) appendNoteToLastToolResult(toolResultParts, limitNote);
-    S.transcript.push({ role: 'tool', content: toolResultParts });
-    if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
-
     // Degradation corrective note (item 3): the monitor flagged this step's
-    // response. Inject the nudge HERE — after the tool results — so every
-    // tool_use from this step keeps its paired tool_result and the transcript
-    // stays valid before the next model call.
+    // response. Fold it into the LAST tool result (the same delivery the
+    // wind-down note uses) instead of a standalone `[system]` user message:
+    // an extra message would shift the message-prefix cache breakpoint
+    // (messages.length-2) on the next step and give splitForTailPreservation a
+    // false `user`-boundary anchor — a synthetic note that references "the
+    // compacted summary above" the next compaction rewrites.
     if (degradedThisStep) {
-      S.transcript.push({
-        role: 'user',
-        content:
-          '[system] You have produced several responses with no explanation since the last context compaction. The compacted summary above may be missing detail. Before continuing, briefly re-state in plain text what you are doing and why — re-reading the summary and any files it references if needed — then proceed.',
-      });
-      emit();
+      appendNoteToLastToolResult(
+        toolResultParts,
+        '[system] You have produced several responses with no explanation since the last context compaction. The compacted summary above may be missing detail. Before continuing, briefly re-state in plain text what you are doing and why — re-reading the summary and any files it references if needed — then proceed.',
+      );
     }
+    S.transcript.push({ role: 'tool', content: toolResultParts });
+    if (degradedThisStep) emit();
+    if (opts.signal.aborted) return finish(S, 'completed', 'Stopped');
 
     // Preemptive compaction (item 2): a long multi-tool turn can cross the
     // context threshold mid-turn — the auto-compact in finish() only fires at

@@ -127,6 +127,7 @@ export function WorkspaceSwitcher() {
         <NameDialog
           title={t('workspaces.dialog.create.title')}
           confirmLabel={t('workspaces.dialog.create.confirm')}
+          cancelLabel={t('workspaces.delete.cancel')}
           placeholder={t('workspaces.dialog.create.placeholder')}
           allowEmpty
           onSubmit={(name) => {
@@ -143,6 +144,7 @@ export function WorkspaceSwitcher() {
         <NameDialog
           title={t('workspaces.dialog.rename.title')}
           confirmLabel={t('workspaces.dialog.rename.confirm')}
+          cancelLabel={t('workspaces.delete.cancel')}
           initialValue={dialog.name}
           onSubmit={(name) => void renameWorkspace(dialog.id, name)}
           onClose={() => setDialog(null)}

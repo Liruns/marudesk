@@ -8,6 +8,9 @@ import {
   stripPersistentNudge,
   capToolOutput,
   pruneStaleToolOutputsInHead,
+  transcriptChars,
+  largestMessageChars,
+  emergencyCapToolResultsInPlace,
 } from './compaction-utils';
 
 const user = (text: string): ModelMessage => ({ role: 'user', content: text });
@@ -349,5 +352,99 @@ describe('capToolOutput', () => {
       expect(total).toBe(astral.length);
       expect(dropped).toBeLessThanOrEqual(total);
     }
+  });
+
+  it('caps read_file under `emergency` (the overflow last resort) but keeps control tools exempt', () => {
+    const huge = 'x'.repeat(50_000 * 4 * 2);
+    // Default path: read_file is exempt (anchor-bearing) — never capped.
+    expect(capToolOutput('read_file', huge, undefined).truncated).toBe(false);
+    // Emergency path: read_file IS capped so an oversized tail read can't
+    // re-overflow the retry forever.
+    const emergency = capToolOutput('read_file', huge, undefined, { emergency: true });
+    expect(emergency.truncated).toBe(true);
+    expect(emergency.text.length).toBeLessThan(huge.length);
+    // Control payloads stay exempt even under emergency.
+    expect(capToolOutput('update_plan', huge, undefined, { emergency: true }).truncated).toBe(false);
+    expect(capToolOutput('ask_user', huge, undefined, { emergency: true }).truncated).toBe(false);
+  });
+});
+
+describe('transcriptChars / largestMessageChars (overflow no-progress signal)', () => {
+  it('transcriptChars sums every message weight', () => {
+    const msgs: ModelMessage[] = [user('abcd'), toolMsg('grep', { type: 'text', value: 'abcdef' })];
+    expect(transcriptChars(msgs)).toBe(4 + 6);
+  });
+
+  it('largestMessageChars returns the single biggest message (0 for empty)', () => {
+    expect(largestMessageChars([])).toBe(0);
+    const msgs: ModelMessage[] = [
+      user('ab'),
+      toolMsg('grep', { type: 'text', value: 'x'.repeat(500) }),
+      user('abcd'),
+    ];
+    expect(largestMessageChars(msgs)).toBe(500);
+  });
+
+  it('flags an un-shrinkable verbatim tail: one tool-result exceeds the window-in-chars', () => {
+    // A 200k-token window → 800k chars. A single 1M-char tool result on the
+    // tail exceeds it, so compaction (which keeps a verbatim tail) frees nothing
+    // usable — the overflow handler short-circuits on exactly this predicate.
+    const windowChars = 200_000 * 4;
+    const tail: ModelMessage[] = [
+      user('go'),
+      assistantCall('read_file'),
+      toolMsg('read_file', { type: 'text', value: 'x'.repeat(1_000_000) }),
+    ];
+    expect(largestMessageChars(tail) > windowChars).toBe(true);
+  });
+});
+
+describe('emergencyCapToolResultsInPlace (overflow graceful degradation)', () => {
+  it('caps an oversized read_file tool-result in place so the tail fits, keeping pairing', () => {
+    const window = 20_000; // 20k tokens → maxChars ~ floor(20000/3)*4 = 26_668
+    const windowChars = window * 4;
+    const oversized = 'line\n'.repeat(200_000); // 1M chars, well over windowChars
+    const msgs: ModelMessage[] = [
+      user('go'),
+      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'c1', toolName: 'read_file', input: { path: 'big.ts' } }] },
+      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'c1', toolName: 'read_file', output: { type: 'text', value: oversized } }] },
+    ];
+    expect(largestMessageChars(msgs) > windowChars).toBe(true);
+
+    const res = emergencyCapToolResultsInPlace(msgs, window);
+    expect(res.cappedCount).toBe(1);
+    expect(res.charsSaved).toBeGreaterThan(0);
+    // The tail now fits under the window — the retry can proceed instead of
+    // overflowing again.
+    expect(largestMessageChars(msgs) <= windowChars).toBe(true);
+    // Pairing intact: still exactly one tool-result for the same call id.
+    const toolMsgContent = msgs[2].content;
+    expect(Array.isArray(toolMsgContent)).toBe(true);
+    if (Array.isArray(toolMsgContent)) {
+      expect(toolMsgContent).toHaveLength(1);
+      const part = toolMsgContent[0];
+      expect(part.type === 'tool-result' && part.toolCallId).toBe('c1');
+    }
+  });
+
+  it('is a no-op when nothing exceeds the budget (cappedCount 0)', () => {
+    const msgs: ModelMessage[] = [
+      user('go'),
+      assistantCall('grep'),
+      toolMsg('grep', { type: 'text', value: 'a few short matches' }),
+    ];
+    const res = emergencyCapToolResultsInPlace(msgs, 200_000);
+    expect(res).toEqual({ cappedCount: 0, charsSaved: 0 });
+  });
+
+  it('leaves a control-tool payload uncapped even in the emergency pass', () => {
+    const huge = 'x'.repeat(50_000 * 4 * 2);
+    const msgs: ModelMessage[] = [
+      user('go'),
+      assistantCall('update_plan'),
+      toolMsg('update_plan', { type: 'text', value: huge }),
+    ];
+    const res = emergencyCapToolResultsInPlace(msgs, 1000);
+    expect(res.cappedCount).toBe(0);
   });
 });

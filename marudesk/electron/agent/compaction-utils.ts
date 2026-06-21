@@ -152,6 +152,26 @@ export function messageChars(m: ModelMessage): number {
   return n;
 }
 
+/** Total character weight of a transcript (sum of {@link messageChars}). Pure. */
+export function transcriptChars(msgs: ModelMessage[]): number {
+  return msgs.reduce((n, m) => n + messageChars(m), 0);
+}
+
+/**
+ * Character weight of the single largest message in a transcript (0 for empty).
+ * The overflow handler uses this to detect a tail that compaction can't shrink:
+ * when ONE verbatim tail message already exceeds the model window, compacting the
+ * head frees nothing usable and the retry overflows again (rank 15). Pure.
+ */
+export function largestMessageChars(msgs: ModelMessage[]): number {
+  let max = 0;
+  for (const m of msgs) {
+    const n = messageChars(m);
+    if (n > max) max = n;
+  }
+  return max;
+}
+
 /**
  * Staleness-aware tool-output pruning (COMPACT-1). Before the older `head` of a
  * transcript is summarized, replace the bulky `output.value` of tool results
@@ -636,6 +656,20 @@ export const UNCAPPED_TOOL_NAMES: ReadonlySet<string> = new Set([
   'spawn_subagent',
 ]);
 
+/**
+ * Control tools whose tiny structured payloads stay exempt EVEN in the emergency
+ * overflow path — capping them is pointless and risks clipping a signal the loop
+ * depends on. Only the anchor-bearing `read_file` exemption is dropped under
+ * `emergency` (rank 15), so an oversized read on the verbatim tail degrades
+ * gracefully instead of re-overflowing the retry.
+ */
+const EMERGENCY_STILL_UNCAPPED: ReadonlySet<string> = new Set([
+  'ask_user',
+  'update_plan',
+  'spawn_background_agent',
+  'spawn_subagent',
+]);
+
 /** ~4 chars/token; the default cap (~50k tokens) and a tighter cap for web fetches. */
 const CHARS_PER_TOKEN = 4;
 const DEFAULT_MAX_OUTPUT_TOKENS = 50_000;
@@ -659,8 +693,18 @@ export function capToolOutput(
   toolName: string,
   text: string,
   contextWindow: number | undefined,
+  opts: { emergency?: boolean } = {},
 ): { text: string; truncated: boolean } {
-  if (UNCAPPED_TOOL_NAMES.has(toolName)) return { text, truncated: false };
+  // Default-cap exempts anchor-bearing reads + tiny control payloads. The
+  // `emergency` flag drops the read_file exemption for the OVERFLOW last-resort
+  // only (rank 15): when a single read_file tool-result on the verbatim tail
+  // exceeds the model window, leaving it intact re-overflows the retry, so we
+  // cap it to degrade gracefully rather than hard-fail. Control payloads stay
+  // exempt either way (capping them risks clipping a structured signal).
+  const exempt = opts.emergency
+    ? EMERGENCY_STILL_UNCAPPED.has(toolName)
+    : UNCAPPED_TOOL_NAMES.has(toolName);
+  if (exempt) return { text, truncated: false };
   const toolCeilingTokens = TIGHT_CAP_TOOLS.has(toolName)
     ? FETCH_MAX_OUTPUT_TOKENS
     : DEFAULT_MAX_OUTPUT_TOKENS;
@@ -677,6 +721,40 @@ export function capToolOutput(
   const totalChars = text.length;
   const footer = `\n\n[output truncated — ${droppedChars} of ${totalChars} chars elided to bound context; narrow your query (e.g. a more specific pattern/path) to see more]`;
   return { text: `${kept}${footer}`, truncated: true };
+}
+
+/**
+ * Overflow last-resort (rank 15): hard-cap every oversized `tool-result` text
+ * payload in `msgs` IN PLACE, dropping the {@link capToolOutput} `read_file`
+ * exemption for this emergency only. Used when a compaction pass freed nothing
+ * and a single verbatim-tail tool-result still exceeds the model window, so the
+ * retry would re-overflow forever. Only the result `output.value` text is
+ * rewritten — never a message or pair removed — so tool-call ↔ tool-result
+ * pairing stays intact. Returns `{ cappedCount, charsSaved }`. Pure (no fs /
+ * Electron). `contextWindow` is the active model's window; control payloads stay
+ * exempt ({@link EMERGENCY_STILL_UNCAPPED}).
+ */
+export function emergencyCapToolResultsInPlace(
+  msgs: ModelMessage[],
+  contextWindow: number | undefined,
+): { cappedCount: number; charsSaved: number } {
+  let cappedCount = 0;
+  let charsSaved = 0;
+  for (const m of msgs) {
+    if (m.role !== 'tool' || typeof m.content === 'string') continue;
+    for (const raw of m.content as ReadonlyArray<{ type: string }>) {
+      if (raw.type !== 'tool-result') continue;
+      const part = raw as ToolResultPart;
+      if (typeof part.output.value !== 'string') continue;
+      const before = part.output.value;
+      const capped = capToolOutput(part.toolName, before, contextWindow, { emergency: true });
+      if (!capped.truncated) continue;
+      part.output = { type: 'text', value: capped.text };
+      cappedCount += 1;
+      charsSaved += before.length - capped.text.length;
+    }
+  }
+  return { cappedCount, charsSaved };
 }
 
 /**

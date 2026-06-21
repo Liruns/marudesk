@@ -79,6 +79,25 @@ type WorkspaceDeckActions = {
   readonly closePane: (paneId: WorkspacePaneId) => void;
 };
 
+/**
+ * Resolve the workspace a surface should render. An instrument bound to a SPECIFIC
+ * workspace passes its `preferredId`; surfaces that follow the global active
+ * workspace pass `preferredId = undefined`. The preferred id wins when it resolves
+ * to a known record; otherwise we fall back to the active workspace, so an unset
+ * or stale binding degrades to today's active-workspace behavior rather than null.
+ */
+export function resolveWorkspaceFor(
+  workspaces: readonly WorkspaceRecord[],
+  preferredId: WorkspaceId | undefined,
+  activeId: WorkspaceId | null,
+): WorkspaceRecord | null {
+  if (preferredId) {
+    const preferred = workspaces.find((workspace) => workspace.id === preferredId);
+    if (preferred) return preferred;
+  }
+  return workspaces.find((workspace) => workspace.id === activeId) ?? null;
+}
+
 function layoutForSnapshot(snapshot: WorkspaceSnapshot): WorkspaceLayoutNode | null {
   const focused =
     snapshot.focusedWorkspaceId ?? snapshot.activeWorkspaceId ?? snapshot.workspaces[0]?.id;

@@ -10,8 +10,13 @@ import {
   advanceDegradationMonitor,
   applyPersistentNudge,
   stripPersistentNudge,
+  transcriptChars,
+  largestMessageChars,
+  emergencyCapToolResultsInPlace,
   POST_COMPACTION_NO_TEXT_THRESHOLD,
 } from './compaction-utils.ts';
+import { appendNoteToLastToolResult } from './turn-limits.ts';
+import type { ToolResultPartLite } from './loop-helpers.ts';
 
 /**
  * Harness for the compaction-stability batch (SECOND-PASS items 1, 3, 4, 5, 7).
@@ -365,6 +370,105 @@ function resultOutputs(msgs: ModelMessage[]): Array<{ type: string; value: unkno
   const refreshedText = typeof refreshed[0].content === 'string' ? refreshed[0].content : '';
   check('persistent-nudge: refresh replaces the prior nudge', refreshedText.includes('a newer nudge') && !refreshedText.includes(nudge));
   check('persistent-nudge: exactly one block after refresh', (refreshedText.match(/<persistent-nudge>/g)?.length ?? 0) === 1);
+}
+
+/* ── rank 15: overflow no-progress detection + emergency hard-cap ─────────── */
+{
+  // transcriptChars sums every message; largestMessageChars finds the single
+  // biggest — the overflow handler uses both to detect a tail compaction can't
+  // shrink (one verbatim message already over the model window).
+  const msgs: ModelMessage[] = [
+    { role: 'user', content: 'go' },
+    toolResult('c1', 'grep', txt(100)),
+  ];
+  check('overflow: transcriptChars sums message weights', transcriptChars(msgs) === 2 + 100);
+  check('overflow: largestMessageChars finds the biggest', largestMessageChars(msgs) === 100);
+  check('overflow: largestMessageChars of [] is 0', largestMessageChars([]) === 0);
+}
+{
+  // The no-progress predicate the handler evaluates: a single verbatim-tail
+  // tool-result whose char weight exceeds the model window (tokens * 4 chars).
+  const window = 200_000;
+  const windowChars = window * 4; // 800k
+  const tail: ModelMessage[] = [
+    { role: 'user', content: 'continue' },
+    assistantCall('c1', 'read_file', { path: 'big.ts' }),
+    toolResult('c1', 'read_file', txt(1_000_000)), // > windowChars → un-shrinkable
+  ];
+  check('overflow: an oversized verbatim tail exceeds the window-in-chars', largestMessageChars(tail) > windowChars);
+}
+{
+  // (b) Graceful degradation: emergencyCapToolResultsInPlace caps the oversized
+  // read_file tool-result (dropping the read_file exemption for this emergency)
+  // so the tail fits — the retry can proceed instead of re-overflowing forever.
+  const window = 20_000;
+  const windowChars = window * 4; // 80k
+  const before: ModelMessage[] = [
+    { role: 'user', content: 'go' },
+    assistantCall('c1', 'read_file', { path: 'big.ts' }),
+    toolResult('c1', 'read_file', 'line\n'.repeat(200_000)), // 1M chars
+  ];
+  check('overflow: oversized read tail before cap exceeds the window', largestMessageChars(before) > windowChars);
+  const res = emergencyCapToolResultsInPlace(before, window);
+  check('overflow: emergency cap truncates the oversized read', res.cappedCount === 1 && res.charsSaved > 0);
+  check('overflow: tail now fits under the window after the cap', largestMessageChars(before) <= windowChars);
+  check('overflow: pairing intact after the emergency cap', pairsIntact(before));
+}
+{
+  // (a) Even a hard cap can't help when the oversized message is plain
+  // user/assistant TEXT (no tool-result to cap) — the handler then surfaces a
+  // specific error instead of a pointless second compaction + failover.
+  const window = 10_000;
+  const windowChars = window * 4; // 40k
+  const untouchable: ModelMessage[] = [
+    { role: 'user', content: txt(500_000) }, // one oversized user message
+    { role: 'assistant', content: 'ok' },
+  ];
+  check('overflow: oversized user text exceeds the window', largestMessageChars(untouchable) > windowChars);
+  const res = emergencyCapToolResultsInPlace(untouchable, window);
+  check('overflow: nothing to cap → cappedCount 0 (handler surfaces the specific error)', res.cappedCount === 0);
+  check('overflow: still over window after a no-op cap', largestMessageChars(untouchable) > windowChars);
+  // A control-tool payload is also left intact even in the emergency pass.
+  const ctrl: ModelMessage[] = [assistantCall('p1', 'update_plan', {}), toolResult('p1', 'update_plan', txt(500_000))];
+  check('overflow: control-tool payload stays uncapped under emergency', emergencyCapToolResultsInPlace(ctrl, window).cappedCount === 0);
+}
+
+/* ── rank 17: degradation note rides on the last tool-result ──────────────── */
+{
+  // The post-compaction degradation note must fold into the LAST tool-result
+  // (the same channel the wind-down note uses) — NOT a standalone `[system]`
+  // user message — so the message count stays stable (the prefix-cache
+  // breakpoint at messages.length-2 doesn't shift) and the tail-split has no
+  // false synthetic `user` boundary to snap to.
+  const parts: ToolResultPartLite[] = [
+    { type: 'tool-result', toolCallId: 'a1', toolName: 'grep', output: { type: 'text', value: 'first result' } },
+    { type: 'tool-result', toolCallId: 'a2', toolName: 'read_file', output: { type: 'text', value: 'second result' } },
+  ];
+  const note = '[system] You have produced several responses with no explanation since the last context compaction.';
+  appendNoteToLastToolResult(parts, note);
+  const last = parts[parts.length - 1];
+  const lastText = last.output.type === 'text' ? last.output.value : '';
+  check('degradation-note: rides on the LAST tool-result', lastText.includes(note));
+  check('degradation-note: does NOT touch earlier results', parts[0].output.type === 'text' && parts[0].output.value === 'first result');
+  check('degradation-note: adds NO standalone message (part count unchanged)', parts.length === 2);
+}
+{
+  // Multipart (content) last result: the note appends as a text item, not a
+  // string concat — the screenshot-tool shape still receives the note.
+  const parts: ToolResultPartLite[] = [
+    {
+      type: 'tool-result',
+      toolCallId: 's1',
+      toolName: 'screenshot',
+      output: { type: 'content', value: [{ type: 'text', text: 'shot taken' }] },
+    },
+  ];
+  appendNoteToLastToolResult(parts, '[system] re-state what you are doing');
+  const out = parts[0].output;
+  const hasNoteItem =
+    out.type === 'content' &&
+    out.value.some((v) => v.type === 'text' && v.text.includes('re-state what you are doing'));
+  check('degradation-note: folds into a multipart content result as a text item', hasNoteItem);
 }
 
 console.log(`\n${passedCount()} checks passed`);

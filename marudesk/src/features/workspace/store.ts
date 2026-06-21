@@ -58,7 +58,7 @@ function activeRoot(record: WorkspaceRecord): WorkspaceRootSummary | null {
   return preferred ?? record.roots[0] ?? null;
 }
 
-function summaryFromWorkspaceRecord(record: WorkspaceRecord): WorkspaceSummary | null {
+export function summaryFromWorkspaceRecord(record: WorkspaceRecord): WorkspaceSummary | null {
   const root = activeRoot(record);
   if (!root) return null;
   return {

@@ -9,6 +9,7 @@ import {
   splitForTailPreservation,
   pruneStaleToolOutputsInHead,
   messageChars,
+  transcriptChars,
   extractFileManifest,
   formatFileManifest,
   stripFileManifest,
@@ -55,7 +56,7 @@ export async function compactConversation(
   focus?: string,
   S: ThreadContainer = activeContainer(),
   opts: { allowDuringTurn?: boolean } = {},
-): Promise<{ ok: boolean; reason?: string }> {
+): Promise<{ ok: boolean; reason?: string; freedChars?: number }> {
   // Guard the TARGET container (the active one for /compact, or a just-finished
   // turn's container for auto-compact) — both busy + the per-container starting flag.
   // Preemptive mid-turn compaction (item 2) sets allowDuringTurn: it runs INSIDE
@@ -72,6 +73,9 @@ export async function compactConversation(
   if (S.transcript.length < 2) return { ok: false, reason: 'conversation is too short to compact' };
   const provider = S.conversationProvider;
   const model = S.conversationModel;
+  // Snapshot the pre-rebuild transcript weight so the overflow handler can tell
+  // whether this pass actually shrank anything (rank 15 no-progress detection).
+  const charsBefore = transcriptChars(S.transcript);
   S.starting = true;
   try {
     const resolved = await resolveProviderAuth(provider);
@@ -189,7 +193,10 @@ export async function compactConversation(
     S.postCompactionMonitorRemaining = POST_COMPACTION_MONITOR_COUNT;
     emitContainer(S);
     if (S.conversationId) void persistSession(S).then(() => emitContainer(S)).catch(() => {});
-    return { ok: true };
+    // Report the transcript-weight delta so a no-progress overflow compaction
+    // (an un-shrinkable verbatim tail) can short-circuit instead of looping +
+    // failing over with the same oversized prompt (rank 15).
+    return { ok: true, freedChars: Math.max(0, charsBefore - transcriptChars(S.transcript)) };
   } catch (err) {
     return { ok: false, reason: humanizeModelError(err, provider, model) };
   } finally {

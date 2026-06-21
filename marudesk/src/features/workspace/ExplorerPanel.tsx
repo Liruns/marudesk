@@ -31,11 +31,12 @@ import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import type {
   FileEntry,
   WorkspaceFileRef,
+  WorkspaceId,
 } from '../../../shared/workspace';
 import { IconButton, WorkspaceRootsBar } from './ExplorerPanel.parts';
-import { useWorkspaceStore } from './store';
+import { summaryFromWorkspaceRecord, useWorkspaceStore } from './store';
 import { serializeFileDrag } from './fileDrag';
-import { useWorkspaceDeckStore } from '../workspaces/store';
+import { resolveWorkspaceFor, useWorkspaceDeckStore } from '../workspaces/store';
 import { buildFileTree, flattenTree } from './tree';
 import { FileTree, type MenuTarget } from './FileTree';
 import { FileTreePierreSpike } from './FileTreePierreSpike';
@@ -60,6 +61,13 @@ type Props = {
    * false the legacy left-rail behavior is preserved byte-for-byte.
    */
   embedded?: boolean;
+  /**
+   * When the panel is hosted by an instrument bound to a SPECIFIC workspace, the
+   * tree (and roots bar) resolve THAT workspace instead of the global active one.
+   * Omitted for the legacy rail and the coincident ⌘K case (active workspace),
+   * which keep reading the mirrored active-workspace summary byte-for-byte.
+   */
+  workspaceId?: WorkspaceId;
 };
 
 type MenuState = { x: number; y: number; target: MenuTarget };
@@ -115,9 +123,9 @@ function readExplorerWidth(): number {
  * The tree is built client-side from the workspace's flat file list; mutations
  * go through validated workspace:* channels (see fsActions / electron/fs-safe).
  */
-export function ExplorerPanel({ open, onRequestClose, embedded = false }: Props) {
+export function ExplorerPanel({ open, onRequestClose, embedded = false, workspaceId }: Props) {
   const { formatFileCount, formatWorkspaceTruncated, t } = useI18n();
-  const summary = useWorkspaceStore((s) => s.summary);
+  const globalSummary = useWorkspaceStore((s) => s.summary);
   const opening = useWorkspaceStore((s) => s.opening);
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
   const reindex = useWorkspaceStore((s) => s.reindex);
@@ -137,6 +145,27 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false }: Props)
   const setActiveRoot = useWorkspaceDeckStore((s) => s.setActiveRoot);
   const addRoot = useWorkspaceDeckStore((s) => s.addRoot);
   const removeRoot = useWorkspaceDeckStore((s) => s.removeRoot);
+
+  // Prefer the explicitly-bound workspace (instrument host) over the global
+  // active one. Falls back to active when no id is given (legacy rail + the
+  // coincident ⌘K case), so existing usages are unchanged.
+  const activeWorkspace = useMemo(
+    () => resolveWorkspaceFor(workspaces, workspaceId, activeWorkspaceId),
+    [workspaces, workspaceId, activeWorkspaceId],
+  );
+  const activeRootId = activeWorkspace?.activeRootId ?? activeWorkspace?.roots[0]?.id ?? null;
+  // When bound to a NON-active workspace, derive its summary from the deck record
+  // so the tree reflects THAT workspace. For the active workspace (the legacy rail
+  // and the coincident ⌘K case) keep the mirrored summary — it's the live source
+  // the active record itself derives from, so in-panel reindex stays reflected.
+  const bindsNonActiveWorkspace = !!workspaceId && workspaceId !== activeWorkspaceId;
+  const summary = useMemo(
+    () =>
+      bindsNonActiveWorkspace && activeWorkspace
+        ? summaryFromWorkspaceRecord(activeWorkspace)
+        : globalSummary,
+    [bindsNonActiveWorkspace, activeWorkspace, globalSummary],
+  );
 
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [width, setWidth] = useState(readExplorerWidth);
@@ -243,11 +272,6 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false }: Props)
     () => flattenTree(tree, expandedDirs),
     [tree, expandedDirs],
   );
-  const activeWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
-    [activeWorkspaceId, workspaces],
-  );
-  const activeRootId = activeWorkspace?.activeRootId ?? activeWorkspace?.roots[0]?.id ?? null;
   const workspaceFile = (filePath: string): WorkspaceFileRef | string => {
     if (!activeWorkspace || !activeRootId) return filePath;
     return {

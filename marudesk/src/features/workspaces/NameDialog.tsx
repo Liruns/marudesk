@@ -12,6 +12,7 @@ import { cn } from '../../lib/cn';
 export function NameDialog({
   title,
   confirmLabel,
+  cancelLabel = 'Cancel',
   initialValue = '',
   placeholder,
   allowEmpty = false,
@@ -20,6 +21,8 @@ export function NameDialog({
 }: {
   title: string;
   confirmLabel: string;
+  /** Localized dismiss label; defaults to the English 'Cancel' for callers that don't pass it. */
+  cancelLabel?: string;
   initialValue?: string;
   placeholder?: string;
   /** When set, an empty value is allowed (e.g. create defaults to the folder name). */
@@ -100,7 +103,7 @@ export function NameDialog({
             onClick={onClose}
             className="h-8 px-3 rounded-md text-body-sm text-fg-secondary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             type="button"

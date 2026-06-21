@@ -73,12 +73,12 @@ export const tabKinds: Record<TabKind, TabKindDef> = {
   files: {
     title: 'Files',
     icon: FolderTree,
-    render: () => <FilesInstrument />,
+    render: (_tabId, tab) => <FilesInstrument workspaceId={tab?.workspaceId} />,
   },
   search: {
     title: 'Search',
     icon: Search,
-    render: () => <SearchInstrument />,
+    render: (_tabId, tab) => <SearchInstrument workspaceId={tab?.workspaceId} />,
   },
   sourceControl: {
     title: 'Source Control',

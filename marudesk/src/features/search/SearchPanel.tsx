@@ -21,6 +21,8 @@ import { cn } from '../../lib/cn';
 import { readStoredWidth, writeStoredWidth } from '../../lib/panelWidth';
 import { useSearchStore } from './store';
 import { openFileInstrument } from '../work-graph/instrument';
+import { useWorkspaceDeckStore } from '../workspaces/store';
+import type { WorkspaceFileRef, WorkspaceId } from '../../../shared/workspace';
 import { FileGroup, Toggle } from './SearchPanel.parts';
 
 type Props = {
@@ -32,6 +34,14 @@ type Props = {
    * handle) since InstrumentStage hosts the surface and owns "← Graph".
    */
   embedded?: boolean;
+  /**
+   * The hosting instrument's bound workspace. When present, opening a match
+   * resolves the file against THAT workspace (a WorkspaceFileRef) instead of the
+   * bare path, which main resolves against its active workspace. Omitted for the
+   * legacy rail and the coincident active-workspace case, so file-open is
+   * unchanged there.
+   */
+  workspaceId?: WorkspaceId;
 };
 
 // Width persistence + drag-to-close, mirroring ExplorerPanel.
@@ -58,7 +68,7 @@ function readWidth(): number {
  * in Shell) opens the panel and bumps the store's focusNonce, which this panel
  * watches to focus its input.
  */
-export function SearchPanel({ open, onRequestClose, embedded = false }: Props) {
+export function SearchPanel({ open, onRequestClose, embedded = false, workspaceId }: Props) {
   const {
     formatSearchMatchLineTitle,
     formatSearchNoResults,
@@ -76,6 +86,23 @@ export function SearchPanel({ open, onRequestClose, embedded = false }: Props) {
   const setFilter = useSearchStore((s) => s.setFilter);
   const run = useSearchStore((s) => s.run);
   const clear = useSearchStore((s) => s.clear);
+  const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
+
+  // Resolve a match path to the bound workspace (when given) so opening it edits
+  // THAT workspace's file; otherwise fall back to the bare path (main resolves it
+  // against the active workspace), matching the legacy/coincident behavior.
+  const boundWorkspace = useMemo(
+    () => (workspaceId ? workspaces.find((w) => w.id === workspaceId) ?? null : null),
+    [workspaceId, workspaces],
+  );
+  const openMatch = (filePath: string, line: number, col: number): void => {
+    const rootId = boundWorkspace?.activeRootId ?? boundWorkspace?.roots[0]?.id ?? null;
+    const target: WorkspaceFileRef | string =
+      boundWorkspace && rootId
+        ? { workspaceId: boundWorkspace.id, rootId, path: filePath }
+        : filePath;
+    void openFileInstrument(target, line, col);
+  };
 
   const [width, setWidth] = useState(readWidth);
   const [resizing, setResizing] = useState(false);
@@ -323,9 +350,7 @@ export function SearchPanel({ open, onRequestClose, embedded = false }: Props) {
                     return next;
                   })
                 }
-                onOpenAt={(line, col) =>
-                  void openFileInstrument(file.path, line, col)
-                }
+                onOpenAt={(line, col) => openMatch(file.path, line, col)}
                 t={t}
               />
             ))
