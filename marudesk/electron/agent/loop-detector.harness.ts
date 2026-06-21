@@ -9,6 +9,7 @@ import {
   recoveryHint,
   pickStepNudge,
   recordTerminalCall,
+  isEmptyArgsExternalCall,
   LOOP_DETECTOR_THRESHOLD,
   LOOP_DETECTOR_CYCLE_MIN,
   FAILURE_WINDOW_SIZE,
@@ -358,6 +359,48 @@ import {
   check('terminal: an excluded meta-tool never trips the loop detector', !everTripped);
   check('terminal: the detector state is untouched for an excluded call', state.count === 0 && state.lastSignature === '');
   check('terminal: an excluded call still records failures in the window', windowedFailureCount(window) === FAILURE_WINDOW_SIZE);
+}
+
+/* ── empty-args external pollers are excluded from the loop detector ────────── */
+{
+  // The predicate: only EXTERNAL (`__`) names with EMPTY args qualify.
+  check('empty-args external call is excluded', isEmptyArgsExternalCall('srv__list_items', {}));
+  check('null-args external call is excluded', isEmptyArgsExternalCall('srv__status', null));
+  check('undefined-args external call is excluded', isEmptyArgsExternalCall('srv__status', undefined));
+  check('non-empty external call is NOT excluded', !isEmptyArgsExternalCall('srv__list_items', { cursor: 'a' }));
+  check('empty-args BUILTIN call is NOT excluded', !isEmptyArgsExternalCall('read_file', {}));
+  check('array-args external call is NOT excluded', !isEmptyArgsExternalCall('srv__list_items', []));
+
+  // Mirror the loop's exclusion seam: an excluded call never feeds the detector,
+  // so repeated empty-args polls of an external tool never trip it (each is a
+  // legitimately repeatable poll that collides on the bare-name signature).
+  let state: LoopDetectorState = emptyLoopDetectorState();
+  let tripped = false;
+  for (let i = 0; i < LOOP_DETECTOR_THRESHOLD + LOOP_DETECTOR_CYCLE_MIN; i++) {
+    const name = 'srv__list_items';
+    const input = {};
+    if (!isEmptyArgsExternalCall(name, input)) {
+      const r = recordToolCall(state, name, input);
+      state = r.state;
+      tripped = tripped || r.tripped;
+    }
+  }
+  check('repeated empty-args external polls never trip the detector', !tripped);
+  check('detector state untouched by excluded polls', state.count === 0 && state.lastSignature === '');
+
+  // A NON-empty-args external repeat is a real spin and STILL trips: not excluded,
+  // so identical inputs escalate the consecutive count to the threshold.
+  let busy: LoopDetectorState = emptyLoopDetectorState();
+  let busyTripped = false;
+  for (let i = 0; i < LOOP_DETECTOR_THRESHOLD; i++) {
+    const name = 'srv__list_items';
+    const input = { cursor: 'fixed' };
+    check(`non-empty external call ${i} is not excluded`, !isEmptyArgsExternalCall(name, input));
+    const r = recordToolCall(busy, name, input);
+    busy = r.state;
+    busyTripped = busyTripped || r.tripped;
+  }
+  check('repeated non-empty-args external call still trips the detector', busyTripped);
 }
 
 console.log(`\n${passedCount()} checks passed`);

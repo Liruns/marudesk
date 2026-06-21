@@ -7,7 +7,7 @@ import type { WorkspaceId } from '../../../shared/workspace';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useWorkGraphStore } from './store';
 import { WorkGraphInspectorContent } from './WorkGraphInspector';
-import { acquireTaskThread, taskThreadId } from './taskThreads';
+import { acquireTaskThread, setDockRenderedThread, taskThreadId } from './taskThreads';
 
 /**
  * The per-task chat: bound to the selected task's OWN agent thread (acquired once,
@@ -33,6 +33,46 @@ function TaskChat({ taskId, workspaceId }: { taskId: string; workspaceId?: Works
       cancelled = true;
     };
   }, [taskId, workspaceId]);
+
+  // Publish the thread the dock is ACTUALLY rendering so Shell can suppress the
+  // "AI finished" toast for it. The bound case publishes the task's own thread;
+  // the fallback case (acquire failed ⇒ threadId undefined) publishes the
+  // workspace's active conversation — the thread AgentChat follows when unbound —
+  // refreshed on the workspace's thread-list pushes so a later active-thread
+  // switch stays suppressed. Cleared on unmount/deselect so a background
+  // completion still toasts once the dock is gone.
+  useEffect(() => {
+    if (!resolved) return;
+    if (threadId) {
+      setDockRenderedThread(threadId);
+      return () => setDockRenderedThread(null);
+    }
+    let cancelled = false;
+    const refresh = () => {
+      void window.marudesk
+        .invoke('agent:list-threads', workspaceId ? { workspaceId } : {})
+        .then((threads) => {
+          if (cancelled) return;
+          setDockRenderedThread(threads.find((th) => th.active)?.id ?? null);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    // A workspace-scoped dock follows its workspace's thread list; an unscoped
+    // one (no open workspace) follows the global list. Re-resolve the active
+    // thread when that list changes so the suppressed id tracks active-thread
+    // switches.
+    const off = workspaceId
+      ? window.marudesk.on('agent:workspace-threads', (event) => {
+          if (event.workspaceId === workspaceId) refresh();
+        })
+      : window.marudesk.on('agent:threads', () => refresh());
+    return () => {
+      cancelled = true;
+      off();
+      setDockRenderedThread(null);
+    };
+  }, [resolved, threadId, workspaceId]);
 
   if (!resolved) {
     return (

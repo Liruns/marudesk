@@ -174,6 +174,10 @@ export async function compactConversation(
       inputTokens: 0,
       outputTokens: 0,
       contextTokens: before > 0 && freed ? Math.max(0, before - freed) : 0,
+      // Cache-read is genuinely 0 against the freshly-rebuilt prefix until the
+      // next call measures it; set it explicitly so the gauge doesn't show an
+      // undefined cache-read against the populated context estimate.
+      cachedInputTokens: 0,
     };
     S.state.error = null;
     S.state.endNote = null;

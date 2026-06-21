@@ -25,6 +25,15 @@ import { usePaletteListbox } from './usePaletteListbox';
 
 type CmdGroup = 'open' | 'action';
 
+/** Reactive context handed to a command's `gate` so it can hide when its target
+ *  surface is absent. */
+type GateContext = {
+  /** A flight (work) graph exists. */
+  hasGraph: boolean;
+  /** An instrument is currently hosted full-area (a tab is open). */
+  instrumentOpen: boolean;
+};
+
 /**
  * A command's static spec. Labels/hints are {@link TranslationKey}s (not literal
  * strings) so the palette renders — and fuzzy-filters — in the active locale.
@@ -38,9 +47,10 @@ type Cmd = {
   icon: ComponentType<{ size?: number }>;
   group: CmdGroup;
   /** Optional render-time predicate; the command is hidden when it returns false.
-   *  Receives the reactive `hasGraph` so the palette re-filters when a flight
-   *  graph appears/clears (e.g. the Flight Log toggle needs a graph). */
-  gate?: (hasGraph: boolean) => boolean;
+   *  Receives the reactive {@link GateContext} so the palette re-filters when a
+   *  flight graph appears/clears or an instrument opens/closes (e.g. the Flight
+   *  Log toggle needs a graph; "← Graph" needs an open instrument). */
+  gate?: (ctx: GateContext) => boolean;
   run: () => void | Promise<void>;
 };
 
@@ -147,7 +157,7 @@ const COMMANDS: Cmd[] = [
     group: 'action',
     // Match FlightLogButton: only offer the toggle once a flight (graph) exists,
     // so the two entry points never disagree about an empty Flight Log.
-    gate: (hasGraph) => hasGraph,
+    gate: (ctx) => ctx.hasGraph,
     run: () => useFlightLogStore.getState().toggle(),
   },
   {
@@ -164,6 +174,9 @@ const COMMANDS: Cmd[] = [
     hintKey: 'command.returnToGraph.hint',
     icon: CornerUpLeft,
     group: 'action',
+    // Only offer "← Graph" when an instrument is hosted; on the bare graph it has
+    // nothing to close (close() would be a silent no-op).
+    gate: (ctx) => ctx.instrumentOpen,
     run: () => useInstrumentStore.getState().close(),
   },
 ];
@@ -209,8 +222,9 @@ export function CommandPalette() {
 function CommandPaletteBody({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   // Subscribe so the gate (and thus the rendered list) recomputes when a flight
-  // graph appears or clears.
+  // graph appears or clears, or when an instrument is hosted/closed.
   const graph = useWorkGraphStore((s) => s.graph);
+  const instrumentOpen = useInstrumentStore((s) => s.tabId !== null);
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const activeRef = useRef<HTMLButtonElement | null>(null);
@@ -218,8 +232,8 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
   // Resolve each command's label/hint in the active locale (so both render and
   // filter are translated) and drop any command whose gate is currently closed.
   const resolved = useMemo<ResolvedCmd[]>(() => {
-    const hasGraph = graph !== null;
-    return COMMANDS.filter((c) => c.gate?.(hasGraph) ?? true).map((c) => ({
+    const ctx: GateContext = { hasGraph: graph !== null, instrumentOpen };
+    return COMMANDS.filter((c) => c.gate?.(ctx) ?? true).map((c) => ({
       id: c.id,
       label: t(c.labelKey),
       hint: c.hintKey ? t(c.hintKey) : undefined,
@@ -227,7 +241,7 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
       group: c.group,
       run: c.run,
     }));
-  }, [t, graph]);
+  }, [t, graph, instrumentOpen]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

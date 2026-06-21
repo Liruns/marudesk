@@ -53,6 +53,24 @@ export function taskThreadId(taskId: string): string | null {
 }
 
 /**
+ * The thread id the Instrument Dock's chat is ACTUALLY rendering right now, or
+ * null when the dock is closed. Normally this equals the selected task's own
+ * thread, but when {@link acquireTaskThread} fails the dock falls back to the
+ * workspace conversation and shows THAT thread instead — so `taskThreadId` would
+ * miss it. Shell reads this to suppress the "AI finished" toast for whatever the
+ * dock visibly shows, fallback included. Published by the dock's TaskChat.
+ */
+let dockRenderedThread: string | null = null;
+
+export function setDockRenderedThread(threadId: string | null): void {
+  dockRenderedThread = threadId;
+}
+
+export function dockRenderedThreadId(): string | null {
+  return dockRenderedThread;
+}
+
+/**
  * The workspace a Task is bound to (via its conversation thread), if known.
  * `undefined` when the task has no thread yet OR was opened without a workspace
  * (i.e. it targets the active workspace). Used to detect a cross-workspace
@@ -75,6 +93,7 @@ export function taskThreadEntries(): { taskId: string; threadId: string; workspa
 export function __resetTaskThreadsForTests(): void {
   byTask.clear();
   pending.clear();
+  dockRenderedThread = null;
 }
 
 // Close a task's thread only when the task itself is removed from the graph — not

@@ -3,6 +3,8 @@ import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { NameDialog } from './NameDialog';
 import { useWorkspaceDeckStore } from './store';
@@ -20,6 +22,7 @@ type PendingDelete = { id: WorkspaceId; name: string };
  * ProfileSwitcher, which manages *profiles* (isolated userData), not workspaces.
  */
 export function WorkspaceSwitcher() {
+  const { t } = useI18n();
   const workspaces = useWorkspaceDeckStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceDeckStore((s) => s.activeWorkspaceId);
   const refresh = useWorkspaceDeckStore((s) => s.refresh);
@@ -57,18 +60,18 @@ export function WorkspaceSwitcher() {
     }));
     if (real.length > 0) out.push({ type: 'separator' });
     out.push({
-      label: 'New workspace…',
+      label: t('workspaces.menu.create'),
       icon: <Plus size={14} />,
       onSelect: () => setDialog({ mode: 'create' }),
     });
     if (activeManageable) {
       out.push({
-        label: 'Rename workspace…',
+        label: t('workspaces.menu.rename'),
         icon: <Pencil size={14} />,
         onSelect: () => setDialog({ mode: 'rename', id: activeManageable.id, name: activeManageable.name }),
       });
       out.push({
-        label: 'Add folder…',
+        label: t('workspaces.menu.addFolder'),
         icon: <FolderPlus size={14} />,
         onSelect: () => void addRoot(activeManageable.id),
       });
@@ -76,7 +79,7 @@ export function WorkspaceSwitcher() {
     for (const w of real) {
       if (w.id === activeWorkspaceId) continue;
       out.push({
-        label: `Delete "${w.name}"`,
+        label: t('workspaces.menu.delete').replace('{name}', w.name),
         icon: <Trash2 size={14} />,
         danger: true,
         onSelect: () => setPendingDelete({ id: w.id, name: w.name }),
@@ -85,20 +88,27 @@ export function WorkspaceSwitcher() {
     return out;
   };
 
+  const triggerLabel = t('workspaces.trigger.label').replace(
+    '{name}',
+    active?.name ?? t('workspaces.trigger.none'),
+  );
+
   return (
     <>
       <button
         type="button"
         data-tour="workspace"
-        aria-label={`Workspace: ${active?.name ?? 'None'}`}
+        aria-label={triggerLabel}
         aria-haspopup="menu"
         aria-expanded={!!menu}
-        title={`Workspace: ${active?.name ?? 'None'} — switch or manage workspaces`}
+        title={t('workspaces.trigger.title').replace('{label}', triggerLabel)}
         onClick={openMenu}
         className="no-drag self-center inline-flex items-center gap-1.5 h-7 rounded-md border border-subtle bg-surface-2 pl-2 pr-1.5 text-caption text-fg-secondary hover:text-fg-primary hover:border-default hover:bg-surface-3 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <Layers size={14} aria-hidden />
-        <span className="max-w-[140px] truncate font-medium">{active?.name ?? 'No workspace'}</span>
+        <span className="max-w-[140px] truncate font-medium">
+          {active?.name ?? t('workspaces.trigger.empty')}
+        </span>
         <ChevronDown size={13} aria-hidden className="text-fg-tertiary" />
       </button>
 
@@ -115,9 +125,9 @@ export function WorkspaceSwitcher() {
       ) : null}
       {dialog?.mode === 'create' ? (
         <NameDialog
-          title="New workspace"
-          confirmLabel="Choose folder…"
-          placeholder="Workspace name (optional)"
+          title={t('workspaces.dialog.create.title')}
+          confirmLabel={t('workspaces.dialog.create.confirm')}
+          placeholder={t('workspaces.dialog.create.placeholder')}
           allowEmpty
           onSubmit={(name) => {
             // Empty roots → main pops a native folder picker and seeds the workspace
@@ -131,8 +141,8 @@ export function WorkspaceSwitcher() {
       ) : null}
       {dialog?.mode === 'rename' ? (
         <NameDialog
-          title="Rename workspace"
-          confirmLabel="Rename"
+          title={t('workspaces.dialog.rename.title')}
+          confirmLabel={t('workspaces.dialog.rename.confirm')}
           initialValue={dialog.name}
           onSubmit={(name) => void renameWorkspace(dialog.id, name)}
           onClose={() => setDialog(null)}
@@ -167,6 +177,10 @@ function DeleteConfirm({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
+  // Trap Tab/Shift+Tab inside the confirm card so focus can't escape to the
+  // chrome behind the backdrop (the same hook PaletteOverlay uses).
+  const cardRef = useFocusTrap<HTMLDivElement>();
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -182,43 +196,44 @@ function DeleteConfirm({
     };
   }, [onClose]);
 
-  const title = `Delete workspace "${name}"?`;
+  const title = t('workspaces.delete.title').replace('{name}', name);
 
+  // z-[80]: above the palette scrim (z-[60]) and toast (z-[70]) so this modal
+  // confirm sits on top of the R10 z-ladder; still below the Tour (z-[100]).
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40"
       onMouseDown={onClose}
     >
       <div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         data-testid="workspace-delete-confirm"
         onMouseDown={(event) => event.stopPropagation()}
         className="w-[360px] rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2"
       >
         <h2 className="text-body font-semibold text-fg-primary">{title}</h2>
-        <p className="text-body-sm text-fg-secondary">
-          This removes it from Maru (your files are not deleted).
-        </p>
+        <p className="text-body-sm text-fg-secondary">{t('workspaces.delete.body')}</p>
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             className="h-8 px-3 rounded-md text-body-sm text-fg-secondary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
           >
-            Cancel
+            {t('workspaces.delete.cancel')}
           </button>
           <button
             type="button"
-            autoFocus
             onClick={onConfirm}
             className={cn(
               'h-8 px-3 rounded-md text-body-sm font-medium bg-error text-white',
               'transition-opacity duration-fast hover:opacity-90',
             )}
           >
-            Delete
+            {t('workspaces.delete.confirm')}
           </button>
         </div>
       </div>

@@ -26,7 +26,7 @@ export function SectionHeader({
     <div className="flex items-center gap-1.5 px-3 pb-1 pt-2.5 text-caption uppercase tracking-wider text-fg-tertiary">
       <span>{label}</span>
       {experimental ? (
-        <span className="inline-flex items-center gap-0.5 rounded-pill bg-warning-subtle px-1.5 py-px text-[10px] font-medium normal-case tracking-normal text-warning">
+        <span className="inline-flex items-center gap-0.5 rounded-pill bg-warning-subtle px-1.5 py-px text-kbd font-medium normal-case tracking-normal text-warning">
           <FlaskConical size={9} /> {experimentalLabel}
         </span>
       ) : null}
@@ -89,7 +89,7 @@ export function ModelRow({
     >
       <ProviderGlyph provider={model.provider} label={model.label} size={18} />
       {showQuickKey ? (
-        <kbd className="shrink-0 rounded bg-surface-3 px-1 text-[10px] font-medium leading-[1.5] tabular-nums text-fg-tertiary">
+        <kbd className="shrink-0 rounded bg-surface-3 px-1 text-kbd font-medium tabular-nums text-fg-tertiary">
           {index + 1}
         </kbd>
       ) : null}
@@ -99,7 +99,7 @@ export function ModelRow({
         <Brain size={12} className="shrink-0 text-ai-thinking" aria-label={reasoningLabel} />
       ) : null}
       {model.contextWindow ? (
-        <span className="shrink-0 rounded bg-surface-3/70 px-1 text-[10px] tabular-nums text-fg-tertiary">
+        <span className="shrink-0 rounded bg-surface-3/70 px-1 text-kbd tabular-nums text-fg-tertiary">
           {formatContext(model.contextWindow)}
         </span>
       ) : null}

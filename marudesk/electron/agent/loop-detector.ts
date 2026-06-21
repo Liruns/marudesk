@@ -93,6 +93,23 @@ export function toolCallSignature(name: string, input: unknown): string {
   }
 }
 
+/**
+ * True for an EXTERNAL (MCP / plugin) tool called with EMPTY args. Such a call —
+ * e.g. a no-arg `list_*` / `status` poller — is legitimately repeatable: distinct
+ * polls all share the bare-name signature ({@link toolCallSignature} returns just
+ * `name` for a zero-key object), so repeated calls would otherwise collide and
+ * trip the consecutive / cycle paths even though each is a fresh, useful poll.
+ * The caller excludes these from the detector (mirroring the ask_user / spawn_*
+ * meta-tool guard). External names carry a `__` separator (MCP `${server}__${tool}`
+ * / plugin `plugin:${id}__${tool}`); no built-in name contains `__`. Pure.
+ */
+export function isEmptyArgsExternalCall(name: string, input: unknown): boolean {
+  if (!name.includes('__')) return false;
+  if (input === null || input === undefined) return true;
+  if (typeof input !== 'object' || Array.isArray(input)) return false;
+  return Object.keys(input as Record<string, unknown>).length === 0;
+}
+
 /** Which trip path fired: a strict consecutive run vs. a short A-B-A-B cycle. */
 export type LoopDetectorKind = 'consecutive' | 'cycle';
 

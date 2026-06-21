@@ -7,6 +7,7 @@ import {
   applyPersistentNudge,
   stripPersistentNudge,
   capToolOutput,
+  pruneStaleToolOutputsInHead,
 } from './compaction-utils';
 
 const user = (text: string): ModelMessage => ({ role: 'user', content: text });
@@ -218,6 +219,50 @@ describe('persistent nudge (compaction-protected)', () => {
   });
 });
 
+describe('pruneStaleToolOutputsInHead — external-tool supersession', () => {
+  // Build a [assistant tool-call, tool tool-result] pair for one external call.
+  const big = (n: number): string => 'x'.repeat(n);
+  const pair = (callId: string, toolName: string, input: unknown, value: string): ModelMessage[] => [
+    { role: 'assistant', content: [{ type: 'tool-call', toolCallId: callId, toolName, input }] },
+    { role: 'tool', content: [{ type: 'tool-result', toolCallId: callId, toolName, output: { type: 'text', value } }] },
+  ];
+
+  it('does NOT prune an earlier empty-args external poll (distinct snapshots)', () => {
+    // Two repeated `{}` polls of an external tool, then a large trailing filler so
+    // both polls sit outside the recency-protect window. Because empty-args
+    // external calls return no target key, the older poll is NOT superseded.
+    const head: ModelMessage[] = [
+      ...pair('c1', 'srv__list_items', {}, big(10_000)),
+      ...pair('c2', 'srv__list_items', {}, big(10_000)),
+      ...pair('c3', 'srv__list_items', {}, big(10_000)),
+    ];
+    const before = head.map((m) => JSON.stringify(m.content));
+    const r = pruneStaleToolOutputsInHead(head);
+    expect(r.prunedCount).toBe(0);
+    // Outputs are untouched (no supersession occurred).
+    expect(head.map((m) => JSON.stringify(m.content))).toEqual(before);
+  });
+
+  it('DOES prune an earlier identical NON-empty external call (superseded)', () => {
+    // Same external tool with identical NON-empty args: the later result
+    // supersedes the earlier one, so the older bulky output is pruned to a notice.
+    const head: ModelMessage[] = [
+      ...pair('c1', 'srv__list_items', { cursor: 'a' }, big(10_000)),
+      ...pair('c2', 'srv__list_items', { cursor: 'a' }, big(10_000)),
+      ...pair('c3', 'srv__list_items', { cursor: 'a' }, big(10_000)),
+    ];
+    const r = pruneStaleToolOutputsInHead(head);
+    expect(r.prunedCount).toBeGreaterThan(0);
+    // The newest result for the target is never pruned.
+    const lastTool = head[head.length - 1];
+    const lastVal =
+      typeof lastTool.content !== 'string'
+        ? (lastTool.content as ReadonlyArray<{ type: string; output?: { value?: unknown } }>)[0].output?.value
+        : undefined;
+    expect(lastVal).toBe(big(10_000));
+  });
+});
+
 describe('capToolOutput', () => {
   // The footer the cap appends; everything before it is the kept tool output.
   const FOOTER_MARK = '[output truncated';
@@ -286,5 +331,23 @@ describe('capToolOutput', () => {
     expect(kept.length).toBeGreaterThan(0);
     // The footer still reports the elision against the full input length.
     expect(text).toContain(`of ${input.length} chars elided`);
+  });
+
+  it('footer "dropped of total" share ONE unit even for astral content', () => {
+    // Astral code points (emoji) are 2 UTF-16 code units each. The cut budget
+    // (maxChars) and droppedChars are measured in code units (.length); the
+    // total must use the SAME unit so droppedChars can never exceed total.
+    const astral = '😀'.repeat(DEFAULT_MAX_CHARS); // length is 2x its code-point count
+    const { text, truncated } = capToolOutput('mcp_tool', astral, undefined);
+    expect(truncated).toBe(true);
+    const m = /(\d+) of (\d+) chars elided/.exec(text);
+    expect(m).not.toBeNull();
+    if (m) {
+      const dropped = Number(m[1]);
+      const total = Number(m[2]);
+      // One unit: total is the full code-UNIT length, and dropped never exceeds it.
+      expect(total).toBe(astral.length);
+      expect(dropped).toBeLessThanOrEqual(total);
+    }
   });
 });

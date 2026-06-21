@@ -130,6 +130,9 @@ test('mission control: the ⌘K palette runs an action verb (Toggle Flight Log)'
     const palette = page.getByRole('dialog', { name: 'Command palette' });
     await expect(palette).toBeVisible();
     await expect(palette.getByRole('button', { name: 'Toggle Flight Log', exact: true })).toHaveCount(0);
+    // "Return to Graph" is likewise hidden on the bare graph: with no instrument
+    // hosted there is nothing to close, so the command would be a silent no-op.
+    await expect(palette.getByRole('button', { name: 'Return to Graph', exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(palette).toBeHidden();
 

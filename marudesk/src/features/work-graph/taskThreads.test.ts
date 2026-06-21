@@ -4,6 +4,8 @@ import { useWorkGraphStore } from './store';
 import {
   __resetTaskThreadsForTests,
   acquireTaskThread,
+  dockRenderedThreadId,
+  setDockRenderedThread,
   taskThreadEntries,
   taskThreadId,
 } from './taskThreads';
@@ -115,6 +117,24 @@ describe('taskThreads registry', () => {
     });
     expect(taskThreadId('a')).toBeNull();
     expect(taskThreadId('b')).toBe('thread-2');
+  });
+
+  it('publishes and clears the dock-rendered thread for toast suppression', () => {
+    // Null until the dock renders a chat — a background completion still toasts.
+    expect(dockRenderedThreadId()).toBeNull();
+    // The dock publishes whatever thread it visibly shows (a resolved task thread
+    // OR the workspace conversation it falls back to when acquire fails).
+    setDockRenderedThread('thread-fallback');
+    expect(dockRenderedThreadId()).toBe('thread-fallback');
+    // Cleared on unmount/deselect so the suppression doesn't outlive the view.
+    setDockRenderedThread(null);
+    expect(dockRenderedThreadId()).toBeNull();
+  });
+
+  it('resets the dock-rendered thread on registry reset', () => {
+    setDockRenderedThread('thread-x');
+    __resetTaskThreadsForTests();
+    expect(dockRenderedThreadId()).toBeNull();
   });
 
   it('does not close threads on a graph clear (transient empty)', async () => {

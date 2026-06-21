@@ -39,6 +39,7 @@ import {
   recoveryHint,
   pickStepNudge,
   recordTerminalCall,
+  isEmptyArgsExternalCall,
   type LoopDetectorState,
 } from './loop-detector.ts';
 import {
@@ -1098,8 +1099,15 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // Same-input loop detector (item 4): nudge when the model repeats the SAME
       // call (name + args) too many times in a row EVEN ON SUCCESS — a no-progress
       // spin `toolFailures` (failures only) can't see. ask_user/spawn meta-tools
-      // are excluded (parking / fan-out are legitimately repeatable).
-      if (call.name !== ASK_USER && call.name !== SPAWN_SUBAGENT && call.name !== SPAWN_BACKGROUND_AGENT) {
+      // are excluded (parking / fan-out are legitimately repeatable), as are
+      // empty-args external pollers (a no-arg list_*/status MCP tool collides on
+      // the bare-name signature, so repeated legitimate polls would trip falsely).
+      if (
+        call.name !== ASK_USER &&
+        call.name !== SPAWN_SUBAGENT &&
+        call.name !== SPAWN_BACKGROUND_AGENT &&
+        !isEmptyArgsExternalCall(call.name, call.input)
+      ) {
         const ld = recordLoopDetectorCall(loopDetector, call.name, call.input);
         loopDetector = ld.state;
         if (ld.tripped && ld.toolName) {
@@ -1189,7 +1197,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
     // happy-path guard (ask_user / spawn_* are legitimately repeatable).
     const recordTerminal = (call: ToolCall, part: ToolResultPartLite): void => {
       const excluded =
-        call.name === ASK_USER || call.name === SPAWN_SUBAGENT || call.name === SPAWN_BACKGROUND_AGENT;
+        call.name === ASK_USER ||
+        call.name === SPAWN_SUBAGENT ||
+        call.name === SPAWN_BACKGROUND_AGENT ||
+        isEmptyArgsExternalCall(call.name, call.input);
       const r = recordTerminalCall(loopDetector, failureWindow, call.name, call.input, excluded);
       loopDetector = r.loopDetector;
       stepNudge = pickStepNudge(stepNudge, r.nudge);

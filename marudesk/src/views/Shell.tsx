@@ -12,7 +12,7 @@ import { FlightLog } from '../features/work-graph/FlightLog';
 import { CommandPalette } from '../features/commands/CommandPalette';
 import { useCommandPaletteStore } from '../features/commands/command-palette-store';
 import { useWorkGraphStore } from '../features/work-graph/store';
-import { taskThreadId } from '../features/work-graph/taskThreads';
+import { dockRenderedThreadId } from '../features/work-graph/taskThreads';
 import { cardThreadId } from '../features/agent/cardThreads';
 import { useWebPageStore } from '../features/browser/store';
 import { useBookmarksStore } from '../features/browser/bookmarks';
@@ -345,9 +345,11 @@ export function Shell() {
         instrument.kind === 'agent' && instrument.tabId
           ? cardThreadId(instrument.tabId)
           : null;
-      // The selected task's dock-chat thread (only when a task is selected).
-      const selectedTaskId = useWorkGraphStore.getState().selectedTaskId;
-      const dockThreadId = selectedTaskId ? taskThreadId(selectedTaskId) : null;
+      // The thread the dock chat is ACTUALLY rendering (the selected task's own
+      // thread, or — when acquiring it failed — the workspace conversation it
+      // falls back to and visibly shows). Published by the dock's TaskChat so a
+      // fallback completion on a visible thread doesn't wrongly toast.
+      const dockThreadId = dockRenderedThreadId();
 
       if (threadId === instrumentThreadId || threadId === dockThreadId) return;
       toast({
@@ -356,6 +358,15 @@ export function Shell() {
       });
     });
   }, [t]);
+
+  // NOTE: the per-thread busy→done tracking map (prevAgentStatusByThreadRef) is
+  // intentionally NOT pruned against `agent:threads`. That push is the GLOBAL
+  // (workspaceId === null) thread list only, so pruning against it wiped the
+  // tracking entry for every WORKSPACE-scoped task thread on each tick and then
+  // silently suppressed its completion toast (busy→done resolved as idle→done).
+  // The map grows by one tiny enum per distinct thread id seen in a session —
+  // negligible — so we keep it unpruned rather than break background toasts. A
+  // correct prune would need an authoritative per-thread close signal.
 
   // The agent's `create_task` MCP tool: draw the task node it asked for on the
   // Mission Control graph (placed in free space).

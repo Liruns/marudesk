@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { cn } from '../../lib/cn';
 
 /**
@@ -28,6 +29,9 @@ export function NameDialog({
 }) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Trap Tab/Shift+Tab inside the card so focus can't escape to the chrome
+  // behind the backdrop (the same hook PaletteOverlay uses).
+  const cardRef = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -56,14 +60,19 @@ export function NameDialog({
     onClose();
   };
 
+  // z-[80]: above the palette scrim (z-[60]) and toast (z-[70]) so this modal
+  // sits on top of the R10 z-ladder; still below the Tour (z-[100]).
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40"
       onMouseDown={onClose}
     >
       <div
+        ref={cardRef}
         role="dialog"
+        aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
         className="w-[360px] rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2"
       >

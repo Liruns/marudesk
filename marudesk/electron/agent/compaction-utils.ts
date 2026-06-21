@@ -1,5 +1,5 @@
 import type { ModelMessage } from 'ai';
-import { toolCallSignature } from './loop-detector.ts';
+import { toolCallSignature, isEmptyArgsExternalCall } from './loop-detector.ts';
 
 /**
  * Pure transcript helpers for `/compact` (claude-code / codex parity), split out
@@ -294,7 +294,14 @@ function toolTargetKey(toolName: string, input: unknown): string | undefined {
   // External MCP/plugin tools: a repeat of the SAME call (same name + same
   // input, key-order-insensitive) is a redundant lookup. Reuse loop-detector's
   // canonical signature (`name::<sorted-json>`) so `{a,b}` and `{b,a}` collide.
-  if (isExternalToolName(toolName)) return toolCallSignature(toolName, input);
+  // Empty-args external calls are EXEMPT: a no-arg list_*/status poller would
+  // collide on the bare-name signature, so distinct snapshots from repeated polls
+  // must NOT supersede each other (each is a fresh observation, not a stale dup).
+  if (isExternalToolName(toolName)) {
+    return isEmptyArgsExternalCall(toolName, input)
+      ? undefined
+      : toolCallSignature(toolName, input);
+  }
   if (!isRecord(input)) return undefined;
   if (toolName === 'read_file') {
     const path = input.path;
@@ -664,7 +671,10 @@ export function capToolOutput(
   if (text.length <= maxChars) return { text, truncated: false };
   const kept = clipToWholeLines(text, maxChars);
   const droppedChars = text.length - kept.length;
-  const totalChars = Array.from(text).length;
+  // Both numbers must use ONE unit: UTF-16 code units (`.length`), matching the
+  // `maxChars` budget arithmetic that produced the cut. (Array.from counts code
+  // POINTS, so for astral content droppedChars could exceed a code-point total.)
+  const totalChars = text.length;
   const footer = `\n\n[output truncated — ${droppedChars} of ${totalChars} chars elided to bound context; narrow your query (e.g. a more specific pattern/path) to see more]`;
   return { text: `${kept}${footer}`, truncated: true };
 }
