@@ -190,6 +190,7 @@ const GROUP_ORDER: readonly CmdGroup[] = ['open', 'action'];
 
 /** Title-bar trigger for the command palette. */
 export function CommandPaletteButton() {
+  const { t } = useI18n();
   const open = useCommandPaletteStore((s) => s.open);
   const toggle = useCommandPaletteStore((s) => s.toggle);
   return (
@@ -197,9 +198,9 @@ export function CommandPaletteButton() {
       type="button"
       data-tour="command-palette"
       onClick={toggle}
-      aria-label="Command palette"
+      aria-label={t('command.palette.label')}
       aria-pressed={open}
-      title="Command palette (Ctrl/⌘ K)"
+      title={t('command.palette.hint')}
       className={cn(
         'no-drag inline-flex h-6 items-center justify-center rounded-md px-1.5',
         'text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-secondary',
@@ -274,7 +275,7 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
   }, [clampedIndex]);
 
   return (
-    <PaletteOverlay ariaLabel="Command palette" onClose={onClose} className="max-w-lg">
+    <PaletteOverlay ariaLabel={t('command.dialogLabel')} onClose={onClose} className="max-w-lg">
         <div className="flex items-center gap-2 border-b border-subtle px-3 py-2.5">
           <Command size={14} className="shrink-0 text-fg-tertiary" />
           <input
@@ -300,8 +301,8 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
                 onClose();
               }
             }}
-            aria-label="Command"
-            placeholder="Type a command…"
+            aria-label={t('command.input.label')}
+            placeholder={t('command.placeholder')}
             spellCheck={false}
             {...inputProps}
             className="flex-1 bg-transparent text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none"

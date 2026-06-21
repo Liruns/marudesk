@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { WorkspaceSummary } from '../shared/workspace.ts';
@@ -102,6 +102,75 @@ async function main(): Promise<void> {
     check('empty patch rejected', (await applyTaskPatch({ taskId: 't1', patch: '   ' })).ok === false);
     check('missing patch field rejected', (await applyTaskPatch({ taskId: 't1' })).ok === false);
     check('non-object payload rejected', (await applyTaskPatch('nope')).ok === false);
+
+    /* ── 3b. MALICIOUS patches escaping the repo are REFUSED ──────────────────
+       The agent-produced diff is prompt-injectable, so applyTaskPatch leans on
+       git's built-in rejection of out-of-tree write targets (no --unsafe-paths).
+       Pin that defense: a parent-traversal, an absolute path, and (POSIX) a
+       symlink-escape patch must each be rejected AND leave the filesystem
+       OUTSIDE the repo untouched. Targets live under the harness temp dir at
+       fixed names so the assertions are deterministic. */
+    const escapeDir = mkdtempSync(path.join(tmpdir(), 'workos-apply-escape-'));
+    try {
+      /* parent-directory traversal: the patch creates ../<escapeRel>. We add a
+         deep subdir inside the repo so `../../…` resolves into escapeDir, and
+         point the apply at it via a path that climbs out of the repo root. */
+      const traversalRel = '../workos-apply-escape-traversal.txt';
+      const traversalTarget = path.join(path.dirname(repo), 'workos-apply-escape-traversal.txt');
+      const traversalDiff =
+        `diff --git a/${traversalRel} b/${traversalRel}\n` +
+        'new file mode 100644\n' +
+        'index 0000000..9daeafb\n' +
+        '--- /dev/null\n' +
+        `+++ b/${traversalRel}\n` +
+        '@@ -0,0 +1 @@\n' +
+        '+pwned\n';
+      const traversal = await applyTaskPatch({ taskId: 't1', patch: traversalDiff });
+      check('malicious traversal patch (../) → ok:false (git refuses out-of-tree path)', traversal.ok === false);
+      check('traversal patch created NO file outside the repo', !existsSync(traversalTarget));
+
+      /* absolute target path: an absolute b/ path must be refused; git apply
+         rejects absolute paths regardless of OS. Use an absolute path rooted in
+         escapeDir so a (hypothetical) leak is observable on this platform. */
+      const absTarget = path.join(escapeDir, 'absolute-evil.txt');
+      // Git diff paths are forward-slash; an absolute POSIX-style path is absolute
+      // to git on every OS. On Windows the drive-letter form is also absolute.
+      const absRel = absTarget.split(path.sep).join('/');
+      const absDiff =
+        `diff --git a/${absRel} b/${absRel}\n` +
+        'new file mode 100644\n' +
+        'index 0000000..9daeafb\n' +
+        '--- /dev/null\n' +
+        `+++ b/${absRel}\n` +
+        '@@ -0,0 +1 @@\n' +
+        '+pwned\n';
+      const absolute = await applyTaskPatch({ taskId: 't1', patch: absDiff });
+      check('malicious absolute-path patch → ok:false (git refuses absolute target)', absolute.ok === false);
+      check('absolute-path patch created NO file at the absolute target', !existsSync(absTarget));
+
+      /* symlink escape (POSIX only): a symlink inside the repo points at escapeDir;
+         a patch writing THROUGH it must be refused (git rejects paths that pass
+         beyond a symlink). Windows symlink creation needs privileges, so guard. */
+      if (process.platform !== 'win32') {
+        const linkName = 'link';
+        symlinkSync(escapeDir, path.join(repo, linkName), 'dir');
+        const symlinkTarget = path.join(escapeDir, 'through-symlink.txt');
+        const symlinkRel = `${linkName}/through-symlink.txt`;
+        const symlinkDiff =
+          `diff --git a/${symlinkRel} b/${symlinkRel}\n` +
+          'new file mode 100644\n' +
+          'index 0000000..9daeafb\n' +
+          '--- /dev/null\n' +
+          `+++ b/${symlinkRel}\n` +
+          '@@ -0,0 +1 @@\n' +
+          '+pwned\n';
+        const symlink = await applyTaskPatch({ taskId: 't1', patch: symlinkDiff });
+        check('malicious symlink-escape patch → ok:false (git refuses path through a symlink)', symlink.ok === false);
+        check('symlink-escape patch created NO file beyond the symlink', !existsSync(symlinkTarget));
+      }
+    } finally {
+      rmSync(escapeDir, { recursive: true, force: true });
+    }
 
     /* ── 4. no workspace → honest precondition failure ────────────────────── */
     __setCurrentWorkspaceForTests(null);

@@ -144,9 +144,32 @@ export function emergencyCompactionReason(
 export function messageChars(m: ModelMessage): number {
   if (typeof m.content === 'string') return m.content.length;
   let n = 0;
-  for (const p of m.content as ReadonlyArray<{ text?: string; output?: { value?: string }; input?: unknown }>) {
+  for (const p of m.content as ReadonlyArray<{
+    text?: string;
+    output?: { value?: unknown };
+    input?: unknown;
+  }>) {
     if (typeof p.text === 'string') n += p.text.length;
-    if (typeof p.output?.value === 'string') n += p.output.value.length;
+    const value = p.output?.value;
+    if (typeof value === 'string') {
+      n += value.length;
+    } else if (Array.isArray(value)) {
+      // Multipart ('content') tool result: a string `value` is the common case,
+      // but a screenshot result carries an ARRAY of { type, text?, data? } items
+      // (loop-helpers.ts ToolResultPartLite 'content'). Without this branch the
+      // whole result — text part AND hundreds of KB of inline base64 image data —
+      // weighs 0, so vision turns undercount and dodge the emergency/overflow
+      // floors. Sum each item's textual weight; inline base64 occupies real
+      // provider tokens, so its length is a fair proxy.
+      for (const item of value as ReadonlyArray<
+        { text?: unknown; data?: unknown } | null | undefined
+      >) {
+        // Optional-chain the item: messageChars runs in the compaction hot path,
+        // so a malformed (null/primitive) element must weigh 0, not throw.
+        if (typeof item?.text === 'string') n += item.text.length;
+        if (typeof item?.data === 'string') n += item.data.length;
+      }
+    }
     if (p.input !== undefined) n += JSON.stringify(p.input).length;
   }
   return n;

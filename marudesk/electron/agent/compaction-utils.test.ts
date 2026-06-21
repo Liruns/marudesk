@@ -143,6 +143,26 @@ describe('splitForTailPreservation', () => {
 });
 
 describe('messageChars', () => {
+  // A screenshot tool result: multipart 'content' output whose `value` is an
+  // ARRAY of a text part + an inline base64 image part.
+  const screenshotMsg = (text: string, data: string): ModelMessage => ({
+    role: 'tool',
+    content: [
+      {
+        type: 'tool-result',
+        toolCallId: 'c1',
+        toolName: 'screenshot',
+        output: {
+          type: 'content',
+          value: [
+            { type: 'text', text },
+            { type: 'image-data', data, mediaType: 'image/png' },
+          ],
+        },
+      },
+    ],
+  });
+
   it('counts string content', () => {
     expect(messageChars(user('abcd'))).toBe(4);
   });
@@ -150,6 +170,24 @@ describe('messageChars', () => {
   it('counts tool output and call input in structured content', () => {
     expect(messageChars(toolMsg('grep', { type: 'text', value: 'abcdef' }))).toBe(6);
     expect(messageChars(assistantCall('grep'))).toBeGreaterThan(0);
+  });
+
+  it('counts a multipart screenshot result (text part + inline base64) instead of weighing it 0', () => {
+    const text = 'captured the page';
+    const data = 'A'.repeat(200_000); // hundreds of KB of inline base64
+    // Without the array branch this whole result weighs 0; with it the result
+    // contributes text.length + data.length.
+    expect(messageChars(screenshotMsg(text, data))).toBe(text.length + data.length);
+  });
+
+  it('largestMessageChars now reflects a big screenshot (no longer undercounts vision turns)', () => {
+    const data = 'A'.repeat(1_000_000);
+    const msgs: ModelMessage[] = [
+      user('go'),
+      assistantCall('screenshot'),
+      screenshotMsg('captured', data),
+    ];
+    expect(largestMessageChars(msgs)).toBe('captured'.length + data.length);
   });
 });
 

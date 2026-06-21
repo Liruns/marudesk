@@ -1,10 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { clipText } from '../../shared/text-clip';
 import { randomId } from '../../shared/id';
-import { resolveWorkspacePath } from '../fs-safe';
+import { atomicWriteFile, resolveWorkspacePath } from '../fs-safe';
 import type {
   ApplyPatchInput,
   ApplyPatchResult,
@@ -29,6 +30,16 @@ import { resolveProviderAuth } from './resolve-auth';
 import { resolveSubagentTarget } from './subagent-resolve';
 import { runChildAgent } from './subagent-runtime';
 import type { ToolContext } from './tools/types';
+
+/**
+ * Mint an unpredictable single-segment name for a Work-OS temp directory under
+ * `os.tmpdir()`. Uses crypto randomness (not {@link randomId}'s Math.random) so a
+ * local attacker sharing the tmpdir can't pre-create / symlink the path we're
+ * about to write into.
+ */
+function tmpSegment(prefix: string): string {
+  return `${prefix}-${randomBytes(12).toString('hex')}`;
+}
 
 /**
  * Run ONE Work-OS task as a real agent (docs/ai-work-os-roadmap.md §5 — the
@@ -302,7 +313,7 @@ export async function implementTask(raw: unknown): Promise<ImplementTaskResult> 
   const branch = agentBranchName();
   // A fresh, unique parent per run so two concurrent implements never collide on
   // the worktree directory (the branch name is timestamp-based, also unique).
-  const worktreePath = path.join(os.tmpdir(), 'marudesk-workos', `${randomId('wt')}`, 'tree');
+  const worktreePath = path.join(os.tmpdir(), 'marudesk-workos', tmpSegment('wt'), 'tree');
   try {
     await createWorktree(ws.root, worktreePath, branch);
   } catch (err) {
@@ -469,13 +480,14 @@ export async function applyTaskPatch(raw: unknown): Promise<ApplyPatchResult> {
 
   // `git apply` reads the diff from a file; it wants a trailing newline on the
   // final hunk line or it reports a corrupt patch.
-  const dir = path.join(os.tmpdir(), 'marudesk-workos', randomId('apply'));
+  const dir = path.join(os.tmpdir(), 'marudesk-workos', tmpSegment('apply'));
   const patchFile = path.join(dir, 'task.diff');
   await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.writeFile(
+  // Exclusive-create write so a pre-planted symlink at the (now crypto-random,
+  // but still defended-in-depth) patch path can't redirect this write.
+  await atomicWriteFile(
     patchFile,
     input.patch.endsWith('\n') ? input.patch : `${input.patch}\n`,
-    'utf8',
   );
   try {
     // Dry-run first: if the live tree drifted since Implement ran the patch won't
