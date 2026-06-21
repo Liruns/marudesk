@@ -58,7 +58,7 @@ const STATUS_LABEL_KEY: Record<Task['status'], TranslationKey> = {
  * The tab is created + activated so its surface/native view shows, then pinned
  * as the active instrument; "← Graph" closes it back to the Task graph.
  */
-async function openResource(r: Resource, workspaceId?: WorkspaceId): Promise<void> {
+async function openResource(r: Resource, noOpenerMessage: string, workspaceId?: WorkspaceId): Promise<void> {
   const uri = r.uri;
   let kind: TabKind | null = null;
   let id: string | null = null;
@@ -91,7 +91,7 @@ async function openResource(r: Resource, workspaceId?: WorkspaceId): Promise<voi
       await useTabsStore.getState().closeTab(id);
     }
   } else {
-    toast({ title: 'No opener for this resource type', variant: 'warning' });
+    toast({ title: noOpenerMessage, variant: 'warning' });
   }
 }
 
@@ -142,12 +142,12 @@ export function WorkGraphInspectorContent() {
           <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
           <div className="mt-0.5 flex items-center gap-1.5">
             <Badge variant={STATUS_BADGE[task.status]}>{t(STATUS_LABEL_KEY[task.status])}</Badge>
-            <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : 'human'}{task.kind === 'decision' ? ' · decision' : ''}</p>
+            <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}{task.kind === 'decision' ? t('workGraph.inspector.decisionSuffix') : ''}</p>
           </div>
         </div>
         <button
           type="button"
-          aria-label="Close inspector"
+          aria-label={t('workGraph.inspector.closeInspector')}
           onClick={() => useWorkGraphStore.getState().selectTask(null)}
           className="ml-auto grid h-5 w-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
@@ -159,14 +159,14 @@ export function WorkGraphInspectorContent() {
         type="button"
         disabled={running}
         onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
-        title="Run this task in an isolated worktree. Changes are captured as a diff — your workspace files are not modified."
+        title={t('workGraph.inspector.implementTitle')}
         className="mb-2 inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
       >
-        {running ? <Spinner size={13} label="Implementing" /> : <Hammer size={12} />}
-        Implement
+        {running ? <Spinner size={13} label={t('workGraph.inspector.implementing')} /> : <Hammer size={12} />}
+        {t('workGraph.inspector.implement')}
       </button>
       {task.status === 'planned' && !result ? (
-        <p className="mt-0.5 text-caption text-fg-tertiary">Isolated from your workspace. Review diff before applying.</p>
+        <p className="mt-0.5 text-caption text-fg-tertiary">{t('workGraph.inspector.isolatedHint')}</p>
       ) : null}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 pb-4">
@@ -174,7 +174,7 @@ export function WorkGraphInspectorContent() {
 
         {task.acceptance.length > 0 ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Acceptance</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.acceptance')}</p>
             <ul className="space-y-1">
               {task.acceptance.map((c) => (
                 <li key={c.id} className="flex items-start gap-1.5 text-caption text-fg-tertiary">
@@ -188,15 +188,15 @@ export function WorkGraphInspectorContent() {
 
         {(result || running) ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Result</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.result')}</p>
             {result ? (
               <pre className="whitespace-pre-wrap break-words rounded bg-surface-3 shadow-inset-soft p-2 font-mono text-caption text-fg-secondary">
                 {result}
               </pre>
             ) : (
               <div className="flex items-center gap-1.5 text-caption text-fg-tertiary">
-                <Spinner size={12} label="Running" />
-                Running…
+                <Spinner size={12} label={t('workGraph.inspector.runningLabel')} />
+                {t('workGraph.inspector.running')}
               </div>
             )}
           </div>
@@ -204,7 +204,7 @@ export function WorkGraphInspectorContent() {
 
         {patch ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Proposed changes (diff)</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.proposedChanges')}</p>
             {changedFiles.length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {changedFiles.map((path) => (
@@ -212,7 +212,7 @@ export function WorkGraphInspectorContent() {
                     key={path}
                     type="button"
                     onClick={() => openChangedFile(path)}
-                    title={`Open ${path} (current workspace version)`}
+                    title={t('workGraph.inspector.openFileTitle').replace('{path}', path)}
                     className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
                   >
                     <FileText size={11} />
@@ -223,30 +223,30 @@ export function WorkGraphInspectorContent() {
             ) : null}
             <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-[min(256px,40vh)] overflow-auto" />
             <p className="mt-1 text-caption text-fg-tertiary">
-              Produced in a throwaway worktree — your files are unchanged. Review before applying.
+              {t('workGraph.inspector.throwawayNote')}
             </p>
             <button
               type="button"
               disabled={running || applyingPatchTaskId !== null}
               onClick={() => void useWorkGraphStore.getState().applyPatch(taskId)}
-              title="Apply this diff to your workspace files. Rejected if the workspace changed since this task ran."
+              title={t('workGraph.inspector.applyTitle')}
               className="mt-2 inline-flex items-center gap-1.5 self-start rounded bg-surface-2 border border-default px-2.5 py-1 text-caption font-medium text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
             >
-              {applyingPatchTaskId === taskId ? <Spinner size={13} label="Applying" /> : <Check size={12} />}
-              Apply to workspace
+              {applyingPatchTaskId === taskId ? <Spinner size={13} label={t('workGraph.inspector.applyingLabel')} /> : <Check size={12} />}
+              {t('workGraph.inspector.applyToWorkspace')}
             </button>
           </div>
         ) : null}
 
         {task.outputs.length > 0 ? (
           <div>
-            <p className="mb-2 text-caption font-medium text-fg-secondary">Resources</p>
+            <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.resources')}</p>
             <div className="flex flex-wrap gap-1.5">
               {task.outputs.map((r) => (
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => void openResource(r, resourceWorkspaceId)}
+                  onClick={() => void openResource(r, t('workGraph.inspector.noOpener'), resourceWorkspaceId)}
                   title={r.uri}
                   className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
                 >

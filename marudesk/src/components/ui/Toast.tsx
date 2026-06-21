@@ -27,9 +27,13 @@ export function Toast({
   className,
 }: ToastProps) {
   const { t } = useI18n();
+  // Failures interrupt (assertive); success/info stay polite so they don't
+  // talk over the user mid-task.
+  const isError = variant === 'error';
   return (
     <div
-      role="status"
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
       className={cn(
         'flex items-start gap-2.5 bg-surface-2 border border-default rounded shadow-glow',
         'w-[340px] max-w-[90vw] px-3 py-2.5',

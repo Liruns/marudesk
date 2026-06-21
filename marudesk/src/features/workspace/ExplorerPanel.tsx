@@ -267,9 +267,17 @@ export function ExplorerPanel({ open, onRequestClose, embedded = false, workspac
         : summary?.files ?? [],
     [showIgnored, ignoredFiles, summary],
   );
-  const tree = useMemo(() => buildFileTree(displayFiles), [displayFiles]);
+  // The in-house FileTree branch is unreachable while USE_PIERRE_TREE is true
+  // (the Pierre tree builds its own input from displayFiles). Gate the
+  // buildFileTree/flattenTree work behind the flag so a large workspace doesn't
+  // pay for tree construction + flattening on every reindex / expand-collapse
+  // only to discard the result. When the spike flag is off these run as before.
+  const tree = useMemo(
+    () => (USE_PIERRE_TREE ? [] : buildFileTree(displayFiles)),
+    [displayFiles],
+  );
   const rows = useMemo(
-    () => flattenTree(tree, expandedDirs),
+    () => (USE_PIERRE_TREE ? [] : flattenTree(tree, expandedDirs)),
     [tree, expandedDirs],
   );
   const workspaceFile = (filePath: string): WorkspaceFileRef | string => {

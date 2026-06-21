@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -98,32 +99,52 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
     () => (workspaceId ? workspaces.find((w) => w.id === workspaceId) ?? null : null),
     [workspaceId, workspaces],
   );
-  const openMatch = (filePath: string, line: number, col: number): void => {
-    const rootId = boundWorkspace?.activeRootId ?? boundWorkspace?.roots[0]?.id ?? null;
-    const target: WorkspaceFileRef | string =
-      boundWorkspace && rootId
-        ? { workspaceId: boundWorkspace.id, rootId, path: filePath }
-        : filePath;
-    void openFileInstrument(target, line, col);
-  };
+  // Stable per-kind callbacks (file path threaded in) so each memoized FileGroup
+  // keeps the same callback identity across renders — toggling one file then
+  // only re-renders that group instead of every result row.
+  const openMatch = useCallback(
+    (filePath: string, line: number, col: number): void => {
+      const rootId = boundWorkspace?.activeRootId ?? boundWorkspace?.roots[0]?.id ?? null;
+      const target: WorkspaceFileRef | string =
+        boundWorkspace && rootId
+          ? { workspaceId: boundWorkspace.id, rootId, path: filePath }
+          : filePath;
+      void openFileInstrument(target, line, col);
+    },
+    [boundWorkspace],
+  );
 
   // Promote a match to a tracked task on the work graph. Reuses the same store
   // method the agent + workos:create-task IPC use; it materializes the node in
   // free space, returns its id, and selects it (opening the dock on it).
-  const createTaskFromMatch = (filePath: string, line: number, preview: string): void => {
-    const snippet = preview.trim().slice(0, 80);
-    const { addTaskFromAgent, selectTask } = useWorkGraphStore.getState();
-    const id = addTaskFromAgent({
-      title: `Fix: ${snippet}`,
-      intent: `Found in ${filePath}:${line} for query "${query}"`,
-    });
-    selectTask(id);
-  };
+  const createTaskFromMatch = useCallback(
+    (filePath: string, line: number, preview: string): void => {
+      const snippet = preview.trim().slice(0, 80);
+      const { addTaskFromAgent, selectTask } = useWorkGraphStore.getState();
+      const id = addTaskFromAgent({
+        title: `Fix: ${snippet}`,
+        intent: `Found in ${filePath}:${line} for query "${query}"`,
+      });
+      selectTask(id);
+    },
+    [query],
+  );
 
   const [width, setWidth] = useState(readWidth);
   const [resizing, setResizing] = useState(false);
   const [inCloseZone, setInCloseZone] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+  // Stable collapse toggle keyed on the file path; flips just that file's bit so
+  // the other groups' `collapsed` prop stays referentially equal (primitive).
+  const toggleCollapsed = useCallback((path: string): void => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
   // Open the include/exclude fields automatically if a filter is already set.
   const [showFilters, setShowFilters] = useState(
     () => !!(options.includes || options.excludes),
@@ -358,16 +379,9 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
                 file={file}
                 collapsed={collapsed.has(file.path)}
                 formatSearchMatchLineTitle={formatSearchMatchLineTitle}
-                onToggle={() =>
-                  setCollapsed((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(file.path)) next.delete(file.path);
-                    else next.add(file.path);
-                    return next;
-                  })
-                }
-                onOpenAt={(line, col) => openMatch(file.path, line, col)}
-                onCreateTask={(line, preview) => createTaskFromMatch(file.path, line, preview)}
+                onToggle={toggleCollapsed}
+                onOpenAt={openMatch}
+                onCreateTask={createTaskFromMatch}
                 t={t}
               />
             ))
@@ -413,9 +427,6 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
     </aside>
   );
 }
-
-/** One file's matches, collapsible, with a click-to-open header + match rows. */
-
 
 function persistWidth(w: number): void {
   writeStoredWidth(S_WIDTH_KEY, w);

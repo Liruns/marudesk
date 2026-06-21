@@ -88,7 +88,11 @@ export const MessageView = memo(function MessageView({
   if (message.role === 'user') {
     const images = message.parts.filter((p) => p.type === 'image');
     return (
-      <div id={`agent-msg-${message.id}`} className="self-end max-w-[88%]">
+      <div id={`agent-msg-${message.id}`} className="group/msg relative self-end max-w-[88%]">
+        {/* Copy the user's own prompt — appears on hover, mirroring the assistant. */}
+        <div className="absolute -top-1 right-0 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-fast">
+          <CopyButton text={textOf(message)} label={t('agent.chat.copyMessage')} />
+        </div>
         <div className="rounded-xl bg-surface-3 border border-strong/40 shadow-card px-3.5 py-2.5">
           <p className="text-body-sm text-fg-primary whitespace-pre-wrap break-words leading-relaxed">
             {textOf(message)}

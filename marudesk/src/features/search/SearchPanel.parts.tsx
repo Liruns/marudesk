@@ -1,10 +1,19 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, FileText, ListPlus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { SearchFileResult, SearchMatchRange } from '../../../shared/search';
 import { baseName, dirName } from '../git/statusMeta';
 
-export function FileGroup({
+/**
+ * One file's matches, collapsible, with a click-to-open header + match rows.
+ *
+ * Memoized and given file-keyed callbacks (`onToggle`/`onOpenAt`/`onCreateTask`
+ * each take the file path) so the parent can pass ONE stable callback per kind
+ * instead of fresh per-file closures. Together with primitive `collapsed`, this
+ * lets React skip re-rendering (and re-highlighting) every other group when a
+ * single file is collapsed/expanded — a broad query can list up to ~1000 rows.
+ */
+export const FileGroup = memo(function FileGroup({
   file,
   collapsed,
   formatSearchMatchLineTitle,
@@ -16,9 +25,9 @@ export function FileGroup({
   file: SearchFileResult;
   collapsed: boolean;
   formatSearchMatchLineTitle: (line: number) => string;
-  onToggle: () => void;
-  onOpenAt: (line: number, col: number) => void;
-  onCreateTask: (line: number, preview: string) => void;
+  onToggle: (path: string) => void;
+  onOpenAt: (path: string, line: number, col: number) => void;
+  onCreateTask: (path: string, line: number, preview: string) => void;
   t: (key: 'search.expand' | 'search.collapse' | 'search.createTask') => string;
 }) {
   const dir = dirName(file.path);
@@ -30,7 +39,7 @@ export function FileGroup({
       <div className="group/file sticky top-0 z-[1] flex h-7 items-center gap-0.5 border-b border-subtle/40 bg-surface-1/95 pl-1 pr-1.5 backdrop-blur-sm hover:bg-surface-2">
         <button
           type="button"
-          onClick={onToggle}
+          onClick={() => onToggle(file.path)}
           aria-label={collapsed ? t('search.expand') : t('search.collapse')}
           className="flex size-5 shrink-0 items-center justify-center rounded text-fg-tertiary transition-colors duration-fast hover:text-fg-primary"
         >
@@ -38,7 +47,7 @@ export function FileGroup({
         </button>
         <button
           type="button"
-          onClick={() => first && onOpenAt(first.line, first.col)}
+          onClick={() => first && onOpenAt(file.path, first.line, first.col)}
           title={file.path}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
@@ -68,7 +77,7 @@ export function FileGroup({
             >
               <button
                 type="button"
-                onClick={() => onOpenAt(m.line, m.col)}
+                onClick={() => onOpenAt(file.path, m.line, m.col)}
                 title={formatSearchMatchLineTitle(m.line)}
                 className="flex min-w-0 flex-1 items-baseline gap-2.5 py-[3px] pl-7 pr-7 text-left"
               >
@@ -84,7 +93,7 @@ export function FileGroup({
                   primary open-file click. */}
               <button
                 type="button"
-                onClick={() => onCreateTask(m.line, m.preview)}
+                onClick={() => onCreateTask(file.path, m.line, m.preview)}
                 aria-label={t('search.createTask')}
                 title={t('search.createTask')}
                 className="absolute right-1 top-1/2 size-5 -translate-y-1/2 items-center justify-center rounded text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-surface-3 hover:text-fg-primary focus-visible:opacity-100 group-hover/match:opacity-100 flex"
@@ -97,7 +106,7 @@ export function FileGroup({
       ) : null}
     </div>
   );
-}
+});
 
 /** Render preview text with each match span wrapped for highlight. */
 function Highlight({

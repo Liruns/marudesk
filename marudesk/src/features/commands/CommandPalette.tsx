@@ -382,16 +382,21 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
         </div>
         <ul {...listboxProps} className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {filtered.length === 0 ? (
-            <li className="px-3 py-6 text-center text-caption text-fg-tertiary">{t('command.empty')}</li>
+            <li role="presentation" className="px-3 py-6 text-center text-caption text-fg-tertiary">
+              {t('command.empty')}
+            </li>
           ) : (
             filtered.map((cmd, i) => {
               const Icon = cmd.icon;
               const startsGroup = i === 0 || filtered[i - 1]?.group !== cmd.group;
               const isActive = i === clampedIndex;
               return (
-                <li key={cmd.id}>
+                <li key={cmd.id} role="presentation">
                   {startsGroup ? (
-                    <div className="px-2.5 pb-1 pt-2 text-caption font-medium uppercase tracking-wide text-fg-tertiary first:pt-1">
+                    <div
+                      role="presentation"
+                      className="px-2.5 pb-1 pt-2 text-caption font-medium uppercase tracking-wide text-fg-tertiary first:pt-1"
+                    >
                       {t(GROUP_LABEL_KEY[cmd.group])}
                     </div>
                   ) : null}

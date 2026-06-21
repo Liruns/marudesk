@@ -59,6 +59,7 @@ type Props = {
  * canvas.
  */
 export function WorkGraphNodes({ toCanvas, getScale }: Props) {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const graphId = useWorkGraphStore((s) => s.graph?.id);
   const pos = useWorkGraphStore((s) => s.pos);
@@ -87,7 +88,12 @@ export function WorkGraphNodes({ toCanvas, getScale }: Props) {
             const r = useWorkGraphStore.getState().connect(fromId, id);
             if (!r.ok) {
               toast({
-                title: r.reason === 'cycle' ? 'Would create a cycle' : r.reason === 'duplicate' ? 'Already connected' : 'Cannot connect a task to itself',
+                title:
+                  r.reason === 'cycle'
+                    ? t('workGraph.connect.cycle')
+                    : r.reason === 'duplicate'
+                      ? t('workGraph.connect.duplicate')
+                      : t('workGraph.connect.self'),
                 variant: 'warning',
               });
             }
@@ -98,7 +104,7 @@ export function WorkGraphNodes({ toCanvas, getScale }: Props) {
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
-    [toCanvas],
+    [toCanvas, t],
   );
 
   if (!graph) return null;
@@ -231,7 +237,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
       data-task-node={task.id}
       tabIndex={0}
       role="group"
-      aria-label={`${statusLabel} task: ${task.title}`}
+      aria-label={t('workGraph.node.ariaLabel').replace('{status}', statusLabel).replace('{title}', task.title)}
       className={cn(
         'absolute rounded-lg border bg-surface-2 bg-surface-gradient shadow-card select-none focus:outline-none focus-visible:outline-none motion-safe:animate-fade-rise transition-colors transition-transform duration-fast active:scale-[0.99]',
         style.ring,
@@ -281,17 +287,17 @@ const TaskNodeCard = memo(function TaskNodeCard({
         className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 cursor-grab active:cursor-grabbing"
       >
         <span className={cn('rounded-pill px-1.5 py-0.5 text-caption font-medium leading-none transition-colors duration-standard', style.chip, task.status === 'running' && 'inline-flex items-center gap-0.5')}>
-          {task.status === 'running' && <Spinner size={10} label="Task running" className="-ml-0.5" />}{statusLabel}
+          {task.status === 'running' && <Spinner size={10} label={t('workGraph.node.running')} className="-ml-0.5" />}{statusLabel}
         </span>
         {task.kind === 'decision' ? (
-          <span className="rounded-pill bg-surface-3 px-1.5 py-0.5 text-caption font-medium text-fg-tertiary leading-none">Decision</span>
+          <span className="rounded-pill bg-surface-3 px-1.5 py-0.5 text-caption font-medium text-fg-tertiary leading-none">{t('workGraph.node.decision')}</span>
         ) : null}
         <span className="ml-auto" />
         {selected ? (
           <button
             type="button"
-            aria-label="Delete task"
-            title="Delete task"
+            aria-label={t('workGraph.node.deleteTask')}
+            title={t('workGraph.node.deleteTask')}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => useWorkGraphStore.getState().deleteTask(task.id)}
             className="grid h-5 w-5 place-items-center rounded text-fg-tertiary hover:bg-error-subtle hover:text-error focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
@@ -305,7 +311,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
       <div className="px-2.5 pb-2.5">
         <button
           type="button"
-          title="Click to cycle status: Planned to Done to Failed to Review."
+          title={t('workGraph.node.cycleStatusTitle')}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => useWorkGraphStore.getState().updateTask(task.id, { status: nextStatus(task.status) })}
           className="block w-full text-left text-body-sm font-medium text-fg-primary truncate rounded px-2 py-1 hover:bg-surface-3 hover:underline decoration-fg-tertiary decoration-dashed underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
@@ -315,7 +321,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
         {task.intent ? <p className="mt-1.5 line-clamp-2 text-caption text-fg-tertiary">{task.intent}</p> : null}
         <div className="mt-1.5 flex items-center gap-2 text-caption text-fg-tertiary">
           <span className="truncate">
-            {task.executor.type === 'agent' ? `@${task.executor.ref}` : 'human'}
+            {task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}
           </span>
           {task.acceptance.length > 0 ? (
             <span
@@ -333,8 +339,8 @@ const TaskNodeCard = memo(function TaskNodeCard({
       {/* Output port (drag to another node to add a depends_on edge) */}
       <button
         type="button"
-        aria-label="Drag to connect a downstream task"
-        title="Drag to a downstream task"
+        aria-label={t('workGraph.node.connectLabel')}
+        title={t('workGraph.node.connectTitle')}
         onPointerDown={(e) => {
           e.stopPropagation();
           e.preventDefault();
@@ -363,6 +369,7 @@ function nextStatus(s: TaskStatus): TaskStatus {
  * overlay (sibling of the transformed node plane).
  */
 export function WorkGraphPanel() {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const running = useWorkGraphStore((s) => s.running);
   const runNote = useWorkGraphStore((s) => s.runNote);
@@ -396,33 +403,35 @@ export function WorkGraphPanel() {
         useWorkGraphStore.getState().setGraph(res.graph);
       } else {
         useWorkGraphStore.getState().setGraph(sampleGraph(goal));
-        setNotice(`Offline sample — ${res.reason}`);
+        setNotice(t('workGraph.offlineSample').replace('{reason}', res.reason));
       }
     } catch {
       useWorkGraphStore.getState().setGraph(sampleGraph(goal));
-      setNotice('Offline sample — AI was unavailable.');
+      setNotice(t('workGraph.offlineSampleUnavailable'));
     } finally {
       setBusy(false);
     }
   };
 
   const summary = graph
-    ? `${graph.tasks.length} tasks · ${graph.tasks.filter((t) => t.status === 'done').length} done`
-    : 'No graph yet';
+    ? t('workGraph.summary')
+        .replace('{total}', String(graph.tasks.length))
+        .replace('{done}', String(graph.tasks.filter((task) => task.status === 'done').length))
+    : t('workGraph.summaryEmpty');
 
   return (
     <div data-tour="goal" className="absolute left-3 top-14 z-50 w-72 max-h-[calc(100%-7rem)] overflow-y-auto rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in">
       <div className="mb-2 flex items-center gap-2">
-        <span className="text-caption font-medium text-fg-secondary">Goal</span>
+        <span className="text-caption font-medium text-fg-secondary">{t('workGraph.goal')}</span>
       </div>
       <div className="flex gap-1.5">
         <input
           ref={inputRef}
           value={goal}
           onChange={(e) => setGoal(e.currentTarget.value)}
-          placeholder="Describe a goal…"
-          aria-label="Goal"
-          title="Describe a goal and press Enter to generate"
+          placeholder={t('workGraph.goalPlaceholder')}
+          aria-label={t('workGraph.goal')}
+          title={t('workGraph.goalTitle')}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && goal.trim().length > 0) void generate();
           }}
@@ -434,7 +443,7 @@ export function WorkGraphPanel() {
           onClick={() => void generate()}
           className="inline-flex items-center gap-1.5 h-8 shrink-0 rounded bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
         >
-          {busy && <Spinner size={14} label="Generating" />}Generate
+          {busy && <Spinner size={14} label={t('workGraph.generating')} />}{t('workGraph.generate')}
         </button>
       </div>
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
@@ -442,11 +451,7 @@ export function WorkGraphPanel() {
         <button
           type="button"
           disabled={!graph}
-          title={
-            running
-              ? 'Stop the run'
-              : 'Run — executes each ready task as an agent (falls back to a dry run if no provider is connected)'
-          }
+          title={running ? t('workGraph.stopTitle') : t('workGraph.runTitle')}
           onClick={() => (running ? useWorkGraphStore.getState().stopRun() : void useWorkGraphStore.getState().run())}
           className={
             running
@@ -454,8 +459,8 @@ export function WorkGraphPanel() {
               : 'inline-flex h-7 items-center gap-1 rounded bg-accent px-2.5 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
           }
         >
-          {running ? <Spinner size={12} label="Run in progress" /> : <Play size={12} />}
-          {running ? 'Stop' : 'Run'}
+          {running ? <Spinner size={12} label={t('workGraph.runInProgress')} /> : <Play size={12} />}
+          {running ? t('workGraph.stop') : t('workGraph.run')}
         </button>
         <button
           type="button"
@@ -464,22 +469,22 @@ export function WorkGraphPanel() {
           className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Plus size={12} />
-          Task
+          {t('workGraph.addTask')}
         </button>
         <button
           type="button"
           disabled={!graph || running}
           onClick={() => useWorkGraphStore.getState().resetRun()}
-          title="Reset all task statuses to planned"
+          title={t('workGraph.resetTitle')}
           className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <RotateCcw size={12} />
-          Reset
+          {t('workGraph.reset')}
         </button>
         <button
           type="button"
-          aria-label="Clear graph"
-          title="Clear graph"
+          aria-label={t('workGraph.clearGraph')}
+          title={t('workGraph.clearGraph')}
           disabled={!graph || running}
           onClick={() => {
             if (confirmClear) {
@@ -497,7 +502,7 @@ export function WorkGraphPanel() {
       <p className="mt-1.5 text-caption text-fg-tertiary tabular-nums">{summary}</p>
       {confirmClear ? (
         <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">
-          Graph will be deleted. Click again to confirm.
+          {t('workGraph.clearConfirm')}
         </p>
       ) : runNote ? (
         <p key={runNote} className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning motion-safe:animate-fade-rise">{runNote}</p>
