@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { FEATURE_KINDS } from '../../../shared/browser';
 import type { TabGroupColor, TabKind, TabState } from '../../../shared/browser';
 import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
@@ -453,12 +454,13 @@ function parseDescriptor(raw: unknown): PanelDescriptor | null {
       };
     case 'devtools':
       return { kind: 'devtools', ...(isStr(r.targetTabId) ? { targetTabId: r.targetTabId } : {}) };
-    case 'agent':
-    case 'home':
-    case 'settings':
-      return { kind: r.kind };
     default:
-      return null;
+      // Every payload-less feature kind (agent/home/settings/files/search/
+      // sourceControl) round-trips as a bare { kind }; mirror descriptorOf so a
+      // new kind can't be silently dropped on restore.
+      return typeof r.kind === 'string' && (FEATURE_KINDS as readonly string[]).includes(r.kind)
+        ? ({ kind: r.kind } as PanelDescriptor)
+        : null;
   }
 }
 

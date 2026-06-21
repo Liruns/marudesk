@@ -1,5 +1,6 @@
 import type { BrowserWindow, WebContentsView } from 'electron';
 import {
+  FEATURE_KINDS,
   ZERO_NAV,
   type NavState,
   type TabGroup,
@@ -7,6 +8,8 @@ import {
   type TabState,
   type TabsSnapshot,
 } from '../../shared/browser';
+
+const FEATURE_KIND_SET: ReadonlySet<string> = new Set(FEATURE_KINDS);
 import {
   SYSTEM_WORKSPACE_ID,
   type WorkspaceFileRef,
@@ -94,17 +97,10 @@ const FEATURE_TITLES: Record<Exclude<TabKind, 'web'>, string> = {
 };
 
 // Renderer input is never trusted: validate the kind before acting on it.
+// Derived from the shared FEATURE_KINDS list so a new kind widens it automatically
+// (it must never silently fall back to 'home').
 export function isTabKind(value: unknown): value is TabKind {
-  return (
-    value === 'web' ||
-    value === 'home' ||
-    value === 'terminal' ||
-    value === 'editor' ||
-    value === 'settings' ||
-    value === 'agent' ||
-    value === 'plugin' ||
-    value === 'devtools'
-  );
+  return value === 'web' || (typeof value === 'string' && FEATURE_KIND_SET.has(value));
 }
 
 const tabs = new Map<string, TabRecord>();

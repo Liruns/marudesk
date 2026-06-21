@@ -9,7 +9,7 @@ import {
 import { Search, FileText } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useWorkspaceStore } from '../workspace/store';
-import { useEditorStore } from '../editor/store';
+import { openFileInstrument } from '../work-graph/instrument';
 import { fuzzyScore } from './fuzzy';
 import { baseName, dirName } from '../git/statusMeta';
 import { useI18n } from '../../i18n/useI18n';
@@ -26,7 +26,6 @@ const MAX_RESULTS = 50;
 
 export function QuickOpen({ onClose }: { onClose: () => void }) {
   const summary = useWorkspaceStore((s) => s.summary);
-  const openFile = useEditorStore((s) => s.openFile);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -61,7 +60,7 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
   }, [activeIndex]);
 
   const choose = (path: string) => {
-    void openFile(path);
+    void openFileInstrument(path);
     onClose();
   };
 

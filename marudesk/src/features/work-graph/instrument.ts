@@ -98,12 +98,9 @@ export async function openFileInstrument(
   line?: number,
   col?: number,
 ): Promise<void> {
-  if (line !== undefined && col !== undefined) {
-    await useEditorStore.getState().openFileAt(file, line, col);
-  } else {
-    await useEditorStore.getState().openFile(file);
-  }
-  const st = useTabsStore.getState();
-  const active = st.tabs.find((t) => t.id === st.activeTabId);
-  if (active && active.kind === 'editor') useInstrumentStore.getState().open(active.id, 'editor');
+  const id =
+    line !== undefined && col !== undefined
+      ? await useEditorStore.getState().openFileAt(file, line, col)
+      : await useEditorStore.getState().openFile(file);
+  if (id) useInstrumentStore.getState().open(id, 'editor');
 }
