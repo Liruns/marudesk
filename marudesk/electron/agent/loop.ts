@@ -20,7 +20,14 @@ import { requireWorkspace } from '../ipc/define-handler';
 import { effectiveAgentRoot } from '../worktree-isolation';
 import { setNetworkCapture } from '../browser/state';
 import { streamText } from 'ai';
-import { buildModel, aiTools, humanizeModelError, type ModelAuth } from './model';
+import {
+  buildModel,
+  aiTools,
+  cachedSystem,
+  withMessagePrefixCache,
+  humanizeModelError,
+  type ModelAuth,
+} from './model';
 import { classifyStreamError, backoffDelayMs } from './stream-error.ts';
 import {
   emptyLoopDetectorState,
@@ -552,12 +559,19 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // and THIS (possibly failed-over) provider — picks up mid-turn MCP/plugin
       // registry changes and applies the current provider's schema shaping/cache.
       const tools = buildTools(current.provider);
+      // CACHE-1 (docs/agent-port-plan.md): on Anthropic, add prompt-cache
+      // breakpoints to the STABLE prefix so the large system block and the
+      // message-history prefix aren't re-billed at full input price every step.
+      // `aiTools` already caches the tools block; these add the system block and
+      // the last-non-tail message (<= 4 breakpoints total, Anthropic's limit).
+      // Non-Anthropic providers get the unchanged string / array (no-op).
+      const cacheable = current.provider === 'anthropic';
       const res = streamText({
         model: current.model,
         // codex carries the system prompt in providerOptions.openai.instructions
         // (see above), so don't also pass it here or it lands twice.
-        system: current.codexBackend ? undefined : current.system,
-        messages: S.transcript,
+        system: current.codexBackend ? undefined : cachedSystem(current.system, cacheable),
+        messages: withMessagePrefixCache(S.transcript, cacheable),
         tools,
         maxOutputTokens: current.maxOutputTokens,
         providerOptions: current.providerOptions,
@@ -1006,7 +1020,7 @@ async function runLoop(opts: RunOpts): Promise<void> {
         const ld = recordLoopDetectorCall(loopDetector, call.name, call.input);
         loopDetector = ld.state;
         if (ld.tripped && ld.toolName) {
-          modelText = `${modelText}\n\n${loopDetectorNudge(ld.toolName, ld.repeatedCount)}`;
+          modelText = `${modelText}\n\n${loopDetectorNudge(ld.toolName, ld.repeatedCount, ld.kind)}`;
         }
       }
       // Task-delegation reminder (item: agent-usage-reminder): a delegation

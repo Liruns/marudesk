@@ -19,14 +19,38 @@ export type LoopDetectorState = {
   lastSignature: string;
   /** How many times in a row that exact signature has now been seen. */
   count: number;
+  /**
+   * Ring buffer of the most-recent call signatures (newest last), capped at
+   * {@link LOOP_DETECTOR_WINDOW}. Drives the short-cycle oscillation check
+   * (A-B-A-B / A-A-B-A-B) that the strictly-consecutive `count` misses.
+   */
+  recent: string[];
 };
 
 /** Trip after this many identical consecutive calls (the call that hits N trips). */
 export const LOOP_DETECTOR_THRESHOLD = 4;
 
+/**
+ * How many recent signatures to retain for the oscillation check. Sized so a
+ * sustained 2-signature cycle fills the window before it can trip — large enough
+ * that a few legitimate alternating reads (e.g. A-B-A) stay well under the bar.
+ */
+export const LOOP_DETECTOR_WINDOW = 6;
+
+/**
+ * Trip the oscillation path when the last {@link LOOP_DETECTOR_CYCLE_MIN} calls
+ * collapse to at most {@link LOOP_DETECTOR_CYCLE_DISTINCT} distinct signatures.
+ * Requiring 6 calls over <=2 signatures means a real back-and-forth spin
+ * (A-B-A-B-A-B) trips while a brief A-B-A or A-B-A-B does not.
+ */
+export const LOOP_DETECTOR_CYCLE_MIN = 6;
+
+/** Max distinct signatures within the cycle window that still counts as a loop. */
+export const LOOP_DETECTOR_CYCLE_DISTINCT = 2;
+
 /** Fresh, empty state (no call seen yet). */
 export function emptyLoopDetectorState(): LoopDetectorState {
-  return { lastSignature: '', count: 0 };
+  return { lastSignature: '', count: 0, recent: [] };
 }
 
 /**
@@ -69,6 +93,9 @@ export function toolCallSignature(name: string, input: unknown): string {
   }
 }
 
+/** Which trip path fired: a strict consecutive run vs. a short A-B-A-B cycle. */
+export type LoopDetectorKind = 'consecutive' | 'cycle';
+
 /** The result of recording one call: the advanced state + whether it tripped. */
 export type LoopDetectorResult = {
   state: LoopDetectorState;
@@ -78,15 +105,28 @@ export type LoopDetectorResult = {
   toolName?: string;
   /** Consecutive count at the trip, else the running count. */
   repeatedCount: number;
+  /** Which path tripped (only meaningful when {@link tripped}); else undefined. */
+  kind?: LoopDetectorKind;
 };
 
 /**
  * Record one (cleared, about-to-dispatch) tool call against the detector.
- * Increments the run when the signature matches the previous call, else resets
- * to 1 for the new signature. Trips EXACTLY on the call that reaches
- * {@link LOOP_DETECTOR_THRESHOLD} (`count === threshold`) so the nudge is
- * injected once; a still-repeating call past the threshold keeps counting but
- * `tripped` stays false (the caller already nudged / will stop).
+ *
+ * Two trip paths, both gated on the trip firing EXACTLY once (the call that
+ * crosses the bar) so the nudge is injected a single time:
+ *
+ *  (a) Consecutive run — increments when the signature matches the previous
+ *      call, else resets to 1. Trips on the call that reaches `threshold`
+ *      (`count === threshold`). Catches A-A-A-A.
+ *  (b) Short-cycle oscillation — keeps a {@link LOOP_DETECTOR_WINDOW}-deep ring
+ *      buffer and trips when the last {@link LOOP_DETECTOR_CYCLE_MIN} calls
+ *      collapse to <= {@link LOOP_DETECTOR_CYCLE_DISTINCT} distinct signatures
+ *      (A-B-A-B-A-B). Edge-triggered: it only fires on the call that first
+ *      satisfies the condition (i.e. the previous window did not), so a
+ *      sustained cycle nudges once rather than on every subsequent call.
+ *
+ * A still-repeating call past either bar keeps counting but `tripped` stays
+ * false (the caller already nudged / will stop).
  */
 export function recordToolCall(
   state: LoopDetectorState,
@@ -96,22 +136,65 @@ export function recordToolCall(
 ): LoopDetectorResult {
   const signature = toolCallSignature(name, input);
   const count = state.lastSignature === signature ? state.count + 1 : 1;
-  const next: LoopDetectorState = { lastSignature: signature, count };
-  const tripped = count === threshold;
+  const recent = [...state.recent, signature].slice(-LOOP_DETECTOR_WINDOW);
+  const next: LoopDetectorState = { lastSignature: signature, count, recent };
+
+  const consecutiveTrip = count === threshold;
+  // Edge-trigger the oscillation path: fire only when THIS call completes a
+  // qualifying cycle that the window WITHOUT it did not (so it nudges once).
+  const cycleTrip = !consecutiveTrip && isCycleLoop(recent) && !isCycleLoop(state.recent);
+  const tripped = consecutiveTrip || cycleTrip;
+  const kind: LoopDetectorKind | undefined = consecutiveTrip
+    ? 'consecutive'
+    : cycleTrip
+      ? 'cycle'
+      : undefined;
+
   return {
     state: next,
     tripped,
-    repeatedCount: count,
-    ...(tripped ? { toolName: name } : {}),
+    // For a cycle trip the consecutive `count` is meaningless (signatures
+    // alternate); report the window depth so the nudge cites a real number.
+    repeatedCount: cycleTrip ? LOOP_DETECTOR_CYCLE_MIN : count,
+    ...(tripped ? { toolName: name, kind } : {}),
   };
 }
 
-/** The model-facing nudge injected when the detector trips. */
-export function loopDetectorNudge(toolName: string, repeatedCount: number): string {
+/**
+ * True when the most-recent calls form a short oscillation: at least
+ * {@link LOOP_DETECTOR_CYCLE_MIN} calls whose tail collapses to BETWEEN 2 and
+ * {@link LOOP_DETECTOR_CYCLE_DISTINCT} distinct signatures. A single repeated
+ * signature (distinct === 1) is deliberately EXCLUDED — that is the consecutive
+ * path's job, and reporting it here too would double-trip one spin and emit the
+ * wrong "cycling between two calls" wording. Pure helper.
+ */
+function isCycleLoop(recent: readonly string[]): boolean {
+  if (recent.length < LOOP_DETECTOR_CYCLE_MIN) return false;
+  const window = recent.slice(-LOOP_DETECTOR_CYCLE_MIN);
+  const distinct = new Set(window);
+  return distinct.size > 1 && distinct.size <= LOOP_DETECTOR_CYCLE_DISTINCT;
+}
+
+/**
+ * The model-facing nudge injected when the detector trips. The `consecutive`
+ * variant describes an identical-call run (A-A-A-A); the `cycle` variant
+ * describes a short oscillation (A-B-A-B-A-B). Both end with the same corrective
+ * guidance. Defaults to `consecutive` for backward compatibility.
+ */
+export function loopDetectorNudge(
+  toolName: string,
+  repeatedCount: number,
+  kind: LoopDetectorKind = 'consecutive',
+): string {
+  const lead =
+    kind === 'cycle'
+      ? `[loop] Your last ${repeatedCount} tool calls are cycling between the same two calls (including ${toolName}) ` +
+        `without making progress — alternating between them will keep returning the same results. `
+      : `[loop] You have called ${toolName} ${repeatedCount} times in a row with identical arguments. ` +
+        `Each call returned, but you are not making progress — repeating the same call will keep returning the same result. `;
   return (
-    `[loop] You have called ${toolName} ${repeatedCount} times in a row with identical arguments. ` +
-    `Each call returned, but you are not making progress — repeating the same call will keep returning the same result. ` +
-    `Stop and change approach: use the result you already have, try DIFFERENT arguments or a different tool, ` +
+    lead +
+    `Stop and change approach: use the results you already have, try DIFFERENT arguments or a different tool, ` +
     `or if you are stuck, call ask_user to get the user's help instead of looping.`
   );
 }

@@ -15,17 +15,21 @@ import { runCommand } from './helpers/mission-control';
 test('command palette opens the Files, Search, and Source Control instruments', async () => {
   const { app, page } = await launchApp();
   try {
+    // The InstrumentStage header label is the source of truth for which kind is
+    // hosted; target it by test id so the assertion can't collide with same-text
+    // panel content (e.g. the Search panel's own "Search" heading).
+    const kindLabel = page.getByTestId('instrument-kind');
     await runCommand(page, 'Open Files');
-    await expect(page.getByText('Instrument · files')).toBeVisible();
+    await expect(kindLabel).toHaveText('Files');
     await expect(page.getByRole('complementary', { name: 'Explorer' })).toBeVisible();
 
     await runCommand(page, 'Search in Files');
-    await expect(page.getByText('Instrument · search')).toBeVisible();
+    await expect(kindLabel).toHaveText('Search');
     await expect(page.getByRole('complementary', { name: 'Search' })).toBeVisible();
     await expect(page.getByPlaceholder('Search in files')).toBeVisible();
 
     await runCommand(page, 'Source Control');
-    await expect(page.getByText('Instrument · sourceControl')).toBeVisible();
+    await expect(kindLabel).toHaveText('Source Control');
     await expect(page.getByRole('complementary', { name: 'Source Control' })).toBeVisible();
 
     // "← Graph" returns to the Task graph home.
@@ -63,7 +67,7 @@ test('Files instrument reflects the active workspace and opening a file hosts th
     await expect(input).toBeVisible();
     await input.fill('mc-readme');
     await page.getByRole('button', { name: /mc-readme\.txt/ }).click();
-    await expect(page.getByText('Instrument · editor')).toBeVisible();
+    await expect(page.getByTestId('instrument-kind')).toHaveText('Editor');
   } finally {
     await app.close();
     await fs.rm(base, { recursive: true, force: true });

@@ -1,24 +1,31 @@
 import { useMemo, useState, type ComponentType } from 'react';
-import { Code2, Command, FolderTree, GitBranch, Globe, Search, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
+import { Code2, Command, CornerUpLeft, FolderTree, GitBranch, Globe, MessagesSquare, RotateCcw, Search, Sparkles, SlidersHorizontal, SquareTerminal, Terminal } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { openInstrument } from '../work-graph/instrument';
+import { openInstrument, useInstrumentStore } from '../work-graph/instrument';
 import { openSettingsTab } from '../settings/store';
+import { useFlightLogStore } from '../work-graph/flight-log-store';
+import { useTabsStore } from '../tabs/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useCommandPaletteStore } from './command-palette-store';
 
 /**
- * The ⌘K command palette. Runs the "open a surface as an instrument" commands so
- * Settings, a fresh AI Chat / CLI chat, a new editor, and a blank web tab are
- * reachable in Mission Control (where there is no tab strip to open them from).
- * Each command summons the surface via {@link openInstrument} / openSettingsTab;
- * "← Graph" on the instrument returns home.
+ * The ⌘K command palette. Runs two kinds of command: "Open…" entries summon a
+ * surface as an instrument so Settings, a fresh AI Chat / CLI chat, a new editor,
+ * and a blank web tab are reachable in Mission Control (where there is no tab strip
+ * to open them from); "Actions" delegate to existing stores/IPC (reopen a closed
+ * tab, toggle the Flight Log, return to the graph). Each open command summons the
+ * surface via {@link openInstrument} / openSettingsTab; "← Graph" on the instrument
+ * returns home.
  */
+
+type CmdGroup = 'open' | 'action';
 
 type Cmd = {
   id: string;
   label: string;
   hint?: string;
   icon: ComponentType<{ size?: number }>;
+  group: CmdGroup;
   run: () => void | Promise<void>;
 };
 
@@ -32,6 +39,7 @@ const COMMANDS: Cmd[] = [
     label: 'Open Settings',
     hint: 'Providers, appearance, agent, MCP…',
     icon: SlidersHorizontal,
+    group: 'open',
     run: () => openSettingsTab(),
   },
   {
@@ -39,6 +47,7 @@ const COMMANDS: Cmd[] = [
     label: 'New AI Chat',
     hint: 'Full-surface agent conversation',
     icon: Sparkles,
+    group: 'open',
     run: () => openInstrument('agent', { workspaceId: activeWorkspaceId() }),
   },
   {
@@ -46,6 +55,7 @@ const COMMANDS: Cmd[] = [
     label: 'New CLI Chat',
     hint: 'The agent in a terminal',
     icon: SquareTerminal,
+    group: 'open',
     run: () => openInstrument('terminal', { workspaceId: activeWorkspaceId(), terminalProfile: 'agent-cli' }),
   },
   {
@@ -53,6 +63,7 @@ const COMMANDS: Cmd[] = [
     label: 'New Terminal',
     hint: 'A shell in the active workspace',
     icon: Terminal,
+    group: 'open',
     run: () => openInstrument('terminal', { workspaceId: activeWorkspaceId() }),
   },
   {
@@ -60,6 +71,7 @@ const COMMANDS: Cmd[] = [
     label: 'New Editor',
     hint: 'An untitled Monaco buffer',
     icon: Code2,
+    group: 'open',
     run: () => openInstrument('editor', { workspaceId: activeWorkspaceId() }),
   },
   {
@@ -67,6 +79,7 @@ const COMMANDS: Cmd[] = [
     label: 'Open Files',
     hint: 'Browse the workspace file tree',
     icon: FolderTree,
+    group: 'open',
     run: () => openInstrument('files', { workspaceId: activeWorkspaceId() }),
   },
   {
@@ -74,6 +87,7 @@ const COMMANDS: Cmd[] = [
     label: 'Search in Files',
     hint: 'Find text across the workspace',
     icon: Search,
+    group: 'open',
     run: () => openInstrument('search', { workspaceId: activeWorkspaceId() }),
   },
   {
@@ -81,6 +95,7 @@ const COMMANDS: Cmd[] = [
     label: 'Source Control',
     hint: 'Git status, diffs, and commits',
     icon: GitBranch,
+    group: 'open',
     run: () => openInstrument('sourceControl', { workspaceId: activeWorkspaceId() }),
   },
   {
@@ -88,9 +103,41 @@ const COMMANDS: Cmd[] = [
     label: 'New Web Tab',
     hint: 'A runtime-aware browser',
     icon: Globe,
+    group: 'open',
     run: () => openInstrument('web'),
   },
+  {
+    id: 'reopen-tab',
+    label: 'Reopen Closed Tab',
+    hint: 'Restore the last closed tab',
+    icon: RotateCcw,
+    group: 'action',
+    run: () => useTabsStore.getState().reopenClosedTab(),
+  },
+  {
+    id: 'toggle-flight-log',
+    label: 'Toggle Flight Log',
+    hint: "Every task's conversation in one place",
+    icon: MessagesSquare,
+    group: 'action',
+    run: () => useFlightLogStore.getState().toggle(),
+  },
+  {
+    id: 'return-to-graph',
+    label: 'Return to Graph',
+    hint: 'Close the instrument and go home',
+    icon: CornerUpLeft,
+    group: 'action',
+    run: () => useInstrumentStore.getState().close(),
+  },
 ];
+
+const GROUP_LABEL: Record<CmdGroup, string> = {
+  open: 'Open',
+  action: 'Actions',
+};
+
+const GROUP_ORDER: readonly CmdGroup[] = ['open', 'action'];
 
 /** Title-bar trigger for the command palette. */
 export function CommandPaletteButton() {
@@ -128,10 +175,14 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return COMMANDS;
-    return COMMANDS.filter(
-      (c) => c.label.toLowerCase().includes(q) || (c.hint?.toLowerCase().includes(q) ?? false),
-    );
+    const matches = q
+      ? COMMANDS.filter(
+          (c) => c.label.toLowerCase().includes(q) || (c.hint?.toLowerCase().includes(q) ?? false),
+        )
+      : COMMANDS;
+    // Keep the flat order grouped (Open… then Actions) so the section headers below
+    // never interleave; the array stays flat so the keyboard index math is unchanged.
+    return GROUP_ORDER.flatMap((group) => matches.filter((c) => c.group === group));
   }, [query]);
 
   const run = (cmd: Cmd | undefined) => {
@@ -188,8 +239,14 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
           ) : (
             filtered.map((cmd, i) => {
               const Icon = cmd.icon;
+              const startsGroup = i === 0 || filtered[i - 1]?.group !== cmd.group;
               return (
                 <li key={cmd.id}>
+                  {startsGroup ? (
+                    <div className="px-2.5 pb-1 pt-2 text-caption font-medium uppercase tracking-wide text-fg-tertiary first:pt-1">
+                      {GROUP_LABEL[cmd.group]}
+                    </div>
+                  ) : null}
                   <button
                     type="button"
                     onMouseEnter={() => setIndex(i)}

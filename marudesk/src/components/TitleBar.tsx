@@ -1,7 +1,8 @@
 import type { MouseEvent } from 'react';
-import { ArrowDownCircle, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
 import { cn } from '../lib/cn';
+import { Spinner } from './ui';
 import { WindowControls } from './WindowControls';
 import { ProfileSwitcher } from '../features/workspaces/ProfileSwitcher';
 import { WorkspaceSwitcher } from '../features/workspaces/WorkspaceSwitcher';
@@ -27,10 +28,10 @@ function UpdateIndicator() {
   if (status.kind === 'downloading') {
     return (
       <div
-        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary animate-pulse"
+        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary"
         title={t('titleBar.update.downloading')}
       >
-        <ArrowDownCircle size={14} className="text-accent" />
+        <Spinner size={14} label={t('titleBar.update.downloading')} />
         <span>{status.percent}%</span>
       </div>
     );
@@ -39,10 +40,13 @@ function UpdateIndicator() {
   if (status.kind === 'available') {
     return (
       <div
-        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary animate-pulse"
+        className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-fg-secondary"
         title={t('titleBar.update.downloading')}
       >
-        <ArrowDownCircle size={14} className="text-accent" />
+        <span
+          className="size-2 rounded-full bg-accent shrink-0"
+          aria-hidden
+        />
       </div>
     );
   }

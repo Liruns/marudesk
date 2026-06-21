@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { launchApp, dismissHomeGuide } from './helpers/app';
+import { runCommand } from './helpers/mission-control';
 
 /**
  * Mission Control — the app's only home (docs/mission-control-redesign.md). A goal
@@ -115,6 +116,23 @@ test('mission control: the flight log moves focus inside on open and restores it
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     await expect(trigger).toBeFocused();
+  } finally {
+    await app.close();
+  }
+});
+
+test('mission control: the ⌘K palette runs an action verb (Toggle Flight Log)', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await seedGraph(page);
+
+    // The palette now lists action verbs alongside the "Open…" surfaces. Running
+    // "Toggle Flight Log" delegates to the flight-log store and reveals the overlay.
+    const dialog = page.getByRole('dialog', { name: 'Flight log' });
+    await expect(dialog).toBeHidden();
+
+    await runCommand(page, 'Toggle Flight Log');
+    await expect(dialog).toBeVisible();
   } finally {
     await app.close();
   }

@@ -25,7 +25,9 @@ test('editor: new untitled file opens dirty in Monaco', async () => {
     // The instrument's editor header reads the untitled name (Untitled-1) and the
     // buffer is dirty from creation (no saved baseline → "Unsaved").
     await expect(page.getByRole('button', { name: 'Graph' })).toBeVisible();
-    await expect(page.getByText('Untitled-1')).toBeVisible();
+    // `exact` so this targets the editor's own filename header, not the new
+    // InstrumentStage identity span ("· Untitled-1") which also contains the name.
+    await expect(page.getByText('Untitled-1', { exact: true })).toBeVisible();
     await expect(page.locator('.monaco-editor')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Unsaved')).toBeVisible();
   } finally {

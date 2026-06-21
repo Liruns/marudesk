@@ -16,6 +16,7 @@ import {
   type WorkGraph,
 } from '../../../shared/work-os';
 import { useCanvasStore } from '../canvas/store';
+import { useGitStore } from '../git/store';
 
 /**
  * The AI Work OS task graph rendered as nodes on the canvas (docs/
@@ -695,6 +696,12 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
               : `${files}.`;
         return { applyingPatchTaskId: null, runNote: note, graph };
       });
+      // The patch wrote real workspace files — refresh Source Control so an
+      // already-open SCM instrument reflects the change without a manual reload
+      // (agent diff → review → commit handoff). refresh() self-guards: it probes
+      // git availability and handles a non-repo / no-git workspace as a no-op,
+      // catching its own errors, so this never affects applyPatch's contract.
+      if (res.ok) void useGitStore.getState().refresh();
     } catch {
       set({ applyingPatchTaskId: null, runNote: 'Applying the patch failed.' });
     }

@@ -10,6 +10,7 @@ import {
   type JSONSchema7,
   type LanguageModel,
   type ModelMessage,
+  type SystemModelMessage,
   type ToolSet,
 } from 'ai';
 import type { ProviderId } from '../../shared/providers';
@@ -464,6 +465,65 @@ export function aiTools(schemas: ToolSchema[], opts?: { cacheable?: boolean; pro
       }),
     ]),
   ) as ToolSet;
+}
+
+/** The Anthropic ephemeral prompt-cache breakpoint we attach to a cacheable prefix. */
+const ANTHROPIC_CACHE_BREAKPOINT = { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
+
+/**
+ * CACHE-1 (docs/agent-port-plan.md): cache the LARGE, STABLE system prompt.
+ *
+ * `aiTools` already caches the tools block; this caches the system block. The AI
+ * SDK's `system` accepts a {@link SystemModelMessage} (not just a string) whose
+ * `providerOptions.anthropic.cacheControl` `@ai-sdk/anthropic` reads and emits as
+ * `cache_control` on the system text block (verified against the installed 3.0.x).
+ * Tools precede system+messages in request order, so the tools breakpoint alone
+ * caches only tools — without this, the system prompt is re-billed at full input
+ * price every step. When `cacheable` is false (non-Anthropic providers) the plain
+ * string is returned unchanged, so those request paths are byte-identical.
+ */
+export function cachedSystem(system: string, cacheable: boolean): string | SystemModelMessage {
+  if (!cacheable) return system;
+  return { role: 'system', content: system, providerOptions: ANTHROPIC_CACHE_BREAKPOINT };
+}
+
+/**
+ * CACHE-1 (docs/agent-port-plan.md): cache the GROWING message-history prefix.
+ *
+ * The whole transcript is re-sent every step, so without a breakpoint the message
+ * history is re-billed at full input price each turn. Anthropic caches the prefix
+ * up to (and including) a `cache_control` breakpoint, so we attach one to the LAST
+ * message BEFORE the volatile tail — the second-to-last message. Placing it on the
+ * very last message would move the breakpoint every step (the tail is what just
+ * changed), defeating the cache; the second-to-last is a prefix boundary that was
+ * already stable last step, so the prefix up to it hits the cache. Combined with
+ * the tools + system breakpoints this is 3 breakpoints total — within Anthropic's
+ * limit of 4. Returns a shallow copy with the chosen message's `providerOptions`
+ * merged (never mutating the caller's transcript); fewer than two messages, or a
+ * non-cacheable provider, returns the original array untouched.
+ */
+export function withMessagePrefixCache(
+  messages: ModelMessage[],
+  cacheable: boolean,
+): ModelMessage[] {
+  if (!cacheable || messages.length < 2) return messages;
+  const idx = messages.length - 2;
+  const next = messages.slice();
+  next[idx] = withCacheBreakpoint(next[idx]);
+  return next;
+}
+
+/**
+ * Return a shallow copy of one message with the Anthropic cache breakpoint merged
+ * into its `providerOptions`. Generic over the concrete message variant so the
+ * `role`/`content` discriminant correlation is preserved (spreading the bare
+ * {@link ModelMessage} union would widen both and break strict assignability).
+ */
+function withCacheBreakpoint<T extends ModelMessage>(message: T): T {
+  return {
+    ...message,
+    providerOptions: { ...message.providerOptions, ...ANTHROPIC_CACHE_BREAKPOINT },
+  };
 }
 
 /* ── Streaming error recovery ──────────────────────────────────────────── */

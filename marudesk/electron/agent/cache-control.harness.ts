@@ -1,6 +1,7 @@
 import { check, passedCount } from '../harness-kit.ts';
-import { aiTools } from './model.ts';
+import { aiTools, cachedSystem, withMessagePrefixCache } from './model.ts';
 import type { ToolSchema } from './tools/types.ts';
+import type { ModelMessage } from 'ai';
 
 /**
  * Harness for CACHE-1 (docs/agent-port-plan.md → "CACHE-1 — 안정적 system+tools
@@ -101,6 +102,97 @@ const eq = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.strin
     'no-opts: no tool has cacheControl (unchanged legacy behavior)',
     names.every((n) => cacheControlOf(out, n) === undefined),
   );
+}
+
+/* ── (6) cachedSystem: cacheable → SystemModelMessage w/ ephemeral breakpoint ── */
+
+/** Read a message/system `providerOptions.anthropic.cacheControl`, or undefined. */
+function msgCacheControlOf(value: { providerOptions?: unknown }): unknown {
+  const po = value.providerOptions;
+  if (po && typeof po === 'object' && 'anthropic' in po) {
+    const anthropic = (po as { anthropic?: unknown }).anthropic;
+    if (anthropic && typeof anthropic === 'object' && 'cacheControl' in anthropic) {
+      return (anthropic as { cacheControl?: unknown }).cacheControl;
+    }
+  }
+  return undefined;
+}
+
+{
+  const out = cachedSystem('SYS', true);
+  check('cachedSystem(true): returns a SystemModelMessage (not a string)', typeof out !== 'string');
+  if (typeof out !== 'string') {
+    check('cachedSystem(true): role is system', out.role === 'system');
+    check('cachedSystem(true): content is preserved verbatim', out.content === 'SYS');
+    check('cachedSystem(true): carries the ephemeral system breakpoint', eq(msgCacheControlOf(out), EPHEMERAL));
+  }
+}
+
+/* ── (7) cachedSystem: not cacheable → plain string, byte-identical ────────── */
+
+{
+  const out = cachedSystem('SYS', false);
+  check('cachedSystem(false): returns the plain string unchanged', out === 'SYS');
+}
+
+/* ── (8) withMessagePrefixCache: cacheable → breakpoint on the 2nd-to-last ──── */
+
+{
+  const transcript: ModelMessage[] = [
+    { role: 'user', content: 'one' },
+    { role: 'assistant', content: 'two' },
+    { role: 'user', content: 'three (volatile tail)' },
+  ];
+  const out = withMessagePrefixCache(transcript, true);
+  check('prefix-cache: returns a NEW array (caller transcript not mutated)', out !== transcript);
+  check('prefix-cache: original messages carry no cacheControl (not mutated)', transcript.every((m) => msgCacheControlOf(m) === undefined));
+  check('prefix-cache: same length', out.length === 3);
+  check('prefix-cache: first message (stable prefix) has NO breakpoint', msgCacheControlOf(out[0]) === undefined);
+  check('prefix-cache: second-to-last (last non-tail) has the ephemeral breakpoint', eq(msgCacheControlOf(out[1]), EPHEMERAL));
+  check('prefix-cache: last message (volatile tail) has NO breakpoint', msgCacheControlOf(out[2]) === undefined);
+  check('prefix-cache: breakpoint message preserves its content/role', out[1].role === 'assistant' && out[1].content === 'two');
+}
+
+/* ── (9) withMessagePrefixCache: < 2 messages / not cacheable → untouched ──── */
+
+{
+  const one: ModelMessage[] = [{ role: 'user', content: 'solo' }];
+  check('prefix-cache: single message returns the original array untouched', withMessagePrefixCache(one, true) === one);
+  const empty: ModelMessage[] = [];
+  check('prefix-cache: empty returns the original array untouched', withMessagePrefixCache(empty, true) === empty);
+  const two: ModelMessage[] = [
+    { role: 'user', content: 'a' },
+    { role: 'assistant', content: 'b' },
+  ];
+  check('prefix-cache: cacheable:false returns the original array untouched', withMessagePrefixCache(two, false) === two);
+  check('prefix-cache: cacheable:false leaves messages breakpoint-free', two.every((m) => msgCacheControlOf(m) === undefined));
+}
+
+/* ── (10) full request: tools + system + message-prefix → <= 4 breakpoints ─── */
+
+{
+  const tools = aiTools(['t1', 't2'].map(schema), { cacheable: true }) as Record<
+    string,
+    { providerOptions?: unknown }
+  >;
+  const system = cachedSystem('SYS', true);
+  const transcript: ModelMessage[] = [
+    { role: 'user', content: 'q1' },
+    { role: 'assistant', content: 'a1' },
+    { role: 'user', content: 'q2' },
+  ];
+  const messages = withMessagePrefixCache(transcript, true);
+
+  const toolBreakpoints = Object.values(tools).filter((t) => msgCacheControlOf(t) !== undefined).length;
+  const systemBreakpoints = typeof system === 'string' ? 0 : msgCacheControlOf(system) !== undefined ? 1 : 0;
+  const messageBreakpoints = messages.filter((m) => msgCacheControlOf(m) !== undefined).length;
+  const total = toolBreakpoints + systemBreakpoints + messageBreakpoints;
+
+  check('full request: exactly one tool breakpoint', toolBreakpoints === 1);
+  check('full request: exactly one system breakpoint', systemBreakpoints === 1);
+  check('full request: exactly one message-prefix breakpoint', messageBreakpoints === 1);
+  check('full request: total breakpoints <= 4 (Anthropic limit)', total <= 4);
+  check('full request: tools breakpoint still on the LAST tool (t2)', eq(cacheControlOf(tools, 't2'), EPHEMERAL));
 }
 
 console.log(`\n${passedCount()} checks passed`);
