@@ -8,7 +8,10 @@ import {
   type WorkspaceRootInput,
   type WorkspaceSnapshot,
 } from '../../../shared/workspace';
+import { currentLocale } from '../../i18n/locale-storage';
+import { getMessage } from '../../i18n/messages';
 import { toMessage } from '../../lib/toMessage';
+import { toast } from '../../lib/toast';
 import {
   findSiblingLeaf,
   removeWorkspaceLeaf,
@@ -215,17 +218,30 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
 
     setActiveWorkspace: async (workspaceId, paneId) => {
       const payload = paneId ? { workspaceId, paneId } : { workspaceId };
-      const snapshot = await window.marudesk.invoke('workspaces:set-active', payload);
-      set((state) => {
-        const next = applySnapshot(state, snapshot);
-        return {
-          ...next,
-          layout:
-            paneId && next.layout
-              ? setWorkspaceLeaf(next.layout, paneId, workspaceId)
-              : next.layout,
-        };
-      });
+      try {
+        const snapshot = await window.marudesk.invoke('workspaces:set-active', payload);
+        set((state) => {
+          const next = applySnapshot(state, snapshot);
+          return {
+            ...next,
+            layout:
+              paneId && next.layout
+                ? setWorkspaceLeaf(next.layout, paneId, workspaceId)
+                : next.layout,
+          };
+        });
+      } catch (err) {
+        // Callers fire-and-forget (`void setActiveWorkspace(…)`), so surface the
+        // failure both in store state AND a toast — the switcher menu has usually
+        // closed by the time the reject lands. Return normally; never rethrow.
+        const message = toMessage(err);
+        set({ error: message });
+        toast({
+          title: getMessage(currentLocale(), 'workspaces.switchFailed.title'),
+          description: message,
+          variant: 'error',
+        });
+      }
     },
 
     addRoot: async (workspaceId) => {
@@ -271,11 +287,21 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
     },
 
     setActiveRoot: async (workspaceId, rootId) => {
-      const snapshot = await window.marudesk.invoke('workspaces:set-active-root', {
-        workspaceId,
-        rootId,
-      });
-      set((state) => applySnapshot(state, snapshot));
+      try {
+        const snapshot = await window.marudesk.invoke('workspaces:set-active-root', {
+          workspaceId,
+          rootId,
+        });
+        set((state) => applySnapshot(state, snapshot));
+      } catch (err) {
+        const message = toMessage(err);
+        set({ error: message });
+        toast({
+          title: getMessage(currentLocale(), 'workspaces.switchFailed.title'),
+          description: message,
+          variant: 'error',
+        });
+      }
     },
 
     renameWorkspace: async (workspaceId, name) => {

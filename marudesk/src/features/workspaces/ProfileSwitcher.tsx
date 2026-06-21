@@ -1,11 +1,13 @@
 import { Check, ChevronDown, Pencil, Plus, Trash2, UserRound } from 'lucide-react';
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { DEFAULT_PROFILE_ID, type ProfilesState } from '../../../shared/profiles';
 import { ContextMenu, type MenuItem } from '../../components/ContextMenu';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
+import { toMessage } from '../../lib/toMessage';
+import { toast } from '../../lib/toast';
 import { NameDialog } from './NameDialog';
 
 type ProfileDialog = { mode: 'create' } | { mode: 'rename'; id: string; name: string };
@@ -28,10 +30,28 @@ export function ProfileSwitcher() {
   const [dialog, setDialog] = useState<ProfileDialog | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
 
-  const load = (): void => {
-    void window.marudesk.invoke('profiles:list').then(setState);
-  };
-  useEffect(load, []);
+  // Surface a profile action failure as an error toast. These invokes are
+  // fire-and-forget (the menu closes before the reject lands), so a toast is the
+  // only place feedback can land — and the `.catch` also keeps the rejection
+  // from going unhandled.
+  const reportFailure = useCallback(
+    (err: unknown): void => {
+      toast({
+        title: t('profile.actionFailed'),
+        description: toMessage(err),
+        variant: 'error',
+      });
+    },
+    [t],
+  );
+
+  const load = useCallback((): void => {
+    // Keep the prior list on failure — don't blow away state with the error.
+    void window.marudesk.invoke('profiles:list').then(setState).catch(reportFailure);
+  }, [reportFailure]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const active = state?.profiles.find((p) => p.id === state.activeProfileId) ?? null;
   const activeName = active?.name ?? t('profiles.trigger.default');
@@ -48,7 +68,9 @@ export function ProfileSwitcher() {
       label: p.name,
       icon: p.id === activeId ? <Check size={14} /> : <span className="size-3.5" />,
       onSelect: () => {
-        if (p.id !== activeId) void window.marudesk.invoke('profiles:switch', p.id);
+        if (p.id !== activeId) {
+          void window.marudesk.invoke('profiles:switch', p.id).catch(reportFailure);
+        }
       },
     }));
     out.push({ type: 'separator' });
@@ -114,7 +136,8 @@ export function ProfileSwitcher() {
           onSubmit={(name) => {
             void window.marudesk
               .invoke('profiles:create', name)
-              .then((meta) => window.marudesk.invoke('profiles:switch', meta.id));
+              .then((meta) => window.marudesk.invoke('profiles:switch', meta.id))
+              .catch(reportFailure);
           }}
           onClose={() => setDialog(null)}
         />
@@ -126,7 +149,10 @@ export function ProfileSwitcher() {
           cancelLabel={t('profiles.delete.cancel')}
           initialValue={dialog.name}
           onSubmit={(name) => {
-            void window.marudesk.invoke('profiles:rename', { id: dialog.id, name }).then(setState);
+            void window.marudesk
+              .invoke('profiles:rename', { id: dialog.id, name })
+              .then(setState)
+              .catch(reportFailure);
           }}
           onClose={() => setDialog(null)}
         />
@@ -135,7 +161,10 @@ export function ProfileSwitcher() {
         <DeleteConfirm
           name={pendingDelete.name}
           onConfirm={() => {
-            void window.marudesk.invoke('profiles:delete', pendingDelete.id).then(setState);
+            void window.marudesk
+              .invoke('profiles:delete', pendingDelete.id)
+              .then(setState)
+              .catch(reportFailure);
             setPendingDelete(null);
           }}
           onClose={() => setPendingDelete(null)}

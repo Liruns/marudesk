@@ -11,6 +11,7 @@ import { useI18n } from '../../../../i18n/useI18n';
 import { cn } from '../../../../lib/cn';
 import type { AgentPlan, AgentPlanStepStatus } from '../../../../../shared/agent';
 import { useAgentStore } from '../../store';
+import { ensureTranscriptMessageMounted } from '../useStickyTranscriptScroll';
 
 /* ── plan / taskboard (v5 §G2) ───────────────────────────────────────────── */
 
@@ -29,10 +30,14 @@ const NEXT_PLAN_STATUS: Record<AgentPlanStepStatus, AgentPlanStepStatus> = {
 
 /** Scroll the transcript to the message a plan step is anchored to (§G2/C). The
  *  message rows carry `id="agent-msg-<id>"`; scrollIntoView finds its scroll
- *  ancestor on its own, so this works for both the full surface and the drawer. */
+ *  ancestor on its own, so this works for both the full surface and the drawer.
+ *  The transcript is windowed (only the recent tail mounts), so an anchor older
+ *  than the cap must be revealed first — otherwise getElementById would miss it. */
 function jumpToMessage(messageId: string): void {
-  const el = document.getElementById(`agent-msg-${messageId}`);
-  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  ensureTranscriptMessageMounted(messageId, () => {
+    const el = document.getElementById(`agent-msg-${messageId}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
 }
 
 /**

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
 import type { AgentMessage } from '../../../../shared/agent';
 import { textOf } from './format';
+import { ensureTranscriptMessageMounted } from './useStickyTranscriptScroll';
 
 /**
  * Floating transcript navigator (Ctrl/Cmd+F or the composer's search toggle).
@@ -60,14 +61,20 @@ export function TranscriptSearch({
     const id = matches[i];
     if (id === undefined) return;
     setActive(i);
-    const el = document.getElementById(`agent-msg-${id}`);
-    if (!el) return;
-    el.scrollIntoView({ block: 'center' });
-    // Restart the flash even when re-jumping to the same message.
-    el.classList.remove('msg-flash');
-    void el.offsetWidth;
-    el.classList.add('msg-flash');
-    window.setTimeout(() => el.classList.remove('msg-flash'), 1300);
+    // The transcript only mounts a trailing window of rows (bounded scrollback),
+    // so a target older than the cap may not be in the DOM yet. Ask Transcript to
+    // reveal it first; the callback re-renders the wider window and runs us back
+    // on the next frame, after which getElementById is guaranteed to resolve.
+    ensureTranscriptMessageMounted(id, () => {
+      const el = document.getElementById(`agent-msg-${id}`);
+      if (!el) return;
+      el.scrollIntoView({ block: 'center' });
+      // Restart the flash even when re-jumping to the same message.
+      el.classList.remove('msg-flash');
+      void el.offsetWidth;
+      el.classList.add('msg-flash');
+      window.setTimeout(() => el.classList.remove('msg-flash'), 1300);
+    });
   };
 
   const older = () => jump(active < 0 ? matches.length - 1 : Math.max(0, index - 1));
