@@ -3,6 +3,7 @@ import { Code2, Command, Compass, CornerUpLeft, FileDiff, FolderTree, GitBranch,
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
+import { readyTasks } from '../../../shared/work-os';
 import { openInstrument, reopenTabInstrument, useInstrumentStore } from '../work-graph/instrument';
 import { openSettingsTab } from '../settings/store';
 import { useFlightLogStore } from '../work-graph/flight-log-store';
@@ -38,6 +39,8 @@ type GateContext = {
   selectedTaskId: string | null;
   /** The selected task has an applicable (non-empty) patch ready to apply. */
   selectedTaskHasPatch: boolean;
+  /** At least one task is currently ready (deps satisfied, not done/running). */
+  hasReadyTasks: boolean;
 };
 
 /**
@@ -196,6 +199,17 @@ const COMMANDS: Cmd[] = [
     },
   },
   {
+    id: 'implement-ready',
+    labelKey: 'command.implementReady.label',
+    hintKey: 'command.implementReady.hint',
+    icon: Wrench,
+    group: 'action',
+    // Mirror the panel's "Implement ready" button: a graph, no run in flight, and
+    // at least one currently-ready task to implement.
+    gate: (ctx) => ctx.hasGraph && !ctx.running && ctx.hasReadyTasks,
+    run: () => void useWorkGraphStore.getState().implementReady(),
+  },
+  {
     id: 'run-task',
     labelKey: 'command.runTask.label',
     hintKey: 'command.runTask.hint',
@@ -318,6 +332,7 @@ function CommandPaletteBody({ onClose }: { onClose: () => void }) {
       running,
       selectedTaskId,
       selectedTaskHasPatch,
+      hasReadyTasks: graph ? readyTasks(graph).length > 0 : false,
     };
     return COMMANDS.filter((c) => c.gate?.(ctx) ?? true).map((c) => ({
       id: c.id,

@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import { randomId } from '../../../shared/id';
 import {
   blockedTaskIds,
@@ -261,6 +261,18 @@ type WorkGraphActions = {
    */
   implementTask: (id: TaskId) => Promise<void>;
   /**
+   * Implement every CURRENTLY ready task (deps satisfied, not done/running) in ONE
+   * parallel batch — each in its own isolated git worktree (`workos:implement-task`),
+   * bounded by {@link WORKGRAPH_RUN_CONCURRENCY}. Each task's captured diff is stored
+   * as its `Task.evidence.patch` and left STAGED for individual review/apply; nothing
+   * is auto-applied (so the human review gate is preserved). Does NOT walk dependency
+   * layers — only the current ready set — because unblocking the next layer would
+   * require applying between layers. Gated like {@link run} (no-op while running / no
+   * graph / no ready tasks); shares the run-token bookkeeping so a concurrent run/stop
+   * can't race it and {@link stopRun} halts further launches.
+   */
+  implementReady: () => Promise<void>;
+  /**
    * Apply a task's reviewed worktree diff (`Task.evidence.patch`) to the LIVE
    * workspace via `workos:apply-patch`. Rejected (not forced) when the live tree
    * drifted since Implement ran. No-op without a patch or while already applying.
@@ -383,6 +395,72 @@ function applyRunOutcome(
   }
   // Not attempted (no provider / timeout) — recoverable `blocked`, not a real fail.
   return setEvidence(setStatus(graph, task.id, 'blocked'), task.id, res.reason);
+}
+
+/** The store's own zustand set/get, so {@link implementOne} writes exactly like the actions. */
+type Store = StoreApi<WorkGraphState & WorkGraphActions>;
+type StoreSet = Store['setState'];
+type StoreGet = Store['getState'];
+
+/**
+ * Implement ONE task in an isolated git worktree (`workos:implement-task`) and
+ * fold its captured diff into the task's evidence for review — NEVER applied to the
+ * live workspace. Shared by the single-task {@link WorkGraphActions.implementTask}
+ * and the parallel {@link WorkGraphActions.implementReady} batch so both store an
+ * outcome identically.
+ *
+ * The caller MUST have already set `running`/`runToken` (= `token`) and marked the
+ * task(s) `running` — this body does NOT grab the global token itself, so a batch
+ * never double-owns it. After its await it re-checks the token and bails without
+ * clobbering when a stop/new run superseded the turn. `clearRunningOnSettle` makes
+ * the single-task caller flip `running` off as part of the outcome write (the batch
+ * passes false and clears the flag once, after all tasks settle).
+ */
+async function implementOne(
+  task: Task,
+  goal: string,
+  token: number,
+  get: StoreGet,
+  set: StoreSet,
+  opts: { clearRunningOnSettle: boolean },
+): Promise<void> {
+  const clear = opts.clearRunningOnSettle ? { running: false } : {};
+  try {
+    const res = await window.marudesk.invoke('workos:implement-task', {
+      taskId: task.id,
+      title: task.title,
+      intent: task.intent,
+      goal,
+      acceptance: task.acceptance.map((c) => c.text),
+    });
+    if (get().runToken !== token) return; // stopped / superseded — don't clobber
+    set((s) => {
+      if (!s.graph) return clear;
+      if (res.ok) {
+        let g = setStatus(s.graph, task.id, res.status);
+        g = setEvidence(g, task.id, res.result, res.patch, {
+          worktreeVerified: res.worktreeVerified,
+          verifyNote: res.verifyNote,
+        });
+        return {
+          ...clear,
+          graph: g,
+          runNote: res.changedFiles.length
+            ? `${res.changedFiles.length} file(s) changed in an isolated worktree — review the diff before applying.`
+            : 'No changes were produced.',
+        };
+      }
+      // A precondition (no provider / not a git repo) — restore the task to planned.
+      return { ...clear, graph: setStatus(s.graph, task.id, 'planned'), runNote: res.reason };
+    });
+  } catch {
+    if (get().runToken !== token) return;
+    set((s) => ({
+      ...clear,
+      graph: s.graph ? setStatus(s.graph, task.id, 'planned') : s.graph,
+      runNote: 'Implement failed.',
+    }));
+  }
 }
 
 /**
@@ -790,40 +868,53 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       graph: s.graph ? setStatus(s.graph, id, 'running') : s.graph,
     }));
     try {
-      const res = await window.marudesk.invoke('workos:implement-task', {
-        taskId: task.id,
-        title: task.title,
-        intent: task.intent,
-        goal,
-        acceptance: task.acceptance.map((c) => c.text),
-      });
-      if (get().runToken !== token) return; // stopped / superseded — don't clobber
-      set((s) => {
-        if (!s.graph) return { running: false };
-        if (res.ok) {
-          let g = setStatus(s.graph, id, res.status);
-          g = setEvidence(g, id, res.result, res.patch, {
-            worktreeVerified: res.worktreeVerified,
-            verifyNote: res.verifyNote,
-          });
-          return {
-            graph: g,
-            running: false,
-            runNote: res.changedFiles.length
-              ? `${res.changedFiles.length} file(s) changed in an isolated worktree — review the diff before applying.`
-              : 'No changes were produced.',
-          };
-        }
-        // A precondition (no provider / not a git repo) — restore the task to planned.
-        return { graph: setStatus(s.graph, id, 'planned'), running: false, runNote: res.reason };
-      });
-    } catch {
-      if (get().runToken !== token) return;
-      set((s) => ({
-        graph: s.graph ? setStatus(s.graph, id, 'planned') : s.graph,
-        running: false,
-        runNote: 'Implement failed.',
-      }));
+      // Single task: this turn owns the global running flag/token, so clear it once
+      // the one implement settles (only if still ours — a stop/new run may own it).
+      await implementOne(task, goal, token, get, set, { clearRunningOnSettle: true });
+    } finally {
+      if (get().runToken === token) set({ running: false });
+    }
+  },
+
+  implementReady: async () => {
+    const s0 = get();
+    if (s0.running || !s0.graph) return;
+    // The CURRENT ready set only — tasks whose deps are satisfied and that aren't
+    // done/running. First slice: implement just this layer in ONE parallel batch;
+    // we deliberately do NOT walk dependency layers, because unblocking the next
+    // layer would require applying a diff between layers (auto-apply), which would
+    // bypass the human review gate. Each diff is left staged for individual review.
+    const ready = readyTasks(s0.graph);
+    if (ready.length === 0) return;
+    const goal = s0.graph.goal;
+    const token = s0.runToken + 1;
+    // Mark the whole ready set running (visualizes the parallel batch) and take the
+    // batch running flag/token so the batch is atomic w.r.t. a concurrent stop/run.
+    set((s) => ({
+      running: true,
+      runToken: token,
+      runNote: null,
+      lastAppliedTaskId: null,
+      graph: s.graph ? ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) : s.graph,
+    }));
+    // This batch owns the run only while its token is current; a stopRun()/new run
+    // bumps it. owns() halts further launches (runWithConcurrency polls it) and
+    // each per-task implementOne re-checks the token after its await before writing.
+    const owns = () => get().running && get().runToken === token;
+    try {
+      // Bounded fan-out: at most WORKGRAPH_RUN_CONCURRENCY isolated-worktree implements
+      // in flight at once. Each task gets its own crypto-random worktree (run-task.ts),
+      // so parallel implements can't collide; each stores its own captured diff as
+      // evidence, leaving every diff STAGED for individual review/apply — NEVER applied.
+      await runWithConcurrency(
+        ready,
+        WORKGRAPH_RUN_CONCURRENCY,
+        (t) => implementOne(t, goal, token, get, set, { clearRunningOnSettle: false }),
+        () => !owns(),
+      );
+    } finally {
+      // Only the owning batch clears `running` (a newer run/stop owns it otherwise).
+      if (get().runToken === token) set({ running: false });
     }
   },
 

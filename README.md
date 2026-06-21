@@ -103,6 +103,9 @@ A built-in, in-process MCP server exposes tabs, the active page, terminals, edit
 ### Plugins
 Extend the agent with your own JavaScript. A plugin is a folder with a `manifest.json` and an `index.js` exporting `activate(ctx)`; it can contribute **agent tools** and **slash commands**. Plugins run in an **isolated worker** (Electron `utilityProcess` with the Node Permission Model + a module sandbox), never in the main process, and reach the filesystem/network only through a **capability-gated bridge** the user approves per plugin (`fs:read`, `fs:write`, `net`). Contributed tools flow through the same approval / read-only mediation as the built-in ones, and a plugin's file writes show up in the chat diff/revert history. Manage them in **Settings → Plugins**; see [`marudesk/docs/plugin-runtime-design.md`](marudesk/docs/plugin-runtime-design.md). Plugin folders are scanned from `<userData>/plugins/` (user) and `<workspace>/.marudesk/plugins/` (project); a runnable example lives in [`marudesk/examples/plugins/hello-world`](marudesk/examples/plugins/hello-world).
 
+#### Writing a plugin
+A plugin is a folder with a `manifest.json` (id, entry, declared permissions) and an `index.js` exporting `activate(ctx)`, where `ctx` is the capability bridge — `registerTool` / `registerSlashCommand` plus permission-gated `fs`, `http`, `exec`, `setStatus`, and `log`. The author guide documents the full `ctx` surface, the permission model, and how to install from the Plugins panel: [`marudesk/examples/plugins/README.md`](marudesk/examples/plugins/README.md). For editor autocomplete and typecheck, annotate your module with the author types in [`marudesk/shared/plugin.ts`](marudesk/shared/plugin.ts) (`PluginModule`, `PluginContext`); start from the [`hello-world`](marudesk/examples/plugins/hello-world) example.
+
 ## Repository layout
 
 Maru lives in a single active package, `marudesk/`; a former Capacitor mobile

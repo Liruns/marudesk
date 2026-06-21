@@ -360,6 +360,165 @@ describe('run() bounded fan-out', () => {
   });
 });
 
+describe('implementReady', () => {
+  let inFlight: number;
+  let peak: number;
+  let implementedTaskIds: string[];
+  let releasers: Array<() => void>;
+
+  beforeEach(() => {
+    inFlight = 0;
+    peak = 0;
+    implementedTaskIds = [];
+    releasers = [];
+    (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
+      invoke: async (channel: string, payload?: unknown) => {
+        if (channel === 'workos:implement-task') {
+          implementedTaskIds.push((payload as { taskId: string }).taskId);
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          // Hold the implement open until released so the true concurrent peak across
+          // a wide ready layer can be measured.
+          await new Promise<void>((resolve) => {
+            releasers.push(() => {
+              inFlight -= 1;
+              resolve();
+            });
+          });
+          return {
+            ok: true,
+            status: 'done',
+            result: 'implemented',
+            patch: 'diff --git a/f b/f\n+x',
+            changedFiles: ['f'],
+          };
+        }
+        return undefined;
+      },
+      on: () => () => {},
+    };
+  });
+
+  function releaseAll(): void {
+    const pending = releasers;
+    releasers = [];
+    for (const r of pending) r();
+  }
+
+  /** A flat graph: `n` mutually-independent ready (planned) work tasks. */
+  function wideGraph(n: number): ReturnType<typeof sampleGraph> {
+    const base = sampleGraph('wide implement');
+    const tasks = Array.from({ length: n }, (_, i) => ({
+      id: `t${i}`,
+      title: `task ${i}`,
+      intent: 'do',
+      kind: 'work' as const,
+      status: 'planned' as const,
+      executor: { type: 'agent' as const, ref: 'agent' },
+      inputs: [],
+      outputs: [],
+      acceptance: [],
+    }));
+    return { ...base, tasks, edges: [] };
+  }
+
+  it('implements every CURRENT ready task (not blocked/done), capped, leaving diffs staged WITHOUT applying', async () => {
+    // A small DAG: plan → backend → test; plan → frontend → test. Only `plan` is
+    // ready initially (the rest depend on it), so the FIRST ready set is just plan.
+    const graph = sampleGraph('ready set');
+    // Pre-mark one task done to prove a done task is never re-implemented.
+    useWorkGraphStore.getState().setGraph(graph);
+    const tasks = useWorkGraphStore.getState().graph?.tasks ?? [];
+    const root = tasks.find((t) => t.title === 'Plan & scope');
+    expect(root).toBeTruthy();
+    if (!root) return;
+
+    const done = useWorkGraphStore.getState().implementReady();
+    for (let guard = 0; guard < 50 && implementedTaskIds.length < 1; guard += 1) {
+      await new Promise<void>((r) => setTimeout(r, 0));
+      releaseAll();
+    }
+    releaseAll();
+    await done;
+
+    // Only the single currently-ready root was implemented (its dependents are not
+    // ready until it is done + APPLIED, which implementReady never does).
+    expect(implementedTaskIds).toEqual([root.id]);
+    const after = useWorkGraphStore.getState().graph?.tasks ?? [];
+    const afterRoot = after.find((t) => t.id === root.id);
+    // The captured diff is stored as evidence (staged for review) — never applied.
+    expect(afterRoot?.evidence?.patch).toBe('diff --git a/f b/f\n+x');
+    expect(afterRoot?.status).toBe('done');
+    // No apply happened: applyingPatchTaskId/lastAppliedTaskId stay clear.
+    expect(useWorkGraphStore.getState().lastAppliedTaskId).toBeNull();
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+
+  it('runs a wide ready layer in parallel bounded by the cap', async () => {
+    const wide = WORKGRAPH_RUN_CONCURRENCY + 6;
+    useWorkGraphStore.getState().setGraph(wideGraph(wide));
+
+    const done = useWorkGraphStore.getState().implementReady();
+    for (let guard = 0; guard < 100 && implementedTaskIds.length < wide; guard += 1) {
+      await new Promise<void>((r) => setTimeout(r, 0));
+      releaseAll();
+    }
+    releaseAll();
+    await done;
+
+    // Every ready task implemented exactly once, and the cap was never exceeded.
+    expect(new Set(implementedTaskIds).size).toBe(wide);
+    expect(implementedTaskIds.length).toBe(wide);
+    expect(peak).toBeLessThanOrEqual(WORKGRAPH_RUN_CONCURRENCY);
+    expect(peak).toBe(WORKGRAPH_RUN_CONCURRENCY);
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+
+  it('is a no-op while a run is already in flight', async () => {
+    useWorkGraphStore.getState().setGraph(wideGraph(3));
+    useWorkGraphStore.setState({ running: true });
+
+    await useWorkGraphStore.getState().implementReady();
+
+    expect(implementedTaskIds).toEqual([]);
+    expect(useWorkGraphStore.getState().running).toBe(true);
+    useWorkGraphStore.setState({ running: false });
+  });
+
+  it('is a no-op when there are no ready tasks', async () => {
+    const base = sampleGraph('all done');
+    // Every task already done → readyTasks is empty.
+    const graph = { ...base, tasks: base.tasks.map((t) => ({ ...t, status: 'done' as const })) };
+    useWorkGraphStore.getState().setGraph(graph);
+
+    await useWorkGraphStore.getState().implementReady();
+
+    expect(implementedTaskIds).toEqual([]);
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+
+  it('halts further launches when stopped mid-batch', async () => {
+    const wide = WORKGRAPH_RUN_CONCURRENCY + 8;
+    useWorkGraphStore.getState().setGraph(wideGraph(wide));
+
+    const done = useWorkGraphStore.getState().implementReady();
+    await new Promise<void>((r) => setTimeout(r, 0));
+    const launchedBeforeStop = implementedTaskIds.length;
+    expect(launchedBeforeStop).toBeLessThanOrEqual(WORKGRAPH_RUN_CONCURRENCY);
+
+    useWorkGraphStore.getState().stopRun();
+    for (let guard = 0; guard < 20; guard += 1) {
+      releaseAll();
+      await new Promise<void>((r) => setTimeout(r, 0));
+    }
+    await done;
+
+    // No new tasks were launched after the stop beyond the in-flight wave.
+    expect(implementedTaskIds.length).toBeLessThan(wide);
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+});
+
 describe('work-graph persistence', () => {
   it('does not re-strip the graph when only a node position changes', () => {
     const graph = sampleGraph('persist test');

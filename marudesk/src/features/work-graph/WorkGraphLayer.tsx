@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Check, Play, Plus, RotateCcw, Trash2, Wrench, X } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import {
+  readyTasks,
   type Task,
   type TaskId,
   type TaskStatus,
@@ -498,6 +499,10 @@ export function WorkGraphPanel() {
   const graph = useWorkGraphStore((s) => s.graph);
   const running = useWorkGraphStore((s) => s.running);
   const runNote = useWorkGraphStore((s) => s.runNote);
+  // The current ready set drives the "Implement ready" gate (same scheduler the
+  // store's implementReady computes). Derived from `graph` so it re-evaluates as
+  // statuses advance; cheap (a single pass over the tasks).
+  const readyCount = graph ? readyTasks(graph).length : 0;
   const [goal, setGoal] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -605,6 +610,16 @@ export function WorkGraphPanel() {
         >
           <RotateCcw size={12} />
           {t('workGraph.reset')}
+        </button>
+        <button
+          type="button"
+          disabled={!graph || running || readyCount === 0}
+          onClick={() => void useWorkGraphStore.getState().implementReady()}
+          title={t('workGraph.implementReadyTitle')}
+          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+        >
+          <Wrench size={12} />
+          {t('workGraph.implementReady')}
         </button>
         <button
           type="button"
