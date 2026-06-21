@@ -1,4 +1,5 @@
-import { Check, ExternalLink, FileText, Hammer, X } from 'lucide-react';
+import { useState } from 'react';
+import { Check, ExternalLink, FileText, Hammer, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
@@ -84,6 +85,26 @@ export function WorkGraphInspectorContent() {
   const running = useWorkGraphStore((s) => s.running);
   const applyingPatchTaskId = useWorkGraphStore((s) => s.applyingPatchTaskId);
   const task: Task | undefined = graph?.tasks.find((t) => t.id === selectedTaskId);
+
+  // Local edit buffers (hooks must run unconditionally, before the early return):
+  // the intent textarea commits onBlur / Enter; the new-criterion input clears
+  // after a commit. `intentDraft` re-syncs to the selected task's intent so
+  // switching tasks (or an external update) never shows a stale buffer.
+  const [intentDraft, setIntentDraft] = useState(task?.intent ?? '');
+  const [newCriterion, setNewCriterion] = useState('');
+  const taskIntent = task?.intent ?? '';
+  // Reset the local edit buffers when the SELECTED TASK changes, done DURING
+  // render (React's "adjust state when a prop changes" pattern) — not in an
+  // effect, which would cascade renders (react-hooks/set-state-in-effect). The
+  // prev-id guard makes it run once per switch (no loop) and never clobbers a
+  // live edit on the same task (intentDraft holds the in-progress value).
+  const [bufferTaskId, setBufferTaskId] = useState(selectedTaskId);
+  if (bufferTaskId !== selectedTaskId) {
+    setBufferTaskId(selectedTaskId);
+    setIntentDraft(taskIntent);
+    setNewCriterion('');
+  }
+
   if (!task) return null;
 
   const result = task.evidence?.result;
@@ -110,6 +131,20 @@ export function WorkGraphInspectorContent() {
     const target: WorkspaceFileRef | string =
       boundWorkspace && rootId ? { workspaceId: boundWorkspace.id, rootId, path } : path;
     void openFileInstrument(target);
+  };
+
+  // Edits are disabled while a run is in flight so a task is never mutated
+  // mid-run (acceptance criteria are the system's pass/fail contract).
+  const commitIntent = (): void => {
+    const next = intentDraft.trim();
+    if (next === task.intent) return;
+    useWorkGraphStore.getState().updateTask(taskId, { intent: next });
+  };
+  const commitNewCriterion = (): void => {
+    const text = newCriterion.trim();
+    if (!text) return;
+    useWorkGraphStore.getState().addCriterion(taskId, text);
+    setNewCriterion('');
   };
 
   return (
@@ -147,19 +182,75 @@ export function WorkGraphInspectorContent() {
       ) : null}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 pb-4">
-        {task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null}
+        {running ? (
+          task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null
+        ) : (
+          <textarea
+            value={intentDraft}
+            onChange={(e) => setIntentDraft(e.target.value)}
+            onBlur={commitIntent}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                commitIntent();
+                e.currentTarget.blur();
+              }
+            }}
+            aria-label={t('workGraph.inspector.editIntentLabel')}
+            placeholder={t('workGraph.inspector.editIntentPlaceholder')}
+            rows={2}
+            className="w-full resize-y rounded bg-surface-2 border border-subtle px-2 py-1 text-caption text-fg-secondary placeholder:text-fg-tertiary hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+          />
+        )}
 
-        {task.acceptance.length > 0 ? (
+        {task.acceptance.length > 0 || !running ? (
           <div>
             <p className="mb-2 text-caption font-medium text-fg-secondary">{t('workGraph.inspector.acceptance')}</p>
             <ul className="space-y-1">
               {task.acceptance.map((c) => (
-                <li key={c.id} className="flex items-start gap-1.5 text-caption text-fg-tertiary">
+                <li key={c.id} className="group flex items-start gap-1.5 text-caption text-fg-tertiary">
                   <span className={cn('pt-[3px] h-2 w-2 shrink-0 rounded-pill', VERDICT_DOT[c.verdict])} aria-hidden />
-                  <span>{c.text}</span>
+                  <span className="min-w-0 flex-1 break-words">{c.text}</span>
+                  {running ? null : (
+                    <button
+                      type="button"
+                      aria-label={t('workGraph.inspector.removeCriterion')}
+                      onClick={() => useWorkGraphStore.getState().removeCriterion(taskId, c.id)}
+                      className="ml-auto grid h-4 w-4 shrink-0 place-items-center rounded text-fg-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-surface-3 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
+            {running ? null : (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={newCriterion}
+                  onChange={(e) => setNewCriterion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitNewCriterion();
+                    }
+                  }}
+                  aria-label={t('workGraph.inspector.addCriterion')}
+                  placeholder={t('workGraph.inspector.addCriterionPlaceholder')}
+                  className="min-w-0 flex-1 rounded bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary placeholder:text-fg-tertiary hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+                />
+                <button
+                  type="button"
+                  aria-label={t('workGraph.inspector.addCriterion')}
+                  disabled={!newCriterion.trim()}
+                  onClick={commitNewCriterion}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+                >
+                  <Plus size={12} />
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
 

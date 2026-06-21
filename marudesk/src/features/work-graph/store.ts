@@ -223,6 +223,8 @@ type WorkGraphActions = {
   removeEdge: (edgeId: string) => void;
   /** Add an acceptance criterion to a task. */
   addCriterion: (id: TaskId, text: string) => void;
+  /** Remove one acceptance criterion from a task (immutable; other tasks untouched). */
+  removeCriterion: (id: TaskId, criterionId: string) => void;
   setCriterionVerdict: (id: TaskId, criterionId: string, verdict: Criterion['verdict']) => void;
   /** Reset every task to `planned` (and clear verdicts/evidence) — re-arm a run. */
   resetRun: () => void;
@@ -475,6 +477,19 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         graph: touch({
           ...s.graph,
           tasks: s.graph.tasks.map((t) => (t.id === id ? { ...t, acceptance: [...t.acceptance, crit] } : t)),
+        }),
+      };
+    }),
+
+  removeCriterion: (id, criterionId) =>
+    set((s) => {
+      if (!s.graph) return {};
+      return {
+        graph: touch({
+          ...s.graph,
+          tasks: s.graph.tasks.map((t) =>
+            t.id === id ? { ...t, acceptance: t.acceptance.filter((c) => c.id !== criterionId) } : t,
+          ),
         }),
       };
     }),

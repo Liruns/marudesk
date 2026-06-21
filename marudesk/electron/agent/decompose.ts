@@ -1,9 +1,10 @@
 import { generateText } from 'ai';
 import { defineHandler } from '../ipc/define-handler';
 import { parseWorkGraph, type WorkGraph } from '../../shared/work-os';
-import { buildModel, humanizeModelError } from './model';
+import { isProviderId, type ProviderId } from '../../shared/providers';
+import { buildModel, humanizeModelError, isFailoverError } from './model';
 import { resolveProviderAuth } from './resolve-auth';
-import { resolveSubagentTarget } from './subagent-resolve';
+import { resolveSubagentTarget, type SubagentTarget } from './subagent-resolve';
 import { runTask, implementTask, applyTaskPatch } from './run-task';
 import { scrubText } from '../../shared/scrub';
 
@@ -108,6 +109,145 @@ export function extractJsonObject(text: string): unknown {
   return null;
 }
 
+/**
+ * Cap on how many providers a single decompose call may burn on transient
+ * failures before giving up to the offline sample: the primary plus up to two
+ * resolved fallbacks. Generous enough to ride out a single provider's blip,
+ * bounded so a broad outage doesn't stall the Generate button across the whole
+ * chain.
+ */
+const MAX_DECOMPOSE_ATTEMPTS = 3;
+
+/**
+ * The injectable transport seam — overridden by the harness, real SDK
+ * otherwise. `generate` is narrowed to the `{ text }` slice this module reads
+ * (the real {@link generateText} return is a superset, so it stays assignable)
+ * so a test stub need not fabricate a whole `GenerateTextResult`.
+ */
+type GenerateGraphDeps = {
+  resolveAuth: typeof resolveProviderAuth;
+  makeModel: typeof buildModel;
+  generate: (opts: Parameters<typeof generateText>[0]) => Promise<{ text: string }>;
+};
+
+const DEFAULT_GENERATE_DEPS: GenerateGraphDeps = {
+  resolveAuth: resolveProviderAuth,
+  makeModel: buildModel,
+  generate: generateText,
+};
+
+/** A single attempt's outcome, so the caller can distinguish "keep trying" from "stop". */
+type AttemptOutcome =
+  | { kind: 'graph'; graph: WorkGraph }
+  | { kind: 'parse' } // model answered, output wasn't a valid graph — do NOT burn fallbacks
+  | { kind: 'auth'; reason: string } // provider not connected — skip to the next candidate
+  | { kind: 'retriable'; err: unknown } // transient transport/availability — try the next candidate
+  | { kind: 'fatal'; err: unknown }; // non-retriable transport error — stop
+
+/**
+ * One generate attempt against a concrete provider/model: resolve creds, build
+ * the model, call generateText within the time budget, and classify the result.
+ * Pure aside from the injected transport, so the harness can drive every branch.
+ */
+async function attemptGenerate(
+  provider: ProviderId,
+  model: string,
+  goal: string,
+  deps: GenerateGraphDeps,
+): Promise<AttemptOutcome> {
+  let resolved: Awaited<ReturnType<typeof resolveProviderAuth>>;
+  try {
+    resolved = await withTimeout(deps.resolveAuth(provider), RESOLVE_TIMEOUT_MS, 'provider auth');
+  } catch {
+    // Auth resolution stalling/failing is a connectivity problem, not a model
+    // error — treat it like "not connected" and fall through to the next candidate.
+    return { kind: 'auth', reason: 'No AI provider is connected — add one in Settings.' };
+  }
+  if (!resolved.ok) return { kind: 'auth', reason: resolved.reason };
+
+  try {
+    const res = await withTimeout(
+      deps.generate({
+        model: deps.makeModel(provider, model, resolved.auth, resolved.baseUrl),
+        system: DECOMPOSE_SYSTEM,
+        prompt: `GOAL:\n${goal}`,
+        maxOutputTokens: 2048,
+      }),
+      MODEL_TIMEOUT_MS,
+      'decompose',
+    );
+    const graph = parseWorkGraph(extractJsonObject(res.text));
+    // A connected model that answered with unusable output is NOT a transport
+    // failure: re-rolling it on another provider is unlikely to help and would
+    // burn the fallback budget, so stop here.
+    if (!graph) return { kind: 'parse' };
+    return { kind: 'graph', graph };
+  } catch (err) {
+    // A timeout (connected-but-unresponsive) and 429/5xx are both transient and
+    // worth trying the next provider for; anything else (4xx, malformed request)
+    // is fatal — surface it rather than masking it behind the offline sample.
+    if (isFailoverError(err) || isTimeoutError(err)) return { kind: 'retriable', err };
+    return { kind: 'fatal', err };
+  }
+}
+
+/** The {@link withTimeout} race loser surfaces as `Error("<label> timed out")`. */
+function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error && / timed out$/.test(err.message);
+}
+
+/**
+ * Walk the resolved candidate chain (primary first, then `target.fallbacks`)
+ * trying each connected provider until one returns a graph, capping at
+ * {@link MAX_DECOMPOSE_ATTEMPTS} model calls. On a transient failure or a
+ * not-connected candidate it advances; on a parse failure or a fatal transport
+ * error it stops. Returns `{ ok:false }` (the caller then yields the offline
+ * sample) when the whole chain is exhausted.
+ *
+ * Exported for the headless harness — it injects the transport to drive the
+ * fail-over and exhaustion paths without a live provider.
+ */
+export async function generateGraphWithFailover(
+  target: SubagentTarget,
+  goal: string,
+  deps: GenerateGraphDeps = DEFAULT_GENERATE_DEPS,
+): Promise<{ ok: true; graph: WorkGraph } | { ok: false; reason: string }> {
+  const chain: { provider: ProviderId; model: string }[] = [
+    { provider: target.provider, model: target.model },
+  ];
+  const seen = new Set<string>([`${target.provider}::${target.model}`]);
+  for (const ref of target.fallbacks) {
+    const key = `${ref.provider}::${ref.model}`;
+    if (seen.has(key) || !isProviderId(ref.provider)) continue;
+    seen.add(key);
+    chain.push({ provider: ref.provider, model: ref.model });
+  }
+
+  let lastErr: unknown;
+  let lastReason: string | null = null;
+  const attempts = Math.min(chain.length, MAX_DECOMPOSE_ATTEMPTS);
+  for (let i = 0; i < attempts; i += 1) {
+    const { provider, model } = chain[i];
+    const outcome = await attemptGenerate(provider, model, goal, deps);
+    if (outcome.kind === 'graph') return { ok: true, graph: outcome.graph };
+    if (outcome.kind === 'parse') {
+      return { ok: false, reason: 'The model did not return a valid task graph.' };
+    }
+    if (outcome.kind === 'fatal') {
+      return { ok: false, reason: scrubText(humanizeModelError(outcome.err, provider, model)) };
+    }
+    // 'auth' (not connected) or 'retriable' (transient): remember and advance.
+    if (outcome.kind === 'auth') lastReason = outcome.reason;
+    else lastErr = outcome.err;
+  }
+
+  const reason =
+    lastErr !== undefined
+      ? scrubText(humanizeModelError(lastErr, target.provider, target.model))
+      : lastReason ?? 'No AI provider is connected — add one in Settings.';
+  return { ok: false, reason };
+}
+
 export async function decomposeGoal(
   goal: string,
 ): Promise<{ ok: true; graph: WorkGraph } | { ok: false; reason: string }> {
@@ -133,31 +273,14 @@ export async function decomposeGoal(
     return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
   }
 
-  let resolved: Awaited<ReturnType<typeof resolveProviderAuth>>;
-  try {
-    resolved = await withTimeout(resolveProviderAuth(target.provider), RESOLVE_TIMEOUT_MS, 'provider auth');
-  } catch {
-    return { ok: false, reason: 'No AI provider is connected — add one in Settings.' };
-  }
-  if (!resolved.ok) return { ok: false, reason: resolved.reason };
-
-  try {
-    const res = await withTimeout(
-      generateText({
-        model: buildModel(target.provider, target.model, resolved.auth, resolved.baseUrl),
-        system: DECOMPOSE_SYSTEM,
-        prompt: `GOAL:\n${trimmed}`,
-        maxOutputTokens: 2048,
-      }),
-      MODEL_TIMEOUT_MS,
-      'decompose',
-    );
-    const graph = parseWorkGraph(extractJsonObject(res.text));
-    if (!graph) return { ok: false, reason: 'The model did not return a valid task graph.' };
-    return { ok: true, graph: { ...graph, goal: trimmed } };
-  } catch (err) {
-    return { ok: false, reason: scrubText(humanizeModelError(err, target.provider, target.model)) };
-  }
+  // Try the primary provider, then fail over through `target.fallbacks` on any
+  // transient (timeout / 429 / 5xx / not-connected) blip — the same resilience
+  // run-task/implement-task get — before the renderer drops to its offline
+  // sample. A malformed model answer or a fatal transport error stops early
+  // rather than burning the rest of the chain.
+  const result = await generateGraphWithFailover(target, trimmed);
+  if (!result.ok) return result;
+  return { ok: true, graph: { ...result.graph, goal: trimmed } };
 }
 
 export function registerWorkOsHandlers(): void {

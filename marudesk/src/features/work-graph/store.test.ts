@@ -38,6 +38,85 @@ describe('freeTaskSlot', () => {
   });
 });
 
+describe('acceptance criteria editing', () => {
+  it('adds a criterion immutably and leaves other tasks untouched', () => {
+    const graph = sampleGraph('criteria add');
+    useWorkGraphStore.getState().setGraph(graph);
+    const tasks = useWorkGraphStore.getState().graph?.tasks ?? [];
+    const target = tasks[0];
+    const other = tasks[1];
+    expect(target && other).toBeTruthy();
+    if (!target || !other) return;
+
+    const beforeTarget = target.acceptance;
+    const beforeOtherRef = other.acceptance;
+
+    useWorkGraphStore.getState().addCriterion(target.id, '  new acceptance  ');
+
+    const after = useWorkGraphStore.getState().graph?.tasks ?? [];
+    const afterTarget = after.find((t) => t.id === target.id);
+    const afterOther = after.find((t) => t.id === other.id);
+    expect(afterTarget?.acceptance.length).toBe(beforeTarget.length + 1);
+    // Trimmed, fresh unknown verdict.
+    const added = afterTarget?.acceptance.at(-1);
+    expect(added?.text).toBe('new acceptance');
+    expect(added?.verdict).toBe('unknown');
+    // Immutable: original array not mutated; other task's array reference reused.
+    expect(afterTarget?.acceptance).not.toBe(beforeTarget);
+    expect(afterOther?.acceptance).toBe(beforeOtherRef);
+  });
+
+  it('ignores a blank criterion', () => {
+    const graph = sampleGraph('criteria blank');
+    useWorkGraphStore.getState().setGraph(graph);
+    const target = useWorkGraphStore.getState().graph?.tasks[0];
+    expect(target).toBeTruthy();
+    if (!target) return;
+    const before = target.acceptance.length;
+    useWorkGraphStore.getState().addCriterion(target.id, '   ');
+    const after = useWorkGraphStore.getState().graph?.tasks.find((t) => t.id === target.id);
+    expect(after?.acceptance.length).toBe(before);
+  });
+
+  it('removes one criterion immutably and leaves other tasks untouched', () => {
+    const graph = sampleGraph('criteria remove');
+    useWorkGraphStore.getState().setGraph(graph);
+    const tasks = useWorkGraphStore.getState().graph?.tasks ?? [];
+    // Pick a task that has at least one criterion (sampleGraph fills several).
+    const target = tasks.find((t) => t.acceptance.length > 0);
+    const other = tasks.find((t) => t.id !== target?.id);
+    expect(target && other).toBeTruthy();
+    if (!target || !other) return;
+
+    const removeId = target.acceptance[0]?.id;
+    const beforeOtherRef = other.acceptance;
+    expect(removeId).toBeTruthy();
+    if (!removeId) return;
+
+    useWorkGraphStore.getState().removeCriterion(target.id, removeId);
+
+    const after = useWorkGraphStore.getState().graph?.tasks ?? [];
+    const afterTarget = after.find((t) => t.id === target.id);
+    const afterOther = after.find((t) => t.id === other.id);
+    expect(afterTarget?.acceptance.some((c) => c.id === removeId)).toBe(false);
+    expect(afterTarget?.acceptance.length).toBe(target.acceptance.length - 1);
+    // Other task's criteria array is reused (not rebuilt).
+    expect(afterOther?.acceptance).toBe(beforeOtherRef);
+  });
+
+  it('removeCriterion is a no-op for an unknown criterion id', () => {
+    const graph = sampleGraph('criteria remove miss');
+    useWorkGraphStore.getState().setGraph(graph);
+    const target = useWorkGraphStore.getState().graph?.tasks.find((t) => t.acceptance.length > 0);
+    expect(target).toBeTruthy();
+    if (!target) return;
+    const before = target.acceptance.length;
+    useWorkGraphStore.getState().removeCriterion(target.id, 'does-not-exist');
+    const after = useWorkGraphStore.getState().graph?.tasks.find((t) => t.id === target.id);
+    expect(after?.acceptance.length).toBe(before);
+  });
+});
+
 describe('work-graph persistence', () => {
   it('does not re-strip the graph when only a node position changes', () => {
     const graph = sampleGraph('persist test');
