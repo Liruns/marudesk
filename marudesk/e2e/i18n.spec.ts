@@ -17,8 +17,9 @@ import { runCommand } from './helpers/mission-control';
 
 /**
  * Open Settings as an instrument and flip the locale to Korean from the
- * Appearance category's language radiogroup. Settings is opened in English (the
- * palette command labels are not localized), the Appearance nav chip + the
+ * Appearance category's language radiogroup. Settings is opened while the shell
+ * is still in English (palette command labels localize, but their English value
+ * is unchanged so the click resolves), the Appearance nav chip + the
  * "한국어" radio are clicked, then the whole UI re-renders in Korean with Settings
  * left open on the (now "테마") Appearance category.
  */

@@ -12,6 +12,8 @@ import { FlightLog } from '../features/work-graph/FlightLog';
 import { CommandPalette } from '../features/commands/CommandPalette';
 import { useCommandPaletteStore } from '../features/commands/command-palette-store';
 import { useWorkGraphStore } from '../features/work-graph/store';
+import { taskThreadId } from '../features/work-graph/taskThreads';
+import { cardThreadId } from '../features/agent/cardThreads';
 import { useWebPageStore } from '../features/browser/store';
 import { useBookmarksStore } from '../features/browser/bookmarks';
 import { useTabEvents } from '../features/tabs/useTabEvents';
@@ -29,6 +31,7 @@ import { Tour } from '../features/tour/Tour';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
 import type { EventPayload } from '../../shared/ipc';
+import type { AgentStatus, AgentThreadEvent } from '../../shared/agent';
 
 /**
  * Step the persisted whole-UI zoom (the Settings "Interface zoom") by ±10%, or
@@ -106,7 +109,10 @@ export function Shell() {
   // Mirror editor buffers + explorer state to main for the built-in context MCP.
   useContextSync();
   const { t } = useI18n();
-  const prevAgentStatusRef = useRef<string>('idle');
+  // Last-seen status per agent thread, so the busy→done edge that drives the
+  // completion toast is detected independently for each conversation (the dock
+  // chat, an AI Chat instrument, and any background thread all advance at once).
+  const prevAgentStatusByThreadRef = useRef<Map<string, AgentStatus>>(new Map());
   const [quickOpen, setQuickOpen] = useState(false);
   const [tabPalette, setTabPalette] = useState(false);
   // A Task can summon an instrument (browser/editor/terminal) into the main area;
@@ -310,25 +316,45 @@ export function Shell() {
     return window.marudesk.on('app:tab-shortcut', (p) => runShortcut(p));
   }, []);
 
-  // Agent notification: toast when the AI finishes or asks a question while the
-  // chat surface is not visible, so the user notices from anywhere in the app.
+  // Agent notification: toast when the AI finishes or asks a question while its
+  // thread is NOT the visible agent surface, so the user notices from anywhere in
+  // the app. Driven off `agent:thread-event` because it is the only stream that
+  // carries a threadId AND fires for EVERY thread (active or background) — so we
+  // can tell which conversation completed and whether the user is looking at it.
+  //
+  // In Mission Control the visible agent surfaces are thread-scoped, not "the
+  // active tab is kind 'agent'": either the open AI Chat *instrument*
+  // (useInstrumentStore, kind 'agent' → its tab's cardThread) OR the selected
+  // task's per-task DOCK CHAT (TaskChat, the selected task's taskThread). Suppress
+  // only when the completed event's thread is one of those; background/off-screen
+  // completions still toast. The busy→done edge is tracked per thread so a
+  // background turn finishing never gets masked by another thread's status.
   useEffect(() => {
-    const handle = (status: string) => {
-      const prev = prevAgentStatusRef.current;
-      prevAgentStatusRef.current = status;
+    const prevByThread = prevAgentStatusByThreadRef.current;
+    return window.marudesk.on('agent:thread-event', (event: AgentThreadEvent) => {
+      const { threadId, state } = event;
+      const status = state.status;
+      const prev = prevByThread.get(threadId) ?? 'idle';
+      prevByThread.set(threadId, status);
       const wasBusy = prev === 'thinking' || prev === 'working';
       if (!wasBusy || (status !== 'completed' && status !== 'waiting_for_user')) return;
-      const tabs = useTabsStore.getState();
-      const active = tabs.tabs.find((tab) => tab.id === tabs.activeTabId);
-      if (active?.kind === 'agent') return;
+
+      // The AI Chat instrument's thread (only when an 'agent' instrument is open).
+      const instrument = useInstrumentStore.getState();
+      const instrumentThreadId =
+        instrument.kind === 'agent' && instrument.tabId
+          ? cardThreadId(instrument.tabId)
+          : null;
+      // The selected task's dock-chat thread (only when a task is selected).
+      const selectedTaskId = useWorkGraphStore.getState().selectedTaskId;
+      const dockThreadId = selectedTaskId ? taskThreadId(selectedTaskId) : null;
+
+      if (threadId === instrumentThreadId || threadId === dockThreadId) return;
       toast({
         title: t(status === 'completed' ? 'agent.notify.completed' : 'agent.notify.question'),
         variant: status === 'completed' ? 'success' : 'warning',
       });
-    };
-    const off1 = window.marudesk.on('agent:event', (s) => handle(s.status));
-    const off2 = window.marudesk.on('agent:workspace-event', (e) => handle(e.state.status));
-    return () => { off1(); off2(); };
+    });
   }, [t]);
 
   // The agent's `create_task` MCP tool: draw the task node it asked for on the

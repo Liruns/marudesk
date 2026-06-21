@@ -16,8 +16,9 @@ export function ToastHost() {
   const pause = useToastStore((s) => s.pause);
   const resume = useToastStore((s) => s.resume);
   if (toasts.length === 0) return null;
+  // Stacking order: toast (z-[70]) > palette scrim (z-[60]) > content; Tour (z-[100]) still wins.
   return (
-    <div className="fixed bottom-3 right-3 z-50 flex flex-col gap-2 items-end pointer-events-none">
+    <div className="fixed bottom-3 right-3 z-[70] flex flex-col gap-2 items-end pointer-events-none">
       {toasts.map((t) => (
         <div
           key={t.id}

@@ -8,6 +8,12 @@ export type ContextUsage = {
   contextTokens: number;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * The slice of `contextTokens` served from the Anthropic prompt cache on the
+   * last call (cache READ tokens). 0 when the provider doesn't report cache reads
+   * or nothing hit. Exposed so a degraded hit rate is visible alongside the total.
+   */
+  cachedInputTokens: number;
   model: ModelEntry | undefined;
 };
 
@@ -37,6 +43,7 @@ export function useContextUsage(): ContextUsage | null {
     contextTokens: usage.contextTokens,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
+    cachedInputTokens: usage.cachedInputTokens ?? 0,
     model,
   };
 }

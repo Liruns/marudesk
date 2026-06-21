@@ -2,8 +2,11 @@ import { Check, ExternalLink, Hammer, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
+import type { WorkspaceId } from '../../../shared/workspace';
 import { useTabsStore } from '../tabs/store';
 import { useInstrumentStore } from './instrument';
+import { taskThreadWorkspaceId } from './taskThreads';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useWorkGraphStore } from './store';
 import { toast } from '../../lib/toast';
 import { parseUnifiedDiff } from '../git/parseDiff';
@@ -46,13 +49,13 @@ const STATUS_LABEL: Record<Task['status'], string> = {
  * The tab is created + activated so its surface/native view shows, then pinned
  * as the active instrument; "← Graph" closes it back to the Task graph.
  */
-async function openResource(r: Resource): Promise<void> {
+async function openResource(r: Resource, workspaceId?: WorkspaceId): Promise<void> {
   const uri = r.uri;
   let kind: TabKind | null = null;
   let id: string | null = null;
   if (/^https?:\/\//.test(uri)) {
     kind = 'web';
-    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: uri });
+    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'web', url: uri, workspaceId });
   } else if (uri.startsWith('file://')) {
     const raw = uri.replace(/^file:\/\/\/?/, '').replace(/#.*$/, '');
     // A malformed percent-escape makes decodeURI throw — fall back to the raw path.
@@ -64,11 +67,11 @@ async function openResource(r: Resource): Promise<void> {
     }
     if (path) {
       kind = 'editor';
-      id = await window.marudesk.invoke('browser:tabs-new', { kind: 'editor', path });
+      id = await window.marudesk.invoke('browser:tabs-new', { kind: 'editor', path, workspaceId });
     }
   } else if (uri.startsWith('term://')) {
     kind = 'terminal';
-    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'terminal' });
+    id = await window.marudesk.invoke('browser:tabs-new', { kind: 'terminal', workspaceId });
   }
   if (kind && id) {
     await useTabsStore.getState().activateTab(id);
@@ -94,6 +97,11 @@ export function WorkGraphInspectorContent() {
   const result = task.evidence?.result;
   const patch = task.evidence?.patch;
   const taskId = task.id;
+  // Resources open in the task's own workspace (via its bound conversation thread),
+  // mirroring the ⌘K openInstrument path. Fall back to the active workspace when the
+  // task isn't bound yet so nothing regresses.
+  const resourceWorkspaceId =
+    taskThreadWorkspaceId(taskId) ?? useWorkspaceDeckStore.getState().activeWorkspaceId ?? undefined;
   // parseUnifiedDiff is bounded (caps at 600 lines); compute inline — no hook needed.
   const diffLines = patch ? parseUnifiedDiff(patch) : [];
 
@@ -192,7 +200,7 @@ export function WorkGraphInspectorContent() {
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => void openResource(r)}
+                  onClick={() => void openResource(r, resourceWorkspaceId)}
                   title={r.uri}
                   className="inline-flex items-center gap-1 rounded-pill bg-surface-2 border border-subtle px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-accent hover:border-default focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
                 >

@@ -1,7 +1,8 @@
 import { check, passedCount } from '../harness-kit.ts';
-import { aiTools, cachedSystem, withMessagePrefixCache } from './model.ts';
+import { aiTools, cachedSystem, withMessagePrefixCache, cacheReadTokensOf } from './model.ts';
+import { emptyAgentChatState } from '../../shared/agent.ts';
 import type { ToolSchema } from './tools/types.ts';
-import type { ModelMessage } from 'ai';
+import type { LanguageModelUsage, ModelMessage } from 'ai';
 
 /**
  * Harness for CACHE-1 (docs/agent-port-plan.md → "CACHE-1 — 안정적 system+tools
@@ -193,6 +194,45 @@ function msgCacheControlOf(value: { providerOptions?: unknown }): unknown {
   check('full request: exactly one message-prefix breakpoint', messageBreakpoints === 1);
   check('full request: total breakpoints <= 4 (Anthropic limit)', total <= 4);
   check('full request: tools breakpoint still on the LAST tool (t2)', eq(cacheControlOf(tools, 't2'), EPHEMERAL));
+}
+
+/* ── (11) cache observability: cachedInputTokens is threaded onto the usage shape ── */
+
+{
+  // The renderer-facing chat usage struct must carry the additive cache-read
+  // field ALONGSIDE the existing totals, so a degraded hit rate is observable.
+  const usage = emptyAgentChatState().usage;
+  check('usage shape: keeps inputTokens', usage.inputTokens === 0);
+  check('usage shape: keeps outputTokens', usage.outputTokens === 0);
+  check('usage shape: keeps contextTokens', usage.contextTokens === 0);
+  // Optional + additive: the field is assignable on the struct without breaking
+  // the existing literals (it starts absent, the loop populates it each step).
+  const surfaced: typeof usage = { ...usage, cachedInputTokens: 1234 };
+  check('usage shape: cachedInputTokens is surfaced alongside the totals', surfaced.cachedInputTokens === 1234);
+}
+
+/* ── (12) cacheReadTokensOf: structured field preferred, deprecated alias fallback, else 0 ── */
+
+{
+  const base: LanguageModelUsage = {
+    inputTokens: 100,
+    outputTokens: 10,
+    totalTokens: 110,
+    inputTokenDetails: { noCacheTokens: undefined, cacheReadTokens: undefined, cacheWriteTokens: undefined },
+    outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+  };
+
+  const structured: LanguageModelUsage = {
+    ...base,
+    inputTokenDetails: { noCacheTokens: 40, cacheReadTokens: 60, cacheWriteTokens: 0 },
+    cachedInputTokens: 999, // deprecated alias should be IGNORED when the structured field is present
+  };
+  check('cacheReadTokensOf: prefers inputTokenDetails.cacheReadTokens', cacheReadTokensOf(structured) === 60);
+
+  const aliasOnly: LanguageModelUsage = { ...base, cachedInputTokens: 42 };
+  check('cacheReadTokensOf: falls back to the deprecated cachedInputTokens alias', cacheReadTokensOf(aliasOnly) === 42);
+
+  check('cacheReadTokensOf: 0 when neither cache field is reported', cacheReadTokensOf(base) === 0);
 }
 
 console.log(`\n${passedCount()} checks passed`);

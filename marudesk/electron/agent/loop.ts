@@ -25,6 +25,7 @@ import {
   aiTools,
   cachedSystem,
   withMessagePrefixCache,
+  cacheReadTokensOf,
   humanizeModelError,
   type ModelAuth,
 } from './model';
@@ -633,6 +634,16 @@ async function runLoop(opts: RunOpts): Promise<void> {
       // whole S.transcript is re-sent each step), so overwrite rather than sum —
       // this drives the usage gauge and the auto-compaction threshold.
       if (usage.inputTokens) S.state.usage.contextTokens = usage.inputTokens;
+      // Cache observability: the Anthropic prompt-cache READ count for THIS call —
+      // the slice of contextTokens that hit the cache instead of being re-billed at
+      // full input price. Surfaced ALONGSIDE contextTokens (which is the input total
+      // and so already INCLUDES cache reads) so a degraded hit rate — e.g. an
+      // extended-thinking turn whose response-side thinking block keeps the
+      // message-prefix cache from hitting — becomes visible instead of hiding inside
+      // the total. Overwrite (latest-call snapshot, like contextTokens); 0 on
+      // providers that don't report cache reads. See cacheReadTokensOf for the
+      // structured/deprecated field precedence.
+      S.state.usage.cachedInputTokens = cacheReadTokensOf(usage);
     } catch (err) {
       // Drop the optimistic streaming bubble if nothing was streamed into it, so
       // a failed/aborted step doesn't leave an empty assistant message behind.

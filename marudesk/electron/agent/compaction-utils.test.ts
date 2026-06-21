@@ -6,6 +6,7 @@ import {
   splitForTailPreservation,
   applyPersistentNudge,
   stripPersistentNudge,
+  capToolOutput,
 } from './compaction-utils';
 
 const user = (text: string): ModelMessage => ({ role: 'user', content: text });
@@ -214,5 +215,76 @@ describe('persistent nudge (compaction-protected)', () => {
   it('leaves the transcript unchanged when there is no string user head', () => {
     const noHead: ModelMessage[] = [assistantCall('grep'), toolMsg('grep', { type: 'text', value: 'x' })];
     expect(applyPersistentNudge(noHead, 'nudge')).toBe(noHead);
+  });
+});
+
+describe('capToolOutput', () => {
+  // The footer the cap appends; everything before it is the kept tool output.
+  const FOOTER_MARK = '[output truncated';
+  const keptOf = (text: string): string => {
+    const i = text.indexOf(FOOTER_MARK);
+    // The footer is preceded by "\n\n"; strip that separator too.
+    return i === -1 ? text : text.slice(0, i).replace(/\n\n$/, '');
+  };
+  // Default cap = 50_000 tokens * 4 chars/token. Build inputs that exceed it.
+  const DEFAULT_MAX_CHARS = 50_000 * 4;
+
+  it('caps a grep result on a whole-line boundary (no partial last line) within budget', () => {
+    // Many short, newline-terminated "match" lines that overflow the budget.
+    const line = 'src/foo.ts:42:  const matched = findThing();';
+    const lines: string[] = [];
+    while (lines.join('\n').length <= DEFAULT_MAX_CHARS + line.length * 4) {
+      lines.push(`${line}#${lines.length}`);
+    }
+    const input = lines.join('\n');
+    const { text, truncated } = capToolOutput('grep', input, undefined);
+    expect(truncated).toBe(true);
+    const kept = keptOf(text);
+    // The kept output never ends mid-line: it ends exactly on a full line that
+    // is present verbatim in the original input.
+    const keptLines = kept.split('\n');
+    const lastKept = keptLines[keptLines.length - 1];
+    expect(input.split('\n')).toContain(lastKept);
+    // And the budget invariant holds: kept output stays within maxChars.
+    expect(kept.length).toBeLessThanOrEqual(DEFAULT_MAX_CHARS);
+  });
+
+  it('caps a run_command result on a newline boundary so no half-line leaks', () => {
+    const line = 'INFO build step completed for module number';
+    const lines: string[] = [];
+    while (lines.join('\n').length <= DEFAULT_MAX_CHARS * 1.2) {
+      lines.push(`${line} ${lines.length}`);
+    }
+    const input = lines.join('\n');
+    const { text, truncated } = capToolOutput('run_command', input, undefined);
+    expect(truncated).toBe(true);
+    const kept = keptOf(text);
+    // Every kept line (ignoring the in-band elision marker) is a whole line from
+    // the source — none is a truncated fragment of the line after it.
+    for (const k of kept.split('\n')) {
+      if (k.length === 0 || k.startsWith('…') || k.includes('elided')) continue;
+      expect(input.includes(k)).toBe(true);
+    }
+    expect(kept.length).toBeLessThanOrEqual(DEFAULT_MAX_CHARS);
+  });
+
+  it('keeps read_file exempt — never capped even when huge', () => {
+    const input = 'x'.repeat(DEFAULT_MAX_CHARS * 2);
+    const { text, truncated } = capToolOutput('read_file', input, undefined);
+    expect(truncated).toBe(false);
+    expect(text).toBe(input);
+  });
+
+  it('hard-caps at maxChars when there is no newline before the cut', () => {
+    // One enormous single line: no newline in range, so the fall-back hard cut
+    // applies and the kept output is bounded by the budget.
+    const input = 'a'.repeat(DEFAULT_MAX_CHARS * 2);
+    const { text, truncated } = capToolOutput('mcp_tool', input, undefined);
+    expect(truncated).toBe(true);
+    const kept = keptOf(text);
+    expect(kept.length).toBeLessThanOrEqual(DEFAULT_MAX_CHARS);
+    expect(kept.length).toBeGreaterThan(0);
+    // The footer still reports the elision against the full input length.
+    expect(text).toContain(`of ${input.length} chars elided`);
   });
 });

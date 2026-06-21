@@ -9,6 +9,7 @@ import {
   jsonSchema,
   type JSONSchema7,
   type LanguageModel,
+  type LanguageModelUsage,
   type ModelMessage,
   type SystemModelMessage,
   type ToolSet,
@@ -524,6 +525,24 @@ function withCacheBreakpoint<T extends ModelMessage>(message: T): T {
     ...message,
     providerOptions: { ...message.providerOptions, ...ANTHROPIC_CACHE_BREAKPOINT },
   };
+}
+
+/**
+ * Cache observability: the Anthropic prompt-cache READ count for a settled model
+ * call — how many of the re-sent input tokens were served from cache instead of
+ * being re-billed at full input price. The loop surfaces this ALONGSIDE
+ * `contextTokens` (which is the SDK's `.inputTokens`/total and already INCLUDES
+ * cache reads), so a degraded hit rate — e.g. an extended-thinking turn whose
+ * response-side thinking block keeps the message-prefix cache from hitting —
+ * becomes visible instead of hiding inside the total.
+ *
+ * Prefers the structured `inputTokenDetails.cacheReadTokens`; falls back to the
+ * SDK's deprecated `cachedInputTokens` alias; 0 when the provider reports neither
+ * (non-Anthropic, or a turn with no cache hit). Pure + SDK-typed so the harness
+ * can assert the precedence without a network call.
+ */
+export function cacheReadTokensOf(usage: LanguageModelUsage): number {
+  return usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
 }
 
 /* ── Streaming error recovery ──────────────────────────────────────────── */

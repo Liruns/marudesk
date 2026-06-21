@@ -124,6 +124,15 @@ test('mission control: the flight log moves focus inside on open and restores it
 test('mission control: the ⌘K palette runs an action verb (Toggle Flight Log)', async () => {
   const { app, page } = await launchApp();
   try {
+    // Graph-gated: with no flight (graph) the command is absent, matching the
+    // title-bar FlightLogButton (which returns null) so the two entry points agree.
+    await page.getByRole('button', { name: 'Command palette' }).click();
+    const palette = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(palette).toBeVisible();
+    await expect(palette.getByRole('button', { name: 'Toggle Flight Log', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(palette).toBeHidden();
+
     await seedGraph(page);
 
     // The palette now lists action verbs alongside the "Open…" surfaces. Running

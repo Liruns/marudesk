@@ -662,9 +662,48 @@ export function capToolOutput(
   const maxTokens = Math.min(toolCeilingTokens, windowTokens);
   const maxChars = maxTokens * CHARS_PER_TOKEN;
   if (text.length <= maxChars) return { text, truncated: false };
-  const droppedChars = text.length - maxChars;
-  const footer = `\n\n[output truncated — ${droppedChars} of ${text.length} chars elided to bound context; narrow your query (e.g. a more specific pattern/path) to see more]`;
-  return { text: `${text.slice(0, maxChars)}${footer}`, truncated: true };
+  const kept = clipToWholeLines(text, maxChars);
+  const droppedChars = text.length - kept.length;
+  const totalChars = Array.from(text).length;
+  const footer = `\n\n[output truncated — ${droppedChars} of ${totalChars} chars elided to bound context; narrow your query (e.g. a more specific pattern/path) to see more]`;
+  return { text: `${kept}${footer}`, truncated: true };
+}
+
+/**
+ * Clip `text` to at most `maxChars` chars but land the cut on a NEWLINE boundary
+ * so the model never sees a half-line at the truncation point (a partial last
+ * line of grep / run_command / MCP output it might act on). Keeps a head window
+ * snapped back to the last newline at/before the budget, plus a small tail
+ * (also newline-snapped) so the model sees how the output ended; the head/tail
+ * total stays within `maxChars`. Falls back to a hard `slice(0, maxChars)` when
+ * there is no newline in range (e.g. one very long line). Pure.
+ */
+function clipToWholeLines(text: string, maxChars: number): string {
+  // The in-band elision marker that separates the kept head from the kept tail.
+  // Its length is reserved out of `maxChars` so the WHOLE returned string
+  // (head + marker + tail) stays within the budget — only WHERE the cut lands
+  // changes, never the budget itself.
+  const ELISION_MARKER = '\n… [elided] …\n';
+  // Reserve ~⅛ of the (post-marker) budget for a tail window so the head still
+  // dominates; the head absorbs the marker reservation so the total fits.
+  const contentBudget = Math.max(0, maxChars - ELISION_MARKER.length);
+  const tailBudget = Math.floor(contentBudget / 8);
+  const headBudget = contentBudget - tailBudget;
+  // Head: snap back to the last newline at/before the head budget so the kept
+  // head never ends mid-line. With no newline in range, hard-cut at the budget.
+  const headCut = text.lastIndexOf('\n', headBudget);
+  const head = headCut > 0 ? text.slice(0, headCut) : text.slice(0, headBudget);
+  if (tailBudget <= 0) return head;
+  // Tail: take the last `tailBudget` chars, then snap forward to start after a
+  // newline so the tail begins on a whole line. Only keep a tail that sits
+  // strictly past the head cut (otherwise the head already covers it).
+  const tailStartRaw = text.length - tailBudget;
+  if (tailStartRaw <= head.length) return head;
+  const nlInTail = text.indexOf('\n', tailStartRaw);
+  if (nlInTail === -1 || nlInTail + 1 >= text.length) return head;
+  const tail = text.slice(nlInTail + 1);
+  if (tail.length === 0) return head;
+  return `${head}${ELISION_MARKER}${tail}`;
 }
 
 /* ── Post-compaction degradation monitor (item 3 / omo) ───────────────────── */
@@ -857,15 +896,13 @@ export function applyPersistentNudge(
   msgs: ModelMessage[],
   nudge: string | null,
 ): ModelMessage[] {
-  const idx = msgs.findIndex((m) => isStringUserMessage(m));
-  if (idx === -1) return msgs;
-  const target = msgs[idx];
-  if (typeof target.content !== 'string') return msgs;
+  const target = msgs.find(isStringUserMessage);
+  if (!target) return msgs;
   const base = stripPersistentNudge(target.content);
   const trimmed = nudge?.trim();
   const content = trimmed ? `${base}\n\n${NUDGE_OPEN}\n${trimmed}\n${NUDGE_CLOSE}` : base;
   if (content === target.content) return msgs;
   const out = [...msgs];
-  out[idx] = { role: 'user', content };
+  out[msgs.indexOf(target)] = { role: 'user', content };
   return out;
 }

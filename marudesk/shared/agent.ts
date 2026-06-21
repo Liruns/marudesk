@@ -231,8 +231,18 @@ export type AgentChatState = {
    * conversation (billing-style, shown in the usage tooltip). `contextTokens` is
    * the most recent model call's input size — i.e. how full the context window
    * currently is — which drives the usage gauge and the auto-compaction trigger.
+   * `cachedInputTokens` is the most recent call's Anthropic prompt-cache READ
+   * count (the slice of `contextTokens` served from cache rather than re-billed at
+   * full input price), so a degraded cache hit rate is observable; absent/0 on
+   * providers that don't report cache reads. Optional so existing usage literals
+   * keep compiling — the loop populates it additively each step.
    */
-  usage: { inputTokens: number; outputTokens: number; contextTokens: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    contextTokens: number;
+    cachedInputTokens?: number;
+  };
   /** Set when the latest turn failed; cleared on the next send. */
   error: string | null;
   /**
