@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { TabKind } from '../../../shared/browser';
+import { confirmCloseTab } from '../editor/store';
 import { useTabsStore } from '../tabs/store';
 
 /**
@@ -29,12 +30,33 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
   kind: null,
   open: (tabId, kind) => {
     const prev = get().tabId;
-    if (prev && prev !== tabId) void useTabsStore.getState().closeTab(prev);
+    if (prev && prev !== tabId) {
+      // Close the previous instrument tab so its native view is torn down. Honor
+      // the dirty-editor prompt; if the user keeps it, leave it open (its buffer
+      // is preserved — no silent data loss) and still switch to the new one.
+      const tab = useTabsStore.getState().tabs.find((t) => t.id === prev);
+      if (confirmCloseTab(tab)) void useTabsStore.getState().closeTab(prev);
+    }
     set({ tabId, kind });
   },
   close: () => {
     const prev = get().tabId;
-    if (prev) void useTabsStore.getState().closeTab(prev);
+    if (prev) {
+      const tab = useTabsStore.getState().tabs.find((t) => t.id === prev);
+      // Cancelling the dirty-editor prompt keeps you on the instrument.
+      if (!confirmCloseTab(tab)) return;
+      void useTabsStore.getState().closeTab(prev);
+    }
     set({ tabId: null, kind: null });
   },
 }));
+
+// If an instrument's tab is closed from elsewhere (e.g. Ctrl/Cmd+W while it is the
+// active tab), drop the dangling reference so the Shell returns to the graph
+// instead of rendering blank instrument chrome over an already-destroyed view.
+useTabsStore.subscribe((s) => {
+  const id = useInstrumentStore.getState().tabId;
+  if (id && !s.tabs.some((t) => t.id === id)) {
+    useInstrumentStore.setState({ tabId: null, kind: null });
+  }
+});
