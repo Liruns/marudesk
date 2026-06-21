@@ -14,6 +14,8 @@ import { cn } from '../../lib/cn';
 import type { McpConfigHealth, McpServerStatus } from '../../../shared/mcp';
 import { MCP_PRESETS } from '../../../shared/mcp-presets';
 import { McpServerCard, type McpServerEditablePatch } from './McpServerCard';
+import { Field, Segmented } from './SettingsControls';
+import { useSettingsStore } from './store';
 
 /**
  * Settings → MCP Servers (docs/context-mcp-design §8). Lists the user-configured
@@ -25,10 +27,16 @@ import { McpServerCard, type McpServerEditablePatch } from './McpServerCard';
  * the same loop approval/read-only mediation as the built-in tools (a `trust`ed
  * server skips the per-call approval prompt).
  */
-type EmbeddedStatus = { portOpen: boolean; required: boolean };
+type EmbeddedStatus = { portOpen: boolean; required: boolean; allowed: boolean };
 
 export function McpServersSettings() {
   const { t } = useI18n();
+  const allowDebugPort = useSettingsStore((s) => s.settings.browser.allowDebugPort);
+  const updateSettings = useSettingsStore((s) => s.update);
+  const debugPortOptions = [
+    { value: 'off', label: t('settings.mcp.debugPort.off') },
+    { value: 'on', label: t('settings.mcp.debugPort.on') },
+  ] as const;
   const [servers, setServers] = useState<McpServerStatus[] | null>(null);
   const [embedded, setEmbedded] = useState<EmbeddedStatus | null>(null);
   const [configHealth, setConfigHealth] = useState<McpConfigHealth | null>(null);
@@ -198,15 +206,37 @@ export function McpServersSettings() {
       </div>
 
       {embedded?.required ? (
+        <Field
+          label={t('settings.mcp.debugPort.label')}
+          hint={t('settings.mcp.debugPort.hint')}
+        >
+          <Segmented
+            value={allowDebugPort ? 'on' : 'off'}
+            options={debugPortOptions}
+            onChange={(v) =>
+              void updateSettings({ browser: { allowDebugPort: v === 'on' } }).then(
+                refreshEmbedded,
+              )
+            }
+          />
+        </Field>
+      ) : null}
+
+      {embedded?.required ? (
         embedded.portOpen ? (
           <div className="flex items-start gap-2 rounded-lg border border-success/40 bg-success-subtle px-4 py-3 text-body-sm text-fg-secondary">
             <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-success" />
             <span>{t('settings.mcp.embedded.active')}</span>
           </div>
-        ) : (
+        ) : embedded.allowed ? (
           <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning-subtle px-4 py-3 text-body-sm text-fg-secondary">
             <AlertCircle size={15} className="mt-0.5 shrink-0 text-warning" />
             <span>{t('settings.mcp.embedded.restart')}</span>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 rounded-lg border border-subtle bg-surface-1 px-4 py-3 text-body-sm text-fg-secondary">
+            <AlertCircle size={15} className="mt-0.5 shrink-0 text-fg-tertiary" />
+            <span>{t('settings.mcp.embedded.disabled')}</span>
           </div>
         )
       ) : null}

@@ -120,6 +120,16 @@ export type AppSettings = {
   browser: {
     /** Address-bar search provider for non-URL input. */
     searchEngine: SearchEngine;
+    /**
+     * SECURITY (opt-in, default OFF): allow Maru to open Chromium's remote-debugging
+     * (CDP) port on 127.0.0.1 at launch so a browser-control MCP server can drive the
+     * embedded tabs. The port is UNAUTHENTICATED — any local process can then fully
+     * control every embedded WebContentsView. Even when this is on, the port only
+     * opens if a browser-control MCP server is also enabled (the arg condition); when
+     * off, the port is NEVER opened regardless of MCP config. A title-bar badge shows
+     * whenever the port is actually open. See electron/agent/embedded-browser.ts.
+     */
+    allowDebugPort: boolean;
   };
   window: {
     /** Close button: quit the app, or hide to the tray and keep running. */
@@ -291,6 +301,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   browser: {
     searchEngine: 'google',
+    allowDebugPort: false,
   },
   window: {
     closeBehavior: 'tray',
@@ -480,6 +491,7 @@ export function sanitizeSettings(
         SEARCH_ENGINES,
         base.browser.searchEngine,
       ),
+      allowDebugPort: asBool(b.allowDebugPort, base.browser.allowDebugPort),
     },
     window: {
       closeBehavior: asEnum(w.closeBehavior, CLOSE_BEHAVIORS, base.window.closeBehavior),

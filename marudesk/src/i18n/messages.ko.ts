@@ -913,6 +913,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '새 버전이 준비되었습니다. 앱이 재시작됩니다. 계속할까요?',
   'titleBar.update.downloading': '업데이트 다운로드 중',
   'titleBar.update.ready': '업데이트 준비 완료 — 클릭하여 설치',
+  'titleBar.debugPort.open':
+    '브라우저 디버그 포트 열림 — Maru 내장 브라우저 탭이 인증 없는 로컬 CDP 포트로 제어될 수 있습니다. 사용을 마치면 설정 → MCP 서버에서 끄세요.',
   'settings.about.updates.available.after': ' 버전이 GitHub Releases에 있습니다.',
   'settings.about.updates.available.before': '',
   'settings.about.updates.button.check': '확인',
@@ -999,6 +1001,13 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     'Chrome DevTools가 Maru 내장 브라우저 탭을 제어하도록 설정되었습니다. 적용하려면 Maru를 재시작하세요 — 그 전까지는 내장 브라우저에 연결할 수 없습니다.',
   'settings.mcp.embedded.active':
     'Chrome DevTools가 Maru 내장 브라우저 탭을 제어합니다 (CDP로 연결 — 별도 Chrome 창 없음).',
+  'settings.mcp.embedded.disabled':
+    '브라우저 제어가 꺼져 있습니다: 디버그 포트 열기가 비활성화되어 Chrome DevTools가 내장 탭에 연결할 수 없습니다. 위의 “브라우저 디버그 포트 허용”을 켜면 사용할 수 있습니다 (재시작 후 적용).',
+  'settings.mcp.debugPort.label': '브라우저 디버그 포트 허용',
+  'settings.mcp.debugPort.hint':
+    '보안: 브라우저 제어 MCP 서버가 127.0.0.1에서 Chromium의 원격 디버깅 포트를 열어 Maru 내장 탭을 제어하도록 허용합니다. 이 포트는 인증이 없습니다 — 열려 있는 동안 이 컴퓨터의 모든 프로세스가 내장 브라우저를 완전히 제어할 수 있습니다. 필요한 경우가 아니면 꺼 두세요. 포트가 열려 있으면 제목 표시줄에 배지가 표시됩니다. 재시작 후 적용됩니다.',
+  'settings.mcp.debugPort.off': '꺼짐',
+  'settings.mcp.debugPort.on': '켜짐',
   'settings.mcp.status.connecting': '연결 중',
   'settings.mcp.status.reconnecting': '재연결 중',
   'settings.mcp.status.disabled': '비활성화됨',

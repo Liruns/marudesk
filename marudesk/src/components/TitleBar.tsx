@@ -1,5 +1,5 @@
-import type { MouseEvent } from 'react';
-import { Download } from 'lucide-react';
+import { useEffect, useState, type MouseEvent } from 'react';
+import { Download, Bug } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
 import { cn } from '../lib/cn';
 import { Spinner } from './ui';
@@ -76,6 +76,45 @@ function UpdateIndicator() {
 }
 
 /**
+ * Quiet, persistent security badge shown whenever the embedded browser's
+ * unauthenticated CDP remote-debugging port is actually OPEN this launch (the
+ * user opted in AND a browser-control MCP server is enabled). `portOpen` is
+ * boot-fixed, so a single fetch on mount is sufficient — it cannot change while
+ * the window lives. The badge exists so the user is never unknowingly exposed.
+ */
+function DebugPortIndicator() {
+  const { t } = useI18n();
+  const [portOpen, setPortOpen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void window.marudesk
+      .invoke('mcp:embedded-browser-status')
+      .then((status) => {
+        if (alive) setPortOpen(status.portOpen);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!portOpen) return null;
+
+  return (
+    <div
+      className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-md text-caption text-warning"
+      title={t('titleBar.debugPort.open')}
+      data-testid="debug-port-indicator"
+      role="status"
+      aria-label={t('titleBar.debugPort.open')}
+    >
+      <Bug size={13} aria-hidden />
+    </div>
+  );
+}
+
+/**
  * Frameless-window chrome: a single horizontal strip at the very top. The
  * wrapper is the drag region (grab empty space to move the window); interactive
  * children opt out via `.no-drag`.
@@ -126,6 +165,7 @@ export function TitleBar() {
         <WorkspaceSwitcher />
         <CommandPaletteButton />
         <UpdateIndicator />
+        <DebugPortIndicator />
       </div>
       <div className="drag-region flex-1 min-w-0 flex items-center justify-center gap-2 px-3">
         <FlightStatus />

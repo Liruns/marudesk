@@ -20,6 +20,31 @@ import { resolvePluginPanelFile } from './index';
  * the plugin's own page, images from itself/data:, and — crucially — `connect-src
  * 'none'`, so a panel has NO network egress (it drives work through the postMessage
  * bridge's insert-prompt, never by phoning home).
+ *
+ * CSP rationale — why `'unsafe-inline'` stays on script-src AND style-src:
+ *
+ *  Panels are third-party, user-authored *static* HTML files served byte-for-byte
+ *  from the plugin's own folder (`readFile` → `Response`); there is NO build step,
+ *  bundler, or HTML rewriting in this handler. The canonical authoring template
+ *  (examples/plugins/hello-world/panel.html, design §8.5) ships an inline `<style>`
+ *  block AND a load-bearing inline `<script>` — the latter IS the panel's only
+ *  bridge to the host (`plugin:resize` height reporting + the whitelisted
+ *  `plugin:insertPrompt` postMessage). A nonce/hash policy would require the
+ *  handler to parse + rewrite every inline tag on each response (nonce) or recompute
+ *  per-block SHA-256s that break the instant a user edits their panel (hash);
+ *  neither is plumbed through, so dropping `'unsafe-inline'` here would break every
+ *  existing panel for ~zero gain. The gain is ~zero because the panel is already
+ *  fully contained: it loads in `<iframe sandbox="allow-scripts">` WITHOUT
+ *  `allow-same-origin` (an opaque origin — no host DOM, cookies, or storage), with
+ *  `connect-src 'none'` (no exfiltration), `base-uri 'none'` + `form-action 'none'`
+ *  (no navigation/form escapes), and `default-src 'none'`. Inline script the author
+ *  injects can only talk to a sandbox that can't reach anything. A future migration
+ *  to a nonce-based script-src would require plumbing a per-response nonce into a
+ *  panel-HTML rewriter (and an authoring contract that forbids inline `<script>`).
+ *
+ *  The script/style sources are deliberately pinned to the `plugin:` origin (no `*`,
+ *  no `https:`, no `data:` for scripts) so a panel can never pull executable code
+ *  from another plugin or the network — inline is allowed, but only from itself.
  */
 
 const PANEL_CSP = [

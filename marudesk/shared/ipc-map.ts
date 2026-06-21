@@ -874,12 +874,14 @@ export interface IpcMap {
   };
   'mcp:open-config': { args: []; result: { path: string } };
   // Whether the chrome-devtools (browser-control) preset is wired to marudesk's
-  // embedded Chromium, and whether the remote-debugging port we attach to was opened
-  // this launch. `required && !portOpen` → the user just enabled it and must restart
-  // for it to drive the embedded browser (see electron/agent/embedded-browser.ts).
+  // embedded Chromium (`required`), whether the user opted into opening the
+  // unauthenticated CDP port (`allowed`, default OFF), and whether that remote-debugging
+  // port was actually opened this launch (`portOpen`). The port opens only when BOTH
+  // required && allowed held at boot; `required && allowed && !portOpen` → just enabled,
+  // must restart (see electron/agent/embedded-browser.ts).
   'mcp:embedded-browser-status': {
     args: [];
-    result: { portOpen: boolean; required: boolean };
+    result: { portOpen: boolean; required: boolean; allowed: boolean };
   };
 
   // plugins — Settings → Plugins + composer slash commands. set-enabled returns

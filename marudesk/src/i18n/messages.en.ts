@@ -917,6 +917,8 @@ export const EN_MESSAGES = {
     'A new version is ready to install. The app will restart. Continue?',
   'titleBar.update.downloading': 'Downloading update',
   'titleBar.update.ready': 'Update ready — click to install',
+  'titleBar.debugPort.open':
+    'Browser debug port open — Maru’s built-in browser tabs are controllable over an unauthenticated local CDP port. Turn it off in Settings → MCP Servers when you’re done.',
   'settings.about.updates.available.after': ' is available on GitHub Releases.',
   'settings.about.updates.available.before': 'Version ',
   'settings.about.updates.button.check': 'Check',
@@ -1004,6 +1006,13 @@ export const EN_MESSAGES = {
     'Chrome DevTools is set to control Maru’s built-in browser tabs. Restart Maru to apply — until then it can’t attach to the embedded browser.',
   'settings.mcp.embedded.active':
     'Chrome DevTools controls Maru’s built-in browser tabs (attached over CDP — no separate Chrome window).',
+  'settings.mcp.embedded.disabled':
+    'Browser control is off: opening the debug port is disabled, so Chrome DevTools can’t attach to the built-in tabs. Turn on “Allow browser debug port” above to enable it (takes effect after a restart).',
+  'settings.mcp.debugPort.label': 'Allow browser debug port',
+  'settings.mcp.debugPort.hint':
+    'Security: lets a browser-control MCP server drive Maru’s built-in tabs by opening Chromium’s remote-debugging port on 127.0.0.1. That port is UNAUTHENTICATED — while it is open, any process on this machine can fully control your embedded browser. Leave off unless you need it; a badge in the title bar shows whenever the port is open. Takes effect after a restart.',
+  'settings.mcp.debugPort.off': 'Off',
+  'settings.mcp.debugPort.on': 'On',
   'settings.mcp.status.connecting': 'Connecting',
   'settings.mcp.status.reconnecting': 'Reconnecting',
   'settings.mcp.status.disabled': 'Disabled',

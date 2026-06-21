@@ -39,11 +39,30 @@ const WORKER_ENTRY = path.join(__dirname, 'worker.ts');
 const HELLO_DIR = path.resolve(__dirname, '../../examples/plugins/hello-world');
 const EVIL_DIR = path.join(__dirname, '__fixtures__/evil');
 const CMDSTATUS_DIR = path.join(__dirname, '__fixtures__/cmdstatus');
+const PROTOCOL_SRC = path.join(__dirname, 'protocol.ts');
 
 /** A minimal ToolContext pointing at a throwaway workspace root. */
 function toolContext(root: string): ToolContext {
   const ws: WorkspaceSummary = { root, name: 'tmp', files: [], source: 'walk', truncated: false };
   return { ws, signal: new AbortController().signal };
+}
+
+/**
+ * Pull the `PANEL_CSP` directive list out of protocol.ts source and index it by
+ * directive name (plus a `__raw` field of the whole policy). protocol.ts can't be
+ * imported here (it's Electron-coupled), so the source is the served-CSP contract.
+ */
+function parsePanelCsp(src: string): Record<string, string> {
+  const block = /const PANEL_CSP = \[([\s\S]*?)\]\.join/.exec(src)?.[1];
+  if (!block) throw new Error('PANEL_CSP array not found in protocol.ts');
+  const directives = [...block.matchAll(/(["'])((?:(?!\1).)*)\1/g)].map((m) => m[2].trim());
+  const map: Record<string, string> = { __raw: directives.join('; ') };
+  for (const directive of directives) {
+    const space = directive.indexOf(' ');
+    if (space === -1) map[directive] = '';
+    else map[directive.slice(0, space)] = directive.slice(space + 1).trim();
+  }
+  return map;
 }
 
 async function main(): Promise<void> {
@@ -236,6 +255,30 @@ async function main(): Promise<void> {
       !isSafePanelPath('http://x') &&
       !isSafePanelPath('a\0b') &&
       !isSafePanelPath(''),
+  );
+
+  // ── v2: panel CSP contract (electron/plugins/protocol.ts PANEL_CSP) ───────────
+  // protocol.ts is Electron-coupled (imports `electron` via ./index), so it can't
+  // be imported into this Electron-free harness; assert the served CSP directives
+  // from its source of truth instead. This locks the security-critical shape so a
+  // regression that grants network egress or widens script/style origins is caught.
+  const panelCsp = parsePanelCsp(readFileSync(PROTOCOL_SRC, 'utf8'));
+  check('panel CSP starts from a deny-all default', panelCsp['default-src'] === "'none'");
+  check('panel CSP keeps panels off the network (no exfiltration)', panelCsp['connect-src'] === "'none'");
+  check('panel CSP forbids base-uri + form-action escapes', panelCsp['base-uri'] === "'none'" && panelCsp['form-action'] === "'none'");
+  // Inline script/style stay (static, build-less, opaque-origin panels; see the
+  // rationale comment in protocol.ts) — but ONLY from the panel's own plugin: origin.
+  check(
+    'panel CSP scopes scripts to plugin: only — never a wildcard or remote origin',
+    panelCsp['script-src'] === "'unsafe-inline' plugin:",
+  );
+  check(
+    'panel CSP scopes styles to plugin: only — never a wildcard or remote origin',
+    panelCsp['style-src'] === "'unsafe-inline' plugin:",
+  );
+  check(
+    'panel CSP never broadens script-src to * / https: / http: / data:',
+    !/script-src[^;]*(\*|https:|http:|data:)/.test(panelCsp.__raw),
   );
 
   // ── Settings → Plugins: "Open plugins folder" handler core ───────────────
