@@ -1219,6 +1219,9 @@ export const EN_MESSAGES = {
   'settings.plugins.status.needsApproval': 'Needs approval',
   'settings.plugins.toggle.disable': 'Disable',
   'settings.plugins.toggle.enable': 'Enable',
+  'settings.plugins.grantConfirm': 'Enable “{name}”? Enabling grants it these permissions: {perms}.',
+  'settings.plugins.grantConfirmSensitive':
+    'This includes powerful access — cmd runs shell commands, fs:write can modify your files, net reaches the network.',
   'settings.providers.apiKey': 'API key',
   'settings.providers.builtinTitle': 'Built-in providers',
   'settings.providers.keyHintMismatch': 'Expected to start with “{prefix}”',

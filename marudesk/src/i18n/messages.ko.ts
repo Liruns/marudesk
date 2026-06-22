@@ -1214,6 +1214,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.plugins.status.needsApproval': '승인 필요',
   'settings.plugins.toggle.disable': '비활성화',
   'settings.plugins.toggle.enable': '활성화',
+  'settings.plugins.grantConfirm': '“{name}”을(를) 활성화할까요? 활성화하면 다음 권한이 부여됩니다: {perms}.',
+  'settings.plugins.grantConfirmSensitive':
+    '강력한 권한이 포함되어 있습니다 — cmd는 셸 명령을 실행하고, fs:write는 파일을 수정할 수 있으며, net은 네트워크에 접근합니다.',
   'settings.providers.apiKey': 'API 키',
   'settings.providers.builtinTitle': '기본 제공 공급자',
   'settings.providers.keyHintMismatch': '“{prefix}”(으)로 시작해야 합니다',
