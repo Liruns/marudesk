@@ -5,6 +5,9 @@ import {
   type WorkspaceFileRef,
 } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
+import { toast } from '../../lib/toast';
+import { currentLocale } from '../../i18n/locale-storage';
+import { getMessage } from '../../i18n/messages';
 import { subscribeTabsByKind, useTabsStore } from '../tabs/store';
 import {
   isTextFileBuf,
@@ -17,6 +20,20 @@ export function untitledDocKey(tabId: string): string {
 }
 function isUntitledKey(key: string): boolean {
   return key.startsWith('untitled-');
+}
+
+/**
+ * Surface a write failure prominently. The header carries a persistent error pill,
+ * but the user has often moved on by the time a save rejects, so a failure also
+ * fires an error toast. A user-canceled Save As is NOT a failure and must not call
+ * this (the caller gates on a present reason).
+ */
+function reportSaveFailure(message: string): void {
+  toast({
+    title: getMessage(currentLocale(), 'editor.saveFailed.title'),
+    description: message,
+    variant: 'error',
+  });
 }
 export type { ErrorFileBuf, FileBuf } from './buffer';
 
@@ -168,7 +185,9 @@ export const useEditorStore = create<EditorState & EditorActions>(
         const f = s.files[path];
         if (!isTextFileBuf(f)) return {};
         if (f.content === content) return {};
-        return { files: { ...s.files, [path]: { ...f, content } } };
+        // Editing invalidates a prior save error — it described the old content,
+        // so drop it (and its 'Save failed' pill) once the buffer moves on.
+        return { files: { ...s.files, [path]: { ...f, content, error: undefined } } };
       }),
 
     save: async (path) => {
@@ -204,7 +223,8 @@ export const useEditorStore = create<EditorState & EditorActions>(
           // `saved` becomes exactly what we persisted; if the user kept typing
           // during the await, content has advanced and the file stays dirty.
           return {
-            files: { ...s.files, [path]: { ...cur, saved: toWrite, saving: false } },
+            // Clear any prior save error now that the write succeeded.
+            files: { ...s.files, [path]: { ...cur, saved: toWrite, saving: false, error: undefined } },
           };
         });
       } catch (err) {
@@ -216,6 +236,7 @@ export const useEditorStore = create<EditorState & EditorActions>(
             files: { ...s.files, [path]: { ...cur, saving: false, error: msg } },
           };
         });
+        reportSaveFailure(msg);
       }
     },
 
@@ -235,7 +256,9 @@ export const useEditorStore = create<EditorState & EditorActions>(
           { content },
         );
         if (!res.ok) {
-          // Canceled dialog or write error — clear saving, keep the buffer.
+          // Canceled dialog or write error — clear saving, keep the buffer. A
+          // cancel returns { ok:false } with NO reason, so it leaves error
+          // undefined (no pill) and skips the toast; a real error carries a reason.
           set((s) => {
             const cur = s.files[key];
             if (!isTextFileBuf(cur)) return {};
@@ -246,6 +269,7 @@ export const useEditorStore = create<EditorState & EditorActions>(
               },
             };
           });
+          if (res.reason) reportSaveFailure(res.reason);
           return;
         }
         // Seed the real-path buffer so the rebind shows content immediately,
@@ -281,6 +305,7 @@ export const useEditorStore = create<EditorState & EditorActions>(
             },
           };
         });
+        reportSaveFailure(msg);
       }
     },
 
@@ -326,13 +351,23 @@ export function isDirty(buf: FileBuf | undefined): boolean {
 export function confirmCloseTab(tab: TabState | undefined): boolean {
   if (!tab || tab.kind !== 'editor') return true;
   const key = editorDocKeyForTab(tab);
-  if (!key || isUntitledKey(key)) return true;
+  if (!key) return true;
   const buf = useEditorStore.getState().files[key];
+  if (isUntitledKey(key)) {
+    // An untitled (Ctrl+N) scratch buffer has no disk copy, so discarding
+    // non-empty content is silent data loss — prompt. An empty scratch buffer is
+    // safe to drop without a prompt.
+    const content = isTextFileBuf(buf) ? buf.content : '';
+    if (content.length === 0) return true;
+    return window.confirm(getMessage(currentLocale(), 'editor.confirm.discardUntitled'));
+  }
   if (!isDirty(buf)) return true;
   const label = tab.editorFile
     ? `${tab.editorFile.rootId} / ${tab.editorFile.path}`
     : tab.filePath ?? key;
-  return window.confirm(`Discard unsaved changes to ${label}?`);
+  return window.confirm(
+    getMessage(currentLocale(), 'editor.confirm.discardChanges').replace('{label}', label),
+  );
 }
 
 // Drop buffers (and dispose Monaco models) when an editor tab closes. Keyed by
