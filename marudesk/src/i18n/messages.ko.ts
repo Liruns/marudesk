@@ -295,6 +295,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'workGraph.resetTitle': '모든 작업 상태를 계획됨으로 초기화',
   'workGraph.clearGraph': '그래프 지우기',
   'workGraph.clearConfirm': '그래프가 삭제됩니다. 다시 클릭하여 확인하세요.',
+  'workGraph.regenerateConfirm':
+    '생성하면 현재 그래프가 교체되어 모든 작업과 편집 내용이 사라집니다. 생성을 다시 누르면 확정됩니다.',
   'workGraph.summary': '작업 {total}개 · {done}개 완료',
   'workGraph.summaryEmpty': '아직 그래프가 없습니다',
   'workGraph.offlineSample': '오프라인 샘플 — {reason}',

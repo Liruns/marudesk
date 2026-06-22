@@ -3,6 +3,7 @@ import type { RunTaskResult } from '../../../shared/work-os';
 import {
   __flushWorkGraphPersist,
   __workGraphPersistStats,
+  demoteStaleRunning,
   freeTaskSlot,
   runWithConcurrency,
   sampleGraph,
@@ -38,6 +39,33 @@ describe('freeTaskSlot', () => {
     const slot = freeTaskSlot({ x: 500, y: 80 }, occupied);
     expect(slot.x).toBe(500);
     expect(occupied.every((o) => !overlaps(slot, o))).toBe(true);
+  });
+});
+
+describe('demoteStaleRunning', () => {
+  it('returns null unchanged', () => {
+    expect(demoteStaleRunning(null)).toBeNull();
+  });
+
+  it('returns the same reference when no task is running (no churn on a clean load)', () => {
+    const graph = sampleGraph('clean load');
+    expect(graph.tasks.every((t) => t.status !== 'running')).toBe(true);
+    expect(demoteStaleRunning(graph)).toBe(graph);
+  });
+
+  it('demotes a stale running task to planned while leaving other statuses intact', () => {
+    const base = sampleGraph('crash mid-run');
+    const graph = {
+      ...base,
+      tasks: base.tasks.map((t, i) =>
+        i === 0 ? { ...t, status: 'running' as const } : i === 1 ? { ...t, status: 'done' as const } : t,
+      ),
+    };
+    const out = demoteStaleRunning(graph);
+    expect(out).not.toBeNull();
+    expect(out?.tasks[0]?.status).toBe('planned');
+    expect(out?.tasks[1]?.status).toBe('done');
+    expect(out?.tasks.some((t) => t.status === 'running')).toBe(false);
   });
 });
 

@@ -507,6 +507,7 @@ export function WorkGraphPanel() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -520,6 +521,12 @@ export function WorkGraphPanel() {
     const id = setTimeout(() => setConfirmClear(false), 3000);
     return () => clearTimeout(id);
   }, [confirmClear]);
+
+  useEffect(() => {
+    if (!confirmRegenerate) return;
+    const id = setTimeout(() => setConfirmRegenerate(false), 3000);
+    return () => clearTimeout(id);
+  }, [confirmRegenerate]);
 
   // Try the AI decomposer; fall back to a deterministic offline sample so the
   // loop always works without a configured provider (and explain why).
@@ -543,6 +550,20 @@ export function WorkGraphPanel() {
     }
   };
 
+  // Generating replaces the whole graph (setGraph resets tasks/pos/selection), so
+  // when one already exists require a confirming second press — the same two-step
+  // guard as Clear — protecting manual edits, added criteria, and node positions
+  // from a stray Enter in a still-populated goal field.
+  const requestGenerate = (): void => {
+    if (busy || goal.trim().length === 0) return;
+    if (useWorkGraphStore.getState().graph && !confirmRegenerate) {
+      setConfirmRegenerate(true);
+      return;
+    }
+    setConfirmRegenerate(false);
+    void generate();
+  };
+
   const summary = graph
     ? t('workGraph.summary')
         .replace('{total}', String(graph.tasks.length))
@@ -563,20 +584,25 @@ export function WorkGraphPanel() {
           aria-label={t('workGraph.goal')}
           title={t('workGraph.goalTitle')}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && goal.trim().length > 0) void generate();
+            if (e.key === 'Enter' && goal.trim().length > 0) requestGenerate();
           }}
           className="h-8 min-w-0 flex-1 rounded bg-surface-2 border border-subtle px-2 text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent focus:shadow-focus-accent transition-shadow duration-fast"
         />
         <button
           type="button"
           disabled={busy || goal.trim().length === 0}
-          onClick={() => void generate()}
+          onClick={() => requestGenerate()}
           className="inline-flex items-center gap-1.5 h-8 shrink-0 rounded bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
         >
           {busy && <Spinner size={14} label={t('workGraph.generating')} />}{t('workGraph.generate')}
         </button>
       </div>
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
+      {confirmRegenerate ? (
+        <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">
+          {t('workGraph.regenerateConfirm')}
+        </p>
+      ) : null}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           type="button"

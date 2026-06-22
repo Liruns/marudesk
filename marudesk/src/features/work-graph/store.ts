@@ -121,6 +121,23 @@ function agentTaskAnchor(
 
 type Persisted = { graph: WorkGraph | null; pos: Record<TaskId, NodePos> };
 
+/**
+ * A task persisted as 'running' can only be the residue of a crash/close mid-run
+ * — no run is in flight at startup — so demote it to 'planned' on load. Otherwise
+ * it rehydrates as a permanent stuck Spinner: readyTasks() is planned-only, so
+ * Run/Implement can never re-attempt it, and the only escape would be a
+ * whole-graph Reset (which wipes every task's evidence). Mirrors stopRun's
+ * running→planned rescue. Returns the graph unchanged (same reference) when there
+ * is nothing to demote, so a clean load doesn't churn identity.
+ */
+export function demoteStaleRunning(graph: WorkGraph | null): WorkGraph | null {
+  if (!graph || !graph.tasks.some((task) => task.status === 'running')) return graph;
+  return {
+    ...graph,
+    tasks: graph.tasks.map((task) => (task.status === 'running' ? { ...task, status: 'planned' } : task)),
+  };
+}
+
 function loadPersisted(): Persisted {
   try {
     if (typeof localStorage === 'undefined') return { graph: null, pos: {} };
@@ -129,7 +146,7 @@ function loadPersisted(): Persisted {
     const data: unknown = JSON.parse(raw);
     if (typeof data !== 'object' || data === null) return { graph: null, pos: {} };
     const rec = data as Record<string, unknown>;
-    const graph = parseWorkGraph(rec.graph);
+    const graph = demoteStaleRunning(parseWorkGraph(rec.graph));
     const pos: Record<TaskId, NodePos> = {};
     // Only keep positions for tasks the parser actually kept — parseWorkGraph can
     // drop malformed/duplicate tasks, and an orphan pos entry would bloat storage

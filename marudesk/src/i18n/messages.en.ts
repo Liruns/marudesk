@@ -296,6 +296,8 @@ export const EN_MESSAGES = {
   'workGraph.resetTitle': 'Reset all task statuses to planned',
   'workGraph.clearGraph': 'Clear graph',
   'workGraph.clearConfirm': 'Graph will be deleted. Click again to confirm.',
+  'workGraph.regenerateConfirm':
+    'Generating replaces the current graph — all tasks and edits are lost. Press Generate again to confirm.',
   'workGraph.summary': '{total} tasks · {done} done',
   'workGraph.summaryEmpty': 'No graph yet',
   'workGraph.offlineSample': 'Offline sample — {reason}',
