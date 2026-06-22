@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { TitleBar } from '../components/TitleBar';
 import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
@@ -12,6 +12,7 @@ import { EvidenceStrip } from '../features/work-graph/EvidenceStrip';
 import { FlightLog } from '../features/work-graph/FlightLog';
 import { CommandPalette } from '../features/commands/CommandPalette';
 import { useCommandPaletteStore } from '../features/commands/command-palette-store';
+import { useOverlayStore } from '../features/commands/overlay-store';
 import { useWorkGraphStore } from '../features/work-graph/store';
 import { dockRenderedThreadId } from '../features/work-graph/taskThreads';
 import { cardThreadId } from '../features/agent/cardThreads';
@@ -116,8 +117,10 @@ export function Shell() {
   // completion toast is detected independently for each conversation (the dock
   // chat, an AI Chat instrument, and any background thread all advance at once).
   const prevAgentStatusByThreadRef = useRef<Map<string, AgentStatus>>(new Map());
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [tabPalette, setTabPalette] = useState(false);
+  // Quick Open (Ctrl+P) + Tab Palette (Ctrl+Shift+A) live in a shared store so the
+  // ⌘K palette can open them too; the Shell still owns rendering them.
+  const quickOpen = useOverlayStore((s) => s.quickOpen);
+  const tabPalette = useOverlayStore((s) => s.tabPalette);
   // A Task can summon an instrument (browser/editor/terminal) into the main area;
   // while one is open it replaces the graph, then "← Graph" closes it.
   const instrumentTabId = useInstrumentStore((s) => s.tabId);
@@ -159,7 +162,7 @@ export function Shell() {
       //   Ctrl/Cmd+P — quick-open (go to file)
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
-        setQuickOpen(true);
+        useOverlayStore.getState().showQuickOpen();
         return;
       }
       // Open (or focus) the Settings tab — Ctrl/Cmd+, (VSCode/Chrome parity).
@@ -180,7 +183,7 @@ export function Shell() {
       // (Ctrl/Cmd+Shift+T) — Chrome parity, allowed from any focus.
       if (mod && e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        setTabPalette(true);
+        useOverlayStore.getState().showTabPalette();
         return;
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 't') {
@@ -421,8 +424,8 @@ export function Shell() {
       <Tour />
       <FlightLog />
       <CommandPalette />
-      {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}
-      {tabPalette ? <TabPalette onClose={() => setTabPalette(false)} /> : null}
+      {quickOpen ? <QuickOpen onClose={() => useOverlayStore.getState().hideQuickOpen()} /> : null}
+      {tabPalette ? <TabPalette onClose={() => useOverlayStore.getState().hideTabPalette()} /> : null}
     </div>
   );
 }
