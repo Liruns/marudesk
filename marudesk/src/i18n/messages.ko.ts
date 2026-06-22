@@ -969,6 +969,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.automations.promptPlaceholder': '매번 실행할 프롬프트…',
   'settings.automations.everyMinutes': '주기(분)',
   'settings.automations.create': '추가',
+  'settings.automations.edit': '자동화 편집',
+  'settings.automations.save': '저장',
+  'settings.automations.cancel': '취소',
   'settings.category.providers.blurb':
     '제공자 API 키와 사용자 지정 OpenAI 호환 엔드포인트. 모델은 채팅에서 선택하세요.',
   'settings.category.providers.label': 'AI 제공자',

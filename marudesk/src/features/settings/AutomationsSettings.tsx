@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Clock, Loader2, Play, Plus, Trash2 } from 'lucide-react';
+import { Clock, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { Button, Switch } from '../../components/ui';
+import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import { describeSchedule, type Automation } from '../../../shared/automations';
 
@@ -18,7 +19,8 @@ export function AutomationsSettings() {
   const [items, setItems] = useState<Automation[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState<string | null>(null);
-  // create form
+  // create / edit form — `editingId` flips the form between create and update.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   // Held as a raw string so clearing the field to retype doesn't snap to the
@@ -38,21 +40,47 @@ export function AutomationsSettings() {
   };
   useEffect(load, []);
 
-  const create = async (): Promise<void> => {
+  const resetForm = (): void => {
+    setEditingId(null);
+    setName('');
+    setPrompt('');
+    setEveryMinutes('60');
+    setProvider(DEFAULT_PROVIDER);
+    setModel(DEFAULT_MODEL);
+  };
+
+  /** Load an automation's values into the form to edit it in place. */
+  const startEdit = (a: Automation): void => {
+    setEditingId(a.id);
+    setName(a.name);
+    setPrompt(a.prompt);
+    setEveryMinutes(String(a.schedule.kind === 'interval' ? a.schedule.everyMinutes : 60));
+    setProvider(a.provider);
+    setModel(a.model);
+  };
+
+  // Create a new automation, or save edits to the one being edited (same form).
+  const submit = async (): Promise<void> => {
     if (!name.trim() || !prompt.trim()) return;
     setBusy(true);
     try {
-      await window.marudesk.invoke('automations:create', {
+      const current = editingId ? items?.find((i) => i.id === editingId) : undefined;
+      const input = {
         name: name.trim(),
         prompt: prompt.trim(),
         provider: provider.trim() || DEFAULT_PROVIDER,
         model: model.trim() || DEFAULT_MODEL,
-        schedule: { kind: 'interval', everyMinutes: clampMinutes(everyMinutes) },
-        allowTools: [],
-        enabled: true,
-      });
-      setName('');
-      setPrompt('');
+        schedule: { kind: 'interval' as const, everyMinutes: clampMinutes(everyMinutes) },
+        // Preserve the existing tool grant + enabled flag when editing.
+        allowTools: current?.allowTools ?? [],
+        enabled: current?.enabled ?? true,
+      };
+      if (editingId) {
+        await window.marudesk.invoke('automations:update', { id: editingId, input });
+      } else {
+        await window.marudesk.invoke('automations:create', input);
+      }
+      resetForm();
       load();
     } catch {
       // leave the form as-is; a transient failure shouldn't drop the draft
@@ -121,6 +149,18 @@ export function AutomationsSettings() {
                 >
                   {running === a.id ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => startEdit(a)}
+                  title={t('settings.automations.edit')}
+                  aria-label={t('settings.automations.edit')}
+                  className={cn(
+                    'text-fg-tertiary hover:text-accent transition-colors duration-fast',
+                    editingId === a.id && 'text-accent',
+                  )}
+                >
+                  <Pencil size={14} />
+                </button>
                 <Switch
                   checked={a.enabled}
                   onChange={(next) => void toggle(a.id, next)}
@@ -141,8 +181,13 @@ export function AutomationsSettings() {
         )}
       </div>
 
-      {/* create form */}
-      <div className="flex flex-col gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 p-3">
+      {/* create / edit form */}
+      <div
+        className={cn(
+          'flex flex-col gap-2 rounded-lg border bg-surface-1 p-3',
+          editingId ? 'border-accent/60' : 'border-dashed border-subtle',
+        )}
+      >
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -180,14 +225,19 @@ export function AutomationsSettings() {
             placeholder={DEFAULT_MODEL}
             className="flex-1 min-w-32 rounded border border-subtle bg-surface-page px-2 py-1 text-body-sm text-fg-primary"
           />
+          {editingId ? (
+            <Button variant="ghost" size="sm" onClick={resetForm} disabled={busy}>
+              {t('settings.automations.cancel')}
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             size="sm"
-            leadingIcon={<Plus size={14} />}
-            onClick={() => void create()}
+            leadingIcon={editingId ? <Pencil size={14} /> : <Plus size={14} />}
+            onClick={() => void submit()}
             disabled={busy || !name.trim() || !prompt.trim()}
           >
-            {t('settings.automations.create')}
+            {t(editingId ? 'settings.automations.save' : 'settings.automations.create')}
           </Button>
         </div>
       </div>

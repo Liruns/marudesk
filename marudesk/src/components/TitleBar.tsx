@@ -121,11 +121,11 @@ function DebugPortIndicator() {
  *
  * Layout: [logo slot] [tabs ............] [window controls]
  *
- * The logo slot is a 48px column that lines up with the ActivityBar directly
- * below it (same width + a shared right border), so the top-left reads as one
- * continuous vertical rail instead of a floating brand block. On macOS the OS
- * draws the traffic lights top-left, so the slot shifts right to clear them and
- * the rail alignment is dropped there.
+ * The logo slot is a 60px column that lines up with the InstrumentRail directly
+ * below it (same width + the same `border-default` right edge), so the top-left
+ * reads as one continuous vertical rail instead of a floating brand block. On
+ * macOS the OS draws the traffic lights top-left, so the slot shifts right to
+ * clear them and the rail alignment is dropped there.
  */
 export function TitleBar() {
   const { t } = useI18n();
@@ -156,7 +156,7 @@ export function TitleBar() {
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       ) : (
-        <div className="w-12 shrink-0 flex items-center justify-center border-r border-subtle">
+        <div className="w-[60px] shrink-0 flex items-center justify-center border-r border-default">
           <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-6 select-none" />
         </div>
       )}

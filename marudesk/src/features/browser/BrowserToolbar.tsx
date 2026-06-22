@@ -14,6 +14,7 @@ import {
   Lock,
   MousePointerClick,
   RotateCw,
+  Search,
   Star,
   Volume2,
   VolumeX,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { BrowserHistoryMenu, BrowserMenu } from './BrowserMenu';
+import { useWebPageStore } from './store';
 import { findBookmark, useBookmarksStore } from './bookmarks';
 import { useBrowserStrings } from './browserStrings';
 import type { NavState } from '../../../shared/browser';
@@ -150,6 +152,13 @@ export function BrowserToolbar({
           ) : null}
         </div>
       </form>
+
+      <NavIconButton
+        label={t('browser.find.aria')}
+        onClick={() => useWebPageStore.getState().openFind()}
+      >
+        <Search size={16} />
+      </NavIconButton>
 
       <BookmarkStarButton nav={nav} currentUrl={currentUrl} />
 

@@ -972,6 +972,9 @@ export const EN_MESSAGES = {
   'settings.automations.promptPlaceholder': 'Prompt to run each time…',
   'settings.automations.everyMinutes': 'every (min)',
   'settings.automations.create': 'Add',
+  'settings.automations.edit': 'Edit automation',
+  'settings.automations.save': 'Save',
+  'settings.automations.cancel': 'Cancel',
   'settings.category.providers.blurb':
     'Provider API keys + custom OpenAI-compatible endpoints. Pick the model in the chat.',
   'settings.category.providers.label': 'AI Providers',
