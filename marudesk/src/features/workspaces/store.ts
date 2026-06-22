@@ -161,6 +161,22 @@ function applySnapshot(
   };
 }
 
+/**
+ * Surface a workspace MUTATION failure (create / rename / delete / add-folder /
+ * remove-root / reindex). These are fire-and-forget `void`-called from the title-
+ * bar WorkspaceSwitcher, whose menu has closed by the time a reject lands, so the
+ * stored `error` (which no chrome renders) was the only signal — i.e. the action
+ * silently no-op'd. Toast it, mirroring setActiveWorkspace/setActiveRoot. (Not
+ * used for `refresh`, a background load.)
+ */
+function reportWorkspaceFailure(message: string): void {
+  toast({
+    title: getMessage(currentLocale(), 'workspaces.actionFailed.title'),
+    description: message,
+    variant: 'error',
+  });
+}
+
 export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckActions>(
   (set, get) => ({
     revision: 0,
@@ -200,7 +216,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         set((state) => applyCreatedWorkspace(state, snapshot, record.id));
         return record;
       } catch (err) {
-        set({ loading: false, error: toMessage(err) });
+        const message = toMessage(err);
+        set({ loading: false, error: message });
+        reportWorkspaceFailure(message);
         return null;
       }
     },
@@ -252,7 +270,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         set((state) => applySnapshot(state, snapshot));
         return record;
       } catch (err) {
-        set({ loading: false, error: toMessage(err) });
+        const message = toMessage(err);
+        set({ loading: false, error: message });
+        reportWorkspaceFailure(message);
         return null;
       }
     },
@@ -265,7 +285,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         set((state) => applyCreatedWorkspace(state, snapshot, record.id));
         return record;
       } catch (err) {
-        set({ loading: false, error: toMessage(err) });
+        const message = toMessage(err);
+        set({ loading: false, error: message });
+        reportWorkspaceFailure(message);
         return null;
       }
     },
@@ -281,7 +303,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         set((state) => applySnapshot(state, snapshot));
         return record;
       } catch (err) {
-        set({ loading: false, error: toMessage(err) });
+        const message = toMessage(err);
+        set({ loading: false, error: message });
+        reportWorkspaceFailure(message);
         return null;
       }
     },
@@ -312,7 +336,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         const snapshot = await window.marudesk.invoke('workspaces:list');
         set((state) => applySnapshot(state, snapshot));
       } catch (err) {
-        set({ error: toMessage(err) });
+        const message = toMessage(err);
+        set({ error: message });
+        reportWorkspaceFailure(message);
       }
     },
 
@@ -322,7 +348,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         const snapshot = await window.marudesk.invoke('workspaces:list');
         set((state) => applySnapshot(state, snapshot));
       } catch (err) {
-        set({ error: toMessage(err) });
+        const message = toMessage(err);
+        set({ error: message });
+        reportWorkspaceFailure(message);
       }
     },
 
@@ -335,7 +363,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
         const snapshot = await window.marudesk.invoke('workspaces:list');
         set((state) => applySnapshot(state, snapshot));
       } catch (err) {
-        set({ error: toMessage(err) });
+        const message = toMessage(err);
+        set({ error: message });
+        reportWorkspaceFailure(message);
       }
     },
 
@@ -365,7 +395,9 @@ export const useWorkspaceDeckStore = create<WorkspaceDeckState & WorkspaceDeckAc
           };
         });
       } catch (err) {
-        set({ error: toMessage(err) });
+        const message = toMessage(err);
+        set({ error: message });
+        reportWorkspaceFailure(message);
       }
     },
 

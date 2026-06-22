@@ -383,6 +383,7 @@ export const EN_MESSAGES = {
   'workspaces.delete.body': 'This removes it from Maru (your files are not deleted).',
   'workspaces.delete.cancel': 'Cancel',
   'workspaces.delete.confirm': 'Delete',
+  'workspaces.actionFailed.title': "Workspace action failed",
   'workspaces.switchFailed.title': "Couldn't switch workspace",
   'profiles.trigger.label': 'Profile: {name}',
   'profiles.trigger.title': 'Profile: {name} — switch or manage profiles',

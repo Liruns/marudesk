@@ -382,6 +382,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'workspaces.delete.body': 'Maru에서만 제거되며 파일은 삭제되지 않습니다.',
   'workspaces.delete.cancel': '취소',
   'workspaces.delete.confirm': '삭제',
+  'workspaces.actionFailed.title': '워크스페이스 작업에 실패했습니다',
   'workspaces.switchFailed.title': '워크스페이스를 전환하지 못했습니다',
   'profiles.trigger.label': '프로필: {name}',
   'profiles.trigger.title': '프로필: {name} — 프로필 전환 또는 관리',
