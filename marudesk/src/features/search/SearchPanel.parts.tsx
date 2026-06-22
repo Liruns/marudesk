@@ -59,7 +59,7 @@ export const FileGroup = memo(function FileGroup({
             <span className="truncate text-caption text-fg-quaternary">{dir}</span>
           ) : null}
         </button>
-        <span className="shrink-0 rounded-pill bg-surface-3 px-1.5 text-[0.6875rem] font-medium tabular-nums text-fg-secondary">
+        <span className="shrink-0 rounded-pill bg-surface-3 px-1.5 text-micro font-medium tabular-nums text-fg-secondary">
           {file.matches.length}
         </span>
       </div>
@@ -127,7 +127,7 @@ function Highlight({
       out.push(
         <mark
           key={`m${i}`}
-          className="rounded-[3px] bg-accent/25 px-0.5 font-medium text-fg-primary"
+          className="rounded-sm bg-accent/25 px-0.5 font-medium text-fg-primary"
         >
           {text.slice(start, end)}
         </mark>,

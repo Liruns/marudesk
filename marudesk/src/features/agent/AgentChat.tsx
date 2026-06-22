@@ -241,7 +241,7 @@ export function AgentChat({
         <div
           className={cn(
             'flex flex-col gap-5',
-            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-6' : 'px-3 py-4',
+            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-6' : 'w-full min-w-0 px-3 py-4',
             empty && 'min-h-full justify-center',
           )}
           style={chatZoom !== 100 ? { zoom: chatZoom / 100 } : undefined}

@@ -135,7 +135,7 @@ export function DiffViewer({
                   onClick={() => setDiffStyle(style)}
                   aria-pressed={diffStyle === style}
                   className={cn(
-                    'h-6 rounded-[4px] px-2 text-caption capitalize transition-colors duration-fast',
+                    'h-6 rounded px-2 text-caption capitalize transition-colors duration-fast',
                     diffStyle === style
                       ? 'bg-surface-3 text-fg-primary'
                       : 'text-fg-tertiary hover:text-fg-secondary',
