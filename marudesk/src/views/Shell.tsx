@@ -5,6 +5,7 @@ import { useGridStore } from '../features/tabs/grid';
 import { WorkGraphStage } from '../features/work-graph/WorkGraphStage';
 import { InstrumentDock } from '../features/work-graph/InstrumentDock';
 import { InstrumentStage } from '../features/work-graph/InstrumentStage';
+import { InstrumentRail } from '../features/work-graph/InstrumentRail';
 import { openInstrument, reopenTabInstrument, useInstrumentStore } from '../features/work-graph/instrument';
 import { useWorkspaceDeckStore } from '../features/workspaces/store';
 import { EvidenceStrip } from '../features/work-graph/EvidenceStrip';
@@ -398,6 +399,12 @@ export function Shell() {
     <div className="h-screen w-screen flex flex-col bg-surface-page text-fg-primary overflow-hidden">
       <TitleBar />
       <div className="flex-1 min-h-0 flex">
+        {/* Always-visible launcher for the staple tools — the discoverable front
+            door the Mission Control redesign removed with the legacy ActivityBar.
+            Each button summons the same instrument as the matching ⌘K command. */}
+        <ErrorBoundary label="rail">
+          <InstrumentRail />
+        </ErrorBoundary>
         {/* The Task graph is the home; a selected node opens the Instrument Dock,
             and a summoned tool replaces the graph in the main area. */}
         <main data-stage-region className="flex-1 min-w-0 flex">
