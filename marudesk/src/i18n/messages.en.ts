@@ -307,6 +307,7 @@ export const EN_MESSAGES = {
   'workGraph.note.applyFailed': 'Applying the patch failed.',
   'workGraph.note.crossWorkspace': "Switch to the task's workspace before applying this patch.",
   'workGraph.note.providerUnavailable': 'Provider became unavailable — remaining tasks were not run.',
+  'workGraph.note.noReadyReset': 'No tasks are ready — Reset to retry, or edit a task to unblock it.',
   'workGraph.node.decision': 'Decision',
   'workGraph.node.deleteTask': 'Delete task',
   'workGraph.node.cycleStatusTitle': 'Click to cycle status: Planned to Done to Failed to Review.',

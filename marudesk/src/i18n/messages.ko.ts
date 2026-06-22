@@ -306,6 +306,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'workGraph.note.applyFailed': '패치 적용에 실패했습니다.',
   'workGraph.note.crossWorkspace': '이 패치를 적용하려면 먼저 해당 작업의 워크스페이스로 전환하세요.',
   'workGraph.note.providerUnavailable': '제공자를 사용할 수 없게 되어 남은 작업은 실행되지 않았습니다.',
+  'workGraph.note.noReadyReset': '실행할 수 있는 작업이 없습니다 — 재설정하여 다시 시도하거나, 작업을 편집해 차단을 해제하세요.',
   'workGraph.node.decision': '결정',
   'workGraph.node.deleteTask': '작업 삭제',
   'workGraph.node.cycleStatusTitle': '클릭하여 상태 전환: 계획됨 → 완료 → 실패 → 검토.',

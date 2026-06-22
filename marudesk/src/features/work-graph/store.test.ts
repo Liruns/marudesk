@@ -114,6 +114,33 @@ describe('write actions are blocked while a patch is applying', () => {
   });
 });
 
+describe('run() dead-end recovery hint', () => {
+  beforeEach(() => {
+    useWorkGraphStore.setState({ running: false, applyingPatchTaskId: null });
+    (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
+      invoke: async (channel: string) => {
+        if (channel === 'workos:run-task') return { ok: true, status: 'failed', result: 'nope', outputs: [] };
+        return undefined;
+      },
+      on: () => () => {},
+    };
+  });
+
+  it('points the user at Reset when a run settles with a failed task and nothing ready', async () => {
+    const sample = sampleGraph('dead end');
+    const first = sample.tasks[0];
+    expect(first).toBeTruthy();
+    if (!first) return;
+    // One planned task so the run settles right after it fails (no ready set left).
+    useWorkGraphStore.getState().setGraph({ ...sample, tasks: [{ ...first, status: 'planned' }], edges: [] });
+
+    await useWorkGraphStore.getState().run();
+
+    expect(useWorkGraphStore.getState().runNote).toMatch(/Reset to retry/);
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+});
+
 describe('acceptance criteria editing', () => {
   it('adds a criterion immutably and leaves other tasks untouched', () => {
     const graph = sampleGraph('criteria add');

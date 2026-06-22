@@ -799,7 +799,20 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         const graph = get().graph;
         if (!graph) break;
         const ready = readyTasks(graph);
-        if (ready.length === 0) break;
+        if (ready.length === 0) {
+          // Settled with nothing ready. If any task is failed/blocked/needs_review
+          // it's a dead-end — Run and Implement-ready both go inert, and the only way
+          // forward is Reset, which nothing tells the user. Point them at it (without
+          // clobbering a more specific note already set this run, e.g. the dry-run or
+          // provider-dropped note).
+          if (owns() && !get().runNote) {
+            const stuck = graph.tasks.some(
+              (t) => t.status === 'failed' || t.status === 'blocked' || t.status === 'needs_review',
+            );
+            if (stuck) set({ runNote: getMessage(currentLocale(), 'workGraph.note.noReadyReset') });
+          }
+          break;
+        }
         const goal = graph.goal;
         // Mark the whole ready set running (visualizes the parallel layer).
         set((s) => (s.graph ? { graph: ready.reduce((g, t) => setStatus(g, t.id, 'running'), s.graph) } : {}));
