@@ -273,7 +273,7 @@ export function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elaps
           readers hear the turn lifecycle — Thinking → Working → Done — once. */}
       <span aria-live="polite">{t(STATUS_LABEL_KEY[status])}</span>
       {busy && elapsed > 0 ? (
-        <span className="text-fg-tertiary/70">{formatElapsed(elapsed)}</span>
+        <span className="text-fg-quaternary">{formatElapsed(elapsed)}</span>
       ) : null}
     </span>
   );

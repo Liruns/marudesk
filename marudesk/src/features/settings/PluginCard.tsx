@@ -65,8 +65,8 @@ export function PluginCard({ status, busy, onToggle, onRemove }: PluginCardProps
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-body-sm font-medium text-fg-primary truncate">{status.name}</span>
           <StatusBadge status={status} />
-          <span className="text-caption uppercase tracking-wide text-fg-tertiary/70 shrink-0">{status.scope}</span>
-          <span className="text-caption font-mono text-fg-tertiary/70 shrink-0">v{status.version}</span>
+          <span className="text-caption uppercase tracking-wide text-fg-quaternary shrink-0">{status.scope}</span>
+          <span className="text-caption font-mono text-fg-quaternary shrink-0">v{status.version}</span>
         </div>
         {status.permissions.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1">

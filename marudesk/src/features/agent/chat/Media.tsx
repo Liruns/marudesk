@@ -180,7 +180,7 @@ function GeneratedMedia({ artifact }: { artifact: ToolMediaArtifact }) {
       {zoomed && load.status === 'ready' ? (
         <Lightbox src={load.dataUrl} alt={name} onClose={() => setZoomed(false)} />
       ) : null}
-      <figcaption className="flex items-center gap-1 text-[10px] text-fg-tertiary/80">
+      <figcaption className="flex items-center gap-1 text-micro text-fg-quaternary">
         <Icon size={10} className="shrink-0" />
         <span className="truncate" title={artifact.path}>
           {name}

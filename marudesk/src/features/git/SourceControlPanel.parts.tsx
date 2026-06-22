@@ -196,7 +196,7 @@ export function FileRow({
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
         <span className="truncate text-body-sm text-fg-primary">{baseName(change.path)}</span>
-        {dir ? <span className="truncate text-caption text-fg-tertiary/80">{dir}</span> : null}
+        {dir ? <span className="truncate text-caption text-fg-quaternary">{dir}</span> : null}
       </button>
       {/* Hover-revealed row actions on the right. */}
       <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">

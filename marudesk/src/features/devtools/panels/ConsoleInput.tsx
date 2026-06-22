@@ -271,7 +271,7 @@ export function ConsoleInput() {
             className="pointer-events-none absolute inset-0 flex items-center font-mono text-caption whitespace-pre overflow-hidden"
           >
             <span className="invisible">{input}</span>
-            <span className="text-fg-tertiary/60">{ghost}</span>
+            <span className="text-fg-quaternary">{ghost}</span>
           </div>
         ) : null}
         <input

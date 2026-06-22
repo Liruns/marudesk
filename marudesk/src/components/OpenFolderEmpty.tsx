@@ -39,7 +39,8 @@ export function OpenFolderEmpty({
         disabled={opening}
         className={cn(
           'mt-1 inline-flex items-center gap-2 h-8 px-3 rounded-md text-body-sm',
-          'bg-accent text-white transition-opacity duration-fast',
+          'bg-accent text-white transition-opacity duration-fast active:scale-[0.99]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
           opening ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-90',
         )}
       >

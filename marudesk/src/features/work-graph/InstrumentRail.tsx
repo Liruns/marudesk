@@ -110,7 +110,7 @@ function RailButton({ item, active }: { item: RailItem; active: boolean }) {
       title={label}
       className={cn(
         'no-drag group relative flex flex-col items-center gap-1 rounded-lg py-2',
-        'text-fg-tertiary transition-colors duration-fast',
+        'text-fg-tertiary transition-colors duration-fast active:scale-[0.99]',
         'hover:bg-surface-3 hover:text-fg-secondary',
         'focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
         active && 'bg-accent-subtle text-accent hover:bg-accent-subtle hover:text-accent',
@@ -125,7 +125,7 @@ function RailButton({ item, active }: { item: RailItem; active: boolean }) {
         )}
       />
       <Icon size={18} />
-      <span className="text-[10px] font-medium leading-none tracking-tight">{label}</span>
+      <span className="text-micro font-medium leading-none">{label}</span>
     </button>
   );
 }
@@ -140,7 +140,7 @@ export function InstrumentRail() {
   return (
     <nav
       aria-label={t('rail.label')}
-      className="no-drag flex w-[60px] shrink-0 flex-col gap-1 border-r border-default bg-surface-1 px-1.5 py-2"
+      className="no-drag flex w-[60px] shrink-0 flex-col gap-1 border-r border-default bg-surface-1 px-1.5 py-2 animate-fade-rise"
     >
       {TOOLS.map((item) => (
         <RailButton key={item.id} item={item} active={isActive(item.kind)} />

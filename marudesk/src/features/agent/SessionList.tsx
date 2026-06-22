@@ -151,7 +151,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                       >
                         {s.title || t('agent.sessions.untitled')}
                       </span>
-                      <span className="truncate text-micro leading-none text-fg-tertiary/70 tabular-nums">
+                      <span className="truncate text-micro leading-none text-fg-quaternary tabular-nums">
                         {relativeTime(s.updatedAt, t)}
                         <span className="mx-1 opacity-50">·</span>
                         {s.messageCount}

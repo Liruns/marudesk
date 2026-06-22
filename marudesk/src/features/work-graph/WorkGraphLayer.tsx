@@ -643,7 +643,7 @@ export function WorkGraphPanel() {
               type="button"
               onClick={() => void openWorkspace()}
               disabled={opening}
-              className="inline-flex items-center gap-1.5 h-7 shrink-0 rounded bg-surface-2 px-2 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+              className="inline-flex items-center gap-1.5 h-7 shrink-0 rounded bg-surface-2 px-2 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
             >
               {opening ? <Spinner size={13} /> : <FolderOpen size={13} />}
               {t('workspace.action.openFolder')}

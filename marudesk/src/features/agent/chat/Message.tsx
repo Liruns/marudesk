@@ -288,7 +288,7 @@ function ThinkingBlock({
       </button>
       {open ? (
         <div className="px-3 pb-2.5 pt-0 border-t border-subtle/50">
-          <p className="mt-2 text-caption text-fg-tertiary/70 whitespace-pre-wrap break-words leading-relaxed">
+          <p className="mt-2 text-caption text-fg-quaternary whitespace-pre-wrap break-words leading-relaxed">
             {text}
             {streaming ? <StreamCaret /> : null}
           </p>
@@ -397,14 +397,14 @@ const ToolCardView = memo(function ToolCardView({
           {hasLive ? (
             <div className="mt-2 flex flex-col gap-1">
               {call.streamedText ? (
-                <pre className="m-0 font-mono text-caption text-fg-tertiary/80 whitespace-pre-wrap break-words max-h-40 overflow-y-auto leading-relaxed">
+                <pre className="m-0 font-mono text-caption text-fg-quaternary whitespace-pre-wrap break-words max-h-40 overflow-y-auto leading-relaxed">
                   {call.streamedText}
                 </pre>
               ) : null}
               {call.streamedTraces && call.streamedTraces.length > 0 ? (
                 <ul className="m-0 list-none p-0 flex flex-col gap-0.5">
                   {call.streamedTraces.map((trace, i) => (
-                    <li key={i} className="text-fg-tertiary/60 truncate font-mono text-caption">
+                    <li key={i} className="text-fg-quaternary truncate font-mono text-caption">
                       · {trace}
                     </li>
                   ))}
@@ -417,7 +417,7 @@ const ToolCardView = memo(function ToolCardView({
               <div className="absolute top-1.5 right-1.5 opacity-0 group-hover/out:opacity-100 transition-opacity duration-fast">
                 <CopyButton text={call.resultText} label={t('agent.chat.copyOutput')} />
               </div>
-              <pre className="m-0 mt-1.5 font-mono text-caption text-fg-tertiary/70 whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
+              <pre className="m-0 mt-1.5 font-mono text-caption text-fg-quaternary whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
                 {call.resultText}
               </pre>
             </div>
