@@ -3,6 +3,7 @@ import type { RunTaskResult } from '../../../shared/work-os';
 import {
   __flushWorkGraphPersist,
   __workGraphPersistStats,
+  demoteStaleRunning,
   freeTaskSlot,
   runWithConcurrency,
   sampleGraph,
@@ -38,6 +39,166 @@ describe('freeTaskSlot', () => {
     const slot = freeTaskSlot({ x: 500, y: 80 }, occupied);
     expect(slot.x).toBe(500);
     expect(occupied.every((o) => !overlaps(slot, o))).toBe(true);
+  });
+});
+
+describe('demoteStaleRunning', () => {
+  it('returns null unchanged', () => {
+    expect(demoteStaleRunning(null)).toBeNull();
+  });
+
+  it('returns the same reference when no task is running (no churn on a clean load)', () => {
+    const graph = sampleGraph('clean load');
+    expect(graph.tasks.every((t) => t.status !== 'running')).toBe(true);
+    expect(demoteStaleRunning(graph)).toBe(graph);
+  });
+
+  it('demotes a stale running task to planned while leaving other statuses intact', () => {
+    const base = sampleGraph('crash mid-run');
+    const graph = {
+      ...base,
+      tasks: base.tasks.map((t, i) =>
+        i === 0 ? { ...t, status: 'running' as const } : i === 1 ? { ...t, status: 'done' as const } : t,
+      ),
+    };
+    const out = demoteStaleRunning(graph);
+    expect(out).not.toBeNull();
+    expect(out?.tasks[0]?.status).toBe('planned');
+    expect(out?.tasks[1]?.status).toBe('done');
+    expect(out?.tasks.some((t) => t.status === 'running')).toBe(false);
+  });
+});
+
+describe('write actions are blocked while a patch is applying', () => {
+  let invoked: string[];
+
+  beforeEach(() => {
+    invoked = [];
+    // Inbound isolation: the ONLY thing blocking the actions must be the
+    // applyingPatchTaskId set in the test body — pin running false so a leaked
+    // `running: true` from an earlier test can't make the assertion pass for the
+    // wrong reason.
+    useWorkGraphStore.setState({ running: false, applyingPatchTaskId: null });
+    (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
+      invoke: async (channel: string) => {
+        if (channel === 'workos:implement-task' || channel === 'workos:run-task') {
+          invoked.push(channel);
+          return { ok: true, status: 'done', result: 'x', outputs: [] };
+        }
+        return undefined;
+      },
+      on: () => () => {},
+    };
+  });
+
+  afterEach(() => {
+    useWorkGraphStore.setState({ applyingPatchTaskId: null, running: false });
+  });
+
+  it('implementTask / runOne / implementReady no-op while applyingPatchTaskId is set', async () => {
+    const graph = sampleGraph('apply guard');
+    useWorkGraphStore.getState().setGraph(graph);
+    const target = useWorkGraphStore.getState().graph?.tasks[0];
+    expect(target).toBeTruthy();
+    if (!target) return;
+
+    // A patch is mid-apply to the live tree — no write run may start concurrently,
+    // whatever the entry point (inspector button OR ⌘K verb both hit the store).
+    useWorkGraphStore.setState({ applyingPatchTaskId: target.id });
+
+    await useWorkGraphStore.getState().implementTask(target.id);
+    await useWorkGraphStore.getState().runOne(target.id);
+    await useWorkGraphStore.getState().implementReady();
+
+    expect(invoked).toEqual([]);
+  });
+});
+
+describe('run() dead-end recovery hint', () => {
+  beforeEach(() => {
+    useWorkGraphStore.setState({ running: false, applyingPatchTaskId: null });
+    (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
+      invoke: async (channel: string) => {
+        if (channel === 'workos:run-task') return { ok: true, status: 'failed', result: 'nope', outputs: [] };
+        return undefined;
+      },
+      on: () => () => {},
+    };
+  });
+
+  it('points the user at Reset when a run settles with a failed task and nothing ready', async () => {
+    const sample = sampleGraph('dead end');
+    const first = sample.tasks[0];
+    expect(first).toBeTruthy();
+    if (!first) return;
+    // One planned task so the run settles right after it fails (no ready set left).
+    useWorkGraphStore.getState().setGraph({ ...sample, tasks: [{ ...first, status: 'planned' }], edges: [] });
+
+    await useWorkGraphStore.getState().run();
+
+    expect(useWorkGraphStore.getState().runNote).toMatch(/Reset to retry/);
+    expect(useWorkGraphStore.getState().running).toBe(false);
+  });
+});
+
+describe('resetRun / clearGraph / stopRun (recovery + teardown)', () => {
+  it('resetRun re-arms every task (planned, verdicts unknown, evidence + outputs dropped) and clears run state', () => {
+    const base = sampleGraph('reset');
+    const first = base.tasks[0];
+    expect(first).toBeTruthy();
+    if (!first) return;
+    useWorkGraphStore.getState().setGraph({
+      ...base,
+      tasks: [
+        {
+          ...first,
+          status: 'done',
+          outputs: [{ id: 'r1', kind: 'code', uri: 'file:///f.ts' }],
+          acceptance: [{ id: 'c1', text: 'works', verdict: 'pass' }],
+          evidence: { trajectory: [], result: 'did it', patch: 'diff --git a/f b/f\n+x' },
+        },
+        ...base.tasks.slice(1),
+      ],
+    });
+    useWorkGraphStore.setState({ lastAppliedTaskId: first.id, runNote: 'note' });
+
+    useWorkGraphStore.getState().resetRun();
+
+    const t = useWorkGraphStore.getState().graph?.tasks.find((x) => x.id === first.id);
+    expect(t?.status).toBe('planned');
+    expect(t?.outputs).toEqual([]);
+    expect(t?.acceptance.every((c) => c.verdict === 'unknown')).toBe(true);
+    expect(t?.evidence).toBeUndefined();
+    expect(useWorkGraphStore.getState().lastAppliedTaskId).toBeNull();
+    expect(useWorkGraphStore.getState().runNote).toBeNull();
+  });
+
+  it('stopRun returns an in-flight task to planned, bumps the run token, and clears running', () => {
+    const base = sampleGraph('stop');
+    const first = base.tasks[0];
+    if (!first) return;
+    useWorkGraphStore.getState().setGraph({ ...base, tasks: [{ ...first, status: 'running' }, ...base.tasks.slice(1)] });
+    useWorkGraphStore.setState({ running: true });
+    const before = useWorkGraphStore.getState().runToken;
+
+    useWorkGraphStore.getState().stopRun();
+
+    const s = useWorkGraphStore.getState();
+    expect(s.running).toBe(false);
+    expect(s.runToken).toBe(before + 1);
+    expect(s.graph?.tasks.find((x) => x.id === first.id)?.status).toBe('planned');
+  });
+
+  it('clearGraph drops the graph and all run state', () => {
+    useWorkGraphStore.getState().setGraph(sampleGraph('clear'));
+    useWorkGraphStore.setState({ selectedTaskId: 't_x', runNote: 'n', lastAppliedTaskId: 't_y' });
+    useWorkGraphStore.getState().clearGraph();
+    const s = useWorkGraphStore.getState();
+    expect(s.graph).toBeNull();
+    expect(s.selectedTaskId).toBeNull();
+    expect(s.running).toBe(false);
+    expect(s.runNote).toBeNull();
+    expect(s.lastAppliedTaskId).toBeNull();
   });
 });
 

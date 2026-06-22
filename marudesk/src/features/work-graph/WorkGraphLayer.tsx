@@ -494,6 +494,15 @@ function nextStatus(s: TaskStatus): TaskStatus {
  * Run (dependency-ordered simulate) / Add task / Clear. Rendered as a WorkGraphStage
  * overlay (sibling of the transformed node plane).
  */
+// First-run starter goals — clicking one fills the input so a new user faces
+// concrete examples instead of a blank required field. Shown only on an empty
+// stage; the offline sample makes them work even with no provider.
+const EXAMPLE_GOAL_KEYS = [
+  'workGraph.exampleGoal.darkMode',
+  'workGraph.exampleGoal.tests',
+  'workGraph.exampleGoal.docs',
+] as const;
+
 export function WorkGraphPanel() {
   const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
@@ -507,6 +516,7 @@ export function WorkGraphPanel() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -521,6 +531,12 @@ export function WorkGraphPanel() {
     return () => clearTimeout(id);
   }, [confirmClear]);
 
+  useEffect(() => {
+    if (!confirmRegenerate) return;
+    const id = setTimeout(() => setConfirmRegenerate(false), 3000);
+    return () => clearTimeout(id);
+  }, [confirmRegenerate]);
+
   // Try the AI decomposer; fall back to a deterministic offline sample so the
   // loop always works without a configured provider (and explain why).
   const generate = async () => {
@@ -533,7 +549,10 @@ export function WorkGraphPanel() {
         useWorkGraphStore.getState().setGraph(res.graph);
       } else {
         useWorkGraphStore.getState().setGraph(sampleGraph(goal));
-        setNotice(t('workGraph.offlineSample').replace('{reason}', res.reason));
+        // Friendly, actionable notice — NOT the raw provider error. A first-time
+        // user with no key otherwise saw "Failed after 3 attempts. Cannot connect
+        // to API", which reads like a crash for what is really "no provider yet".
+        setNotice(t('workGraph.offlineSample'));
       }
     } catch {
       useWorkGraphStore.getState().setGraph(sampleGraph(goal));
@@ -541,6 +560,20 @@ export function WorkGraphPanel() {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Generating replaces the whole graph (setGraph resets tasks/pos/selection), so
+  // when one already exists require a confirming second press — the same two-step
+  // guard as Clear — protecting manual edits, added criteria, and node positions
+  // from a stray Enter in a still-populated goal field.
+  const requestGenerate = (): void => {
+    if (busy || goal.trim().length === 0) return;
+    if (useWorkGraphStore.getState().graph && !confirmRegenerate) {
+      setConfirmRegenerate(true);
+      return;
+    }
+    setConfirmRegenerate(false);
+    void generate();
   };
 
   const summary = graph
@@ -563,21 +596,44 @@ export function WorkGraphPanel() {
           aria-label={t('workGraph.goal')}
           title={t('workGraph.goalTitle')}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && goal.trim().length > 0) void generate();
+            if (e.key === 'Enter' && goal.trim().length > 0) requestGenerate();
           }}
           className="h-8 min-w-0 flex-1 rounded bg-surface-2 border border-subtle px-2 text-body-sm text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent focus:shadow-focus-accent transition-shadow duration-fast"
         />
         <button
           type="button"
           disabled={busy || goal.trim().length === 0}
-          onClick={() => void generate()}
+          onClick={() => requestGenerate()}
           className="inline-flex items-center gap-1.5 h-8 shrink-0 rounded bg-accent px-2.5 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
         >
           {busy && <Spinner size={14} label={t('workGraph.generating')} />}{t('workGraph.generate')}
         </button>
       </div>
+      {!graph && goal.trim().length === 0 ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-caption text-fg-tertiary">{t('workGraph.exampleGoal.label')}</span>
+          {EXAMPLE_GOAL_KEYS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setGoal(t(key));
+                inputRef.current?.focus();
+              }}
+              className="rounded-pill bg-surface-2 px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
+            >
+              {t(key)}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
-      <div className="mt-2 flex items-center gap-1.5">
+      {confirmRegenerate ? (
+        <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">
+          {t('workGraph.regenerateConfirm')}
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           disabled={!graph}
@@ -585,8 +641,8 @@ export function WorkGraphPanel() {
           onClick={() => (running ? useWorkGraphStore.getState().stopRun() : void useWorkGraphStore.getState().run())}
           className={
             running
-              ? 'inline-flex h-7 items-center gap-1 rounded bg-surface-2 border border-default px-2.5 text-caption text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
-              : 'inline-flex h-7 items-center gap-1 rounded bg-accent px-2.5 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
+              ? 'inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded bg-surface-2 border border-default px-2.5 text-caption text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
+              : 'inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded bg-accent px-2.5 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
           }
         >
           {running ? <Spinner size={12} label={t('workGraph.runInProgress')} /> : <Play size={12} />}
@@ -596,7 +652,7 @@ export function WorkGraphPanel() {
           type="button"
           disabled={running}
           onClick={() => useWorkGraphStore.getState().addTask()}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Plus size={12} />
           {t('workGraph.addTask')}
@@ -606,7 +662,7 @@ export function WorkGraphPanel() {
           disabled={!graph || running}
           onClick={() => useWorkGraphStore.getState().resetRun()}
           title={t('workGraph.resetTitle')}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <RotateCcw size={12} />
           {t('workGraph.reset')}
@@ -616,7 +672,7 @@ export function WorkGraphPanel() {
           disabled={!graph || running || readyCount === 0}
           onClick={() => void useWorkGraphStore.getState().implementReady()}
           title={t('workGraph.implementReadyTitle')}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Wrench size={12} />
           {t('workGraph.implementReady')}
@@ -634,7 +690,7 @@ export function WorkGraphPanel() {
               setConfirmClear(true);
             }
           }}
-          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-caption text-fg-tertiary hover:bg-error-subtle hover:text-error disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="ml-auto inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md px-2 text-caption text-fg-tertiary hover:bg-error-subtle hover:text-error disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Trash2 size={12} />
         </button>

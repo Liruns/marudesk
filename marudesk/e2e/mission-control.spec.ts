@@ -89,6 +89,32 @@ test('mission control: selecting a task opens its dock chat and the flight log l
   }
 });
 
+test('mission control: regenerating over an existing graph confirms before replacing it', async () => {
+  const { app, page } = await launchApp();
+  try {
+    await seedGraph(page);
+    const node = page.locator('[data-task-node="t1"]');
+    await expect(node).toBeVisible();
+
+    // A new goal + Enter (the exact stray-keystroke this guards) must NOT wipe the
+    // existing graph on the first press: it arms a confirm (the same two-step guard
+    // as Clear), so manual edits, criteria, and node positions can't be lost.
+    const goalBox = page.getByRole('textbox', { name: 'Goal' });
+    await goalBox.fill('A different goal');
+    await goalBox.press('Enter');
+    await expect(page.getByText(/Press Generate again to confirm/i)).toBeVisible();
+    await expect(node).toBeVisible(); // original task intact — first press destroyed nothing
+
+    // The confirming second press replaces the graph (offline sample, no provider
+    // needed): the original task is gone, proving the destructive action is reachable
+    // — just gated behind the confirm.
+    await goalBox.press('Enter');
+    await expect(node).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
 test('mission control: the flight log moves focus inside on open and restores it on close', async () => {
   const { app, page } = await launchApp();
   try {

@@ -52,6 +52,30 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
   const selectedOpen = useWorkGraphStore((s) => s.selectedTaskId !== null);
   const inspectorOpen = !docked && selectedOpen;
 
+  // Keyboard a11y: when a node's selection clears (Escape on the stage, the
+  // inspector/dock close button), return focus to the node — it carries tabIndex=0
+  // — so keyboard users keep their place instead of being dropped to document
+  // start. Mirrors the Flight Log's focus-restore. Only when focus was left stale
+  // (the now-tabIndex=-1 stage, the body, or the collapsing dock), never if the
+  // user has since moved focus somewhere deliberate.
+  const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
+  const prevSelectedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevSelectedRef.current;
+    prevSelectedRef.current = selectedTaskId;
+    if (!prev || selectedTaskId !== null) return;
+    const node = document.querySelector<HTMLElement>(`[data-task-node="${prev}"]`);
+    if (!node) return;
+    const active = document.activeElement;
+    const stale =
+      active === null ||
+      active === document.body ||
+      (active instanceof HTMLElement &&
+        (active.closest('[data-stage="workgraph"]') !== null ||
+          active.closest('[aria-label="Task instrument dock"]') !== null));
+    if (stale) node.focus();
+  }, [selectedTaskId]);
+
   // Single entry point for viewport changes: mirror into `vpRef` (so the stable
   // callbacks read the live value) and into React state (so the plane re-renders).
   // Accepts either a Viewport or a functional updater, matching setVp's contract.
@@ -239,7 +263,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
             <p className="text-caption text-fg-tertiary">
               {t('workGraph.stage.emptyBody')}
             </p>
-            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">{t('workGraph.stage.linkHint')}</p>
+            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">{t('workGraph.stage.emptyPaletteHint')}</p>
           </div>
         </div>
       ) : null}

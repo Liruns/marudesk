@@ -21,7 +21,12 @@ export function AutomationsSettings() {
   // create form
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [everyMinutes, setEveryMinutes] = useState(60);
+  // Held as a raw string so clearing the field to retype doesn't snap to the
+  // 5-min floor mid-keystroke (the old number state did `Math.max(5, … || 5)` on
+  // every change, so deleting to type "120" reset to 5). Clamp to a whole-minute
+  // >= 5 only on blur / create.
+  const [everyMinutes, setEveryMinutes] = useState('60');
+  const clampMinutes = (v: string): number => Math.max(5, Math.floor(Number(v)) || 5);
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [model, setModel] = useState(DEFAULT_MODEL);
 
@@ -42,7 +47,7 @@ export function AutomationsSettings() {
         prompt: prompt.trim(),
         provider: provider.trim() || DEFAULT_PROVIDER,
         model: model.trim() || DEFAULT_MODEL,
-        schedule: { kind: 'interval', everyMinutes },
+        schedule: { kind: 'interval', everyMinutes: clampMinutes(everyMinutes) },
         allowTools: [],
         enabled: true,
       });
@@ -158,7 +163,8 @@ export function AutomationsSettings() {
               type="number"
               min={5}
               value={everyMinutes}
-              onChange={(e) => setEveryMinutes(Math.max(5, Number(e.target.value) || 5))}
+              onChange={(e) => setEveryMinutes(e.target.value)}
+              onBlur={() => setEveryMinutes(String(clampMinutes(everyMinutes)))}
               className="w-16 rounded border border-subtle bg-surface-page px-2 py-1 text-body-sm text-fg-primary"
             />
           </label>

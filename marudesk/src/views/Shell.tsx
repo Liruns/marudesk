@@ -29,6 +29,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { toast } from '../lib/toast';
 import { useI18n } from '../i18n/useI18n';
 import { Tour } from '../features/tour/Tour';
+import { hasSeenTour, useTourStore } from '../features/tour/tourStore';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
 import type { EventPayload } from '../../shared/ipc';
@@ -119,6 +120,16 @@ export function Shell() {
   // A Task can summon an instrument (browser/editor/terminal) into the main area;
   // while one is open it replaces the graph, then "← Graph" closes it.
   const instrumentTabId = useInstrumentStore((s) => s.tabId);
+
+  // First-run onboarding: auto-start the product tour exactly once. Mission Control
+  // dropped a new user onto an empty stage with no guidance — yet a built, localized,
+  // a11y-correct Tour (welcome · ⌘K · goal · implement · apply · workspace · flight
+  // log) already existed and only fired from a ⌘K verb you couldn't find. Fire it on
+  // first launch; close() marks it seen so it shows exactly once. (e2e/screens seed
+  // the seen flag in launchApp so the overlay never blocks automated runs.)
+  useEffect(() => {
+    if (!hasSeenTour()) useTourStore.getState().start();
+  }, []);
 
   // Keyboard shortcuts while the React chrome has focus. The mirror case — the
   // embedded web page having focus — is handled in the main process'
@@ -340,19 +351,25 @@ export function Shell() {
       const wasBusy = prev === 'thinking' || prev === 'working';
       if (!wasBusy || (status !== 'completed' && status !== 'waiting_for_user')) return;
 
-      // The AI Chat instrument's thread (only when an 'agent' instrument is open).
+      // The AI Chat instrument's thread(s) — an 'agent' instrument open in EITHER
+      // pane of a split is a visible agent surface, so suppress both.
       const instrument = useInstrumentStore.getState();
-      const instrumentThreadId =
-        instrument.kind === 'agent' && instrument.tabId
-          ? cardThreadId(instrument.tabId)
-          : null;
+      const visibleAgentThreads = new Set<string>();
+      if (instrument.kind === 'agent' && instrument.tabId) {
+        const tid = cardThreadId(instrument.tabId);
+        if (tid) visibleAgentThreads.add(tid);
+      }
+      if (instrument.secondaryKind === 'agent' && instrument.secondaryTabId) {
+        const tid = cardThreadId(instrument.secondaryTabId);
+        if (tid) visibleAgentThreads.add(tid);
+      }
       // The thread the dock chat is ACTUALLY rendering (the selected task's own
       // thread, or — when acquiring it failed — the workspace conversation it
       // falls back to and visibly shows). Published by the dock's TaskChat so a
       // fallback completion on a visible thread doesn't wrongly toast.
       const dockThreadId = dockRenderedThreadId();
 
-      if (threadId === instrumentThreadId || threadId === dockThreadId) return;
+      if (visibleAgentThreads.has(threadId) || threadId === dockThreadId) return;
       toast({
         title: t(status === 'completed' ? 'agent.notify.completed' : 'agent.notify.question'),
         variant: status === 'completed' ? 'success' : 'warning',

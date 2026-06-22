@@ -31,6 +31,24 @@ export function PluginCard({ status, busy, onToggle, onRemove }: PluginCardProps
   const [logsOpen, setLogsOpen] = useState(false);
   const [logLines, setLogLines] = useState<readonly string[]>([]);
 
+  // Enabling a plugin grants ALL its declared permissions at once (the manager
+  // writes granted: declared) — including cmd (shell exec), fs:write, and net. A
+  // single Switch flip is otherwise a high-impact grant with no consent step, so
+  // confirm first and enumerate exactly what is being granted.
+  const SENSITIVE: ReadonlySet<string> = new Set(['cmd', 'fs:write', 'net']);
+  const handleToggle = (next: boolean): void => {
+    if (next && status.permissions.length > 0) {
+      let message = t('settings.plugins.grantConfirm')
+        .replace('{name}', status.name)
+        .replace('{perms}', status.permissions.join(', '));
+      if (status.permissions.some((perm) => SENSITIVE.has(perm))) {
+        message += `\n\n${t('settings.plugins.grantConfirmSensitive')}`;
+      }
+      if (!window.confirm(message)) return;
+    }
+    void onToggle(status.id, next);
+  };
+
   const toggleLogs = async (): Promise<void> => {
     const next = !logsOpen;
     setLogsOpen(next);
@@ -93,7 +111,7 @@ export function PluginCard({ status, busy, onToggle, onRemove }: PluginCardProps
         <Switch
           checked={on}
           disabled={busy}
-          onChange={(next) => void onToggle(status.id, next)}
+          onChange={handleToggle}
           label={`${on ? t('settings.plugins.toggle.disable') : t('settings.plugins.toggle.enable')} ${status.name}`}
         />
       </div>

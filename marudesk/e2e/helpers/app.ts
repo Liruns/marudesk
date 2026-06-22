@@ -33,6 +33,12 @@ export async function launchApp(opts?: {
   /** Keep the first-run home guide open (for tests that exercise the guide). */
   keepHomeGuide?: boolean;
   /**
+   * Keep the first-run product tour. It auto-starts on a fresh profile; tests seed
+   * it as already-seen by default so the overlay doesn't block interactions. Pass
+   * true to let it fire (e.g. to screenshot it).
+   */
+  keepTour?: boolean;
+  /**
    * Which stage surface to start on. Maru defaults to the infinite **canvas**,
    * but most specs drive the classic tab strip / split grid, so tests default to
    * `'classic'`. The canvas spec opts into `'canvas'`; the Work OS spec into
@@ -63,7 +69,16 @@ export async function launchApp(opts?: {
   // ships canvas-first, but the classic-shell specs assume the tab strip / grid
   // on launch, so tests default to 'classic' unless they opt into the canvas.
   const surface = opts?.surface ?? 'classic';
-  await page.evaluate((mode) => localStorage.setItem('maru.surface', mode), surface);
+  await page.evaluate(
+    ({ mode, seenTour }) => {
+      localStorage.setItem('maru.surface', mode);
+      // The first-run product tour auto-starts on a fresh profile; seed it as seen so
+      // its overlay doesn't intercept clicks in automated runs. Tests that exercise
+      // the tour start it explicitly (⌘K "Take a Tour") or pass keepTour.
+      if (seenTour) localStorage.setItem('marudesk.tour.v1', '1');
+    },
+    { mode: surface, seenTour: opts?.keepTour !== true },
+  );
   await page.reload();
   await page.waitForLoadState('domcontentloaded');
   // A fresh userData dir is always "first run", so the home guide auto-opens.

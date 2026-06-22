@@ -121,6 +121,19 @@ export function WorkGraphInspectorContent() {
   // A failed/blocked task frames its primary action as RETRY (the call is the same
   // implementTask); a normal task keeps the exact "Implement" label e2e asserts.
   const needsRetry = task.status === 'failed' || task.status === 'blocked';
+  // Why the write actions are blocked, when they are. `running` is global, so
+  // selecting a DIFFERENT task while one runs showed greyed Implement/Run buttons
+  // with no explanation (looked broken); and a patch applying to the live tree
+  // (applyingPatchTaskId, which Apply already guards on but Implement/Run did not)
+  // must also block a concurrent write. Surfacing the reason — and gating both
+  // actions on the apply — closes both gaps.
+  const writesBlocked = running || applyingPatchTaskId !== null;
+  const blockedReason =
+    applyingPatchTaskId !== null
+      ? t('workGraph.inspector.busyApplying')
+      : running && task.status !== 'running'
+        ? t('workGraph.inspector.busyElsewhere')
+        : null;
   // Resources open in the task's own workspace (via its bound conversation thread),
   // mirroring the ⌘K openInstrument path. Fall back to the active workspace when the
   // task isn't bound yet so nothing regresses.
@@ -183,19 +196,19 @@ export function WorkGraphInspectorContent() {
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          disabled={running}
+          disabled={writesBlocked}
           onClick={() => void useWorkGraphStore.getState().implementTask(taskId)}
-          title={needsRetry ? t('workGraph.inspector.retryTitle') : t('workGraph.inspector.implementTitle')}
+          title={blockedReason ?? (needsRetry ? t('workGraph.inspector.retryTitle') : t('workGraph.inspector.implementTitle'))}
           className="inline-flex items-center gap-1.5 self-start rounded bg-accent px-2.5 py-1 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
         >
-          {running ? <Spinner size={13} label={t('workGraph.inspector.implementing')} /> : <Hammer size={12} />}
+          {running && task.status === 'running' ? <Spinner size={13} label={t('workGraph.inspector.implementing')} /> : <Hammer size={12} />}
           {needsRetry ? t('workGraph.inspector.retry') : t('workGraph.inspector.implement')}
         </button>
         <button
           type="button"
-          disabled={running}
+          disabled={writesBlocked}
           onClick={() => void useWorkGraphStore.getState().runOne(taskId)}
-          title={t('workGraph.inspector.runTaskTitle')}
+          title={blockedReason ?? t('workGraph.inspector.runTaskTitle')}
           className="inline-flex items-center gap-1.5 self-start rounded bg-surface-2 border border-default px-2.5 py-1 text-caption font-medium text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
         >
           <Play size={12} />

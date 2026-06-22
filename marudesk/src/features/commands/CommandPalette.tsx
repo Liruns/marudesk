@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { Code2, Command, Compass, CornerUpLeft, FileDiff, FolderTree, GitBranch, Globe, MessagesSquare, Play, RefreshCw, RotateCcw, Search, Sparkles, SlidersHorizontal, Square, SquareTerminal, Terminal, Wrench } from 'lucide-react';
+import { Code2, Command, Compass, CornerUpLeft, FileDiff, FolderTree, GitBranch, Globe, MessagesSquare, Play, RefreshCw, RotateCcw, Search, Sparkles, SlidersHorizontal, SplitSquareHorizontal, Square, SquareTerminal, Terminal, Wrench } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
 import { readyTasks } from '../../../shared/work-os';
-import { openInstrument, reopenTabInstrument, useInstrumentStore } from '../work-graph/instrument';
+import { openInstrument, reopenTabInstrument, splitInstrument, useInstrumentStore } from '../work-graph/instrument';
 import { openSettingsTab } from '../settings/store';
 import { useFlightLogStore } from '../work-graph/flight-log-store';
 import { useWorkGraphStore } from '../work-graph/store';
@@ -157,6 +157,42 @@ const COMMANDS: Cmd[] = [
     icon: RotateCcw,
     group: 'action',
     run: () => reopenTabInstrument(),
+  },
+  {
+    id: 'split-web',
+    labelKey: 'command.split.web',
+    hintKey: 'command.split.hint',
+    icon: SplitSquareHorizontal,
+    group: 'action',
+    gate: (ctx) => ctx.instrumentOpen,
+    run: () => splitInstrument('web'),
+  },
+  {
+    id: 'split-terminal',
+    labelKey: 'command.split.terminal',
+    hintKey: 'command.split.hint',
+    icon: SplitSquareHorizontal,
+    group: 'action',
+    gate: (ctx) => ctx.instrumentOpen,
+    run: () => splitInstrument('terminal', { workspaceId: activeWorkspaceId() }),
+  },
+  {
+    id: 'split-agent',
+    labelKey: 'command.split.agent',
+    hintKey: 'command.split.hint',
+    icon: SplitSquareHorizontal,
+    group: 'action',
+    gate: (ctx) => ctx.instrumentOpen,
+    run: () => splitInstrument('agent', { workspaceId: activeWorkspaceId() }),
+  },
+  {
+    id: 'split-editor',
+    labelKey: 'command.split.editor',
+    hintKey: 'command.split.hint',
+    icon: SplitSquareHorizontal,
+    group: 'action',
+    gate: (ctx) => ctx.instrumentOpen,
+    run: () => splitInstrument('editor', { workspaceId: activeWorkspaceId() }),
   },
   {
     id: 'run-flight',

@@ -10,8 +10,6 @@ import { cn } from '../../lib/cn';
 import { fuzzyScore } from '../search/fuzzy';
 import { useTabsStore } from './store';
 import { tabKinds } from './registry';
-import { useCanvasStore } from '../canvas/store';
-import { useSurfaceStore } from '../canvas/surface';
 import { useInstrumentStore } from '../work-graph/instrument';
 import type { TabState } from '../../../shared/browser';
 import { useI18n } from '../../i18n/useI18n';
@@ -77,17 +75,11 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
 
   const choose = (tab: TabState) => {
     void activateTab(tab.id);
-    if (useSurfaceStore.getState().mode === 'canvas') {
-      // On the infinite canvas, also pan/zoom to the picked card — otherwise
-      // activating a tab off-screen leaves you staring at empty canvas.
-      useCanvasStore.getState().revealTab(tab.id);
-    } else {
-      // In Mission Control there is no canvas: activating in main alone leaves
-      // the Shell rendering the work graph while a web/terminal view paints over
-      // it (or a feature tab shows nothing). Host the picked tab as the full-area
-      // instrument, mirroring openInstrument / openFileInstrument.
-      useInstrumentStore.getState().open(tab.id, tab.kind);
-    }
+    // Mission Control has no canvas: activating in main alone would leave the Shell
+    // rendering the work graph while a web/terminal view paints over it (or a feature
+    // tab shows nothing). Host the picked tab as the full-area instrument, mirroring
+    // openInstrument / openFileInstrument. (The retired canvas reveal-tab branch is gone.)
+    useInstrumentStore.getState().open(tab.id, tab.kind);
     onClose();
   };
 

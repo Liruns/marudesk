@@ -143,6 +143,11 @@ export function EditorView({ tabId }: { tabId?: string } = {}) {
           <span className="text-fg-tertiary">{t('editor.image.preview')}</span>
         ) : buf.saving ? (
           <span className="text-accent">{t('editor.state.saving')}</span>
+        ) : buf.error ? (
+          <span className="flex items-center gap-1 text-error" title={buf.error}>
+            <span className="size-1.5 rounded-pill bg-error" aria-hidden />
+            {t('editor.state.saveFailed')}
+          </span>
         ) : isDirty(buf) ? (
           <span className="flex items-center gap-1 text-fg-secondary">
             <span className="size-1.5 rounded-pill bg-accent" aria-hidden />

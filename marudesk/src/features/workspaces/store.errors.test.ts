@@ -58,4 +58,60 @@ describe('workspace deck store — failing title-bar actions surface, never thro
       expect.objectContaining({ description: 'ssh dropped', variant: 'error' }),
     );
   });
+
+  // The MUTATIONS (create/rename/delete/add-root/remove-root) are also void-called
+  // from the WorkspaceSwitcher, whose menu has closed by the time a reject lands —
+  // previously they only set `error` (which nothing renders), so a failed action
+  // looked like a no-op. Each must now toast and resolve (never throw).
+  it('createWorkspace toasts and returns null on reject without throwing', async () => {
+    setInvoke(vi.fn(async () => Promise.reject(new Error('disk full'))));
+    await expect(
+      useWorkspaceDeckStore.getState().createWorkspace('Beta', [{ name: 'beta', path: '/tmp/beta' }]),
+    ).resolves.toBeNull();
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'disk full', variant: 'error' }),
+    );
+  });
+
+  it('renameWorkspace toasts on reject without throwing', async () => {
+    setInvoke(vi.fn(async () => Promise.reject(new Error('name taken'))));
+    await expect(
+      useWorkspaceDeckStore.getState().renameWorkspace('ws-1' as WorkspaceId, 'New name'),
+    ).resolves.toBeUndefined();
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'name taken', variant: 'error' }),
+    );
+  });
+
+  it('deleteWorkspace toasts on reject without throwing', async () => {
+    setInvoke(vi.fn(async () => Promise.reject(new Error('workspace in use'))));
+    await expect(
+      useWorkspaceDeckStore.getState().deleteWorkspace('ws-1' as WorkspaceId),
+    ).resolves.toBeUndefined();
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'workspace in use', variant: 'error' }),
+    );
+  });
+
+  it('addRoot toasts and returns null on reject without throwing', async () => {
+    setInvoke(vi.fn(async () => Promise.reject(new Error('add-root failed'))));
+    await expect(
+      useWorkspaceDeckStore.getState().addRoot('ws-1' as WorkspaceId),
+    ).resolves.toBeNull();
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'add-root failed', variant: 'error' }),
+    );
+  });
+
+  it('removeRoot toasts on reject without throwing', async () => {
+    setInvoke(vi.fn(async () => Promise.reject(new Error('remove-root failed'))));
+    await expect(
+      useWorkspaceDeckStore
+        .getState()
+        .removeRoot('ws-1' as WorkspaceId, 'root-1' as WorkspaceRootId),
+    ).resolves.toBeUndefined();
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'remove-root failed', variant: 'error' }),
+    );
+  });
 });
