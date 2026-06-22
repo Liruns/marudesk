@@ -1251,6 +1251,9 @@ export const EN_MESSAGES = {
     "Keys are stored encrypted via the OS keychain (safeStorage) - never written to disk in plaintext. Choose which model to use from the chat's model selector.",
   'settings.providers.getApiKey': 'Get a key',
   'settings.providers.hideKey': 'Hide key',
+  'settings.providers.statusError':
+    "Couldn't check which providers have keys — they may show as “no key” below.",
+  'settings.providers.statusRetry': 'Retry',
   'settings.providers.oauth.agentUsesAfter':
     ' account for this provider (preferred over an API key).',
   'settings.providers.oauth.agentUsesBefore': 'The agent uses your ',

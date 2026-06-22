@@ -1246,6 +1246,9 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
     '키는 OS 키체인(safeStorage)에 암호화되어 저장됩니다. 평문으로 디스크에 쓰이지 않습니다. 모델은 채팅의 모델 선택기에서 고르세요.',
   'settings.providers.getApiKey': '키 발급받기',
   'settings.providers.hideKey': '키 숨기기',
+  'settings.providers.statusError':
+    '어떤 제공자에 키가 있는지 확인하지 못했습니다 — 아래에 “키 없음”으로 표시될 수 있습니다.',
+  'settings.providers.statusRetry': '다시 시도',
   'settings.providers.oauth.agentUsesAfter':
     ' 계정을 이 제공자에 사용합니다(API 키보다 우선).',
   'settings.providers.oauth.agentUsesBefore': '에이전트가 ',
