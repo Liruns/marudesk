@@ -206,8 +206,9 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 Mission Control is a three-band vertical stack (`Shell.tsx`): a slim title/flight bar, the main row, and the Evidence strip. The main row is the dominant zone — it is full-bleed and carries the visual weight.
 
 - **Title/Flight bar (top): 36px tall** (`h-9`, `TitleBar.tsx`). Brand mark, flight status, window controls; `min-w-0` so the center content truncates rather than pushing the window controls. Not a 40px bar.
-- **Main row (`flex-1`):** the home is the **Task graph**, rendered full-area via `WorkGraphStage`. When a task summons a tool, an `InstrumentStage` replaces the graph in the same full-area slot (tools are instruments a task summons, never persistent windows). The stage owns all horizontal space the dock does not.
-- **Instrument Dock (right of the main row): 22.5rem when open, 0 when closed** (`InstrumentDock.tsx`). It is the per-task inspector + chat, opening only when a task node is selected; it animates its width on the motion-standard token. Width is clamped to `calc(100vw - 3rem)` so it never eats the whole row on a narrow window. It is hairline-bordered on the edge facing the stage. There is **no** right drawer and no agent-chat drawer — the former `ContextDrawer` was retired and agent chat moved into this dock.
+- **Instrument rail (left of the main row): 60px** (`InstrumentRail.tsx`). An always-visible launcher for the staple tools (browser, editor, terminal, Source Control, files, search, chat + Settings) — each button summons the same full-area instrument as its ⌘K command. The active instrument's entry lights up. It lines up under the 60px title-bar logo column so the top-left reads as one continuous vertical rail.
+- **Main row (`flex-1`):** the home is the **Task graph**, rendered full-area via `WorkGraphStage`. When a task summons a tool, an `InstrumentStage` replaces the graph in the same full-area slot (tools are instruments a task summons, never persistent windows). The stage owns all horizontal space the rail and dock do not.
+- **Instrument Dock (right of the main row): 22.5rem when open, 0 when closed** (`InstrumentDock.tsx`). It is the per-task inspector + chat, opening only when a task node is selected; it animates its width on the motion-standard token. Width is clamped to `calc(100vw - 60px - 3rem)` — reserving the rail and keeping the stage ≥3rem — so it never eats the whole row on a narrow window. It is hairline-bordered on the edge facing the stage. There is **no** right drawer and no agent-chat drawer — the former `ContextDrawer` was retired and agent chat moved into this dock.
 - **Evidence strip (bottom): 24px tall** (`h-6`, `EvidenceStrip.tsx`). This is the selected task's runtime acceptance verdicts (verdict dots + title), not a generic status bar.
 - No fixed max width — marudesk fills the application window.
 
@@ -260,8 +261,9 @@ marudesk is a desktop application; the responsive surface is narrow. There is no
 | Surface | Behavior under width pressure |
 |---|---|
 | Title/Flight bar | The center content is `min-w-0` and truncates; the brand mark and window controls stay fixed, so the bar never wraps. |
-| Instrument Dock | Fixed at 22.5rem when a task is selected, but clamped to `maxWidth: calc(100vw - 3rem)` — on a narrow window it yields to the clamp so the main row always keeps ≥3rem. Closed (no task selected) it is 0-width and the stage takes the whole row. |
-| Main row (stage) | Always `flex-1 min-w-0`; absorbs whatever the dock leaves. The Task graph pans/zooms within it rather than reflowing. |
+| Instrument rail | Fixed 60px, `shrink-0` — it never collapses; it is the always-present left edge the dock clamp and stage are measured against. |
+| Instrument Dock | Fixed at 22.5rem when a task is selected, but clamped to `maxWidth: calc(100vw - 60px - 3rem)` — reserving the rail — so on a narrow window it yields and the main row always keeps ≥3rem. Closed (no task selected) it is 0-width and the stage takes the row minus the rail. |
+| Main row (stage) | Always `flex-1 min-w-0`; absorbs whatever the rail and dock leave. The Task graph pans/zooms within it rather than reflowing. |
 | Evidence strip | Single 24px row; the task title truncates and the verdict dots cap at 12 with an overflow count. |
 | Transcripts (dock chat / instruments) | Long histories window rather than growing the layout. |
 

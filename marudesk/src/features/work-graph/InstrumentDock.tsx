@@ -137,7 +137,10 @@ export function InstrumentDock() {
         'chrome-panel relative shrink-0 border-y-0 border-r-0 overflow-hidden',
         'transition-[width] duration-standard',
       )}
-      style={{ width: open ? '22.5rem' : 0, maxWidth: 'calc(100vw - 3rem)' }}
+      // The row is [rail 60px][stage flex-1][dock]; the clamp reserves the rail
+      // AND keeps the stage ≥3rem on a narrow window (DESIGN.md §8), so the dock
+      // never overflows the viewport and crushes the stage to zero.
+      style={{ width: open ? '22.5rem' : 0, maxWidth: 'calc(100vw - 60px - 3rem)' }}
     >
       {/* Only mount the content (incl. focusable chat) while open — keeps the
           collapsed, aria-hidden dock free of tab-reachable controls. Fixed inner
