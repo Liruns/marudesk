@@ -494,6 +494,15 @@ function nextStatus(s: TaskStatus): TaskStatus {
  * Run (dependency-ordered simulate) / Add task / Clear. Rendered as a WorkGraphStage
  * overlay (sibling of the transformed node plane).
  */
+// First-run starter goals — clicking one fills the input so a new user faces
+// concrete examples instead of a blank required field. Shown only on an empty
+// stage; the offline sample makes them work even with no provider.
+const EXAMPLE_GOAL_KEYS = [
+  'workGraph.exampleGoal.darkMode',
+  'workGraph.exampleGoal.tests',
+  'workGraph.exampleGoal.docs',
+] as const;
+
 export function WorkGraphPanel() {
   const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
@@ -600,6 +609,24 @@ export function WorkGraphPanel() {
           {busy && <Spinner size={14} label={t('workGraph.generating')} />}{t('workGraph.generate')}
         </button>
       </div>
+      {!graph && goal.trim().length === 0 ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-caption text-fg-tertiary">{t('workGraph.exampleGoal.label')}</span>
+          {EXAMPLE_GOAL_KEYS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setGoal(t(key));
+                inputRef.current?.focus();
+              }}
+              className="rounded-pill bg-surface-2 px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
+            >
+              {t(key)}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
       {confirmRegenerate ? (
         <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">
