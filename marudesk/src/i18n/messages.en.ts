@@ -282,6 +282,7 @@ export const EN_MESSAGES = {
   'workGraph.goal': 'Goal',
   'workGraph.goalPlaceholder': 'Describe a goal…',
   'workGraph.exampleGoal.label': 'Try:',
+  'workGraph.orOpenProject': 'or open a project',
   'workGraph.exampleGoal.darkMode': 'Add a dark mode toggle',
   'workGraph.exampleGoal.tests': 'Write tests for the auth module',
   'workGraph.exampleGoal.docs': 'Document the public API',

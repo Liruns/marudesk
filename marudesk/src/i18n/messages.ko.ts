@@ -281,6 +281,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'workGraph.goal': '목표',
   'workGraph.goalPlaceholder': '목표를 입력하세요…',
   'workGraph.exampleGoal.label': '예시:',
+  'workGraph.orOpenProject': '또는 프로젝트 열기',
   'workGraph.exampleGoal.darkMode': '다크 모드 토글 추가',
   'workGraph.exampleGoal.tests': '인증 모듈 테스트 작성',
   'workGraph.exampleGoal.docs': '공개 API 문서화',

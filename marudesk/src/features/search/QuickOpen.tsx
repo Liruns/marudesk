@@ -6,8 +6,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { Search, FileText } from 'lucide-react';
+import { Search, FileText, FolderOpen } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { Spinner } from '../../components/ui';
 import { useWorkspaceStore } from '../workspace/store';
 import { openFileInstrument } from '../work-graph/instrument';
 import { fuzzyScore } from './fuzzy';
@@ -28,6 +29,8 @@ const MAX_RESULTS = 50;
 
 export function QuickOpen({ onClose }: { onClose: () => void }) {
   const summary = useWorkspaceStore((s) => s.summary);
+  const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
+  const opening = useWorkspaceStore((s) => s.opening);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -111,8 +114,22 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
 
         <div {...listboxProps} className="min-h-0 flex-1 overflow-y-auto py-1">
           {!summary ? (
-            <div className="px-3 py-6 text-center text-caption text-fg-tertiary">
-              {t('quickOpen.noWorkspace')}
+            <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
+              <p className="text-caption text-fg-tertiary">{t('quickOpen.noWorkspace')}</p>
+              <button
+                type="button"
+                onClick={() => void openWorkspace().then(onClose)}
+                disabled={opening}
+                className={cn(
+                  'inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-body-sm',
+                  'bg-accent text-white transition-opacity duration-fast',
+                  opening ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-90',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                )}
+              >
+                {opening ? <Spinner size={14} /> : <FolderOpen size={15} />}
+                {t('workspace.action.openFolder')}
+              </button>
             </div>
           ) : results.length === 0 ? (
             <div className="px-3 py-6 text-center text-caption text-fg-tertiary">

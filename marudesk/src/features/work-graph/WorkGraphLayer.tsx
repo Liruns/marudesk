@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Play, Plus, RotateCcw, Trash2, Wrench, X } from 'lucide-react';
+import { Check, FolderOpen, History, Play, Plus, RotateCcw, Trash2, Wrench, X } from 'lucide-react';
 import { Spinner } from '../../components/ui';
+import { useWorkspaceStore } from '../workspace/store';
 import { cn } from '../../lib/cn';
 import {
   readyTasks,
@@ -518,6 +519,13 @@ export function WorkGraphPanel() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // A developer's first instinct on an empty stage is "open my project" — surface
+  // it (and recently-opened projects) alongside the goal field so the home is
+  // actionable both for planning a goal AND for jumping straight into code.
+  const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
+  const opening = useWorkspaceStore((s) => s.opening);
+  const recents = useWorkspaceStore((s) => s.recents);
+  const openRecent = useWorkspaceStore((s) => s.openRecent);
 
   useEffect(() => {
     // Focus the goal field once on mount when the surface opens empty (read the
@@ -625,6 +633,40 @@ export function WorkGraphPanel() {
               {t(key)}
             </button>
           ))}
+        </div>
+      ) : null}
+      {!graph ? (
+        <div className="mt-2 border-t border-subtle pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-caption text-fg-tertiary">{t('workGraph.orOpenProject')}</span>
+            <button
+              type="button"
+              onClick={() => void openWorkspace()}
+              disabled={opening}
+              className="inline-flex items-center gap-1.5 h-7 shrink-0 rounded bg-surface-2 px-2 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+            >
+              {opening ? <Spinner size={13} /> : <FolderOpen size={13} />}
+              {t('workspace.action.openFolder')}
+            </button>
+          </div>
+          {recents.length > 0 ? (
+            <div className="mt-1.5 flex flex-col gap-0.5">
+              {recents.slice(0, 3).map((r) => (
+                <button
+                  key={r.root}
+                  type="button"
+                  title={r.root}
+                  onClick={() => void openRecent(r.root)}
+                  className="group flex items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
+                >
+                  <History size={12} className="shrink-0 text-fg-tertiary" />
+                  <span className="truncate text-caption text-fg-secondary group-hover:text-fg-primary">
+                    {r.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
