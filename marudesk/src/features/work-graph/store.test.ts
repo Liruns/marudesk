@@ -141,6 +141,67 @@ describe('run() dead-end recovery hint', () => {
   });
 });
 
+describe('resetRun / clearGraph / stopRun (recovery + teardown)', () => {
+  it('resetRun re-arms every task (planned, verdicts unknown, evidence + outputs dropped) and clears run state', () => {
+    const base = sampleGraph('reset');
+    const first = base.tasks[0];
+    expect(first).toBeTruthy();
+    if (!first) return;
+    useWorkGraphStore.getState().setGraph({
+      ...base,
+      tasks: [
+        {
+          ...first,
+          status: 'done',
+          outputs: [{ id: 'r1', kind: 'code', uri: 'file:///f.ts' }],
+          acceptance: [{ id: 'c1', text: 'works', verdict: 'pass' }],
+          evidence: { trajectory: [], result: 'did it', patch: 'diff --git a/f b/f\n+x' },
+        },
+        ...base.tasks.slice(1),
+      ],
+    });
+    useWorkGraphStore.setState({ lastAppliedTaskId: first.id, runNote: 'note' });
+
+    useWorkGraphStore.getState().resetRun();
+
+    const t = useWorkGraphStore.getState().graph?.tasks.find((x) => x.id === first.id);
+    expect(t?.status).toBe('planned');
+    expect(t?.outputs).toEqual([]);
+    expect(t?.acceptance.every((c) => c.verdict === 'unknown')).toBe(true);
+    expect(t?.evidence).toBeUndefined();
+    expect(useWorkGraphStore.getState().lastAppliedTaskId).toBeNull();
+    expect(useWorkGraphStore.getState().runNote).toBeNull();
+  });
+
+  it('stopRun returns an in-flight task to planned, bumps the run token, and clears running', () => {
+    const base = sampleGraph('stop');
+    const first = base.tasks[0];
+    if (!first) return;
+    useWorkGraphStore.getState().setGraph({ ...base, tasks: [{ ...first, status: 'running' }, ...base.tasks.slice(1)] });
+    useWorkGraphStore.setState({ running: true });
+    const before = useWorkGraphStore.getState().runToken;
+
+    useWorkGraphStore.getState().stopRun();
+
+    const s = useWorkGraphStore.getState();
+    expect(s.running).toBe(false);
+    expect(s.runToken).toBe(before + 1);
+    expect(s.graph?.tasks.find((x) => x.id === first.id)?.status).toBe('planned');
+  });
+
+  it('clearGraph drops the graph and all run state', () => {
+    useWorkGraphStore.getState().setGraph(sampleGraph('clear'));
+    useWorkGraphStore.setState({ selectedTaskId: 't_x', runNote: 'n', lastAppliedTaskId: 't_y' });
+    useWorkGraphStore.getState().clearGraph();
+    const s = useWorkGraphStore.getState();
+    expect(s.graph).toBeNull();
+    expect(s.selectedTaskId).toBeNull();
+    expect(s.running).toBe(false);
+    expect(s.runNote).toBeNull();
+    expect(s.lastAppliedTaskId).toBeNull();
+  });
+});
+
 describe('acceptance criteria editing', () => {
   it('adds a criterion immutably and leaves other tasks untouched', () => {
     const graph = sampleGraph('criteria add');
