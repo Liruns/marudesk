@@ -69,6 +69,51 @@ describe('demoteStaleRunning', () => {
   });
 });
 
+describe('write actions are blocked while a patch is applying', () => {
+  let invoked: string[];
+
+  beforeEach(() => {
+    invoked = [];
+    // Inbound isolation: the ONLY thing blocking the actions must be the
+    // applyingPatchTaskId set in the test body — pin running false so a leaked
+    // `running: true` from an earlier test can't make the assertion pass for the
+    // wrong reason.
+    useWorkGraphStore.setState({ running: false, applyingPatchTaskId: null });
+    (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
+      invoke: async (channel: string) => {
+        if (channel === 'workos:implement-task' || channel === 'workos:run-task') {
+          invoked.push(channel);
+          return { ok: true, status: 'done', result: 'x', outputs: [] };
+        }
+        return undefined;
+      },
+      on: () => () => {},
+    };
+  });
+
+  afterEach(() => {
+    useWorkGraphStore.setState({ applyingPatchTaskId: null, running: false });
+  });
+
+  it('implementTask / runOne / implementReady no-op while applyingPatchTaskId is set', async () => {
+    const graph = sampleGraph('apply guard');
+    useWorkGraphStore.getState().setGraph(graph);
+    const target = useWorkGraphStore.getState().graph?.tasks[0];
+    expect(target).toBeTruthy();
+    if (!target) return;
+
+    // A patch is mid-apply to the live tree — no write run may start concurrently,
+    // whatever the entry point (inspector button OR ⌘K verb both hit the store).
+    useWorkGraphStore.setState({ applyingPatchTaskId: target.id });
+
+    await useWorkGraphStore.getState().implementTask(target.id);
+    await useWorkGraphStore.getState().runOne(target.id);
+    await useWorkGraphStore.getState().implementReady();
+
+    expect(invoked).toEqual([]);
+  });
+});
+
 describe('acceptance criteria editing', () => {
   it('adds a criterion immutably and leaves other tasks untouched', () => {
     const graph = sampleGraph('criteria add');

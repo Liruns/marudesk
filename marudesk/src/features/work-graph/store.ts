@@ -20,6 +20,24 @@ import { useCanvasStore } from '../canvas/store';
 import { useGitStore } from '../git/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { taskThreadWorkspaceId } from './taskThreads';
+import { toast } from '../../lib/toast';
+import { currentLocale } from '../../i18n/locale-storage';
+import { getMessage } from '../../i18n/messages';
+
+/**
+ * Implement/apply failures are surfaced as `runNote`, which only the WorkGraphPanel
+ * renders — and that lives on the graph stage, which is HIDDEN whenever an
+ * instrument is hosted full-area or the action was fired from ⌘K. So an apply/
+ * implement that failed off-graph left the user with no visible reason. Toast the
+ * failure too, so it's seen regardless of which surface is showing.
+ */
+function notifyRunFailure(message: string): void {
+  toast({
+    title: getMessage(currentLocale(), 'workGraph.note.failedTitle'),
+    description: message,
+    variant: 'error',
+  });
+}
 
 /**
  * The AI Work OS task graph rendered as nodes on the canvas (docs/
@@ -470,13 +488,16 @@ async function implementOne(
       // A precondition (no provider / not a git repo) — restore the task to planned.
       return { ...clear, graph: setStatus(s.graph, task.id, 'planned'), runNote: res.reason };
     });
+    if (!res.ok) notifyRunFailure(res.reason);
   } catch {
     if (get().runToken !== token) return;
+    const note = getMessage(currentLocale(), 'workGraph.note.implementFailed');
     set((s) => ({
       ...clear,
       graph: s.graph ? setStatus(s.graph, task.id, 'planned') : s.graph,
-      runNote: 'Implement failed.',
+      runNote: note,
     }));
+    notifyRunFailure(note);
   }
 }
 
@@ -804,13 +825,18 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
               live = false;
               const first = outcomes[0]?.res;
               set({ runNote: first && !first.ok ? first.reason : 'No provider — showing a dry run (status only).' });
+              // A real provider/parse failure (not the benign offline preview) is a
+              // failure the user must see even with an instrument over the graph.
+              if (first && !first.ok) notifyRunFailure(first.reason);
               set((s) => (s.graph ? { graph: markDry(s.graph, ready) } : {}));
               await delay(220);
               continue;
             }
             // We already ran tasks for real and the provider then dropped — do NOT
             // fake success for the rest. Mark them blocked and stop honestly.
-            set({ runNote: 'Provider became unavailable — remaining tasks were not run.' });
+            const droppedNote = getMessage(currentLocale(), 'workGraph.note.providerUnavailable');
+            set({ runNote: droppedNote });
+            notifyRunFailure(droppedNote);
             set((s) => {
               if (!s.graph) return {};
               let g = s.graph;
@@ -841,7 +867,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
   runOne: async (id) => {
     const s0 = get();
-    if (s0.running || !s0.graph) return;
+    if (s0.running || s0.applyingPatchTaskId !== null || !s0.graph) return;
     const task = s0.graph.tasks.find((t) => t.id === id);
     if (!task) return;
     const goal = s0.graph.goal;
@@ -864,6 +890,9 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         // A failed task blocks its dependents — mark them so they don't sit planned.
         return { graph: markBlocked(applyRunOutcome(s.graph, task, res)), running: false };
       });
+      // A run failure (no provider / precondition) is otherwise only the red node on
+      // the graph — invisible when this fired from ⌘K with an instrument full-area.
+      if (!res.ok) notifyRunFailure(res.reason);
     } finally {
       // Only the owning turn clears `running` (a newer run/stop owns it otherwise).
       if (get().runToken === token) set({ running: false });
@@ -872,7 +901,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
   implementTask: async (id) => {
     const s0 = get();
-    if (s0.running || !s0.graph) return;
+    if (s0.running || s0.applyingPatchTaskId !== null || !s0.graph) return;
     const task = s0.graph.tasks.find((t) => t.id === id);
     if (!task) return;
     const goal = s0.graph.goal;
@@ -895,7 +924,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
   implementReady: async () => {
     const s0 = get();
-    if (s0.running || !s0.graph) return;
+    if (s0.running || s0.applyingPatchTaskId !== null || !s0.graph) return;
     // The CURRENT ready set only — tasks whose deps are satisfied and that aren't
     // done/running. First slice: implement just this layer in ONE parallel batch;
     // we deliberately do NOT walk dependency layers, because unblocking the next
@@ -937,7 +966,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
 
   applyPatch: async (id) => {
     const s0 = get();
-    if (s0.applyingPatchTaskId) return; // an apply is already in flight
+    if (s0.applyingPatchTaskId || s0.running) return; // an apply/run is already in flight
     const task = s0.graph?.tasks.find((t) => t.id === id);
     const patch = task?.evidence?.patch;
     if (!task || !patch || !patch.trim()) return;
@@ -955,7 +984,9 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       activeWorkspaceId !== null &&
       taskWorkspaceId !== activeWorkspaceId
     ) {
-      set({ runNote: "Switch to the task's workspace before applying this patch." });
+      const crossNote = getMessage(currentLocale(), 'workGraph.note.crossWorkspace');
+      set({ runNote: crossNote });
+      notifyRunFailure(crossNote);
       return;
     }
     set({ applyingPatchTaskId: id, runNote: null });
@@ -1004,6 +1035,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         // a successful apply reaches here (the !res.ok branch returned above).
         return { applyingPatchTaskId: null, runNote: note, graph, lastAppliedTaskId: id };
       });
+      if (!res.ok) notifyRunFailure(res.reason);
       // The patch wrote real workspace files — refresh Source Control so an
       // already-open SCM instrument reflects the change without a manual reload
       // (agent diff → review → commit handoff). refresh() self-guards: it probes
@@ -1042,7 +1074,9 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
         }
       }
     } catch {
-      set({ applyingPatchTaskId: null, runNote: 'Applying the patch failed.' });
+      const note = getMessage(currentLocale(), 'workGraph.note.applyFailed');
+      set({ applyingPatchTaskId: null, runNote: note });
+      notifyRunFailure(note);
     }
   },
 
