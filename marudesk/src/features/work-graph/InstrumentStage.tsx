@@ -63,7 +63,12 @@ export function InstrumentStage() {
   const tab = useTabsStore((s) => s.tabs.find((t) => t.id === tabId));
   if (!tabId || !kind) return null;
 
+  const kindLabel = t(KIND_LABEL_KEYS[kind]);
+  // The identity (tab title) is only worth showing when it adds information beyond
+  // the kind label. For Files/Search/Settings/Terminal/Source Control the title IS
+  // the kind name, which rendered a redundant "Files · Files" breadcrumb — hide it.
   const identity = instrumentIdentity(kind, tab);
+  const showIdentity = identity.length > 0 && identity !== kindLabel;
 
   return (
     <div data-stage="instrument" className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
@@ -76,8 +81,8 @@ export function InstrumentStage() {
           <ArrowLeft size={13} />
           {t('workGraph.stage.backToGraph')}
         </button>
-        <span data-testid="instrument-kind" className="text-caption text-fg-tertiary">{t(KIND_LABEL_KEYS[kind])}</span>
-        {identity ? (
+        <span data-testid="instrument-kind" className="text-caption text-fg-tertiary">{kindLabel}</span>
+        {showIdentity ? (
           <span className="min-w-0 truncate text-caption text-fg-tertiary">· {identity}</span>
         ) : null}
       </div>
