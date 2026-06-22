@@ -1,7 +1,8 @@
 import { toast } from '../../../lib/toast';
-import { toMessage } from '../../../lib/toMessage';
+import { humanizeError } from '../../../lib/humanizeError';
 import { cdpSend, cdpTry } from '../cdp';
 import { useDevtoolsStore } from '../store';
+import { msg } from '../store-internals';
 import { NODE_TYPE, type NodeId } from '../types';
 import { getAttr, toggleVisibilityHidden } from './elements-utils';
 
@@ -24,7 +25,7 @@ export async function deleteNode(nodeId: NodeId): Promise<void> {
   try {
     await cdpSend(tabId, 'DOM.removeNode', { nodeId });
   } catch (err) {
-    toast({ title: 'Delete rejected', description: toMessage(err), variant: 'error' });
+    toast({ title: msg('devtools.toast.deleteRejected'), description: humanizeError(err), variant: 'error' });
     return;
   }
   const cur = useDevtoolsStore.getState();
@@ -60,7 +61,7 @@ export async function toggleHideNode(nodeId: NodeId): Promise<void> {
       await cdpSend(tabId, 'DOM.setAttributeValue', { nodeId, name: 'style', value: next });
     }
   } catch (err) {
-    toast({ title: 'Hide rejected', description: toMessage(err), variant: 'error' });
+    toast({ title: msg('devtools.toast.hideRejected'), description: humanizeError(err), variant: 'error' });
   }
 }
 
@@ -84,7 +85,7 @@ export async function duplicateNode(nodeId: NodeId): Promise<void> {
       ...(insertBeforeNodeId !== undefined ? { insertBeforeNodeId } : {}),
     });
   } catch (err) {
-    toast({ title: 'Duplicate rejected', description: toMessage(err), variant: 'error' });
+    toast({ title: msg('devtools.toast.duplicateRejected'), description: humanizeError(err), variant: 'error' });
   }
 }
 
@@ -112,7 +113,7 @@ export async function commitOuterHtml(nodeId: NodeId, html: string): Promise<voi
   try {
     await cdpSend(tabId, 'DOM.setOuterHTML', { nodeId, outerHTML: html });
   } catch (err) {
-    toast({ title: 'HTML edit rejected', description: toMessage(err), variant: 'error' });
+    toast({ title: msg('devtools.toast.htmlEditRejected'), description: humanizeError(err), variant: 'error' });
     return;
   }
   const cur = useDevtoolsStore.getState();

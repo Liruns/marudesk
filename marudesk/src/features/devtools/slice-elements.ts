@@ -4,7 +4,7 @@ import { useGridStore, groupForTab } from '../tabs/grid';
 import { useSettingsStore } from '../settings/store';
 import { useWebPageStore } from '../browser/store';
 import { toast } from '../../lib/toast';
-import { toMessage } from '../../lib/toMessage';
+import { humanizeError } from '../../lib/humanizeError';
 import { cdpSend, cdpTry } from './cdp';
 import { buildCapture } from './capture';
 import { computeBlockEdit, rebuildStyleText, resolveStyleSheetSource } from './css-source';
@@ -440,7 +440,7 @@ export function createElementsSlice(set: SetState, get: GetState): ElementsActio
           edits: [{ styleSheetId, range: blockRange, text: newBlockText }],
         });
       } catch (err) {
-        toast({ title: msg('devtools.toast.editRejected'), description: toMessage(err), variant: 'error' });
+        toast({ title: msg('devtools.toast.editRejected'), description: humanizeError(err), variant: 'error' });
         return;
       }
       // The edit landed on the captured tab, but a rebind/nav during the
@@ -465,7 +465,7 @@ export function createElementsSlice(set: SetState, get: GetState): ElementsActio
       } catch (err) {
         toast({
           title: msg('devtools.toast.attributeRejected'),
-          description: toMessage(err),
+          description: humanizeError(err),
           variant: 'error',
         });
       }
@@ -527,7 +527,7 @@ export function createElementsSlice(set: SetState, get: GetState): ElementsActio
           });
         }
       } catch (err) {
-        toast({ title: msg('devtools.toast.saveFailed'), description: toMessage(err), variant: 'error' });
+        toast({ title: msg('devtools.toast.saveFailed'), description: humanizeError(err), variant: 'error' });
       }
       set({ pendingPatch: null });
     },

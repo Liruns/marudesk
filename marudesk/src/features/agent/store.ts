@@ -21,6 +21,7 @@ import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace
 import { currentLocale } from '../../i18n/locale-storage';
 import { getMessage } from '../../i18n/messages';
 import { toMessage } from '../../lib/toMessage';
+import { humanizeError } from '../../lib/humanizeError';
 import { toast } from '../../lib/toast';
 import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
@@ -732,7 +733,7 @@ function createAgentStore(
     } catch (err) {
       toast({
         title: getMessage(currentLocale(), 'agent.session.resumeFailed'),
-        description: toMessage(err),
+        description: humanizeError(err),
         variant: 'error',
       });
     }
@@ -745,7 +746,7 @@ function createAgentStore(
     } catch (err) {
       toast({
         title: getMessage(currentLocale(), 'agent.session.deleteFailed'),
-        description: toMessage(err),
+        description: humanizeError(err),
         variant: 'error',
       });
     }
