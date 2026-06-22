@@ -3,6 +3,7 @@ import type { TabKind } from '../../../shared/browser';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { confirmCloseTab, useEditorStore, type EditorFileInput } from '../editor/store';
 import { useTabsStore } from '../tabs/store';
+import type { SplitDir } from '../tabs/layout';
 
 /**
  * The instrument a Task has summoned into Mission Control's main area
@@ -23,21 +24,56 @@ type InstrumentState = {
   tabId: string | null;
   kind: TabKind | null;
   /**
-   * Adopt `tabId` as the active instrument. Returns `true` when adopted (or when
-   * switching to the same tab / from no instrument), and `false` when the switch
-   * was cancelled at the dirty-editor prompt (prev is kept). Callers that created
-   * `tabId` in main BEFORE calling open() MUST close it on a `false` return —
-   * otherwise the just-created tab leaks as a hidden orphan whose live
-   * WebContentsView can never be torn down.
+   * The SECOND pane of a side-by-side split (the primary is `tabId`/`kind`); null
+   * when the stage hosts a single tool. A first slice of the retired canvas's
+   * "see two live tools at once" — editor | Preview, AI Chat | terminal, etc. Each
+   * web pane self-reports its rect (BrowserCanvas's per-pane bounds source), so two
+   * native WebContentsViews tile their panes via the existing browser:set-pane-bounds
+   * pipeline with no main-process change.
+   */
+  secondaryTabId: string | null;
+  secondaryKind: TabKind | null;
+  /** 'row' = side by side (primary | secondary); 'col' = stacked. */
+  splitDir: SplitDir;
+  /** Fraction of the split given to the PRIMARY pane (0.1–0.9). */
+  splitRatio: number;
+  /**
+   * Adopt `tabId` as the active instrument (single pane — collapses any split).
+   * Returns `true` when adopted, and `false` when the switch was cancelled at the
+   * dirty-editor prompt (prev is kept). Callers that created `tabId` in main BEFORE
+   * calling open() MUST close it on a `false` return — otherwise the just-created
+   * tab leaks as a hidden orphan whose live WebContentsView can never be torn down.
    */
   open: (tabId: string, kind: TabKind) => boolean;
+  /** Open `tabId` as a second pane beside the primary (a side-by-side split). */
+  splitWith: (tabId: string, kind: TabKind, dir?: SplitDir) => void;
+  /** Close the second pane (closes its tab) — back to the single primary tool. */
+  closeSplit: () => void;
+  /** Set the split ratio (clamped 0.1–0.9). */
+  setSplitRatio: (ratio: number) => void;
   close: () => void;
 };
+
+function closeTabSafely(id: string | null): void {
+  if (id) void useTabsStore.getState().closeTab(id);
+}
 
 export const useInstrumentStore = create<InstrumentState>((set, get) => ({
   tabId: null,
   kind: null,
+  secondaryTabId: null,
+  secondaryKind: null,
+  splitDir: 'row',
+  splitRatio: 0.5,
   open: (tabId, kind) => {
+    // A fresh single open replaces the whole stage — tear down a second pane's tab
+    // first (its dirty-editor guard runs in closeSplit's spirit; a secondary editor
+    // is rare, but honor the prompt).
+    const sec = get().secondaryTabId;
+    if (sec && sec !== tabId) {
+      const secTab = useTabsStore.getState().tabs.find((t) => t.id === sec);
+      if (!confirmCloseTab(secTab)) return false;
+    }
     const prev = get().tabId;
     if (prev && prev !== tabId) {
       // Switching away from the previous instrument must tear down its native
@@ -60,18 +96,42 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
       }
       void useTabsStore.getState().closeTab(prev);
     }
-    set({ tabId, kind });
+    // Collapse any split — tear down the second pane's tab (its prompt passed above).
+    if (sec && sec !== tabId) closeTabSafely(sec);
+    set({ tabId, kind, secondaryTabId: null, secondaryKind: null });
     return true;
   },
-  close: () => {
-    const prev = get().tabId;
-    if (prev) {
-      const tab = useTabsStore.getState().tabs.find((t) => t.id === prev);
-      // Cancelling the dirty-editor prompt keeps you on the instrument.
-      if (!confirmCloseTab(tab)) return;
-      void useTabsStore.getState().closeTab(prev);
+  splitWith: (tabId, kind, dir = 'row') => {
+    const s = get();
+    // "Split the current tool" — needs a primary, and never tiles a tab with itself.
+    if (!s.tabId || s.tabId === tabId) return;
+    if (s.secondaryTabId && s.secondaryTabId !== tabId) {
+      const secTab = useTabsStore.getState().tabs.find((t) => t.id === s.secondaryTabId);
+      if (!confirmCloseTab(secTab)) return; // keep the current split if a dirty editor cancels
+      closeTabSafely(s.secondaryTabId);
     }
-    set({ tabId: null, kind: null });
+    set({ secondaryTabId: tabId, secondaryKind: kind, splitDir: dir, splitRatio: 0.5 });
+  },
+  closeSplit: () => {
+    const sec = get().secondaryTabId;
+    if (!sec) return;
+    const secTab = useTabsStore.getState().tabs.find((t) => t.id === sec);
+    if (!confirmCloseTab(secTab)) return;
+    closeTabSafely(sec);
+    set({ secondaryTabId: null, secondaryKind: null });
+  },
+  setSplitRatio: (ratio) => set({ splitRatio: Math.min(0.9, Math.max(0.1, ratio)) }),
+  close: () => {
+    const { tabId: prev, secondaryTabId: sec } = get();
+    const tabsState = useTabsStore.getState();
+    // Both panes' dirty-editor prompts must pass before the stage tears down.
+    for (const id of [prev, sec]) {
+      if (!id) continue;
+      if (!confirmCloseTab(tabsState.tabs.find((t) => t.id === id))) return;
+    }
+    closeTabSafely(prev);
+    closeTabSafely(sec);
+    set({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null });
   },
 }));
 
@@ -79,9 +139,26 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
 // active tab), drop the dangling reference so the Shell returns to the graph
 // instead of rendering blank instrument chrome over an already-destroyed view.
 useTabsStore.subscribe((s) => {
-  const id = useInstrumentStore.getState().tabId;
-  if (id && !s.tabs.some((t) => t.id === id)) {
-    useInstrumentStore.setState({ tabId: null, kind: null });
+  const st = useInstrumentStore.getState();
+  const live = (id: string | null): boolean => !!id && s.tabs.some((t) => t.id === id);
+  // Second pane's tab closed elsewhere → collapse the split to the primary.
+  if (st.secondaryTabId && !live(st.secondaryTabId)) {
+    useInstrumentStore.setState({ secondaryTabId: null, secondaryKind: null });
+  }
+  // Primary's tab closed elsewhere → promote a surviving second pane, else drop to
+  // the graph (so the Shell doesn't render blank chrome over a destroyed view).
+  if (st.tabId && !live(st.tabId)) {
+    const cur = useInstrumentStore.getState();
+    if (live(cur.secondaryTabId)) {
+      useInstrumentStore.setState({
+        tabId: cur.secondaryTabId,
+        kind: cur.secondaryKind,
+        secondaryTabId: null,
+        secondaryKind: null,
+      });
+    } else {
+      useInstrumentStore.setState({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null });
+    }
   }
 });
 
@@ -113,6 +190,34 @@ export async function openInstrument(
   if (!useInstrumentStore.getState().open(id, kind)) {
     await useTabsStore.getState().closeTab(id);
   }
+}
+
+/**
+ * Open a tool as a SECOND pane beside the current instrument (a side-by-side split)
+ * — e.g. an editor on the left, the running app/Preview on the right. Mirrors
+ * {@link openInstrument} but adopts the new tab via splitWith instead of open, so
+ * the primary pane stays. No-op when no instrument is open (nothing to split).
+ * Both web panes report their own rect, so the existing browser:set-pane-bounds
+ * pipeline tiles both native views with no main-process change.
+ */
+export async function splitInstrument(
+  kind: TabKind,
+  opts?: { url?: string; workspaceId?: WorkspaceId; terminalProfile?: 'agent-cli'; dir?: SplitDir },
+): Promise<void> {
+  if (!useInstrumentStore.getState().tabId) return;
+  const id = await useTabsStore
+    .getState()
+    .newTab(
+      kind,
+      opts?.url,
+      opts?.workspaceId,
+      opts?.terminalProfile ? { terminalProfile: opts.terminalProfile } : undefined,
+    );
+  if (!id) return;
+  // Focus the new pane (omnibox/keyboard target). Both panes still paint: each web
+  // pane reports a rect, so main's applyPaneBounds tiles every view that has one.
+  await useTabsStore.getState().activateTab(id);
+  useInstrumentStore.getState().splitWith(id, kind, opts?.dir ?? 'row');
 }
 
 /**

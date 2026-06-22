@@ -205,6 +205,47 @@ test('capture onboarding, instruments, and edge states', async () => {
 });
 
 /**
+ * Split instruments (the "use the tools together" slice): open a tool, then use the
+ * stage's Split menu to host a second tool beside it, and capture the side-by-side
+ * result — the canvas's "see two live tools at once" workflow, blended into Mission
+ * Control. Captures the hero pairing (editor | live web preview) + AI Chat | terminal.
+ */
+test('instrument split', async () => {
+  test.setTimeout(120_000);
+  fs.mkdirSync(OUT, { recursive: true });
+
+  // Editor | Web — the hero loop: code on the left, the running app on the right.
+  {
+    const l = await launchApp();
+    try {
+      await runCommand(l.page, 'New Editor');
+      await l.page.waitForTimeout(400);
+      await l.page.getByRole('button', { name: 'Split' }).click();
+      await l.page.getByRole('menuitem', { name: 'Web' }).click();
+      await l.page.waitForTimeout(800);
+      await shot(l.page, 's1-split-editor-web');
+    } finally {
+      await l.app.close();
+    }
+  }
+
+  // AI Chat | Terminal — two pure-React panes (talk to the agent while it runs commands).
+  {
+    const l = await launchApp();
+    try {
+      await runCommand(l.page, 'New AI Chat');
+      await l.page.waitForTimeout(400);
+      await l.page.getByRole('button', { name: 'Split' }).click();
+      await l.page.getByRole('menuitem', { name: 'Terminal' }).click();
+      await l.page.waitForTimeout(800);
+      await shot(l.page, 's2-split-aichat-terminal');
+    } finally {
+      await l.app.close();
+    }
+  }
+});
+
+/**
  * A real new-user journey (실 사용 테스트): drive the actual happy path a first-time
  * user takes and capture each step, so we can judge "from the first screen, does the
  * user know what to do?" — not just static surfaces. Generate uses the offline sample

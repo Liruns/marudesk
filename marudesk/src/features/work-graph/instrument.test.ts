@@ -244,3 +244,61 @@ describe('reopenTabInstrument hosts the reopened tab', () => {
     expect(closeTab).toHaveBeenCalledWith('next');
   });
 });
+
+describe('useInstrumentStore split (two-pane)', () => {
+  beforeEach(() => {
+    confirmCloseTab.mockReset();
+    confirmCloseTab.mockReturnValue(true);
+    closeTab.mockReset();
+    closeTab.mockResolvedValue(undefined);
+    tabs = [
+      { id: 'prev', kind: 'editor' },
+      { id: 'second', kind: 'terminal' },
+    ];
+    useInstrumentStore.setState({
+      tabId: 'prev',
+      kind: 'editor',
+      secondaryTabId: null,
+      secondaryKind: null,
+      splitDir: 'row',
+      splitRatio: 0.5,
+    });
+  });
+
+  it('splitWith adds a second pane beside the primary', () => {
+    useInstrumentStore.getState().splitWith('second', 'terminal', 'row');
+    const s = useInstrumentStore.getState();
+    expect(s.tabId).toBe('prev'); // primary stays
+    expect(s.secondaryTabId).toBe('second');
+    expect(s.secondaryKind).toBe('terminal');
+  });
+
+  it('splitWith is a no-op with no primary, or when tiling the primary with itself', () => {
+    useInstrumentStore.setState({ tabId: null, kind: null });
+    useInstrumentStore.getState().splitWith('second', 'terminal');
+    expect(useInstrumentStore.getState().secondaryTabId).toBeNull();
+
+    useInstrumentStore.setState({ tabId: 'prev', kind: 'editor' });
+    useInstrumentStore.getState().splitWith('prev', 'editor');
+    expect(useInstrumentStore.getState().secondaryTabId).toBeNull();
+  });
+
+  it('closeSplit tears down the second pane and collapses to the primary', () => {
+    useInstrumentStore.setState({ secondaryTabId: 'second', secondaryKind: 'terminal' });
+    useInstrumentStore.getState().closeSplit();
+    expect(closeTab).toHaveBeenCalledWith('second');
+    const s = useInstrumentStore.getState();
+    expect(s.secondaryTabId).toBeNull();
+    expect(s.tabId).toBe('prev'); // the primary survives
+  });
+
+  it('open() collapses a split — tears down the second pane and adopts the new single tool', () => {
+    useInstrumentStore.setState({ secondaryTabId: 'second', secondaryKind: 'terminal' });
+    const adopted = useInstrumentStore.getState().open('fresh', 'web');
+    expect(adopted).toBe(true);
+    expect(closeTab).toHaveBeenCalledWith('second');
+    const s = useInstrumentStore.getState();
+    expect(s.tabId).toBe('fresh');
+    expect(s.secondaryTabId).toBeNull();
+  });
+});
