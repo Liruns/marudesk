@@ -4,6 +4,7 @@ import {
   BarChart3,
   Blocks,
   Bot,
+  ClipboardList,
   Clock,
   Code2,
   Database,
@@ -103,6 +104,13 @@ const CATEGORY_DEFINITIONS = [
     blurbKey: 'settings.category.automations.blurb',
     icon: Clock,
     keywords: 'automation schedule cron interval daily background prompt recurring 자동화 스케줄 예약 반복 프롬프트',
+  },
+  {
+    id: 'specs',
+    labelKey: 'settings.category.specs.label',
+    blurbKey: 'settings.category.specs.blurb',
+    icon: ClipboardList,
+    keywords: 'spec specs plan feature task checklist steering requirement todo 스펙 계획 기능 작업 체크리스트 요구사항',
   },
   {
     id: 'data',
