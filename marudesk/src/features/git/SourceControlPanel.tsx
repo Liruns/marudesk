@@ -45,6 +45,8 @@ import { WorktreeIsolationBar } from './WorktreeIsolationBar';
 import { WorktreeLanes } from './WorktreeLanes';
 import { openFileInstrument } from '../work-graph/instrument';
 import { useWorkspaceStore } from '../workspace/store';
+import { OpenFolderEmpty } from '../../components/OpenFolderEmpty';
+import { humanizeError } from '../../lib/humanizeError';
 
 type Props = {
   open: boolean;
@@ -313,10 +315,16 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
           </div>
         </header>
 
-        {available && !available.installed ? (
+        {workspaceRoot === null ? (
+          <OpenFolderEmpty
+            title={t('workspace.emptyState.title')}
+            body={t('git.empty.noWorkspaceBody')}
+            icon={GitBranch}
+          />
+        ) : available && !available.installed ? (
           <GitMissing />
         ) : error && status === null ? (
-          <GitLoadError message={error} onRetry={() => void refresh()} busy={loading} t={t} />
+          <GitLoadError message={humanizeError(error)} onRetry={() => void refresh()} busy={loading} t={t} />
         ) : status === null ? (
           <div className="flex flex-1 items-center justify-center gap-2 text-fg-tertiary">
             <Spinner size={16} /> {t('git.loading')}
@@ -543,7 +551,7 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
 
             {error ? (
               <p className="shrink-0 px-3 py-1.5 text-caption text-error border-b border-subtle">
-                {error}
+                {humanizeError(error)}
               </p>
             ) : null}
 
