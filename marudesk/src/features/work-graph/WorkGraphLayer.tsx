@@ -577,7 +577,7 @@ export function WorkGraphPanel() {
         </button>
       </div>
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
-      <div className="mt-2 flex items-center gap-1.5">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           disabled={!graph}
@@ -585,8 +585,8 @@ export function WorkGraphPanel() {
           onClick={() => (running ? useWorkGraphStore.getState().stopRun() : void useWorkGraphStore.getState().run())}
           className={
             running
-              ? 'inline-flex h-7 items-center gap-1 rounded bg-surface-2 border border-default px-2.5 text-caption text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
-              : 'inline-flex h-7 items-center gap-1 rounded bg-accent px-2.5 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
+              ? 'inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded bg-surface-2 border border-default px-2.5 text-caption text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
+              : 'inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded bg-accent px-2.5 text-caption font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]'
           }
         >
           {running ? <Spinner size={12} label={t('workGraph.runInProgress')} /> : <Play size={12} />}
@@ -596,7 +596,7 @@ export function WorkGraphPanel() {
           type="button"
           disabled={running}
           onClick={() => useWorkGraphStore.getState().addTask()}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Plus size={12} />
           {t('workGraph.addTask')}
@@ -606,7 +606,7 @@ export function WorkGraphPanel() {
           disabled={!graph || running}
           onClick={() => useWorkGraphStore.getState().resetRun()}
           title={t('workGraph.resetTitle')}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <RotateCcw size={12} />
           {t('workGraph.reset')}
@@ -616,7 +616,7 @@ export function WorkGraphPanel() {
           disabled={!graph || running || readyCount === 0}
           onClick={() => void useWorkGraphStore.getState().implementReady()}
           title={t('workGraph.implementReadyTitle')}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Wrench size={12} />
           {t('workGraph.implementReady')}
@@ -634,7 +634,7 @@ export function WorkGraphPanel() {
               setConfirmClear(true);
             }
           }}
-          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-caption text-fg-tertiary hover:bg-error-subtle hover:text-error disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+          className="ml-auto inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md px-2 text-caption text-fg-tertiary hover:bg-error-subtle hover:text-error disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
         >
           <Trash2 size={12} />
         </button>
