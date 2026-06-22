@@ -351,19 +351,25 @@ export function Shell() {
       const wasBusy = prev === 'thinking' || prev === 'working';
       if (!wasBusy || (status !== 'completed' && status !== 'waiting_for_user')) return;
 
-      // The AI Chat instrument's thread (only when an 'agent' instrument is open).
+      // The AI Chat instrument's thread(s) — an 'agent' instrument open in EITHER
+      // pane of a split is a visible agent surface, so suppress both.
       const instrument = useInstrumentStore.getState();
-      const instrumentThreadId =
-        instrument.kind === 'agent' && instrument.tabId
-          ? cardThreadId(instrument.tabId)
-          : null;
+      const visibleAgentThreads = new Set<string>();
+      if (instrument.kind === 'agent' && instrument.tabId) {
+        const tid = cardThreadId(instrument.tabId);
+        if (tid) visibleAgentThreads.add(tid);
+      }
+      if (instrument.secondaryKind === 'agent' && instrument.secondaryTabId) {
+        const tid = cardThreadId(instrument.secondaryTabId);
+        if (tid) visibleAgentThreads.add(tid);
+      }
       // The thread the dock chat is ACTUALLY rendering (the selected task's own
       // thread, or — when acquiring it failed — the workspace conversation it
       // falls back to and visibly shows). Published by the dock's TaskChat so a
       // fallback completion on a visible thread doesn't wrongly toast.
       const dockThreadId = dockRenderedThreadId();
 
-      if (threadId === instrumentThreadId || threadId === dockThreadId) return;
+      if (visibleAgentThreads.has(threadId) || threadId === dockThreadId) return;
       toast({
         title: t(status === 'completed' ? 'agent.notify.completed' : 'agent.notify.question'),
         variant: status === 'completed' ? 'success' : 'warning',
