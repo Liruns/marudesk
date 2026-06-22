@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Download, GitBranch } from 'lucide-react';
+import { AlertTriangle, Download, GitBranch, RotateCcw } from 'lucide-react';
 import { Spinner } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
@@ -37,6 +37,45 @@ export function NotARepo({
       >
         {busy ? <Spinner size={14} /> : <GitBranch size={15} />}
         {t('git.action.initRepo')}
+      </button>
+    </div>
+  );
+}
+
+/** Failure-state when the first git probe throws (git:available / git:status IPC
+ *  reject — e.g. no workspace open, so there's no root to run git in). Without
+ *  this branch `status` stays null and the panel renders a perpetual "Loading…"
+ *  spinner with the error swallowed; this shows the reason and a Retry instead. */
+export function GitLoadError({
+  message,
+  onRetry,
+  busy,
+  t,
+}: {
+  message: string;
+  onRetry: () => void;
+  busy: boolean;
+  t: ReturnType<typeof useI18n>['t'];
+}) {
+  return (
+    <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <span className="size-10 rounded-lg bg-error-subtle flex items-center justify-center text-error">
+        <AlertTriangle size={20} />
+      </span>
+      <p className="text-body-sm text-fg-secondary">{t('git.empty.loadErrorTitle')}</p>
+      <p className="max-w-sm break-words text-caption text-fg-tertiary">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={busy}
+        className={cn(
+          'mt-1 inline-flex items-center gap-2 h-8 px-3 rounded-md text-body-sm',
+          'bg-surface-2 text-fg-primary transition-colors duration-fast',
+          busy ? 'opacity-60 cursor-not-allowed' : 'hover:bg-surface-3',
+        )}
+      >
+        {busy ? <Spinner size={14} /> : <RotateCcw size={15} />}
+        {t('git.action.retry')}
       </button>
     </div>
   );

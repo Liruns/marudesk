@@ -34,6 +34,7 @@ import { bucketChanges, useGitStore } from './store';
 import { relativeTime } from './statusMeta';
 import {
   FileRow,
+  GitLoadError,
   GitMissing,
   IconButton,
   NotARepo,
@@ -314,6 +315,8 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
 
         {available && !available.installed ? (
           <GitMissing />
+        ) : error && status === null ? (
+          <GitLoadError message={error} onRetry={() => void refresh()} busy={loading} t={t} />
         ) : status === null ? (
           <div className="flex flex-1 items-center justify-center gap-2 text-fg-tertiary">
             <Spinner size={16} /> {t('git.loading')}
