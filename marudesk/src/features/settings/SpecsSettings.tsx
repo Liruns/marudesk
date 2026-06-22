@@ -135,7 +135,7 @@ export function SpecsSettings() {
               >
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="flex items-center gap-2 min-w-0">
-                    <span className="text-body-sm font-medium text-fg-primary truncate">{s.title}</span>
+                    <span className="text-body-sm font-medium text-fg-primary truncate" title={s.title}>{s.title}</span>
                     <Badge variant={STATUS_VARIANT[s.status]}>{t(STATUS_LABEL_KEY[s.status])}</Badge>
                   </span>
                   <span className="flex items-center gap-1.5 text-caption text-fg-tertiary">

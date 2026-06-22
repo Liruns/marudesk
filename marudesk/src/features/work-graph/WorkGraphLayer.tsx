@@ -429,7 +429,10 @@ const TaskNodeCard = memo(function TaskNodeCard({
         </button>
         {task.intent ? <p className="mt-1.5 line-clamp-2 text-caption text-fg-tertiary">{task.intent}</p> : null}
         <div className="mt-1.5 flex items-center gap-2 text-caption text-fg-tertiary">
-          <span className="truncate">
+          <span
+            className="truncate"
+            title={task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}
+          >
             {task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}
           </span>
           {task.acceptance.length > 0 ? (

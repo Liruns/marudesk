@@ -46,7 +46,7 @@ export function EvidenceStrip() {
                   </span>
                 ) : null}
               </span>
-              <span className="min-w-0 shrink truncate">
+              <span className="min-w-0 shrink truncate tabular-nums">
                 {passed}/{total} verified by runtime
               </span>
             </span>

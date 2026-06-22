@@ -165,7 +165,7 @@ export function SlashMenu({
               {slashArgHint(cmd.name, t)}
             </span>
           ) : null}
-          <span className="text-caption text-fg-tertiary truncate">
+          <span className="text-caption text-fg-tertiary truncate" title={slashDescription(cmd.name, t)}>
             {slashDescription(cmd.name, t)}
           </span>
         </button>

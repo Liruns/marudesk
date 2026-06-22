@@ -347,7 +347,8 @@ export function EmptyState({
                 'group rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-left',
                 'text-caption text-fg-secondary',
                 'hover:border-accent/50 hover:bg-surface-2 hover:text-fg-primary',
-                'transition-colors duration-fast',
+                'transition-colors duration-fast active:scale-[0.99]',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                 'flex items-center gap-2',
               )}
             >

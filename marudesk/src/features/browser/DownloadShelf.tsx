@@ -113,6 +113,7 @@ function DownloadChip({ entry }: { entry: DownloadEntry }) {
         </div>
       ) : null}
       <span
+        title={statusText}
         className={cn(
           'text-caption truncate',
           state === 'interrupted' || state === 'cancelled'

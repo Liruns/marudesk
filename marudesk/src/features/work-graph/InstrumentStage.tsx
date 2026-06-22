@@ -67,7 +67,7 @@ function Pane({
   return (
     <div className="min-w-0 min-h-0 flex flex-col" style={{ flexGrow: grow, flexBasis: 0, flexShrink: 1 }}>
       <div className="h-6 shrink-0 flex items-center gap-1 px-2 border-b border-subtle bg-surface-2 text-caption text-fg-tertiary">
-        <span className="truncate">{label}</span>
+        <span className="truncate" title={label}>{label}</span>
         {onClose ? (
           <button
             type="button"
@@ -188,7 +188,7 @@ export function InstrumentStage() {
         </button>
         <span data-testid="instrument-kind" className="text-caption text-fg-tertiary">{kindLabel}</span>
         {showIdentity ? (
-          <span className="min-w-0 truncate text-caption text-fg-tertiary">· {identity}</span>
+          <span className="min-w-0 truncate text-caption text-fg-tertiary" title={identity}>· {identity}</span>
         ) : null}
         <span className="ml-auto" />
         {!isSplit ? <SplitMenu /> : null}

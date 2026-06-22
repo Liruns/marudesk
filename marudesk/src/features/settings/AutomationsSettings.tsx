@@ -125,7 +125,7 @@ export function AutomationsSettings() {
               className="flex items-center gap-2 rounded-lg border border-subtle bg-surface-1 px-4 py-2"
             >
               <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-body-sm font-medium text-fg-primary truncate">{a.name}</span>
+                <span className="text-body-sm font-medium text-fg-primary truncate" title={a.name}>{a.name}</span>
                 <span className="flex items-center gap-1.5 text-caption text-fg-tertiary">
                   <Clock size={11} className="shrink-0" />
                   {describeSchedule(a.schedule)} · {a.provider}/{a.model}

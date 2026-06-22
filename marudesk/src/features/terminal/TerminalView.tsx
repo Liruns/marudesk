@@ -332,7 +332,7 @@ function TerminalErrorsPanel({
           onClick={onClose}
           title={t('terminal.errors.closeTitle')}
           aria-label={t('terminal.errors.close')}
-          className="grid size-5 place-items-center rounded hover:bg-surface-3 hover:text-fg-primary"
+          className="grid size-5 place-items-center rounded hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast"
         >
           <X size={13} />
         </button>
@@ -413,7 +413,7 @@ function TerminalSearchBar({
   const prev = () => terminalFindPrevious(tabId, query);
 
   const btn =
-    'grid size-6 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-40 disabled:hover:bg-transparent';
+    'grid size-6 place-items-center rounded text-fg-tertiary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-40 disabled:hover:bg-transparent transition-colors duration-fast';
 
   return (
     <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-default bg-surface-2 px-1.5 py-1 shadow-xl">

@@ -148,6 +148,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                           'truncate text-body-sm leading-snug',
                           isActive ? 'text-fg-primary font-medium' : 'text-fg-secondary',
                         )}
+                        title={s.title || t('agent.sessions.untitled')}
                       >
                         {s.title || t('agent.sessions.untitled')}
                       </span>
@@ -160,7 +161,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                           : t('agent.sessions.messagePlural')}
                       </span>
                       {s.snippet ? (
-                        <span className="line-clamp-2 text-micro leading-snug text-fg-tertiary">
+                        <span className="line-clamp-2 text-micro leading-snug text-fg-tertiary" title={s.snippet}>
                           <Snippet text={s.snippet} />
                         </span>
                       ) : null}

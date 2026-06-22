@@ -175,7 +175,7 @@ export function WorkGraphInspectorContent() {
     <div className="flex h-full flex-col overflow-hidden p-3">
       <div className="mb-2 flex items-start gap-2">
         <div className="min-w-0">
-          <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
+          <p className="truncate text-body-sm font-medium text-fg-primary" title={task.title}>{task.title}</p>
           <div className="mt-0.5 flex items-center gap-1.5">
             <Badge variant={STATUS_BADGE[task.status]}>{t(STATUS_LABEL_KEY[task.status])}</Badge>
             <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}{task.kind === 'decision' ? t('workGraph.inspector.decisionSuffix') : ''}</p>
