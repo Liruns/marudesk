@@ -29,6 +29,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { toast } from '../lib/toast';
 import { useI18n } from '../i18n/useI18n';
 import { Tour } from '../features/tour/Tour';
+import { hasSeenTour, useTourStore } from '../features/tour/tourStore';
 import { openSettingsTab, useSettingsStore } from '../features/settings/store';
 import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '../../shared/settings';
 import type { EventPayload } from '../../shared/ipc';
@@ -119,6 +120,16 @@ export function Shell() {
   // A Task can summon an instrument (browser/editor/terminal) into the main area;
   // while one is open it replaces the graph, then "← Graph" closes it.
   const instrumentTabId = useInstrumentStore((s) => s.tabId);
+
+  // First-run onboarding: auto-start the product tour exactly once. Mission Control
+  // dropped a new user onto an empty stage with no guidance — yet a built, localized,
+  // a11y-correct Tour (welcome · ⌘K · goal · implement · apply · workspace · flight
+  // log) already existed and only fired from a ⌘K verb you couldn't find. Fire it on
+  // first launch; close() marks it seen so it shows exactly once. (e2e/screens seed
+  // the seen flag in launchApp so the overlay never blocks automated runs.)
+  useEffect(() => {
+    if (!hasSeenTour()) useTourStore.getState().start();
+  }, []);
 
   // Keyboard shortcuts while the React chrome has focus. The mirror case — the
   // embedded web page having focus — is handled in the main process'

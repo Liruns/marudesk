@@ -263,7 +263,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
             <p className="text-caption text-fg-tertiary">
               {t('workGraph.stage.emptyBody')}
             </p>
-            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">{t('workGraph.stage.linkHint')}</p>
+            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">{t('workGraph.stage.emptyPaletteHint')}</p>
           </div>
         </div>
       ) : null}

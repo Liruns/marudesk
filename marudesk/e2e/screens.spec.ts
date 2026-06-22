@@ -203,3 +203,65 @@ test('capture onboarding, instruments, and edge states', async () => {
     }
   }
 });
+
+/**
+ * A real new-user journey (실 사용 테스트): drive the actual happy path a first-time
+ * user takes and capture each step, so we can judge "from the first screen, does the
+ * user know what to do?" — not just static surfaces. Generate uses the offline sample
+ * fallback (no provider needed); Generate is triggered via the goal field's Enter
+ * (the button drops mouseup in this harness).
+ */
+test('new-user journey', async () => {
+  test.setTimeout(120_000);
+  fs.mkdirSync(OUT, { recursive: true });
+
+  // 0a. The REAL first-run screen now: the product tour auto-starts (keepTour lets
+  //     it fire) — a new user gets a guided welcome instead of a bare canvas.
+  {
+    const l = await launchApp({ keepTour: true });
+    try {
+      await l.page.waitForTimeout(800);
+      await shot(l.page, 'j0-first-run-tour');
+    } finally {
+      await l.app.close();
+    }
+  }
+
+  const l = await launchApp();
+  const { page } = l;
+  try {
+    // 0b. The steady-state empty stage (tour seen) — improved copy: the ⌘K hint now
+    //     tells the user the rest of the app lives behind the command palette.
+    await page.waitForTimeout(500);
+    await shot(page, 'j0b-empty-state');
+
+    // 1. Type a goal + Enter → a graph is generated (offline sample). Wait out the
+    //    decompose retries so we capture the FRIENDLY fallback notice, not mid-spin.
+    const goalBox = page.getByRole('textbox', { name: 'Goal' });
+    await goalBox.fill('Add a dark mode toggle to my settings page');
+    await goalBox.press('Enter');
+    await page.waitForTimeout(2500);
+    await shot(page, 'j1-after-generate');
+
+    // 2. Select the first task — does the user discover nodes are clickable? Dock opens.
+    try {
+      await page.locator('[data-task-node] [data-task-header]').first().click();
+      await page.waitForTimeout(600);
+      await shot(page, 'j2-task-selected');
+    } catch (err) {
+      console.log(`[journey] select skip: ${(err as Error).message}`);
+    }
+
+    // 3. The ⌘K palette — the only door to Settings/editor/terminal/web/files. Is it
+    //    discoverable? (capture what's behind it.)
+    try {
+      await page.getByRole('button', { name: 'Command palette' }).click();
+      await page.waitForTimeout(300);
+      await shot(page, 'j3-command-palette');
+    } catch (err) {
+      console.log(`[journey] palette skip: ${(err as Error).message}`);
+    }
+  } finally {
+    await l.app.close();
+  }
+});

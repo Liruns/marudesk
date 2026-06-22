@@ -540,7 +540,10 @@ export function WorkGraphPanel() {
         useWorkGraphStore.getState().setGraph(res.graph);
       } else {
         useWorkGraphStore.getState().setGraph(sampleGraph(goal));
-        setNotice(t('workGraph.offlineSample').replace('{reason}', res.reason));
+        // Friendly, actionable notice — NOT the raw provider error. A first-time
+        // user with no key otherwise saw "Failed after 3 attempts. Cannot connect
+        // to API", which reads like a crash for what is really "no provider yet".
+        setNotice(t('workGraph.offlineSample'));
       }
     } catch {
       useWorkGraphStore.getState().setGraph(sampleGraph(goal));
