@@ -8,6 +8,7 @@ import { askAgent } from '../../agent/store';
 import { RemoteValue } from '../components/RemoteValue';
 import { ConsoleInput } from './ConsoleInput';
 import { useI18n } from '../../../i18n/useI18n';
+import type { TranslationKey } from '../../../i18n/messages';
 import type { ConsoleEntry, ConsoleKind, RemoteObject } from '../types';
 
 /**
@@ -26,13 +27,13 @@ const ROW_TINT: Partial<Record<ConsoleEntry['kind'], string>> = {
 
 /** Level-filter buttons → the set of kinds each admits (besides REPL echoes). */
 type LevelFilter = 'all' | 'error' | 'warning' | 'info' | 'log' | 'debug';
-const LEVEL_FILTERS: { id: LevelFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'error', label: 'Errors' },
-  { id: 'warning', label: 'Warnings' },
-  { id: 'info', label: 'Info' },
-  { id: 'log', label: 'Logs' },
-  { id: 'debug', label: 'Debug' },
+const LEVEL_FILTERS: { id: LevelFilter; labelKey: TranslationKey }[] = [
+  { id: 'all', labelKey: 'devtools.console.level.all' },
+  { id: 'error', labelKey: 'devtools.console.level.errors' },
+  { id: 'warning', labelKey: 'devtools.console.level.warnings' },
+  { id: 'info', labelKey: 'devtools.console.level.info' },
+  { id: 'log', labelKey: 'devtools.console.level.logs' },
+  { id: 'debug', labelKey: 'devtools.console.level.debug' },
 ];
 const LEVEL_KINDS: Record<Exclude<LevelFilter, 'all'>, ConsoleKind[]> = {
   error: ['error', 'exception'],
@@ -113,9 +114,9 @@ function ConsoleRow({
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(entryToText(entry));
-      toast({ title: 'Copied', variant: 'success' });
+      toast({ title: t('devtools.console.copied'), variant: 'success' });
     } catch (err) {
-      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+      toast({ title: t('devtools.console.copyFailed'), description: toMessage(err), variant: 'error' });
     }
   };
   return (
@@ -138,7 +139,7 @@ function ConsoleRow({
       ) : null}
       {count > 1 ? (
         <span
-          title={`${count} occurrences`}
+          title={t('devtools.console.occurrences').replace('{n}', String(count))}
           className="shrink-0 mt-0.5 min-w-4 h-4 px-1 rounded-pill bg-surface-3 text-fg-secondary text-[10px] leading-4 text-center tabular-nums font-medium"
         >
           {count}
@@ -183,7 +184,7 @@ function ConsoleRow({
           className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 h-5 mt-0.5 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
         >
           <Sparkles size={11} />
-          Fix this
+          {t('devtools.console.fixThis')}
         </button>
       ) : null}
     </div>
@@ -248,9 +249,9 @@ export function ConsolePanel() {
   const copyAll = async () => {
     try {
       await navigator.clipboard.writeText(visible.map(entryToText).join('\n'));
-      toast({ title: `Copied ${visible.length} messages`, variant: 'success' });
+      toast({ title: t('devtools.console.copiedN').replace('{n}', String(visible.length)), variant: 'success' });
     } catch (err) {
-      toast({ title: 'Copy failed', description: toMessage(err), variant: 'error' });
+      toast({ title: t('devtools.console.copyFailed'), description: toMessage(err), variant: 'error' });
     }
   };
 
@@ -307,7 +308,7 @@ export function ConsolePanel() {
                     : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
                 )}
               >
-                {f.label}
+                {t(f.labelKey)}
                 {n > 0 ? (
                   <span
                     className={cn(

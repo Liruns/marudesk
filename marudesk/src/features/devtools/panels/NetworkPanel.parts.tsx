@@ -446,7 +446,7 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
   const copyFetch = async () => {
     try {
       await navigator.clipboard.writeText(buildFetchSnippet(entry));
-      toast({ title: 'Copied as fetch.', variant: 'success' });
+      toast({ title: t('devtools.network.copiedAsFetch'), variant: 'success' });
     } catch (err) {
       toast({ title: t('common.copyFailed'), description: toMessage(err), variant: 'error' });
     }
