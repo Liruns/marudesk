@@ -5,7 +5,6 @@ import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useI18n } from '../../i18n/useI18n';
-import { useTabsStore } from '../tabs/store';
 import { useInstrumentStore } from './instrument';
 import { taskThreadWorkspaceId } from './taskThreads';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -62,13 +61,9 @@ async function openResource(r: Resource, noOpenerMessage: string, workspaceId?: 
     id = await window.marudesk.invoke('browser:tabs-new', { kind: 'terminal', workspaceId });
   }
   if (kind && id) {
-    await useTabsStore.getState().activateTab(id);
-    // A cancelled dirty-editor prompt keeps the previous instrument and rejects
-    // this id — close the resource tab we just created so it doesn't leak as a
-    // hidden orphan (live WebContentsView that can never be torn down).
-    if (!useInstrumentStore.getState().open(id, kind)) {
-      await useTabsStore.getState().closeTab(id);
-    }
+    // Feature the resource in the Workbench strip (additive — other open tools
+    // stay as their own tabs); feature() activates it so its view paints.
+    useInstrumentStore.getState().feature(id, kind);
   } else {
     toast({ title: noOpenerMessage, variant: 'warning' });
   }

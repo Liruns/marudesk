@@ -54,6 +54,15 @@ type InstrumentState = {
    * tab leaks as a hidden orphan whose live WebContentsView can never be torn down.
    */
   open: (tabId: string, kind: TabKind) => boolean;
+  /**
+   * Feature `tabId` as the active tool WITHOUT closing the previously-featured one
+   * — the Workbench is a TAB STRIP: every tool you open stays alive so you can
+   * switch between them. Activates the tab (so main paints its view) and collapses
+   * any split to a single pane; the old primary/secondary stay open as their own
+   * strip tabs (not torn down). This is the canonical "open a tool" path now;
+   * {@link open} (replace-and-close) is retained only for its unit contract.
+   */
+  feature: (tabId: string, kind: TabKind) => void;
   /** Open `tabId` as a second pane beside the primary (a side-by-side split). */
   splitWith: (tabId: string, kind: TabKind, dir?: SplitDir) => void;
   /** Close the second pane (closes its tab) — back to the single primary tool. */
@@ -135,6 +144,10 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
     set({ tabId, kind, secondaryTabId: null, secondaryKind: null });
     return true;
   },
+  feature: (tabId, kind) => {
+    void useTabsStore.getState().activateTab(tabId);
+    set({ tabId, kind, secondaryTabId: null, secondaryKind: null });
+  },
   splitWith: (tabId, kind, dir = 'row') => {
     const s = get();
     // "Split the current tool" — needs a primary, and never tiles a tab with itself.
@@ -156,16 +169,20 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
   },
   setSplitRatio: (ratio) => set({ splitRatio: Math.min(0.9, Math.max(0.1, ratio)) }),
   close: () => {
-    const { tabId: prev, secondaryTabId: sec } = get();
+    // "← Graph" exits the WHOLE Workbench back to the pure canvas, so it closes
+    // every open tool tab in the featured tab's workspace (per-tab × closes just
+    // one). All dirty-editor prompts must pass before anything is torn down.
+    const { tabId, secondaryTabId } = get();
     const tabsState = useTabsStore.getState();
-    // Both panes' dirty-editor prompts must pass before the stage tears down.
-    for (const id of [prev, sec]) {
-      if (!id) continue;
-      if (!confirmCloseTab(tabsState.tabs.find((t) => t.id === id))) return;
+    const featured = tabsState.tabs.find((t) => t.id === tabId);
+    const victims = featured
+      ? tabsState.tabs.filter((t) => t.workspaceId === featured.workspaceId)
+      : tabsState.tabs.filter((t) => t.id === tabId || t.id === secondaryTabId);
+    for (const v of victims) {
+      if (!confirmCloseTab(v)) return; // a dirty editor cancelled — keep everything
     }
-    closeTabSafely(prev);
-    closeTabSafely(sec);
-    // Back to the full canvas — drop focus mode so the next tool opens coexisting.
+    for (const v of victims) closeTabSafely(v.id);
+    // Drop focus mode so the next tool opens coexisting beside the canvas again.
     set({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null, maximized: false });
   },
 }));
@@ -180,8 +197,9 @@ useTabsStore.subscribe((s) => {
   if (st.secondaryTabId && !live(st.secondaryTabId)) {
     useInstrumentStore.setState({ secondaryTabId: null, secondaryKind: null });
   }
-  // Primary's tab closed elsewhere → promote a surviving second pane, else drop to
-  // the graph (so the Shell doesn't render blank chrome over a destroyed view).
+  // Primary's tab closed elsewhere → promote a surviving second pane; else feature
+  // the next remaining tool tab (the strip keeps them alive), preferring the tab
+  // main just made active; else drop to the pure canvas (no blank chrome).
   if (st.tabId && !live(st.tabId)) {
     const cur = useInstrumentStore.getState();
     if (live(cur.secondaryTabId)) {
@@ -192,7 +210,16 @@ useTabsStore.subscribe((s) => {
         secondaryKind: null,
       });
     } else {
-      useInstrumentStore.setState({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null, maximized: false });
+      const next =
+        (s.activeTabId && s.activeTabId !== st.tabId
+          ? s.tabs.find((t) => t.id === s.activeTabId)
+          : undefined) ?? s.tabs.find((t) => t.id !== st.tabId);
+      if (next) {
+        void useTabsStore.getState().activateTab(next.id);
+        useInstrumentStore.setState({ tabId: next.id, kind: next.kind, secondaryTabId: null, secondaryKind: null });
+      } else {
+        useInstrumentStore.setState({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null, maximized: false });
+      }
     }
   }
 });
@@ -218,13 +245,9 @@ export async function openInstrument(
       opts?.terminalProfile ? { terminalProfile: opts.terminalProfile } : undefined,
     );
   if (!id) return;
-  await useTabsStore.getState().activateTab(id);
-  // If the dirty-editor prompt is cancelled, open() keeps the previous instrument
-  // and rejects `id` — close the tab we just created so it doesn't leak as a
-  // hidden orphan (live WebContentsView that can never be torn down).
-  if (!useInstrumentStore.getState().open(id, kind)) {
-    await useTabsStore.getState().closeTab(id);
-  }
+  // Add it to the Workbench strip and feature it (no replace — the previously
+  // open tools stay as their own tabs). feature() activates the tab so its view paints.
+  useInstrumentStore.getState().feature(id, kind);
 }
 
 /**
@@ -270,9 +293,7 @@ export async function splitInstrument(
 export async function reopenTabInstrument(): Promise<void> {
   const reopened = await useTabsStore.getState().reopenClosedTab();
   if (!reopened) return;
-  if (!useInstrumentStore.getState().open(reopened.id, reopened.kind)) {
-    await useTabsStore.getState().closeTab(reopened.id);
-  }
+  useInstrumentStore.getState().feature(reopened.id, reopened.kind);
 }
 
 /**
@@ -290,16 +311,10 @@ export async function openFileInstrument(
   // tab id) rather than always minting a fresh one. Snapshot the live tab ids
   // BEFORE opening so we can tell a brand-new tab from a pre-existing one and
   // only tear down a tab we actually created on a cancelled prompt.
-  const preExisting = new Set(useTabsStore.getState().tabs.map((t) => t.id));
   const id =
     line !== undefined && col !== undefined
       ? await useEditorStore.getState().openFileAt(file, line, col)
       : await useEditorStore.getState().openFile(file);
-  if (id && !useInstrumentStore.getState().open(id, 'editor') && !preExisting.has(id)) {
-    // Cancelled prompt kept the previous instrument: tear down the editor tab we
-    // just created so it doesn't survive as an orphan. A pre-existing tab (the
-    // file was already open) is left alone — open() already re-activated prev,
-    // and closing it would drop a tab the user did not just create.
-    await useTabsStore.getState().closeTab(id);
-  }
+  // Feature the editor in the Workbench strip (additive — other tools stay open).
+  if (id) useInstrumentStore.getState().feature(id, 'editor');
 }

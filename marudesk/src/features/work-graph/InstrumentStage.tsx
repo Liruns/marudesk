@@ -154,11 +154,81 @@ function SplitMenu() {
 }
 
 /**
- * The full-bleed instrument surface that fills Mission Control's main area when a
- * Task summons a tool. Hosts ONE tool, or — once split — two side by side (e.g. an
- * editor beside the running app / a Preview), each a real tool surface from the tab
- * registry. Web panes self-report their rect, so two live WebContentsViews tile
- * their panes via the existing bounds pipeline. "← Graph" returns to the home.
+ * The Workbench tab strip — one chip per open tool tab in the featured workspace.
+ * Click a chip to switch (features it without closing the others); the × closes
+ * just that tab. The featured chip carries the stage's source-of-truth
+ * `instrument-kind` testid so "which tool is showing" stays assertable.
+ */
+function TabStrip() {
+  const { t } = useI18n();
+  const featuredId = useInstrumentStore((s) => s.tabId);
+  const secondaryId = useInstrumentStore((s) => s.secondaryTabId);
+  const feature = useInstrumentStore((s) => s.feature);
+  const tabs = useTabsStore((s) => s.tabs);
+  const closeTab = useTabsStore((s) => s.closeTab);
+  const wsId = tabs.find((tb) => tb.id === featuredId)?.workspaceId;
+  const strip = tabs.filter((tb) => tb.workspaceId === wsId);
+  return (
+    <div
+      role="tablist"
+      aria-label={t('workGraph.workbench.tabs')}
+      className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {strip.map((tb) => {
+        const featured = tb.id === featuredId;
+        const secondary = tb.id === secondaryId;
+        const kindLabel = t(KIND_LABEL_KEYS[tb.kind]);
+        const identity = instrumentIdentity(tb.kind, tb);
+        const showId = identity.length > 0 && identity !== kindLabel;
+        return (
+          <div
+            key={tb.id}
+            role="tab"
+            aria-selected={featured}
+            className={cn(
+              'group flex h-6 shrink-0 items-center gap-1 rounded-md border pl-2 pr-1 text-caption transition-colors duration-fast',
+              featured
+                ? 'border-default bg-surface-3 text-fg-primary'
+                : secondary
+                  ? 'border-subtle bg-surface-2 text-fg-secondary'
+                  : 'border-transparent text-fg-tertiary hover:bg-surface-2 hover:text-fg-secondary',
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => feature(tb.id, tb.kind)}
+              title={showId ? `${kindLabel} · ${identity}` : kindLabel}
+              className="flex min-w-0 items-center gap-1 focus-visible:outline-none"
+            >
+              <span data-testid={featured ? 'instrument-kind' : undefined} className="shrink-0 font-medium">
+                {kindLabel}
+              </span>
+              {showId ? (
+                <span className="min-w-0 max-w-[9rem] truncate text-fg-quaternary">{identity}</span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              aria-label={t('workGraph.workbench.closeTab')}
+              title={t('workGraph.workbench.closeTab')}
+              onClick={() => void closeTab(tb.id)}
+              className="grid size-4 shrink-0 place-items-center rounded text-fg-tertiary opacity-0 transition-[opacity,color] duration-fast hover:bg-surface-3 hover:text-fg-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The Workbench surface that docks beside the canvas when a Task summons a tool.
+ * A TAB STRIP hosts every open tool; the featured one fills the pane (or — once
+ * split — two tile side by side, each a real surface from the tab registry, web
+ * panes self-reporting their rect). "← Graph" closes the whole Workbench back to
+ * the pure canvas.
  */
 export function InstrumentStage() {
   const { t } = useI18n();
@@ -177,8 +247,6 @@ export function InstrumentStage() {
   if (!tabId || !kind) return null;
 
   const kindLabel = t(KIND_LABEL_KEYS[kind]);
-  const identity = instrumentIdentity(kind, tab);
-  const showIdentity = identity.length > 0 && identity !== kindLabel;
   const isSplit = secondaryTabId !== null && secondaryKind !== null;
   const row = splitDir === 'row';
 
@@ -201,22 +269,19 @@ export function InstrumentStage() {
 
   return (
     <div data-stage="instrument" className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
-      <div className="h-8 shrink-0 flex items-center gap-2 px-2 border-b border-subtle bg-surface-1">
+      <div className="h-8 shrink-0 flex items-center gap-1.5 px-2 border-b border-subtle bg-surface-1">
+        <TabStrip />
+        {!isSplit ? <SplitMenu /> : null}
+        <MaximizeToggle />
         <button
           type="button"
           onClick={close}
-          className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-caption font-medium text-fg-secondary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          title={t('workGraph.stage.backToGraphTitle')}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-caption font-medium text-fg-secondary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <ArrowLeft size={13} />
           {t('workGraph.stage.backToGraph')}
         </button>
-        <span data-testid="instrument-kind" className="text-caption text-fg-tertiary">{kindLabel}</span>
-        {showIdentity ? (
-          <span className="min-w-0 truncate text-caption text-fg-tertiary" title={identity}>· {identity}</span>
-        ) : null}
-        <span className="ml-auto" />
-        {!isSplit ? <SplitMenu /> : null}
-        <MaximizeToggle />
       </div>
       {isSplit ? (
         <div ref={splitRef} className={cn('flex-1 min-h-0 min-w-0 flex', row ? 'flex-row' : 'flex-col')}>

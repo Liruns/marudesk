@@ -109,7 +109,7 @@ describe('useInstrumentStore.open dirty-prompt symmetry', () => {
   });
 });
 
-describe('CREATE callers close the just-created tab on a cancelled prompt', () => {
+describe('CREATE callers FEATURE the new tab additively (tab strip, no replace)', () => {
   beforeEach(() => {
     confirmCloseTab.mockReset();
     closeTab.mockReset();
@@ -121,72 +121,47 @@ describe('CREATE callers close the just-created tab on a cancelled prompt', () =
     openFile.mockReset();
     openFile.mockResolvedValue('next');
     tabs = [{ id: 'prev', kind: 'editor' }];
-    // A dirty previous instrument is what triggers the discard prompt on switch.
+    // A previously-featured tool — it must STAY OPEN (as a strip tab) when a new
+    // tool is summoned; the Workbench keeps tools alive rather than replacing them.
     useInstrumentStore.setState({ tabId: 'prev', kind: 'editor' });
   });
 
-  it('openInstrument closes the new tab when the dirty prompt is CANCELLED', async () => {
-    confirmCloseTab.mockReturnValue(false);
-
+  it('openInstrument features the new tab and keeps the previous tool open', async () => {
     await openInstrument('web');
 
-    // Switch aborted: prev kept, and the freshly-created tab is torn down so no
-    // hidden WebContentsView orphan survives.
-    expect(useInstrumentStore.getState().tabId).toBe('prev');
-    expect(closeTab).toHaveBeenCalledWith('next');
-  });
-
-  it('openInstrument does NOT close the new tab when the prompt is HONORED', async () => {
-    confirmCloseTab.mockReturnValue(true);
-
-    await openInstrument('web');
-
-    // Adopted: only the previous tab is closed, never the just-adopted one.
+    // Additive: the new tool is featured, the previous one is NOT torn down (it
+    // remains in the strip), and there is no discard prompt — switching can never
+    // lose a dirty editor because nothing is closed.
     expect(useInstrumentStore.getState().tabId).toBe('next');
-    expect(closeTab).toHaveBeenCalledWith('prev');
-    expect(closeTab).not.toHaveBeenCalledWith('next');
+    expect(useInstrumentStore.getState().kind).toBe('web');
+    expect(activateTab).toHaveBeenCalledWith('next');
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(confirmCloseTab).not.toHaveBeenCalled();
   });
 
-  it('openFileInstrument closes the new editor tab when the prompt is CANCELLED', async () => {
-    confirmCloseTab.mockReturnValue(false);
-
-    await openFileInstrument('/tmp/a.ts');
-
-    expect(useInstrumentStore.getState().tabId).toBe('prev');
-    expect(closeTab).toHaveBeenCalledWith('next');
-  });
-
-  it('openFileInstrument does NOT close the new editor tab when the prompt is HONORED', async () => {
-    confirmCloseTab.mockReturnValue(true);
-
+  it('openFileInstrument features the editor and keeps the previous tool open', async () => {
     await openFileInstrument('/tmp/a.ts');
 
     expect(useInstrumentStore.getState().tabId).toBe('next');
-    expect(closeTab).toHaveBeenCalledWith('prev');
-    expect(closeTab).not.toHaveBeenCalledWith('next');
+    expect(useInstrumentStore.getState().kind).toBe('editor');
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(confirmCloseTab).not.toHaveBeenCalled();
   });
 
-  it('openFileInstrument does NOT close a PRE-EXISTING editor tab when the prompt is CANCELLED', async () => {
-    // The file is ALREADY open: editorStore.openFile focuses + returns its
-    // EXISTING tab id ('prev'), not a fresh one. The current instrument is a
-    // DIFFERENT dirty editor ('other'), so open('prev', …) hits the dirty prompt
-    // and — cancelled — returns false. The close-on-cancel guard must leave the
-    // pre-existing 'prev' alone (only a tab CREATED in this action is torn down).
-    // (Current instrument MUST differ from the opened id, or open() returns true
-    // via the same-tab fast path and never reaches the guard.)
+  it('openFileInstrument re-features an ALREADY-OPEN file without disturbing the others', async () => {
+    // The file is already open: editorStore.openFile focuses + returns its
+    // EXISTING tab id ('prev'). Featuring it is a plain switch — no tab is closed.
     tabs = [
       { id: 'prev', kind: 'editor' },
       { id: 'other', kind: 'editor' },
     ];
     useInstrumentStore.setState({ tabId: 'other', kind: 'editor' });
-    confirmCloseTab.mockReturnValue(false);
     openFile.mockResolvedValue('prev'); // already-open file → existing id
 
     await openFileInstrument('/tmp/already-open.ts');
 
-    // Switch cancelled (stay on 'other'); the pre-existing 'prev' is preserved.
-    expect(useInstrumentStore.getState().tabId).toBe('other');
-    expect(closeTab).not.toHaveBeenCalledWith('prev');
+    expect(useInstrumentStore.getState().tabId).toBe('prev');
+    expect(closeTab).not.toHaveBeenCalled();
   });
 });
 
@@ -231,17 +206,17 @@ describe('reopenTabInstrument hosts the reopened tab', () => {
     expect(closeTab).not.toHaveBeenCalled();
   });
 
-  it('tears the just-reopened tab down when the dirty prompt is CANCELLED', async () => {
-    // A dirty previous instrument triggers the discard prompt on the switch.
+  it('features the reopened tab additively, keeping the previous tool open', async () => {
+    // A previously-featured tool stays open as a strip tab when a tab is reopened —
+    // reopen FEATURES the recovered tab without closing anything (no discard prompt).
     useInstrumentStore.setState({ tabId: 'prev', kind: 'editor' });
-    confirmCloseTab.mockReturnValue(false);
 
     await reopenTabInstrument();
 
-    // Switch aborted: prev kept, and the freshly-reopened tab is torn down so no
-    // hidden WebContentsView orphan survives.
-    expect(useInstrumentStore.getState().tabId).toBe('prev');
-    expect(closeTab).toHaveBeenCalledWith('next');
+    expect(useInstrumentStore.getState().tabId).toBe('next');
+    expect(useInstrumentStore.getState().kind).toBe('web');
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(confirmCloseTab).not.toHaveBeenCalled();
   });
 });
 
