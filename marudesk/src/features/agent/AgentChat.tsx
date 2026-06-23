@@ -334,7 +334,7 @@ export function AgentChat({
                 onClick={() => toggleMission(false)}
                 aria-label={t('agent.mission.collapse')}
                 title={t('agent.mission.collapse')}
-                className="rounded p-1 text-fg-tertiary/60 transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
+                className="rounded p-1 text-fg-quaternary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-primary"
               >
                 <PanelRightClose size={13} />
               </button>

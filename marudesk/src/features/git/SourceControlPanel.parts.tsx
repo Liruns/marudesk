@@ -150,7 +150,7 @@ export function Section({
           onClick={action.onClick}
           aria-label={action.label}
           title={action.label}
-          className="size-5 rounded flex items-center justify-center text-fg-tertiary/70 hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
+          className="size-5 rounded flex items-center justify-center text-fg-quaternary hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast"
         >
           {action.icon}
         </button>
@@ -246,7 +246,7 @@ export function IconButton({
         'size-6 rounded flex items-center justify-center shrink-0',
         'transition-colors duration-fast',
         disabled
-          ? 'text-fg-tertiary/40 cursor-not-allowed'
+          ? 'text-fg-disabled cursor-not-allowed'
           : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
       )}
     >

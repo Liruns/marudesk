@@ -43,7 +43,7 @@ export function SessionRail() {
             aria-label={t('agent.sessions.showHistory')}
             title={t('agent.sessions.history')}
             tabIndex={collapsed ? 0 : -1}
-            className="rounded p-1 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
+            className="rounded p-1 text-fg-quaternary transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
           >
             <History size={14} />
           </button>
@@ -69,7 +69,7 @@ export function SessionRail() {
               onClick={() => setCollapsed(true)}
               aria-label={t('agent.sessions.hideHistory')}
               tabIndex={collapsed ? -1 : 0}
-              className="rounded p-0.5 text-fg-tertiary/60 transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
+              className="rounded p-0.5 text-fg-quaternary transition-colors duration-fast hover:text-fg-primary hover:bg-surface-3"
             >
               <PanelLeftClose size={13} />
             </button>

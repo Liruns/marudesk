@@ -194,7 +194,7 @@ export function TerminalView({ tabId: pinnedTabId }: { tabId?: string } = {}) {
           <span className="hidden @[20rem]:inline text-fg-secondary" title={t('terminal.header.shell')}>
             {basename(info.shell)}
           </span>
-          <span className="hidden @[20rem]:inline text-fg-tertiary/60" aria-hidden>
+          <span className="hidden @[20rem]:inline text-fg-quaternary" aria-hidden>
             ·
           </span>
           <Folder size={12} className="shrink-0" aria-hidden />

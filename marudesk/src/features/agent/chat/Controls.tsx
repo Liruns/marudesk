@@ -357,7 +357,7 @@ export function EmptyState({
               )}
             >
               <span className="flex-1">{suggestion}</span>
-              <ChevronRight size={11} className="text-fg-tertiary/40 group-hover:text-fg-tertiary transition-colors duration-fast shrink-0" />
+              <ChevronRight size={11} className="text-fg-quaternary group-hover:text-fg-tertiary transition-colors duration-fast shrink-0" />
             </button>
             );
           })}

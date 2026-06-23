@@ -161,7 +161,7 @@ function AddRow({ onAdd }: { onAdd: (key: string, value: string) => void }) {
             'size-5 rounded flex items-center justify-center',
             key.trim()
               ? 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2'
-              : 'text-fg-tertiary/40 cursor-not-allowed',
+              : 'text-fg-disabled cursor-not-allowed',
           )}
         >
           <Plus size={12} />

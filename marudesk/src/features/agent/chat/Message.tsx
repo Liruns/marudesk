@@ -283,7 +283,7 @@ function ThinkingBlock({
         ) : null}
         <ChevronRight
           size={11}
-          className={cn('text-fg-tertiary/40 shrink-0 transition-transform duration-fast', open && 'rotate-90')}
+          className={cn('text-fg-quaternary shrink-0 transition-transform duration-fast', open && 'rotate-90')}
         />
       </button>
       {open ? (
@@ -375,7 +375,7 @@ const ToolCardView = memo(function ToolCardView({
             size={12}
             className={cn(
               'shrink-0',
-              hue ? TIMELINE_ICON[hue] : meta?.runtime ? 'text-accent' : 'text-fg-tertiary/70',
+              hue ? TIMELINE_ICON[hue] : meta?.runtime ? 'text-accent' : 'text-fg-quaternary',
             )}
           />
         ) : (
@@ -384,7 +384,7 @@ const ToolCardView = memo(function ToolCardView({
         <span className="text-fg-secondary truncate flex-1 text-caption">{call.summary ?? label}</span>
         {badge ? <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge> : null}
         {hasBody ? (
-          <ChevronRight size={11} className={cn('text-fg-tertiary/40 shrink-0 transition-transform duration-fast', open && 'rotate-90')} />
+          <ChevronRight size={11} className={cn('text-fg-quaternary shrink-0 transition-transform duration-fast', open && 'rotate-90')} />
         ) : null}
       </button>
       {open && hasBody ? (

@@ -109,7 +109,7 @@ export function TabRow({
         {kind}
       </span>
       <span className="flex-1 min-w-0 truncate text-caption">{label}</span>
-      <Plus size={10} className="shrink-0 text-fg-tertiary/60" />
+      <Plus size={10} className="shrink-0 text-fg-quaternary" />
     </button>
   );
 }

@@ -134,7 +134,7 @@ export function IconButton({
         'size-6 rounded flex items-center justify-center shrink-0',
         'transition-colors duration-fast',
         disabled
-          ? 'text-fg-tertiary/40 cursor-not-allowed'
+          ? 'text-fg-disabled cursor-not-allowed'
           : active
             ? 'bg-accent-subtle text-accent'
             : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',

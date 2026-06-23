@@ -51,7 +51,7 @@ export const FileGroup = memo(function FileGroup({
           title={file.path}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
-          <FileText size={13} className="shrink-0 text-fg-tertiary/70" />
+          <FileText size={13} className="shrink-0 text-fg-quaternary" />
           <span className="truncate text-body-sm font-medium text-fg-primary">
             {baseName(file.path)}
           </span>

@@ -280,7 +280,7 @@ export function FileTreePierreSpike({ files, onOpenFile, onSplitFile }: Props) {
             className={cn(
               'chrome-list-row w-full gap-2.5 px-3 h-7 text-left outline-none rounded-none',
               r.disabled
-                ? 'text-fg-tertiary/50 cursor-not-allowed'
+                ? 'text-fg-disabled cursor-not-allowed'
                 : r.danger
                   ? 'text-error hover:bg-error-subtle'
                   : 'text-fg-secondary hover:bg-surface-3 hover:text-fg-primary',

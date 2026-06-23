@@ -399,7 +399,7 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
                       className={cn(
                         'shrink-0 h-5 px-1.5 rounded text-caption font-medium transition-colors duration-fast',
                         busy || hasConflicts
-                          ? 'text-fg-tertiary/60 cursor-not-allowed'
+                          ? 'text-fg-disabled cursor-not-allowed'
                           : 'text-success hover:bg-surface-2',
                       )}
                     >
@@ -412,7 +412,7 @@ export function SourceControlPanel({ open, onRequestClose, embedded = false }: P
                       className={cn(
                         'shrink-0 h-5 px-1.5 rounded text-caption font-medium transition-colors duration-fast',
                         busy
-                          ? 'text-fg-tertiary/60 cursor-not-allowed'
+                          ? 'text-fg-disabled cursor-not-allowed'
                           : 'text-error hover:bg-surface-2',
                       )}
                     >

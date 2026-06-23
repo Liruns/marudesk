@@ -102,7 +102,7 @@ export function ElementsPanel() {
             className={cn(
               'size-6 rounded flex items-center justify-center transition-colors duration-fast',
               selectedId === null
-                ? 'text-fg-tertiary/40 cursor-not-allowed'
+                ? 'text-fg-disabled cursor-not-allowed'
                 : 'text-fg-tertiary hover:text-fg-primary hover:bg-surface-2',
             )}
           >
@@ -199,7 +199,7 @@ export function ElementsPanel() {
               className={cn(
                 'h-5 px-1.5 rounded text-caption font-mono transition-colors duration-fast',
                 selectedId === null
-                  ? 'text-fg-tertiary/40 cursor-not-allowed'
+                  ? 'text-fg-disabled cursor-not-allowed'
                   : on
                     ? 'bg-accent-subtle/60 text-accent'
                     : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',

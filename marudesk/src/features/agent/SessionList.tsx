@@ -176,7 +176,7 @@ export function SessionList({ onPick, className }: { onPick?: () => void; classN
                     aria-label={`${t('agent.sessions.deleteBefore')}${s.title || t(
                       'agent.sessions.untitled',
                     )}${t('agent.sessions.deleteAfter')}`}
-                    className="shrink-0 p-1 rounded text-fg-tertiary/40 opacity-0 transition-all duration-fast hover:text-error hover:bg-error-subtle/30 group-hover:opacity-100"
+                    className="shrink-0 p-1 rounded text-fg-quaternary opacity-0 transition-all duration-fast hover:text-error hover:bg-error-subtle/30 group-hover:opacity-100"
                   >
                     <Trash2 size={12} />
                   </button>
