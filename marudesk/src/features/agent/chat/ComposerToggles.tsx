@@ -6,21 +6,20 @@ import { downloadTranscript, downloadTranscriptHtml } from './exportTranscript';
 import { ApprovalToggle, EffortToggle, VerbosityToggle } from './Toggles';
 
 /**
- * The composer footer's right-hand toggle cluster: reasoning-effort (shown only
- * for reasoning models), approval mode, response verbosity, transcript search,
- * export, and the "new conversation" button. Reads its settings/agent state from
- * the stores directly; the parent only passes the derived display flags and the
- * search toggle (whose open state lives with the transcript).
+ * Transcript-management cluster, top-right of the composer: response verbosity,
+ * transcript search, export (md / html), and "new conversation". These act on the
+ * conversation as a whole, so they sit ABOVE the input — and only once there IS a
+ * conversation. With an empty chat they render nothing, so a fresh composer shows
+ * no top toolbar at all. The per-turn config (model · reasoning · approval) lives
+ * in the action bar next to the prompt instead — see {@link ComposerTurnToggles}.
  */
 export function ComposerToggles({
   empty,
   busy,
-  isReasoningModel,
   onToggleSearch,
 }: {
   empty: boolean;
   busy: boolean;
-  isReasoningModel: boolean;
   onToggleSearch?: () => void;
 }) {
   const { t } = useI18n();
@@ -28,63 +27,44 @@ export function ComposerToggles({
   const setVerbosity = useAgentStore((s) => s.setVerbosity);
   const resetChat = useAgentStore((s) => s.resetChat);
   const messages = useAgentStore((s) => s.chat.messages);
-  const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
-  const reasoningEffort = useSettingsStore((s) => s.settings.agent.reasoningEffort);
-  const updateSettings = useSettingsStore((s) => s.update);
+
+  // Nothing to view or manage until a transcript exists.
+  if (empty) return null;
 
   return (
     <div className="chrome-panel-strong flex items-center gap-px rounded-lg p-0.5 shrink-0">
-      {isReasoningModel ? (
-        <>
-          <EffortToggle
-            value={reasoningEffort}
-            onChange={(effort) => void updateSettings({ agent: { reasoningEffort: effort } })}
-          />
-          {/* Divider */}
-          <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
-        </>
+      <VerbosityToggle value={verbosity} onChange={setVerbosity} />
+      <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
+      {onToggleSearch ? (
+        <button
+          type="button"
+          onClick={onToggleSearch}
+          aria-label={t('agent.chat.search.open')}
+          title={t('agent.chat.search.open')}
+          className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
+        >
+          <Search size={12} />
+        </button>
       ) : null}
-      <ApprovalToggle
-        value={approvalMode}
-        onChange={(mode) => void updateSettings({ agent: { approvalMode: mode } })}
-      />
-      {!empty ? (
-        <>
-          <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
-          <VerbosityToggle value={verbosity} onChange={setVerbosity} />
-          <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
-          {onToggleSearch ? (
-            <button
-              type="button"
-              onClick={onToggleSearch}
-              aria-label={t('agent.chat.search.open')}
-              title={t('agent.chat.search.open')}
-              className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
-            >
-              <Search size={11} />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => downloadTranscript(messages)}
-            aria-label={t('agent.chat.export')}
-            title={t('agent.chat.export')}
-            className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
-          >
-            <Download size={11} />
-          </button>
-          <button
-            type="button"
-            onClick={() => downloadTranscriptHtml(messages)}
-            aria-label={t('agent.chat.exportHtml')}
-            title={t('agent.chat.exportHtml')}
-            className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
-          >
-            <Code2 size={11} />
-          </button>
-        </>
-      ) : null}
-      {!busy && !empty ? (
+      <button
+        type="button"
+        onClick={() => downloadTranscript(messages)}
+        aria-label={t('agent.chat.export')}
+        title={t('agent.chat.export')}
+        className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
+      >
+        <Download size={12} />
+      </button>
+      <button
+        type="button"
+        onClick={() => downloadTranscriptHtml(messages)}
+        aria-label={t('agent.chat.exportHtml')}
+        title={t('agent.chat.exportHtml')}
+        className="flex items-center h-5 px-1.5 rounded-sm text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
+      >
+        <Code2 size={12} />
+      </button>
+      {!busy ? (
         <>
           <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
           <button
@@ -98,6 +78,36 @@ export function ComposerToggles({
           </button>
         </>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Per-turn config, grouped with the model chip in the action bar (just above the
+ * prompt): the reasoning-effort dial (reasoning models only) and the approval
+ * mode. Co-locating them with the model makes "which model · how hard it thinks ·
+ * how much it may do" read as one decision in one place, instead of being split
+ * between the top toolbar and the bottom action bar.
+ */
+export function ComposerTurnToggles({ isReasoningModel }: { isReasoningModel: boolean }) {
+  const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
+  const reasoningEffort = useSettingsStore((s) => s.settings.agent.reasoningEffort);
+  const updateSettings = useSettingsStore((s) => s.update);
+  return (
+    <div className="chrome-panel-strong flex items-center gap-px rounded-lg p-0.5 shrink-0">
+      {isReasoningModel ? (
+        <>
+          <EffortToggle
+            value={reasoningEffort}
+            onChange={(effort) => void updateSettings({ agent: { reasoningEffort: effort } })}
+          />
+          <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
+        </>
+      ) : null}
+      <ApprovalToggle
+        value={approvalMode}
+        onChange={(mode) => void updateSettings({ agent: { approvalMode: mode } })}
+      />
     </div>
   );
 }
