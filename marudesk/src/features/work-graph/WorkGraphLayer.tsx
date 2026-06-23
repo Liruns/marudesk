@@ -391,9 +391,25 @@ const TaskNodeCard = memo(function TaskNodeCard({
         onPointerCancel={onHeaderUp}
         className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 cursor-grab active:cursor-grabbing"
       >
-        <span className={cn('rounded-pill px-1.5 py-0.5 text-caption font-medium leading-none transition-colors duration-standard', style.chip, task.status === 'running' && 'inline-flex items-center gap-0.5')}>
+        {/* The status badge IS the status control: click it to cycle the manual
+            status (planned → done → failed → review). The title used to do this,
+            which surprised anyone who clicked a title just to read/open the task. */}
+        <button
+          type="button"
+          aria-label={t('workGraph.node.cycleStatusTitle')}
+          title={t('workGraph.node.cycleStatusTitle')}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            useWorkGraphStore.getState().updateTask(task.id, { status: nextStatus(task.status) });
+          }}
+          className={cn('rounded-pill px-1.5 py-0.5 text-caption font-medium leading-none transition-[filter,box-shadow] duration-fast hover:brightness-110 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.97]', style.chip, task.status === 'running' && 'inline-flex items-center gap-0.5')}
+        >
           {task.status === 'running' && <Spinner size={10} label={t('workGraph.node.running')} className="-ml-0.5" />}{statusLabel}
-        </span>
+        </button>
         {task.kind === 'decision' ? (
           <span className="rounded-pill bg-surface-3 px-1.5 py-0.5 text-caption font-medium text-fg-tertiary leading-none">{t('workGraph.node.decision')}</span>
         ) : null}
@@ -414,18 +430,19 @@ const TaskNodeCard = memo(function TaskNodeCard({
 
       {/* Body */}
       <div className="px-2.5 pb-2.5">
+        {/* The title opens the task (selects it → Instrument Dock), the obvious
+            thing a click on a task name should do. Enter selects too; stop it from
+            bubbling to the node group's keydown (which would complete an armed
+            keyboard-connect instead). */}
         <button
           type="button"
-          title={t('workGraph.node.cycleStatusTitle')}
+          title={task.title}
           onPointerDown={(e) => e.stopPropagation()}
-          // Keep Enter on the title as "cycle status": don't let it bubble to the
-          // node group's keydown, which would complete an armed keyboard-connect
-          // instead of cycling (the port button guards the same way).
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.stopPropagation();
           }}
-          onClick={() => useWorkGraphStore.getState().updateTask(task.id, { status: nextStatus(task.status) })}
-          className="block w-full text-left text-body-sm font-medium text-fg-primary truncate rounded px-2 py-1 hover:bg-surface-3 hover:underline decoration-fg-tertiary decoration-dashed underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
+          onClick={() => useWorkGraphStore.getState().selectTask(task.id)}
+          className="block w-full text-left text-body-sm font-medium text-fg-primary truncate rounded px-2 py-1 hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast"
         >
           {task.title}
         </button>
