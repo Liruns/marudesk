@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDevtoolsStore } from '../store';
 import { cdpTry } from '../cdp';
 import type { PlatformFontUsage } from '../types';
+import { useI18n } from '../../../i18n/useI18n';
 
 /**
  * The Fonts pane for the selected node: `CSS.getPlatformFontsForNode` lists the
@@ -10,6 +11,7 @@ import type { PlatformFontUsage } from '../types';
  * system. Re-fetched on every selection change.
  */
 export function FontsPane() {
+  const { t } = useI18n();
   const tabId = useDevtoolsStore((s) => s.tabId);
   const selectedId = useDevtoolsStore((s) => s.selectedId);
   // null = loading (the fetch always lands an array). Reset on selection change
@@ -39,21 +41,21 @@ export function FontsPane() {
   if (selectedId === null) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Select an element to inspect its rendered fonts
+        {t('devtools.fonts.selectPrompt')}
       </div>
     );
   }
   if (fonts === null) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Loading fonts...
+        {t('devtools.fonts.loading')}
       </div>
     );
   }
   if (fonts.length === 0) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        No text rendered by this element
+        {t('devtools.fonts.noText')}
       </div>
     );
   }
@@ -76,7 +78,7 @@ export function FontsPane() {
             ) : null}
           </div>
           <span className="text-caption text-fg-secondary tabular-nums shrink-0">
-            {f.glyphCount} glyph{f.glyphCount === 1 ? '' : 's'}
+            {t('devtools.fonts.glyphCount').replace('{count}', String(f.glyphCount))}
           </span>
           <span
             className={
@@ -85,7 +87,7 @@ export function FontsPane() {
                 : 'px-1 rounded-sm bg-surface-3 text-fg-tertiary text-caption shrink-0'
             }
           >
-            {f.isCustomFont ? 'web font' : 'system'}
+            {f.isCustomFont ? t('devtools.fonts.webFont') : t('devtools.fonts.system')}
           </span>
         </div>
       ))}

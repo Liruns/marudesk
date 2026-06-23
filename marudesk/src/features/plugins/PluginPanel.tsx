@@ -4,6 +4,7 @@ import { PLUGIN_SCHEME } from '../../../shared/plugin';
 import type { TabState } from '../../../shared/browser';
 import { useTabsStore } from '../tabs/store';
 import { useAgentStore } from '../agent/store';
+import { useI18n } from '../../i18n/useI18n';
 
 /**
  * A plugin's sandboxed UI panel (docs/plugin-runtime-design.md §8.5). Renders the
@@ -16,6 +17,7 @@ import { useAgentStore } from '../agent/store';
  * panels drive work through prompts, like a user typing.
  */
 export function PluginPanel({ tabId }: { tabId?: string }) {
+  const { t } = useI18n();
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const id = tabId ?? activeTabId ?? '';
   const tab = useTabsStore((s) => s.tabs.find((candidate: TabState) => candidate.id === id));
@@ -48,7 +50,7 @@ export function PluginPanel({ tabId }: { tabId?: string }) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-body-sm text-fg-tertiary">
         <Blocks size={16} />
-        <span>This plugin panel is unavailable.</span>
+        <span>{t('plugin.panel.unavailable')}</span>
       </div>
     );
   }

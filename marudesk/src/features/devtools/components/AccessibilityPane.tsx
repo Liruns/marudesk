@@ -3,6 +3,7 @@ import { useDevtoolsStore } from '../store';
 import { cdpTry } from '../cdp';
 import type { AXNode, AXProperty, BackgroundColorsInfo } from '../types';
 import { formatAxValue } from './elements-utils';
+import { useI18n } from '../../../i18n/useI18n';
 
 /**
  * The Accessibility pane for the selected node:
@@ -33,12 +34,13 @@ function PropertyList({ properties }: { properties: AXProperty[] }) {
 }
 
 function ContrastInfo({ info }: { info: BackgroundColorsInfo }) {
+  const { t } = useI18n();
   const colors = info.backgroundColors ?? [];
   if (colors.length === 0 && !info.computedFontSize && !info.computedFontWeight) return null;
   return (
     <div className="pt-1 border-t border-subtle/60 mt-1">
       <div className="text-caption uppercase tracking-wide text-fg-tertiary px-2 py-1">
-        Contrast
+        {t('devtools.accessibility.contrast')}
       </div>
       {colors.map((c) => (
         <div key={c} className="flex items-center gap-1.5 px-2 py-0.5">
@@ -63,6 +65,7 @@ function ContrastInfo({ info }: { info: BackgroundColorsInfo }) {
 type AxResult = { node: AXNode | null; contrast: BackgroundColorsInfo | null };
 
 export function AccessibilityPane() {
+  const { t } = useI18n();
   const tabId = useDevtoolsStore((s) => s.tabId);
   const selectedId = useDevtoolsStore((s) => s.selectedId);
   // null = loading. Reset on selection change via the store-previous-prop
@@ -99,14 +102,14 @@ export function AccessibilityPane() {
   if (selectedId === null) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Select an element to inspect its accessibility node
+        {t('devtools.accessibility.selectPrompt')}
       </div>
     );
   }
   if (result === null) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Loading accessibility node...
+        {t('devtools.accessibility.loading')}
       </div>
     );
   }
@@ -115,7 +118,7 @@ export function AccessibilityPane() {
   if (ax === null) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        No accessibility node
+        {t('devtools.accessibility.noNode')}
       </div>
     );
   }
@@ -125,7 +128,7 @@ export function AccessibilityPane() {
       {ax.ignored ? (
         <>
           <div className="px-2 py-0.5 text-caption text-warning">
-            Ignored by the accessibility tree
+            {t('devtools.accessibility.ignored')}
           </div>
           {ax.ignoredReasons && ax.ignoredReasons.length > 0 ? (
             <PropertyList properties={ax.ignoredReasons} />
@@ -133,15 +136,15 @@ export function AccessibilityPane() {
         </>
       ) : (
         <>
-          <Row label="role" value={formatAxValue(ax.role) || '(none)'} />
-          <Row label="name" value={formatAxValue(ax.name) || '(empty)'} />
+          <Row label="role" value={formatAxValue(ax.role) || t('devtools.accessibility.valueNone')} />
+          <Row label="name" value={formatAxValue(ax.name) || t('devtools.accessibility.valueEmpty')} />
           {formatAxValue(ax.description) ? (
             <Row label="description" value={formatAxValue(ax.description)} />
           ) : null}
           {ax.properties && ax.properties.length > 0 ? (
             <div className="pt-1 border-t border-subtle/60 mt-1">
               <div className="text-caption uppercase tracking-wide text-fg-tertiary px-2 py-1">
-                Properties
+                {t('devtools.accessibility.properties')}
               </div>
               <PropertyList properties={ax.properties} />
             </div>

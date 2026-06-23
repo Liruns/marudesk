@@ -354,7 +354,7 @@ export function ConsolePanel() {
               onChange={(e) => useDevtoolsStore.getState().setPreserveLog(e.target.checked)}
               className="accent-accent"
             />
-            Preserve log
+            {t('devtools.console.preserveLog')}
           </label>
         </div>
       </div>
@@ -362,11 +362,11 @@ export function ConsolePanel() {
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-auto">
         {entries.length === 0 ? (
           <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-            Console is empty
+            {t('devtools.console.empty')}
           </div>
         ) : visible.length === 0 ? (
           <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-            No matching messages
+            {t('devtools.console.noMatches')}
           </div>
         ) : (
           rows.map(({ entry: e, count }) => (

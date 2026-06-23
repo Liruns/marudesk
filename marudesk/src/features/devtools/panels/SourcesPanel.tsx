@@ -229,7 +229,7 @@ function ScopeSection({ scope, defaultOpen }: { scope: DebuggerScope; defaultOpe
           {props === null ? (
             <span className="text-caption text-fg-tertiary">Loading…</span>
           ) : props.length === 0 ? (
-            <span className="text-caption text-fg-tertiary">No variables</span>
+            <span className="text-caption text-fg-tertiary">{t('devtools.sources.noVariables')}</span>
           ) : (
             <>
               {props.slice(0, MAX_SCOPE_PROPS).map((p) => (
@@ -666,6 +666,7 @@ const TOKEN_CLASS: Record<Exclude<SyntaxTokenKind, 'plain'>, string> = {
 };
 
 function SourceViewer() {
+  const { t } = useI18n();
   const selectedScriptId = useDevtoolsStore((s) => s.selectedScriptId);
   const scripts = useDevtoolsStore((s) => s.scripts);
   const source = useDevtoolsStore((s) => s.scriptSource);
@@ -748,7 +749,7 @@ function SourceViewer() {
   if (!selectedScriptId) {
     return (
       <div className="h-full flex items-center justify-center text-caption text-fg-tertiary">
-        Select a script to view its source
+        {t('devtools.sources.selectScript')}
       </div>
     );
   }

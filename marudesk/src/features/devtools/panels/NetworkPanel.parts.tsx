@@ -484,7 +484,7 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
             title={t('devtools.network.copyAsFetch')}
             className="h-5 px-1.5 rounded text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
           >
-            Copy as fetch
+            {t('devtools.network.copyAsFetch')}
           </button>
           <button
             type="button"

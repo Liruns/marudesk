@@ -128,13 +128,13 @@ export function SecurityPanel() {
           <DetailRow label={t('devtools.security.validTo')} value={certDate(cert.validTo)} />
         </div>
       ) : (
-        <div className="px-3 py-2 text-caption text-fg-tertiary">No certificate.</div>
+        <div className="px-3 py-2 text-caption text-fg-tertiary">{t('devtools.security.noCertificate')}</div>
       )}
 
       <SectionHeader label={t('devtools.security.issues')} />
       {issues.length === 0 ? (
         <div className="px-3 py-2 text-caption text-fg-tertiary">
-          No security issues reported.
+          {t('devtools.security.noIssues')}
         </div>
       ) : (
         <div className="py-1">

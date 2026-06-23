@@ -2,19 +2,22 @@ import { CheckCircle2, CircleDot, GitBranch, Loader2, XCircle } from 'lucide-rea
 import type { AgentRunTreeNode } from '../../../../shared/agent-orchestration';
 import { Badge } from '../../../components/ui';
 import { cn } from '../../../lib/cn';
+import { useI18n } from '../../../i18n/useI18n';
 import { hasOrchestrationContent } from './format';
+import { runStatusLabel } from './runStatus';
 
 export function OrchestrationTree({
   nodes,
 }: {
   readonly nodes: readonly AgentRunTreeNode[];
 }) {
+  const { t } = useI18n();
   if (!hasOrchestrationContent(nodes)) return null;
   return (
     <div className="flex flex-col gap-1.5 rounded border border-subtle bg-surface-2 p-2.5">
       <div className="flex items-center gap-2 text-caption uppercase tracking-wider text-fg-tertiary">
         <GitBranch size={13} className="shrink-0" />
-        <span>Agent tree</span>
+        <span>{t('agent.chat.tree.title')}</span>
         <span className="ml-auto tabular-nums">{nodes.length}</span>
       </div>
       <ol className="flex flex-col gap-1">
@@ -44,6 +47,7 @@ function TreeNode({
   readonly node: AgentRunTreeNode;
   readonly depth: number;
 }) {
+  const { t } = useI18n();
   const Icon = STATUS_ICON[node.status] ?? Loader2;
   return (
     <li>
@@ -73,7 +77,7 @@ function TreeNode({
             {node.provider}/{node.model}
           </Badge>
         ) : null}
-        <span className="shrink-0 text-caption text-fg-tertiary">{node.status}</span>
+        <span className="shrink-0 text-caption text-fg-tertiary">{runStatusLabel(t, node.status)}</span>
       </div>
       {node.children.length > 0 ? (
         <ol className="mt-1 flex flex-col gap-1">

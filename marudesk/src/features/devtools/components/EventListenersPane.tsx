@@ -132,7 +132,7 @@ export function EventListenersPane() {
       </div>
       {groups.length === 0 ? (
         <div className="text-caption text-fg-tertiary px-2 py-2">
-          No event listeners on this element
+          {t('devtools.eventListeners.none')}
         </div>
       ) : (
         groups.map(([type, items]) => (

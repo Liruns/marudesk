@@ -5,6 +5,7 @@ import { useI18n } from '../../../../i18n/useI18n';
 import { cn } from '../../../../lib/cn';
 import type { BackgroundTask, BackgroundStatus } from '../../../../../shared/agent';
 import { useAgentStore } from '../../store';
+import { runStatusLabel } from '../runStatus';
 
 /* ── background agents (detached spawn tray) ─────────────────────────────── */
 
@@ -37,7 +38,7 @@ export function BackgroundTray({ tasks }: { readonly tasks: readonly BackgroundT
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-caption uppercase tracking-wider text-fg-tertiary">
-        Background agents
+        {t('agent.chat.background.title')}
       </span>
       {tasks.map((task) => {
         const Icon = BG_STATUS_ICON[task.status];
@@ -70,7 +71,7 @@ export function BackgroundTray({ tasks }: { readonly tasks: readonly BackgroundT
                 <Badge variant="neutral">
                   {task.provider}/{task.model}
                 </Badge>
-                <span className="ml-auto shrink-0 text-caption text-fg-tertiary">{task.status}</span>
+                <span className="ml-auto shrink-0 text-caption text-fg-tertiary">{runStatusLabel(t, task.status)}</span>
               </button>
               {task.status === 'running' ? (
                 <button

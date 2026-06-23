@@ -637,7 +637,7 @@ function ManifestSection() {
               size={12}
               className={cn('text-fg-tertiary transition-transform', rawOpen && 'rotate-90')}
             />
-            Raw manifest
+            {t('devtools.application.rawManifest')}
           </button>
           {rawOpen ? (
             <pre className="font-mono text-caption text-fg-secondary whitespace-pre-wrap break-words max-h-64 overflow-auto pt-1 pl-4">
@@ -686,7 +686,7 @@ function ServiceWorkersSection() {
   if (registrations.size === 0) {
     return (
       <div className="text-caption text-fg-tertiary px-3 py-2">
-        No service worker registrations
+        {t('devtools.application.noServiceWorkers')}
       </div>
     );
   }
