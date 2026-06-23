@@ -617,7 +617,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
   addTask: (at) => {
     const id = randomId('task');
     set((s) => {
-      const task = makeTask({ id, title: 'New task', intent: s.graph?.goal ?? '' });
+      const task = makeTask({ id, title: getMessage(currentLocale(), 'workGraph.newTaskTitle'), intent: s.graph?.goal ?? '' });
       const base: WorkGraph = s.graph ?? {
         id: randomId('wg'),
         goal: '',
@@ -653,7 +653,7 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
       const goal = base.goal || spec.goal?.trim() || '';
       const task = makeTask({
         id,
-        title: spec.title.trim() || 'New task',
+        title: spec.title.trim() || getMessage(currentLocale(), 'workGraph.newTaskTitle'),
         intent: spec.intent?.trim() || goal,
         acceptance: (spec.acceptance ?? [])
           .map((text) => text.trim())

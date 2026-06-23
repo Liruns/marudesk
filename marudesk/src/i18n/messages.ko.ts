@@ -300,6 +300,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'workGraph.implementReady': '준비된 작업 구현',
   'workGraph.implementReadyTitle': '준비된 모든 작업을 각자의 격리된 워크트리에서 병렬로 구현합니다 — 각 변경 사항은 개별적으로 검토하고 적용하세요',
   'workGraph.addTask': '작업',
+  'workGraph.newTaskTitle': '새 작업',
   'workGraph.reset': '초기화',
   'workGraph.resetTitle': '모든 작업 상태를 계획됨으로 초기화',
   'workGraph.clearGraph': '그래프 지우기',

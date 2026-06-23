@@ -301,6 +301,7 @@ export const EN_MESSAGES = {
   'workGraph.implementReady': 'Implement ready',
   'workGraph.implementReadyTitle': 'Implement every ready task in parallel, each in its own isolated worktree — review and apply each diff individually',
   'workGraph.addTask': 'Task',
+  'workGraph.newTaskTitle': 'New task',
   'workGraph.reset': 'Reset',
   'workGraph.resetTitle': 'Reset all task statuses to planned',
   'workGraph.clearGraph': 'Clear graph',
