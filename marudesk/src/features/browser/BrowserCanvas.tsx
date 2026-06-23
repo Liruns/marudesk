@@ -306,8 +306,10 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
           <div
             ref={containerRef}
             className={cn(
-              // bg-surface-page: the dark frame the inset web card floats over.
-              'flex-1 min-w-0 min-h-0 relative bg-surface-page',
+              // The Arc-tinted frame the inset web card floats over: surface-page
+              // + the accent aurora, so the gap around the rounded page (and the
+              // no-page state) reads as a colored "space," not a flat slab.
+              'flex-1 min-w-0 min-h-0 relative bg-surface-page bg-vignette',
               inspectMode ? 'ring-1 ring-inset ring-accent' : '',
               'transition-shadow duration-fast',
             )}
