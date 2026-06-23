@@ -3,6 +3,7 @@ import { useI18n } from '../../i18n/useI18n';
 import { WorkGraphStage } from './WorkGraphStage';
 import { InstrumentStage } from './InstrumentStage';
 import { useInstrumentStore } from './instrument';
+import { useWorkGraphStore } from './store';
 
 /**
  * Mission Control's main stage. The Task graph (canvas) is the home; when a tool
@@ -24,13 +25,26 @@ import { useInstrumentStore } from './instrument';
 export function MainStage() {
   const { t } = useI18n();
   const instrumentTabId = useInstrumentStore((s) => s.tabId);
+  const kind = useInstrumentStore((s) => s.kind);
   const canvasRatio = useInstrumentStore((s) => s.canvasRatio);
   const maximized = useInstrumentStore((s) => s.maximized);
   const setCanvasRatio = useInstrumentStore((s) => s.setCanvasRatio);
+  const hasGraph = useWorkGraphStore((s) => s.graph !== null);
   const rowRef = useRef<HTMLDivElement>(null);
 
+  // Settings is a full-page configuration surface, not a companion you glance at
+  // while watching the graph — coexisting it beside the canvas only crams a wide
+  // form into a narrow column. It always fills the stage.
+  const fullBleed = kind === 'settings';
+
   if (!instrumentTabId) return <WorkGraphStage docked />;
-  if (maximized) return <InstrumentStage />;
+  // With no Task graph yet there is nothing to coexist WITH — pairing a tool with
+  // an empty dotted canvas + the home hero is pure dead space (the editor/terminal/
+  // browser each ended up cramped into half a window beside a blank stage). So the
+  // tool fills the whole stage; the home returns the instant you close back to it
+  // ("← Graph"). Coexistence is reserved for a POPULATED graph you want to keep in
+  // view while you work — that is the only case where the split earns its space.
+  if (maximized || !hasGraph || fullBleed) return <InstrumentStage />;
 
   const onDividerDown = (e: ReactPointerEvent): void => {
     e.preventDefault();

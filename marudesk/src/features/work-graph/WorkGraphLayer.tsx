@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Check, Download, FolderOpen, History, Play, Plus, RotateCcw, Trash2, Upload, Wrench, X } from 'lucide-react';
 import { Spinner } from '../../components/ui';
+import logoUrl from '../../assets/logo-mark.png';
 import { useWorkspaceStore } from '../workspace/store';
 import { cn } from '../../lib/cn';
 import {
@@ -649,6 +650,134 @@ export function WorkGraphPanel() {
         .replace('{done}', String(graph.tasks.filter((task) => task.status === 'done').length))
     : t('workGraph.summaryEmpty');
 
+  // ── Empty home: one centered, confident composition (no graph yet). The corner
+  // control panel and a separate centered "describe a goal" hint used to fight each
+  // other across a mostly-empty stage; this unifies them into a single hero — brand,
+  // the goal field, example goals, and an "open a project" escape hatch — with NO
+  // wall of disabled graph-management buttons (Run/Reset/Implement/Export/Clear),
+  // which only earn their place on the stage once a graph actually exists.
+  if (!graph) {
+    return (
+      <div className="pointer-events-none absolute inset-0 z-50 grid place-items-center px-6">
+        <div
+          data-tour="goal"
+          onPointerDown={(e) => e.stopPropagation()}
+          className="pointer-events-auto flex w-full max-w-md flex-col items-center gap-6 animate-fade-rise"
+        >
+          <div className="flex flex-col items-center gap-2">
+            <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-12 select-none" />
+            <h1 className="text-title font-display text-fg-primary">Maru</h1>
+            <p className="max-w-xs text-center text-body-sm text-fg-tertiary">{t('workGraph.stage.emptyBody')}</p>
+          </div>
+
+          <div className="w-full">
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                value={goal}
+                onChange={(e) => setGoal(e.currentTarget.value)}
+                placeholder={t('workGraph.goalPlaceholder')}
+                aria-label={t('workGraph.goal')}
+                title={t('workGraph.goalTitle')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && goal.trim().length > 0) requestGenerate();
+                }}
+                className="h-10 min-w-0 flex-1 rounded-md bg-surface-2 border border-default px-3 text-body text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:border-accent focus:shadow-focus-accent transition-shadow duration-fast"
+              />
+              <button
+                type="button"
+                disabled={busy || goal.trim().length === 0}
+                onClick={() => requestGenerate()}
+                className="inline-flex items-center gap-1.5 h-10 shrink-0 rounded-md bg-accent px-4 text-body-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.99] transition-colors duration-fast"
+              >
+                {busy && <Spinner size={14} label={t('workGraph.generating')} />}{t('workGraph.generate')}
+              </button>
+            </div>
+            {goal.trim().length === 0 ? (
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-caption text-fg-tertiary">{t('workGraph.exampleGoal.label')}</span>
+                {EXAMPLE_GOAL_KEYS.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setGoal(t(key));
+                      inputRef.current?.focus();
+                    }}
+                    className="rounded-pill bg-surface-2 border border-subtle px-2.5 py-1 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
+                  >
+                    {t(key)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {notice ? <p className="mt-2 text-caption text-warning">{notice}</p> : null}
+          </div>
+
+          {/* Escape hatch — open a real project (or a recent), or import a saved
+              graph. The developer who'd rather jump straight into code starts here. */}
+          <div className="flex w-full flex-col items-center gap-2.5">
+            <div className="flex w-full items-center gap-3 text-caption text-fg-quaternary">
+              <span aria-hidden className="h-px flex-1 bg-subtle" />
+              <span>{t('workGraph.orOpenProject')}</span>
+              <span aria-hidden className="h-px flex-1 bg-subtle" />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void openWorkspace()}
+                disabled={opening}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-surface-2 border border-default px-3 text-body-sm text-fg-secondary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+              >
+                {opening ? <Spinner size={14} /> : <FolderOpen size={14} />}
+                {t('workspace.action.openFolder')}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                aria-hidden="true"
+                tabIndex={-1}
+                onChange={(e) => void onImportFile(e)}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title={t('workGraph.import.title')}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-body-sm text-fg-tertiary hover:bg-surface-2 hover:text-fg-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+              >
+                <Upload size={14} />
+                {t('workGraph.import.label')}
+              </button>
+            </div>
+            {recents.length > 0 ? (
+              <div className="flex max-w-md flex-wrap items-center justify-center gap-1.5">
+                {recents.slice(0, 3).map((r) => (
+                  <button
+                    key={r.root}
+                    type="button"
+                    title={r.root}
+                    onClick={() => void openRecent(r.root)}
+                    className="group inline-flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
+                  >
+                    <History size={12} className="shrink-0 text-fg-tertiary" />
+                    <span className="truncate text-caption text-fg-secondary group-hover:text-fg-primary">{r.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <p className="text-center text-caption text-fg-quaternary">{t('workGraph.stage.emptyPaletteHint')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Populated graph: the compact corner control panel (goal field to regenerate
+  // + the full action row). Only reached when a graph exists, so the actions are
+  // live, not a row of disabled buttons.
   return (
     <div data-tour="goal" className="absolute left-3 top-14 z-50 w-72 max-h-[calc(100%-7rem)] overflow-y-auto rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in">
       <div className="mb-2 flex items-center gap-2">
@@ -676,58 +805,6 @@ export function WorkGraphPanel() {
           {busy && <Spinner size={14} label={t('workGraph.generating')} />}{t('workGraph.generate')}
         </button>
       </div>
-      {!graph && goal.trim().length === 0 ? (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <span className="text-caption text-fg-tertiary">{t('workGraph.exampleGoal.label')}</span>
-          {EXAMPLE_GOAL_KEYS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => {
-                setGoal(t(key));
-                inputRef.current?.focus();
-              }}
-              className="rounded-pill bg-surface-2 px-2 py-0.5 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
-            >
-              {t(key)}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {!graph ? (
-        <div className="mt-2 border-t border-subtle pt-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-caption text-fg-tertiary">{t('workGraph.orOpenProject')}</span>
-            <button
-              type="button"
-              onClick={() => void openWorkspace()}
-              disabled={opening}
-              className="inline-flex items-center gap-1.5 h-7 shrink-0 rounded bg-surface-2 px-2 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
-            >
-              {opening ? <Spinner size={13} /> : <FolderOpen size={13} />}
-              {t('workspace.action.openFolder')}
-            </button>
-          </div>
-          {recents.length > 0 ? (
-            <div className="mt-1.5 flex flex-col gap-0.5">
-              {recents.slice(0, 3).map((r) => (
-                <button
-                  key={r.root}
-                  type="button"
-                  title={r.root}
-                  onClick={() => void openRecent(r.root)}
-                  className="group flex items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
-                >
-                  <History size={12} className="shrink-0 text-fg-tertiary" />
-                  <span className="truncate text-caption text-fg-secondary group-hover:text-fg-primary">
-                    {r.name}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
       {confirmRegenerate ? (
         <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">

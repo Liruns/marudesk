@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { Maximize2, Minus, Plus, RotateCcw, Workflow } from 'lucide-react';
+import { Maximize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { WorkGraphNodes, WorkGraphPanel, NODE_H, NODE_W } from './WorkGraphLayer';
 import { WorkGraphInspector } from './WorkGraphInspector';
 import { useWorkGraphStore } from './store';
@@ -254,21 +254,9 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
       {/* Selected-task supervision panel (floating; Mission Control docks it instead). */}
       {docked ? null : <WorkGraphInspector />}
 
-      {/* Empty state — points at the panel to generate a first graph. */}
-      {!graph ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <div className="flex max-w-xs flex-col items-center gap-2 text-center animate-fade-rise">
-            <Workflow size={24} className="text-fg-tertiary" />
-            <p className="text-body font-medium text-fg-primary">{t('workGraph.stage.emptyTitle')}</p>
-            <p className="text-caption text-fg-tertiary">
-              {t('workGraph.stage.emptyBody')}
-            </p>
-            <p className="text-caption text-fg-tertiary [animation-delay:180ms]">{t('workGraph.stage.emptyPaletteHint')}</p>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Viewport controls (bottom-right) — shift clear of the inspector overlay. */}
+      {/* Viewport controls (bottom-right) — only meaningful once a graph exists to
+          pan/zoom; on the empty home they would just be dead chrome over the hero. */}
+      {graph ? (
       <div
         className={cn(
           'absolute bottom-4 z-50 flex items-center gap-0.5 rounded-lg chrome-panel px-1.5 py-1 shadow-card transition-[right] duration-standard',
@@ -316,6 +304,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
           <RotateCcw size={14} />
         </CtrlButton>
       </div>
+      ) : null}
     </div>
   );
 }

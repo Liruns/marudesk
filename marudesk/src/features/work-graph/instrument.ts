@@ -80,12 +80,16 @@ function closeTabSafely(id: string | null): void {
 const CANVAS_RATIO_KEY = 'marudesk.workbench.canvasRatio';
 const RATIO_MIN = 0.2;
 const RATIO_MAX = 0.85;
+// Default canvas fraction when a tool first docks beside a populated graph. The
+// user opened the tool to work IN it, so the tool is the focus (≈60%) and the
+// graph stays a readable companion (≈40%) — not an even 50/50 that cramps both.
+const CANVAS_RATIO_DEFAULT = 0.4;
 function loadCanvasRatio(): number {
   try {
     const v = Number(localStorage.getItem(CANVAS_RATIO_KEY));
-    return Number.isFinite(v) && v >= RATIO_MIN && v <= RATIO_MAX ? v : 0.5;
+    return Number.isFinite(v) && v >= RATIO_MIN && v <= RATIO_MAX ? v : CANVAS_RATIO_DEFAULT;
   } catch {
-    return 0.5;
+    return CANVAS_RATIO_DEFAULT;
   }
 }
 
