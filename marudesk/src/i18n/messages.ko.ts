@@ -1567,6 +1567,12 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'evidence.verifiedCount': '{passed}/{total} 검증됨',
   'evidence.verifiedTooltip':
     '판정은 적용 시점 검사기(변경된 파일에 대한 타입검사 · 린트 · 빌드)가 자동으로 채웁니다. 검사기가 증명할 수 없는 동작 기준은 미검증으로 남습니다.',
+  'diff.comment.add': '이 줄에 댓글 달기',
+  'diff.comment.placeholder': '에이전트에게 남길 댓글을 입력하세요…',
+  'diff.comment.save': '댓글 등록',
+  'diff.comment.cancel': '취소',
+  'diff.comment.edit': '댓글 수정',
+  'diff.comment.delete': '댓글 삭제',
   'command.reopenTab.label': '닫은 탭 다시 열기',
   'command.reopenTab.hint': '마지막으로 닫은 탭 복원',
   'command.split.hint': '현재 도구 옆에 나란히 열기',

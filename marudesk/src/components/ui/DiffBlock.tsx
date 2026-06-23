@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { MessageSquarePlus, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 
 export type DiffLine = {
   kind: 'add' | 'remove' | 'context';
@@ -44,6 +45,7 @@ const ROW_PREFIX: Record<DiffLine['kind'], string> = {
 };
 
 export function DiffBlock({ filePath, lines, className, comments, onCommentChange }: DiffBlockProps) {
+  const { t } = useI18n();
   const commenting = !!onCommentChange;
   // Which line index has an open comment editor, and its in-progress text. Kept
   // local: the saved comments live in the parent (controlled via onCommentChange).
@@ -89,8 +91,8 @@ export function DiffBlock({ filePath, lines, className, comments, onCommentChang
                         type="button"
                         onClick={() => openEditor(i, comment)}
                         className="opacity-0 group-hover:opacity-100 text-fg-tertiary hover:text-accent transition-opacity duration-fast"
-                        title="Comment on this line"
-                        aria-label="Comment on this line"
+                        title={t('diff.comment.add')}
+                        aria-label={t('diff.comment.add')}
                       >
                         <MessageSquarePlus size={12} />
                       </button>
@@ -127,7 +129,7 @@ export function DiffBlock({ filePath, lines, className, comments, onCommentChang
                         closeEditor();
                       }
                     }}
-                    placeholder="Leave a comment for the agent…"
+                    placeholder={t('diff.comment.placeholder')}
                     className="w-full resize-y rounded bg-surface-page border border-default px-2 py-1.5 text-body-sm text-fg-primary focus:outline-none focus:border-accent"
                   />
                   <div className="flex items-center gap-2">
@@ -136,14 +138,14 @@ export function DiffBlock({ filePath, lines, className, comments, onCommentChang
                       onClick={() => save(i)}
                       className="h-6 rounded bg-accent px-2 text-caption text-white hover:bg-accent-hover transition-colors duration-fast"
                     >
-                      Comment
+                      {t('diff.comment.save')}
                     </button>
                     <button
                       type="button"
                       onClick={closeEditor}
                       className="h-6 rounded px-2 text-caption text-fg-tertiary hover:text-fg-secondary transition-colors duration-fast"
                     >
-                      Cancel
+                      {t('diff.comment.cancel')}
                     </button>
                   </div>
                 </div>
@@ -156,8 +158,8 @@ export function DiffBlock({ filePath, lines, className, comments, onCommentChang
                     type="button"
                     onClick={() => openEditor(i, comment)}
                     className="shrink-0 text-fg-tertiary hover:text-accent transition-colors duration-fast"
-                    title="Edit comment"
-                    aria-label="Edit comment"
+                    title={t('diff.comment.edit')}
+                    aria-label={t('diff.comment.edit')}
                   >
                     <Pencil size={12} />
                   </button>
@@ -165,8 +167,8 @@ export function DiffBlock({ filePath, lines, className, comments, onCommentChang
                     type="button"
                     onClick={() => onCommentChange?.(i, null)}
                     className="shrink-0 text-fg-tertiary hover:text-error transition-colors duration-fast"
-                    title="Delete comment"
-                    aria-label="Delete comment"
+                    title={t('diff.comment.delete')}
+                    aria-label={t('diff.comment.delete')}
                   >
                     <Trash2 size={12} />
                   </button>

@@ -364,7 +364,7 @@ export function WorkGraphInspectorContent({
                 ))}
               </div>
             ) : null}
-            <DiffBlock filePath="Proposed changes" lines={diffLines} className="max-h-[min(256px,40vh)] overflow-auto" />
+            <DiffBlock filePath={t('workGraph.inspector.proposedChanges')} lines={diffLines} className="max-h-[min(256px,40vh)] overflow-auto" />
             <p className="mt-1 text-caption text-fg-tertiary">
               {t('workGraph.inspector.throwawayNote')}
             </p>

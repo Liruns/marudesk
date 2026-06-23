@@ -1593,6 +1593,12 @@ export const EN_MESSAGES = {
   'evidence.verifiedCount': '{passed}/{total} verified',
   'evidence.verifiedTooltip':
     'Verdicts are system-filled by the apply-time checker (typecheck · lint · build over the changed files). Behavioral criteria the checker can’t prove stay unverified.',
+  'diff.comment.add': 'Comment on this line',
+  'diff.comment.placeholder': 'Leave a comment for the agent…',
+  'diff.comment.save': 'Comment',
+  'diff.comment.cancel': 'Cancel',
+  'diff.comment.edit': 'Edit comment',
+  'diff.comment.delete': 'Delete comment',
   'command.reopenTab.label': 'Reopen Closed Tab',
   'command.reopenTab.hint': 'Restore the last closed tab',
   'command.split.hint': 'Open beside the current tool (side-by-side)',
