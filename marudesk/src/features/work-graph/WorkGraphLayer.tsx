@@ -704,7 +704,11 @@ export function WorkGraphPanel() {
           className="pointer-events-auto flex w-full max-w-md flex-col items-center gap-6 animate-fade-rise"
         >
           <div className="flex flex-col items-center gap-2">
-            <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-12 select-none" />
+            {/* Arc-style glowing brand mark: a soft accent bloom behind the logo. */}
+            <div className="relative grid place-items-center">
+              <span aria-hidden className="pointer-events-none absolute -inset-6 bg-accent-glow motion-safe:animate-fade-rise" />
+              <img src={logoUrl} alt="" aria-hidden draggable={false} className="relative size-12 select-none" />
+            </div>
             <h1 className="text-title font-display text-fg-primary">Maru</h1>
             <p className="max-w-xs text-center text-body-sm text-fg-tertiary">{t('workGraph.stage.emptyBody')}</p>
           </div>
