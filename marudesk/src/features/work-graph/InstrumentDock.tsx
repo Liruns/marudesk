@@ -131,6 +131,9 @@ export function InstrumentDock() {
 
   return (
     <aside
+      // Stable hook for focus-restore in WorkGraphStage — match this, never the
+      // aria-label, which is localized (t()) and so differs per locale.
+      data-instrument-dock
       aria-label={t('workGraph.dock.label')}
       aria-hidden={!open}
       className={cn(

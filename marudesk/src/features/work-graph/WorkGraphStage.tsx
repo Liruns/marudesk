@@ -72,7 +72,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
       active === document.body ||
       (active instanceof HTMLElement &&
         (active.closest('[data-stage="workgraph"]') !== null ||
-          active.closest('[aria-label="Task instrument dock"]') !== null));
+          active.closest('[data-instrument-dock]') !== null));
     if (stale) node.focus();
   }, [selectedTaskId]);
 
