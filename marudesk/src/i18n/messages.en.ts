@@ -1503,6 +1503,10 @@ export const EN_MESSAGES = {
   'browser.contextMenu.inspectElement': 'Inspect Element',
   'tray.open': 'Open Maru',
   'tray.quit': 'Quit Maru',
+  'dialog.saveAs': 'Save As',
+  'dialog.openWorkspace': 'Open workspace',
+  'dialog.addFolder': 'Add folder to workspace',
+  'dialog.installPlugin': 'Install plugin from folder',
   'browser.crash.body':
     'Its process stopped unexpectedly. Reload to try loading the page again.',
   'browser.crash.reload': 'Reload page',

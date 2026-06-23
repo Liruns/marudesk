@@ -14,6 +14,7 @@ import {
   resolveWorkspacePath,
 } from './fs-safe';
 import { MAX_AGENT_FILE_SIZE, MAX_FILE_SIZE } from './workspace-config';
+import { getDialogLabels } from './dialog-labels';
 import { isSshRootKey } from '../shared/ssh';
 import { sshWriteFileForEditor } from './ssh/ssh-workspace';
 
@@ -153,7 +154,7 @@ export async function saveAsForEditor(
     throw new Error('marudesk: content exceeds the editor size limit');
   }
   const result = await dialog.showSaveDialog(parentWindow, {
-    title: 'Save As',
+    title: getDialogLabels().saveAs,
     defaultPath: root,
   });
   if (result.canceled || !result.filePath) return { ok: false };

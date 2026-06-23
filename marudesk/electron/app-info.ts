@@ -10,6 +10,7 @@ import { defineHandler } from './ipc/define-handler';
 import { openExternalUrl } from './safe-open';
 import { checkManually } from './updater';
 import { setTrayLabels } from './tray';
+import { setDialogLabels } from './dialog-labels';
 
 const LATEST_RELEASE_API_URL =
   'https://api.github.com/repos/Liruns/marudesk/releases/latest';
@@ -169,5 +170,10 @@ export function registerAppInfoHandlers(): void {
   // change; setTrayLabels coerces the untrusted payload and rebuilds a live tray.
   defineHandler('app:set-tray-labels', ([labels]) => {
     setTrayLabels(labels);
+  });
+  // Localized native file-dialog titles, pushed by the renderer on mount + locale
+  // change; setDialogLabels coerces the untrusted payload with English fallbacks.
+  defineHandler('app:set-dialog-labels', ([labels]) => {
+    setDialogLabels(labels);
   });
 }

@@ -15,6 +15,7 @@ import {
 } from '../shared/workspace';
 import { isSshRootKey, sshRootKey } from '../shared/ssh';
 import { activeRoot } from './workspace-helpers';
+import { getDialogLabels } from './dialog-labels';
 import { defineHandler, requireWorkspace } from './ipc/define-handler';
 import { arrayOf, bool, obj, str } from './ipc/validate';
 import { getConnectionInfo } from './ssh/connection-manager';
@@ -335,7 +336,7 @@ async function openWorkspace(
 ): Promise<WorkspaceSummary | null> {
   const result = await dialog.showOpenDialog(parentWindow, {
     properties: ['openDirectory'],
-    title: 'Open workspace',
+    title: getDialogLabels().openWorkspace,
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return summarizeWorkspace(result.filePaths[0]);
@@ -346,7 +347,7 @@ async function pickWorkspaceRoot(
 ): Promise<WorkspaceRootInput | null> {
   const result = await dialog.showOpenDialog(parentWindow, {
     properties: ['openDirectory'],
-    title: 'Add folder to workspace',
+    title: getDialogLabels().addFolder,
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   const rootPath = result.filePaths[0];

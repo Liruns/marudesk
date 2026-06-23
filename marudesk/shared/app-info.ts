@@ -20,6 +20,20 @@ export type TrayLabels = {
   readonly quit: string;
 };
 
+/**
+ * Localized titles for the native file dialogs the main process opens (Save As,
+ * the workspace/folder pickers, the plugin-folder picker). The dialog chrome
+ * (buttons, file list) is localized by the OS, but the custom `title` is not, so
+ * the renderer pushes these on mount + locale change (`app:set-dialog-labels`),
+ * mirroring TrayLabels / WebContextMenuLabels.
+ */
+export type DialogLabels = {
+  readonly saveAs: string;
+  readonly openWorkspace: string;
+  readonly addFolder: string;
+  readonly installPlugin: string;
+};
+
 export type UpdateCheckUnavailableReason =
   | 'network-error'
   | 'no-release'

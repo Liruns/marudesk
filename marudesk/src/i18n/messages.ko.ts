@@ -1477,6 +1477,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'browser.contextMenu.inspectElement': '요소 검사',
   'tray.open': 'Maru 열기',
   'tray.quit': 'Maru 종료',
+  'dialog.saveAs': '다른 이름으로 저장',
+  'dialog.openWorkspace': '워크스페이스 열기',
+  'dialog.addFolder': '워크스페이스에 폴더 추가',
+  'dialog.installPlugin': '폴더에서 플러그인 설치',
   'browser.crash.body':
     '페이지 프로세스가 예기치 않게 중단되었습니다. 다시 로드해서 페이지를 다시 열어 보세요.',
   'browser.crash.reload': '페이지 다시 로드',

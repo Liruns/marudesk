@@ -321,6 +321,7 @@ export const CHANNELS = {
     'app:update-status',
     'app:quit-and-install',
     'app:set-tray-labels',
+    'app:set-dialog-labels',
   ],
   window: [
     'window:minimize',

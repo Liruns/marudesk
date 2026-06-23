@@ -13,6 +13,7 @@ import {
   setPluginEnabled,
 } from './index';
 import { openUserPluginsFolder } from './open-folder';
+import { getDialogLabels } from '../dialog-labels';
 
 /**
  * IPC for Settings → Plugins and the composer's plugin slash commands
@@ -40,7 +41,7 @@ export function registerPluginHandlers(): void {
   defineHandler('plugins:install-folder', async (args) => {
     if (args.length !== 0) throw new Error('install-folder takes no arguments');
     const result = await dialog.showOpenDialog({
-      title: 'Install plugin from folder',
+      title: getDialogLabels().installPlugin,
       defaultPath: getUserPluginsDir(),
       properties: ['openDirectory'],
     });
