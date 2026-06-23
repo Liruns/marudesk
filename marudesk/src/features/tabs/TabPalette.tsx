@@ -54,10 +54,15 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
   }, []);
 
   const results = useMemo(() => {
+    // Exclude the vestigial 'home' tab (the legacy launcher dashboard): Mission
+    // Control's home is the Task graph, so surfacing a "New Tab / Home" entry here
+    // — and featuring HomeView when picked — only re-exposes the duplicate home the
+    // Workbench strip already hides.
+    const open = tabs.filter((tab) => tab.kind !== 'home');
     const q = query.trim();
-    if (q === '') return tabs.slice(0, MAX_RESULTS).map((tab) => ({ tab }));
+    if (q === '') return open.slice(0, MAX_RESULTS).map((tab) => ({ tab }));
     const scored: { tab: TabState; score: number }[] = [];
-    for (const tab of tabs) {
+    for (const tab of open) {
       const r = fuzzyScore(q, tabHaystack(tab, t));
       if (r) scored.push({ tab, score: r.score });
     }
