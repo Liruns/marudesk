@@ -52,16 +52,16 @@ const PAUSE_ON_EXCEPTIONS: { id: PauseOnExceptions; labelKey: TranslationKey }[]
   { id: 'all', labelKey: 'devtools.sources.pauseAll' },
 ];
 
-const SCOPE_LABELS: Record<string, string> = {
-  global: 'Global',
-  local: 'Local',
-  closure: 'Closure',
-  block: 'Block',
-  script: 'Script',
-  module: 'Module',
-  with: 'With',
-  catch: 'Catch',
-  'wasm-expression-stack': 'Stack',
+const SCOPE_LABELS: Record<string, TranslationKey> = {
+  global: 'devtools.sources.scope.global',
+  local: 'devtools.sources.scope.local',
+  closure: 'devtools.sources.scope.closure',
+  block: 'devtools.sources.scope.block',
+  script: 'devtools.sources.scope.script',
+  module: 'devtools.sources.scope.module',
+  with: 'devtools.sources.scope.with',
+  catch: 'devtools.sources.scope.catch',
+  'wasm-expression-stack': 'devtools.sources.scope.stack',
 };
 
 /** Curated common DOM events for the Event listener breakpoints section. */
@@ -155,12 +155,13 @@ function CollapsiblePaneHeader({
 /* ── call stack ───────────────────────────────────────────────────────── */
 
 function CallStackPane() {
+  const { t } = useI18n();
   const paused = useDevtoolsStore((s) => s.paused);
   const sourceMaps = useDevtoolsStore((s) => s.sourceMaps);
   if (!paused) return null;
   return (
     <div>
-      <PaneHeader label="Call stack" count={paused.callFrames.length} />
+      <PaneHeader label={t('devtools.sources.pane.callStack')} count={paused.callFrames.length} />
       {paused.callFrames.map((frame, i) => (
         <button
           key={frame.callFrameId}
@@ -186,6 +187,7 @@ function CallStackPane() {
 /* ── scope chain ──────────────────────────────────────────────────────── */
 
 function ScopeSection({ scope, defaultOpen }: { scope: DebuggerScope; defaultOpen: boolean }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(defaultOpen);
   const [props, setProps] = useState<{ name: string; value: RemoteObject }[] | null>(null);
   const objectId = scope.object.objectId;
@@ -206,7 +208,8 @@ function ScopeSection({ scope, defaultOpen }: { scope: DebuggerScope; defaultOpe
     };
   }, [open, props, objectId]);
 
-  const label = SCOPE_LABELS[scope.type] ?? scope.type;
+  const labelKey = SCOPE_LABELS[scope.type];
+  const label = labelKey ? t(labelKey) : scope.type;
   return (
     <div className="border-b border-subtle/40">
       <button
@@ -249,12 +252,13 @@ function ScopeSection({ scope, defaultOpen }: { scope: DebuggerScope; defaultOpe
 }
 
 function ScopePane() {
+  const { t } = useI18n();
   const paused = useDevtoolsStore((s) => s.paused);
   const frame = paused?.callFrames[paused.frameIndex];
   if (!paused || !frame) return null;
   return (
     <div>
-      <PaneHeader label="Scope" />
+      <PaneHeader label={t('devtools.sources.pane.scope')} />
       {frame.scopeChain.map((scope, i) => (
         // Key on the frame so switching frames remounts (and refetches) scopes.
         <ScopeSection
@@ -284,7 +288,7 @@ function WatchPane() {
 
   return (
     <div>
-      <PaneHeader label="Watch" count={watches.length || undefined} />
+      <PaneHeader label={t('devtools.sources.pane.watch')} count={watches.length || undefined} />
       <div className="px-1.5 py-1 flex items-center gap-1 border-b border-subtle/40">
         <input
           value={draft}
@@ -358,7 +362,7 @@ function BreakpointsPane() {
   );
   return (
     <div>
-      <PaneHeader label="Breakpoints" count={breakpoints.length} />
+      <PaneHeader label={t('devtools.sources.pane.breakpoints')} count={breakpoints.length} />
       {sorted.map((bp) => {
         // Original-mode breakpoints display their mapped original url:line.
         const displayUrl = bp.original?.url ?? bp.url;
@@ -413,7 +417,7 @@ function XhrBreakpointsPane() {
   return (
     <div>
       <CollapsiblePaneHeader
-        label="XHR/fetch breakpoints"
+        label={t('devtools.sources.pane.xhrBreakpoints')}
         count={enabledCount}
         open={open}
         onToggle={() => setOpen((o) => !o)}
@@ -429,7 +433,7 @@ function XhrBreakpointsPane() {
               }}
               spellCheck={false}
               autoComplete="off"
-              placeholder="URL contains (empty = any)"
+              placeholder={t('devtools.sources.xhrUrlPlaceholder')}
               aria-label={t('devtools.sources.breakWhenUrl')}
               className="h-6 flex-1 min-w-0 rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
             />
@@ -492,12 +496,13 @@ function XhrBreakpointsPane() {
 /* ── event listener breakpoints (DOMDebugger) ─────────────────────────── */
 
 function EventBreakpointsPane() {
+  const { t } = useI18n();
   const eventBreakpoints = useDevtoolsStore((s) => s.eventBreakpoints);
   const [open, setOpen] = useState(false);
   return (
     <div>
       <CollapsiblePaneHeader
-        label="Event listener breakpoints"
+        label={t('devtools.sources.pane.eventBreakpoints')}
         count={eventBreakpoints.size}
         open={open}
         onToggle={() => setOpen((o) => !o)}
@@ -920,21 +925,21 @@ export function SourcesPanel() {
     <div className="h-full flex flex-col min-h-0">
       <div className="shrink-0 flex items-center gap-1 px-1.5 py-1 border-b border-subtle flex-wrap">
         {paused ? (
-          <ToolbarButton label="Resume script execution" onClick={() => s().resume()}>
+          <ToolbarButton label={t('devtools.sources.toolbar.resume')} onClick={() => s().resume()}>
             <Play size={14} />
           </ToolbarButton>
         ) : (
-          <ToolbarButton label="Pause script execution" onClick={() => s().pause()}>
+          <ToolbarButton label={t('devtools.sources.toolbar.pause')} onClick={() => s().pause()}>
             <Pause size={14} />
           </ToolbarButton>
         )}
-        <ToolbarButton label="Step over next function call" disabled={!paused} onClick={() => s().stepOver()}>
+        <ToolbarButton label={t('devtools.sources.toolbar.stepOver')} disabled={!paused} onClick={() => s().stepOver()}>
           <Redo2 size={14} />
         </ToolbarButton>
-        <ToolbarButton label="Step into next function call" disabled={!paused} onClick={() => s().stepInto()}>
+        <ToolbarButton label={t('devtools.sources.toolbar.stepInto')} disabled={!paused} onClick={() => s().stepInto()}>
           <ArrowDownToDot size={14} />
         </ToolbarButton>
-        <ToolbarButton label="Step out of current function" disabled={!paused} onClick={() => s().stepOut()}>
+        <ToolbarButton label={t('devtools.sources.toolbar.stepOut')} disabled={!paused} onClick={() => s().stepOut()}>
           <ArrowUpFromDot size={14} />
         </ToolbarButton>
         <div className="ml-auto">
