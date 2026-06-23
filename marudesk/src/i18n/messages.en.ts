@@ -1488,6 +1488,8 @@ export const EN_MESSAGES = {
   'browser.contextMenu.reload': 'Reload',
   'browser.contextMenu.copyPageUrl': 'Copy Page URL',
   'browser.contextMenu.inspectElement': 'Inspect Element',
+  'tray.open': 'Open Maru',
+  'tray.quit': 'Quit Maru',
   'browser.crash.body':
     'Its process stopped unexpectedly. Reload to try loading the page again.',
   'browser.crash.reload': 'Reload page',

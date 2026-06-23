@@ -1462,6 +1462,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'browser.contextMenu.reload': '새로고침',
   'browser.contextMenu.copyPageUrl': '페이지 URL 복사',
   'browser.contextMenu.inspectElement': '요소 검사',
+  'tray.open': 'Maru 열기',
+  'tray.quit': 'Maru 종료',
   'browser.crash.body':
     '페이지 프로세스가 예기치 않게 중단되었습니다. 다시 로드해서 페이지를 다시 열어 보세요.',
   'browser.crash.reload': '페이지 다시 로드',

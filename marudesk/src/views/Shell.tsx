@@ -17,7 +17,7 @@ import { dockRenderedThreadId } from '../features/work-graph/taskThreads';
 import { cardThreadId } from '../features/agent/cardThreads';
 import { useWebPageStore } from '../features/browser/store';
 import { useBookmarksStore } from '../features/browser/bookmarks';
-import { useSyncWebContextMenuLabels } from '../features/browser/useSyncContextMenuLabels';
+import { useSyncNativeLabels } from '../features/browser/useSyncNativeLabels';
 import { useTabEvents } from '../features/tabs/useTabEvents';
 import { useDiagnosticsEvents } from '../features/diagnostics/useDiagnosticsEvents';
 import { useDevtoolsStore } from '../features/devtools/store';
@@ -112,8 +112,9 @@ export function Shell() {
   useDiagnosticsEvents();
   // Mirror editor buffers + explorer state to main for the built-in context MCP.
   useContextSync();
-  // Keep the native web-tab context menu (built in main) in the user's language.
-  useSyncWebContextMenuLabels();
+  // Keep the native menus built in main (web-tab context menu, close-to-tray
+  // menu) in the user's language.
+  useSyncNativeLabels();
   const { t } = useI18n();
   // Last-seen status per agent thread, so the busy→done edge that drives the
   // completion toast is detected independently for each conversation (the dock

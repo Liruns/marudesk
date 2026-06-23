@@ -320,6 +320,7 @@ export const CHANNELS = {
     // the already-downloaded update. Live changes push on `app:update-status-changed`.
     'app:update-status',
     'app:quit-and-install',
+    'app:set-tray-labels',
   ],
   window: [
     'window:minimize',

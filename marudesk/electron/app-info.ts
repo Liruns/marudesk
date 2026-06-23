@@ -9,6 +9,7 @@ import {
 import { defineHandler } from './ipc/define-handler';
 import { openExternalUrl } from './safe-open';
 import { checkManually } from './updater';
+import { setTrayLabels } from './tray';
 
 const LATEST_RELEASE_API_URL =
   'https://api.github.com/repos/Liruns/marudesk/releases/latest';
@@ -163,5 +164,10 @@ export function registerAppInfoHandlers(): void {
     const autoResult = await checkManually();
     if (autoResult) return autoResult;
     return checkForUpdates();
+  });
+  // Localized close-to-tray menu labels, pushed by the renderer on mount + locale
+  // change; setTrayLabels coerces the untrusted payload and rebuilds a live tray.
+  defineHandler('app:set-tray-labels', ([labels]) => {
+    setTrayLabels(labels);
   });
 }

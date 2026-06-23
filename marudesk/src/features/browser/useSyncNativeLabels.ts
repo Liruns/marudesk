@@ -1,19 +1,20 @@
 import { useEffect } from 'react';
 import type { WebContextMenuLabels } from '../../../shared/browser';
+import type { TrayLabels } from '../../../shared/app-info';
 import { useI18n } from '../../i18n/useI18n';
 
 /**
- * Push the localized web-tab right-click menu labels to the main process. The
- * native context menu is built in main (electron/browser/context-menu.ts), which
- * has no access to the renderer's i18n — locale lives in renderer localStorage —
- * so the renderer is the single source of truth and ships the translated strings
- * over IPC once on mount and again whenever the locale changes. Main caches them
- * and falls back to English before the first push.
+ * Push the labels for native surfaces that the main process builds — the web-tab
+ * right-click menu and the close-to-tray menu — to main. Those menus live in the
+ * main process, which has no access to the renderer's i18n (locale lives in
+ * renderer localStorage), so the renderer stays the single source of truth and
+ * ships the translated strings over IPC once on mount and again whenever the
+ * locale changes. Main caches them and falls back to English before the first push.
  */
-export function useSyncWebContextMenuLabels(): void {
+export function useSyncNativeLabels(): void {
   const { t, locale } = useI18n();
   useEffect(() => {
-    const labels: WebContextMenuLabels = {
+    const contextMenu: WebContextMenuLabels = {
       openLinkNewTab: t('browser.contextMenu.openLinkNewTab'),
       copyLinkAddress: t('browser.contextMenu.copyLinkAddress'),
       openImageNewTab: t('browser.contextMenu.openImageNewTab'),
@@ -32,7 +33,12 @@ export function useSyncWebContextMenuLabels(): void {
       copyPageUrl: t('browser.contextMenu.copyPageUrl'),
       inspectElement: t('browser.contextMenu.inspectElement'),
     };
-    void window.marudesk.invoke('browser:set-context-menu-labels', labels);
+    const tray: TrayLabels = {
+      open: t('tray.open'),
+      quit: t('tray.quit'),
+    };
+    void window.marudesk.invoke('browser:set-context-menu-labels', contextMenu);
+    void window.marudesk.invoke('app:set-tray-labels', tray);
     // `t` is stable per locale; re-run only when the locale changes.
   }, [t, locale]);
 }

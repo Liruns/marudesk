@@ -8,6 +8,18 @@ export type AppInfo = {
   readonly releasesUrl: string;
 };
 
+/**
+ * Localized labels for the close-to-tray context menu, which is built in the
+ * main process (no i18n access). The renderer pushes them on mount + locale
+ * change (`app:set-tray-labels`); main caches them with English fallbacks and
+ * rebuilds the tray menu when they arrive. Same single-source-of-truth pattern
+ * as the web-tab context menu's WebContextMenuLabels.
+ */
+export type TrayLabels = {
+  readonly open: string;
+  readonly quit: string;
+};
+
 export type UpdateCheckUnavailableReason =
   | 'network-error'
   | 'no-release'

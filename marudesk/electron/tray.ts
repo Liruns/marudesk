@@ -2,6 +2,7 @@ import { app, Menu, nativeImage, Tray } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppSettings } from '../shared/settings';
+import type { TrayLabels } from '../shared/app-info';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,6 +24,34 @@ export type TrayHost = {
 };
 
 let tray: Tray | null = null;
+// The host last used to build the menu, kept so setTrayLabels can rebuild the
+// menu in place when localized labels arrive after the tray already exists.
+let trayHost: TrayHost | null = null;
+
+/** English defaults until the renderer pushes localized labels (see setTrayLabels). */
+const DEFAULT_TRAY_LABELS: TrayLabels = { open: 'Open Maru', quit: 'Quit Maru' };
+let trayLabels: TrayLabels = DEFAULT_TRAY_LABELS;
+
+function buildTrayMenu(host: TrayHost): Menu {
+  return Menu.buildFromTemplate([
+    { label: trayLabels.open, click: () => host.showMainWindow() },
+    { type: 'separator' },
+    { label: trayLabels.quit, click: () => host.quit() },
+  ]);
+}
+
+/**
+ * Replace the tray labels with the renderer's localized set and rebuild the menu
+ * if the tray is currently shown. The payload is untrusted, so each field is
+ * coerced to a non-empty string and falls back to the English default.
+ */
+export function setTrayLabels(raw: unknown): void {
+  const src = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  const pick = (key: keyof TrayLabels): string =>
+    typeof src[key] === 'string' && src[key] !== '' ? (src[key] as string) : DEFAULT_TRAY_LABELS[key];
+  trayLabels = { open: pick('open'), quit: pick('quit') };
+  if (tray && trayHost) tray.setContextMenu(buildTrayMenu(trayHost));
+}
 
 function trayIcon(): Electron.NativeImage {
   // Packaged: build/icon.png shipped via electron-builder extraResources →
@@ -41,15 +70,10 @@ function trayIcon(): Electron.NativeImage {
 
 export function ensureTray(host: TrayHost): void {
   if (tray) return;
+  trayHost = host;
   tray = new Tray(trayIcon());
   tray.setToolTip('Maru');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Open Maru', click: () => host.showMainWindow() },
-      { type: 'separator' },
-      { label: 'Quit Maru', click: () => host.quit() },
-    ]),
-  );
+  tray.setContextMenu(buildTrayMenu(host));
   // Single left-click restores the window (Windows convention; macOS opens the
   // context menu via the OS regardless).
   tray.on('click', () => host.showMainWindow());
