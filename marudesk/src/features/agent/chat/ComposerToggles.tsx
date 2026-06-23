@@ -124,12 +124,14 @@ export function ComposerToggles({
 }
 
 /**
- * Per-turn config (reasoning effort · approval mode), grouped with the model chip.
- * It ADAPTS to the composer width: with room (≥25rem container — the full chat) the
- * dials sit inline so "which model · how hard it thinks · how much it may do" reads
- * at a glance; in a narrow composer (the per-task dock, a split pane) the same dials
- * collapse behind a single Tune popover so the action bar stays one clean row
- * instead of wrapping into a cramped two-row pile.
+ * Per-turn config (reasoning effort · approval mode), beside the model chip. It is
+ * "set once, rarely change" config, so it stays collapsed behind a single Tune
+ * button at EVERY width — the composer's action bar reads as one clean
+ * `[+ · model · Tune] · Send` row instead of a busy strip of a six-segment effort
+ * dial plus four cryptic approval icons. The Tune button still shows the active
+ * approval glyph, so the current autonomy reads at a glance; one click opens the
+ * (labelled) effort + approval dials. Keeping it width-independent also means the
+ * composer never reflows its controls as the pane resizes.
  */
 export function ComposerTurnToggles({ isReasoningModel }: { isReasoningModel: boolean }) {
   const approvalMode = useSettingsStore((s) => s.settings.agent.approvalMode);
@@ -138,28 +140,13 @@ export function ComposerTurnToggles({ isReasoningModel }: { isReasoningModel: bo
   const setEffort = (effort: ReasoningEffort) => void updateSettings({ agent: { reasoningEffort: effort } });
   const setApproval = (mode: AgentApprovalMode) => void updateSettings({ agent: { approvalMode: mode } });
   return (
-    <>
-      {/* Wide composer: dials inline. */}
-      <div className="chrome-panel-strong hidden @[25rem]:flex items-center gap-px rounded-lg p-0.5 shrink-0">
-        {isReasoningModel ? (
-          <>
-            <EffortToggle value={reasoningEffort} onChange={setEffort} />
-            <span aria-hidden className="mx-0.5 h-3.5 w-px bg-surface-3" />
-          </>
-        ) : null}
-        <ApprovalToggle value={approvalMode} onChange={setApproval} />
-      </div>
-      {/* Narrow composer: collapse into a Tune popover. */}
-      <div className="@[25rem]:hidden shrink-0">
-        <TunePopover
-          isReasoningModel={isReasoningModel}
-          reasoningEffort={reasoningEffort}
-          approvalMode={approvalMode}
-          onEffort={setEffort}
-          onApproval={setApproval}
-        />
-      </div>
-    </>
+    <TunePopover
+      isReasoningModel={isReasoningModel}
+      reasoningEffort={reasoningEffort}
+      approvalMode={approvalMode}
+      onEffort={setEffort}
+      onApproval={setApproval}
+    />
   );
 }
 
@@ -211,7 +198,7 @@ function TunePopover({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 bottom-full z-50 mb-1 flex min-w-[12rem] flex-col gap-2.5 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in"
+          className="absolute right-0 bottom-full z-50 mb-1 flex w-max flex-col gap-2.5 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in"
         >
           {isReasoningModel ? (
             <div className="flex flex-col gap-1">

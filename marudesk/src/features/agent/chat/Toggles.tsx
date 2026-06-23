@@ -161,7 +161,7 @@ export function EffortToggle({
             aria-pressed={active}
             title={t(opt.labelKey)}
             className={cn(
-              'flex items-center justify-center h-5 px-1.5 rounded-sm text-micro font-medium leading-none transition-colors duration-fast',
+              'flex shrink-0 items-center justify-center h-5 px-1.5 rounded-sm text-micro font-medium leading-none whitespace-nowrap transition-colors duration-fast',
               active
                 ? 'bg-surface-3 text-fg-primary'
                 : 'text-fg-tertiary hover:text-fg-secondary',
