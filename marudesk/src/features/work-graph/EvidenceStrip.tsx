@@ -37,7 +37,7 @@ export function EvidenceStrip() {
   return (
     <footer
       role="contentinfo"
-      className="h-6 shrink-0 flex items-center gap-3 px-3 text-caption tabular-nums bg-surface-1 border-t border-subtle text-fg-tertiary select-none"
+      className="chrome-footer h-6 shrink-0 flex items-center gap-3 px-3 text-caption tabular-nums text-fg-tertiary select-none"
     >
       <span className="shrink-0 text-fg-secondary">{t('evidence.label')}</span>
       {task ? (

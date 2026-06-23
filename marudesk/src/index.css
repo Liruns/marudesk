@@ -149,6 +149,12 @@
     box-shadow: var(--highlight);
   }
 
+  .chrome-footer {
+    background-color: color-mix(in srgb, var(--surface-1) 94%, transparent);
+    background-image: var(--surface-gradient);
+    border-top: 1px solid var(--border-subtle);
+  }
+
   .chrome-popover {
     background-color: var(--surface-2);
     background-image: var(--surface-gradient);
@@ -159,7 +165,8 @@
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     .chrome-panel,
     .chrome-rail,
-    .chrome-header {
+    .chrome-header,
+    .chrome-footer {
       background-color: color-mix(in srgb, var(--surface-1) calc(var(--glass-opacity) * 100%), transparent);
       -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
       backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
