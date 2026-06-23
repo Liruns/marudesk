@@ -1827,6 +1827,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'canvas.toolbar.tasksTitle': 'AI 작업 그래프',
   'canvas.toolbar.tasksToggle': '작업 그래프 전환',
   'canvas.control.zoomOut': '축소',
+  'canvas.control.zoomLevel': '확대/축소 수준',
   'canvas.control.zoomIn': '확대',
   'canvas.control.resetZoom': '확대/축소 100%로 초기화',
   'canvas.control.fit': '내용에 맞추기',

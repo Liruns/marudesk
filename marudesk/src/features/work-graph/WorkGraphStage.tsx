@@ -274,6 +274,7 @@ export function WorkGraphStage({ docked = false }: { docked?: boolean }) {
           min={SCALE_MIN}
           max={SCALE_MAX}
           step={0.05}
+          label={t('canvas.control.zoomLevel')}
           onChange={(next) => {
             const r = ref.current?.getBoundingClientRect();
             const cx = (r?.width ?? 0) / 2;

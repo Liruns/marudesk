@@ -8,6 +8,8 @@ export type ZoomSliderProps = {
   /** Step size for keyboard arrows. Defaults to 0.05 (5%). */
   step?: number;
   onChange: (next: number) => void;
+  /** Accessible name (caller-localized, like Spinner's label). */
+  label?: string;
   className?: string;
 };
 
@@ -37,6 +39,7 @@ export function ZoomSlider({
   max = 2.5,
   step = 0.05,
   onChange,
+  label = 'Zoom level',
   className,
 }: ZoomSliderProps) {
   // Percentage of the way between min and max — drives the track fill gradient.
@@ -46,7 +49,7 @@ export function ZoomSlider({
     <input
       type="range"
       role="slider"
-      aria-label="Zoom level"
+      aria-label={label}
       aria-valuemin={min}
       aria-valuemax={max}
       aria-valuenow={value}

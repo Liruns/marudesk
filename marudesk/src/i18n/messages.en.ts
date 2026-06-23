@@ -1832,6 +1832,7 @@ export const EN_MESSAGES = {
   'canvas.toolbar.tasksTitle': 'AI task graph',
   'canvas.toolbar.tasksToggle': 'Toggle task graph',
   'canvas.control.zoomOut': 'Zoom out',
+  'canvas.control.zoomLevel': 'Zoom level',
   'canvas.control.zoomIn': 'Zoom in',
   'canvas.control.resetZoom': 'Reset zoom to 100%',
   'canvas.control.fit': 'Fit to content',
