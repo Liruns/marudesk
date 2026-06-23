@@ -280,7 +280,7 @@ export function InstrumentStage() {
 
   return (
     <div data-stage="instrument" className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
-      <div className="h-8 shrink-0 flex items-center gap-1.5 px-2 border-b border-subtle bg-surface-1">
+      <div className="chrome-header h-8 shrink-0 flex items-center gap-1.5 px-2">
         <TabStrip />
         {!isSplit ? <SplitMenu /> : null}
         <MaximizeToggle />
