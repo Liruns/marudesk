@@ -10,6 +10,7 @@ import { DEFAULT_SSH_PORT } from '../../../shared/ssh';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { cn } from '../../lib/cn';
 import { toMessage } from '../../lib/toMessage';
+import { useI18n } from '../../i18n/useI18n';
 import { useWorkspaceDeckStore } from './store';
 
 /**
@@ -27,6 +28,7 @@ export function SshRootDialog({
   workspaceId?: WorkspaceId;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const addSshRoot = useWorkspaceDeckStore((s) => s.addSshRoot);
   const createSshWorkspace = useWorkspaceDeckStore((s) => s.createSshWorkspace);
   const createMode = !workspaceId;
@@ -128,7 +130,7 @@ export function SshRootDialog({
   const connectNew = async () => {
     setBusy(true);
     setError(null);
-    setStatus('Connecting…');
+    setStatus(t('ssh.dialog.connecting'));
     try {
       const input = {
         label: label.trim() || undefined,
@@ -148,7 +150,7 @@ export function SshRootDialog({
       setConnectionId(info.id);
       setShowNew(false);
       setRemotePath(test.homeDir);
-      setStatus(`Connected — home is ${test.homeDir}`);
+      setStatus(t('ssh.dialog.connectedHome').replace('{dir}', test.homeDir));
       // Clear secrets from renderer state now that main owns them.
       setPassword('');
       setPassphrase('');
@@ -221,7 +223,7 @@ export function SshRootDialog({
         ? await addSshRoot(workspaceId, params)
         : await createSshWorkspace(params);
       if (record) onClose();
-      else setError(useWorkspaceDeckStore.getState().error ?? 'Failed to add remote folder.');
+      else setError(useWorkspaceDeckStore.getState().error ?? t('ssh.dialog.addFailed'));
     } finally {
       setBusy(false);
     }
@@ -234,23 +236,23 @@ export function SshRootDialog({
     >
       <div
         role="dialog"
-        aria-label={createMode ? 'New SSH workspace' : 'Add SSH folder'}
+        aria-label={t(createMode ? 'ssh.dialog.titleCreate' : 'ssh.dialog.titleAdd')}
         onMouseDown={(event) => event.stopPropagation()}
         className="w-[420px] max-h-[88vh] overflow-y-auto rounded-lg bg-surface-1 border border-default shadow-lifted p-4 flex flex-col gap-2 animate-scale-in"
       >
         <h2 className="text-body font-semibold text-fg-primary">
-          {createMode ? 'New SSH workspace' : 'Add SSH folder'}
+          {t(createMode ? 'ssh.dialog.titleCreate' : 'ssh.dialog.titleAdd')}
         </h2>
 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-caption font-medium text-fg-secondary uppercase">
-              Connections
+              {t('ssh.dialog.connections')}
             </span>
             <button
               type="button"
-              aria-label="Add SSH connection"
-              title="Add SSH connection"
+              aria-label={t('ssh.dialog.addConnection')}
+              title={t('ssh.dialog.addConnection')}
               onClick={() => setShowNew(true)}
               className={iconBtn}
             >
@@ -285,15 +287,15 @@ export function SshRootDialog({
                           {conn.label}
                         </span>
                         <span className="block truncate text-caption text-fg-tertiary">
-                          {conn.username}@{conn.host}:{conn.port} - {connectionSourceLabel(conn)}
+                          {conn.username}@{conn.host}:{conn.port} - {conn.source === 'ssh-config' ? '~/.ssh/config' : t('ssh.dialog.sourceSaved')}
                         </span>
                       </span>
                       <KeyRound size={14} className="shrink-0 text-fg-tertiary" />
                     </button>
                     <button
                       type="button"
-                      aria-label={`Remove ${conn.label}`}
-                      title="Remove connection"
+                      aria-label={t('ssh.dialog.removeNamed').replace('{name}', conn.label)}
+                      title={t('ssh.dialog.removeConnection')}
                       onClick={() => void removeSavedConnection(conn.id)}
                       className="mr-1.5 shrink-0 grid size-7 place-items-center rounded text-fg-tertiary opacity-0 transition-[opacity,colors] duration-fast hover:bg-error-subtle hover:text-error focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
                     >
@@ -305,11 +307,11 @@ export function SshRootDialog({
             </div>
           ) : (
             <div className="min-h-12 rounded-md border border-subtle bg-surface-2 px-3 py-2 flex items-center justify-between gap-3">
-              <span className="text-body-sm text-fg-secondary">No SSH connections found</span>
+              <span className="text-body-sm text-fg-secondary">{t('ssh.dialog.noConnections')}</span>
               <button
                 type="button"
-                aria-label="Add SSH connection"
-                title="Add SSH connection"
+                aria-label={t('ssh.dialog.addConnection')}
+                title={t('ssh.dialog.addConnection')}
                 onClick={() => setShowNew(true)}
                 className={iconBtn}
               >
@@ -323,33 +325,33 @@ export function SshRootDialog({
           <div className="flex flex-col gap-2 rounded-md border border-subtle p-3">
             <div className="flex items-center justify-between">
               <span className="text-caption font-medium text-fg-secondary uppercase">
-                New connection
+                {t('ssh.dialog.newConnection')}
               </span>
               {connections.length > 0 ? (
                 <button type="button" onClick={() => setShowNew(false)} className={ghostBtn}>
-                  Cancel
+                  {t('ssh.dialog.cancel')}
                 </button>
               ) : null}
             </div>
-            <Field label="Label (optional)">
+            <Field label={t('ssh.dialog.labelOptional')}>
               <input value={label} onChange={(e) => setLabel(e.currentTarget.value)} className={inputClass} placeholder="my-server" />
             </Field>
             <div className="flex gap-2">
               <div className="flex-1">
-                <Field label="Host">
+                <Field label={t('ssh.dialog.host')}>
                   <input value={host} onChange={(e) => setHost(e.currentTarget.value)} className={inputClass} placeholder="example.com" />
                 </Field>
               </div>
               <div className="w-20">
-                <Field label="Port">
+                <Field label={t('ssh.dialog.port')}>
                   <input value={port} onChange={(e) => setPort(e.currentTarget.value)} className={inputClass} inputMode="numeric" />
                 </Field>
               </div>
             </div>
-            <Field label="Username">
+            <Field label={t('ssh.dialog.username')}>
               <input value={username} onChange={(e) => setUsername(e.currentTarget.value)} className={inputClass} placeholder="ubuntu" />
             </Field>
-            <Field label="Authentication">
+            <Field label={t('ssh.dialog.authentication')}>
               <select
                 value={authMethod}
                 onChange={(e) => {
@@ -361,23 +363,23 @@ export function SshRootDialog({
                 }}
                 className={inputClass}
               >
-                <option value="agent">SSH agent</option>
-                <option value="key">Private key file</option>
-                <option value="password">Password</option>
+                <option value="agent">{t('ssh.dialog.authAgent')}</option>
+                <option value="key">{t('ssh.dialog.authKey')}</option>
+                <option value="password">{t('ssh.dialog.password')}</option>
               </select>
             </Field>
             {authMethod === 'key' ? (
               <>
-                <Field label="Private key path">
+                <Field label={t('ssh.dialog.privateKeyPath')}>
                   <input value={privateKeyPath} onChange={(e) => setPrivateKeyPath(e.currentTarget.value)} className={inputClass} placeholder="~/.ssh/id_ed25519" />
                 </Field>
-                <Field label="Passphrase (optional)">
+                <Field label={t('ssh.dialog.passphraseOptional')}>
                   <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.currentTarget.value)} className={inputClass} />
                 </Field>
               </>
             ) : null}
             {authMethod === 'password' ? (
-              <Field label="Password">
+              <Field label={t('ssh.dialog.password')}>
                 <input type="password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} className={inputClass} />
               </Field>
             ) : null}
@@ -387,14 +389,14 @@ export function SshRootDialog({
               disabled={busy || homeLoading || !newConnectionValid}
               className={primaryBtn}
             >
-              {busy ? 'Connecting…' : 'Connect & save'}
+              {busy ? t('ssh.dialog.connecting') : t('ssh.dialog.connectSave')}
             </button>
           </div>
         ) : null}
 
         {!showNew && connectionId ? (
           <>
-            <Field label="Remote folder path">
+            <Field label={t('ssh.dialog.remotePath')}>
               <div className="flex gap-2">
                 <input
                   value={remotePath}
@@ -408,12 +410,12 @@ export function SshRootDialog({
                   disabled={busy || homeLoading}
                   className={ghostBtn}
                 >
-                  Home
+                  {t('ssh.dialog.home')}
                 </button>
               </div>
             </Field>
-            <Field label="Root name (optional)">
-              <input value={rootName} onChange={(e) => setRootName(e.currentTarget.value)} className={inputClass} placeholder="defaults to folder name" />
+            <Field label={t('ssh.dialog.rootNameOptional')}>
+              <input value={rootName} onChange={(e) => setRootName(e.currentTarget.value)} className={inputClass} placeholder={t('ssh.dialog.rootNamePlaceholder')} />
             </Field>
           </>
         ) : null}
@@ -423,7 +425,7 @@ export function SshRootDialog({
 
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className={ghostBtn}>
-            Cancel
+            {t('ssh.dialog.cancel')}
           </button>
           <button
             type="button"
@@ -431,7 +433,7 @@ export function SshRootDialog({
             disabled={busy || homeLoading || showNew || !connectionId || !remotePath.trim()}
             className={primaryBtn}
           >
-            {createMode ? 'Create workspace' : 'Add folder'}
+            {t(createMode ? 'ssh.dialog.createWorkspace' : 'ssh.dialog.addFolder')}
           </button>
         </div>
       </div>
@@ -461,10 +463,6 @@ const iconBtn = cn(
   'size-8 rounded-md flex items-center justify-center text-fg-tertiary shrink-0',
   'hover:text-fg-primary hover:bg-surface-2 transition-colors duration-fast',
 );
-
-function connectionSourceLabel(conn: SshConnectionInfo): string {
-  return conn.source === 'ssh-config' ? '~/.ssh/config' : 'Saved';
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
