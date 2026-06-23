@@ -14,6 +14,8 @@ import {
 import { useI18n } from '../../i18n/useI18n';
 import { toast } from '../../lib/toast';
 import { sampleGraph, useWorkGraphStore } from './store';
+import { openInstrument } from './instrument';
+import { useWorkspaceDeckStore } from '../workspaces/store';
 import { parseGraphTransfer, serializeGraphTransfer } from './graphTransfer';
 import { STATUS_LABEL_KEY } from './status';
 
@@ -667,6 +669,26 @@ export function WorkGraphPanel() {
         .replace('{done}', String(graph.tasks.filter((task) => task.status === 'done').length))
     : t('workGraph.summaryEmpty');
 
+  // Opening a project from the home should land the developer ON their code, not
+  // back on an empty graph — when a folder actually opens, summon the Files
+  // instrument for that workspace (VS Code's "open folder → see the tree"). The
+  // before/after root guard means a cancelled picker (no folder chosen) does not
+  // navigate anywhere.
+  const revealWorkspaceFiles = (): void => {
+    const wsId = useWorkspaceDeckStore.getState().activeWorkspaceId ?? undefined;
+    void openInstrument('files', { workspaceId: wsId });
+  };
+  const openProjectAndReveal = async (): Promise<void> => {
+    const before = useWorkspaceStore.getState().summary?.root ?? null;
+    await openWorkspace();
+    const after = useWorkspaceStore.getState().summary?.root ?? null;
+    if (after && after !== before) revealWorkspaceFiles();
+  };
+  const openRecentAndReveal = async (root: string): Promise<void> => {
+    await openRecent(root);
+    if (useWorkspaceStore.getState().summary?.root) revealWorkspaceFiles();
+  };
+
   // ── Empty home: one centered, confident composition (no graph yet). The corner
   // control panel and a separate centered "describe a goal" hint used to fight each
   // other across a mostly-empty stage; this unifies them into a single hero — brand,
@@ -742,7 +764,7 @@ export function WorkGraphPanel() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => void openWorkspace()}
+                onClick={() => void openProjectAndReveal()}
                 disabled={opening}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md bg-surface-2 border border-default px-3 text-body-sm text-fg-secondary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
               >
@@ -775,7 +797,7 @@ export function WorkGraphPanel() {
                     key={r.root}
                     type="button"
                     title={r.root}
-                    onClick={() => void openRecent(r.root)}
+                    onClick={() => void openRecentAndReveal(r.root)}
                     className="group inline-flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
                   >
                     <History size={12} className="shrink-0 text-fg-tertiary" />
