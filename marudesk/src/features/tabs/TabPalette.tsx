@@ -42,7 +42,6 @@ function tabLabel(tab: TabState, t: (key: TranslationKey) => string): string {
 export function TabPalette({ onClose }: { onClose: () => void }) {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
-  const activateTab = useTabsStore((s) => s.activateTab);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -74,12 +73,9 @@ export function TabPalette({ onClose }: { onClose: () => void }) {
   }, [activeIndex]);
 
   const choose = (tab: TabState) => {
-    void activateTab(tab.id);
-    // Mission Control has no canvas: activating in main alone would leave the Shell
-    // rendering the work graph while a web/terminal view paints over it (or a feature
-    // tab shows nothing). Host the picked tab as the full-area instrument, mirroring
-    // openInstrument / openFileInstrument. (The retired canvas reveal-tab branch is gone.)
-    useInstrumentStore.getState().open(tab.id, tab.kind);
+    // Feature the picked tab in the Workbench strip (additive — it activates the
+    // tab so its view paints, and keeps the other open tools alive as tabs).
+    useInstrumentStore.getState().feature(tab.id, tab.kind);
     onClose();
   };
 

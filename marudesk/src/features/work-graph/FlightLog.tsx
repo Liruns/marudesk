@@ -181,7 +181,7 @@ function FlightLogBody({ onClose }: { onClose: () => void }) {
                         className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                       >
                         <Badge variant={STATUS_BADGE[c.task.status]}>{t(STATUS_LABEL_KEY[c.task.status])}</Badge>
-                        <span className="truncate text-body-sm text-fg-primary">{c.task.title}</span>
+                        <span className="truncate text-body-sm text-fg-primary" title={c.task.title}>{c.task.title}</span>
                         <span className="shrink-0 text-caption tabular-nums text-fg-tertiary">{t('flightLog.msg').replace('{n}', String(messages.length))}</span>
                         {state && isBusy(state.status) ? <Spinner size={11} /> : null}
                       </button>

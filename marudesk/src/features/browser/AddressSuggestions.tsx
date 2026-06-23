@@ -40,6 +40,7 @@ export function AddressSuggestionsPanel({
             accept(s);
           }}
           onMouseEnter={() => setSelected(i)}
+          title={s.kind === 'search' ? s.title : s.url}
           className={cn(
             'w-full flex items-center gap-2.5 px-3.5 py-1.5 text-left transition-colors duration-fast',
             i === selected ? 'bg-surface-2 text-fg-primary' : 'text-fg-secondary',

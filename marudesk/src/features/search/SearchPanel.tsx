@@ -24,9 +24,12 @@ import { useSearchStore } from './store';
 import { openFileInstrument } from '../work-graph/instrument';
 import { useWorkGraphStore } from '../work-graph/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
+import { useWorkspaceStore } from '../workspace/store';
 import type { WorkspaceFileRef, WorkspaceId } from '../../../shared/workspace';
 import { resolveActiveRootId } from '../../../shared/workspace';
 import { FileGroup, Toggle } from './SearchPanel.parts';
+import { OpenFolderEmpty } from '../../components/OpenFolderEmpty';
+import { humanizeError } from '../../lib/humanizeError';
 
 type Props = {
   open: boolean;
@@ -85,6 +88,7 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
   const result = useSearchStore((s) => s.result);
   const loading = useSearchStore((s) => s.loading);
   const error = useSearchStore((s) => s.error);
+  const hasWorkspace = useWorkspaceStore((s) => s.summary !== null);
   const focusNonce = useSearchStore((s) => s.focusNonce);
   const setQuery = useSearchStore((s) => s.setQuery);
   const toggleOption = useSearchStore((s) => s.toggleOption);
@@ -367,8 +371,14 @@ export function SearchPanel({ open, onRequestClose, embedded = false, workspaceI
 
         {/* results */}
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {error ? (
-            <p className="px-3 py-3 text-body-sm text-error break-words">{error}</p>
+          {!hasWorkspace ? (
+            <OpenFolderEmpty
+              title={t('workspace.emptyState.title')}
+              body={t('search.empty.noWorkspaceBody')}
+              icon={Search}
+            />
+          ) : error ? (
+            <p className="px-3 py-3 text-body-sm text-error break-words">{humanizeError(error)}</p>
           ) : loading && !result ? (
             <div className="flex items-center justify-center gap-2 py-8 text-fg-tertiary">
               <Spinner size={16} /> {t('search.loading')}

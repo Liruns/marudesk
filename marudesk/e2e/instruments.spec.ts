@@ -34,7 +34,7 @@ test('command palette opens the Files, Search, and Source Control instruments', 
     await expect(page.getByRole('complementary', { name: 'Source Control' })).toBeVisible();
 
     // "← Graph" returns to the Task graph home.
-    await page.getByRole('button', { name: 'Graph' }).click();
+    await page.getByRole('button', { name: 'Graph', exact: true }).click();
     await expect(page.locator('[data-stage="workgraph"]')).toBeVisible();
   } finally {
     await app.close();

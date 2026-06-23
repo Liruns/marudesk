@@ -1,4 +1,4 @@
-import { KeyRound, Plus, Server } from 'lucide-react';
+import { KeyRound, Plus, Server, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
@@ -107,6 +107,21 @@ export function SshRootDialog({
     setRemotePath('');
     setError(null);
     setStatus(null);
+  };
+
+  /** Forget a saved SSH host (the files on the remote are untouched). */
+  const removeSavedConnection = async (id: string) => {
+    try {
+      await window.marudesk.invoke('ssh:remove-connection', { connectionId: id });
+      const list = await window.marudesk.invoke('ssh:list-connections');
+      setConnections(list);
+      if (connectionId === id) {
+        setConnectionId(list[0]?.id ?? null);
+        setShowNew(list.length === 0);
+      }
+    } catch (err) {
+      setError(toMessage(err));
+    }
   };
 
   /** Probe + save a new connection, then select it and prefill its home dir. */
@@ -247,31 +262,44 @@ export function SshRootDialog({
               {connections.map((conn) => {
                 const selected = conn.id === connectionId && !showNew;
                 return (
-                  <button
+                  <div
                     key={conn.id}
-                    type="button"
-                    onClick={() => selectConnection(conn.id)}
                     className={cn(
-                      'w-full min-h-12 rounded-md border px-3 py-2 flex items-center gap-3 text-left',
+                      'group w-full min-h-12 rounded-md border flex items-center text-left',
                       'transition-colors duration-fast',
                       selected
                         ? 'border-accent bg-accent-subtle'
                         : 'border-subtle bg-surface-2 hover:border-default hover:bg-surface-3',
                     )}
                   >
-                    <span className="size-7 shrink-0 rounded-md border border-subtle bg-surface-1 flex items-center justify-center text-fg-tertiary">
-                      <Server size={15} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-body-sm font-medium text-fg-primary">
-                        {conn.label}
+                    <button
+                      type="button"
+                      onClick={() => selectConnection(conn.id)}
+                      className="min-w-0 flex-1 flex items-center gap-3 px-3 py-2 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      <span className="size-7 shrink-0 rounded-md border border-subtle bg-surface-1 flex items-center justify-center text-fg-tertiary">
+                        <Server size={15} />
                       </span>
-                      <span className="block truncate text-caption text-fg-tertiary">
-                        {conn.username}@{conn.host}:{conn.port} - {connectionSourceLabel(conn)}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-body-sm font-medium text-fg-primary">
+                          {conn.label}
+                        </span>
+                        <span className="block truncate text-caption text-fg-tertiary">
+                          {conn.username}@{conn.host}:{conn.port} - {connectionSourceLabel(conn)}
+                        </span>
                       </span>
-                    </span>
-                    <KeyRound size={14} className="shrink-0 text-fg-tertiary" />
-                  </button>
+                      <KeyRound size={14} className="shrink-0 text-fg-tertiary" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${conn.label}`}
+                      title="Remove connection"
+                      onClick={() => void removeSavedConnection(conn.id)}
+                      className="mr-1.5 shrink-0 grid size-7 place-items-center rounded text-fg-tertiary opacity-0 transition-[opacity,colors] duration-fast hover:bg-error-subtle hover:text-error focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 );
               })}
             </div>

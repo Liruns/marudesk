@@ -11,6 +11,7 @@ import type {
 import { getMessage } from '../../i18n/messages';
 import { currentLocale } from '../../i18n/locale-storage';
 import { toMessage } from '../../lib/toMessage';
+import { humanizeError } from '../../lib/humanizeError';
 import { toast } from '../../lib/toast';
 
 /**
@@ -274,7 +275,7 @@ async function run(
   } catch (err) {
     const msg = toMessage(err);
     set({ busy: false, error: msg });
-    toast({ title: getMessage(currentLocale(), 'git.toast.error'), description: msg, variant: 'error' });
+    toast({ title: getMessage(currentLocale(), 'git.toast.error'), description: humanizeError(msg), variant: 'error' });
   }
 }
 

@@ -202,7 +202,7 @@ test('mission control: reopening a closed tab hosts it as a visible instrument',
 
     // "Graph" closes the hosted tab (recording it on the closed-tab stack) and
     // returns to the work graph — no instrument is hosted now.
-    await page.getByRole('button', { name: 'Graph' }).click();
+    await page.getByRole('button', { name: 'Graph', exact: true }).click();
     await expect(page.locator('[data-stage="workgraph"]')).toBeVisible();
     await expect(page.getByTestId('instrument-kind')).toHaveCount(0);
 
@@ -212,7 +212,7 @@ test('mission control: reopening a closed tab hosts it as a visible instrument',
     // affordance confirms the instrument chrome is present.
     await runCommand(page, 'Reopen Closed Tab');
     await expect(page.getByTestId('instrument-kind')).toHaveText('Web');
-    await expect(page.getByRole('button', { name: 'Graph' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Graph', exact: true })).toBeVisible();
   } finally {
     await app.close();
   }

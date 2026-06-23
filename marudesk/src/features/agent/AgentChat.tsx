@@ -29,7 +29,7 @@ import {
 } from './chat/Controls';
 import { MentionMenu, SlashInfoCard, SlashMenu } from './chat/Menus';
 import { AttachmentPreview } from './chat/AttachmentPreview';
-import { ComposerToggles } from './chat/ComposerToggles';
+import { ComposerToggles, ComposerTurnToggles } from './chat/ComposerToggles';
 import { ComposerBanners } from './chat/ComposerBanners';
 import { Transcript } from './chat/Transcript';
 import { TranscriptSearch } from './chat/TranscriptSearch';
@@ -221,7 +221,11 @@ export function AgentChat({
 
   return (
     <div
-      className="flex flex-col h-full min-h-0"
+      // The drawer/dock variant has no @container ancestor (the full variant gets
+      // one from AgentTab), so its composer couldn't adapt to the dock's ~360px —
+      // controls just crammed. Make it its own container so the composer's
+      // container-query breakpoints (model width, the Tune collapse) work here too.
+      className={cn('flex flex-col h-full min-h-0', !full && '@container')}
       onKeyDown={(e) => {
         // Find-in-transcript, scoped to focus within the chat surface so it
         // doesn't shadow a find on other panes.
@@ -241,7 +245,7 @@ export function AgentChat({
         <div
           className={cn(
             'flex flex-col gap-5',
-            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-6' : 'px-3 py-4',
+            full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-6' : 'w-full min-w-0 px-3 py-4',
             empty && 'min-h-full justify-center',
           )}
           style={chatZoom !== 100 ? { zoom: chatZoom / 100 } : undefined}
@@ -361,23 +365,26 @@ export function AgentChat({
             full ? 'mx-auto w-full max-w-3xl px-2 @[25rem]:px-5 py-3' : 'px-3 py-2',
           )}
         >
-          {/* Status row: left = pill + usage; right = toggle cluster. Wraps the
-              toggle pill to its own line on a narrow drawer instead of overflowing. */}
-          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
-            {/* Left: status + usage */}
-            <div className="flex items-center gap-2.5 min-w-0">
-              <StatusPill status={chat.status} elapsed={elapsed} />
-              <UsageMeter />
-            </div>
+          {/* Status / transcript-management row. Only rendered when it has
+              something to say — a live turn (status) or an existing transcript
+              (the manage cluster) — so a fresh, idle composer shows no top toolbar
+              at all. Wraps on a narrow drawer instead of overflowing. */}
+          {busy || !empty ? (
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
+              {/* Left: status + usage */}
+              <div className="flex items-center gap-2.5 min-w-0">
+                <StatusPill status={chat.status} elapsed={elapsed} />
+                <UsageMeter />
+              </div>
 
-            {/* Right: toggles grouped in a single pill-shaped container */}
-            <ComposerToggles
-              empty={empty}
-              busy={busy}
-              isReasoningModel={isReasoningModel}
-              onToggleSearch={() => setSearchOpen((v) => !v)}
-            />
-          </div>
+              {/* Right: transcript-management toggles (verbosity / search / export / new) */}
+              <ComposerToggles
+                empty={empty}
+                busy={busy}
+                onToggleSearch={() => setSearchOpen((v) => !v)}
+              />
+            </div>
+          ) : null}
 
           <ComposerBanners />
           <ProviderKeyNudge />
@@ -441,17 +448,21 @@ export function AgentChat({
                 aria-label={t('agent.chat.promptAria')}
               />
 
-              {/* Action bar: attach + model selector on the left, send/stop on
-                  the right. The model selector lives here (not pinned at the top)
-                  so it's clean and close to the input. */}
-              <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
-                <div className="flex min-w-0 items-center gap-0.5">
+              {/* Action bar: the whole per-turn setup — attach · model · reasoning ·
+                  approval — grouped on the left right above the prompt, with send/stop
+                  on the right. Keeping model + reasoning + approval together (instead
+                  of splitting them between a top toolbar and here) makes "which model,
+                  how hard it thinks, how much it may do" one decision in one place.
+                  The config group wraps on a narrow drawer; send stays bottom-right. */}
+              <div className="flex items-end justify-between gap-2 px-1.5 pb-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   <ContextButton
                     buttonRef={plusButtonRef}
                     open={contextOpen}
                     onToggle={() => setContextOpen((v) => !v)}
                   />
                   <ComposerModelButton />
+                  <ComposerTurnToggles isReasoningModel={isReasoningModel} />
                 </div>
                 {busy ? (
                   <Button variant="secondary" size="sm" leadingIcon={<Square size={13} />} onClick={() => void abort()}>

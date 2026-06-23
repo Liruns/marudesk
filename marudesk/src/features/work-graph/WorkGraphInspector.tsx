@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Check, ExternalLink, FileText, GitCommit, Hammer, Play, Plus, X } from 'lucide-react';
+import { Check, ExternalLink, FileText, GitBranch, GitCommit, Hammer, Play, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { Criterion, Resource, Task } from '../../../shared/work-os';
 import type { TabKind } from '../../../shared/browser';
 import type { WorkspaceId } from '../../../shared/workspace';
 import { useI18n } from '../../i18n/useI18n';
-import { useTabsStore } from '../tabs/store';
 import { useInstrumentStore } from './instrument';
 import { taskThreadWorkspaceId } from './taskThreads';
 import { useWorkspaceDeckStore } from '../workspaces/store';
@@ -62,13 +61,9 @@ async function openResource(r: Resource, noOpenerMessage: string, workspaceId?: 
     id = await window.marudesk.invoke('browser:tabs-new', { kind: 'terminal', workspaceId });
   }
   if (kind && id) {
-    await useTabsStore.getState().activateTab(id);
-    // A cancelled dirty-editor prompt keeps the previous instrument and rejects
-    // this id — close the resource tab we just created so it doesn't leak as a
-    // hidden orphan (live WebContentsView that can never be torn down).
-    if (!useInstrumentStore.getState().open(id, kind)) {
-      await useTabsStore.getState().closeTab(id);
-    }
+    // Feature the resource in the Workbench strip (additive — other open tools
+    // stay as their own tabs); feature() activates it so its view paints.
+    useInstrumentStore.getState().feature(id, kind);
   } else {
     toast({ title: noOpenerMessage, variant: 'warning' });
   }
@@ -76,10 +71,21 @@ async function openResource(r: Resource, noOpenerMessage: string, workspaceId?: 
 
 /**
  * The inspector's inner content (header + Implement + intent/acceptance/result/
- * diff/resources), filling its container. Shared by the floating overlay (legacy
- * canvas surface) and the Mission Control Instrument Dock.
+ * diff/resources). Shared by the floating overlay (legacy canvas surface) and the
+ * Mission Control Instrument Dock.
+ *
+ * `variant` controls how it sizes to its container:
+ *  - `'overlay'` (default): fills a fixed-height box and scrolls its body
+ *    internally — the floating panel gives it a definite height.
+ *  - `'dock'`: natural, content-driven height (no internal scroll) so the dock can
+ *    cap it with `max-height` and let it SHRINK when the task is light, handing the
+ *    freed space to the conversation below instead of always reserving ~half.
  */
-export function WorkGraphInspectorContent() {
+export function WorkGraphInspectorContent({
+  variant = 'overlay',
+}: {
+  variant?: 'overlay' | 'dock';
+} = {}) {
   const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
@@ -171,14 +177,45 @@ export function WorkGraphInspectorContent() {
     setNewCriterion('');
   };
 
+  const dock = variant === 'dock';
   return (
-    <div className="flex h-full flex-col overflow-hidden p-3">
+    <div className={cn('flex flex-col p-3', dock ? '' : 'h-full overflow-hidden')}>
       <div className="mb-2 flex items-start gap-2">
         <div className="min-w-0">
-          <p className="truncate text-body-sm font-medium text-fg-primary">{task.title}</p>
-          <div className="mt-0.5 flex items-center gap-1.5">
+          <p className="truncate text-body-sm font-medium text-fg-primary" title={task.title}>{task.title}</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
             <Badge variant={STATUS_BADGE[task.status]}>{t(STATUS_LABEL_KEY[task.status])}</Badge>
-            <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}{task.kind === 'decision' ? t('workGraph.inspector.decisionSuffix') : ''}</p>
+            <p className="text-caption text-fg-tertiary">{task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}</p>
+            {/* Decision gate: a manual graph-shaping control. `kind: 'decision'`
+                makes the scheduler skip the node (no auto-run) so the human picks
+                the path forward — the store + scheduler already honor it, this is
+                the missing toggle. Read-only (shows the suffix) while a run is in
+                flight, like the rest of the inspector's edits. */}
+            {running ? (
+              task.kind === 'decision' ? (
+                <span className="text-caption text-fg-tertiary">{t('workGraph.inspector.decisionSuffix')}</span>
+              ) : null
+            ) : (
+              <button
+                type="button"
+                aria-pressed={task.kind === 'decision'}
+                onClick={() =>
+                  useWorkGraphStore
+                    .getState()
+                    .updateTask(taskId, { kind: task.kind === 'decision' ? 'work' : 'decision' })
+                }
+                title={t('workGraph.inspector.decisionToggleTitle')}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-pill border px-1.5 py-0.5 text-caption leading-none transition-colors duration-fast active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
+                  task.kind === 'decision'
+                    ? 'border-default bg-surface-3 text-fg-secondary'
+                    : 'border-subtle text-fg-tertiary hover:bg-surface-3 hover:text-fg-secondary',
+                )}
+              >
+                <GitBranch size={11} aria-hidden />
+                {t('workGraph.inspector.decisionToggle')}
+              </button>
+            )}
           </div>
         </div>
         <button
@@ -219,7 +256,7 @@ export function WorkGraphInspectorContent() {
         <p className="mt-0.5 text-caption text-fg-tertiary">{t('workGraph.inspector.isolatedHint')}</p>
       ) : null}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 pb-4">
+      <div className={cn('space-y-3 pr-1 pb-4', dock ? '' : 'min-h-0 flex-1 overflow-y-auto')}>
         {running ? (
           task.intent ? <p className="text-caption text-fg-secondary">{task.intent}</p> : null
         ) : (

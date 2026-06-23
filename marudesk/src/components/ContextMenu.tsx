@@ -175,9 +175,9 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
               ) : (
                 <span className="size-4 shrink-0" aria-hidden />
               )}
-              <span className="flex-1 min-w-0 truncate">{item.label}</span>
+              <span className="flex-1 min-w-0 truncate" title={item.label}>{item.label}</span>
               {item.shortcut ? (
-                <span className="ml-4 text-caption text-fg-tertiary/70 tabular-nums shrink-0">
+                <span className="ml-4 text-caption text-fg-quaternary tabular-nums shrink-0">
                   {item.shortcut}
                 </span>
               ) : null}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { Code2, Command, Compass, CornerUpLeft, FileDiff, FolderTree, GitBranch, Globe, MessagesSquare, Play, RefreshCw, RotateCcw, Search, Sparkles, SlidersHorizontal, SplitSquareHorizontal, Square, SquareTerminal, Terminal, Wrench } from 'lucide-react';
+import { Code2, Command, Compass, CornerUpLeft, FileDiff, FileSearch, FolderTree, GitBranch, Globe, LayoutGrid, MessagesSquare, Play, RefreshCw, RotateCcw, Search, Sparkles, SlidersHorizontal, SplitSquareHorizontal, Square, SquareTerminal, Terminal, Wrench } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
 import type { TranslationKey } from '../../i18n/messages';
@@ -7,6 +7,7 @@ import { readyTasks } from '../../../shared/work-os';
 import { openInstrument, reopenTabInstrument, splitInstrument, useInstrumentStore } from '../work-graph/instrument';
 import { openSettingsTab } from '../settings/store';
 import { useFlightLogStore } from '../work-graph/flight-log-store';
+import { useOverlayStore } from './overlay-store';
 import { useWorkGraphStore } from '../work-graph/store';
 import { useWorkspaceDeckStore } from '../workspaces/store';
 import { useTourStore } from '../tour/tourStore';
@@ -149,6 +150,22 @@ const COMMANDS: Cmd[] = [
     icon: Globe,
     group: 'open',
     run: () => openInstrument('web'),
+  },
+  {
+    id: 'go-to-file',
+    labelKey: 'command.goToFile.label',
+    hintKey: 'command.goToFile.hint',
+    icon: FileSearch,
+    group: 'open',
+    run: () => useOverlayStore.getState().showQuickOpen(),
+  },
+  {
+    id: 'switch-tab',
+    labelKey: 'command.switchTab.label',
+    hintKey: 'command.switchTab.hint',
+    icon: LayoutGrid,
+    group: 'open',
+    run: () => useOverlayStore.getState().showTabPalette(),
   },
   {
     id: 'reopen-tab',

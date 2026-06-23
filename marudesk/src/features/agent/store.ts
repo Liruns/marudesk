@@ -21,6 +21,7 @@ import { SYSTEM_WORKSPACE_ID, type WorkspaceId } from '../../../shared/workspace
 import { currentLocale } from '../../i18n/locale-storage';
 import { getMessage } from '../../i18n/messages';
 import { toMessage } from '../../lib/toMessage';
+import { humanizeError } from '../../lib/humanizeError';
 import { toast } from '../../lib/toast';
 import { useWebPageStore } from '../browser/store';
 import { toPayload } from '../composer/store';
@@ -263,6 +264,19 @@ function activeThreadKey(state: Pick<AgentState, 'activeThreadId'>): string {
   return state.activeThreadId ?? '__main__';
 }
 
+/**
+ * Sentinel send-failure reason: the active provider has no key. The persistent
+ * ProviderKeyNudge already surfaces this (with a Settings action), so callers map
+ * this code to a NULL localError — a second "No API key" banner stacked on top of
+ * the nudge is pure duplication. Any other reason still shows as a banner.
+ */
+const REASON_NO_API_KEY = 'no-api-key';
+
+/** A reason worth showing as the transient error banner (suppresses the no-key dup). */
+function bannerReason(reason: string | null | undefined): string | null {
+  return !reason || reason === REASON_NO_API_KEY ? null : reason;
+}
+
 /** Whether `provider` has usable auth — an API key, keyless (Ollama), or OAuth. */
 function hasAuthFor(status: ProviderStatus[], provider: ProviderId): boolean {
   const s = status.find((p) => p.id === provider);
@@ -470,7 +484,9 @@ function createAgentStore(
     // maps (keyed by the original threadId) so we don't clobber the new thread's
     // live draft/images/files/error with stale data from the old send.
     if (!res.ok) {
-      const reason = res.reason ?? null;
+      // Suppress the no-key reason here — the persistent ProviderKeyNudge already
+      // shows it, so a stacked banner is duplication. The draft is still restored.
+      const reason = bannerReason(res.reason);
       set((s) => ({
         ...(s.activeThreadId === threadId
           ? {
@@ -509,7 +525,7 @@ function createAgentStore(
     // friendly "open a folder" message in main, while browser/page tools and a
     // plain conversation work without one.
     if (!hasKey) {
-      return { ok: false, reason: `No API key configured for ${provider}. Add one in Settings.` };
+      return { ok: false, reason: REASON_NO_API_KEY };
     }
     if (!pinnedKey && entry) {
       set((s) => ({
@@ -550,11 +566,12 @@ function createAgentStore(
       return { ok: false, reason: 'busy' };
     }
     const res = await get().dispatchPrompt(prompt, { captures: opts?.captures });
-    if (!res.ok && res.reason) {
+    const reason = bannerReason(res.ok ? null : res.reason);
+    if (reason) {
       const threadId = activeThreadKey(get());
       set((s) => ({
-        localError: res.reason!,
-        localErrorByThread: { ...s.localErrorByThread, [threadId]: res.reason! },
+        localError: reason,
+        localErrorByThread: { ...s.localErrorByThread, [threadId]: reason },
       }));
     }
     return res;
@@ -732,7 +749,7 @@ function createAgentStore(
     } catch (err) {
       toast({
         title: getMessage(currentLocale(), 'agent.session.resumeFailed'),
-        description: toMessage(err),
+        description: humanizeError(err),
         variant: 'error',
       });
     }
@@ -745,7 +762,7 @@ function createAgentStore(
     } catch (err) {
       toast({
         title: getMessage(currentLocale(), 'agent.session.deleteFailed'),
-        description: toMessage(err),
+        description: humanizeError(err),
         variant: 'error',
       });
     }

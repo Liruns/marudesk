@@ -60,7 +60,7 @@ export function SessionRail() {
           )}
         >
           <header className="flex h-9 shrink-0 items-center justify-between border-b border-subtle pl-3 pr-1.5">
-            <span className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-widest text-fg-tertiary/70 select-none">
+            <span className="flex items-center gap-1.5 text-micro font-semibold uppercase tracking-widest text-fg-quaternary select-none">
               <History size={11} />
               {t('agent.sessions.history')}
             </span>

@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { TitleBar } from '../components/TitleBar';
 import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
-import { WorkGraphStage } from '../features/work-graph/WorkGraphStage';
+import { MainStage } from '../features/work-graph/MainStage';
 import { InstrumentDock } from '../features/work-graph/InstrumentDock';
-import { InstrumentStage } from '../features/work-graph/InstrumentStage';
+import { InstrumentRail } from '../features/work-graph/InstrumentRail';
 import { openInstrument, reopenTabInstrument, useInstrumentStore } from '../features/work-graph/instrument';
 import { useWorkspaceDeckStore } from '../features/workspaces/store';
 import { EvidenceStrip } from '../features/work-graph/EvidenceStrip';
 import { FlightLog } from '../features/work-graph/FlightLog';
 import { CommandPalette } from '../features/commands/CommandPalette';
 import { useCommandPaletteStore } from '../features/commands/command-palette-store';
+import { useOverlayStore } from '../features/commands/overlay-store';
 import { useWorkGraphStore } from '../features/work-graph/store';
 import { dockRenderedThreadId } from '../features/work-graph/taskThreads';
 import { cardThreadId } from '../features/agent/cardThreads';
@@ -98,7 +99,7 @@ function runShortcut(p: EventPayload<'app:tab-shortcut'>): void {
  * Mission Control shell. Top to bottom:
  *   TitleBar      — brand mark, flight status, window controls
  *   Main row      — the Task graph (or a summoned instrument) + the Instrument Dock
- *   EvidenceStrip — the selected task's runtime acceptance verdicts
+ *   EvidenceStrip — the selected task's acceptance verdicts (system-filled)
  *
  * The Task graph is the home; tools are instruments a task summons, never
  * persistent windows (docs/mission-control-redesign.md).
@@ -115,11 +116,10 @@ export function Shell() {
   // completion toast is detected independently for each conversation (the dock
   // chat, an AI Chat instrument, and any background thread all advance at once).
   const prevAgentStatusByThreadRef = useRef<Map<string, AgentStatus>>(new Map());
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [tabPalette, setTabPalette] = useState(false);
-  // A Task can summon an instrument (browser/editor/terminal) into the main area;
-  // while one is open it replaces the graph, then "← Graph" closes it.
-  const instrumentTabId = useInstrumentStore((s) => s.tabId);
+  // Quick Open (Ctrl+P) + Tab Palette (Ctrl+Shift+A) live in a shared store so the
+  // ⌘K palette can open them too; the Shell still owns rendering them.
+  const quickOpen = useOverlayStore((s) => s.quickOpen);
+  const tabPalette = useOverlayStore((s) => s.tabPalette);
 
   // First-run onboarding: auto-start the product tour exactly once. Mission Control
   // dropped a new user onto an empty stage with no guidance — yet a built, localized,
@@ -158,7 +158,7 @@ export function Shell() {
       //   Ctrl/Cmd+P — quick-open (go to file)
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
-        setQuickOpen(true);
+        useOverlayStore.getState().showQuickOpen();
         return;
       }
       // Open (or focus) the Settings tab — Ctrl/Cmd+, (VSCode/Chrome parity).
@@ -179,7 +179,7 @@ export function Shell() {
       // (Ctrl/Cmd+Shift+T) — Chrome parity, allowed from any focus.
       if (mod && e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        setTabPalette(true);
+        useOverlayStore.getState().showTabPalette();
         return;
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 't') {
@@ -398,11 +398,18 @@ export function Shell() {
     <div className="h-screen w-screen flex flex-col bg-surface-page text-fg-primary overflow-hidden">
       <TitleBar />
       <div className="flex-1 min-h-0 flex">
+        {/* Always-visible launcher for the staple tools — the discoverable front
+            door the Mission Control redesign removed with the legacy ActivityBar.
+            Each button summons the same instrument as the matching ⌘K command. */}
+        <ErrorBoundary label="rail">
+          <InstrumentRail />
+        </ErrorBoundary>
         {/* The Task graph is the home; a selected node opens the Instrument Dock,
-            and a summoned tool replaces the graph in the main area. */}
+            and a summoned tool docks BESIDE the graph (resizable Workbench) rather
+            than replacing it — see MainStage. */}
         <main data-stage-region className="flex-1 min-w-0 flex">
           <ErrorBoundary label="stage">
-            {instrumentTabId ? <InstrumentStage /> : <WorkGraphStage docked />}
+            <MainStage />
           </ErrorBoundary>
         </main>
         <ErrorBoundary label="dock">
@@ -414,8 +421,8 @@ export function Shell() {
       <Tour />
       <FlightLog />
       <CommandPalette />
-      {quickOpen ? <QuickOpen onClose={() => setQuickOpen(false)} /> : null}
-      {tabPalette ? <TabPalette onClose={() => setTabPalette(false)} /> : null}
+      {quickOpen ? <QuickOpen onClose={() => useOverlayStore.getState().hideQuickOpen()} /> : null}
+      {tabPalette ? <TabPalette onClose={() => useOverlayStore.getState().hideTabPalette()} /> : null}
     </div>
   );
 }

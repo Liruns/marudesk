@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Play, Plus, RotateCcw, Trash2, Wrench, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { Check, Download, FolderOpen, History, Play, Plus, RotateCcw, Trash2, Upload, Wrench, X } from 'lucide-react';
 import { Spinner } from '../../components/ui';
+import { useWorkspaceStore } from '../workspace/store';
 import { cn } from '../../lib/cn';
 import {
   readyTasks,
@@ -12,6 +13,7 @@ import {
 import { useI18n } from '../../i18n/useI18n';
 import { toast } from '../../lib/toast';
 import { sampleGraph, useWorkGraphStore } from './store';
+import { parseGraphTransfer, serializeGraphTransfer } from './graphTransfer';
 import { STATUS_LABEL_KEY } from './status';
 
 export const NODE_W = 208;
@@ -428,7 +430,10 @@ const TaskNodeCard = memo(function TaskNodeCard({
         </button>
         {task.intent ? <p className="mt-1.5 line-clamp-2 text-caption text-fg-tertiary">{task.intent}</p> : null}
         <div className="mt-1.5 flex items-center gap-2 text-caption text-fg-tertiary">
-          <span className="truncate">
+          <span
+            className="truncate"
+            title={task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}
+          >
             {task.executor.type === 'agent' ? `@${task.executor.ref}` : t('workGraph.inspector.executorHuman')}
           </span>
           {task.acceptance.length > 0 ? (
@@ -518,6 +523,14 @@ export function WorkGraphPanel() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // A developer's first instinct on an empty stage is "open my project" — surface
+  // it (and recently-opened projects) alongside the goal field so the home is
+  // actionable both for planning a goal AND for jumping straight into code.
+  const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
+  const opening = useWorkspaceStore((s) => s.opening);
+  const recents = useWorkspaceStore((s) => s.recents);
+  const openRecent = useWorkspaceStore((s) => s.openRecent);
 
   useEffect(() => {
     // Focus the goal field once on mount when the surface opens empty (read the
@@ -576,6 +589,60 @@ export function WorkGraphPanel() {
     void generate();
   };
 
+  // Export the current graph + node layout as a portable JSON file (renderer-side
+  // blob download — no IPC, no fs surface). A re-import restores the same layout.
+  const exportGraph = (): void => {
+    const g = useWorkGraphStore.getState().graph;
+    if (!g) return;
+    const json = serializeGraphTransfer(g, useWorkGraphStore.getState().pos);
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const slug =
+      (g.goal || 'graph')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'graph';
+    a.download = `maru-${slug}-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // Import a graph from a file the user picks. The File API keeps this fully in
+  // the renderer sandbox; `parseGraphTransfer` validates the untrusted JSON (the
+  // graph goes through the same strict parser as persisted/AI graphs) before it
+  // ever reaches the store, so a corrupt or hostile file just toasts an error.
+  const onImportFile = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // let the same file be re-picked later
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      toast({ title: t('workGraph.import.tooLarge'), variant: 'warning' });
+      return;
+    }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      toast({ title: t('workGraph.import.failed'), variant: 'warning' });
+      return;
+    }
+    const parsed = parseGraphTransfer(text);
+    if (!parsed) {
+      toast({ title: t('workGraph.import.invalid'), variant: 'warning' });
+      return;
+    }
+    useWorkGraphStore.getState().importGraph(parsed.graph, parsed.pos);
+    toast({
+      title: t('workGraph.import.done').replace('{count}', String(parsed.graph.tasks.length)),
+      variant: 'success',
+    });
+  };
+
   const summary = graph
     ? t('workGraph.summary')
         .replace('{total}', String(graph.tasks.length))
@@ -627,6 +694,40 @@ export function WorkGraphPanel() {
           ))}
         </div>
       ) : null}
+      {!graph ? (
+        <div className="mt-2 border-t border-subtle pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-caption text-fg-tertiary">{t('workGraph.orOpenProject')}</span>
+            <button
+              type="button"
+              onClick={() => void openWorkspace()}
+              disabled={opening}
+              className="inline-flex items-center gap-1.5 h-7 shrink-0 rounded bg-surface-2 px-2 text-caption text-fg-secondary hover:bg-surface-3 hover:text-fg-primary disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+            >
+              {opening ? <Spinner size={13} /> : <FolderOpen size={13} />}
+              {t('workspace.action.openFolder')}
+            </button>
+          </div>
+          {recents.length > 0 ? (
+            <div className="mt-1.5 flex flex-col gap-0.5">
+              {recents.slice(0, 3).map((r) => (
+                <button
+                  key={r.root}
+                  type="button"
+                  title={r.root}
+                  onClick={() => void openRecent(r.root)}
+                  className="group flex items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-fast"
+                >
+                  <History size={12} className="shrink-0 text-fg-tertiary" />
+                  <span className="truncate text-caption text-fg-secondary group-hover:text-fg-primary">
+                    {r.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {notice ? <p className="mt-1.5 text-caption text-warning">{notice}</p> : null}
       {confirmRegenerate ? (
         <p className="mt-1.5 rounded-r border-l-2 border-warning bg-warning-subtle px-2 py-1 text-caption text-warning">
@@ -676,6 +777,35 @@ export function WorkGraphPanel() {
         >
           <Wrench size={12} />
           {t('workGraph.implementReady')}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          aria-hidden="true"
+          tabIndex={-1}
+          onChange={(e) => void onImportFile(e)}
+        />
+        <button
+          type="button"
+          disabled={running}
+          onClick={() => fileInputRef.current?.click()}
+          title={t('workGraph.import.title')}
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+        >
+          <Upload size={12} />
+          {t('workGraph.import.label')}
+        </button>
+        <button
+          type="button"
+          disabled={!graph}
+          onClick={exportGraph}
+          title={t('workGraph.export.title')}
+          className="inline-flex h-7 shrink-0 whitespace-nowrap items-center gap-1 rounded-md bg-surface-2 px-2 text-caption text-fg-secondary hover:text-fg-primary hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors duration-fast active:scale-[0.99]"
+        >
+          <Download size={12} />
+          {t('workGraph.export.label')}
         </button>
         <button
           type="button"

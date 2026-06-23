@@ -51,11 +51,7 @@ export function WorkspaceRootsBar({
       danger: true,
       disabled: record.roots.length <= 1,
       onSelect: () => {
-        if (
-          window.confirm(
-            `Remove "${root.name}" from workspace "${record.name}"? Files stay on disk.`,
-          )
-        ) {
+        if (window.confirm(t('workspace.roots.removeConfirm'))) {
           onRemoveRoot(root.id);
         }
       },

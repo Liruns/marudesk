@@ -15,7 +15,7 @@ const PLAN_STEP_STATUSES: readonly AgentPlanStepStatus[] = ['pending', 'in_progr
 /** The valid approval modes (mirror {@link AgentApprovalMode}). */
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
 /** The valid reasoning efforts (mirror {@link ReasoningEffort}). */
-const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 /** Upper bounds on attached images (untrusted: also arrives over the CLI bridge). */
 const MAX_IMAGES = 8;

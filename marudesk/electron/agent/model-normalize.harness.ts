@@ -57,18 +57,12 @@ check('trims surrounding whitespace', normalizeModelId('  gpt-5  ') === 'gpt-5')
 
 {
   // No catalog value → flat floor (back-compat).
-  check('no catalogMax falls back to the 4096 floor', maxTokensForTurn('openai', false, 'medium') === AGENT_MAX_TOKENS);
+  check('no catalogMax falls back to the 4096 floor', maxTokensForTurn() === AGENT_MAX_TOKENS);
   // A sub-floor catalog value never drops BELOW the floor.
-  check('catalogMax below the floor is clamped up to the floor', maxTokensForTurn('openai', false, 'medium', 1000) === AGENT_MAX_TOKENS);
-  // A real catalog value lifts the cap (gpt-5 128K, non-reasoning path).
-  check('gpt-5 catalogMax lifts the cap to 128000', maxTokensForTurn('openai', true, 'high', 128_000) === 128_000);
-  // Anthropic reasoning: the cap is at least budget + answer headroom even when
-  // the catalog value would already cover it (64000 > 24000+4096 for 'high').
-  const anthropicHigh = maxTokensForTurn('anthropic', true, 'high', 64_000);
-  check('anthropic reasoning cap is the catalog value when it exceeds budget+headroom', anthropicHigh === 64_000);
-  // When the catalog value is smaller than budget+headroom, the budget path wins.
-  const anthropicSmallCatalog = maxTokensForTurn('anthropic', true, 'high', 20_000);
-  check('anthropic reasoning cap rises to budget+headroom when catalog is smaller', anthropicSmallCatalog === 24_000 + AGENT_MAX_TOKENS);
+  check('catalogMax below the floor is clamped up to the floor', maxTokensForTurn(1000) === AGENT_MAX_TOKENS);
+  // A real catalog value lifts the cap (gpt-5 128K). Reasoning needs no special
+  // headroom now — every dialect is adaptive (Claude output_config.effort etc.).
+  check('a catalog value lifts the cap to its ceiling', maxTokensForTurn(128_000) === 128_000);
 }
 
 console.log(`\n${passedCount()} checks passed`);

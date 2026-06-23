@@ -36,7 +36,7 @@ export function CustomEndpointsSection() {
       </p>
 
       {customProviders.length === 0 && !adding ? (
-        <p className="text-caption italic text-fg-tertiary/70">
+        <p className="text-caption italic text-fg-quaternary">
           {t('settings.providers.custom.empty')}
         </p>
       ) : null}

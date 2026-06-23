@@ -6,6 +6,7 @@ import { Spinner } from '../../components/ui';
 import { useI18n } from '../../i18n/useI18n';
 import { cn } from '../../lib/cn';
 import { toMessage } from '../../lib/toMessage';
+import { humanizeError } from '../../lib/humanizeError';
 import { parseUnifiedDiff } from './parseDiff';
 
 // SPIKE flag: render the @pierre/diffs PatchDiff (syntax-highlighted, split
@@ -134,7 +135,7 @@ export function DiffViewer({
                   onClick={() => setDiffStyle(style)}
                   aria-pressed={diffStyle === style}
                   className={cn(
-                    'h-6 rounded-[4px] px-2 text-caption capitalize transition-colors duration-fast',
+                    'h-6 rounded px-2 text-caption capitalize transition-colors duration-fast',
                     diffStyle === style
                       ? 'bg-surface-3 text-fg-primary'
                       : 'text-fg-tertiary hover:text-fg-secondary',
@@ -167,7 +168,7 @@ export function DiffViewer({
           )}
         >
           {error ? (
-            <p className="p-3 text-body-sm text-error">{error}</p>
+            <p className="p-3 text-body-sm text-error">{humanizeError(error)}</p>
           ) : diff === null ? (
             <div className="flex items-center justify-center gap-2 py-8 text-fg-tertiary">
               <Spinner size={16} /> {t('git.diff.loading')}

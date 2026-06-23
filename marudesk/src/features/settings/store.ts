@@ -23,6 +23,7 @@ export type SettingsCategory =
   | 'mcp'
   | 'plugins'
   | 'automations'
+  | 'specs'
   | 'data'
   | 'usage'
   | 'about';

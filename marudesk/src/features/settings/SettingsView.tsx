@@ -12,6 +12,7 @@ import {
 } from './GeneralSettingsCategories';
 import { McpServersSettings } from './McpServersSettings';
 import { AutomationsSettings } from './AutomationsSettings';
+import { SpecsSettings } from './SpecsSettings';
 import { PluginsSettings } from './PluginsSettings';
 import { ProvidersSettings } from './ProvidersSettings';
 import { UsageCategory } from './UsageSettingsCategory';
@@ -117,6 +118,7 @@ export function SettingsView() {
                 {category === 'mcp' ? <McpServersSettings /> : null}
                 {category === 'plugins' ? <PluginsSettings /> : null}
                 {category === 'automations' ? <AutomationsSettings /> : null}
+                {category === 'specs' ? <SpecsSettings /> : null}
                 {category === 'data' ? <DataCategory /> : null}
                 {category === 'about' ? <AboutCategory /> : null}
               </>

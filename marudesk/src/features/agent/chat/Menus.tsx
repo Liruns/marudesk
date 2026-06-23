@@ -161,11 +161,11 @@ export function SlashMenu({
               the far edge of a wide (full-surface) composer. */}
           <span className="font-mono text-body-sm text-fg-primary shrink-0">/{cmd.name}</span>
           {cmd.argHint ? (
-            <span className="font-mono text-caption text-fg-tertiary/70 shrink-0">
+            <span className="font-mono text-caption text-fg-quaternary shrink-0">
               {slashArgHint(cmd.name, t)}
             </span>
           ) : null}
-          <span className="text-caption text-fg-tertiary truncate">
+          <span className="text-caption text-fg-tertiary truncate" title={slashDescription(cmd.name, t)}>
             {slashDescription(cmd.name, t)}
           </span>
         </button>

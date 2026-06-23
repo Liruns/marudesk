@@ -167,7 +167,7 @@ export function McpServerCard({
                 {t('settings.mcp.trust.badge')}
               </Badge>
             ) : null}
-            <span className="shrink-0 text-caption uppercase tracking-wide text-fg-tertiary/70">
+            <span className="shrink-0 text-caption uppercase tracking-wide text-fg-quaternary">
               {status.transport === 'http'
                 ? t('settings.mcp.transport.remote')
                 : t('settings.mcp.transport.stdio')}

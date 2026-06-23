@@ -194,8 +194,8 @@ export function ComposerModelButton() {
           <span aria-hidden className="size-1.5 shrink-0 rounded-pill bg-warning" />
         ) : null}
         <ChevronDown
-          size={11}
-          className="shrink-0 text-fg-tertiary/60 transition-colors duration-fast group-hover:text-fg-tertiary"
+          size={12}
+          className="shrink-0 text-fg-quaternary transition-colors duration-fast group-hover:text-fg-tertiary"
         />
       </button>
       {open ? (
@@ -256,6 +256,10 @@ export function ProviderKeyNudge() {
 export function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elapsed?: number }) {
   const { t } = useI18n();
   const busy = isBusy(status);
+  // Quiet at rest: the resting "Ready" pill is the kind of idle placeholder the
+  // design system avoids — it returns the moment a turn starts (thinking/working)
+  // or finishes (done/failed), which is when the status actually carries meaning.
+  if (status === 'idle') return null;
   return (
     <span className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums">
       {busy ? (
@@ -273,7 +277,7 @@ export function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elaps
           readers hear the turn lifecycle — Thinking → Working → Done — once. */}
       <span aria-live="polite">{t(STATUS_LABEL_KEY[status])}</span>
       {busy && elapsed > 0 ? (
-        <span className="text-fg-tertiary/70">{formatElapsed(elapsed)}</span>
+        <span className="text-fg-quaternary">{formatElapsed(elapsed)}</span>
       ) : null}
     </span>
   );
@@ -318,15 +322,15 @@ export function EmptyState({
   // the default surface still gates its browser-debug suggestions on a workspace.
   const suggestions = override ? override.suggestions : hasWorkspace ? SUGGESTION_KEYS.map((key) => t(key)) : [];
   return (
-    <div className="flex flex-col items-center text-center gap-3 px-4 py-2">
+    <div className="flex w-full min-w-0 flex-col items-center text-center gap-3 px-4 py-2">
       {/* Icon mark */}
       <div className="flex size-12 items-center justify-center rounded-lg bg-accent-subtle/60 ring-1 ring-accent/25">
         <Sparkles size={20} className="text-accent" />
       </div>
 
-      <div className="flex flex-col items-center gap-1.5">
+      <div className="flex w-full min-w-0 flex-col items-center gap-1.5">
         <p className="text-body-sm font-medium text-fg-primary tracking-tight">{t('agent.chat.empty.title')}</p>
-        <p className="text-caption text-fg-tertiary max-w-[90%] @[20rem]:max-w-[264px] leading-relaxed">
+        <p className="text-caption text-fg-tertiary max-w-[90%] @[20rem]:max-w-[264px] leading-relaxed break-words">
           {override
             ? override.subtitle
             : hasWorkspace
@@ -347,7 +351,8 @@ export function EmptyState({
                 'group rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-left',
                 'text-caption text-fg-secondary',
                 'hover:border-accent/50 hover:bg-surface-2 hover:text-fg-primary',
-                'transition-colors duration-fast',
+                'transition-colors duration-fast active:scale-[0.99]',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                 'flex items-center gap-2',
               )}
             >

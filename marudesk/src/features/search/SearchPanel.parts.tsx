@@ -56,10 +56,10 @@ export const FileGroup = memo(function FileGroup({
             {baseName(file.path)}
           </span>
           {dir ? (
-            <span className="truncate text-caption text-fg-tertiary/80">{dir}</span>
+            <span className="truncate text-caption text-fg-quaternary">{dir}</span>
           ) : null}
         </button>
-        <span className="shrink-0 rounded-pill bg-surface-3 px-1.5 text-[0.6875rem] font-medium tabular-nums text-fg-secondary">
+        <span className="shrink-0 rounded-pill bg-surface-3 px-1.5 text-micro font-medium tabular-nums text-fg-secondary">
           {file.matches.length}
         </span>
       </div>
@@ -81,7 +81,7 @@ export const FileGroup = memo(function FileGroup({
                 title={formatSearchMatchLineTitle(m.line)}
                 className="flex min-w-0 flex-1 items-baseline gap-2.5 py-[3px] pl-7 pr-7 text-left"
               >
-                <span className="w-9 shrink-0 text-right text-caption tabular-nums text-fg-tertiary/70 group-hover/match:text-fg-secondary">
+                <span className="w-9 shrink-0 text-right text-caption tabular-nums text-fg-quaternary group-hover/match:text-fg-secondary">
                   {m.line}
                 </span>
                 <span className="truncate font-mono text-caption leading-relaxed text-fg-secondary group-hover/match:text-fg-primary">
@@ -127,7 +127,7 @@ function Highlight({
       out.push(
         <mark
           key={`m${i}`}
-          className="rounded-[3px] bg-accent/25 px-0.5 font-medium text-fg-primary"
+          className="rounded-sm bg-accent/25 px-0.5 font-medium text-fg-primary"
         >
           {text.slice(start, end)}
         </mark>,

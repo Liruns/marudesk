@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Boxes, GitMerge, Loader2, Play, Trash2 } from 'lucide-react';
 import { useI18n } from '../../i18n/useI18n';
 import { useGitStore } from './store';
+import { humanizeError } from '../../lib/humanizeError';
 import type { WorktreeIsolationStatus } from '../../../shared/worktree';
 
 /**
@@ -136,7 +137,7 @@ export function WorktreeIsolationBar() {
           </button>
         )}
       </div>
-      {error ? <span className="text-caption text-error break-words">{error}</span> : null}
+      {error ? <span className="text-caption text-error break-words">{humanizeError(error)}</span> : null}
     </div>
   );
 }

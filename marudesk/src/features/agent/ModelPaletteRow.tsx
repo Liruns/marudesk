@@ -118,7 +118,7 @@ export function ModelRow({
       >
         <Star
           size={13}
-          className={cn(favorite ? 'text-warning' : 'text-fg-tertiary/60 hover:text-fg-tertiary')}
+          className={cn('transition-colors duration-fast', favorite ? 'text-warning' : 'text-fg-tertiary/60 hover:text-fg-tertiary')}
           fill={favorite ? 'currentColor' : 'none'}
         />
       </span>
