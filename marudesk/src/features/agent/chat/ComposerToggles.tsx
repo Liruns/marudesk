@@ -198,7 +198,11 @@ function TunePopover({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 bottom-full z-50 mb-1 flex w-max flex-col gap-2.5 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in"
+          // Anchor the LEFT edge to the button and open rightward: the Tune button
+          // sits at the left of the (narrow, ~360px dock) action bar, so a right-0
+          // anchor pushed the wide 6-level effort dial off the dock's left edge,
+          // over the canvas. left-0 keeps the popover inside the dock.
+          className="absolute left-0 bottom-full z-50 mb-1 flex w-max max-w-[min(20rem,calc(100vw-1rem))] flex-col gap-2.5 rounded-lg chrome-panel p-2.5 shadow-card animate-scale-in"
         >
           {isReasoningModel ? (
             <div className="flex flex-col gap-1">
