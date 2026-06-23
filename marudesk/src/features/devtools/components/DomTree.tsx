@@ -258,25 +258,25 @@ export function DomTree() {
   const menuItems: MenuItem[] = menu
     ? [
         {
-          label: 'Edit as HTML',
+          label: t('devtools.dom.editAsHtml'),
           shortcut: 'F2',
           disabled: !menuIsElement,
           onSelect: () => void startHtmlEdit(menu.nodeId),
         },
         {
-          label: 'Duplicate element',
+          label: t('devtools.dom.duplicateElement'),
           disabled: !menuIsElement,
           onSelect: () => void duplicateNode(menu.nodeId),
         },
         {
-          label: 'Hide element',
+          label: t('devtools.dom.hideElement'),
           shortcut: 'H',
           disabled: !menuIsElement,
           onSelect: () => void toggleHideNode(menu.nodeId),
         },
         { type: 'separator' },
         {
-          label: 'Delete node',
+          label: t('devtools.dom.deleteNode'),
           shortcut: 'Del',
           danger: true,
           onSelect: () => void deleteNode(menu.nodeId),

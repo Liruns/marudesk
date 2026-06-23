@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, MousePointerSquareDashed, Search, Sparkles, X } from 'lucide-react';
 import { useI18n } from '../../../i18n/useI18n';
+import type { TranslationKey } from '../../../i18n/messages';
 import { cn } from '../../../lib/cn';
 import { useDevtoolsStore } from '../store';
 import { DomTree } from '../components/DomTree';
@@ -15,11 +16,11 @@ const FORCE_STATES = [':hover', ':active', ':focus', ':focus-within', ':visited'
 
 /** The side panes under the DOM tree (Styles stays the default). */
 type SideTab = 'styles' | 'listeners' | 'accessibility' | 'fonts';
-const SIDE_TABS: { id: SideTab; label: string }[] = [
-  { id: 'styles', label: 'Styles' },
-  { id: 'listeners', label: 'Event Listeners' },
-  { id: 'accessibility', label: 'Accessibility' },
-  { id: 'fonts', label: 'Fonts' },
+const SIDE_TABS: { id: SideTab; labelKey: TranslationKey }[] = [
+  { id: 'styles', labelKey: 'devtools.elements.tab.styles' },
+  { id: 'listeners', labelKey: 'devtools.elements.tab.listeners' },
+  { id: 'accessibility', labelKey: 'devtools.elements.tab.accessibility' },
+  { id: 'fonts', labelKey: 'devtools.elements.tab.fonts' },
 ];
 
 /**
@@ -232,7 +233,7 @@ export function ElementsPanel() {
                   : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
               )}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
