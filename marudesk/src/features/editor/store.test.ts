@@ -73,7 +73,7 @@ describe('editor save failure surfacing', () => {
     });
     (globalThis as unknown as { window: { marudesk: unknown } }).window.marudesk = {
       invoke: async (channel: string) =>
-        channel === 'workspace:save-as' ? { ok: false, reason: 'File must be saved inside the workspace.' } : undefined,
+        channel === 'workspace:save-as' ? { ok: false, reason: 'outside-workspace' } : undefined,
       on: () => () => {},
     };
 
@@ -81,6 +81,7 @@ describe('editor save failure surfacing', () => {
 
     const buf = useEditorStore.getState().files[key];
     if (!buf || buf.status !== 'ready' || buf.kind !== 'text') throw new Error('expected a ready text buffer');
+    // Main returns a code; the store localizes it (en fallback in tests).
     expect(buf.error).toBe('File must be saved inside the workspace.');
     const toasts = useToastStore.getState().toasts;
     expect(toasts).toHaveLength(1);

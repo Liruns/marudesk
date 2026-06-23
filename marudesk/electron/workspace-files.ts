@@ -144,7 +144,7 @@ export async function saveAsForEditor(
   if (isSshRootKey(root)) {
     // Save As needs a native destination picker rooted on the local FS; there's
     // no equivalent for a remote root yet. Use the editor's plain Save instead.
-    return { ok: false, reason: 'Save As is not available for remote workspaces.' };
+    return { ok: false, reason: 'remote-unavailable' };
   }
   if (typeof content !== 'string') {
     throw new Error('marudesk: content must be a string');
@@ -160,7 +160,7 @@ export async function saveAsForEditor(
 
   const chosen = path.resolve(result.filePath);
   if (!isInsideRoot(root, chosen)) {
-    return { ok: false, reason: 'File must be saved inside the workspace.' };
+    return { ok: false, reason: 'outside-workspace' };
   }
   const rel = path.relative(root, chosen).replace(/\\/g, '/');
   const { rel: safeRel, abs } = resolveWorkspacePath(root, rel);

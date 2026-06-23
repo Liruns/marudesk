@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { TabState } from '../../../shared/browser';
 import {
   workspaceFileKey,
+  type SaveAsFailureReason,
   type WorkspaceFileRef,
 } from '../../../shared/workspace';
 import { toMessage } from '../../lib/toMessage';
@@ -34,6 +35,16 @@ function reportSaveFailure(message: string): void {
     description: message,
     variant: 'error',
   });
+}
+
+/** Localize a Save As failure code (main returns a code, not prose). */
+function localizeSaveAsReason(reason: SaveAsFailureReason): string {
+  return getMessage(
+    currentLocale(),
+    reason === 'remote-unavailable'
+      ? 'editor.saveAs.reason.remoteUnavailable'
+      : 'editor.saveAs.reason.outsideWorkspace',
+  );
 }
 export type { ErrorFileBuf, FileBuf } from './buffer';
 
@@ -258,18 +269,20 @@ export const useEditorStore = create<EditorState & EditorActions>(
         if (!res.ok) {
           // Canceled dialog or write error — clear saving, keep the buffer. A
           // cancel returns { ok:false } with NO reason, so it leaves error
-          // undefined (no pill) and skips the toast; a real error carries a reason.
+          // undefined (no pill) and skips the toast; a real error carries a
+          // reason code, localized here for the pill + toast.
+          const reason = res.reason ? localizeSaveAsReason(res.reason) : undefined;
           set((s) => {
             const cur = s.files[key];
             if (!isTextFileBuf(cur)) return {};
             return {
               files: {
                 ...s.files,
-                [key]: { ...cur, saving: false, error: res.reason },
+                [key]: { ...cur, saving: false, error: reason },
               },
             };
           });
-          if (res.reason) reportSaveFailure(res.reason);
+          if (reason) reportSaveFailure(reason);
           return;
         }
         // Seed the real-path buffer so the rebind shows content immediately,

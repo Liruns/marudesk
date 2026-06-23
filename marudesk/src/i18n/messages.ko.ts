@@ -909,6 +909,8 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'editor.state.saveFailed': '저장 실패',
   'editor.state.unsaved': '저장되지 않음',
   'editor.saveFailed.title': '파일을 저장하지 못했습니다',
+  'editor.saveAs.reason.remoteUnavailable': '원격 워크스페이스에서는 다른 이름으로 저장을 사용할 수 없습니다.',
+  'editor.saveAs.reason.outsideWorkspace': '파일은 워크스페이스 안에 저장해야 합니다.',
   'editor.confirm.discardUntitled': '저장하지 않은 파일을 버릴까요?',
   'editor.confirm.discardChanges': '{label}의 저장하지 않은 변경 내용을 버릴까요?',
   'editor.status.column': '열',

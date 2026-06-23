@@ -234,13 +234,20 @@ export type WriteFileResult = { ok: true };
  * a (possibly canceled) failure. Unlike the throwing writes, a canceled dialog
  * or an out-of-workspace target returns `{ ok: false }` rather than throwing.
  */
+/**
+ * Why a Save As failed, as a stable CODE the renderer localizes (the same
+ * code-not-prose contract as the editor open errors). A user-canceled dialog
+ * returns `{ ok: false }` with no reason; lower-level invariants throw instead.
+ */
+export type SaveAsFailureReason = 'remote-unavailable' | 'outside-workspace';
+
 export type SaveAsResult =
   | { ok: true; path: string }
-  | { ok: false; reason?: string };
+  | { ok: false; reason?: SaveAsFailureReason };
 
 export type WorkspaceSaveAsResult =
   | { ok: true; path: string; file: WorkspaceFileRef }
-  | { ok: false; reason?: string };
+  | { ok: false; reason?: SaveAsFailureReason };
 
 /**
  * Result of the mutating workspace ops (create/rename/move/copy). They throw on

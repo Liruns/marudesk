@@ -911,6 +911,8 @@ export const EN_MESSAGES = {
   'editor.state.saveFailed': 'Save failed',
   'editor.state.unsaved': 'Unsaved',
   'editor.saveFailed.title': "Couldn't save the file",
+  'editor.saveAs.reason.remoteUnavailable': 'Save As is not available for remote workspaces.',
+  'editor.saveAs.reason.outsideWorkspace': 'File must be saved inside the workspace.',
   'editor.confirm.discardUntitled': 'Discard this unsaved file?',
   'editor.confirm.discardChanges': 'Discard unsaved changes to {label}?',
   'editor.status.column': 'Col',
