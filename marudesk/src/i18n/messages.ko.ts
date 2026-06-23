@@ -1561,6 +1561,12 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'rail.files': '파일',
   'rail.search': '검색',
   'rail.settings': '설정',
+  'evidence.label': '증거',
+  'evidence.empty': '작업을 선택하면 승인 판정이 표시됩니다.',
+  'evidence.noCriteria': '승인 기준 없음',
+  'evidence.verifiedCount': '{passed}/{total} 검증됨',
+  'evidence.verifiedTooltip':
+    '판정은 적용 시점 검사기(변경된 파일에 대한 타입검사 · 린트 · 빌드)가 자동으로 채웁니다. 검사기가 증명할 수 없는 동작 기준은 미검증으로 남습니다.',
   'command.reopenTab.label': '닫은 탭 다시 열기',
   'command.reopenTab.hint': '마지막으로 닫은 탭 복원',
   'command.split.hint': '현재 도구 옆에 나란히 열기',

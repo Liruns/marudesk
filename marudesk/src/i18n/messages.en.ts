@@ -1587,6 +1587,12 @@ export const EN_MESSAGES = {
   'rail.files': 'Files',
   'rail.search': 'Search',
   'rail.settings': 'Settings',
+  'evidence.label': 'Evidence',
+  'evidence.empty': 'Select a task to see its acceptance verdicts.',
+  'evidence.noCriteria': 'no acceptance criteria',
+  'evidence.verifiedCount': '{passed}/{total} verified',
+  'evidence.verifiedTooltip':
+    'Verdicts are system-filled by the apply-time checker (typecheck · lint · build over the changed files). Behavioral criteria the checker can’t prove stay unverified.',
   'command.reopenTab.label': 'Reopen Closed Tab',
   'command.reopenTab.hint': 'Restore the last closed tab',
   'command.split.hint': 'Open beside the current tool (side-by-side)',

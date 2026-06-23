@@ -1,5 +1,6 @@
 import { cn } from '../../lib/cn';
 import type { Criterion } from '../../../shared/work-os';
+import { useI18n } from '../../i18n/useI18n';
 import { useWorkGraphStore } from './store';
 
 const VERDICT_DOT: Record<Criterion['verdict'], string> = {
@@ -22,6 +23,7 @@ const VERDICT_DOT: Record<Criterion['verdict'], string> = {
  * runtime", which over-claimed.
  */
 export function EvidenceStrip() {
+  const { t } = useI18n();
   const graph = useWorkGraphStore((s) => s.graph);
   const selectedTaskId = useWorkGraphStore((s) => s.selectedTaskId);
   const runNote = useWorkGraphStore((s) => s.runNote);
@@ -37,7 +39,7 @@ export function EvidenceStrip() {
       role="contentinfo"
       className="h-6 shrink-0 flex items-center gap-3 px-3 text-caption tabular-nums bg-surface-1 border-t border-subtle text-fg-tertiary select-none"
     >
-      <span className="shrink-0 text-fg-secondary">Evidence</span>
+      <span className="shrink-0 text-fg-secondary">{t('evidence.label')}</span>
       {task ? (
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate max-w-[220px]">{task.title}</span>
@@ -55,17 +57,19 @@ export function EvidenceStrip() {
               </span>
               <span
                 className="min-w-0 shrink truncate tabular-nums"
-                title="Verdicts are system-filled by the apply-time checker (typecheck · lint · build over the changed files). Behavioral criteria the checker can't prove stay unverified."
+                title={t('evidence.verifiedTooltip')}
               >
-                {passed}/{total} verified
+                {t('evidence.verifiedCount')
+                  .replace('{passed}', String(passed))
+                  .replace('{total}', String(total))}
               </span>
             </span>
           ) : (
-            <span className="shrink-0 text-fg-quaternary">no acceptance criteria</span>
+            <span className="shrink-0 text-fg-quaternary">{t('evidence.noCriteria')}</span>
           )}
         </span>
       ) : (
-        <span className="text-fg-quaternary">Select a task to see its acceptance verdicts.</span>
+        <span className="text-fg-quaternary">{t('evidence.empty')}</span>
       )}
       <span className="flex-1" aria-hidden />
       {runNote ? <span className="truncate max-w-[40%] text-warning">{runNote}</span> : null}
