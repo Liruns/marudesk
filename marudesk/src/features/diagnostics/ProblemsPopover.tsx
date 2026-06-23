@@ -5,6 +5,7 @@ import { useDiagnosticsStore, currentDiagnostics } from './store';
 import type { Diagnostic } from '../../../shared/diagnostics';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n/useI18n';
+import type { TranslationKey } from '../../i18n/messages';
 
 /**
  * Problems list (docs/workspace-language-support-design.md, Tier 1 #4). Opens
@@ -17,6 +18,13 @@ import { useI18n } from '../../i18n/useI18n';
  */
 
 const SEV_RANK: Record<Diagnostic['severity'], number> = { error: 0, warning: 1, info: 2 };
+
+/** Severity → its localized label key (screen-reader text for the icon-only rows). */
+const SEVERITY_LABEL_KEY: Record<Diagnostic['severity'], TranslationKey> = {
+  error: 'diagnostics.severity.error',
+  warning: 'diagnostics.severity.warning',
+  info: 'diagnostics.severity.info',
+};
 
 type IconType = ComponentType<{ size?: number; className?: string }>;
 
@@ -76,15 +84,17 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
     <div
       ref={ref}
       role="dialog"
-      aria-label="Problems"
+      aria-label={t('diagnostics.problems.title')}
       className="chrome-popover absolute bottom-[calc(100%+4px)] right-0 z-50 w-[420px] max-h-[60vh] flex flex-col rounded text-caption animate-scale-in"
     >
       <header className="flex items-center gap-2 px-3 py-2 border-b border-subtle">
-        <span className="font-medium text-fg-secondary">Problems</span>
-        <span className="text-fg-tertiary">
+        <span className="font-medium text-fg-secondary">{t('diagnostics.problems.title')}</span>
+        <span className="text-fg-tertiary tabular-nums">
           {state.lastRun
-            ? `${diags.filter((d) => d.severity === 'error').length} errors, ${diags.filter((d) => d.severity === 'warning').length} warnings`
-            : 'not checked yet'}
+            ? t('diagnostics.problems.counts')
+                .replace('{errors}', String(diags.filter((d) => d.severity === 'error').length))
+                .replace('{warnings}', String(diags.filter((d) => d.severity === 'warning').length))
+            : t('diagnostics.problems.notChecked')}
         </span>
         <span className="flex-1" />
         <button
@@ -94,7 +104,7 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
           className="px-2 py-0.5 rounded hover:bg-surface-3 disabled:opacity-60"
           title={t('diagnostics.runChecker')}
         >
-          {state.running ? 'checking…' : 'Run check'}
+          {state.running ? t('diagnostics.problems.checking') : t('diagnostics.problems.runCheck')}
         </button>
         <button
           type="button"
@@ -102,7 +112,7 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
           className="px-2 py-0.5 rounded hover:bg-surface-3"
           title={t('diagnostics.editRecipes')}
         >
-          Configure
+          {t('diagnostics.problems.configure')}
         </button>
       </header>
 
@@ -129,8 +139,8 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
         {groups.length === 0 ? (
           <p className="px-3 py-3 text-fg-tertiary">
             {state.lastRun
-              ? `No problems — the last check was clean (${state.lastRun.checkerId}).`
-              : 'Run a check to see compiler/linter problems here.'}
+              ? t('diagnostics.problems.clean').replace('{checker}', state.lastRun.checkerId)
+              : t('diagnostics.problems.empty')}
           </p>
         ) : (
           groups.map(([file, list]) => (
@@ -152,7 +162,7 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
                         className="w-full flex items-start gap-2 px-3 py-1 text-left rounded hover:bg-surface-3"
                       >
                         <Icon size={13} className={cn('shrink-0 mt-0.5', cls)} aria-hidden />
-                        <span className="sr-only">{d.severity}</span>
+                        <span className="sr-only">{t(SEVERITY_LABEL_KEY[d.severity])}</span>
                         <span className="flex-1 min-w-0">
                           <span className="text-fg-secondary break-words">{d.message}</span>
                           <span className="text-fg-tertiary">
