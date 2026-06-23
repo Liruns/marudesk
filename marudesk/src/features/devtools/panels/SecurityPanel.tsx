@@ -1,4 +1,5 @@
 import { cn } from '../../../lib/cn';
+import { useI18n } from '../../../i18n/useI18n';
 import { useDevtoolsStore } from '../store';
 import {
   describeSecurityIssue,
@@ -75,6 +76,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 export function SecurityPanel() {
+  const { t } = useI18n();
   const state = useDevtoolsStore((s) => s.securityState);
 
   if (!state) {
@@ -104,12 +106,12 @@ export function SecurityPanel() {
         </span>
       </div>
 
-      <SectionHeader label="Connection" />
+      <SectionHeader label={t('devtools.security.connection')} />
       {cert ? (
         <div className="py-1">
-          <DetailRow label="Protocol" value={cert.protocol} />
-          <DetailRow label="Key exchange" value={keyExchange} />
-          <DetailRow label="Cipher" value={cert.cipher} />
+          <DetailRow label={t('devtools.security.protocol')} value={cert.protocol} />
+          <DetailRow label={t('devtools.security.keyExchange')} value={keyExchange} />
+          <DetailRow label={t('devtools.security.cipher')} value={cert.cipher} />
         </div>
       ) : (
         <div className="px-3 py-2 text-caption text-fg-tertiary">
@@ -117,19 +119,19 @@ export function SecurityPanel() {
         </div>
       )}
 
-      <SectionHeader label="Certificate" />
+      <SectionHeader label={t('devtools.security.certificate')} />
       {cert ? (
         <div className="py-1">
-          <DetailRow label="Subject" value={cert.subjectName} />
-          <DetailRow label="Issuer" value={cert.issuer} />
-          <DetailRow label="Valid from" value={certDate(cert.validFrom)} />
-          <DetailRow label="Valid to" value={certDate(cert.validTo)} />
+          <DetailRow label={t('devtools.security.subject')} value={cert.subjectName} />
+          <DetailRow label={t('devtools.security.issuer')} value={cert.issuer} />
+          <DetailRow label={t('devtools.security.validFrom')} value={certDate(cert.validFrom)} />
+          <DetailRow label={t('devtools.security.validTo')} value={certDate(cert.validTo)} />
         </div>
       ) : (
         <div className="px-3 py-2 text-caption text-fg-tertiary">No certificate.</div>
       )}
 
-      <SectionHeader label="Issues" />
+      <SectionHeader label={t('devtools.security.issues')} />
       {issues.length === 0 ? (
         <div className="px-3 py-2 text-caption text-fg-tertiary">
           No security issues reported.

@@ -54,6 +54,7 @@ function frameLocation(f: { url: string; lineNumber: number }): string {
 /* ── live metrics ─────────────────────────────────────────────────────── */
 
 function MetricsSection() {
+  const { t } = useI18n();
   const metrics = useDevtoolsStore((s) => s.perfMetrics);
   const updatedAt = useDevtoolsStore((s) => s.perfMetricsAt);
   const rows = useMemo(() => curateMetrics(metrics ?? []), [metrics]);
@@ -62,7 +63,7 @@ function MetricsSection() {
     : undefined;
   return (
     <div>
-      <SectionHeader label="Live metrics" detail={detail} />
+      <SectionHeader label={t('devtools.performance.liveMetrics')} detail={detail} />
       {rows.length === 0 ? (
         <div className="px-3 py-2 text-caption text-fg-tertiary">
           No metrics yet. Refresh to read the current values.
@@ -321,12 +322,12 @@ export function PerformancePanel() {
       <div className="flex-1 min-h-0 overflow-auto">
         <MetricsSection />
         <SectionHeader
-          label="CPU profile"
+          label={t('devtools.performance.cpuProfile')}
           detail={profile ? `${formatMs(profile.durationMs)} recorded` : undefined}
         />
         {profiling ? (
           <div className="px-3 py-2 text-caption text-fg-secondary">
-            Recording CPU profile. Interact with the page, then press Stop.
+            {t('devtools.performance.recording')}
           </div>
         ) : profile ? (
           view === 'top-down' ? (
@@ -336,7 +337,7 @@ export function PerformancePanel() {
           )
         ) : (
           <div className="px-3 py-2 text-caption text-fg-tertiary">
-            Record a CPU profile to see where script time is spent.
+            {t('devtools.performance.recordHint')}
           </div>
         )}
       </div>
