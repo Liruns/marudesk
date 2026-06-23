@@ -55,16 +55,10 @@ export function HomeView({ tabId }: { readonly tabId?: string }) {
   ];
 
   return (
-    <div className="@container flex-1 min-w-0 overflow-y-auto bg-surface-page bg-vignette">
+    <div className="@container flex-1 min-w-0 overflow-y-auto bg-surface-page">
       <div className="min-h-full flex flex-col items-center justify-start px-8 py-12 gap-7">
         <div className="flex flex-col items-center gap-3 animate-fade-rise">
-          <div className="relative">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -inset-6 -z-10 bg-accent-glow"
-            />
-            <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-12 select-none" />
-          </div>
+          <img src={logoUrl} alt="" aria-hidden draggable={false} className="size-12 select-none" />
           <div className="flex flex-col items-center gap-1">
             <h1 className="text-title font-display text-fg-primary">Maru</h1>
             <p className="text-body-sm text-fg-tertiary">{t('home.subtitle')}</p>
