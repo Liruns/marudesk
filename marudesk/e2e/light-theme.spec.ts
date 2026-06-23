@@ -8,12 +8,24 @@ import { runCommand } from './helpers/mission-control';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, '..', '.screens');
 
-/** Relative luminance of a `rgb(...)`/`rgba(...)` string (0 dark → 1 light). */
+/**
+ * Relative luminance (0 dark → 1 light) of a computed background color. Handles
+ * both legacy `rgb(0-255)` / `rgba(...)` AND the modern `color(srgb 0-1 / a)`
+ * form Chromium emits for a translucent `color-mix()` — the frosted-glass rail's
+ * background-color is a color-mix with alpha, which serializes as srgb floats.
+ * Alpha is ignored; we only judge the surface hue's lightness.
+ */
 function luminance(rgb: string): number {
-  const m = rgb.match(/(\d+(?:\.\d+)?)/g);
+  const m = rgb.match(/[\d.]+/g);
   if (!m || m.length < 3) return 0;
-  const [r, g, b] = m.map(Number);
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  let [r, g, b] = m.map(Number);
+  // 0-255 (rgb) → normalize to 0-1; color(srgb …) is already 0-1.
+  if (r > 1 || g > 1 || b > 1) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+  }
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 test.setTimeout(60_000);
