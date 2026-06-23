@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { cn } from '../../lib/cn';
-import { WEB_CARD_GAP } from '../../../shared/browser';
+import { WEB_CARD_GAP, WEB_CARD_RADIUS } from '../../../shared/browser';
 import { useWebPageStore } from './store';
 import { useBookmarksStore } from './bookmarks';
 import { useDownloadsStore } from './downloads';
@@ -315,6 +315,17 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
             )}
             aria-label={t('browser.stage.aria')}
           >
+            {/* Floating-card depth: a rounded backing at the inset rect where the
+                native web view sits, so the page casts a soft Arc drop shadow into
+                the surrounding gap (the view itself can't take a CSS shadow). Only
+                under a live page; pointer-events-none so it never blocks. */}
+            {hasUrl && !canvasNav.crashed ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute shadow-card"
+                style={{ inset: WEB_CARD_GAP, borderRadius: WEB_CARD_RADIUS }}
+              />
+            ) : null}
             <BrowserStageOverlays
               hasUrl={hasUrl}
               inspectMode={inspectMode}
