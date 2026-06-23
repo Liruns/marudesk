@@ -11,9 +11,9 @@
      material — there is no colored glow anywhere (see the depth tokens below). The
      cooler classic near-black is kept selectable as [data-palette='graphite']. */
   --surface-page: #121211;        /* page background, deepest */
-  --surface-1:    #1A1A18;        /* panel, drawer */
-  --surface-2:    #222220;        /* card (elevated) */
-  --surface-3:    #2C2B29;        /* input, hover */
+  --surface-1:    #1D1D1A;        /* panel, drawer */
+  --surface-2:    #272724;        /* card (elevated) */
+  --surface-3:    #322F2D;        /* input, hover */
 
   /* Text — warm off-white, the same warm-neutral world as the surfaces.
      primary ~16:1 on page, secondary ~8.5:1, tertiary ~4.2:1, quaternary ~3:1.
@@ -27,10 +27,12 @@
   --text-quaternary: #6A6862;
   --text-disabled:   #56544E;
 
-  /* Border */
-  --border-subtle:  rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.10);
-  --border-strong:  rgba(255, 255, 255, 0.16);
+  /* Border — hairlines that actually read. "Depth from borders first" only works
+     if the borders are visible; at 6/10% they all but vanished on the warm
+     graphite, so cards and panels melted into the page. */
+  --border-subtle:  rgba(255, 255, 255, 0.09);
+  --border-default: rgba(255, 255, 255, 0.14);
+  --border-strong:  rgba(255, 255, 255, 0.20);
 
   /* Accent — a single, disciplined minium (lead-oxide orange-red) used sparingly:
      active state, focus ring, cursor, one primary action. Desaturated and brick-
@@ -126,10 +128,12 @@
      featured card volume without spending a surface step; inset variants get a
      soft inner shadow so they read as carved in, not stacked on. Borders still
      lead — these layer underneath them and never replace a border or a token. */
-  --highlight-top:        rgba(255, 255, 255, 0.05); /* top-edge catch, default surfaces */
-  --highlight-top-strong: rgba(255, 255, 255, 0.08); /* featured / elevated cards */
+  --highlight-top:        rgba(255, 255, 255, 0.06); /* top-edge catch, default surfaces */
+  --highlight-top-strong: rgba(255, 255, 255, 0.10); /* featured / elevated cards */
   --highlight:     inset 0 1px 0 0 var(--highlight-top);
-  --elevate-card:  inset 0 1px 0 0 var(--highlight-top-strong), 0 1px 2px rgba(0, 0, 0, 0.24);
+  /* Elevated cards get a soft large-radius drop (light bending around the panel,
+     not a tight sticker shadow) so task nodes / panels lift off the stage. */
+  --elevate-card:  inset 0 1px 0 0 var(--highlight-top-strong), 0 1px 2px rgba(0, 0, 0, 0.30), 0 8px 20px rgba(0, 0, 0, 0.22);
   --inset-shadow:  inset 0 1px 2px rgba(0, 0, 0, 0.18);
   /* Featured-surface gradient — layered over a surface fill (the token still
      owns the base color); a ~2.5% lift at the top fading out by ~64%. */
@@ -162,9 +166,9 @@
   --text-quaternary: #97948C;
   --text-disabled:   #ABA8A0;
 
-  --border-subtle:  rgba(0, 0, 0, 0.07);
-  --border-default: rgba(0, 0, 0, 0.12);
-  --border-strong:  rgba(0, 0, 0, 0.18);
+  --border-subtle:  rgba(0, 0, 0, 0.09);
+  --border-default: rgba(0, 0, 0, 0.15);
+  --border-strong:  rgba(0, 0, 0, 0.22);
 
   /* Minium darkened for hover on the pale paper; subtle wash a touch stronger. */
   --accent-hover:   #B14E32;
@@ -182,7 +186,7 @@
      leaf values flip here. */
   --highlight-top:        rgba(255, 255, 255, 0.7);
   --highlight-top-strong: rgba(255, 255, 255, 0.9);
-  --elevate-card:  inset 0 1px 0 0 var(--highlight-top-strong), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --elevate-card:  inset 0 1px 0 0 var(--highlight-top-strong), 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 20px rgba(0, 0, 0, 0.08);
   --inset-shadow:  inset 0 1px 2px rgba(0, 0, 0, 0.05);
   --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 64%);
   --page-vignette: none;

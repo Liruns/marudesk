@@ -17,7 +17,7 @@ ds:
 
 ## 1. Visual Theme & Atmosphere
 
-marudesk is a tool you live inside for 8 hours a day. The atmosphere is **dark-first, precise, and unhurried**, in the lineage of Linear and Raycast. The default theme is **Graphite & Minium**: the page canvas (`#121211`) is a warm-neutral matte near-black — paper-and-graphite with a faint warm-grey bias and *no* blue/purple chroma, so it reads hand-crafted rather than like a tinted "AI" canvas — sitting intentionally deeper than the surrounding panel surfaces (`#1A1A18`, `#222220`). Depth comes from the monotonic surface ramp and hairline borders alone: **there is no decorative glow, bloom, or halo anywhere** — those read as AI-generated. The cooler classic near-black stays one click away as the **Carbon** palette. The screen is calm so the user's work (their browser, their code, their AI conversation) can carry the visual weight.
+marudesk is a tool you live inside for 8 hours a day. The atmosphere is **dark-first, precise, and unhurried**, in the lineage of Linear and Raycast. The default theme is **Graphite & Minium**: the page canvas (`#121211`) is a warm-neutral matte near-black — paper-and-graphite with a faint warm-grey bias and *no* blue/purple chroma, so it reads hand-crafted rather than like a tinted "AI" canvas — sitting intentionally deeper than the surrounding panel surfaces (`#1D1D1A`, `#272724`). Depth comes from the monotonic surface ramp and hairline borders alone: **there is no decorative glow, bloom, or halo anywhere** — those read as AI-generated. The cooler classic near-black stays one click away as the **Carbon** palette. The screen is calm so the user's work (their browser, their code, their AI conversation) can carry the visual weight.
 
 Typography is Inter for UI and JetBrains Mono for code. Inter Display takes over only at hero sizes. Numerals are always tabular — `3 files`, `12ms`, `line 47` should never re-flow as values change. The single brand accent is **minium** (`#C75A3B`) — a desaturated lead-oxide orange-red used *sparingly* (active state, focus ring, cursor, one primary action); a designer's spot color that harmonizes with the warm graphite rather than "popping" like a brand gradient. Crimson appears only as the error state, never as default chrome.
 
@@ -28,9 +28,9 @@ The product has three foreground voices it must keep separate:
 
 **Key characteristics**
 
-- Surface scale of four steps from `#121211` (page) to `#2C2B29` (input/hover), each carrying the same faint warm-grey undertone so the lift reads as one material catching more light. No surface change exceeds one step in a single layout.
+- Surface scale of four steps from `#121211` (page) to `#322F2D` (input/hover), each carrying the same faint warm-grey undertone so the lift reads as one material catching more light. No surface change exceeds one step in a single layout.
 - The form language is **crisp and dense** (IDE-tight): controls and surfaces pack close, corners read sharp. 4px is the default border radius. 3px for small elements, 6px for large, full-pill (9999px) only for status dots and true pills. Tailwind's `rounded-md`/`-xl` ride these tokens too, so the whole radius scale sharpens from `tokens.css` alone.
-- Borders are white at 6 / 10 / 16% alpha — they read as hairlines, not as enclosing shapes.
+- Borders are white at 9 / 14 / 20% alpha — strong enough to read as hairlines (depth-from-borders only works when the border is visible), not so strong they become enclosing shapes.
 - Motion is fast and short. 120ms for hover, 200ms for panels. Easing is a single cubic-bezier(0.2, 0, 0, 1).
 - No emojis. No decorative iconography. No exclamation marks in product copy.
 
@@ -40,9 +40,9 @@ The product has three foreground voices it must keep separate:
 | Token | Value | Use |
 |---|---|---|
 | `--surface-page` | `#121211` | Page background, deepest. The default canvas (warm-neutral matte graphite). |
-| `--surface-1` | `#1A1A18` | Panels, drawers — one step lifted from page. |
-| `--surface-2` | `#222220` | Cards, elevated containers. |
-| `--surface-3` | `#2C2B29` | Inputs, hover states, code blocks. |
+| `--surface-1` | `#1D1D1A` | Panels, drawers — one step lifted from page. |
+| `--surface-2` | `#272724` | Cards, elevated containers. |
+| `--surface-3` | `#322F2D` | Inputs, hover states, code blocks. |
 
 ### Text
 | Token | Value | Use |
@@ -56,9 +56,9 @@ The product has three foreground voices it must keep separate:
 ### Border
 | Token | Value | Use |
 |---|---|---|
-| `--border-subtle` | `rgba(255,255,255,0.06)` | Section dividers, card outlines. |
-| `--border-default` | `rgba(255,255,255,0.10)` | Inputs, buttons, default container edge. |
-| `--border-strong` | `rgba(255,255,255,0.16)` | Active/focused borders, emphasized rules. |
+| `--border-subtle` | `rgba(255,255,255,0.09)` | Section dividers, card outlines. |
+| `--border-default` | `rgba(255,255,255,0.14)` | Inputs, buttons, default container edge. |
+| `--border-strong` | `rgba(255,255,255,0.20)` | Active/focused borders, emphasized rules. |
 
 ### Accent — single voice
 | Token | Value | Use |
