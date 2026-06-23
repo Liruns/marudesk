@@ -185,10 +185,12 @@ monaco.editor.registerEditorOpener({
 
 export const MARUDESK_THEME = 'marudesk';
 
-// Chrome colors track the design tokens; syntax hues reuse the sanctioned
-// AI-timeline palette (peach/sage/blue/lavender) so code reads as native to the
-// app rather than importing VSCode's default rainbow. Functional coloring, like
-// the timeline itself — distinct from the single-accent UI rule.
+// Chrome colors track the design tokens — Monaco can't read CSS vars, so these
+// hexes mirror src/styles/tokens.css by hand (each is annotated with its source
+// token; keep them in sync when the surface ramp changes). Syntax hues reuse the
+// sanctioned AI-timeline palette (peach/sage/blue/lavender) so code reads as
+// native to the app rather than importing VSCode's default rainbow. Functional
+// coloring, like the timeline itself — distinct from the single-accent UI rule.
 monaco.editor.defineTheme(MARUDESK_THEME, {
   base: 'vs-dark',
   inherit: true,
@@ -219,11 +221,11 @@ monaco.editor.defineTheme(MARUDESK_THEME, {
     'editorIndentGuide.activeBackground1': '#FFFFFF1F',
     'editorGutter.background': '#121211',
     'editorWhitespace.foreground': '#FFFFFF14',
-    'editorWidget.background': '#1A1A18',
+    'editorWidget.background': '#1D1D1A', // --surface-1
     'editorWidget.border': '#FFFFFF1A',
-    'editorSuggestWidget.background': '#1A1A18',
+    'editorSuggestWidget.background': '#1D1D1A', // --surface-1
     'editorSuggestWidget.selectedBackground': '#C75A3B3A',
-    'input.background': '#222220',
+    'input.background': '#272724', // --surface-2
     'focusBorder': '#C75A3B',
     'scrollbarSlider.background': '#FFFFFF14',
     'scrollbarSlider.hoverBackground': '#FFFFFF24',
@@ -258,11 +260,11 @@ monaco.editor.defineTheme(MARUDESK_THEME_LIGHT, {
     'editor.selectionBackground': '#C75A3B2A',
     'editor.inactiveSelectionBackground': '#C75A3B18',
     'editor.lineHighlightBackground': '#0000000A',
-    'editorWidget.background': '#F2F1EC',
+    'editorWidget.background': '#F2F1EC', // --surface-1
     'editorWidget.border': '#0000001A',
-    'editorSuggestWidget.background': '#F2F1EC',
+    'editorSuggestWidget.background': '#F2F1EC', // --surface-1
     'editorSuggestWidget.selectedBackground': '#C75A3B2A',
-    'input.background': '#FAF9F6',
+    'input.background': '#FAF9F6', // --surface-page
     focusBorder: '#C75A3B',
   },
 });

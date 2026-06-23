@@ -28,7 +28,7 @@ export const ACCENTS: { name: AccentName; label: string; swatch: string }[] = [
  * the picker chips — the same pattern as ACCENTS.swatch above.
  */
 export const PALETTES: { name: ThemePalette; label: string; page: string; card: string }[] = [
-  { name: 'default', label: 'Graphite', page: '#121211', card: '#222220' },
+  { name: 'default', label: 'Graphite', page: '#121211', card: '#272724' },
   { name: 'graphite', label: 'Carbon', page: '#08090A', card: '#23252B' },
   { name: 'midnight', label: 'Midnight', page: '#0A0E1A', card: '#1B2336' },
   { name: 'espresso', label: 'Espresso', page: '#120E0C', card: '#281F1C' },
