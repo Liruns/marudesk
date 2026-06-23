@@ -2,9 +2,8 @@ import { useEffect, useRef } from 'react';
 import { TitleBar } from '../components/TitleBar';
 import { useTabsStore } from '../features/tabs/store';
 import { useGridStore } from '../features/tabs/grid';
-import { WorkGraphStage } from '../features/work-graph/WorkGraphStage';
+import { MainStage } from '../features/work-graph/MainStage';
 import { InstrumentDock } from '../features/work-graph/InstrumentDock';
-import { InstrumentStage } from '../features/work-graph/InstrumentStage';
 import { InstrumentRail } from '../features/work-graph/InstrumentRail';
 import { openInstrument, reopenTabInstrument, useInstrumentStore } from '../features/work-graph/instrument';
 import { useWorkspaceDeckStore } from '../features/workspaces/store';
@@ -121,9 +120,6 @@ export function Shell() {
   // ⌘K palette can open them too; the Shell still owns rendering them.
   const quickOpen = useOverlayStore((s) => s.quickOpen);
   const tabPalette = useOverlayStore((s) => s.tabPalette);
-  // A Task can summon an instrument (browser/editor/terminal) into the main area;
-  // while one is open it replaces the graph, then "← Graph" closes it.
-  const instrumentTabId = useInstrumentStore((s) => s.tabId);
 
   // First-run onboarding: auto-start the product tour exactly once. Mission Control
   // dropped a new user onto an empty stage with no guidance — yet a built, localized,
@@ -409,10 +405,11 @@ export function Shell() {
           <InstrumentRail />
         </ErrorBoundary>
         {/* The Task graph is the home; a selected node opens the Instrument Dock,
-            and a summoned tool replaces the graph in the main area. */}
+            and a summoned tool docks BESIDE the graph (resizable Workbench) rather
+            than replacing it — see MainStage. */}
         <main data-stage-region className="flex-1 min-w-0 flex">
           <ErrorBoundary label="stage">
-            {instrumentTabId ? <InstrumentStage /> : <WorkGraphStage docked />}
+            <MainStage />
           </ErrorBoundary>
         </main>
         <ErrorBoundary label="dock">

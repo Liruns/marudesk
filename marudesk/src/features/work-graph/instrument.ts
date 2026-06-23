@@ -38,6 +38,15 @@ type InstrumentState = {
   /** Fraction of the split given to the PRIMARY pane (0.1–0.9). */
   splitRatio: number;
   /**
+   * The coexisting Workbench layout (the tool docks BESIDE the canvas, not over
+   * it). `canvasRatio` is the canvas fraction of the main row (0.2–0.85, the rest
+   * is the tools); persisted. `maximized` hides the canvas for a tool-focus mode.
+   */
+  canvasRatio: number;
+  maximized: boolean;
+  setCanvasRatio: (r: number) => void;
+  setMaximized: (v: boolean) => void;
+  /**
    * Adopt `tabId` as the active instrument (single pane — collapses any split).
    * Returns `true` when adopted, and `false` when the switch was cancelled at the
    * dirty-editor prompt (prev is kept). Callers that created `tabId` in main BEFORE
@@ -58,6 +67,19 @@ function closeTabSafely(id: string | null): void {
   if (id) void useTabsStore.getState().closeTab(id);
 }
 
+/** Persisted CANVAS fraction of the coexisting workbench split (rest = the tools). */
+const CANVAS_RATIO_KEY = 'marudesk.workbench.canvasRatio';
+const RATIO_MIN = 0.2;
+const RATIO_MAX = 0.85;
+function loadCanvasRatio(): number {
+  try {
+    const v = Number(localStorage.getItem(CANVAS_RATIO_KEY));
+    return Number.isFinite(v) && v >= RATIO_MIN && v <= RATIO_MAX ? v : 0.5;
+  } catch {
+    return 0.5;
+  }
+}
+
 export const useInstrumentStore = create<InstrumentState>((set, get) => ({
   tabId: null,
   kind: null,
@@ -65,6 +87,18 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
   secondaryKind: null,
   splitDir: 'row',
   splitRatio: 0.5,
+  canvasRatio: loadCanvasRatio(),
+  maximized: false,
+  setCanvasRatio: (r) => {
+    const clamped = Math.min(RATIO_MAX, Math.max(RATIO_MIN, r));
+    try {
+      localStorage.setItem(CANVAS_RATIO_KEY, String(clamped));
+    } catch {
+      // ignore — the in-memory ratio still applies
+    }
+    set({ canvasRatio: clamped });
+  },
+  setMaximized: (v) => set({ maximized: v }),
   open: (tabId, kind) => {
     // A fresh single open replaces the whole stage — tear down a second pane's tab
     // first (its dirty-editor guard runs in closeSplit's spirit; a secondary editor
@@ -131,7 +165,8 @@ export const useInstrumentStore = create<InstrumentState>((set, get) => ({
     }
     closeTabSafely(prev);
     closeTabSafely(sec);
-    set({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null });
+    // Back to the full canvas — drop focus mode so the next tool opens coexisting.
+    set({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null, maximized: false });
   },
 }));
 
@@ -157,7 +192,7 @@ useTabsStore.subscribe((s) => {
         secondaryKind: null,
       });
     } else {
-      useInstrumentStore.setState({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null });
+      useInstrumentStore.setState({ tabId: null, kind: null, secondaryTabId: null, secondaryKind: null, maximized: false });
     }
   }
 });

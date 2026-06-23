@@ -52,7 +52,7 @@ test('tab palette hosts the picked tab as a Mission Control instrument', async (
     // The picked web tab is now hosted as the full-area instrument (it was
     // invisible before the fix), and the "← Graph" back affordance is present.
     await expect(page.getByTestId('instrument-kind')).toHaveText('Web');
-    await expect(page.getByRole('button', { name: 'Graph' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Graph', exact: true })).toBeVisible();
   } finally {
     await app.close();
   }

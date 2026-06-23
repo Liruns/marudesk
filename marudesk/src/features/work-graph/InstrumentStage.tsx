@@ -1,5 +1,5 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { ArrowLeft, SplitSquareHorizontal, X } from 'lucide-react';
+import { ArrowLeft, Maximize2, Minimize2, SplitSquareHorizontal, X } from 'lucide-react';
 import { tabKinds } from '../tabs/registry';
 import { useTabsStore } from '../tabs/store';
 import { useI18n } from '../../i18n/useI18n';
@@ -84,6 +84,30 @@ function Pane({
       </div>
       <div className="flex-1 min-h-0 min-w-0 flex">{tabKinds[kind].render(tabId, tab)}</div>
     </div>
+  );
+}
+
+/**
+ * Toggle the Workbench between coexisting beside the canvas and filling the stage
+ * (a tool-focus mode that hides the task map). The canvas is never destroyed — it
+ * returns the moment you restore.
+ */
+function MaximizeToggle() {
+  const { t } = useI18n();
+  const maximized = useInstrumentStore((s) => s.maximized);
+  const setMaximized = useInstrumentStore((s) => s.setMaximized);
+  const label = maximized ? t('workGraph.workbench.restore') : t('workGraph.workbench.maximize');
+  return (
+    <button
+      type="button"
+      onClick={() => setMaximized(!maximized)}
+      aria-label={label}
+      title={label}
+      aria-pressed={maximized}
+      className="grid size-7 place-items-center rounded text-fg-secondary hover:bg-surface-3 hover:text-fg-primary transition-colors duration-fast active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      {maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+    </button>
   );
 }
 
@@ -192,6 +216,7 @@ export function InstrumentStage() {
         ) : null}
         <span className="ml-auto" />
         {!isSplit ? <SplitMenu /> : null}
+        <MaximizeToggle />
       </div>
       {isSplit ? (
         <div ref={splitRef} className={cn('flex-1 min-h-0 min-w-0 flex', row ? 'flex-row' : 'flex-col')}>

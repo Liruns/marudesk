@@ -117,7 +117,7 @@ export async function openInstrumentFromTask(
 ): Promise<void> {
   await page.locator(`[data-task-node="${taskId}"] [data-task-header]`).click();
   await dock(page).getByRole('button', { name: resourceLabel }).click();
-  await expect(page.getByRole('button', { name: 'Graph' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Graph', exact: true })).toBeVisible();
 }
 
 /**
