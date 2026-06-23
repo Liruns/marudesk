@@ -44,6 +44,11 @@ function instrumentIdentity(kind: TabKind, tab: TabState | undefined): string {
       return tab.title;
     }
   }
+  // An unnamed tab still carries the registry's default title (e.g. "Terminal",
+  // "Settings"), which equals the kind label — showing it just repeats the chip,
+  // and in another locale it reads as a redundant mix ("터미널 Terminal"). Treat
+  // the untouched default as "no custom identity" so only the localized kind shows.
+  if (tab.title === tabKinds[kind].title) return '';
   return tab.title;
 }
 
