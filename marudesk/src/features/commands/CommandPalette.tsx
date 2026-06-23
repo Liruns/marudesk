@@ -331,6 +331,13 @@ export function CommandPaletteButton() {
   const { t } = useI18n();
   const open = useCommandPaletteStore((s) => s.open);
   const toggle = useCommandPaletteStore((s) => s.toggle);
+  // A bare ⌘ glyph gave away nothing — new users had no idea the whole app lived
+  // behind it. Present it as what it is: a discoverable search-style trigger with
+  // a label and the platform shortcut, so the single most important entry point
+  // reads at a glance. The shortcut chip is platform-aware (⌘K on macOS, Ctrl K
+  // elsewhere) to match the real accelerator.
+  const isMac =
+    typeof navigator !== 'undefined' && navigator.userAgent.includes('Macintosh');
   return (
     <button
       type="button"
@@ -340,13 +347,17 @@ export function CommandPaletteButton() {
       aria-pressed={open}
       title={t('command.palette.hint')}
       className={cn(
-        'no-drag inline-flex h-6 items-center justify-center rounded-md px-1.5',
+        'no-drag group inline-flex h-6 items-center gap-1.5 rounded-md border border-default bg-surface-2 pl-2 pr-1',
         'text-fg-tertiary transition-colors duration-fast hover:bg-surface-3 hover:text-fg-secondary',
         'focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
         open && 'bg-surface-3 text-fg-secondary',
       )}
     >
-      <Command size={13} />
+      <Search size={12} className="shrink-0" />
+      <span className="text-caption">{t('command.palette.label')}</span>
+      <kbd className="ml-0.5 rounded-sm border border-subtle bg-surface-3 px-1 text-kbd font-medium leading-none text-fg-tertiary">
+        {isMac ? '⌘K' : 'Ctrl K'}
+      </kbd>
     </button>
   );
 }
