@@ -276,12 +276,13 @@ async function childStep(params: {
     tools: params.tools,
     maxOutputTokens: codexBackend
       ? undefined
-      : maxTokensForTurn(active.provider, active.modelReasoning, params.effort, active.maxOutputTokens),
+      : maxTokensForTurn(active.provider, active.modelReasoning, params.effort, active.maxOutputTokens, active.modelId),
     providerOptions: buildProviderOptions(
       active.provider,
       active.system,
       active.modelReasoning,
       params.effort,
+      active.modelId,
     ),
     abortSignal: params.signal,
   });

@@ -516,10 +516,10 @@ async function runLoop(opts: RunOpts): Promise<void> {
       stableSystem,
       volatileSystem,
       codexBackend,
-      providerOptions: buildProviderOptions(a.provider, system, a.modelReasoning, opts.reasoningEffort),
+      providerOptions: buildProviderOptions(a.provider, system, a.modelReasoning, opts.reasoningEffort, a.modelId),
       maxOutputTokens: codexBackend
         ? undefined
-        : maxTokensForTurn(a.provider, a.modelReasoning, opts.reasoningEffort, catalogMax),
+        : maxTokensForTurn(a.provider, a.modelReasoning, opts.reasoningEffort, catalogMax, a.modelId),
     };
   };
 
