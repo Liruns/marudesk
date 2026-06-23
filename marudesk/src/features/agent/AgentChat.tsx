@@ -221,7 +221,11 @@ export function AgentChat({
 
   return (
     <div
-      className="flex flex-col h-full min-h-0"
+      // The drawer/dock variant has no @container ancestor (the full variant gets
+      // one from AgentTab), so its composer couldn't adapt to the dock's ~360px —
+      // controls just crammed. Make it its own container so the composer's
+      // container-query breakpoints (model width, the Tune collapse) work here too.
+      className={cn('flex flex-col h-full min-h-0', !full && '@container')}
       onKeyDown={(e) => {
         // Find-in-transcript, scoped to focus within the chat surface so it
         // doesn't shadow a find on other panes.
