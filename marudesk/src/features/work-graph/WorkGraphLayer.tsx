@@ -446,7 +446,7 @@ const TaskNodeCard = memo(function TaskNodeCard({
         >
           {task.title}
         </button>
-        {task.intent ? <p className="mt-1.5 line-clamp-2 text-caption text-fg-tertiary">{task.intent}</p> : null}
+        {task.intent ? <p className="mt-1.5 line-clamp-2 text-caption text-fg-secondary">{task.intent}</p> : null}
         <div className="mt-1.5 flex items-center gap-2 text-caption text-fg-tertiary">
           <span
             className="truncate"
