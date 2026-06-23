@@ -9,6 +9,8 @@ import { fontStack } from '../../../shared/fonts';
 import { resolveTheme, subscribeAppearance, useSettingsStore } from '../settings/store';
 import { subscribeTabsByKind, useTabsStore } from '../tabs/store';
 import { toMessage } from '../../lib/toMessage';
+import { getMessage } from '../../i18n/messages';
+import { currentLocale } from '../../i18n/locale-storage';
 
 /** Event a session fires (bubbling) to ask its surface to open the search bar. */
 export const TERMINAL_OPEN_SEARCH_EVENT = 'terminal:open-search';
@@ -89,7 +91,8 @@ async function pasteIntoTerm(session: Session): Promise<void> {
     // Surface the failure instead of a dead Ctrl+V: a dim inline note (display
     // only — not sent to the PTY) so the user knows the paste didn't land
     // because the clipboard was locked or unreadable.
-    session.term.write('\r\n\x1b[2m[clipboard unavailable]\x1b[0m\r\n');
+    const note = getMessage(currentLocale(), 'terminal.clipboardUnavailable');
+    session.term.write(`\r\n\x1b[2m[${note}]\x1b[0m\r\n`);
   }
 }
 

@@ -1887,6 +1887,7 @@ export const EN_MESSAGES = {
   'tabs.pane.restore': 'Restore pane',
   'terminal.header.cwd': 'Working directory',
   'terminal.header.shell': 'Shell',
+  'terminal.clipboardUnavailable': 'clipboard unavailable',
   'terminal.errors.badgeTitle': 'Detected terminal errors',
   'terminal.errors.clear': 'Clear',
   'terminal.errors.close': 'Close errors',

@@ -1861,6 +1861,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'tabs.pane.restore': '패널 복원',
   'terminal.header.cwd': '작업 디렉터리',
   'terminal.header.shell': '셸',
+  'terminal.clipboardUnavailable': '클립보드를 사용할 수 없음',
   'terminal.errors.badgeTitle': '감지된 터미널 오류',
   'terminal.errors.clear': '지우기',
   'terminal.errors.close': '오류 목록 닫기',
