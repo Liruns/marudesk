@@ -194,8 +194,8 @@ export function ComposerModelButton() {
           <span aria-hidden className="size-1.5 shrink-0 rounded-pill bg-warning" />
         ) : null}
         <ChevronDown
-          size={11}
-          className="shrink-0 text-fg-tertiary/60 transition-colors duration-fast group-hover:text-fg-tertiary"
+          size={12}
+          className="shrink-0 text-fg-quaternary transition-colors duration-fast group-hover:text-fg-tertiary"
         />
       </button>
       {open ? (
@@ -256,6 +256,10 @@ export function ProviderKeyNudge() {
 export function StatusPill({ status, elapsed = 0 }: { status: AgentStatus; elapsed?: number }) {
   const { t } = useI18n();
   const busy = isBusy(status);
+  // Quiet at rest: the resting "Ready" pill is the kind of idle placeholder the
+  // design system avoids — it returns the moment a turn starts (thinking/working)
+  // or finishes (done/failed), which is when the status actually carries meaning.
+  if (status === 'idle') return null;
   return (
     <span className="flex items-center gap-1.5 text-caption text-fg-tertiary tabular-nums">
       {busy ? (

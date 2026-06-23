@@ -148,7 +148,7 @@ export function EffortToggle({
       aria-label={t('settings.agent.reasoning.label')}
       className="flex items-center gap-0.5"
     >
-      <Brain size={11} className="mx-0.5 text-fg-tertiary/60 shrink-0" aria-hidden />
+      <Brain size={12} className="mx-0.5 text-fg-quaternary shrink-0" aria-hidden />
       {EFFORT_OPTS.map((opt) => {
         const active = value === opt.value;
         return (
@@ -159,7 +159,7 @@ export function EffortToggle({
             aria-pressed={active}
             title={t(opt.labelKey)}
             className={cn(
-              'flex items-center justify-center h-5 px-1 rounded-sm text-[10px] font-medium leading-none transition-colors duration-fast',
+              'flex items-center justify-center h-5 px-1.5 rounded-sm text-micro font-medium leading-none transition-colors duration-fast',
               active
                 ? 'bg-surface-3 text-fg-primary'
                 : 'text-fg-tertiary hover:text-fg-secondary',

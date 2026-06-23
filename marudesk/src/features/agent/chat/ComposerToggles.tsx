@@ -93,8 +93,8 @@ export function ComposerToggles({
             className="flex items-center gap-1 h-5 px-1.5 rounded-sm text-caption text-fg-tertiary hover:text-fg-secondary hover:bg-surface-3 transition-colors duration-fast"
             title={t('agent.chat.newConversation')}
           >
-            <Eraser size={11} />
-            <span className="text-[10px] leading-none">{t('agent.chat.new')}</span>
+            <Eraser size={12} />
+            <span className="text-micro leading-none">{t('agent.chat.new')}</span>
           </button>
         </>
       ) : null}
