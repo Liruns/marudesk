@@ -167,7 +167,13 @@ function TabStrip() {
   const tabs = useTabsStore((s) => s.tabs);
   const closeTab = useTabsStore((s) => s.closeTab);
   const wsId = tabs.find((tb) => tb.id === featuredId)?.workspaceId;
-  const strip = tabs.filter((tb) => tb.workspaceId === wsId);
+  // The 'home' tab (the legacy launcher dashboard, auto-created at boot) is not a
+  // tool — in Mission Control the Task graph IS the home, so a stray "Home New Tab"
+  // chip in the Workbench strip is just confusing clutter. Hide it from the strip
+  // (unless it is somehow the featured tab, so its chip + close affordance survive).
+  const strip = tabs.filter(
+    (tb) => tb.workspaceId === wsId && (tb.kind !== 'home' || tb.id === featuredId),
+  );
   return (
     <div
       role="tablist"
