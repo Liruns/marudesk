@@ -143,7 +143,7 @@ export function TitleBar() {
 
   return (
     <div
-      className="drag-region h-9 shrink-0 flex items-stretch bg-surface-1 border-b border-subtle"
+      className="drag-region chrome-header h-9 shrink-0 flex items-stretch"
       role="banner"
       aria-label={t('titleBar.windowChrome')}
       onDoubleClick={onDoubleClick}

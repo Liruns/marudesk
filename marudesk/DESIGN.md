@@ -8,7 +8,7 @@ omd: "0.1"
 ds:
   name: Maru Design System
   type: brand
-  description: Dark-first design system for Maru, a runtime-aware AI IDE. Graphite & Minium default (a warm-neutral matte graphite with a single disciplined minium accent, no decorative glow), Raycast/Warp secondary, with Cursor AI Timeline 4-color accent. The cooler classic near-black stays selectable as Carbon.
+  description: Dark-first design system for Maru, a runtime-aware AI IDE. Arc-inspired aesthetic — soft squircle rounding, frosted-glass chrome, a low-alpha in-family accent aurora, and a tinted launcher rail — over the warm Graphite & Minium palette (a single disciplined minium accent), with the Cursor AI Timeline 4-color accent. The cooler classic near-black stays selectable as Carbon.
 ---
 
 # Maru Design System
@@ -17,7 +17,7 @@ ds:
 
 ## 1. Visual Theme & Atmosphere
 
-marudesk is a tool you live inside for 8 hours a day. The atmosphere is **dark-first, precise, and unhurried**, in the lineage of Linear and Raycast. The default theme is **Graphite & Minium**: the page canvas (`#121211`) is a warm-neutral matte near-black — paper-and-graphite with a faint warm-grey bias and *no* blue/purple chroma, so it reads hand-crafted rather than like a tinted "AI" canvas — sitting intentionally deeper than the surrounding panel surfaces (`#1D1D1A`, `#272724`). Depth comes from the monotonic surface ramp and hairline borders alone: **there is no decorative glow, bloom, or halo anywhere** — those read as AI-generated. The cooler classic near-black stays one click away as the **Carbon** palette. The screen is calm so the user's work (their browser, their code, their AI conversation) can carry the visual weight.
+marudesk is a tool you live inside for 8 hours a day. The atmosphere is **dark-first, soft, and atmospheric**, in the lineage of Arc and Raycast — warm, rounded, and quietly colorful rather than sharp-and-grey. The default theme is **Graphite & Minium**: the page canvas (`#121211`) is a warm-neutral matte near-black — paper-and-graphite with a faint warm-grey bias — sitting intentionally deeper than the surrounding panel surfaces (`#1D1D1A`, `#272724`). Over that canvas sits a soft **Arc-style aurora**: a low-alpha, in-family accent bloom off the top-left and a hover-shifted one off the bottom-right, so the stage reads like a colored "space" rather than a flat grey sheet. The chrome surfaces are **frosted glass** — translucent, backdrop-blurred — so the aurora glows through them, and the left launcher rail wears a gentle accent wash (Arc's colored sidebar). The cooler classic near-black stays one click away as the **Carbon** palette. The screen stays calm so the user's work (their browser, their code, their AI conversation) still carries the visual weight.
 
 Typography is Inter for UI and JetBrains Mono for code. Inter Display takes over only at hero sizes. Numerals are always tabular — `3 files`, `12ms`, `line 47` should never re-flow as values change. The single brand accent is **minium** (`#C75A3B`) — a desaturated lead-oxide orange-red used *sparingly* (active state, focus ring, cursor, one primary action); a designer's spot color that harmonizes with the warm graphite rather than "popping" like a brand gradient. Crimson appears only as the error state, never as default chrome.
 
@@ -29,9 +29,9 @@ The product has three foreground voices it must keep separate:
 **Key characteristics**
 
 - Surface scale of four steps from `#121211` (page) to `#322F2D` (input/hover), each carrying the same faint warm-grey undertone so the lift reads as one material catching more light. No surface change exceeds one step in a single layout.
-- The form language is **crisp and dense** (IDE-tight): controls and surfaces pack close, corners read sharp. 4px is the default border radius. 3px for small elements, 6px for large, full-pill (9999px) only for status dots and true pills. Tailwind's `rounded-md`/`-xl` ride these tokens too, so the whole radius scale sharpens from `tokens.css` alone.
-- Borders are white at 9 / 14 / 20% alpha — strong enough to read as hairlines (depth-from-borders only works when the border is visible), not so strong they become enclosing shapes.
-- Motion is fast and short. 120ms for hover, 200ms for panels. Easing is a single cubic-bezier(0.2, 0, 0, 1).
+- The form language is **soft and rounded** (Arc squircles): controls and surfaces wear generous corners. 9px is the default border radius. 6px for small chips, 14px for cards/panels, 20px for the largest surfaces (composers, hero cards), full-pill (9999px) only for status dots and true pills. Tailwind's `rounded-md`/`-lg`/`-xl` ride these tokens, so the whole radius scale softens from `tokens.css` alone.
+- Chrome surfaces are **frosted glass**: the `.chrome-*` classes composite a backdrop blur (`--glass-blur`) + saturation lift and sit semi-opaque (`--glass-opacity`) so the aurora and content glow through. Borders are white at 9 / 14 / 20% alpha — hairlines that still read against the glass.
+- Motion is fluid with a gentle settle. 140ms for hover, 260ms for panels; the base easing is a long iOS-style deceleration `cubic-bezier(0.32, 0.72, 0, 1)`, and entrance transforms ride a springy `--easing-spring` (a small overshoot). Color/opacity transitions keep the plain ease so hovers never wobble.
 - No emojis. No decorative iconography. No exclamation marks in product copy.
 
 ## 2. Color Palette & Roles
@@ -134,7 +134,7 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 ## 4. Component Stylings
 
 ### Button
-- Radius: 4px (`--radius`)
+- Radius: 9px (`--radius`)
 - Heights: 24px (sm), 28px (md/default), 32px (lg). Horizontal padding 10/12/14px — one step tighter than a comfortable control so toolbars pack more per row.
 - Icon/label gap: 6px.
 - Font: 13–14px Inter, weight 500
@@ -173,7 +173,7 @@ Embed the fonts locally via `@fontsource/inter` and `@fontsource/jetbrains-mono`
 - When idle, hidden — never a placeholder shimmer
 
 ### Badge
-- Small-radius (3px, `--radius-sm`) rectangle — crisp/dense, not a full pill. (Pill-round is reserved for status *dots* and true tags.)
+- Small-radius (6px, `--radius-sm`) rounded rectangle — soft, not a full pill. (Pill-round is reserved for status *dots* and true tags.)
 - Padding: 0 6px
 - Font: 11–12px Inter, weight 500
 - Variants:
@@ -240,11 +240,12 @@ Mission Control is a three-band vertical stack (`Shell.tsx`): a slim title/fligh
 | Token | Tailwind | Use |
 |---|---|---|
 | `--surface-gradient` | `bg-surface-gradient` | Featured cards/tiles — a ~2.5% top→bottom lift fading by ~64% |
-| `--page-vignette` | `bg-vignette` | `none` — there is no decorative page bloom (a glow reads as AI-generated); depth comes from the surface ramp + hairline borders instead. |
+| `--page-vignette` | `bg-vignette` | The Arc aurora — a two-bloom, low-alpha accent gradient on the page (applied on the Shell root) that the translucent chrome glows through. In-family (accent + accent-hover), kept low enough that content still leads. |
+| `--rail-tint` | (in `.chrome-rail`) | The launcher rail's in-family accent wash — Arc's colored sidebar — layered over the surface sheen. |
 
-The leaf values (`--highlight-top`, `--highlight-top-strong`, the gradient and vignette stops) flip under `data-theme="light"` so depth reads correctly in both modes; the structural tokens above reference them.
+The leaf values (`--highlight-top`, `--highlight-top-strong`, the gradient/vignette/rail stops) flip under `data-theme="light"` so depth reads correctly in both modes; the structural tokens above reference them.
 
-**Philosophy.** Elevation on dark surfaces comes from borders first, shadows second. A diffuse, large-radius shadow (24px+) reads as light bending around a panel; a tight shadow reads as a sticker pasted onto the screen. Avoid the latter. The top-edge catch and surface gradient are the quiet third instrument: they suggest light hitting an upper lip rather than a panel floating, so they layer *beneath* the border and never replace it.
+**Philosophy.** Elevation comes from borders + soft, wide shadows, lifted by the frosted-glass translucency. A diffuse, large-radius shadow (24px+) reads as light bending around a panel; a tight shadow reads as a sticker pasted onto the screen — avoid the latter. The aurora bloom and rail tint are decorative-but-disciplined: kept in the single accent family and at low alpha so they warm the stage without becoming a rainbow "AI" gradient.
 
 ## 7. Do's and Don'ts
 
@@ -252,8 +253,10 @@ The leaf values (`--highlight-top`, `--highlight-top-strong`, the gradient and v
 - **DON'T** write `bg-[#1A1B1F]` or any literal hex inside JSX. The token layer must remain the only place colors live.
 - **DO** keep the AI Timeline 4 colors restricted to AI-state surfaces (Spinner, Timeline, model badges).
 - **DON'T** repurpose `--ai-thinking` as a generic warm accent. The semantic mapping is the contract.
-- **DO** prefer borders over shadows for elevation cues on dark surfaces.
+- **DO** lean on hairline borders + soft wide shadows + the frosted-glass translucency for elevation — in that order.
 - **DON'T** stack two filled surfaces of the same tone. If two containers need to touch, one must be one step lighter than the other.
+- **DO** keep the aurora bloom and rail tint in the single accent family and at low alpha — they warm the stage, they don't decorate it.
+- **DON'T** turn the aurora into a multi-hue rainbow gradient or crank its alpha; that tips from "Arc-atmospheric" into "AI-generated".
 - **DO** use tabular numerals for every numeric display.
 - **DON'T** use exclamation marks in product copy. "Patch applied to 3 files." not "Patch applied!"
 - **DO** keep loading states quiet. Spinner only — no shimmer skeletons, no bouncing dots.
@@ -279,13 +282,14 @@ The renderer is sized by Electron; we do not target browser-tab embedding.
 | Token | Value | Use |
 |---|---|---|
 | `--motion-instant` | 0ms | Cursor commits, focus state changes |
-| `--motion-fast` | 120ms | Hover color/opacity transitions |
-| `--motion-standard` | 200ms | Panel slides, drawer open/close, modal enter |
-| `--easing` | `cubic-bezier(0.2, 0, 0, 1)` | Default for every transition |
+| `--motion-fast` | 140ms | Hover color/opacity transitions |
+| `--motion-standard` | 260ms | Panel slides, drawer open/close, modal enter |
+| `--easing` | `cubic-bezier(0.32, 0.72, 0, 1)` | Default for every transition (long iOS-style deceleration) |
+| `--easing-spring` | `cubic-bezier(0.34, 1.32, 0.52, 1)` | Entrance *transforms* only — a gentle Arc overshoot/settle |
 
 ### Entrance keyframes
 
-Two short, single-easing entrances give the UI character without breaking the "one cubic-bezier, no overshoot" rule. Both ride the motion tokens.
+Two short entrances give the UI an Arc-like settle. They ride `--easing-spring` (a gentle overshoot) on the transform, while color/opacity transitions keep the plain `--easing` so hovers never wobble.
 
 | Animation | Tailwind | Use |
 |---|---|---|

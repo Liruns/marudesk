@@ -116,6 +116,10 @@
    Drop the default 2px stroke to 1.5 globally — at the 11–18px sizes used in the
    chrome, 1.5 reads refined where 2 looks heavy (matches Linear / VS Code). */
 @layer components {
+  /* Arc-style frosted chrome — the surfaces composite a backdrop blur + a
+     saturation lift and sit semi-opaque so the stage glows through. The
+     `supports` guard keeps a solid fill on the rare engine without
+     backdrop-filter (never marudesk's Chromium, but correctness-cheap). */
   .chrome-panel {
     background-color: var(--surface-1);
     background-image: var(--surface-gradient);
@@ -139,7 +143,8 @@
 
   .chrome-rail {
     background-color: var(--surface-1);
-    background-image: var(--surface-gradient);
+    /* Arc colored sidebar: an in-family accent wash fading down, over the sheen. */
+    background-image: var(--rail-tint), var(--surface-gradient);
     border-color: var(--border-subtle);
     box-shadow: var(--highlight);
   }
@@ -149,6 +154,22 @@
     background-image: var(--surface-gradient);
     border: 1px solid var(--border-default);
     box-shadow: var(--shadow-menu);
+  }
+
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .chrome-panel,
+    .chrome-rail,
+    .chrome-header {
+      background-color: color-mix(in srgb, var(--surface-1) calc(var(--glass-opacity) * 100%), transparent);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    }
+    .chrome-panel-strong,
+    .chrome-popover {
+      background-color: color-mix(in srgb, var(--surface-2) calc(var(--glass-opacity) * 100%), transparent);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    }
   }
 
   .chrome-icon-button {

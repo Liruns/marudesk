@@ -140,7 +140,7 @@ export function InstrumentRail() {
   return (
     <nav
       aria-label={t('rail.label')}
-      className="no-drag flex w-[60px] shrink-0 flex-col gap-1 border-r border-default bg-surface-1 px-1.5 py-2 animate-fade-rise"
+      className="no-drag chrome-rail flex w-[60px] shrink-0 flex-col gap-1 border-r px-1.5 py-2 animate-fade-rise"
     >
       {TOOLS.map((item) => (
         <RailButton key={item.id} item={item} active={isActive(item.kind)} />

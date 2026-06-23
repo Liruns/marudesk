@@ -119,7 +119,8 @@ const config: Config = {
         DEFAULT: 'var(--radius)',
         md: 'var(--radius)',
         lg: 'var(--radius-lg)',
-        xl: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
+        '2xl': 'var(--radius-xl)',
         pill: 'var(--radius-pill)',
       },
       transitionDuration: {
@@ -151,9 +152,10 @@ const config: Config = {
         },
       },
       animation: {
-        // `both` holds the 0% (hidden) state through any stagger delay.
-        'fade-rise': 'fade-rise var(--motion-standard) var(--easing) both',
-        'scale-in': 'scale-in var(--motion-standard) var(--easing)',
+        // `both` holds the 0% (hidden) state through any stagger delay. Entrance
+        // transforms ride the springy easing for Arc's gentle settle/overshoot.
+        'fade-rise': 'fade-rise var(--motion-standard) var(--easing-spring) both',
+        'scale-in': 'scale-in var(--motion-standard) var(--easing-spring)',
         // `forwards` keeps the faded-out end state while the store removes it.
         'toast-out': 'toast-out var(--motion-fast) var(--easing) forwards',
         // Model-state Spinner: a calm 1.2s linear sweep (§4 Spinner), slower than

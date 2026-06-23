@@ -399,7 +399,7 @@ export function Shell() {
   }, []);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-surface-page text-fg-primary overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-surface-page bg-vignette text-fg-primary overflow-hidden">
       <TitleBar />
       <div className="flex-1 min-h-0 flex">
         {/* Always-visible launcher for the staple tools — the discoverable front
