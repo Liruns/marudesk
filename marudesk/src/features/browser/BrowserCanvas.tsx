@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { cn } from '../../lib/cn';
+import { WEB_CARD_GAP } from '../../../shared/browser';
 import { useWebPageStore } from './store';
 import { useBookmarksStore } from './bookmarks';
 import { useDownloadsStore } from './downloads';
@@ -112,11 +113,16 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
 
     const sendBounds = () => {
       const rect = el.getBoundingClientRect();
+      // Arc floating card: inset the native view by a small gap on every side so
+      // the rounded page (main rounds the view's corners) floats over the stage
+      // frame (the container's bg-surface-page shows through the gap). Clamp so a
+      // very narrow pane never reports a negative size.
+      const g = WEB_CARD_GAP;
       const bounds = {
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
+        x: rect.left + g,
+        y: rect.top + g,
+        width: Math.max(0, rect.width - g * 2),
+        height: Math.max(0, rect.height - g * 2),
       };
       if (boundsSourceId && tabId) {
         setBrowserPaneBoundsSource(boundsSourceId, [{ tabId, rect: bounds }]);
@@ -300,7 +306,8 @@ export function BrowserCanvas({ tabId }: { readonly tabId?: string } = {}) {
           <div
             ref={containerRef}
             className={cn(
-              'flex-1 min-w-0 min-h-0 relative bg-surface-1',
+              // bg-surface-page: the dark frame the inset web card floats over.
+              'flex-1 min-w-0 min-h-0 relative bg-surface-page',
               inspectMode ? 'ring-1 ring-inset ring-accent' : '',
               'transition-shadow duration-fast',
             )}

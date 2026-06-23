@@ -2,7 +2,7 @@ import { WebContentsView, app, session, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { type TabKind } from '../../shared/browser';
+import { WEB_CARD_RADIUS, type TabKind } from '../../shared/browser';
 import type { WorkspaceFileRef, WorkspaceId } from '../../shared/workspace';
 import {
   clearConsole,
@@ -157,6 +157,14 @@ export function createTab(
   });
 
   view.setBackgroundColor('#0F1011');
+  // Arc-style floating card: round the embedded page's corners. The renderer
+  // insets the view's bounds by a small gap (BrowserCanvas), so the page reads as
+  // a rounded card floating over the stage frame instead of a full-bleed slab.
+  try {
+    view.setBorderRadius(WEB_CARD_RADIUS);
+  } catch {
+    // setBorderRadius is Electron 35+; degrade to square corners on older runtimes.
+  }
 
   const rec: TabRecord = { id, kind: 'web', workspaceId, view, inspectOn: false };
 

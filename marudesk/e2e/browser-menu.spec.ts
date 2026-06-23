@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { test, expect, type ElectronApplication } from '@playwright/test';
 import { launchApp } from './helpers/app';
 import { openInstrumentFromTask, seedGraph } from './helpers/mission-control';
+import { WEB_CARD_GAP } from '../shared/browser';
 
 /**
  * Browser menu + browser-view sizing, reached through Mission Control. The classic
@@ -185,8 +186,16 @@ async function firstBrowserViewMatchingStage(
   app: ElectronApplication,
   stage: ViewBounds,
 ): Promise<ViewBounds | null> {
+  // The Arc floating card insets the native view by WEB_CARD_GAP on every side,
+  // so the view tracks the stage rect minus that gap (not the stage rect itself).
+  const expected: ViewBounds = {
+    x: stage.x + WEB_CARD_GAP,
+    y: stage.y + WEB_CARD_GAP,
+    width: stage.width - WEB_CARD_GAP * 2,
+    height: stage.height - WEB_CARD_GAP * 2,
+  };
   const views = await onScreenWebViews(app);
-  return views.find((bounds) => boundsNear(bounds, stage)) ?? null;
+  return views.find((bounds) => boundsNear(bounds, expected)) ?? null;
 }
 
 async function hasBrowserViewMatchingStage(

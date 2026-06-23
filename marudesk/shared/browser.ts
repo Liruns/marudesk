@@ -1,6 +1,15 @@
 import type { WorkspaceFileRef, WorkspaceId } from './workspace';
 
 /**
+ * Arc-style floating-card geometry for the embedded web view. The renderer
+ * insets the WebContentsView's bounds by {@link WEB_CARD_GAP} on every side
+ * (BrowserCanvas) so the page floats over the stage frame, and main rounds the
+ * view's corners by {@link WEB_CARD_RADIUS} (electron/browser/tabs) to match.
+ */
+export const WEB_CARD_GAP = 10;
+export const WEB_CARD_RADIUS = 12;
+
+/**
  * Snapshot of the embedded browser's navigation state. Pushed from main on
  * any change so the renderer can keep its toolbar in sync with the
  * WebContentsView (which renders above the React DOM and can't be inspected
