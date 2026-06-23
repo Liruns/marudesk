@@ -39,6 +39,7 @@ function HtmlEditor({
   depth: number;
   onDone: () => void;
 }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(initial);
   const ref = useRef<HTMLTextAreaElement>(null);
   // Set when Esc cancels, so the unmount-blur can't also commit.
@@ -74,7 +75,7 @@ function HtmlEditor({
           }
         }}
         spellCheck={false}
-        aria-label="Edit as HTML"
+        aria-label={t('devtools.dom.editAsHtml')}
         rows={Math.min(12, Math.max(3, draft.split('\n').length + 1))}
         className="w-full bg-surface-page border border-accent rounded px-1.5 py-1 font-mono text-caption text-fg-primary focus:outline-none resize-y"
       />

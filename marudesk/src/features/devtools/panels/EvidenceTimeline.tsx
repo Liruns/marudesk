@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/useI18n';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Play, Save, Trash2 } from 'lucide-react';
 import { Badge } from '../../../components/ui';
@@ -57,6 +58,7 @@ const FILTERS: readonly { id: SourceFilter; label: string }[] = [
 ];
 
 export function EvidenceTimeline() {
+  const { t } = useI18n();
   const entries = useDevtoolsStore((s) => s.console);
   const network = useDevtoolsStore((s) => s.network);
   const setPanel = useDevtoolsStore((s) => s.setPanel);
@@ -167,7 +169,7 @@ export function EvidenceTimeline() {
           <button
             type="button"
             onClick={() => void saveWorkflow()}
-            title="Save these page actions as a replayable workflow"
+            title={t('devtools.workflow.save')}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-accent hover:bg-accent-subtle transition-colors duration-fast"
           >
             <Save size={12} /> Save as workflow
@@ -250,7 +252,7 @@ export function EvidenceTimeline() {
                 <button
                   type="button"
                   onClick={() => void runWorkflow(wf)}
-                  title="Replay this workflow on the live page"
+                  title={t('devtools.workflow.replay')}
                   className="shrink-0 rounded p-1 text-accent opacity-0 transition-opacity duration-fast hover:bg-accent-subtle group-hover:opacity-100 focus-visible:opacity-100"
                 >
                   <Play size={13} />
@@ -258,7 +260,7 @@ export function EvidenceTimeline() {
                 <button
                   type="button"
                   onClick={() => void deleteWorkflow(wf)}
-                  title="Delete this workflow"
+                  title={t('devtools.workflow.delete')}
                   className="shrink-0 rounded p-1 text-fg-tertiary opacity-0 transition-opacity duration-fast hover:bg-error-subtle hover:text-error group-hover:opacity-100 focus-visible:opacity-100"
                 >
                   <Trash2 size={13} />

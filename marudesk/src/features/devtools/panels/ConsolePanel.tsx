@@ -7,6 +7,7 @@ import { useDevtoolsStore } from '../store';
 import { askAgent } from '../../agent/store';
 import { RemoteValue } from '../components/RemoteValue';
 import { ConsoleInput } from './ConsoleInput';
+import { useI18n } from '../../../i18n/useI18n';
 import type { ConsoleEntry, ConsoleKind, RemoteObject } from '../types';
 
 /**
@@ -107,6 +108,7 @@ function ConsoleRow({
   showTimestamp: boolean;
   onFix?: () => void;
 }) {
+  const { t } = useI18n();
   const origin = originText(entry);
   const copy = async () => {
     try {
@@ -164,8 +166,8 @@ function ConsoleRow({
       <button
         type="button"
         onClick={() => void copy()}
-        title="Copy message"
-        aria-label="Copy message"
+        title={t('devtools.console.copyMessage')}
+        aria-label={t('devtools.console.copyMessage')}
         className="shrink-0 size-5 mt-0.5 rounded items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 hidden group-hover:flex"
       >
         <Copy size={12} />
@@ -177,7 +179,7 @@ function ConsoleRow({
         <button
           type="button"
           onClick={onFix}
-          title="Ask AI to fix this error"
+          title={t('devtools.console.fixError')}
           className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 h-5 mt-0.5 text-caption text-accent hover:bg-accent-subtle/40 transition-colors duration-fast"
         >
           <Sparkles size={11} />
@@ -202,6 +204,7 @@ function countByLevel(entries: ConsoleEntry[]): Record<Exclude<LevelFilter, 'all
 }
 
 export function ConsolePanel() {
+  const { t } = useI18n();
   const entries = useDevtoolsStore((s) => s.console);
   const preserveLog = useDevtoolsStore((s) => s.preserveLog);
   const showTimestamps = useDevtoolsStore((s) => s.showTimestamps);
@@ -272,8 +275,8 @@ export function ConsolePanel() {
       <div className="shrink-0 flex items-center gap-1 px-1.5 py-1 border-b border-subtle flex-wrap">
         <button
           type="button"
-          aria-label="Clear console"
-          title="Clear console"
+          aria-label={t('devtools.console.clear')}
+          title={t('devtools.console.clear')}
           onClick={() => useDevtoolsStore.getState().clearConsole()}
           className="size-6 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
         >
@@ -284,8 +287,8 @@ export function ConsolePanel() {
           onChange={(e) => setQuery(e.target.value)}
           spellCheck={false}
           autoComplete="off"
-          placeholder="Filter"
-          aria-label="Filter console"
+          placeholder={t('devtools.console.filter')}
+          aria-label={t('devtools.console.filterAria')}
           className="h-6 w-28 min-w-0 rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
         <div className="flex items-center gap-0.5">
@@ -326,8 +329,8 @@ export function ConsolePanel() {
         <div className="ml-auto flex items-center gap-1 whitespace-nowrap">
           <button
             type="button"
-            aria-label="Copy all messages"
-            title="Copy all visible messages"
+            aria-label={t('devtools.console.copyAll')}
+            title={t('devtools.console.copyAllTitle')}
             disabled={visible.length === 0}
             onClick={() => void copyAll()}
             className="size-6 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 disabled:opacity-40"

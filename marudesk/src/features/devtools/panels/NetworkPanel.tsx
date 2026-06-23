@@ -136,8 +136,8 @@ export function NetworkPanel() {
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
-            aria-label="Export HAR"
-            title="Export HAR"
+            aria-label={t('devtools.network.exportHar')}
+            title={t('devtools.network.exportHar')}
             disabled={requests.length === 0}
             onClick={exportHar}
             className="h-6 px-1.5 rounded inline-flex items-center gap-1 text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-tertiary"

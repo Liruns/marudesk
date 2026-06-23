@@ -343,6 +343,7 @@ function IdbStoreEntries({ database, store }: { database: string; store: string 
 }
 
 function IdbDatabaseSection({ db }: { db: IdbDatabase }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [selectedStore, setSelectedStore] = useState<string | null>(null);
   return (
@@ -366,7 +367,7 @@ function IdbDatabaseSection({ db }: { db: IdbDatabase }) {
         <button
           type="button"
           onClick={() => void useDevtoolsStore.getState().deleteIdbDatabase(db.name)}
-          title="Delete database"
+          title={t('devtools.application.deleteDatabase')}
           className="h-5 px-1.5 shrink-0 rounded text-caption text-error/80 hover:text-error hover:bg-error/10"
         >
           Delete
@@ -426,6 +427,7 @@ function IndexedDbSection() {
 /* ── Cache Storage ────────────────────────────────────────────────────── */
 
 function CacheEntriesTable({ cacheId }: { cacheId: string }) {
+  const { t } = useI18n();
   // Mounted per selected cache; on a per-entry delete `reloadSeq` re-reads and
   // the previous rows stay visible until the fresh page lands (quieter UX).
   const [entries, setEntries] = useState<CacheEntry[] | null>(null);
@@ -469,7 +471,7 @@ function CacheEntriesTable({ cacheId }: { cacheId: string }) {
               <button
                 type="button"
                 aria-label={`Delete cache entry ${e.requestURL}`}
-                title="Delete entry"
+                title={t('devtools.application.deleteEntry')}
                 onClick={() => {
                   void useDevtoolsStore
                     .getState()
@@ -489,6 +491,7 @@ function CacheEntriesTable({ cacheId }: { cacheId: string }) {
 }
 
 function CacheStorageSection() {
+  const { t } = useI18n();
   const caches = useDevtoolsStore((s) => s.cacheNames);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   if (caches.length === 0) {
@@ -518,7 +521,7 @@ function CacheStorageSection() {
             <button
               type="button"
               onClick={() => void useDevtoolsStore.getState().deleteCache(c.cacheId)}
-              title="Delete cache"
+              title={t('devtools.application.deleteCache')}
               className="h-5 px-1.5 shrink-0 rounded text-caption text-error/80 hover:text-error hover:bg-error/10"
             >
               Delete

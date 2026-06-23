@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/useI18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownToDot,
@@ -268,6 +269,7 @@ function ScopePane() {
 /* ── watch expressions ────────────────────────────────────────────────── */
 
 function WatchPane() {
+  const { t } = useI18n();
   const watches = useDevtoolsStore((s) => s.watchExpressions);
   const results = useDevtoolsStore((s) => s.watchResults);
   const [draft, setDraft] = useState('');
@@ -291,14 +293,14 @@ function WatchPane() {
           }}
           spellCheck={false}
           autoComplete="off"
-          placeholder="Add watch expression"
-          aria-label="Add watch expression"
+          placeholder={t('devtools.sources.addWatch')}
+          aria-label={t('devtools.sources.addWatch')}
           className="h-6 flex-1 min-w-0 rounded bg-surface-2 px-2 font-mono text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
         <button
           type="button"
-          aria-label="Add watch expression"
-          title="Add watch expression"
+          aria-label={t('devtools.sources.addWatch')}
+          title={t('devtools.sources.addWatch')}
           onClick={submit}
           className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
         >
@@ -331,7 +333,7 @@ function WatchPane() {
             <button
               type="button"
               aria-label={`Remove watch ${expr}`}
-              title="Remove watch expression"
+              title={t('devtools.sources.removeWatch')}
               onClick={() => useDevtoolsStore.getState().removeWatch(expr)}
               className="size-4 shrink-0 rounded items-center justify-center text-fg-tertiary hover:text-error hidden group-hover:flex"
             >
@@ -347,6 +349,7 @@ function WatchPane() {
 /* ── breakpoints ──────────────────────────────────────────────────────── */
 
 function BreakpointsPane() {
+  const { t } = useI18n();
   const breakpoints = useDevtoolsStore((s) => s.breakpoints);
   if (breakpoints.length === 0) return null;
   const sorted = [...breakpoints].sort(
@@ -376,7 +379,7 @@ function BreakpointsPane() {
             <button
               type="button"
               aria-label={`Remove breakpoint ${scriptLabel(displayUrl)}:${displayLine}`}
-              title="Remove breakpoint"
+              title={t('devtools.sources.removeBreakpoint')}
               onClick={() =>
                 void useDevtoolsStore.getState().toggleBreakpoint(bp.url, bp.lineNumber)
               }
@@ -394,6 +397,7 @@ function BreakpointsPane() {
 /* ── XHR/fetch breakpoints (DOMDebugger) ──────────────────────────────── */
 
 function XhrBreakpointsPane() {
+  const { t } = useI18n();
   const xhrBreakpoints = useDevtoolsStore((s) => s.xhrBreakpoints);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -425,13 +429,13 @@ function XhrBreakpointsPane() {
               spellCheck={false}
               autoComplete="off"
               placeholder="URL contains (empty = any)"
-              aria-label="Break when URL contains"
+              aria-label={t('devtools.sources.breakWhenUrl')}
               className="h-6 flex-1 min-w-0 rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
             />
             <button
               type="button"
-              aria-label="Add XHR/fetch breakpoint"
-              title="Add XHR/fetch breakpoint"
+              aria-label={t('devtools.sources.addXhrBreakpoint')}
+              title={t('devtools.sources.addXhrBreakpoint')}
               onClick={submit}
               className="size-5 shrink-0 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
             >
@@ -469,7 +473,7 @@ function XhrBreakpointsPane() {
                 <button
                   type="button"
                   aria-label={`Remove XHR/fetch breakpoint ${bp.url || 'Any XHR/fetch'}`}
-                  title="Remove breakpoint"
+                  title={t('devtools.sources.removeBreakpoint')}
                   onClick={() => useDevtoolsStore.getState().removeXhrBreakpoint(bp.url)}
                   className="size-4 shrink-0 rounded items-center justify-center text-fg-tertiary hover:text-error hidden group-hover:flex"
                 >
@@ -522,6 +526,7 @@ function EventBreakpointsPane() {
 /* ── script tree ──────────────────────────────────────────────────────── */
 
 function ScriptsPane() {
+  const { t } = useI18n();
   const scripts = useDevtoolsStore((s) => s.scripts);
   const sourceMaps = useDevtoolsStore((s) => s.sourceMaps);
   const selectedScriptId = useDevtoolsStore((s) => s.selectedScriptId);
@@ -550,8 +555,8 @@ function ScriptsPane() {
           onChange={(e) => setFilter(e.target.value)}
           spellCheck={false}
           autoComplete="off"
-          placeholder="Filter scripts"
-          aria-label="Filter scripts"
+          placeholder={t('devtools.sources.filterScripts')}
+          aria-label={t('devtools.sources.filterScripts')}
           className="h-6 w-full rounded bg-surface-2 px-2 text-caption text-fg-primary placeholder:text-fg-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
       </div>
@@ -904,6 +909,7 @@ function ToolbarButton({
 }
 
 export function SourcesPanel() {
+  const { t } = useI18n();
   const paused = useDevtoolsStore((s) => s.paused);
   const pauseOnExceptions = useDevtoolsStore((s) => s.pauseOnExceptions);
   const s = () => useDevtoolsStore.getState();
@@ -934,7 +940,7 @@ export function SourcesPanel() {
           <select
             value={pauseOnExceptions}
             onChange={(e) => s().setPauseOnExceptions(e.target.value as PauseOnExceptions)}
-            aria-label="Pause on exceptions"
+            aria-label={t('devtools.sources.pauseOnExceptions')}
             className="h-6 rounded bg-surface-2 px-1 text-caption text-fg-secondary focus:outline-none focus:ring-1 focus:ring-accent/50"
           >
             {PAUSE_ON_EXCEPTIONS.map((o) => (

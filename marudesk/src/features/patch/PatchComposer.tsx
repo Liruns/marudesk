@@ -4,6 +4,7 @@ import { Badge, Button } from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { useWorkspaceStore } from '../workspace/store';
 import { usePatchStore } from './store';
+import { useI18n } from '../../i18n/useI18n';
 import { PatchPreviewView } from './PatchPreviewView';
 
 const PLACEHOLDER = `[
@@ -15,6 +16,7 @@ const PLACEHOLDER = `[
 ]`;
 
 export function PatchComposer() {
+  const { t } = useI18n();
   const summary = useWorkspaceStore((s) => s.summary);
   const opening = useWorkspaceStore((s) => s.opening);
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
@@ -134,7 +136,7 @@ export function PatchComposer() {
               'tabular-nums leading-relaxed',
               'focus:outline-none',
             )}
-            aria-label="Patch ops JSON"
+            aria-label={t('patch.composer.jsonLabel')}
           />
           {parseError ? (
             <div className="border-t border-subtle bg-error-subtle/40 text-body-sm text-fg-secondary px-4 py-2 break-words">

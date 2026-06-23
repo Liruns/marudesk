@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/useI18n';
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Circle, RefreshCw, Square } from 'lucide-react';
 import { cn } from '../../../lib/cn';
@@ -246,6 +247,7 @@ function BottomUpTable({ profile }: { profile: ProcessedProfile }) {
 /* ── panel ────────────────────────────────────────────────────────────── */
 
 export function PerformancePanel() {
+  const { t } = useI18n();
   const profiling = useDevtoolsStore((s) => s.profiling);
   const profile = useDevtoolsStore((s) => s.profile);
   const [view, setView] = useState<ProfileView>('top-down');
@@ -305,8 +307,8 @@ export function PerformancePanel() {
         <div className="flex-1" />
         <button
           type="button"
-          aria-label="Refresh metrics"
-          title="Refresh metrics"
+          aria-label={t('devtools.performance.refreshMetrics')}
+          title={t('devtools.performance.refreshMetrics')}
           onClick={() => void useDevtoolsStore.getState().refreshMetrics()}
           className="size-6 rounded flex items-center justify-center text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
         >

@@ -201,7 +201,7 @@ function CookiesTab({ entry }: { entry: NetworkEntry }) {
   return (
     <>
       {request.length > 0 ? (
-        <Section title="Request cookies">
+        <Section title={t('devtools.network.requestCookies')}>
           <table className="w-full text-caption">
             <thead className="text-fg-tertiary">
               <tr>
@@ -221,7 +221,7 @@ function CookiesTab({ entry }: { entry: NetworkEntry }) {
         </Section>
       ) : null}
       {response.length > 0 ? (
-        <Section title="Response cookies">
+        <Section title={t('devtools.network.responseCookies')}>
           <table className="w-full text-caption">
             <thead className="text-fg-tertiary">
               <tr>
@@ -481,7 +481,7 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
           <button
             type="button"
             onClick={() => void copyFetch()}
-            title="Copy as fetch"
+            title={t('devtools.network.copyAsFetch')}
             className="h-5 px-1.5 rounded text-caption text-fg-tertiary hover:text-fg-primary hover:bg-surface-2"
           >
             Copy as fetch

@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/useI18n';
 import { useEffect, useState } from 'react';
 import { RotateCw } from 'lucide-react';
 import { useDevtoolsStore } from '../store';
@@ -52,6 +53,7 @@ function ListenerRow({ listener }: { listener: EventListenerInfo }) {
 }
 
 export function EventListenersPane() {
+  const { t } = useI18n();
   const tabId = useDevtoolsStore((s) => s.tabId);
   const selectedId = useDevtoolsStore((s) => s.selectedId);
   // null = loading (a finished fetch always lands an array). Reset on selection
@@ -117,8 +119,8 @@ export function EventListenersPane() {
         </span>
         <button
           type="button"
-          aria-label="Refresh event listeners"
-          title="Refresh"
+          aria-label={t('devtools.eventListeners.refreshAll')}
+          title={t('devtools.eventListeners.refresh')}
           onClick={() => {
             setListeners(null);
             setRefreshSeq((n) => n + 1);
