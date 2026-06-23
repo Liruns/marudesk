@@ -35,13 +35,13 @@ type Section =
 const SECTIONS: { id: Section; labelKey?: TranslationKey; label?: string }[] = [
   { id: 'local', labelKey: 'devtools.application.localStorage' },
   { id: 'session', labelKey: 'devtools.application.sessionStorage' },
-  { id: 'indexeddb', label: 'IndexedDB' },
-  { id: 'cache', label: 'Cache Storage' },
+  { id: 'indexeddb', labelKey: 'devtools.application.indexeddb' },
+  { id: 'cache', labelKey: 'devtools.application.cacheStorage' },
   { id: 'cookies', labelKey: 'devtools.application.cookies' },
-  { id: 'quota', label: 'Storage' },
-  { id: 'manifest', label: 'Manifest' },
-  { id: 'frames', label: 'Frames' },
-  { id: 'sw', label: 'Service Workers' },
+  { id: 'quota', labelKey: 'devtools.application.storage' },
+  { id: 'manifest', labelKey: 'devtools.application.manifest' },
+  { id: 'frames', labelKey: 'devtools.application.frames' },
+  { id: 'sw', labelKey: 'devtools.application.serviceWorkers' },
 ];
 
 /** A storage value cell: double-click to edit in place, Enter/blur commits. */
@@ -296,6 +296,7 @@ function CookieTable({
 
 /** One object store's first-page entry preview (read-only). */
 function IdbStoreEntries({ database, store }: { database: string; store: string }) {
+  const { t } = useI18n();
   // Mounted per selected store (the parent keys the conditional render), so
   // `database`/`store` are stable for this component's lifetime — no reset.
   const [entries, setEntries] = useState<IdbEntry[] | null>(null);
@@ -316,14 +317,14 @@ function IdbStoreEntries({ database, store }: { database: string; store: string 
     return <div className="text-caption text-fg-tertiary px-3 py-1">Loading entries…</div>;
   }
   if (entries.length === 0) {
-    return <div className="text-caption text-fg-tertiary px-3 py-1">No entries</div>;
+    return <div className="text-caption text-fg-tertiary px-3 py-1">{t('devtools.application.noEntries')}</div>;
   }
   return (
     <table className="w-full text-caption">
       <thead className="text-fg-tertiary">
         <tr className="text-left">
-          <th className="font-normal px-3 py-1 w-1/3">Key</th>
-          <th className="font-normal px-2 py-1">Value</th>
+          <th className="font-normal px-3 py-1 w-1/3">{t('devtools.application.colKey')}</th>
+          <th className="font-normal px-2 py-1">{t('devtools.application.colValue')}</th>
         </tr>
       </thead>
       <tbody>
@@ -376,7 +377,7 @@ function IdbDatabaseSection({ db }: { db: IdbDatabase }) {
       {open ? (
         <div className="pl-5 pb-1">
           {db.objectStores.length === 0 ? (
-            <div className="text-caption text-fg-tertiary px-1.5 py-0.5">No object stores</div>
+            <div className="text-caption text-fg-tertiary px-1.5 py-0.5">{t('devtools.application.noObjectStores')}</div>
           ) : (
             db.objectStores.map((os) => (
               <div key={os.name}>
@@ -411,9 +412,10 @@ function IdbDatabaseSection({ db }: { db: IdbDatabase }) {
 }
 
 function IndexedDbSection() {
+  const { t } = useI18n();
   const databases = useDevtoolsStore((s) => s.idbDatabases);
   if (databases.length === 0) {
-    return <div className="text-caption text-fg-tertiary px-3 py-2">No IndexedDB databases</div>;
+    return <div className="text-caption text-fg-tertiary px-3 py-2">{t('devtools.application.noDatabases')}</div>;
   }
   return (
     <div>
@@ -449,15 +451,15 @@ function CacheEntriesTable({ cacheId }: { cacheId: string }) {
     return <div className="text-caption text-fg-tertiary px-3 py-1">Loading entries…</div>;
   }
   if (entries.length === 0) {
-    return <div className="text-caption text-fg-tertiary px-3 py-1">No entries</div>;
+    return <div className="text-caption text-fg-tertiary px-3 py-1">{t('devtools.application.noEntries')}</div>;
   }
   return (
     <table className="w-full text-caption">
       <thead className="text-fg-tertiary">
         <tr className="text-left">
-          <th className="font-normal px-3 py-1">URL</th>
-          <th className="font-normal px-1 py-1 w-14">Method</th>
-          <th className="font-normal px-1 py-1 w-12">Status</th>
+          <th className="font-normal px-3 py-1">{t('devtools.application.colUrl')}</th>
+          <th className="font-normal px-1 py-1 w-14">{t('devtools.application.colMethod')}</th>
+          <th className="font-normal px-1 py-1 w-12">{t('devtools.application.colStatus')}</th>
           <th className="px-1 py-1 w-7" />
         </tr>
       </thead>
@@ -495,7 +497,7 @@ function CacheStorageSection() {
   const caches = useDevtoolsStore((s) => s.cacheNames);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   if (caches.length === 0) {
-    return <div className="text-caption text-fg-tertiary px-3 py-2">No caches</div>;
+    return <div className="text-caption text-fg-tertiary px-3 py-2">{t('devtools.application.noCaches')}</div>;
   }
   return (
     <div>
@@ -537,10 +539,11 @@ function CacheStorageSection() {
 /* ── Storage quota (Storage.getUsageAndQuota) ─────────────────────────── */
 
 function StorageQuotaSection() {
+  const { t } = useI18n();
   const usage = useDevtoolsStore((s) => s.storageUsage);
   if (!usage) {
     return (
-      <div className="text-caption text-fg-tertiary px-3 py-2">No quota information</div>
+      <div className="text-caption text-fg-tertiary px-3 py-2">{t('devtools.application.noQuota')}</div>
     );
   }
   const fraction = usage.quota > 0 ? Math.min(1, usage.usage / usage.quota) : 0;
@@ -591,11 +594,12 @@ function prettyManifest(data: string): string {
 }
 
 function ManifestSection() {
+  const { t } = useI18n();
   const manifest = useDevtoolsStore((s) => s.appManifest);
   const [rawOpen, setRawOpen] = useState(false);
   if (!manifest || !manifest.url) {
     return (
-      <div className="text-caption text-fg-tertiary px-3 py-2">No web app manifest</div>
+      <div className="text-caption text-fg-tertiary px-3 py-2">{t('devtools.application.noManifest')}</div>
     );
   }
   return (
@@ -649,10 +653,11 @@ function ManifestSection() {
 /* ── Frames (Page.getFrameTree) ───────────────────────────────────────── */
 
 function FramesSection() {
+  const { t } = useI18n();
   const frames = useDevtoolsStore((s) => s.frameTree);
   if (!frames || frames.length === 0) {
     return (
-      <div className="text-caption text-fg-tertiary px-3 py-2">No frame information</div>
+      <div className="text-caption text-fg-tertiary px-3 py-2">{t('devtools.application.noFrames')}</div>
     );
   }
   return (
@@ -675,6 +680,7 @@ function FramesSection() {
 /* ── Service Workers (ServiceWorker registration/version events) ─────── */
 
 function ServiceWorkersSection() {
+  const { t } = useI18n();
   const registrations = useDevtoolsStore((s) => s.swRegistrations);
   const versions = useDevtoolsStore((s) => s.swVersions);
   if (registrations.size === 0) {
@@ -704,7 +710,7 @@ function ServiceWorkersSection() {
               <span className="text-fg-primary">{r.scopeURL}</span>
             </div>
             {regVersions.length === 0 ? (
-              <div className="text-caption text-fg-tertiary">No versions reported yet</div>
+              <div className="text-caption text-fg-tertiary">{t('devtools.application.noVersions')}</div>
             ) : (
               regVersions.map((v) => (
                 <div

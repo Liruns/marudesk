@@ -1,4 +1,5 @@
 import { useI18n } from '../../../i18n/useI18n';
+import type { TranslationKey } from '../../../i18n/messages';
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Circle, RefreshCw, Square } from 'lucide-react';
 import { cn } from '../../../lib/cn';
@@ -29,9 +30,9 @@ const MAX_BOTTOM_UP_ROWS = 500;
 
 type ProfileView = 'top-down' | 'bottom-up';
 
-const PROFILE_VIEWS: { id: ProfileView; label: string }[] = [
-  { id: 'top-down', label: 'Top-down' },
-  { id: 'bottom-up', label: 'Bottom-up' },
+const PROFILE_VIEWS: { id: ProfileView; labelKey: TranslationKey }[] = [
+  { id: 'top-down', labelKey: 'devtools.performance.topDown' },
+  { id: 'bottom-up', labelKey: 'devtools.performance.bottomUp' },
 ];
 
 /** Section header shared by the metrics and profiler areas. */
@@ -83,10 +84,11 @@ function MetricsSection() {
 /* ── profile tables ───────────────────────────────────────────────────── */
 
 function ColumnHeader() {
+  const { t } = useI18n();
   return (
     <div className="sticky top-0 flex items-center bg-surface-1 text-caption text-fg-tertiary border-b border-subtle/40">
-      <span className="w-24 shrink-0 px-2 py-1 text-right">Self time</span>
-      <span className="w-24 shrink-0 px-2 py-1 text-right">Total time</span>
+      <span className="w-24 shrink-0 px-2 py-1 text-right">{t('devtools.performance.selfTime')}</span>
+      <span className="w-24 shrink-0 px-2 py-1 text-right">{t('devtools.performance.totalTime')}</span>
       <span className="flex-1 px-2 py-1">Function</span>
     </div>
   );
@@ -299,7 +301,7 @@ export function PerformancePanel() {
                     : 'text-fg-tertiary hover:text-fg-secondary hover:bg-surface-2',
                 )}
               >
-                {v.label}
+                {t(v.labelKey)}
               </button>
             ))}
           </div>

@@ -163,7 +163,7 @@ function Initiator({ initiator }: { initiator: NetworkEntry['initiator'] }) {
       ) : null}
       {shown.length > 0 ? (
         <div className="flex flex-col gap-0.5 pt-1">
-          <span className="text-fg-tertiary">Stack trace</span>
+          <span className="text-fg-tertiary">{t('devtools.network.stackTrace')}</span>
           {shown.map((f, i) => (
             <div key={i} className="pl-2 break-all">
               <span className="text-fg-secondary">{f.functionName || '(anonymous)'}</span>
@@ -227,7 +227,7 @@ function CookiesTab({ entry }: { entry: NetworkEntry }) {
               <tr>
                 <th className={cn(th, 'w-1/4')}>{t('devtools.application.name')}</th>
                 <th className={th}>{t('devtools.application.value')}</th>
-                <th className={th}>Attributes</th>
+                <th className={th}>{t('devtools.network.attributes')}</th>
               </tr>
             </thead>
             <tbody>
@@ -394,12 +394,12 @@ export function Detail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
   // Messages only exists for WebSocket connections and SSE streams.
   const hasMessages = !!entry.isWebSocket || (entry.sseMessages?.length ?? 0) > 0;
   const tabs: { id: DetailTab; label: string }[] = [
-    { id: 'headers', label: 'Headers' },
-    ...(hasMessages ? [{ id: 'messages' as const, label: 'Messages' }] : []),
-    { id: 'response', label: 'Response' },
-    { id: 'timing', label: 'Timing' },
+    { id: 'headers', label: t('devtools.network.tab.headers') },
+    ...(hasMessages ? [{ id: 'messages' as const, label: t('devtools.network.tab.messages') }] : []),
+    { id: 'response', label: t('devtools.network.tab.response') },
+    { id: 'timing', label: t('devtools.network.tab.timing') },
     { id: 'initiator', label: t('devtools.network.initiator') },
-    { id: 'cookies', label: 'Cookies' },
+    { id: 'cookies', label: t('devtools.network.tab.cookies') },
   ];
   const active: DetailTab = tab === 'messages' && !hasMessages ? 'headers' : tab;
 

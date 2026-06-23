@@ -89,6 +89,7 @@ function CoverageRowView({ row }: { row: CoverageRow }) {
  * switching panels.
  */
 function CoverageSection() {
+  const { t } = useI18n();
   const recording = useCoverageStore((s) => s.recording);
   const busy = useCoverageStore((s) => s.busy);
   const rows = useCoverageStore((s) => s.rows);
@@ -97,7 +98,7 @@ function CoverageSection() {
   return (
     <div className="px-3 py-2 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-body-sm text-fg-secondary">Coverage</span>
+        <span className="text-body-sm text-fg-secondary">{t('devtools.rendering.coverage')}</span>
         <div className="flex items-center gap-1.5">
           {rows.length > 0 && !recording ? (
             <button

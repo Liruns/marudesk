@@ -1,4 +1,5 @@
 import { useI18n } from '../../../i18n/useI18n';
+import type { TranslationKey } from '../../../i18n/messages';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownToDot,
@@ -45,10 +46,10 @@ const MAX_SCOPE_PROPS = 200;
 // A bundle's source map can list thousands of original files — cap the tree.
 const MAX_TREE_SOURCES = 200;
 
-const PAUSE_ON_EXCEPTIONS: { id: PauseOnExceptions; label: string }[] = [
-  { id: 'none', label: "Don't pause on exceptions" },
-  { id: 'uncaught', label: 'Pause on uncaught exceptions' },
-  { id: 'all', label: 'Pause on all exceptions' },
+const PAUSE_ON_EXCEPTIONS: { id: PauseOnExceptions; labelKey: TranslationKey }[] = [
+  { id: 'none', labelKey: 'devtools.sources.pauseNone' },
+  { id: 'uncaught', labelKey: 'devtools.sources.pauseUncaught' },
+  { id: 'all', labelKey: 'devtools.sources.pauseAll' },
 ];
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -945,7 +946,7 @@ export function SourcesPanel() {
           >
             {PAUSE_ON_EXCEPTIONS.map((o) => (
               <option key={o.id} value={o.id}>
-                {o.label}
+                {t(o.labelKey)}
               </option>
             ))}
           </select>
