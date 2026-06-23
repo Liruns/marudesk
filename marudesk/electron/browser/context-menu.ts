@@ -1,6 +1,65 @@
 import { Menu, clipboard } from 'electron';
 import { getHost, type TabRecord } from './state';
 import { openExternalUrl } from '../safe-open';
+import type { WebContextMenuLabels } from '../../shared/browser';
+
+/**
+ * English defaults — used until the renderer pushes its localized labels (and as
+ * the per-field fallback when an untrusted push omits or mistypes a field). The
+ * renderer is the single i18n source of truth; see {@link setWebContextMenuLabels}.
+ */
+const DEFAULT_LABELS: WebContextMenuLabels = {
+  openLinkNewTab: 'Open Link in New Tab',
+  copyLinkAddress: 'Copy Link Address',
+  openImageNewTab: 'Open Image in New Tab',
+  saveImage: 'Save Image',
+  copyImage: 'Copy Image',
+  copyImageAddress: 'Copy Image Address',
+  addToDictionary: 'Add to Dictionary',
+  cut: 'Cut',
+  copy: 'Copy',
+  paste: 'Paste',
+  selectAll: 'Select All',
+  searchWeb: 'Search the web for “{q}”',
+  back: 'Back',
+  forward: 'Forward',
+  reload: 'Reload',
+  copyPageUrl: 'Copy Page URL',
+  inspectElement: 'Inspect Element',
+};
+
+let labels: WebContextMenuLabels = DEFAULT_LABELS;
+
+/**
+ * Replace the active context-menu labels with the renderer's localized set. The
+ * payload is untrusted, so every field is coerced to a string and falls back to
+ * the English default when missing or not a string — the menu can never break on
+ * a malformed push.
+ */
+export function setWebContextMenuLabels(raw: unknown): void {
+  const src = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  const pick = (key: keyof WebContextMenuLabels): string =>
+    typeof src[key] === 'string' && src[key] !== '' ? (src[key] as string) : DEFAULT_LABELS[key];
+  labels = {
+    openLinkNewTab: pick('openLinkNewTab'),
+    copyLinkAddress: pick('copyLinkAddress'),
+    openImageNewTab: pick('openImageNewTab'),
+    saveImage: pick('saveImage'),
+    copyImage: pick('copyImage'),
+    copyImageAddress: pick('copyImageAddress'),
+    addToDictionary: pick('addToDictionary'),
+    cut: pick('cut'),
+    copy: pick('copy'),
+    paste: pick('paste'),
+    selectAll: pick('selectAll'),
+    searchWeb: pick('searchWeb'),
+    back: pick('back'),
+    forward: pick('forward'),
+    reload: pick('reload'),
+    copyPageUrl: pick('copyPageUrl'),
+    inspectElement: pick('inspectElement'),
+  };
+}
 
 /**
  * Browser-style right-click menu for a web tab. The tab-opener is injected
@@ -51,11 +110,11 @@ export function buildWebContextMenu(
     const linkURL = params.linkURL;
     items.push(
       {
-        label: 'Open Link in New Tab',
+        label: labels.openLinkNewTab,
         // Background tab — you keep reading the current page (Chrome convention).
         click: () => openUrlInTabOrExternal(linkURL, openWebTab, true),
       },
-      { label: 'Copy Link Address', click: () => clipboard.writeText(linkURL) },
+      { label: labels.copyLinkAddress, click: () => clipboard.writeText(linkURL) },
       sep,
     );
   }
@@ -71,14 +130,14 @@ export function buildWebContextMenu(
     const srcURL = params.srcURL;
     if (/^https?:\/\//i.test(srcURL)) {
       items.push({
-        label: 'Open Image in New Tab',
+        label: labels.openImageNewTab,
         click: () => openWebTab(srcURL, { background: true }),
       });
     }
     items.push(
-      { label: 'Save Image', click: () => wc.downloadURL(srcURL) },
-      { label: 'Copy Image', click: () => wc.copyImageAt(params.x, params.y) },
-      { label: 'Copy Image Address', click: () => clipboard.writeText(srcURL) },
+      { label: labels.saveImage, click: () => wc.downloadURL(srcURL) },
+      { label: labels.copyImage, click: () => wc.copyImageAt(params.x, params.y) },
+      { label: labels.copyImageAddress, click: () => clipboard.writeText(srcURL) },
       sep,
     );
   }
@@ -95,7 +154,7 @@ export function buildWebContextMenu(
       }
       items.push(
         {
-          label: 'Add to Dictionary',
+          label: labels.addToDictionary,
           click: () =>
             wc.session.addWordToSpellCheckerDictionary(params.misspelledWord),
         },
@@ -103,11 +162,11 @@ export function buildWebContextMenu(
       );
     }
     items.push(
-      { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
-      { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
-      { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+      { label: labels.cut, role: 'cut', enabled: params.editFlags.canCut },
+      { label: labels.copy, role: 'copy', enabled: params.editFlags.canCopy },
+      { label: labels.paste, role: 'paste', enabled: params.editFlags.canPaste },
       sep,
-      { label: 'Select All', role: 'selectAll' },
+      { label: labels.selectAll, role: 'selectAll' },
     );
     return Menu.buildFromTemplate(items);
   }
@@ -116,9 +175,9 @@ export function buildWebContextMenu(
     const q = params.selectionText.trim();
     const shortQ = q.length > 40 ? q.slice(0, 40) + '…' : q;
     items.push(
-      { label: 'Copy', role: 'copy' },
+      { label: labels.copy, role: 'copy' },
       {
-        label: `Search the web for “${shortQ}”`,
+        label: labels.searchWeb.replace('{q}', shortQ),
         click: () =>
           openWebTab(
             'https://www.google.com/search?q=' + encodeURIComponent(q),
@@ -130,15 +189,15 @@ export function buildWebContextMenu(
 
   const nh = wc.navigationHistory;
   items.push(
-    { label: 'Back', enabled: nh.canGoBack(), click: () => nh.goBack() },
-    { label: 'Forward', enabled: nh.canGoForward(), click: () => nh.goForward() },
-    { label: 'Reload', click: () => wc.reload() },
+    { label: labels.back, enabled: nh.canGoBack(), click: () => nh.goBack() },
+    { label: labels.forward, enabled: nh.canGoForward(), click: () => nh.goForward() },
+    { label: labels.reload, click: () => wc.reload() },
     sep,
-    { label: 'Copy Page URL', click: () => clipboard.writeText(wc.getURL()) },
-    { label: 'Select All', role: 'selectAll' },
+    { label: labels.copyPageUrl, click: () => clipboard.writeText(wc.getURL()) },
+    { label: labels.selectAll, role: 'selectAll' },
     sep,
     {
-      label: 'Inspect Element',
+      label: labels.inspectElement,
       click: () => {
         // The DevTools dock lives in the renderer; ask it to open and select the
         // node under the cursor (CDP DOM.getNodeForLocation). params.x/y are in

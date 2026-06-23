@@ -24,6 +24,7 @@ export const CHANNELS = {
     'browser:stop-find',
     'browser:zoom',
     'browser:set-audio-muted',
+    'browser:set-context-menu-labels',
     'browser:capture-page',
     'browser:capture-page-data',
     'browser:stage-toolbar',

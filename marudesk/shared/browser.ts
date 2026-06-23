@@ -163,6 +163,35 @@ export type BrowserNativeMenuItem =
       readonly shortcut?: string;
     };
 
+/**
+ * Localized labels for the web-tab right-click context menu. The native menu is
+ * built in the main process, which has no access to the renderer's i18n (locale
+ * lives in renderer localStorage), so the renderer pushes these translated
+ * strings to main once on load and again whenever the locale changes
+ * (`browser:set-context-menu-labels`). Main keeps the renderer as the single
+ * source of truth and falls back to English defaults before the first push.
+ */
+export interface WebContextMenuLabels {
+  readonly openLinkNewTab: string;
+  readonly copyLinkAddress: string;
+  readonly openImageNewTab: string;
+  readonly saveImage: string;
+  readonly copyImage: string;
+  readonly copyImageAddress: string;
+  readonly addToDictionary: string;
+  readonly cut: string;
+  readonly copy: string;
+  readonly paste: string;
+  readonly selectAll: string;
+  /** Carries a `{q}` placeholder for the (truncated) selected text. */
+  readonly searchWeb: string;
+  readonly back: string;
+  readonly forward: string;
+  readonly reload: string;
+  readonly copyPageUrl: string;
+  readonly inspectElement: string;
+}
+
 /** A zeroed navigation state — feature tabs and freshly-created tabs use this. */
 export const ZERO_NAV: NavState = {
   url: '',

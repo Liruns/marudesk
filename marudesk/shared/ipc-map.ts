@@ -63,6 +63,7 @@ import type {
   TabGroupColor,
   TabKind,
   TabsSnapshot,
+  WebContextMenuLabels,
 } from './browser';
 import type { McpConfigHealth, McpServerStatus } from './mcp';
 import type { PluginCommandSnapshot, PluginStatus } from './plugin';
@@ -181,6 +182,9 @@ export interface IpcMap {
   };
   // Mute / unmute the active web tab's audio (Chrome's tab speaker toggle).
   'browser:set-audio-muted': { args: [muted: boolean]; result: void };
+  // Push the localized web-tab context-menu labels to main (the native menu is
+  // built there but has no access to the renderer's i18n). Re-sent on locale change.
+  'browser:set-context-menu-labels': { args: [labels: WebContextMenuLabels]; result: void };
   // Capture the active page to a PNG on the clipboard. Returns false when there's
   // no active web view to capture.
   'browser:capture-page': { args: []; result: boolean };

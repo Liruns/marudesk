@@ -42,6 +42,7 @@ import {
 import { registerBookmarkHandlers } from './bookmarks';
 import { goBackTab, goForwardTab, navigateActive, navigateTab, reloadTab } from './navigation';
 import { popupNativeMenu } from './native-menu';
+import { setWebContextMenuLabels } from './context-menu';
 import type { DownloadAction } from '../../shared/downloads';
 import { coerceElementCapture } from '../../shared/capture';
 import {
@@ -248,6 +249,13 @@ export function registerBrowserHandlers(deps: {
     active.view.webContents.setAudioMuted(bool(muted, 'muted'));
     // Reflect the new mute state in NavState so the toolbar control updates.
     pushState();
+  });
+
+  // The renderer pushes its localized web-tab context-menu labels here (and again
+  // on every locale change); setWebContextMenuLabels coerces the untrusted payload
+  // field-by-field with English fallbacks.
+  defineHandler('browser:set-context-menu-labels', ([payload]) => {
+    setWebContextMenuLabels(payload);
   });
 
   defineHandler('browser:capture-page', async () => {
