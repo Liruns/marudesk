@@ -14,17 +14,38 @@ import type { ReasoningEffort } from '../../shared/settings';
 /** Per-step output-token cap (matches the prior hand-rolled driver). */
 export const AGENT_MAX_TOKENS = 4_096;
 
-/**
- * Anthropic's thinking knob is a token budget, not an enum — map the standard
- * {@link ReasoningEffort} levels onto sensible budgets (the higher levels leave
- * ample room under the per-step output cap's siblings; the SDK enforces the rest).
+/*
+ * Each reasoning provider accepts a DIFFERENT set of levels — verified against the
+ * installed `@ai-sdk/*` enums (and the reference catalog Yeachan-Heo/gajae-code).
+ * The standard {@link ReasoningEffort} (minimal·low·medium·high·xhigh·max) is folded
+ * onto each provider's own set so a turn never 400s on a level it doesn't have:
+ *
+ *   - anthropic (output_config.effort): low·medium·high·xhigh·max   — no `minimal`
+ *   - openai   (reasoning_effort):      minimal·low·medium·high·xhigh — no `max`
+ *   - google   (thinkingLevel):         minimal·low·medium·high      — no `xhigh`/`max`
+ *   - xai      (reasoning_effort):      low·medium·high              — no `minimal`/`xhigh`/`max`
+ *   - compat   (reasoning_effort):      low·medium·high              — conservative common
+ *                                       subset for gpt-oss-style gateways
  */
-const ANTHROPIC_THINKING_BUDGET: Record<ReasoningEffort, number> = {
-  minimal: 1024,
-  low: 4000,
-  medium: 12000,
-  high: 24000,
-};
+
+/** Claude: low·medium·high·xhigh·max — `minimal` folds to `low`. */
+function claudeEffort(e: ReasoningEffort): 'low' | 'medium' | 'high' | 'xhigh' | 'max' {
+  return e === 'minimal' ? 'low' : e;
+}
+/** OpenAI: minimal·low·medium·high·xhigh — has no `max`, so `max` folds to `xhigh`. */
+function openaiEffort(e: ReasoningEffort): 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' {
+  return e === 'max' ? 'xhigh' : e;
+}
+/** Google: minimal·low·medium·high — `xhigh`/`max` fold to `high`. */
+function googleLevel(e: ReasoningEffort): 'minimal' | 'low' | 'medium' | 'high' {
+  return e === 'xhigh' || e === 'max' ? 'high' : e;
+}
+/** xAI + compat gateways: low·medium·high — `minimal` folds to `low`, `xhigh`/`max` to `high`. */
+function lowMidHighEffort(e: ReasoningEffort): 'low' | 'medium' | 'high' {
+  if (e === 'minimal') return 'low';
+  if (e === 'xhigh' || e === 'max') return 'high';
+  return e;
+}
 
 /**
  * How each provider expresses reasoning effort on the wire. Each provider takes a
@@ -121,15 +142,15 @@ function effortOptions(
 ): Record<string, Record<string, JSONValue>> {
   switch (dialect) {
     case 'openai':
-      return { openai: { reasoningEffort: effort } };
+      return { openai: { reasoningEffort: openaiEffort(effort) } };
     case 'compat':
-      return { openaiCompatible: { reasoningEffort: effort } };
+      return { openaiCompatible: { reasoningEffort: lowMidHighEffort(effort) } };
     case 'anthropic':
-      return { anthropic: { thinking: { type: 'enabled', budgetTokens: ANTHROPIC_THINKING_BUDGET[effort] } } };
+      return { anthropic: { effort: claudeEffort(effort) } };
     case 'google':
-      return { google: { thinkingConfig: { thinkingLevel: effort, includeThoughts: true } } };
+      return { google: { thinkingConfig: { thinkingLevel: googleLevel(effort), includeThoughts: true } } };
     case 'xai':
-      return { xai: { reasoningEffort: effort === 'minimal' ? 'low' : effort } };
+      return { xai: { reasoningEffort: lowMidHighEffort(effort) } };
     case 'none':
       return {};
   }
@@ -146,15 +167,6 @@ export function reasoningProviderOptions(
   modelId = '',
 ): Record<string, Record<string, JSONValue>> {
   return effortOptions(resolveReasoningDialect(provider, modelId), effort);
-}
-
-/** Whether a turn's resolved dialect is Anthropic extended thinking (drives the max-tokens headroom). */
-function isAnthropicThinking(
-  provider: AgentSendInput['provider'],
-  modelReasoning: boolean,
-  modelId: string,
-): boolean {
-  return modelReasoning && resolveReasoningDialect(provider, modelId) === 'anthropic';
 }
 
 /**
@@ -193,21 +205,11 @@ export function buildProviderOptions(
  * model's documented per-call output ceiling; the flat {@link AGENT_MAX_TOKENS} is
  * only a FLOOR/fallback for models the catalog has no value for.
  *
- * Anthropic extended thinking REQUIRES max_tokens > thinking.budget_tokens (or the
- * API 400s), so a reasoning Anthropic-DIALECT turn's cap is raised to at least the
- * thinking budget plus answer headroom even when the catalog value is smaller —
- * including Claude served through the `by-model` proxies (Copilot / GitLab Duo).
+ * (Reasoning needs no special headroom now: every reasoning dialect is ADAPTIVE —
+ * Claude's `output_config.effort`, OpenAI/xAI `reasoning_effort`, Google
+ * `thinkingLevel` — so the model fits its thinking within `max_tokens`. The old
+ * Anthropic `budget_tokens` mode, which required `max_tokens > budget`, is gone.)
  */
-export function maxTokensForTurn(
-  provider: AgentSendInput['provider'],
-  modelReasoning: boolean,
-  effort: ReasoningEffort,
-  catalogMax?: number,
-  modelId = '',
-): number {
-  const base = catalogMax && catalogMax > 0 ? Math.max(catalogMax, AGENT_MAX_TOKENS) : AGENT_MAX_TOKENS;
-  if (isAnthropicThinking(provider, modelReasoning, modelId)) {
-    return Math.max(base, ANTHROPIC_THINKING_BUDGET[effort] + AGENT_MAX_TOKENS);
-  }
-  return base;
+export function maxTokensForTurn(catalogMax?: number): number {
+  return catalogMax && catalogMax > 0 ? Math.max(catalogMax, AGENT_MAX_TOKENS) : AGENT_MAX_TOKENS;
 }

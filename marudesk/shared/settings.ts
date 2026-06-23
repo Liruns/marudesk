@@ -65,7 +65,7 @@ export type CloseBehavior = 'quit' | 'tray';
  * Only models the catalog marks `reasoning` honor it; non-reasoning models ignore
  * it entirely. See electron/agent/loop.ts.
  */
-export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * A specific model to run, as a (provider, model-id) pair — the unit of the
@@ -353,7 +353,7 @@ const THEMES: readonly ThemeMode[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevtoolsDock[] = ['right', 'bottom', 'chrome'];
 const SEARCH_ENGINES: readonly SearchEngine[] = ['google', 'duckduckgo', 'bing'];
 const APPROVAL_MODES: readonly AgentApprovalMode[] = ['read-only', 'ask', 'auto', 'plan'];
-const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const CLOSE_BEHAVIORS: readonly CloseBehavior[] = ['quit', 'tray'];
 const MAX_DENY_GLOBS = 100;
 

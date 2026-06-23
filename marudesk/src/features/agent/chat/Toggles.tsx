@@ -125,6 +125,8 @@ const EFFORT_OPTS: {
   { value: 'low', shortKey: 'agent.chat.effort.lowShort', labelKey: 'agent.chat.effort.low' },
   { value: 'medium', shortKey: 'agent.chat.effort.mediumShort', labelKey: 'agent.chat.effort.medium' },
   { value: 'high', shortKey: 'agent.chat.effort.highShort', labelKey: 'agent.chat.effort.high' },
+  { value: 'xhigh', shortKey: 'agent.chat.effort.xhighShort', labelKey: 'agent.chat.effort.xhigh' },
+  { value: 'max', shortKey: 'agent.chat.effort.maxShort', labelKey: 'agent.chat.effort.max' },
 ];
 
 /**

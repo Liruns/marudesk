@@ -13,18 +13,14 @@ describe('resolveReasoningDialect — per-provider thinking dialect', () => {
     expect(resolveReasoningDialect('openai', 'gpt-5')).toBe('openai');
     expect(resolveReasoningDialect('openai-codex', 'gpt-5')).toBe('openai');
     expect(resolveReasoningDialect('google', 'gemini-2.5-pro')).toBe('google');
-    expect(resolveReasoningDialect('google-caa', 'gemini-2.5-pro')).toBe('google');
     expect(resolveReasoningDialect('google-vertex', 'gemini-2.5-pro')).toBe('google');
     expect(resolveReasoningDialect('xai', 'grok-4.3')).toBe('xai');
   });
 
-  it('maps OpenAI-compatible gateways that accept reasoning_effort to compat', () => {
+  it('maps OpenAI-compatible gateways to compat', () => {
     for (const p of ['azure-openai', 'openrouter', 'groq', 'cerebras'] as const) {
       expect(resolveReasoningDialect(p, 'gpt-oss-120b')).toBe('compat');
     }
-  });
-
-  it('treats a custom:<id> endpoint as OpenAI-compatible', () => {
     expect(resolveReasoningDialect('custom:lmstudio', 'qwen3')).toBe('compat');
   });
 
@@ -34,20 +30,18 @@ describe('resolveReasoningDialect — per-provider thinking dialect', () => {
     }
   });
 
-  it('routes the by-model subscription proxies by model id (mirrors buildModel)', () => {
-    // GitHub Copilot: claude → anthropic, gpt-5/o-series → openai, else → compat.
+  it('routes the by-model subscription proxies by model id', () => {
     expect(resolveReasoningDialect('github-copilot', 'claude-3.7-sonnet')).toBe('anthropic');
     expect(resolveReasoningDialect('github-copilot', 'gpt-5')).toBe('openai');
     expect(resolveReasoningDialect('github-copilot', 'o3')).toBe('openai');
     expect(resolveReasoningDialect('github-copilot', 'gemini-2.5-pro')).toBe('compat');
-    // GitLab Duo: claude → anthropic, everything else → compat (no native openai path).
     expect(resolveReasoningDialect('gitlab-duo', 'claude-sonnet-4-6')).toBe('anthropic');
     expect(resolveReasoningDialect('gitlab-duo', 'gpt-5')).toBe('compat');
   });
 });
 
 describe('reasoningProviderOptions — the on-the-wire knob per dialect', () => {
-  it('openai → reasoningEffort under the openai namespace', () => {
+  it('openai → reasoningEffort (enum) under the openai namespace', () => {
     expect(reasoningProviderOptions('openai', 'high', 'gpt-5')).toEqual({ openai: { reasoningEffort: 'high' } });
   });
 
@@ -57,30 +51,53 @@ describe('reasoningProviderOptions — the on-the-wire knob per dialect', () => 
     });
   });
 
-  it('anthropic → a thinking token budget, not an enum', () => {
+  it('Claude → an adaptive effort STRING (output_config.effort), not a budget', () => {
     expect(reasoningProviderOptions('anthropic', 'high', 'claude-sonnet-4-6')).toEqual({
-      anthropic: { thinking: { type: 'enabled', budgetTokens: 24000 } },
+      anthropic: { effort: 'high' },
+    });
+    // Claude HAS the high tiers the catalog's 4.x models support…
+    expect(reasoningProviderOptions('anthropic', 'xhigh', 'claude-opus-4-8')).toEqual({ anthropic: { effort: 'xhigh' } });
+    expect(reasoningProviderOptions('anthropic', 'max', 'claude-opus-4-8')).toEqual({ anthropic: { effort: 'max' } });
+    // …but no `minimal`, so it folds to low.
+    expect(reasoningProviderOptions('anthropic', 'minimal', 'claude-sonnet-4-6')).toEqual({ anthropic: { effort: 'low' } });
+  });
+
+  it('OpenAI keeps xhigh (it HAS that level) but folds max→xhigh (no max tier)', () => {
+    // Verified against @ai-sdk/openai: reasoning_effort ∈ minimal|low|medium|high|xhigh.
+    expect(reasoningProviderOptions('openai', 'xhigh', 'gpt-5.1')).toEqual({ openai: { reasoningEffort: 'xhigh' } });
+    expect(reasoningProviderOptions('openai', 'max', 'gpt-5.1')).toEqual({ openai: { reasoningEffort: 'xhigh' } });
+    expect(reasoningProviderOptions('openai', 'minimal', 'gpt-5')).toEqual({ openai: { reasoningEffort: 'minimal' } });
+  });
+
+  it('Google keeps minimal but folds xhigh/max→high (thinkingLevel has no xhigh)', () => {
+    // Verified against @ai-sdk/google: thinkingLevel ∈ minimal|low|medium|high.
+    expect(reasoningProviderOptions('google', 'minimal', 'gemini-2.5-flash')).toEqual({
+      google: { thinkingConfig: { thinkingLevel: 'minimal', includeThoughts: true } },
+    });
+    expect(reasoningProviderOptions('google', 'xhigh', 'gemini-2.5-pro')).toEqual({
+      google: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } },
     });
   });
 
-  it('google → thinkingConfig.thinkingLevel + surfaced thoughts', () => {
-    expect(reasoningProviderOptions('google', 'low', 'gemini-2.5-pro')).toEqual({
-      google: { thinkingConfig: { thinkingLevel: 'low', includeThoughts: true } },
-    });
-  });
-
-  it('xai folds minimal → low (xAI has no minimal)', () => {
+  it('xAI is low/medium/high — minimal→low, medium passes, xhigh/max→high', () => {
+    // Verified against @ai-sdk/xai (responses): reasoning_effort ∈ low|medium|high.
     expect(reasoningProviderOptions('xai', 'minimal', 'grok-4.3')).toEqual({ xai: { reasoningEffort: 'low' } });
-    expect(reasoningProviderOptions('xai', 'high', 'grok-4.3')).toEqual({ xai: { reasoningEffort: 'high' } });
+    expect(reasoningProviderOptions('xai', 'medium', 'grok-4.3')).toEqual({ xai: { reasoningEffort: 'medium' } });
+    expect(reasoningProviderOptions('xai', 'xhigh', 'grok-4.3')).toEqual({ xai: { reasoningEffort: 'high' } });
+  });
+
+  it('compat gateways use the conservative low/medium/high subset', () => {
+    expect(reasoningProviderOptions('groq', 'minimal', 'gpt-oss')).toEqual({ openaiCompatible: { reasoningEffort: 'low' } });
+    expect(reasoningProviderOptions('groq', 'max', 'gpt-oss')).toEqual({ openaiCompatible: { reasoningEffort: 'high' } });
   });
 
   it('none → no options (so a reasoning turn never 400s on an unsupported param)', () => {
     expect(reasoningProviderOptions('deepseek', 'high', 'deepseek-reasoner')).toEqual({});
   });
 
-  it('a Claude model on Copilot gets the anthropic budget, not reasoning_effort', () => {
-    expect(reasoningProviderOptions('github-copilot', 'medium', 'claude-3.7-sonnet')).toEqual({
-      anthropic: { thinking: { type: 'enabled', budgetTokens: 12000 } },
+  it('a Claude model on Copilot gets the anthropic effort, not reasoning_effort', () => {
+    expect(reasoningProviderOptions('github-copilot', 'xhigh', 'claude-3.7-sonnet')).toEqual({
+      anthropic: { effort: 'xhigh' },
     });
   });
 });
@@ -90,7 +107,7 @@ describe('buildProviderOptions — merges backend envelope with the reasoning kn
     expect(buildProviderOptions('openai', 'sys', false, 'high', 'gpt-4.1')).toBeUndefined();
   });
 
-  it('merges codex store:false + instructions with openai reasoning in one namespace', () => {
+  it('merges codex store:false + instructions with openai reasoning', () => {
     expect(buildProviderOptions('openai-codex', 'SYS', true, 'low', 'gpt-5')).toEqual({
       openai: { store: false, instructions: 'SYS', reasoningEffort: 'low' },
     });
@@ -102,39 +119,23 @@ describe('buildProviderOptions — merges backend envelope with the reasoning kn
     });
   });
 
-  it('adds a compat reasoning knob for a gateway reasoning model', () => {
-    expect(buildProviderOptions('openrouter', 'sys', true, 'medium', 'openai/gpt-oss-120b')).toEqual({
-      openaiCompatible: { reasoningEffort: 'medium' },
+  it('adds the Claude effort for a reasoning Claude model', () => {
+    expect(buildProviderOptions('anthropic', 'sys', true, 'max', 'claude-opus-4-8')).toEqual({
+      anthropic: { effort: 'max' },
     });
   });
 });
 
-describe('maxTokensForTurn — Anthropic thinking needs headroom over the budget', () => {
+describe('maxTokensForTurn — just the catalog cap (reasoning is adaptive now)', () => {
   it('falls back to the floor with no catalog value', () => {
-    expect(maxTokensForTurn('openai', false, 'medium')).toBe(AGENT_MAX_TOKENS);
+    expect(maxTokensForTurn()).toBe(AGENT_MAX_TOKENS);
   });
 
   it('clamps a sub-floor catalog value up to the floor', () => {
-    expect(maxTokensForTurn('openai', false, 'medium', 1000)).toBe(AGENT_MAX_TOKENS);
+    expect(maxTokensForTurn(1000)).toBe(AGENT_MAX_TOKENS);
   });
 
-  it('lifts the cap to the catalog ceiling on a non-reasoning path', () => {
-    expect(maxTokensForTurn('openai', true, 'high', 128_000)).toBe(128_000);
-  });
-
-  it('raises a small catalog cap to budget+headroom for Anthropic thinking', () => {
-    expect(maxTokensForTurn('anthropic', true, 'high', 20_000)).toBe(24_000 + AGENT_MAX_TOKENS);
-  });
-
-  it('applies the same headroom to Claude served through Copilot (by-model)', () => {
-    expect(maxTokensForTurn('github-copilot', true, 'high', 20_000, 'claude-3.7-sonnet')).toBe(
-      24_000 + AGENT_MAX_TOKENS,
-    );
-  });
-
-  it('does NOT apply the Anthropic headroom to a non-Claude Copilot model', () => {
-    // gpt-5 on Copilot resolves to the openai dialect, so the cap is just the
-    // catalog value (20000) — NOT lifted to budget+headroom (24000+4096).
-    expect(maxTokensForTurn('github-copilot', true, 'high', 20_000, 'gpt-5')).toBe(20_000);
+  it('lifts the cap to the catalog ceiling', () => {
+    expect(maxTokensForTurn(128_000)).toBe(128_000);
   });
 });

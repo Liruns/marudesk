@@ -706,6 +706,10 @@ export const EN_MESSAGES = {
   'agent.chat.effort.mediumShort': 'Med',
   'agent.chat.effort.minimal': 'Minimal - fastest, barely thinks',
   'agent.chat.effort.minShort': 'Min',
+  'agent.chat.effort.xhigh': 'Extra-high - deeper reasoning (Claude 4.x; folds to High elsewhere)',
+  'agent.chat.effort.xhighShort': 'X-Hi',
+  'agent.chat.effort.max': 'Max - deepest reasoning Claude allows (folds to High elsewhere)',
+  'agent.chat.effort.maxShort': 'Max',
   'agent.chat.empty.noWorkspace': 'Open a workspace, then ask the agent to fix a runtime error or change the UI.',
   'agent.chat.empty.title': 'Agentic AI Chat',
   'agent.chat.empty.workspace':

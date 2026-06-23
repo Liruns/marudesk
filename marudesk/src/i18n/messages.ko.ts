@@ -705,6 +705,10 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'agent.chat.effort.mediumShort': '중간',
   'agent.chat.effort.minimal': '최소 - 가장 빠르고 거의 추론하지 않음',
   'agent.chat.effort.minShort': '최소',
+  'agent.chat.effort.xhigh': '초고 - 더 깊은 추론 (Claude 4.x; 그 외는 High로 접힘)',
+  'agent.chat.effort.xhighShort': 'X-Hi',
+  'agent.chat.effort.max': '최대 - Claude가 허용하는 가장 깊은 추론 (그 외는 High로 접힘)',
+  'agent.chat.effort.maxShort': 'Max',
   'agent.chat.empty.noWorkspace': '워크스페이스를 연 뒤 런타임 오류 수정이나 UI 변경을 요청하세요.',
   'agent.chat.empty.title': '에이전트 AI 채팅',
   'agent.chat.empty.workspace':

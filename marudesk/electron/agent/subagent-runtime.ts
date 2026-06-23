@@ -274,9 +274,7 @@ async function childStep(params: {
     system: codexBackend ? undefined : active.system,
     messages: params.transcript,
     tools: params.tools,
-    maxOutputTokens: codexBackend
-      ? undefined
-      : maxTokensForTurn(active.provider, active.modelReasoning, params.effort, active.maxOutputTokens, active.modelId),
+    maxOutputTokens: codexBackend ? undefined : maxTokensForTurn(active.maxOutputTokens),
     providerOptions: buildProviderOptions(
       active.provider,
       active.system,

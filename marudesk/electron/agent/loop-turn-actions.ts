@@ -262,7 +262,7 @@ export function setApprovalMode(mode: AgentApprovalMode): boolean {
   return true;
 }
 
-const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 /**
  * Set the reasoning effort and persist it — the mobile twin of the desktop
