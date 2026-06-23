@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
+import { useI18n } from '../../i18n/useI18n';
 
 export function GlobsField({
   value,
@@ -47,6 +48,7 @@ export function InstructionsField({
   value: string;
   onCommit: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const [local, setLocal] = useState(value);
   const [committed, setCommitted] = useState(value);
   if (value !== committed) {
@@ -64,7 +66,7 @@ export function InstructionsField({
       rows={5}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={commit}
-      placeholder="e.g. Always reply in Korean. Prefer TypeScript. Keep diffs minimal."
+      placeholder={t('settings.agent.instructions.placeholder')}
       className={cn(
         'w-[320px] max-w-[40vw] rounded-md bg-surface-page border border-default px-3 py-2',
         'text-body-sm text-fg-primary placeholder:text-fg-tertiary resize-y',

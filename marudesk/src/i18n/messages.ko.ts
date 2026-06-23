@@ -1100,6 +1100,7 @@ export const KO_MESSAGES: Readonly<Record<TranslationKey, string>> = {
   'settings.agent.instructions.hint':
     '모든 채팅에 추가되는 상시 지침입니다. 말투, 규칙, 피할 항목 등을 적으세요. 기본 프롬프트 뒤, 워크스페이스 AGENTS/CLAUDE 파일 앞에 추가됩니다.',
   'settings.agent.instructions.label': '사용자 지정 지침',
+  'settings.agent.instructions.placeholder': '예: 항상 한국어로 답하기. TypeScript 선호. diff 최소화.',
   'settings.agent.neverEdit.hint':
     '에이전트가 절대 수정할 수 없는 glob입니다. 한 줄에 하나씩 입력하세요(* 및 ** 지원).',
   'settings.agent.neverEdit.label': '절대 수정하지 않을 경로',

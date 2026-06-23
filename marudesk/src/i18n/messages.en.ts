@@ -1104,6 +1104,7 @@ export const EN_MESSAGES = {
   'settings.agent.instructions.hint':
     'Standing instructions added to every chat - tone, conventions, things to avoid. Added after the base prompt, before any workspace AGENTS/CLAUDE files.',
   'settings.agent.instructions.label': 'Custom instructions',
+  'settings.agent.instructions.placeholder': 'e.g. Always reply in Korean. Prefer TypeScript. Keep diffs minimal.',
   'settings.agent.neverEdit.hint':
     'Globs the agent may never edit, one per line (* and ** supported).',
   'settings.agent.neverEdit.label': 'Never-edit paths',
