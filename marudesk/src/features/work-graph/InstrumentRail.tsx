@@ -113,7 +113,9 @@ function RailButton({ item, active }: { item: RailItem; active: boolean }) {
         'text-fg-tertiary transition-colors duration-fast active:scale-[0.99]',
         'hover:bg-surface-3 hover:text-fg-secondary',
         'focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
-        active && 'bg-accent-subtle text-accent hover:bg-accent-subtle hover:text-accent',
+        // Active = a defined Arc "lifted pill": accent wash + a hairline accent ring.
+        active &&
+          'bg-accent-subtle text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--accent)_24%,transparent)] hover:bg-accent-subtle hover:text-accent',
       )}
     >
       {/* Active accent bar on the leading edge — a calm "you are here". */}
