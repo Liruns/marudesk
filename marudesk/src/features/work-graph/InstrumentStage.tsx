@@ -280,7 +280,11 @@ export function InstrumentStage() {
 
   return (
     <div data-stage="instrument" className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface-page">
-      <div className="chrome-header h-8 shrink-0 flex items-center gap-1.5 px-2">
+      {/* relative z-30: the glass tab bar is a backdrop-filter stacking context;
+          without lifting it above the stage content below, its overflowing
+          dropdowns (Split / More / tab overflow) get painted under the
+          instrument and become unclickable. */}
+      <div className="chrome-header relative z-30 h-8 shrink-0 flex items-center gap-1.5 px-2">
         <TabStrip />
         {!isSplit ? <SplitMenu /> : null}
         <MaximizeToggle />
