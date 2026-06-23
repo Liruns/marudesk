@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ComponentType } from 'react';
+import { AlertTriangle, Info, XCircle } from 'lucide-react';
 import { useEditorStore } from '../editor/store';
 import { useDiagnosticsStore, currentDiagnostics } from './store';
 import type { Diagnostic } from '../../../shared/diagnostics';
@@ -17,10 +18,13 @@ import { useI18n } from '../../i18n/useI18n';
 
 const SEV_RANK: Record<Diagnostic['severity'], number> = { error: 0, warning: 1, info: 2 };
 
-function severityGlyph(severity: Diagnostic['severity']): { glyph: string; cls: string } {
-  if (severity === 'error') return { glyph: '✖', cls: 'text-error' };
-  if (severity === 'warning') return { glyph: '⚠', cls: 'text-warning' };
-  return { glyph: 'ℹ', cls: 'text-fg-tertiary' };
+type IconType = ComponentType<{ size?: number; className?: string }>;
+
+/** Severity → a Lucide icon (DESIGN.md §11: one icon library, never ad-hoc glyphs). */
+function severityIcon(severity: Diagnostic['severity']): { Icon: IconType; cls: string } {
+  if (severity === 'error') return { Icon: XCircle, cls: 'text-error' };
+  if (severity === 'warning') return { Icon: AlertTriangle, cls: 'text-warning' };
+  return { Icon: Info, cls: 'text-fg-tertiary' };
 }
 
 function groupByFile(diags: readonly Diagnostic[]): [string, Diagnostic[]][] {
@@ -136,7 +140,7 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
               </div>
               <ul>
                 {list.map((d, i) => {
-                  const { glyph, cls } = severityGlyph(d.severity);
+                  const { Icon, cls } = severityIcon(d.severity);
                   return (
                     <li key={`${d.line}:${d.column}:${i}`}>
                       <button
@@ -147,9 +151,8 @@ export function ProblemsPopover({ onClose }: { onClose: () => void }) {
                         }}
                         className="w-full flex items-start gap-2 px-3 py-1 text-left rounded hover:bg-surface-3"
                       >
-                        <span className={cn('shrink-0 mt-px', cls)} aria-hidden>
-                          {glyph}
-                        </span>
+                        <Icon size={13} className={cn('shrink-0 mt-0.5', cls)} aria-hidden />
+                        <span className="sr-only">{d.severity}</span>
                         <span className="flex-1 min-w-0">
                           <span className="text-fg-secondary break-words">{d.message}</span>
                           <span className="text-fg-tertiary">
