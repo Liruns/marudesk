@@ -147,8 +147,13 @@ export function InstrumentDock() {
           width so the width animation doesn't reflow content. */}
       {open && selectedTaskId ? (
         <div className="h-full flex flex-col" style={{ width: '22.5rem' }}>
-          <div className="h-[44%] shrink-0 overflow-hidden border-b border-subtle">
-            <WorkGraphInspectorContent />
+          {/* Inspector sizes to its CONTENT, capped at 55% so a heavy task (diff /
+              result / resources) scrolls instead of pushing the chat off-screen —
+              but a light task (just intent + a criterion) shrinks and hands the
+              freed height to the conversation, which is the dock's primary job.
+              `shrink-0` keeps the chat from squeezing it below that content size. */}
+          <div className="max-h-[55%] shrink-0 overflow-y-auto border-b border-subtle">
+            <WorkGraphInspectorContent variant="dock" />
           </div>
           <div className="min-h-0 flex-1 flex flex-col">
             <TaskChat

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RunTaskResult } from '../../../shared/work-os';
+import { readyTasks } from '../../../shared/work-os';
+import type { RunTaskResult, WorkGraph } from '../../../shared/work-os';
 import {
   __flushWorkGraphPersist,
   __workGraphPersistStats,
@@ -199,6 +200,49 @@ describe('resetRun / clearGraph / stopRun (recovery + teardown)', () => {
     expect(s.running).toBe(false);
     expect(s.runNote).toBeNull();
     expect(s.lastAppliedTaskId).toBeNull();
+  });
+});
+
+describe('decision gate toggle (manual graph shaping)', () => {
+  it('updateTask({ kind }) gates a ready task out of the scheduler and back', () => {
+    const base = sampleGraph('decision gate');
+    const graph: WorkGraph = {
+      ...base,
+      tasks: [
+        {
+          id: 'gate',
+          title: 'gate',
+          intent: '',
+          kind: 'work',
+          status: 'planned',
+          executor: { type: 'agent', ref: 'agent' },
+          inputs: [],
+          outputs: [],
+          acceptance: [],
+        },
+      ],
+      edges: [],
+    };
+    useWorkGraphStore.getState().setGraph(graph);
+
+    const readyIds = (): string[] => {
+      const g = useWorkGraphStore.getState().graph;
+      return g ? readyTasks(g).map((tk) => tk.id) : [];
+    };
+
+    // A ready work task is schedulable.
+    expect(readyIds()).toEqual(['gate']);
+
+    // Toggling to a decision gate removes it from the ready set — the scheduler
+    // treats `kind: 'decision'` as a manual gate (the inspector's Decision toggle
+    // sets exactly this). No auto-run until a human routes past it.
+    useWorkGraphStore.getState().updateTask('gate', { kind: 'decision' });
+    expect(useWorkGraphStore.getState().graph?.tasks[0]?.kind).toBe('decision');
+    expect(readyIds()).toEqual([]);
+
+    // Toggling back to work restores it to the ready set.
+    useWorkGraphStore.getState().updateTask('gate', { kind: 'work' });
+    expect(readyIds()).toEqual(['gate']);
   });
 });
 

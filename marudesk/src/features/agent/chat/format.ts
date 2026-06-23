@@ -32,15 +32,16 @@ import type { AgentRunTreeNode } from '../../../../shared/agent-orchestration';
 
 /**
  * Whether the run tree carries information the transcript doesn't already show.
- * A single childless thread (the current conversation itself) is the steady
- * state of every chat — rendering an "Agent tree" card for it is pure noise, so
- * both the inline card and the Mission Control aside gate on this predicate.
+ * Real orchestration is a spawned sub-agent structure — a node that is a
+ * `background-agent` OR a thread that actually branched (has children). A flat
+ * list of bare, childless conversation threads (the steady state of every chat —
+ * e.g. two idle "New chat" threads) is NOT orchestration; rendering an "Agent
+ * tree" card for it is pure noise, so both the inline card and the Mission
+ * Control aside gate on this predicate.
  */
 export function hasOrchestrationContent(nodes: readonly AgentRunTreeNode[]): boolean {
   if (nodes.length === 0) return false;
-  if (nodes.length > 1) return true;
-  const root = nodes[0];
-  return root.kind !== 'thread' || root.children.length > 0;
+  return nodes.some((n) => n.kind !== 'thread' || n.children.length > 0);
 }
 
 /* ── status ─────────────────────────────────────────────────────────────── */

@@ -100,7 +100,7 @@ function runShortcut(p: EventPayload<'app:tab-shortcut'>): void {
  * Mission Control shell. Top to bottom:
  *   TitleBar      — brand mark, flight status, window controls
  *   Main row      — the Task graph (or a summoned instrument) + the Instrument Dock
- *   EvidenceStrip — the selected task's runtime acceptance verdicts
+ *   EvidenceStrip — the selected task's acceptance verdicts (system-filled)
  *
  * The Task graph is the home; tools are instruments a task summons, never
  * persistent windows (docs/mission-control-redesign.md).

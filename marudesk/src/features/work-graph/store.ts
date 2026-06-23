@@ -242,6 +242,13 @@ type WorkGraphState = {
 type WorkGraphActions = {
   /** Replace the whole graph (from the decomposer or a sample) + auto-layout. */
   setGraph: (graph: WorkGraph) => void;
+  /**
+   * Replace the whole graph from an imported transfer file, restoring saved node
+   * positions where present and auto-laying-out any task the file lacked. Same
+   * run/selection reset as {@link setGraph}; the graph is already validated by
+   * `parseGraphTransfer` before it reaches here.
+   */
+  importGraph: (graph: WorkGraph, pos: Record<TaskId, NodePos>) => void;
   clearGraph: () => void;
   addTask: (at?: NodePos) => TaskId;
   /**
@@ -575,6 +582,20 @@ export const useWorkGraphStore = create<WorkGraphState & WorkGraphActions>((set,
     set((s) => ({
       graph: touch(graph),
       pos: autoLayout(graph),
+      selectedTaskId: null,
+      running: false,
+      runToken: s.runToken + 1, // invalidate any in-flight run/implement
+      runNote: null,
+      lastAppliedTaskId: null,
+    })),
+
+  importGraph: (graph, pos) =>
+    set((s) => ({
+      graph: touch(graph),
+      // Auto-layout every task, then let any saved position win (pos is already
+      // sanitized to kept-task ids by parseGraphTransfer), so a re-imported graph
+      // keeps its layout while new/unsaved tasks still get a sensible slot.
+      pos: { ...autoLayout(graph), ...pos },
       selectedTaskId: null,
       running: false,
       runToken: s.runToken + 1, // invalidate any in-flight run/implement

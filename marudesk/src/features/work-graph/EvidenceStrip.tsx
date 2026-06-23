@@ -9,10 +9,17 @@ const VERDICT_DOT: Record<Criterion['verdict'], string> = {
 };
 
 /**
- * Mission Control's bottom Evidence strip — the runtime "black box" summary for
- * the selected Task: its acceptance verdicts (system-filled from the live app)
- * and the latest run note. Replaces the legacy StatusBar on this surface; a Task
- * is only "verified" when the running app proves its criteria.
+ * Mission Control's bottom Evidence strip — the verdict summary for the selected
+ * Task: its acceptance verdicts (system-filled, never agent-claimed) plus the
+ * latest run note. Replaces the legacy StatusBar on this surface.
+ *
+ * Honesty note: a "pass" here is stamped by the APPLY-TIME static checker
+ * (typecheck · lint · build over the changed files) — see
+ * `criterionVerifiableByChecker` and store.applyPatch. It is NOT live CDP
+ * "runtime evidence" (that term belongs to the DevTools timeline), and
+ * behavioral criteria the checker can't prove stay `unknown`. So the count is
+ * worded "verified" (with a tooltip naming the checker), never "verified by
+ * runtime", which over-claimed.
  */
 export function EvidenceStrip() {
   const graph = useWorkGraphStore((s) => s.graph);
@@ -46,8 +53,11 @@ export function EvidenceStrip() {
                   </span>
                 ) : null}
               </span>
-              <span className="min-w-0 shrink truncate tabular-nums">
-                {passed}/{total} verified by runtime
+              <span
+                className="min-w-0 shrink truncate tabular-nums"
+                title="Verdicts are system-filled by the apply-time checker (typecheck · lint · build over the changed files). Behavioral criteria the checker can't prove stay unverified."
+              >
+                {passed}/{total} verified
               </span>
             </span>
           ) : (
@@ -55,7 +65,7 @@ export function EvidenceStrip() {
           )}
         </span>
       ) : (
-        <span className="text-fg-quaternary">Select a task to see its runtime evidence.</span>
+        <span className="text-fg-quaternary">Select a task to see its acceptance verdicts.</span>
       )}
       <span className="flex-1" aria-hidden />
       {runNote ? <span className="truncate max-w-[40%] text-warning">{runNote}</span> : null}
