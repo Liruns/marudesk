@@ -1,4 +1,5 @@
 import { useI18n } from '../../../i18n/useI18n';
+import type { TranslationKey } from '../../../i18n/messages';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Play, Save, Trash2 } from 'lucide-react';
 import { Badge } from '../../../components/ui';
@@ -51,10 +52,10 @@ function clockLabel(t: number): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-const FILTERS: readonly { id: SourceFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'problems', label: 'Problems' },
-  { id: 'actions', label: 'Actions' },
+const FILTERS: readonly { id: SourceFilter; labelKey: TranslationKey }[] = [
+  { id: 'all', labelKey: 'devtools.timeline.filterAll' },
+  { id: 'problems', labelKey: 'devtools.timeline.filterProblems' },
+  { id: 'actions', labelKey: 'devtools.timeline.filterActions' },
 ];
 
 export function EvidenceTimeline() {
@@ -88,14 +89,14 @@ export function EvidenceTimeline() {
   useEffect(() => refreshWorkflows(), [refreshWorkflows]);
 
   const saveWorkflow = async () => {
-    const name = window.prompt('Name this workflow', `Workflow ${workflows.length + 1}`)?.trim();
+    const name = window.prompt(t('devtools.workflow.namePrompt'), t('devtools.workflow.defaultName').replace('{n}', String(workflows.length + 1)))?.trim();
     if (!name) return;
     try {
       await window.marudesk.invoke('workflows:save', { name, steps });
       refreshWorkflows();
-      toast({ title: 'Workflow saved', description: `${steps.length} steps`, variant: 'success' });
+      toast({ title: t('devtools.workflow.saved'), description: t('devtools.workflow.stepsCount').replace('{n}', String(steps.length)), variant: 'success' });
     } catch {
-      toast({ title: 'Could not save workflow', variant: 'error' });
+      toast({ title: t('devtools.workflow.saveFailed'), variant: 'error' });
     }
   };
 
@@ -105,19 +106,19 @@ export function EvidenceTimeline() {
       if (res.ok) {
         const failed = res.results.filter((r) => !r.ok && !r.skipped).length;
         toast({
-          title: failed === 0 ? `Replayed “${wf.name}”` : `“${wf.name}” finished with ${failed} error(s)`,
-          description: `${res.results.length} steps`,
+          title: failed === 0 ? t('devtools.workflow.replayed').replace('{name}', wf.name) : t('devtools.workflow.replayedErrors').replace('{name}', wf.name).replace('{n}', String(failed)),
+          description: t('devtools.workflow.stepsCount').replace('{n}', String(res.results.length)),
           variant: failed === 0 ? 'success' : 'error',
         });
       } else {
         toast({
-          title: 'Could not replay',
-          description: res.reason === 'no-web-tab' ? 'Open a web page first.' : res.reason,
+          title: t('devtools.workflow.couldNotReplay'),
+          description: res.reason === 'no-web-tab' ? t('devtools.workflow.openPageFirst') : res.reason,
           variant: 'error',
         });
       }
     } catch {
-      toast({ title: 'Could not replay workflow', variant: 'error' });
+      toast({ title: t('devtools.workflow.replayFailed'), variant: 'error' });
     }
   };
 
@@ -148,7 +149,7 @@ export function EvidenceTimeline() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-3 text-caption text-fg-tertiary">
-        <span>Runtime evidence</span>
+        <span>{t('devtools.timeline.title')}</span>
         <span className="flex items-center gap-0.5">
           {FILTERS.map((f) => (
             <button
@@ -160,7 +161,7 @@ export function EvidenceTimeline() {
                 filter === f.id ? 'bg-surface-3 text-fg-secondary' : 'hover:text-fg-secondary',
               )}
             >
-              {f.label}
+              {t(f.labelKey)}
             </button>
           ))}
         </span>
@@ -172,7 +173,7 @@ export function EvidenceTimeline() {
             title={t('devtools.workflow.save')}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-accent hover:bg-accent-subtle transition-colors duration-fast"
           >
-            <Save size={12} /> Save as workflow
+            <Save size={12} /> {t('devtools.timeline.saveAsWorkflow')}
           </button>
         ) : null}
         <span className="tabular-nums">{rows.length}</span>
@@ -180,10 +181,10 @@ export function EvidenceTimeline() {
       {rows.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-6 text-center text-body-sm text-fg-tertiary">
           {filter === 'actions'
-            ? 'No agent page actions on this page yet.'
+            ? t('devtools.timeline.emptyActions')
             : filter === 'problems'
-              ? 'No console errors or failed requests on this page yet.'
-              : 'No runtime evidence on this page yet.'}
+              ? t('devtools.timeline.emptyProblems')
+              : t('devtools.timeline.emptyAll')}
         </div>
       ) : (
         <ul className="flex-1 overflow-y-auto">
@@ -200,10 +201,10 @@ export function EvidenceTimeline() {
                 }}
                 title={
                   row.source === 'agent'
-                    ? 'Agent page action'
+                    ? t('devtools.timeline.agentAction')
                     : row.source === 'edit'
-                      ? `Open ${row.refId}`
-                      : `Jump to ${row.source}`
+                      ? t('devtools.timeline.openFile').replace('{path}', row.refId)
+                      : t('devtools.timeline.jumpTo').replace('{source}', row.source)
                 }
                 className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1 text-left"
               >
@@ -225,7 +226,7 @@ export function EvidenceTimeline() {
                     'hover:bg-accent-subtle group-hover:opacity-100 focus-visible:opacity-100',
                   )}
                 >
-                  {row.source === 'network' ? 'Triage' : 'Fix this'}
+                  {row.source === 'network' ? t('devtools.timeline.triage') : t('devtools.console.fixThis')}
                 </button>
               ) : null}
             </li>
@@ -235,7 +236,7 @@ export function EvidenceTimeline() {
       {workflows.length > 0 ? (
         <div className="shrink-0 border-t border-subtle">
           <div className="flex h-7 items-center px-3 text-caption uppercase tracking-wide text-fg-tertiary">
-            Saved workflows
+            {t('devtools.timeline.savedWorkflows')}
           </div>
           <ul className="max-h-40 overflow-y-auto pb-1">
             {workflows.map((wf) => (
